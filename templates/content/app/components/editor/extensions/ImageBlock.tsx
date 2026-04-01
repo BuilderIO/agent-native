@@ -1,6 +1,6 @@
 import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
 import { useState } from "react";
-import { Trash2 } from "lucide-react";
+import { IconTrash } from "@tabler/icons-react";
 
 export function ImageBlock({
   node,
@@ -38,7 +38,7 @@ export function ImageBlock({
               className="media-block__btn media-block__btn--danger"
               title="Remove image"
             >
-              <Trash2 size={14} />
+              <IconTrash size={14} />
             </button>
           </div>
         )}

@@ -15,12 +15,12 @@ import {
   parseISO,
 } from "date-fns";
 import {
-  ChevronLeft,
-  ChevronRight,
-  ChevronDown,
-  Keyboard,
-  Search,
-} from "lucide-react";
+  IconChevronLeft,
+  IconChevronRight,
+  IconChevronDown,
+  IconKeyboard,
+  IconSearch,
+} from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -206,7 +206,7 @@ export default function CalendarView() {
     );
   }
 
-  // Keyboard shortcuts — don't fire when user is typing in an input
+  // IconKeyboard shortcuts — don't fire when user is typing in an input
   const isTypingInInput = useCallback((e: KeyboardEvent) => {
     const target = e.target as HTMLElement;
     return (
@@ -333,7 +333,7 @@ export default function CalendarView() {
                     className="h-8 gap-1 px-2.5 text-sm font-semibold"
                   >
                     {viewModeLabels[viewMode]}
-                    <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                    <IconChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start">
@@ -390,7 +390,7 @@ export default function CalendarView() {
                     onClick={() => handleNavigate("prev")}
                     className="h-7 w-7"
                   >
-                    <ChevronLeft className="h-4 w-4" />
+                    <IconChevronLeft className="h-4 w-4" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
@@ -411,7 +411,7 @@ export default function CalendarView() {
                     onClick={() => handleNavigate("next")}
                     className="h-7 w-7"
                   >
-                    <ChevronRight className="h-4 w-4" />
+                    <IconChevronRight className="h-4 w-4" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
@@ -437,12 +437,12 @@ export default function CalendarView() {
                     className="h-7 w-7"
                     onClick={() => setCommandPaletteOpen(true)}
                   >
-                    <Search className="h-4 w-4" />
+                    <IconSearch className="h-4 w-4" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
                   <p>
-                    Search{" "}
+                    IconSearch{" "}
                     <kbd className="ml-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
                       /
                     </kbd>
@@ -458,12 +458,12 @@ export default function CalendarView() {
                     className="h-7 w-7"
                     onClick={() => setShortcutsHelpOpen(true)}
                   >
-                    <Keyboard className="h-4 w-4" />
+                    <IconKeyboard className="h-4 w-4" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
                   <p>
-                    Keyboard shortcuts{" "}
+                    IconKeyboard shortcuts{" "}
                     <kbd className="ml-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
                       ?
                     </kbd>

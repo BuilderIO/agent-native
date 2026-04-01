@@ -283,3 +283,42 @@ export const deleteEvent = defineEventHandler(async (event: H3Event) => {
     return handleError(event, error);
   }
 });
+
+export const rsvpEvent = defineEventHandler(async (event: H3Event) => {
+  try {
+    const email = await uEmail(event);
+    const id = getRouterParam(event, "id") as string;
+    const body = await readBody(event);
+
+    if (!id.startsWith("google-")) {
+      setResponseStatus(event, 404);
+      return { error: "Event not found" };
+    }
+
+    const status = body?.status;
+    if (!["accepted", "declined", "tentative"].includes(status)) {
+      setResponseStatus(event, 400);
+      return { error: "status must be accepted, declined, or tentative" };
+    }
+
+    const googleEventId = id.replace(/^google-/, "");
+
+    if (!(await googleCalendar.isConnected(email))) {
+      setResponseStatus(event, 400);
+      return { error: "Google Calendar not connected" };
+    }
+
+    const acctEmail = await resolveAccountEmail(body.accountEmail, email);
+
+    try {
+      await googleCalendar.rsvpEvent(googleEventId, status, acctEmail);
+    } catch (error: any) {
+      setResponseStatus(event, 500);
+      return { error: `Failed to update RSVP: ${error.message}` };
+    }
+
+    return { success: true, status };
+  } catch (error: any) {
+    return handleError(event, error);
+  }
+});

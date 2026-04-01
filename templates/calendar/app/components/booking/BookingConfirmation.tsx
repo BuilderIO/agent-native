@@ -1,5 +1,5 @@
 import { format, parseISO } from "date-fns";
-import { CheckCircle2, Video } from "lucide-react";
+import { IconCircleCheck, IconVideo } from "@tabler/icons-react";
 import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
 import type { Booking, CustomField } from "@shared/api";
@@ -25,7 +25,7 @@ export function BookingConfirmation({
 
   return (
     <div className="flex flex-col items-center text-center space-y-6 py-8">
-      <CheckCircle2 className="h-16 w-16 text-emerald-600 dark:text-emerald-400" />
+      <IconCircleCheck className="h-16 w-16 text-emerald-600 dark:text-emerald-400" />
 
       <div className="space-y-2">
         <h2 className="text-2xl font-semibold">Booking Confirmed</h2>
@@ -65,7 +65,7 @@ export function BookingConfirmation({
               rel="noopener noreferrer"
               className="flex items-center gap-1.5 font-medium text-primary hover:underline"
             >
-              <Video className="h-4 w-4" />
+              <IconVideo className="h-4 w-4" />
               Join Meeting
             </a>
           </div>

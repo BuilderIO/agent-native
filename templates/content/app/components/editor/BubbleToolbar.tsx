@@ -1,15 +1,15 @@
 import { BubbleMenu } from "@tiptap/react/menus";
 import type { Editor } from "@tiptap/react";
 import {
-  Bold,
-  Italic,
-  Strikethrough,
-  Code,
-  Link,
-  Heading1,
-  Heading2,
-  Heading3,
-} from "lucide-react";
+  IconBold,
+  IconItalic,
+  IconStrikethrough,
+  IconCode,
+  IconLink,
+  IconH1,
+  IconH2,
+  IconH3,
+} from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 
@@ -48,52 +48,52 @@ export function BubbleToolbar({ editor }: BubbleToolbarProps) {
 
   const items = [
     {
-      icon: Bold,
-      title: "Bold",
+      icon: IconBold,
+      title: "IconBold",
       action: () => editor.chain().focus().toggleBold().run(),
       isActive: () => editor.isActive("bold"),
     },
     {
-      icon: Italic,
-      title: "Italic",
+      icon: IconItalic,
+      title: "IconItalic",
       action: () => editor.chain().focus().toggleItalic().run(),
       isActive: () => editor.isActive("italic"),
     },
     {
-      icon: Strikethrough,
-      title: "Strikethrough",
+      icon: IconStrikethrough,
+      title: "IconStrikethrough",
       action: () => editor.chain().focus().toggleStrike().run(),
       isActive: () => editor.isActive("strike"),
     },
     {
-      icon: Code,
-      title: "Code",
+      icon: IconCode,
+      title: "IconCode",
       action: () => editor.chain().focus().toggleCode().run(),
       isActive: () => editor.isActive("code"),
     },
     { type: "divider" as const },
     {
-      icon: Heading1,
+      icon: IconH1,
       title: "Heading 1",
       action: () => editor.chain().focus().toggleHeading({ level: 1 }).run(),
       isActive: () => editor.isActive("heading", { level: 1 }),
     },
     {
-      icon: Heading2,
+      icon: IconH2,
       title: "Heading 2",
       action: () => editor.chain().focus().toggleHeading({ level: 2 }).run(),
       isActive: () => editor.isActive("heading", { level: 2 }),
     },
     {
-      icon: Heading3,
+      icon: IconH3,
       title: "Heading 3",
       action: () => editor.chain().focus().toggleHeading({ level: 3 }).run(),
       isActive: () => editor.isActive("heading", { level: 3 }),
     },
     { type: "divider" as const },
     {
-      icon: Link,
-      title: "Link",
+      icon: IconLink,
+      title: "IconLink",
       action: toggleLink,
       isActive: () => editor.isActive("link"),
     },

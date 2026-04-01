@@ -22,14 +22,15 @@
   },
   "dependencies": {
     "@agent-native/core": "workspace:*",
+    "@libsql/client": "^0.15.0",
     "@remotion/player": "^4.0.434",
     "@remotion/transitions": "^4.0.434",
-    "@libsql/client": "^0.15.0",
+    "@tabler/icons-react": "^3.40.0",
     "drizzle-orm": "^0.44.0",
     "h3": "^1.15.3",
+    "isbot": "^5",
     "remotion": "^4.0.434",
-    "zod": "^3.25.76",
-    "isbot": "^5"
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@react-router/dev": "^7.13.1",

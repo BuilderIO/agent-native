@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowUpDown } from "lucide-react";
+import { IconArrowsUpDown } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 
 interface DataTableProps {
@@ -102,7 +102,7 @@ export function DataTable({
                   >
                     <span className="flex items-center gap-1">
                       {col}
-                      <ArrowUpDown
+                      <IconArrowsUpDown
                         className={cn(
                           "h-3 w-3",
                           sortCol === col

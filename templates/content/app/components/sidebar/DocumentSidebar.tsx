@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { ArrowUp, Plus, Search, Star, FileText } from "lucide-react";
+import {
+  IconArrowUp,
+  IconPlus,
+  IconSearch,
+  IconStar,
+  IconFileText,
+} from "@tabler/icons-react";
 import { toast } from "sonner";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -27,7 +33,7 @@ interface DocumentSidebarProps {
 
 export function DocumentSidebar({ activeDocumentId }: DocumentSidebarProps) {
   const navigate = useNavigate();
-  const { data: documents = [] } = useDocuments();
+  const { data: documents = [], isLoading } = useDocuments();
   const createDocument = useCreateDocument();
   const deleteDocument = useDeleteDocument();
   const updateDocument = useUpdateDocument();
@@ -141,7 +147,7 @@ export function DocumentSidebar({ activeDocumentId }: DocumentSidebarProps) {
             onClick={handleSubmitPrompt}
             disabled={!prompt.trim()}
           >
-            <ArrowUp size={14} />
+            <IconArrowUp size={14} />
           </button>
         </div>
       </div>
@@ -158,19 +164,19 @@ export function DocumentSidebar({ activeDocumentId }: DocumentSidebarProps) {
         <button
           className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent text-muted-foreground hover:text-foreground"
           onClick={() => setIsSearching(!isSearching)}
-          title="Search"
+          title="IconSearch"
         >
-          <Search size={14} />
+          <IconSearch size={14} />
         </button>
       </div>
 
-      {/* Search */}
+      {/* IconSearch */}
       {isSearching && (
         <div className="px-3 py-2 border-b border-border">
           <input
             autoFocus
             type="text"
-            placeholder="Search pages..."
+            placeholder="IconSearch pages..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => {
@@ -186,7 +192,7 @@ export function DocumentSidebar({ activeDocumentId }: DocumentSidebarProps) {
 
       <ScrollArea className="flex-1">
         <div className="py-2">
-          {/* Search results */}
+          {/* IconSearch results */}
           {filteredDocuments ? (
             <div>
               <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -213,7 +219,7 @@ export function DocumentSidebar({ activeDocumentId }: DocumentSidebarProps) {
                     }}
                   >
                     <span className="flex-shrink-0 w-5 text-center">
-                      {doc.icon || <FileText size={14} />}
+                      {doc.icon || <IconFileText size={14} />}
                     </span>
                     <span className="truncate">{doc.title || "Untitled"}</span>
                   </button>
@@ -226,7 +232,7 @@ export function DocumentSidebar({ activeDocumentId }: DocumentSidebarProps) {
               {favorites.length > 0 && (
                 <div className="mb-2">
                   <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
-                    <Star size={10} />
+                    <IconStar size={10} />
                     Favorites
                   </div>
                   {favorites.map((doc) => (
@@ -241,7 +247,7 @@ export function DocumentSidebar({ activeDocumentId }: DocumentSidebarProps) {
                       onClick={() => navigate(`/${doc.id}`)}
                     >
                       <span className="flex-shrink-0 w-5 text-center">
-                        {doc.icon || <FileText size={14} />}
+                        {doc.icon || <IconFileText size={14} />}
                       </span>
                       <span className="truncate">
                         {doc.title || "Untitled"}
@@ -256,7 +262,22 @@ export function DocumentSidebar({ activeDocumentId }: DocumentSidebarProps) {
                 <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Pages
                 </div>
-                {tree.length === 0 ? (
+                {isLoading ? (
+                  <div className="space-y-1 px-3 py-1">
+                    {[70, 55, 85, 60, 45].map((w, i) => (
+                      <div
+                        key={i}
+                        className="flex items-center gap-2 px-1 py-1.5"
+                      >
+                        <div className="h-3.5 w-3.5 rounded bg-muted animate-pulse flex-shrink-0" />
+                        <div
+                          className="h-3.5 rounded bg-muted animate-pulse"
+                          style={{ width: `${w}%` }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                ) : tree.length === 0 ? (
                   <div className="px-3 py-4 text-sm text-muted-foreground text-center">
                     No pages yet
                   </div>
@@ -282,7 +303,7 @@ export function DocumentSidebar({ activeDocumentId }: DocumentSidebarProps) {
           <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
             <PopoverTrigger asChild>
               <button className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground">
-                <Plus size={14} className="shrink-0" />
+                <IconPlus size={14} className="shrink-0" />
                 <span>New page</span>
               </button>
             </PopoverTrigger>

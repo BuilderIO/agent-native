@@ -27,7 +27,6 @@ export interface TiptapComposerHandle {
 }
 
 interface TiptapComposerProps {
-  onSubmit: (text: string, references: Reference[]) => void;
   placeholder?: string;
   disabled?: boolean;
   focusRef?: React.Ref<TiptapComposerHandle>;
@@ -74,7 +73,6 @@ function PaperclipIcon({ className }: { className?: string }) {
 }
 
 export function TiptapComposer({
-  onSubmit,
   placeholder = "Message agent...",
   disabled = false,
   focusRef,
@@ -90,8 +88,6 @@ export function TiptapComposer({
 
   // Refs for values accessed in handleKeyDown (ProseMirror doesn't re-bind)
   const popoverStateRef = useRef<PopoverState>(null);
-  const onSubmitRef = useRef(onSubmit);
-  onSubmitRef.current = onSubmit;
 
   const { items: mentionItems, isLoading: mentionsLoading } = useMentionSearch(
     popover?.type === "@" ? popover.query : "",
@@ -155,6 +151,20 @@ export function TiptapComposer({
       attributes: {
         class:
           "flex-1 resize-none bg-transparent text-sm text-foreground outline-none leading-[1.625rem] min-h-[1.625rem] max-h-[10rem] overflow-y-auto",
+      },
+      handlePaste: (_view, event) => {
+        const files = Array.from(event.clipboardData?.files ?? []).filter(
+          (file) => file.type.startsWith("image/"),
+        );
+        if (files.length === 0) return false;
+
+        event.preventDefault();
+        void Promise.all(
+          files.map((file) => composerRuntime.addAttachment(file)),
+        ).catch((error) => {
+          console.error("Error adding pasted attachment:", error);
+        });
+        return true;
       },
       handleKeyDown: (view, event) => {
         const pop = popoverStateRef.current;
@@ -312,10 +322,11 @@ export function TiptapComposer({
     if (!ed) return;
 
     const { text, references } = syncComposerState();
-    if (!text.trim() && references.length === 0) return;
+    const composerState = composerRuntime.getState();
+    if (!text.trim() && references.length === 0 && composerState.isEmpty)
+      return;
 
-    onSubmitRef.current(text, references);
-    composerRuntime.reset();
+    composerRuntime.send();
     ed.commands.clearContent();
     closePopover();
   }, [closePopover, composerRuntime, editor, syncComposerState]);

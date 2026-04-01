@@ -2,6 +2,7 @@ import { defineEventHandler } from "h3";
 import { asc } from "drizzle-orm";
 import { getDb } from "../../../db/index.js";
 import { schema } from "../../../db/index.js";
+import { parseDocumentFavorite } from "../../../lib/documents.js";
 
 export default defineEventHandler(async () => {
   const db = getDb();
@@ -18,7 +19,7 @@ export default defineEventHandler(async () => {
       content: d.content,
       icon: d.icon,
       position: d.position,
-      isFavorite: Boolean(d.isFavorite),
+      isFavorite: parseDocumentFavorite(d.isFavorite),
       createdAt: d.createdAt,
       updatedAt: d.updatedAt,
     })),

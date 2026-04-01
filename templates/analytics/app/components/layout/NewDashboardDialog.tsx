@@ -5,7 +5,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Plus, Loader2 } from "lucide-react";
+import { IconPlus, IconLoader2 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 
 export function NewDashboardDialog() {
@@ -53,9 +53,9 @@ export function NewDashboardDialog() {
             )}
           >
             {isGenerating ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
+              <IconLoader2 className="h-3 w-3 animate-spin" />
             ) : (
-              <Plus className="h-3 w-3" />
+              <IconPlus className="h-3 w-3" />
             )}
             {isGenerating ? "Generating..." : "New Dashboard"}
           </button>
@@ -88,7 +88,7 @@ export function NewDashboardDialog() {
               >
                 {isGenerating ? (
                   <span className="flex items-center gap-1.5">
-                    <Loader2 className="h-3 w-3 animate-spin" />
+                    <IconLoader2 className="h-3 w-3 animate-spin" />
                     Generating...
                   </span>
                 ) : (

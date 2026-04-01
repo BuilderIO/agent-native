@@ -1,5 +1,9 @@
 import { useState } from "react";
-import { PanelLeftClose, PanelLeft, Share2 } from "lucide-react";
+import {
+  IconLayoutSidebarLeftCollapse,
+  IconLayoutSidebar,
+  IconShare2,
+} from "@tabler/icons-react";
 import { Link, useLocation } from "react-router";
 import { AgentToggleButton } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
@@ -30,9 +34,9 @@ export function StudioHeader({
             className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
           >
             {sidebarOpen ? (
-              <PanelLeftClose size={16} />
+              <IconLayoutSidebarLeftCollapse size={16} />
             ) : (
-              <PanelLeft size={16} />
+              <IconLayoutSidebar size={16} />
             )}
           </button>
 
@@ -81,7 +85,7 @@ export function StudioHeader({
             aria-label="Share"
             className="px-3 py-1.5 text-xs font-medium rounded-md transition-colors text-muted-foreground hover:text-foreground hover:bg-secondary/50 flex items-center gap-1.5"
           >
-            <Share2 className="w-3.5 h-3.5" />
+            <IconShare2 className="w-3.5 h-3.5" />
             Share
           </button>
           <AgentToggleButton />

@@ -3,6 +3,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { useParseDate, useSnoozeEmail } from "@/hooks/use-scheduled-jobs";
 import { toast } from "sonner";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 
 interface SnoozeModalProps {
   open: boolean;
@@ -142,7 +144,7 @@ export function SnoozeModal({
         ...(parsedDate && filteredPresets.length === 0
           ? [
               {
-                label: parsedLabel ?? nlInput,
+                label: nlInput,
                 date: parsedDate,
                 isCustom: true,
               },
@@ -213,22 +215,13 @@ export function SnoozeModal({
     [options, selectedIndex, handleConfirm, onClose],
   );
 
-  if (!open) return null;
-
   const nlTyping = nlInput.trim().length > 0;
   const nlParsed = nlTyping && parsedDate !== null;
 
   return (
-    <div
-      className="fixed inset-0 z-[60] bg-black/50"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      {/* Modal — matches CommandMenu positioning and style */}
-      <div
-        ref={null}
-        className="fixed left-1/2 top-[5vh] -translate-x-1/2 w-full max-w-lg rounded-lg border border-border bg-popover text-popover-foreground shadow-lg overflow-hidden"
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent
+        className="top-[5vh] translate-y-0 max-w-lg gap-0 p-0 overflow-hidden"
         onKeyDown={handleKeyDown}
       >
         {/* Header / input row */}
@@ -243,13 +236,13 @@ export function SnoozeModal({
             <circle cx="10" cy="10" r="7.5" />
             <path d="M10 6v4l2.5 2.5" strokeLinecap="round" />
           </svg>
-          <input
+          <Input
             ref={inputRef}
             type="text"
             value={nlInput}
             onChange={(e) => setNlInput(e.target.value)}
             placeholder="Try: 8 am, 3 days, aug 7"
-            className="flex h-11 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground"
+            className="h-11 border-0 bg-transparent py-3 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
           />
           {nlTyping && (nlParsed || parseDate.isPending) && (
             <span className="shrink-0 ml-3 text-xs text-muted-foreground tabular-nums">
@@ -271,7 +264,7 @@ export function SnoozeModal({
                 onClick={() => handleConfirm(opt)}
                 onMouseEnter={() => setSelectedIndex(i)}
                 className={cn(
-                  "relative w-full flex items-center justify-between rounded-sm px-2 py-1.5 text-sm text-left transition-colors",
+                  "relative w-full flex items-center justify-between rounded-sm px-2 py-1.5 text-sm text-left",
                   active
                     ? "bg-accent text-accent-foreground"
                     : "hover:bg-accent hover:text-accent-foreground",
@@ -285,7 +278,7 @@ export function SnoozeModal({
             );
           })}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

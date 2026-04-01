@@ -2,13 +2,13 @@ import { useEffect, useState, useMemo } from "react";
 import type { AnimationTrack, EasingKey } from "@/types";
 import { getPropValueKeyframed } from "@/remotion/trackAnimation";
 import {
-  Mouse,
-  Plus,
-  Eye,
-  EyeOff,
-  MousePointerClick,
-  AlertCircle,
-} from "lucide-react";
+  IconMouse,
+  IconPlus,
+  IconEye,
+  IconEyeOff,
+  IconClick,
+  IconAlertCircle,
+} from "@tabler/icons-react";
 import { Button } from "./ui/button";
 import { Label } from "./ui/label";
 import { Input } from "./ui/input";
@@ -370,7 +370,7 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
   if (!cursorTrack) {
     return (
       <div className="space-y-3 p-4 text-center">
-        <Mouse className="h-8 w-8 mx-auto opacity-50 text-purple-400" />
+        <IconMouse className="h-8 w-8 mx-auto opacity-50 text-purple-400" />
         <div className="space-y-1">
           <p className="text-xs font-medium text-foreground/80">
             Add animated cursor
@@ -384,7 +384,7 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
           onClick={addCursorTrack}
           className="w-full bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/30"
         >
-          <Plus className="h-3 w-3 mr-1" />
+          <IconPlus className="h-3 w-3 mr-1" />
           Cursor Animation
         </Button>
       </div>
@@ -413,7 +413,7 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
         }`}
         title={isClickingAtFrame() ? "Click ON" : "Add Click"}
       >
-        <MousePointerClick className="h-3 w-3" />
+        <IconClick className="h-3 w-3" />
         Play click
       </Button>
 
@@ -524,7 +524,7 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
       {hasCursorInteractions && (
         <div className="space-y-2">
           <div className="flex items-center gap-2 p-2 bg-blue-500/10 border border-blue-500/30 rounded-lg">
-            <AlertCircle className="w-3 h-3 text-blue-400 flex-shrink-0" />
+            <IconAlertCircle className="w-3 h-3 text-blue-400 flex-shrink-0" />
             <div className="flex-1">
               <p className="text-[10px] text-blue-200/90 font-medium">
                 Interactive Composition
@@ -553,12 +553,12 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
           >
             {localState.opacity > 0 ? (
               <>
-                <Eye className="h-3 w-3 mr-1" />
+                <IconEye className="h-3 w-3 mr-1" />
                 Visible
               </>
             ) : (
               <>
-                <EyeOff className="h-3 w-3 mr-1" />
+                <IconEyeOff className="h-3 w-3 mr-1" />
                 Hidden
               </>
             )}

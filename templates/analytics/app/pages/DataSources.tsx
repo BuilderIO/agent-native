@@ -10,15 +10,15 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
-  Check,
-  ChevronDown,
-  ChevronUp,
-  ExternalLink,
-  Loader2,
-  Circle,
-  Copy,
-  AlertCircle,
-} from "lucide-react";
+  IconCheck,
+  IconChevronDown,
+  IconChevronUp,
+  IconExternalLink,
+  IconLoader2,
+  IconCircle,
+  IconCopy,
+  IconAlertCircle,
+} from "@tabler/icons-react";
 import { getIdToken } from "@/lib/auth";
 import {
   dataSources,
@@ -115,7 +115,7 @@ function StepItem({
                 : "bg-muted text-muted-foreground"
           }`}
         >
-          {isComplete ? <Check className="h-3.5 w-3.5" /> : index + 1}
+          {isComplete ? <IconCheck className="h-3.5 w-3.5" /> : index + 1}
         </div>
       </div>
       <div className="flex-1 space-y-2">
@@ -134,7 +134,7 @@ function StepItem({
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
           >
-            {step.linkText || "Open"} <ExternalLink className="h-3 w-3" />
+            {step.linkText || "Open"} <IconExternalLink className="h-3 w-3" />
           </a>
         )}
         {step.inputKey && (
@@ -227,19 +227,19 @@ function DataSourceCard({
             <div className="flex items-center gap-2">
               {connected ? (
                 <span className="flex items-center gap-1.5 text-xs text-emerald-500 font-medium">
-                  <Check className="h-3.5 w-3.5" />
+                  <IconCheck className="h-3.5 w-3.5" />
                   Connected
                 </span>
               ) : (
                 <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <Circle className="h-3 w-3" />
+                  <IconCircle className="h-3 w-3" />
                   Not connected
                 </span>
               )}
               {expanded ? (
-                <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                <IconChevronUp className="h-4 w-4 text-muted-foreground" />
               ) : (
-                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                <IconChevronDown className="h-4 w-4 text-muted-foreground" />
               )}
             </div>
           </div>
@@ -281,7 +281,7 @@ function DataSourceCard({
               >
                 {saveMutation.isPending ? (
                   <>
-                    <Loader2 className="h-3 w-3 animate-spin mr-1.5" />
+                    <IconLoader2 className="h-3 w-3 animate-spin mr-1.5" />
                     Saving...
                   </>
                 ) : (
@@ -303,7 +303,7 @@ function DataSourceCard({
               >
                 {testMutation.isPending ? (
                   <>
-                    <Loader2 className="h-3 w-3 animate-spin mr-1.5" />
+                    <IconLoader2 className="h-3 w-3 animate-spin mr-1.5" />
                     Testing...
                   </>
                 ) : (
@@ -319,20 +319,20 @@ function DataSourceCard({
                 className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 ml-auto"
                 onClick={(e) => e.stopPropagation()}
               >
-                Docs <ExternalLink className="h-3 w-3" />
+                Docs <IconExternalLink className="h-3 w-3" />
               </a>
             )}
           </div>
 
           {saveMutation.isError && (
             <div className="mt-3 flex items-center gap-2 text-xs text-destructive">
-              <AlertCircle className="h-3.5 w-3.5" />
+              <IconAlertCircle className="h-3.5 w-3.5" />
               {(saveMutation.error as Error).message}
             </div>
           )}
           {saveMutation.isSuccess && (
             <div className="mt-3 flex items-center gap-2 text-xs text-emerald-500">
-              <Check className="h-3.5 w-3.5" />
+              <IconCheck className="h-3.5 w-3.5" />
               Credentials saved. Restart the app for changes to take effect.
             </div>
           )}
@@ -342,12 +342,12 @@ function DataSourceCard({
             >
               {testResult.ok ? (
                 <>
-                  <Check className="h-3.5 w-3.5" />
+                  <IconCheck className="h-3.5 w-3.5" />
                   Connection successful
                 </>
               ) : (
                 <>
-                  <AlertCircle className="h-3.5 w-3.5" />
+                  <IconAlertCircle className="h-3.5 w-3.5" />
                   {testResult.error || "Connection failed"}
                 </>
               )}

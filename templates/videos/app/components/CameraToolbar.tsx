@@ -1,6 +1,12 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { Camera, Move, ZoomIn, RotateCw, Plus } from "lucide-react";
+import {
+  IconCamera,
+  IconArrowsMove,
+  IconZoomIn,
+  IconRotateClockwise2,
+  IconPlus,
+} from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import type { AnimationTrack } from "@/types";
 import { getPropValueKeyframed } from "@/remotion/trackAnimation";
@@ -22,7 +28,7 @@ const createDefaultCameraTrack = (
   durationInFrames: number,
 ): AnimationTrack => ({
   id: "camera",
-  label: "Camera",
+  label: "IconCamera",
   startFrame: 0,
   endFrame: durationInFrames,
   easing: "linear",
@@ -304,19 +310,19 @@ export const CameraToolbar: React.FC<CameraToolbarProps> = ({
   const tools = [
     {
       id: "pan" as const,
-      icon: Move,
+      icon: IconArrowsMove,
       label: "Pan",
       hint: "Click and drag to move camera",
     },
     {
       id: "zoom" as const,
-      icon: ZoomIn,
+      icon: IconZoomIn,
       label: "Zoom",
       hint: "Drag up/down to zoom",
     },
     {
       id: "tilt" as const,
-      icon: RotateCw,
+      icon: IconRotateClockwise2,
       label: "Tilt",
       hint: "Drag to rotate 3D",
     },
@@ -325,7 +331,7 @@ export const CameraToolbar: React.FC<CameraToolbarProps> = ({
   return (
     <>
       <div className="flex items-center gap-1 px-2 py-1 bg-card/40 border border-border rounded-lg">
-        <Camera className="w-3.5 h-3.5 text-blue-400" />
+        <IconCamera className="w-3.5 h-3.5 text-blue-400" />
 
         {tools.map((tool) => {
           const Icon = tool.icon;
@@ -356,7 +362,7 @@ export const CameraToolbar: React.FC<CameraToolbarProps> = ({
           className="flex items-center gap-1 px-2 py-1 rounded transition-all text-[11px] font-medium bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30"
           title="Create camera keyframe at current frame"
         >
-          <Plus className="w-3 h-3" />
+          <IconPlus className="w-3 h-3" />
           <span>Add Keyframe</span>
         </button>
 

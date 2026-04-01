@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { Editor } from "@tiptap/react";
-import { Plus, Minus } from "lucide-react";
+import { IconPlus, IconMinus } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 
 interface TableHoverControlsProps {
@@ -188,14 +188,14 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
           title="Add column"
           className="p-1 hover:bg-accent rounded text-muted-foreground hover:text-foreground transition-colors"
         >
-          <Plus size={14} strokeWidth={2.5} />
+          <IconPlus size={14} strokeWidth={2.5} />
         </button>
         <button
           onClick={() => handleAction("delCol")}
           title="Delete column"
           className="p-1 hover:bg-destructive/10 rounded text-muted-foreground hover:text-destructive transition-colors"
         >
-          <Minus size={14} strokeWidth={2.5} />
+          <IconMinus size={14} strokeWidth={2.5} />
         </button>
       </div>
 
@@ -208,14 +208,14 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
           title="Add row"
           className="p-1 hover:bg-accent rounded text-muted-foreground hover:text-foreground transition-colors"
         >
-          <Plus size={14} strokeWidth={2.5} />
+          <IconPlus size={14} strokeWidth={2.5} />
         </button>
         <button
           onClick={() => handleAction("delRow")}
           title="Delete row"
           className="p-1 hover:bg-destructive/10 rounded text-muted-foreground hover:text-destructive transition-colors"
         >
-          <Minus size={14} strokeWidth={2.5} />
+          <IconMinus size={14} strokeWidth={2.5} />
         </button>
       </div>
     </>

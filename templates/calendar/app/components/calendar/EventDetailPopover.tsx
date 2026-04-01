@@ -1,20 +1,20 @@
 import { useState, useEffect, useCallback } from "react";
 import { format, parseISO, differenceInMinutes } from "date-fns";
 import {
-  X,
-  Clock,
-  MapPin,
-  User,
-  Video,
-  Globe,
-  RefreshCw,
-  Bell,
-  ChevronRight,
-  Check,
-  HelpCircle,
-  XCircle,
-  PanelRight,
-} from "lucide-react";
+  IconX,
+  IconClock,
+  IconMapPin,
+  IconUser,
+  IconVideo,
+  IconGlobe,
+  IconRefresh,
+  IconBell,
+  IconChevronRight,
+  IconCheck,
+  IconHelpCircle,
+  IconCircleX,
+  IconLayoutSidebarRight,
+} from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -64,6 +64,85 @@ function sanitizeHtml(html: string): string {
     .replace(/\bon\w+\s*=\s*[^\s>]*/gi, "");
 }
 
+/**
+ * Strip Google Calendar invitation boilerplate from event descriptions.
+ * GCal embeds the full invitation HTML (guest list, RSVP buttons, "More options",
+ * meeting details, "Invitation from Google Calendar" footer) into the description.
+ * We render all of that natively, so strip it out to avoid ugly duplication.
+ */
+function stripGcalInviteHtml(html: string): string {
+  let cleaned = html;
+
+  // Remove "Reply for <email>" section with Yes/No/Maybe buttons
+  // This covers the RSVP table/block that Google Calendar injects
+  cleaned = cleaned.replace(
+    /<(table|div)[^>]*>[\s\S]*?Reply\s+for[\s\S]*?<\/(table|div)>/gi,
+    "",
+  );
+
+  // Remove standalone Yes/No/Maybe buttons (various Google formats)
+  cleaned = cleaned.replace(
+    /<(table|div)[^>]*>[\s\S]*?(?:>Yes<|>No<|>Maybe<)[\s\S]*?<\/(table|div)>/gi,
+    "",
+  );
+
+  // Remove "More options" link/button
+  cleaned = cleaned.replace(/<a[^>]*>[\s]*More\s+options[\s]*<\/a>/gi, "");
+  cleaned = cleaned.replace(
+    /<(table|div)[^>]*>[\s\S]*?More\s+options[\s\S]*?<\/(table|div)>/gi,
+    "",
+  );
+
+  // Remove "Invitation from Google Calendar" footer
+  cleaned = cleaned.replace(
+    /Invitation\s+from\s+<a[^>]*>Google\s+Calendar<\/a>/gi,
+    "",
+  );
+  cleaned = cleaned.replace(/Invitation\s+from\s+Google\s+Calendar/gi, "");
+
+  // Remove "You are receiving this email" disclaimer
+  cleaned = cleaned.replace(/You\s+are\s+receiving\s+this[\s\S]*?$/gi, "");
+
+  // Remove "View all guest info" links
+  cleaned = cleaned.replace(
+    /<a[^>]*>[\s]*View\s+all\s+guest\s+info[\s]*<\/a>/gi,
+    "",
+  );
+
+  // Remove the "When" / "Guests" sections that duplicate our native UI
+  cleaned = cleaned.replace(
+    /<b>When<\/b>[\s\S]*?(?=<b>|<hr|<br\s*\/?>[\s]*<br\s*\/?>|$)/gi,
+    "",
+  );
+
+  // Remove "Join Zoom Meeting" / "Join by phone" blocks that duplicate our meeting link
+  cleaned = cleaned.replace(
+    /<b>Join\s+Zoom\s+Meeting<\/b>[\s\S]*?(?=<b>Joining\s+notes|<hr|<br\s*\/?>[\s]*<br\s*\/?>[\s]*<br|$)/gi,
+    "",
+  );
+  cleaned = cleaned.replace(
+    /<b>Join\s+by\s+phone<\/b>[\s\S]*?(?=<b>|<hr|$)/gi,
+    "",
+  );
+
+  // Remove "Joining instructions" links
+  cleaned = cleaned.replace(
+    /<a[^>]*>[\s]*Joining\s+instructions[\s]*<\/a>/gi,
+    "",
+  );
+
+  // Clean up leftover separators and whitespace
+  cleaned = cleaned.replace(/(<hr\s*\/?>[\s]*){2,}/gi, "<hr/>");
+  cleaned = cleaned.replace(/(<br\s*\/?>[\s]*){4,}/gi, "<br/><br/>");
+  cleaned = cleaned.replace(/([-─]{5,}[\s]*){2,}/g, "");
+
+  // Trim leading/trailing whitespace and empty elements
+  cleaned = cleaned.replace(/^[\s<br\/>]*(<hr\s*\/?>)?[\s<br\/>]*/i, "");
+  cleaned = cleaned.replace(/[\s<br\/>]*(<hr\s*\/?>)?[\s<br\/>]*$/i, "");
+
+  return cleaned.trim();
+}
+
 /** Extract a Zoom/Meet/Teams link from location or description */
 function extractMeetingLink(event: CalendarEvent): {
   url: string;
@@ -72,7 +151,7 @@ function extractMeetingLink(event: CalendarEvent): {
   pin?: string;
   passcode?: string;
 } | null {
-  // Check conferenceData first
+  // IconCheck conferenceData first
   if (event.conferenceData?.entryPoints) {
     const videoEntry = event.conferenceData.entryPoints.find(
       (ep) => ep.entryPointType === "video",
@@ -92,7 +171,7 @@ function extractMeetingLink(event: CalendarEvent): {
     }
   }
 
-  // Check hangoutLink
+  // IconCheck hangoutLink
   if (event.hangoutLink) {
     return { url: event.hangoutLink, type: "meet" };
   }
@@ -175,14 +254,103 @@ function formatRecurrence(recurrence?: string[]): string | null {
 function ResponseStatusIcon({ status }: { status?: string }) {
   switch (status) {
     case "accepted":
-      return <Check className="h-3 w-3 text-green-500" />;
+      return <IconCheck className="h-3 w-3 text-green-500" />;
     case "declined":
-      return <XCircle className="h-3 w-3 text-red-400" />;
+      return <IconCircleX className="h-3 w-3 text-red-400" />;
     case "tentative":
-      return <HelpCircle className="h-3 w-3 text-yellow-500" />;
+      return <IconHelpCircle className="h-3 w-3 text-yellow-500" />;
     default:
-      return <HelpCircle className="h-3 w-3 text-muted-foreground/40" />;
+      return <IconHelpCircle className="h-3 w-3 text-muted-foreground/40" />;
   }
+}
+
+type RsvpStatus = "accepted" | "declined" | "tentative" | "needsAction";
+
+function RsvpSection({
+  event,
+  onStatusChange,
+}: {
+  event: CalendarEvent;
+  onStatusChange?: (status: RsvpStatus) => void;
+}) {
+  const currentStatus = event.responseStatus || "needsAction";
+  const [status, setStatus] = useState<RsvpStatus>(currentStatus);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setStatus(event.responseStatus || "needsAction");
+  }, [event.responseStatus]);
+
+  const handleRsvp = async (
+    newStatus: "accepted" | "declined" | "tentative",
+  ) => {
+    if (loading || status === newStatus) return;
+    setLoading(true);
+    const prev = status;
+    setStatus(newStatus);
+
+    try {
+      const res = await fetch(`/api/events/${event.id}/rsvp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: newStatus,
+          accountEmail: event.accountEmail,
+        }),
+      });
+      if (!res.ok) {
+        setStatus(prev);
+      } else {
+        onStatusChange?.(newStatus);
+      }
+    } catch {
+      setStatus(prev);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const options: Array<{
+    value: "accepted" | "declined" | "tentative";
+    label: string;
+  }> = [
+    { value: "accepted", label: "Yes" },
+    { value: "tentative", label: "Maybe" },
+    { value: "declined", label: "No" },
+  ];
+
+  return (
+    <div className="flex items-center gap-1.5">
+      {options.map((opt) => {
+        const isActive = status === opt.value;
+        return (
+          <button
+            key={opt.value}
+            disabled={loading}
+            onClick={() => handleRsvp(opt.value)}
+            className={`
+              px-3 py-1 rounded-md text-xs font-medium transition-colors
+              ${
+                isActive
+                  ? opt.value === "accepted"
+                    ? "bg-green-500/15 text-green-400 ring-1 ring-green-500/30"
+                    : opt.value === "declined"
+                      ? "bg-red-500/15 text-red-400 ring-1 ring-red-500/30"
+                      : "bg-yellow-500/15 text-yellow-400 ring-1 ring-yellow-500/30"
+                  : "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
+              }
+              ${loading ? "opacity-50" : ""}
+            `}
+          >
+            {isActive && opt.value === "accepted" && (
+              <IconCheck className="inline h-3 w-3 mr-1 -mt-px" />
+            )}
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 /**
@@ -228,12 +396,12 @@ function AttendeeAvatar({
   );
 }
 
-/** Check if a string looks like a URL */
+/** IconCheck if a string looks like a URL */
 function isUrl(str: string): boolean {
   return /^https?:\/\//i.test(str.trim());
 }
 
-/** Check if description contains HTML */
+/** IconCheck if description contains HTML */
 function isHtml(str: string): boolean {
   return /<[a-z][\s\S]*>/i.test(str);
 }
@@ -278,7 +446,7 @@ function AttendeesSection({
   return (
     <div className="px-4 py-1">
       <div className="flex items-start gap-3">
-        <User className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+        <IconUser className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
         <div className="flex-1">
           {shouldTruncate && (
             <div className="mb-2">
@@ -425,7 +593,7 @@ function AttendeesList({
   return (
     <div className="px-4 py-1">
       <div className="flex items-start gap-3">
-        <User className="mt-1.5 h-4 w-4 shrink-0 text-muted-foreground" />
+        <IconUser className="mt-1.5 h-4 w-4 shrink-0 text-muted-foreground" />
         <div className="flex-1">
           {shouldTruncate && (
             <div className="mb-2">
@@ -566,7 +734,7 @@ export function EventDetailPopover({
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
             <div className="flex items-center gap-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
               <span>Event</span>
-              <ChevronRight className="h-3 w-3" />
+              <IconChevronRight className="h-3 w-3" />
             </div>
             <div className="flex items-center gap-0.5">
               <Tooltip>
@@ -577,7 +745,7 @@ export function EventDetailPopover({
                     className="h-6 w-6 text-muted-foreground hover:text-foreground"
                     onClick={handlePinToSidebar}
                   >
-                    <PanelRight className="h-3.5 w-3.5" />
+                    <IconLayoutSidebarRight className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
@@ -590,7 +758,7 @@ export function EventDetailPopover({
                 className="h-6 w-6 text-muted-foreground hover:text-foreground"
                 onClick={() => setOpen(false)}
               >
-                <X className="h-3.5 w-3.5" />
+                <IconX className="h-3.5 w-3.5" />
               </Button>
             </div>
           </div>
@@ -607,7 +775,7 @@ export function EventDetailPopover({
             <div className="px-4 space-y-1">
               {/* Time */}
               <div className="flex items-start gap-3 py-1.5">
-                <Clock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                <IconClock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                 <div className="text-sm">
                   {event.allDay ? (
                     <div>
@@ -642,14 +810,14 @@ export function EventDetailPopover({
 
               {/* Timezone */}
               <div className="flex items-center gap-3 py-1.5">
-                <Globe className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <IconGlobe className="h-4 w-4 shrink-0 text-muted-foreground" />
                 <span className="text-sm text-muted-foreground">{tzLabel}</span>
               </div>
 
               {/* Recurrence */}
               {recurrenceText && (
                 <div className="flex items-center gap-3 py-1.5">
-                  <RefreshCw className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <IconRefresh className="h-4 w-4 shrink-0 text-muted-foreground" />
                   <span className="text-sm text-muted-foreground">
                     {recurrenceText}
                   </span>
@@ -686,7 +854,7 @@ export function EventDetailPopover({
                     rel="noopener noreferrer"
                     className="flex items-center justify-center w-full rounded-xl bg-[#4965E0] hover:bg-[#5A75F0] text-white font-semibold py-3 px-4 text-[15px] relative"
                   >
-                    <Video className="h-5 w-5 mr-2 opacity-80" />
+                    <IconVideo className="h-5 w-5 mr-2 opacity-80" />
                     <span>{getMeetingLabel(meetingLink.type)}</span>
                     <span className="absolute right-4 flex items-center gap-1 opacity-50">
                       <kbd className="text-xs font-normal">⌘</kbd>
@@ -715,7 +883,7 @@ export function EventDetailPopover({
               <>
                 <div className="mx-4 my-2 border-t border-border/50" />
                 <div className="flex items-start gap-3 px-4 py-1.5">
-                  <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                  <IconMapPin className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                   {locationIsUrl ? (
                     <a
                       href={event.location}
@@ -735,33 +903,61 @@ export function EventDetailPopover({
               </>
             )}
 
+            {/* RSVP */}
+            {event.source === "google" &&
+              event.attendees &&
+              event.attendees.length > 0 && (
+                <>
+                  <div className="mx-4 my-2 border-t border-border/50" />
+                  <div className="flex items-center gap-3 px-4 py-1.5">
+                    <div className="h-4 w-4 shrink-0" />
+                    <div className="flex items-center gap-3 flex-1">
+                      <span className="text-xs text-muted-foreground shrink-0">
+                        Going?
+                      </span>
+                      <RsvpSection event={event} />
+                    </div>
+                  </div>
+                </>
+              )}
+
             {/* Description */}
-            {event.description && (
-              <>
-                <div className="mx-4 my-2 border-t border-border/50" />
-                <div className="px-4 py-1.5">
-                  {descriptionIsHtml ? (
-                    <div
-                      className="rounded-lg bg-muted/30 px-3 py-2.5 text-sm leading-relaxed text-foreground/80  prose prose-sm prose-invert prose-p:my-1 prose-a:text-primary"
-                      dangerouslySetInnerHTML={{
-                        __html: sanitizeHtml(event.description),
-                      }}
-                    />
-                  ) : (
-                    <p className="rounded-lg bg-muted/30 px-3 py-2.5 text-sm leading-relaxed text-foreground/80  whitespace-pre-wrap">
-                      {event.description}
-                    </p>
-                  )}
-                </div>
-              </>
-            )}
+            {event.description &&
+              (() => {
+                const cleanedHtml = descriptionIsHtml
+                  ? stripGcalInviteHtml(sanitizeHtml(event.description))
+                  : null;
+                const hasContent = cleanedHtml
+                  ? cleanedHtml.replace(/<[^>]*>/g, "").trim().length > 0
+                  : true;
+                if (!hasContent) return null;
+                return (
+                  <>
+                    <div className="mx-4 my-2 border-t border-border/50" />
+                    <div className="px-4 py-1.5">
+                      {descriptionIsHtml ? (
+                        <div
+                          className="rounded-lg bg-muted/30 px-3 py-2.5 text-sm leading-relaxed text-foreground/80 prose prose-sm prose-invert prose-p:my-1 prose-a:text-primary"
+                          dangerouslySetInnerHTML={{
+                            __html: cleanedHtml!,
+                          }}
+                        />
+                      ) : (
+                        <p className="rounded-lg bg-muted/30 px-3 py-2.5 text-sm leading-relaxed text-foreground/80 whitespace-pre-wrap">
+                          {event.description}
+                        </p>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
 
             {/* Reminders */}
             {event.reminders && event.reminders.length > 0 && (
               <>
                 <div className="mx-4 my-2 border-t border-border/50" />
                 <div className="flex items-start gap-3 px-4 py-1.5">
-                  <Bell className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                  <IconBell className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                   <div className="space-y-0.5">
                     {event.reminders.map((r, i) => (
                       <div key={i} className="text-sm text-muted-foreground">
@@ -808,7 +1004,7 @@ export function EventDetailPopover({
               <>
                 <div className="mx-4 my-2 border-t border-border/50" />
                 <div className="flex items-center gap-3 px-4 py-1.5">
-                  <User className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <IconUser className="h-4 w-4 shrink-0 text-muted-foreground" />
                   <span className="text-sm text-muted-foreground">
                     {event.overlayEmail}
                   </span>

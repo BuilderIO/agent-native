@@ -13,14 +13,14 @@ import {
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  Plus,
-  Trash2,
-  GripVertical,
-  Maximize2,
-  Minimize2,
-  Pencil,
-  ExternalLink,
-} from "lucide-react";
+  IconPlus,
+  IconTrash,
+  IconGripVertical,
+  IconArrowsMaximize,
+  IconArrowsMinimize,
+  IconPencil,
+  IconExternalLink,
+} from "@tabler/icons-react";
 import { getIdToken } from "@/lib/auth";
 import { DashboardChartCard } from "./ChartCard";
 import {
@@ -256,13 +256,13 @@ export default function ExplorerDashboardPage() {
               }}
             >
               {dashboard.name}
-              <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+              <IconPencil className="h-3.5 w-3.5 text-muted-foreground" />
             </button>
           )}
         </div>
         <div className="flex items-center gap-2">
           <Button size="sm" onClick={() => setAddChartOpen(true)}>
-            <Plus className="h-4 w-4 mr-1" />
+            <IconPlus className="h-4 w-4 mr-1" />
             Add Chart
           </Button>
           <Button
@@ -285,7 +285,7 @@ export default function ExplorerDashboardPage() {
               navigate("/adhoc/explorer");
             }}
           >
-            <Trash2 className="h-4 w-4" />
+            <IconTrash className="h-4 w-4" />
           </Button>
         </div>
       </div>
@@ -302,7 +302,7 @@ export default function ExplorerDashboardPage() {
               variant="outline"
               onClick={() => setAddChartOpen(true)}
             >
-              <Plus className="h-4 w-4 mr-1" />
+              <IconPlus className="h-4 w-4 mr-1" />
               Add Chart
             </Button>
           </CardContent>
@@ -357,7 +357,7 @@ export default function ExplorerDashboardPage() {
                   className="w-full text-left px-3 py-2 rounded-md text-sm hover:bg-accent transition-colors flex items-center justify-between"
                 >
                   <span>{config.name}</span>
-                  <Plus className="h-3.5 w-3.5 text-muted-foreground" />
+                  <IconPlus className="h-3.5 w-3.5 text-muted-foreground" />
                 </button>
               ))
             )}

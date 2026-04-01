@@ -1,5 +1,12 @@
 import { useState, useRef, useCallback } from "react";
-import { X, Check, Loader2, Database, Cloud, ChevronRight } from "lucide-react";
+import {
+  IconX,
+  IconCheck,
+  IconLoader2,
+  IconDatabase,
+  IconCloud,
+  IconChevronRight,
+} from "@tabler/icons-react";
 
 interface CloudUpgradeProps {
   title?: string;
@@ -55,7 +62,7 @@ const PROVIDERS: Provider[] = [
       "Go to supabase.com/dashboard and sign up or log in",
       'Click "New Project" → set a name and database password → click Create',
       "Wait for the project to finish provisioning (~30 seconds)",
-      "Go to Project Settings → Database → Connection string",
+      "Go to Project Settings → IconDatabase → Connection string",
       'Select "URI" tab → copy the postgres://... string (replace [YOUR-PASSWORD] with your DB password)',
     ],
   },
@@ -66,9 +73,9 @@ const PROVIDERS: Provider[] = [
     urlPrefix: "d1://",
     needsAuthToken: true,
     steps: [
-      "Go to dash.cloudflare.com → Workers & Pages → D1 SQL Database",
+      "Go to dash.cloudflare.com → Workers & Pages → D1 SQL IconDatabase",
       'Click "Create" → name your database → click Create',
-      "Copy the Database ID from the database overview page",
+      "Copy the IconDatabase ID from the database overview page",
       "For the auth token: go to My Profile → API Tokens → Create Token",
       'Select "Edit Cloudflare Workers" template → Create Token → copy it',
       "Paste as: d1://<database-id> with the API token below",
@@ -97,7 +104,7 @@ export function CloudUpgrade({
     connectingRef.current = true;
 
     if (!dbUrl.trim()) {
-      setErrorMsg("Database URL is required");
+      setErrorMsg("IconDatabase URL is required");
       setStatus("error");
       connectingRef.current = false;
       return;
@@ -144,7 +151,7 @@ export function CloudUpgrade({
 
       if (!ok) {
         throw new Error(
-          "Database connection failed after 30 attempts. Check your credentials.",
+          "IconDatabase connection failed after 30 attempts. IconCheck your credentials.",
         );
       }
 
@@ -167,7 +174,7 @@ export function CloudUpgrade({
       {/* Header */}
       <div className="mb-4 flex items-start justify-between">
         <div className="flex items-center gap-2">
-          <Cloud className="h-5 w-5 text-blue-500" />
+          <IconCloud className="h-5 w-5 text-blue-500" />
           <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
             {title}
           </h3>
@@ -178,7 +185,7 @@ export function CloudUpgrade({
             aria-label="Close"
             className="rounded-md p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
           >
-            <X className="h-4 w-4" />
+            <IconX className="h-4 w-4" />
           </button>
         )}
       </div>
@@ -227,7 +234,7 @@ export function CloudUpgrade({
                 key={i}
                 className="flex items-start gap-2 text-xs text-zinc-600 dark:text-zinc-300"
               >
-                <ChevronRight className="mt-0.5 h-3 w-3 shrink-0 text-zinc-400" />
+                <IconChevronRight className="mt-0.5 h-3 w-3 shrink-0 text-zinc-400" />
                 <span className="font-mono">{step}</span>
               </li>
             ))}
@@ -285,7 +292,7 @@ export function CloudUpgrade({
       {/* Success message */}
       {status === "success" && (
         <div className="mt-3 flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400">
-          <Check className="h-3.5 w-3.5" />
+          <IconCheck className="h-3.5 w-3.5" />
           <span>Connected successfully. Reloading...</span>
         </div>
       )}
@@ -298,7 +305,7 @@ export function CloudUpgrade({
       >
         {isConnecting ? (
           <>
-            <Loader2 className="h-4 w-4 animate-spin" />
+            <IconLoader2 className="h-4 w-4 animate-spin" />
             <span>
               {status === "saving"
                 ? "Saving credentials..."
@@ -307,7 +314,7 @@ export function CloudUpgrade({
           </>
         ) : (
           <>
-            <Database className="h-4 w-4" />
+            <IconDatabase className="h-4 w-4" />
             <span>Test & Connect</span>
           </>
         )}

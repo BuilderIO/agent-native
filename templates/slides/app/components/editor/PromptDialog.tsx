@@ -1,6 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { Loader2, Paperclip, X, ArrowUp } from "lucide-react";
+import {
+  IconLoader2,
+  IconPaperclip,
+  IconX,
+  IconArrowUp,
+} from "@tabler/icons-react";
 
 export interface UploadedFile {
   path: string;
@@ -242,7 +247,7 @@ export default function PromptPopover({
                   className="p-0.5 rounded hover:bg-white/[0.1]"
                   aria-label={`Remove ${file.name}`}
                 >
-                  <X className="w-2.5 h-2.5" />
+                  <IconX className="w-2.5 h-2.5" />
                 </button>
               </div>
             ))}
@@ -259,7 +264,7 @@ export default function PromptPopover({
               title="Attach files"
               aria-label="Attach files"
             >
-              <Paperclip className="w-4 h-4" />
+              <IconPaperclip className="w-4 h-4" />
             </button>
             <input
               ref={fileInputRef}
@@ -294,11 +299,11 @@ export default function PromptPopover({
               aria-label="Submit"
             >
               {busy ? (
-                <Loader2
+                <IconLoader2
                   className={`w-4 h-4 animate-spin ${hasContent ? "text-black" : "text-white/70"}`}
                 />
               ) : (
-                <ArrowUp
+                <IconArrowUp
                   className={`w-4 h-4 ${hasContent ? "text-black" : "text-white/70"}`}
                 />
               )}

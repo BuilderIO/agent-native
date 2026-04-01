@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router";
-import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import { IconChevronLeft, IconChevronRight, IconX } from "@tabler/icons-react";
 import type { Slide } from "@/context/DeckContext";
 import SlideRenderer from "@/components/deck/SlideRenderer";
 
@@ -147,7 +147,7 @@ export default function PresentationView({
               className="p-2 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
               aria-label="Previous slide"
             >
-              <ChevronLeft className="w-4 h-4 text-white" />
+              <IconChevronLeft className="w-4 h-4 text-white" />
             </button>
             <button
               onClick={goNext}
@@ -155,7 +155,7 @@ export default function PresentationView({
               className="p-2 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
               aria-label="Next slide"
             >
-              <ChevronRight className="w-4 h-4 text-white" />
+              <IconChevronRight className="w-4 h-4 text-white" />
             </button>
           </div>
 
@@ -164,7 +164,7 @@ export default function PresentationView({
             className="p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors"
             aria-label="Exit presentation"
           >
-            <X className="w-4 h-4 text-white" />
+            <IconX className="w-4 h-4 text-white" />
           </button>
         </div>
 

@@ -25,6 +25,8 @@ interface EmailListProps {
   emails?: EmailMessage[];
   focusedId: string | null;
   setFocusedId: (id: string | null) => void;
+  selectedIds: Set<string>;
+  setSelectedIds: React.Dispatch<React.SetStateAction<Set<string>>>;
   onCompose?: (email: EmailMessage, mode: "reply" | "forward") => void;
   onArchived?: (id: string) => void;
   onDraftOpen?: (email: EmailMessage) => void;
@@ -125,6 +127,8 @@ export function EmailList({
   emails: emailsProp,
   focusedId,
   setFocusedId,
+  selectedIds,
+  setSelectedIds,
   onCompose,
   onArchived,
   onDraftOpen,
@@ -174,9 +178,12 @@ export function EmailList({
   focusedIndexRef.current = focusedIndex;
   const focusedIdRef = useRef(focusedId);
   focusedIdRef.current = focusedId;
+  const selectedIdsRef = useRef(selectedIds);
+  selectedIdsRef.current = selectedIds;
 
   const moveFocus = useCallback(
     (delta: number) => {
+      setSelectedIds(new Set());
       if (threads.length === 0) return;
       const current = focusedIndexRef.current;
       const next = Math.max(
@@ -189,8 +196,44 @@ export function EmailList({
       const rows = containerRef.current?.querySelectorAll("[role='row']");
       rows?.[next]?.scrollIntoView({ block: "nearest" });
     },
-    [threads, setFocusedId],
+    [threads, setFocusedId, setSelectedIds],
   );
+
+  const extendSelection = useCallback(
+    (delta: number) => {
+      if (threads.length === 0) return;
+      const current = focusedIndexRef.current;
+      const next = Math.max(
+        0,
+        Math.min(threads.length - 1, (current === -1 ? 0 : current) + delta),
+      );
+      const newFocusId = threads[next].latestMessage.id;
+
+      setSelectedIds((prev) => {
+        const updated = new Set(prev);
+        // Include anchor on first shift-move
+        if (prev.size === 0 && focusedIdRef.current) {
+          updated.add(focusedIdRef.current);
+        }
+        updated.add(newFocusId);
+        return updated;
+      });
+
+      setFocusedId(newFocusId);
+      focusedIndexRef.current = next;
+      // Scroll into view
+      const rows = containerRef.current?.querySelectorAll("[role='row']");
+      rows?.[next]?.scrollIntoView({ block: "nearest" });
+    },
+    [threads, setFocusedId, setSelectedIds],
+  );
+
+  const getActionIds = useCallback((): string[] => {
+    if (selectedIdsRef.current.size > 0)
+      return Array.from(selectedIdsRef.current);
+    const id = focusedIdRef.current;
+    return id ? [id] : [];
+  }, []);
 
   const openFocused = useCallback(() => {
     const id = focusedIdRef.current;
@@ -210,46 +253,64 @@ export function EmailList({
   }, [threads, view, navigate, markThreadRead, labelSuffix, queryClient]);
 
   const archiveFocused = useCallback(() => {
-    const id = focusedIdRef.current;
-    if (!id) return;
-    const idx = threads.findIndex((t) => t.latestMessage.id === id);
+    const ids = getActionIds();
+    if (ids.length === 0) return;
+    const actionIdSet = new Set(ids);
 
-    // Move focus to the next email (or previous if at end)
-    if (threads.length > 1) {
-      const nextIdx = idx < threads.length - 1 ? idx + 1 : idx - 1;
-      setFocusedId(threads[nextIdx].latestMessage.id);
+    // Move focus to the next non-selected email (or previous if at end)
+    const lastIdx = threads.findIndex(
+      (t) => t.latestMessage.id === ids[ids.length - 1],
+    );
+    const remaining = threads.filter(
+      (t) => !actionIdSet.has(t.latestMessage.id),
+    );
+    if (remaining.length > 0) {
+      // Pick the first remaining thread after the last selected
+      const nextThread =
+        remaining.find(
+          (_, i) =>
+            threads.indexOf(remaining[i]) > lastIdx ||
+            i === remaining.length - 1,
+        ) || remaining[remaining.length - 1];
+      setFocusedId(nextThread.latestMessage.id);
     } else {
       setFocusedId(null);
     }
 
-    // Snapshot removed thread emails so undo can restore them instantly
-    const thread = threads.find((t) => t.latestMessage.id === id);
-    const threadId = thread?.latestMessage.threadId || id;
-    const snapshot = emails.filter((e) => (e.threadId || e.id) === threadId);
+    // Snapshot removed thread emails so undo can restore them
+    const snapshots: EmailMessage[] = [];
+    for (const id of ids) {
+      const thread = threads.find((t) => t.latestMessage.id === id);
+      const tid = thread?.latestMessage.threadId || id;
+      snapshots.push(...emails.filter((e) => (e.threadId || e.id) === tid));
+      onArchived?.(id);
+    }
 
-    onArchived?.(id);
     const undo = () => {
-      // Restore emails into cache immediately, then call API
       queryClient.setQueriesData<EmailMessage[]>(
         { queryKey: ["emails"] },
         (old) =>
-          [...(old ?? []), ...snapshot].sort(
+          [...(old ?? []), ...snapshots].sort(
             (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
           ),
       );
-      unarchiveEmail.mutate(id);
+      for (const id of ids) unarchiveEmail.mutate(id);
     };
     setUndoAction(undo);
-    toast("Marked as Done.", {
-      action: {
-        label: "UNDO",
-        onClick: undo,
-      },
-    });
-    archiveEmail.mutate({
-      id,
-      accountEmail: thread?.latestMessage.accountEmail,
-    });
+    toast(
+      ids.length > 1
+        ? `Archived ${ids.length} conversations.`
+        : "Marked as Done.",
+      { action: { label: "UNDO", onClick: undo } },
+    );
+    for (const id of ids) {
+      const thread = threads.find((t) => t.latestMessage.id === id);
+      archiveEmail.mutate({
+        id,
+        accountEmail: thread?.latestMessage.accountEmail,
+      });
+    }
+    setSelectedIds(new Set());
   }, [
     threads,
     emails,
@@ -257,76 +318,109 @@ export function EmailList({
     unarchiveEmail,
     onArchived,
     setFocusedId,
+    setSelectedIds,
+    getActionIds,
     queryClient,
   ]);
 
   const trashFocused = useCallback(() => {
-    const id = focusedIdRef.current;
-    if (!id) return;
-    const idx = threads.findIndex((t) => t.latestMessage.id === id);
+    const ids = getActionIds();
+    if (ids.length === 0) return;
+    const actionIdSet = new Set(ids);
 
-    if (threads.length > 1) {
-      const nextIdx = idx < threads.length - 1 ? idx + 1 : idx - 1;
-      setFocusedId(threads[nextIdx].latestMessage.id);
+    // Move focus to the next non-selected email
+    const lastIdx = threads.findIndex(
+      (t) => t.latestMessage.id === ids[ids.length - 1],
+    );
+    const remaining = threads.filter(
+      (t) => !actionIdSet.has(t.latestMessage.id),
+    );
+    if (remaining.length > 0) {
+      const nextThread =
+        remaining.find(
+          (_, i) =>
+            threads.indexOf(remaining[i]) > lastIdx ||
+            i === remaining.length - 1,
+        ) || remaining[remaining.length - 1];
+      setFocusedId(nextThread.latestMessage.id);
     } else {
       setFocusedId(null);
     }
 
-    // Snapshot removed thread emails so undo can restore them instantly
-    const thread = threads.find((t) => t.latestMessage.id === id);
-    const threadId = thread?.latestMessage.threadId || id;
-    const snapshot = emails.filter((e) => (e.threadId || e.id) === threadId);
+    // Snapshot removed thread emails so undo can restore them
+    const snapshots: EmailMessage[] = [];
+    for (const id of ids) {
+      const thread = threads.find((t) => t.latestMessage.id === id);
+      const tid = thread?.latestMessage.threadId || id;
+      snapshots.push(...emails.filter((e) => (e.threadId || e.id) === tid));
+    }
 
     const undo = () => {
       queryClient.setQueriesData<EmailMessage[]>(
         { queryKey: ["emails"] },
         (old) =>
-          [...(old ?? []), ...snapshot].sort(
+          [...(old ?? []), ...snapshots].sort(
             (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
           ),
       );
-      untrashEmail.mutate(id);
+      for (const id of ids) untrashEmail.mutate(id);
     };
     setUndoAction(undo);
-    toast("Moved to Trash.", {
-      action: {
-        label: "UNDO",
-        onClick: undo,
-      },
-    });
-    trashEmail.mutate(id);
-  }, [threads, emails, trashEmail, untrashEmail, setFocusedId, queryClient]);
+    toast(
+      ids.length > 1
+        ? `Trashed ${ids.length} conversations.`
+        : "Moved to Trash.",
+      { action: { label: "UNDO", onClick: undo } },
+    );
+    for (const id of ids) trashEmail.mutate(id);
+    setSelectedIds(new Set());
+  }, [
+    threads,
+    emails,
+    trashEmail,
+    untrashEmail,
+    setFocusedId,
+    setSelectedIds,
+    getActionIds,
+    queryClient,
+  ]);
 
   const toggleFocusedRead = useCallback(() => {
-    const id = focusedIdRef.current;
-    if (!id) return;
-    const thread = threads.find((t) => t.latestMessage.id === id);
-    if (!thread) return;
-    markRead.mutate({ id, isRead: !thread.latestMessage.isRead });
-  }, [threads, markRead]);
+    const ids = getActionIds();
+    if (ids.length === 0) return;
+    for (const id of ids) {
+      const thread = threads.find((t) => t.latestMessage.id === id);
+      if (!thread) continue;
+      markRead.mutate({ id, isRead: !thread.latestMessage.isRead });
+    }
+    setSelectedIds(new Set());
+  }, [threads, markRead, getActionIds, setSelectedIds]);
 
   const markFocusedRead = useCallback(() => {
-    const id = focusedIdRef.current;
-    if (!id) return;
-    markRead.mutate({ id, isRead: true });
-  }, [markRead]);
+    const ids = getActionIds();
+    for (const id of ids) markRead.mutate({ id, isRead: true });
+    setSelectedIds(new Set());
+  }, [markRead, getActionIds, setSelectedIds]);
 
   const markFocusedUnread = useCallback(() => {
-    const id = focusedIdRef.current;
-    if (!id) return;
-    markRead.mutate({ id, isRead: false });
-  }, [markRead]);
+    const ids = getActionIds();
+    for (const id of ids) markRead.mutate({ id, isRead: false });
+    setSelectedIds(new Set());
+  }, [markRead, getActionIds, setSelectedIds]);
 
   const starFocused = useCallback(() => {
-    const id = focusedIdRef.current;
-    if (!id) return;
-    const thread = threads.find((t) => t.latestMessage.id === id);
-    if (!thread) return;
-    toggleStar.mutate({
-      id,
-      isStarred: !thread.latestMessage.isStarred,
-    });
-  }, [threads, toggleStar]);
+    const ids = getActionIds();
+    if (ids.length === 0) return;
+    for (const id of ids) {
+      const thread = threads.find((t) => t.latestMessage.id === id);
+      if (!thread) continue;
+      toggleStar.mutate({
+        id,
+        isStarred: !thread.latestMessage.isStarred,
+      });
+    }
+    setSelectedIds(new Set());
+  }, [threads, toggleStar, getActionIds, setSelectedIds]);
 
   const replyFocused = useCallback(() => {
     const id = focusedIdRef.current;
@@ -342,15 +436,25 @@ export function EmailList({
     if (thread) onCompose(thread.latestMessage, "forward");
   }, [threads, onCompose]);
 
+  const clearSelection = useCallback(
+    () => setSelectedIds(new Set()),
+    [setSelectedIds],
+  );
+
   // Keyboard navigation — Gmail / Superhuman standard shortcuts
   useKeyboardShortcuts([
     { key: "j", handler: () => moveFocus(1) },
     { key: "ArrowDown", handler: () => moveFocus(1) },
     { key: "k", handler: () => moveFocus(-1) },
     { key: "ArrowUp", handler: () => moveFocus(-1) },
+    { key: "j", shift: true, handler: () => extendSelection(1) },
+    { key: "k", shift: true, handler: () => extendSelection(-1) },
+    { key: "ArrowDown", shift: true, handler: () => extendSelection(1) },
+    { key: "ArrowUp", shift: true, handler: () => extendSelection(-1) },
     { key: "Enter", handler: openFocused },
     { key: "o", handler: openFocused },
     { key: "e", handler: archiveFocused },
+    { key: "d", handler: trashFocused },
     { key: "u", handler: toggleFocusedRead },
     { key: "I", handler: markFocusedRead, shift: true },
     { key: "U", handler: markFocusedUnread, shift: true },
@@ -358,6 +462,7 @@ export function EmailList({
     { key: "r", handler: replyFocused },
     { key: "f", handler: forwardFocused },
     { key: "a", handler: replyFocused }, // reply-all (same as reply for single messages)
+    { key: "Escape", handler: clearSelection },
   ]);
 
   // Auto-focus first thread when list loads
@@ -527,6 +632,16 @@ export function EmailList({
 
   return (
     <div className="flex h-full flex-col" ref={containerRef}>
+      {selectedIds.size > 1 && (
+        <div className="flex items-center gap-2 px-4 h-8 border-b border-border/30 bg-primary/5 text-xs text-muted-foreground shrink-0">
+          <span className="font-medium text-foreground">
+            {selectedIds.size} selected
+          </span>
+          <span className="text-muted-foreground/60">
+            E archive · D trash · S star · Esc clear
+          </span>
+        </div>
+      )}
       <div className="flex-1 overflow-y-auto">
         {threads.map((thread) => (
           <EmailListItem
@@ -535,6 +650,7 @@ export function EmailList({
             thread={thread}
             isSelected={thread.latestMessage.id === threadId}
             isFocused={thread.latestMessage.id === focusedId}
+            isMultiSelected={selectedIds.has(thread.latestMessage.id)}
             onSelect={() => handleSelect(thread)}
             onStar={(e) => handleStar(e, thread)}
             onHover={() => {

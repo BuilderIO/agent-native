@@ -81,12 +81,14 @@ const CustomTable = BaseTable.extend({
 });
 
 interface VisualEditorProps {
+  documentId?: string;
   content: string;
   onChange: (markdown: string) => void;
   editable?: boolean;
 }
 
 export function VisualEditor({
+  documentId,
   content,
   onChange,
   editable = true,
@@ -94,6 +96,7 @@ export function VisualEditor({
   const isSettingContent = useRef(false);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const prevDocIdRef = useRef(documentId);
 
   const editor = useEditor({
     extensions: [
@@ -170,14 +173,18 @@ export function VisualEditor({
   // Sync content from outside
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
+    const docChanged = documentId !== prevDocIdRef.current;
+    if (docChanged) prevDocIdRef.current = documentId;
     const currentMd = (editor.storage as any).markdown.getMarkdown();
     if (currentMd !== content) {
-      if (editor.isFocused) return;
+      // Skip sync when editor is focused UNLESS the document changed —
+      // during navigation we must force content replacement
+      if (editor.isFocused && !docChanged) return;
       isSettingContent.current = true;
       editor.commands.setContent(content);
       isSettingContent.current = false;
     }
-  }, [content, editor]);
+  }, [content, editor, documentId]);
 
   if (!editor) return null;
 

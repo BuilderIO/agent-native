@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, X } from "lucide-react";
+import { IconPlus, IconX } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -64,7 +64,7 @@ export function FilterBuilder({ filters, onChange }: FilterBuilderProps) {
           className="h-6 text-xs text-muted-foreground ml-4"
           onClick={() => setAdding(true)}
         >
-          <Plus className="h-3 w-3 mr-1" />
+          <IconPlus className="h-3 w-3 mr-1" />
           Filter by
         </Button>
       )}
@@ -121,7 +121,7 @@ function FilterRow({
         className="h-6 w-6 shrink-0"
         onClick={onRemove}
       >
-        <X className="h-3 w-3" />
+        <IconX className="h-3 w-3" />
       </Button>
     </div>
   );

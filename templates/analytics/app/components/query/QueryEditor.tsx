@@ -8,7 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Play, Loader2 } from "lucide-react";
+import { IconPlayerPlay, IconLoader2 } from "@tabler/icons-react";
 
 interface QueryTemplate {
   label: string;
@@ -125,9 +125,9 @@ export function QueryEditor({
           size="sm"
         >
           {isLoading ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            <IconLoader2 className="mr-2 h-4 w-4 animate-spin" />
           ) : (
-            <Play className="mr-2 h-4 w-4" />
+            <IconPlayerPlay className="mr-2 h-4 w-4" />
           )}
           Run Query
         </Button>

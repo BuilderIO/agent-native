@@ -12,6 +12,7 @@
   "dependencies": {
     "@agent-native/core": "workspace:*",
     "@libsql/client": "^0.15.8",
+    "@tabler/icons-react": "^3.40.0",
     "h3": "^1.13.0",
     "isbot": "^5"
   },

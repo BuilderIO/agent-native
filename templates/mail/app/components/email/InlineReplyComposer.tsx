@@ -7,15 +7,15 @@ import {
   useImperativeHandle,
 } from "react";
 import {
-  Send,
-  Bold,
-  Italic,
-  Link,
-  Paperclip,
-  Loader2,
-  X,
-  Trash2,
-} from "lucide-react";
+  IconSend,
+  IconBold,
+  IconItalic,
+  IconLink,
+  IconPaperclip,
+  IconLoader2,
+  IconX,
+  IconTrash,
+} from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -388,7 +388,7 @@ export const InlineReplyComposer = forwardRef<
               key={att.id}
               className="flex items-center gap-1.5 rounded-md border border-border bg-muted/50 px-2 py-1 text-xs"
             >
-              <Paperclip className="h-3 w-3 text-muted-foreground shrink-0" />
+              <IconPaperclip className="h-3 w-3 text-muted-foreground shrink-0" />
               <span className="truncate max-w-[140px]">{att.originalName}</span>
               <span className="text-muted-foreground shrink-0">
                 {formatFileSize(att.size)}
@@ -397,7 +397,7 @@ export const InlineReplyComposer = forwardRef<
                 onClick={() => handleRemoveAttachment(att.id)}
                 className="ml-0.5 rounded-sm p-0.5 text-muted-foreground hover:text-foreground hover:bg-foreground/10 transition-colors"
               >
-                <X className="h-3 w-3" />
+                <IconX className="h-3 w-3" />
               </button>
             </div>
           ))}
@@ -415,10 +415,10 @@ export const InlineReplyComposer = forwardRef<
                 className="h-7 w-7"
                 onClick={() => editorRef.current?.toggleBold()}
               >
-                <Bold className="h-3.5 w-3.5" />
+                <IconBold className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Bold</TooltipContent>
+            <TooltipContent>IconBold</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -428,10 +428,10 @@ export const InlineReplyComposer = forwardRef<
                 className="h-7 w-7"
                 onClick={() => editorRef.current?.toggleItalic()}
               >
-                <Italic className="h-3.5 w-3.5" />
+                <IconItalic className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Italic</TooltipContent>
+            <TooltipContent>IconItalic</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -441,7 +441,7 @@ export const InlineReplyComposer = forwardRef<
                 className="h-7 w-7"
                 onClick={() => editorRef.current?.setLink()}
               >
-                <Link className="h-3.5 w-3.5" />
+                <IconLink className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
             <TooltipContent>Insert link</TooltipContent>
@@ -454,7 +454,7 @@ export const InlineReplyComposer = forwardRef<
                 className="h-7 w-7"
                 onClick={() => void handleAttach()}
               >
-                <Paperclip className="h-3.5 w-3.5" />
+                <IconPaperclip className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
             <TooltipContent>Attach file</TooltipContent>
@@ -464,7 +464,7 @@ export const InlineReplyComposer = forwardRef<
 
           {isGenerating ? (
             <div className="flex items-center gap-1.5 px-2 text-xs text-muted-foreground">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
               <span>Generating…</span>
             </div>
           ) : (
@@ -528,7 +528,7 @@ export const InlineReplyComposer = forwardRef<
                 className="h-7 w-7 text-muted-foreground hover:text-destructive"
                 onClick={() => onDiscard(draft.id)}
               >
-                <Trash2 className="h-3.5 w-3.5" />
+                <IconTrash className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
             <TooltipContent>Discard draft</TooltipContent>
@@ -539,8 +539,8 @@ export const InlineReplyComposer = forwardRef<
             disabled={sendEmail.isPending || !draft.to.trim()}
             className="gap-1.5"
           >
-            <Send className="h-3.5 w-3.5" />
-            Send
+            <IconSend className="h-3.5 w-3.5" />
+            IconSend
           </Button>
         </div>
       </div>

@@ -6,17 +6,17 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
-  Save,
-  X,
-  CheckCircle2,
-  AlertCircle,
-  Plus,
-  Trash2,
-  Code,
-  FileText,
-  ChevronDown,
-  ChevronRight,
-} from "lucide-react";
+  IconDeviceFloppy,
+  IconX,
+  IconCircleCheck,
+  IconAlertCircle,
+  IconPlus,
+  IconTrash,
+  IconCode,
+  IconFileText,
+  IconChevronDown,
+  IconChevronRight,
+} from "@tabler/icons-react";
 import { getIdToken } from "@/lib/auth";
 import { toast } from "sonner";
 import {
@@ -268,13 +268,13 @@ export function AIInstructionsEditor() {
         <div className="flex items-center gap-2">
           {!canEdit && (
             <Badge variant="secondary" className="gap-1">
-              <AlertCircle className="h-3 w-3" />
+              <IconAlertCircle className="h-3 w-3" />
               Read-only
             </Badge>
           )}
           {canEdit && hasChanges && (
             <Badge variant="outline" className="gap-1">
-              <AlertCircle className="h-3 w-3" />
+              <IconAlertCircle className="h-3 w-3" />
               Unsaved changes
             </Badge>
           )}
@@ -285,7 +285,7 @@ export function AIInstructionsEditor() {
               onClick={() => setViewMode("structured")}
               className="rounded-r-none h-8"
             >
-              <FileText className="h-3.5 w-3.5 mr-1.5" />
+              <IconFileText className="h-3.5 w-3.5 mr-1.5" />
               Structured
             </Button>
             <Button
@@ -294,7 +294,7 @@ export function AIInstructionsEditor() {
               onClick={() => setViewMode("raw")}
               className="rounded-l-none h-8"
             >
-              <Code className="h-3.5 w-3.5 mr-1.5" />
+              <IconCode className="h-3.5 w-3.5 mr-1.5" />
               Raw Markdown
             </Button>
           </div>
@@ -317,9 +317,9 @@ export function AIInstructionsEditor() {
                       Table Usage Guidelines
                     </CardTitle>
                     {isGuidelinesOpen ? (
-                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                      <IconChevronDown className="h-4 w-4 text-muted-foreground" />
                     ) : (
-                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                      <IconChevronRight className="h-4 w-4 text-muted-foreground" />
                     )}
                   </div>
                 </CardHeader>
@@ -336,7 +336,7 @@ export function AIInstructionsEditor() {
                         variant="outline"
                         onClick={handleAddMapping}
                       >
-                        <Plus className="h-3.5 w-3.5 mr-1.5" />
+                        <IconPlus className="h-3.5 w-3.5 mr-1.5" />
                         Add Mapping
                       </Button>
                     )}
@@ -430,7 +430,7 @@ export function AIInstructionsEditor() {
                                     onClick={() => handleRemoveMapping(index)}
                                     className="h-9 w-9 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
                                   >
-                                    <Trash2 className="h-4 w-4" />
+                                    <IconTrash className="h-4 w-4" />
                                   </Button>
                                 </div>
                               )}
@@ -468,9 +468,9 @@ export function AIInstructionsEditor() {
                       </p>
                     </div>
                     {isTableMapOpen ? (
-                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                      <IconChevronDown className="h-4 w-4 text-muted-foreground" />
                     ) : (
-                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                      <IconChevronRight className="h-4 w-4 text-muted-foreground" />
                     )}
                   </div>
                 </CardHeader>
@@ -504,7 +504,7 @@ export function AIInstructionsEditor() {
         </Card>
       )}
 
-      {/* Save Bar */}
+      {/* IconDeviceFloppy Bar */}
       {canEdit && (
         <div className="border-t pt-4 flex items-center justify-between gap-3 sticky bottom-0 bg-background pb-4">
           <p className="text-xs text-muted-foreground">
@@ -521,7 +521,7 @@ export function AIInstructionsEditor() {
                 onClick={handleCancel}
                 disabled={saveMutation.isPending}
               >
-                <X className="h-3.5 w-3.5 mr-1.5" />
+                <IconX className="h-3.5 w-3.5 mr-1.5" />
                 Cancel
               </Button>
             )}
@@ -535,11 +535,11 @@ export function AIInstructionsEditor() {
               ) : (
                 <>
                   {hasChanges ? (
-                    <Save className="h-3.5 w-3.5 mr-1.5" />
+                    <IconDeviceFloppy className="h-3.5 w-3.5 mr-1.5" />
                   ) : (
-                    <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
+                    <IconCircleCheck className="h-3.5 w-3.5 mr-1.5" />
                   )}
-                  {hasChanges ? "Save Changes" : "Saved"}
+                  {hasChanges ? "IconDeviceFloppy Changes" : "Saved"}
                 </>
               )}
             </Button>

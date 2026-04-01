@@ -1,13 +1,12 @@
 import { useState, useCallback } from "react";
 import {
-  X,
-  Plus,
-  Trash2,
-  Edit2,
-  RotateCcw,
-  Check,
-  type LucideProps,
-} from "lucide-react";
+  IconX,
+  IconPlus,
+  IconTrash,
+  IconEdit,
+  IconRotate,
+  IconCheck,
+} from "@tabler/icons-react";
 import type { AppConfig } from "@shared/app-registry";
 import { generateAppId } from "@shared/app-registry";
 
@@ -110,7 +109,7 @@ export default function AppSettings({
         <div className="settings-header">
           <h2>App Settings</h2>
           <button className="settings-close" onClick={onClose}>
-            <X size={18} />
+            <IconX size={18} />
           </button>
         </div>
 
@@ -148,7 +147,7 @@ export default function AppSettings({
                     onClick={() => setEditingId(app.id)}
                     title="Edit"
                   >
-                    <Edit2 size={14} />
+                    <IconEdit size={14} />
                   </button>
                   {!app.isBuiltIn && (
                     <button
@@ -156,7 +155,7 @@ export default function AppSettings({
                       onClick={() => handleRemove(app.id)}
                       title="Remove"
                     >
-                      <Trash2 size={14} />
+                      <IconTrash size={14} />
                     </button>
                   )}
                   <label className="settings-toggle">
@@ -181,13 +180,13 @@ export default function AppSettings({
                 setShowAddForm(true);
               }}
             >
-              <Plus size={15} /> Add Custom App
+              <IconPlus size={15} /> Add Custom App
             </button>
             <button
               className="settings-btn settings-btn--danger"
               onClick={handleReset}
             >
-              <RotateCcw size={14} /> Reset to Defaults
+              <IconRotate size={14} /> Reset to Defaults
             </button>
           </div>
         </div>
@@ -332,7 +331,7 @@ function AppEditForm({
             Cancel
           </button>
           <button type="submit" className="settings-btn settings-btn--primary">
-            <Check size={14} /> Save
+            <IconCheck size={14} /> Save
           </button>
         </div>
       </form>

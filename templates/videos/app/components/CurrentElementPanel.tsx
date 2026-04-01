@@ -12,13 +12,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Plus,
-  Trash2,
-  MousePointer,
-  MousePointerClick,
-  ChevronRight,
-  Mouse,
-} from "lucide-react";
+  IconPlus,
+  IconTrash,
+  IconPointer,
+  IconClick,
+  IconChevronRight,
+  IconMouse,
+} from "@tabler/icons-react";
 import { MotionCurveSelect } from "./MotionCurveSelect";
 import {
   DefaultCursor,
@@ -272,7 +272,7 @@ export const CurrentElementPanel: React.FC = () => {
   if (!currentElement) {
     return (
       <div className="text-center py-8 px-4 bg-muted/30 rounded-lg border border-dashed border-border m-4">
-        <MousePointerClick className="w-8 h-8 mx-auto mb-3 text-green-400/40" />
+        <IconClick className="w-8 h-8 mx-auto mb-3 text-green-400/40" />
         <p className="text-xs font-medium text-muted-foreground">
           No component selected
         </p>
@@ -491,8 +491,7 @@ export const CurrentElementPanel: React.FC = () => {
 
   const renderAnimation = (animation: ElementAnimation) => {
     const isExpanded = expandedAnimationId === animation.id;
-    const Icon =
-      animation.triggerType === "hover" ? MousePointer : MousePointerClick;
+    const Icon = animation.triggerType === "hover" ? IconPointer : IconClick;
 
     return (
       <div
@@ -519,9 +518,9 @@ export const CurrentElementPanel: React.FC = () => {
               deleteAnimation(currentElement.compositionId, animation.id);
             }}
           >
-            <Trash2 className="w-3 h-3 text-muted-foreground hover:text-green-400" />
+            <IconTrash className="w-3 h-3 text-muted-foreground hover:text-green-400" />
           </Button>
-          <ChevronRight
+          <IconChevronRight
             className={`w-3 h-3 ml-auto text-muted-foreground transition-transform ${isExpanded ? "rotate-90" : ""}`}
           />
         </div>
@@ -572,7 +571,7 @@ export const CurrentElementPanel: React.FC = () => {
                   }
                   disabled={!selectedPropertyToAdd}
                 >
-                  <Plus className="w-3 h-3" />
+                  <IconPlus className="w-3 h-3" />
                 </Button>
                 <Select
                   value={selectedPropertyToAdd || undefined}
@@ -630,7 +629,7 @@ export const CurrentElementPanel: React.FC = () => {
                         handleDeleteProperty(animation.id, propIdx)
                       }
                     >
-                      <Trash2 className="w-3 h-3 text-muted-foreground hover:text-green-400" />
+                      <IconTrash className="w-3 h-3 text-muted-foreground hover:text-green-400" />
                     </Button>
                     {isColorProp ? (
                       <input
@@ -712,7 +711,7 @@ export const CurrentElementPanel: React.FC = () => {
               onClick={handleDeleteCursorType}
               title="Reset to default"
             >
-              <Trash2 className="w-3 h-3 text-muted-foreground hover:text-green-400" />
+              <IconTrash className="w-3 h-3 text-muted-foreground hover:text-green-400" />
             </Button>
           )}
         </div>
@@ -784,7 +783,7 @@ export const CurrentElementPanel: React.FC = () => {
             className="flex-1 h-8 text-xs"
             onClick={() => handleAddAnimation("hover")}
           >
-            <MousePointer className="w-3 h-3 mr-1" />
+            <IconPointer className="w-3 h-3 mr-1" />
             Add Hover
           </Button>
         )}
@@ -795,7 +794,7 @@ export const CurrentElementPanel: React.FC = () => {
             className="flex-1 h-8 text-xs"
             onClick={() => handleAddAnimation("click")}
           >
-            <MousePointerClick className="w-3 h-3 mr-1" />
+            <IconClick className="w-3 h-3 mr-1" />
             Add click state
           </Button>
         )}

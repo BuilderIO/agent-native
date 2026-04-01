@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect } from "react";
-import { Menu } from "lucide-react";
+import { IconMenu } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { AgentSidebar } from "@agent-native/core/client";
 import { Sidebar } from "./Sidebar";
@@ -98,7 +98,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                 className="h-8 w-8"
                 onClick={() => setSidebarOpen(true)}
               >
-                <Menu className="h-4 w-4" />
+                <IconMenu className="h-4 w-4" />
               </Button>
               <span className="ml-2 text-sm font-semibold">Calendar</span>
             </div>

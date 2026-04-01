@@ -4,7 +4,7 @@ import { VideoPlayer, type VideoPlayerHandle } from "@/components/VideoPlayer";
 import { Timeline } from "@/components/Timeline";
 import { CameraToolbar } from "@/components/CameraToolbar";
 import { CursorPositioningOverlay } from "@/components/CursorPositioningOverlay";
-import { Save } from "lucide-react";
+import { IconDeviceFloppy } from "@tabler/icons-react";
 import { useDevMode } from "@agent-native/core/client";
 import { useComposition } from "@/contexts/CompositionContext";
 import { useTimeline } from "@/contexts/TimelineContext";
@@ -102,7 +102,7 @@ export default function CompositionView({
     registerSeek(() => handleTimelineSeek);
   }, [registerSeek, handleTimelineSeek]);
 
-  // Save as default handler - uses both composition and timeline contexts
+  // IconDeviceFloppy as default handler - uses both composition and timeline contexts
   // Core save logic (reusable for both manual and auto-save)
   const performSave = useCallback(
     async (silent = false) => {
@@ -147,7 +147,7 @@ export default function CompositionView({
 
         console.log("Saving as default:", update);
 
-        // Save via API endpoint with retry logic
+        // IconDeviceFloppy via API endpoint with retry logic
         const maxRetries = 3;
         let lastError: Error | null = null;
         let saveSucceeded = false;
@@ -192,7 +192,7 @@ export default function CompositionView({
             // Wait before retrying (exponential backoff: 500ms, 1000ms, 2000ms)
             const delay = 500 * Math.pow(2, attempt);
             console.log(
-              `[Save] Retry ${attempt + 1}/${maxRetries} after ${delay}ms...`,
+              `[IconDeviceFloppy] Retry ${attempt + 1}/${maxRetries} after ${delay}ms...`,
             );
             await new Promise((resolve) => setTimeout(resolve, delay));
           }
@@ -206,7 +206,9 @@ export default function CompositionView({
           localStorage.removeItem(`videos-comp-settings:${composition.id}`);
           localStorage.removeItem(`videos-tracks-version:${composition.id}`);
 
-          console.log(`[Save] Saved "${composition.title}" to registry`);
+          console.log(
+            `[IconDeviceFloppy] Saved "${composition.title}" to registry`,
+          );
 
           if (!silent) {
             alert(
@@ -219,7 +221,10 @@ export default function CompositionView({
         } else if (lastError) {
           // Network error or server not available after all retries
           const errorMessage = lastError.message;
-          console.error("[Save] Failed to save after retries:", errorMessage);
+          console.error(
+            "[IconDeviceFloppy] Failed to save after retries:",
+            errorMessage,
+          );
 
           if (!silent) {
             alert(
@@ -234,7 +239,7 @@ export default function CompositionView({
           throw lastError; // Re-throw to be caught by outer catch
         }
       } catch (error) {
-        console.error("[Save] Failed to save:", error);
+        console.error("[IconDeviceFloppy] Failed to save:", error);
         // Error already handled above, just log it
       }
     },
@@ -246,7 +251,7 @@ export default function CompositionView({
     if (!composition) return;
 
     const confirmed = window.confirm(
-      `Save current settings as default for "${composition.title}"?\n\nThis will update the registry file with:\n- Current tracks and animations\n- Current properties\n- Current composition settings`,
+      `IconDeviceFloppy current settings as default for "${composition.title}"?\n\nThis will update the registry file with:\n- Current tracks and animations\n- Current properties\n- Current composition settings`,
     );
 
     if (!confirmed) return;
@@ -259,7 +264,7 @@ export default function CompositionView({
     const handleAutoSave = async (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (detail && detail.compositionId === composition?.id) {
-        console.log("[Auto-Save] Triggered for:", composition?.id);
+        console.log("[Auto-IconDeviceFloppy] Triggered for:", composition?.id);
         await performSave(true); // Silent mode - no alerts
       }
     };
@@ -371,14 +376,14 @@ export default function CompositionView({
               )}
               title={
                 !isDevMode
-                  ? "Save to registry requires local development mode"
+                  ? "IconDeviceFloppy to registry requires local development mode"
                   : hasUnsavedChanges
-                    ? "Save current settings as default for this composition"
+                    ? "IconDeviceFloppy current settings as default for this composition"
                     : "All changes saved to registry"
               }
             >
-              <Save className="w-3.5 h-3.5" />
-              Save
+              <IconDeviceFloppy className="w-3.5 h-3.5" />
+              IconDeviceFloppy
             </button>
           </div>
         </div>

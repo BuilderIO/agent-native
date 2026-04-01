@@ -1,4 +1,9 @@
-import { BarChart3, LineChart, Table2, Hash } from "lucide-react";
+import {
+  IconChartBar,
+  IconChartLine,
+  IconTable,
+  IconHash,
+} from "@tabler/icons-react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { ChartType } from "../types";
 
@@ -7,10 +12,10 @@ const CHART_TYPES: {
   label: string;
   icon: React.ReactNode;
 }[] = [
-  { value: "line", label: "Line", icon: <LineChart className="h-4 w-4" /> },
-  { value: "bar", label: "Bar", icon: <BarChart3 className="h-4 w-4" /> },
-  { value: "table", label: "Table", icon: <Table2 className="h-4 w-4" /> },
-  { value: "metric", label: "Metric", icon: <Hash className="h-4 w-4" /> },
+  { value: "line", label: "Line", icon: <IconChartLine className="h-4 w-4" /> },
+  { value: "bar", label: "Bar", icon: <IconChartBar className="h-4 w-4" /> },
+  { value: "table", label: "Table", icon: <IconTable className="h-4 w-4" /> },
+  { value: "metric", label: "Metric", icon: <IconHash className="h-4 w-4" /> },
 ];
 
 interface ChartTypePickerProps {

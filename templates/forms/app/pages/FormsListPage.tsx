@@ -2,14 +2,14 @@ import { useState } from "react";
 import { useNavigate } from "react-router";
 import { format } from "date-fns";
 import {
-  Plus,
-  MoreHorizontal,
-  Trash2,
-  Copy,
-  ExternalLink,
-  BarChart3,
-  RefreshCw,
-} from "lucide-react";
+  IconPlus,
+  IconDots,
+  IconTrash,
+  IconCopy,
+  IconExternalLink,
+  IconChartBar,
+  IconRefresh,
+} from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -111,7 +111,7 @@ export function FormsListPage() {
           onClick={() => refetch()}
           className="gap-2"
         >
-          <RefreshCw className="h-3.5 w-3.5" />
+          <IconRefresh className="h-3.5 w-3.5" />
           Retry
         </Button>
       </div>
@@ -128,7 +128,7 @@ export function FormsListPage() {
           </p>
         </div>
         <Button onClick={handleCreate} className="gap-2">
-          <Plus className="h-4 w-4" />
+          <IconPlus className="h-4 w-4" />
           New Form
         </Button>
       </div>
@@ -140,7 +140,7 @@ export function FormsListPage() {
             Create your first form to get started
           </p>
           <Button onClick={handleCreate} size="sm" className="gap-2">
-            <Plus className="h-4 w-4" />
+            <IconPlus className="h-4 w-4" />
             Create Form
           </Button>
         </div>
@@ -183,7 +183,7 @@ export function FormsListPage() {
                       className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 focus:opacity-100"
                       aria-label="Form actions"
                     >
-                      <MoreHorizontal className="h-4 w-4" />
+                      <IconDots className="h-4 w-4" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
@@ -193,7 +193,7 @@ export function FormsListPage() {
                         navigate(`/forms/${form.id}/responses`);
                       }}
                     >
-                      <BarChart3 className="h-4 w-4 mr-2" />
+                      <IconChartBar className="h-4 w-4 mr-2" />
                       View Responses
                     </DropdownMenuItem>
                     <DropdownMenuItem
@@ -202,7 +202,7 @@ export function FormsListPage() {
                         handleTogglePublish(form);
                       }}
                     >
-                      <ExternalLink className="h-4 w-4 mr-2" />
+                      <IconExternalLink className="h-4 w-4 mr-2" />
                       {form.status === "published" ? "Unpublish" : "Publish"}
                     </DropdownMenuItem>
                     <DropdownMenuItem
@@ -211,7 +211,7 @@ export function FormsListPage() {
                         handleDuplicate(form);
                       }}
                     >
-                      <Copy className="h-4 w-4 mr-2" />
+                      <IconCopy className="h-4 w-4 mr-2" />
                       Duplicate
                     </DropdownMenuItem>
                     <DropdownMenuItem
@@ -221,7 +221,7 @@ export function FormsListPage() {
                         handleDelete(form.id);
                       }}
                     >
-                      <Trash2 className="h-4 w-4 mr-2" />
+                      <IconTrash className="h-4 w-4 mr-2" />
                       Delete
                     </DropdownMenuItem>
                   </DropdownMenuContent>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { AlertCircle, RefreshCw } from "lucide-react";
+import { IconAlertCircle, IconRefresh } from "@tabler/icons-react";
 import { useComposition } from "@/contexts/CompositionContext";
 import { Button } from "@/components/ui/button";
 
@@ -61,7 +61,7 @@ export function LocalStorageIndicator() {
 
   return (
     <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 border border-amber-500/30 rounded-lg">
-      <AlertCircle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
+      <IconAlertCircle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
       <div className="flex-1 min-w-0">
         <p className="text-xs text-amber-200/90 font-medium">
           Using local overrides
@@ -76,7 +76,7 @@ export function LocalStorageIndicator() {
         onClick={handleReset}
         className="h-6 px-2 text-xs text-amber-200 hover:text-amber-100 hover:bg-amber-500/20"
       >
-        <RefreshCw className="w-3 h-3 mr-1" />
+        <IconRefresh className="w-3 h-3 mr-1" />
         Reset
       </Button>
     </div>

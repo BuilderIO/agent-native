@@ -1,4 +1,4 @@
-import { User, Calendar } from "lucide-react";
+import { IconUser, IconCalendar } from "@tabler/icons-react";
 import { useMemo } from "react";
 import { useParams } from "react-router";
 import { dashboards } from "@/pages/adhoc/registry";
@@ -44,19 +44,19 @@ export function DashboardHeader({
         <div className="flex items-center gap-4 text-xs text-muted-foreground">
           {metadata.author && (
             <div className="flex items-center gap-1.5">
-              <User className="h-3.5 w-3.5" />
+              <IconUser className="h-3.5 w-3.5" />
               <span>{metadata.author}</span>
             </div>
           )}
           {metadata.lastUpdated && (
             <div className="flex items-center gap-1.5">
-              <Calendar className="h-3.5 w-3.5" />
+              <IconCalendar className="h-3.5 w-3.5" />
               <span>Updated {formatDate(metadata.lastUpdated)}</span>
             </div>
           )}
           {metadata.dateCreated && (
             <div className="flex items-center gap-1.5">
-              <Calendar className="h-3.5 w-3.5" />
+              <IconCalendar className="h-3.5 w-3.5" />
               <span>Created {formatDate(metadata.dateCreated)}</span>
             </div>
           )}

@@ -30,6 +30,7 @@ type NotionBlock = {
   id: string;
   type: string;
   has_children?: boolean;
+  children?: NotionBlock[];
   [key: string]: any;
 };
 
@@ -40,6 +41,13 @@ type NotionPage = {
   properties?: Record<string, any>;
   parent?: Record<string, any>;
 };
+
+const LIST_BLOCK_TYPES = new Set([
+  "bulleted_list_item",
+  "numbered_list_item",
+  "to_do",
+  "toggle",
+]);
 
 export type NotionPageContent = {
   pageId: string;
@@ -90,6 +98,74 @@ function trimTrailingBlankLines(lines: string[]): string[] {
   let end = lines.length;
   while (end > 0 && !lines[end - 1].trim()) end--;
   return lines.slice(0, end);
+}
+
+function splitMarkdownLines(text: string, indent = ""): string[] {
+  return text.split("\n").map((line) => (line ? `${indent}${line}` : ""));
+}
+
+function isListBlock(block: NotionBlock | undefined): boolean {
+  return !!block && LIST_BLOCK_TYPES.has(block.type);
+}
+
+function shouldInsertBlankLine(
+  previous: NotionBlock | undefined,
+  current: NotionBlock,
+): boolean {
+  if (!previous) return false;
+  return !(isListBlock(previous) && isListBlock(current));
+}
+
+function isPlainTextCodeLanguage(language: string): boolean {
+  return ["", "plain text", "text", "plain"].includes(
+    language.trim().toLowerCase(),
+  );
+}
+
+function looksLikeCode(text: string): boolean {
+  const lines = text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length === 0) return false;
+
+  // If average words per line is high, it's likely prose not code
+  const totalWords = lines.reduce((sum, l) => sum + l.split(/\s+/).length, 0);
+  if (totalWords / lines.length > 8) return false;
+
+  let signalCount = 0;
+  for (const line of lines) {
+    if (
+      /^[<{[]/.test(line) ||
+      /[{}[\];]/.test(line) ||
+      /\b(const|let|var|function|class|return|import|export|async|await|if|else|for|while|switch|SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER)\b/.test(
+        line,
+      ) ||
+      // Function call: word( — requires NO space before paren and followed by ; { or EOL
+      /\w+\([^)]*\)(?:\s*[;{]|$)/.test(line)
+    ) {
+      signalCount++;
+    }
+  }
+
+  // Require at least half the lines to look like code (stricter than before)
+  return signalCount >= Math.max(2, Math.ceil(lines.length / 2));
+}
+
+function codeBlockToMarkdown(block: NotionBlock, indent: string): string[] {
+  const language = String(block.code?.language || "").trim();
+  const text = richTextToPlain(block.code?.rich_text || []);
+
+  if (isPlainTextCodeLanguage(language) && !looksLikeCode(text)) {
+    return splitMarkdownLines(text, indent);
+  }
+
+  return [
+    `${indent}\`\`\`${language}`.trimEnd(),
+    ...text.split("\n").map((line) => `${indent}${line}`),
+    `${indent}\`\`\``,
+  ];
 }
 
 function markdownInlineToRichText(text: string) {
@@ -291,48 +367,120 @@ export function markdownToNotionBlocks(markdown: string): any[] {
   return blocks.length > 0 ? blocks : [paragraphBlock("")];
 }
 
+function childrenToMarkdown(
+  children: NotionBlock[] | undefined,
+  warnings: string[],
+  indent: string,
+): string[] {
+  if (!children?.length) return [];
+  const lines: string[] = [];
+  let previousChild: NotionBlock | undefined;
+  for (const child of children) {
+    const childLines = blockToMarkdown(child, warnings, indent);
+    if (childLines.length === 0) continue;
+    if (shouldInsertBlankLine(previousChild, child)) {
+      lines.push("");
+    }
+    lines.push(...childLines);
+    previousChild = child;
+  }
+  return trimTrailingBlankLines(lines);
+}
+
+/**
+ * Convert children of a paragraph block into bullet points.
+ * Notion represents indented text as child paragraphs — markdown has no
+ * equivalent, so we render them as nested bullets for visual indentation.
+ */
+function paragraphChildrenToBullets(
+  children: NotionBlock[],
+  warnings: string[],
+  indent: string,
+): string[] {
+  const lines: string[] = [];
+  for (const child of children) {
+    if (child.type === "paragraph") {
+      const childText = richTextToMarkdown(child.paragraph?.rich_text || []);
+      if (childText) {
+        lines.push(`${indent}- ${childText}`);
+      }
+      // Recursively convert grandchildren too
+      if (child.children?.length) {
+        lines.push(
+          ...paragraphChildrenToBullets(
+            child.children,
+            warnings,
+            indent + "  ",
+          ),
+        );
+      }
+    } else {
+      // Non-paragraph children (bullets, toggles, etc.) render normally
+      lines.push(...blockToMarkdown(child, warnings, indent));
+    }
+  }
+  return lines;
+}
+
 function blockToMarkdown(
   block: NotionBlock,
   warnings: string[],
   indent = "",
 ): string[] {
+  const childIndent = indent + "  ";
+  const lines: string[] = [];
+
   switch (block.type) {
     case "paragraph":
-      return [indent + richTextToMarkdown(block.paragraph?.rich_text || [])];
+      lines.push(
+        ...splitMarkdownLines(
+          richTextToMarkdown(block.paragraph?.rich_text || []),
+          indent,
+        ),
+      );
+      break;
     case "heading_1":
-      return [`# ${richTextToMarkdown(block.heading_1?.rich_text || [])}`];
+      lines.push(`# ${richTextToMarkdown(block.heading_1?.rich_text || [])}`);
+      break;
     case "heading_2":
-      return [`## ${richTextToMarkdown(block.heading_2?.rich_text || [])}`];
+      lines.push(`## ${richTextToMarkdown(block.heading_2?.rich_text || [])}`);
+      break;
     case "heading_3":
-      return [`### ${richTextToMarkdown(block.heading_3?.rich_text || [])}`];
+      lines.push(`### ${richTextToMarkdown(block.heading_3?.rich_text || [])}`);
+      break;
     case "bulleted_list_item":
-      return [
+      lines.push(
         `${indent}- ${richTextToMarkdown(block.bulleted_list_item?.rich_text || [])}`,
-      ];
+      );
+      break;
     case "numbered_list_item":
-      return [
+      lines.push(
         `${indent}1. ${richTextToMarkdown(block.numbered_list_item?.rich_text || [])}`,
-      ];
+      );
+      break;
     case "to_do":
-      return [
+      lines.push(
         `${indent}- [${block.to_do?.checked ? "x" : " "}] ${richTextToMarkdown(block.to_do?.rich_text || [])}`,
-      ];
+      );
+      break;
     case "quote":
-      return [`> ${richTextToMarkdown(block.quote?.rich_text || [])}`];
+      lines.push(`> ${richTextToMarkdown(block.quote?.rich_text || [])}`);
+      break;
     case "divider":
-      return ["---"];
+      lines.push("---");
+      break;
     case "code":
-      return [
-        `\`\`\`${block.code?.language || ""}`.trimEnd(),
-        richTextToPlain(block.code?.rich_text || []),
-        "```",
-      ];
+      lines.push(...codeBlockToMarkdown(block, indent));
+      break;
     case "callout":
       warnings.push("Flattened Notion callout block into markdown quote.");
-      return [`> ${richTextToMarkdown(block.callout?.rich_text || [])}`];
+      lines.push(`> ${richTextToMarkdown(block.callout?.rich_text || [])}`);
+      break;
     case "toggle":
-      warnings.push("Flattened Notion toggle block into markdown bullet.");
-      return [`- ${richTextToMarkdown(block.toggle?.rich_text || [])}`];
+      lines.push(
+        `${indent}- ▶ ${richTextToMarkdown(block.toggle?.rich_text || [])}`,
+      );
+      break;
     case "image": {
       warnings.push("Image blocks were omitted from markdown sync.");
       return [];
@@ -342,6 +490,21 @@ function blockToMarkdown(
       return [];
     }
   }
+
+  if (block.children?.length) {
+    if (block.type === "paragraph") {
+      // Notion indented paragraphs become children of a paragraph block.
+      // Markdown doesn't support indented paragraphs natively, so convert
+      // child paragraphs into nested bullet points for visual indentation.
+      lines.push(
+        ...paragraphChildrenToBullets(block.children, warnings, childIndent),
+      );
+    } else {
+      lines.push(...childrenToMarkdown(block.children, warnings, childIndent));
+    }
+  }
+
+  return lines;
 }
 
 export function notionBlocksToMarkdown(blocks: NotionBlock[]): {
@@ -349,11 +512,21 @@ export function notionBlocksToMarkdown(blocks: NotionBlock[]): {
   warnings: string[];
 } {
   const warnings: string[] = [];
-  const lines = trimTrailingBlankLines(
-    blocks.flatMap((block) => [...blockToMarkdown(block, warnings), ""]),
-  );
+  const lines: string[] = [];
+  let previousBlock: NotionBlock | undefined;
+
+  for (const block of blocks) {
+    const blockLines = blockToMarkdown(block, warnings);
+    if (blockLines.length === 0) continue;
+    if (shouldInsertBlankLine(previousBlock, block)) {
+      lines.push("");
+    }
+    lines.push(...blockLines);
+    previousBlock = block;
+  }
+
   return {
-    markdown: lines.join("\n"),
+    markdown: trimTrailingBlankLines(lines).join("\n"),
     warnings: [...new Set(warnings)],
   };
 }
@@ -441,6 +614,21 @@ export async function fetchBlockChildren(
   return blocks;
 }
 
+export async function fetchBlockChildrenDeep(
+  accessToken: string,
+  blockId: string,
+): Promise<NotionBlock[]> {
+  const blocks = await fetchBlockChildren(accessToken, blockId);
+  await Promise.all(
+    blocks
+      .filter((b) => b.has_children)
+      .map(async (b) => {
+        b.children = await fetchBlockChildrenDeep(accessToken, b.id);
+      }),
+  );
+  return blocks;
+}
+
 async function replaceChildren(
   accessToken: string,
   pageId: string,
@@ -467,7 +655,7 @@ export async function readNotionPageAsDocument(
   pageId: string,
 ): Promise<NotionPageContent> {
   const page = await fetchNotionPage(accessToken, pageId);
-  const blocks = await fetchBlockChildren(accessToken, pageId);
+  const blocks = await fetchBlockChildrenDeep(accessToken, pageId);
   const { markdown, warnings } = notionBlocksToMarkdown(blocks);
   return {
     pageId: page.id,

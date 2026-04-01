@@ -8,7 +8,13 @@
  */
 
 import crypto from "node:crypto";
-import { getHeader, setCookie, sendRedirect, type H3Event } from "h3";
+import {
+  getHeader,
+  setCookie,
+  sendRedirect,
+  setResponseHeader,
+  type H3Event,
+} from "h3";
 import { addSession, getSession } from "./auth.js";
 
 // ─── Platform Detection ─────────────────────────────────────────────────────
@@ -199,7 +205,7 @@ export function oauthCallbackResponse(
     desktop?: boolean;
     addAccount?: boolean;
   },
-): Response | Promise<Response> {
+): string | void | Promise<string | void> {
   const mobile = isMobile(event);
 
   // Mobile: deep link back to native app
@@ -207,34 +213,30 @@ export function oauthCallbackResponse(
     const deepLink = opts.sessionToken
       ? `agentnative://oauth-complete?token=${opts.sessionToken}`
       : `agentnative://oauth-complete`;
-    return new Response(
-      `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Connected</title></head><body style="background:#111;color:#aaa;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p>Connected! Returning to app…</p><script>window.location.href=${JSON.stringify(deepLink)};setTimeout(function(){window.location.href="/"},1500)</script></body></html>`,
-      { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } },
-    );
+    setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Connected</title></head><body style="background:#111;color:#aaa;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p>Connected! Returning to app…</p><script>window.location.href=${JSON.stringify(deepLink)};setTimeout(function(){window.location.href="/"},1500)</script></body></html>`;
   }
 
   // Desktop: deep link back to Electron app
   if (opts.desktop) {
-    return desktopSuccessPage(email, opts.sessionToken);
+    return desktopSuccessPage(event, email, opts.sessionToken);
   }
 
   // Add-account web flow: close-tab page
   if (opts.addAccount) {
     const safeEmail = JSON.stringify(email);
-    return new Response(
-      `<!DOCTYPE html><html><body><script>
+    setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
+    return `<!DOCTYPE html><html><body><script>
         window.close();
         var p = document.createElement('p');
         p.style.cssText = 'font-family:system-ui;text-align:center;margin-top:40vh';
         p.textContent = 'Connected ' + ${safeEmail} + '! You can close this tab.';
         document.body.appendChild(p);
-      </script></body></html>`,
-      { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } },
-    );
+      </script></body></html>`;
   }
 
   // Web: redirect to app home
-  return sendRedirect(event, "/") as unknown as Response;
+  return sendRedirect(event, "/");
 }
 
 /** HTML error page for OAuth failures. */
@@ -249,17 +251,16 @@ export function oauthErrorPage(message: string): string {
 
 // ─── Internal ────────────────────────────────────────────────────────────────
 
-function desktopSuccessPage(email?: string, sessionToken?: string): Response {
+function desktopSuccessPage(
+  event: H3Event,
+  email?: string,
+  sessionToken?: string,
+): string {
   const msg = email ? `Connected ${email}!` : "Connected!";
+  setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
   if (sessionToken) {
     const deepLink = `agentnative://oauth-complete?token=${sessionToken}`;
-    return new Response(
-      `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:12px"><p style="font-size:16px">${msg}</p><a href=${JSON.stringify(deepLink)} style="display:inline-block;margin-top:8px;padding:10px 24px;background:#fff;color:#000;border-radius:8px;text-decoration:none;font-size:14px;font-weight:500">Open Agent Native</a><p style="font-size:12px;color:#666;margin-top:4px">If the app didn\u2019t open automatically, click the button above.</p><script>window.location.href=${JSON.stringify(deepLink)}</script></body></html>`,
-      { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } },
-    );
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:12px"><p style="font-size:16px">${msg}</p><a href=${JSON.stringify(deepLink)} style="display:inline-block;margin-top:8px;padding:10px 24px;background:#fff;color:#000;border-radius:8px;text-decoration:none;font-size:14px;font-weight:500">Open Agent Native</a><p style="font-size:12px;color:#666;margin-top:4px">If the app didn\u2019t open automatically, click the button above.</p><script>window.location.href=${JSON.stringify(deepLink)}</script></body></html>`;
   }
-  return new Response(
-    `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:8px"><p style="font-size:16px">${msg}</p><p style="font-size:13px;color:#888">You can close this tab and return to Agent Native.</p></body></html>`,
-    { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } },
-  );
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:8px"><p style="font-size:16px">${msg}</p><p style="font-size:13px;color:#888">You can close this tab and return to Agent Native.</p></body></html>`;
 }

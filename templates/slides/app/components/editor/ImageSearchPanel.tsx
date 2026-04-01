@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { X, Search, Loader2 } from "lucide-react";
+import { IconX, IconSearch, IconLoader2 } from "@tabler/icons-react";
 
 interface SearchResult {
   url: string;
@@ -58,13 +58,13 @@ export default function ImageSearchPanel({
       );
       if (!res.ok) {
         const data = await res.json();
-        setError(data.error || "Search failed");
+        setError(data.error || "IconSearch failed");
         setResults([]);
       } else {
         setResults(await res.json());
       }
     } catch {
-      setError("Search failed");
+      setError("IconSearch failed");
     } finally {
       setLoading(false);
     }
@@ -90,20 +90,22 @@ export default function ImageSearchPanel({
       className="w-96 max-h-[480px] bg-[hsl(240,5%,10%)] border border-white/[0.1] rounded-xl shadow-2xl shadow-black/60 overflow-hidden flex flex-col"
     >
       <div className="px-4 pt-3 pb-2 flex items-center justify-between flex-shrink-0">
-        <h3 className="text-sm font-semibold text-white/90">Search Images</h3>
+        <h3 className="text-sm font-semibold text-white/90">
+          IconSearch Images
+        </h3>
         <button
           onClick={() => onOpenChange(false)}
           className="text-white/30 hover:text-white/60 transition-colors"
           aria-label="Close"
         >
-          <X className="w-4 h-4" />
+          <IconX className="w-4 h-4" />
         </button>
       </div>
 
       <div className="px-4 pb-3 flex-shrink-0">
         <div className="flex gap-2">
           <div className="flex-1 relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/30" />
+            <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/30" />
             <input
               ref={inputRef}
               type="text"
@@ -112,7 +114,7 @@ export default function ImageSearchPanel({
               onKeyDown={(e) => {
                 if (e.key === "Enter") handleSearch();
               }}
-              placeholder="Search for images..."
+              placeholder="IconSearch for images..."
               className="w-full pl-8 pr-3 py-1.5 bg-white/[0.04] border border-white/[0.08] rounded-lg text-sm text-white/90 placeholder:text-white/30 outline-none focus:border-[#609FF8]/50"
             />
           </div>
@@ -122,9 +124,9 @@ export default function ImageSearchPanel({
             className="px-3 py-1.5 rounded-lg bg-[#609FF8] hover:bg-[#7AB2FA] disabled:opacity-50 text-black text-xs font-medium transition-colors"
           >
             {loading ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              <IconLoader2 className="w-3.5 h-3.5 animate-spin" />
             ) : (
-              "Search"
+              "IconSearch"
             )}
           </button>
         </div>
@@ -138,12 +140,12 @@ export default function ImageSearchPanel({
         )}
         {!loading && results.length === 0 && !error && (
           <div className="text-center py-8 text-white/30 text-xs">
-            Search for logos, images, icons...
+            IconSearch for logos, images, icons...
           </div>
         )}
         {loading && (
           <div className="flex items-center justify-center py-8">
-            <Loader2 className="w-4 h-4 text-white/30 animate-spin" />
+            <IconLoader2 className="w-4 h-4 text-white/30 animate-spin" />
           </div>
         )}
         {results.length > 0 && (

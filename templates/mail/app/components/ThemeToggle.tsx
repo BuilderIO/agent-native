@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useTheme } from "next-themes";
-import { Sun, Moon } from "lucide-react";
+import { IconSun, IconMoon } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -28,9 +28,9 @@ export function ThemeToggle({ className }: { className?: string }) {
         >
           {mounted ? (
             isDark ? (
-              <Sun className="h-4 w-4" />
+              <IconSun className="h-4 w-4" />
             ) : (
-              <Moon className="h-4 w-4" />
+              <IconMoon className="h-4 w-4" />
             )
           ) : (
             <span className="h-4 w-4" />

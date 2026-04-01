@@ -1,4 +1,4 @@
-import { GripVertical, X } from "lucide-react";
+import { IconGripVertical, IconX } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { EventCombobox } from "./EventCombobox";
 import { FilterBuilder } from "./FilterBuilder";
@@ -15,7 +15,7 @@ export function EventRow({ event, onChange, onRemove }: EventRowProps) {
   return (
     <div className="border rounded-lg p-3 space-y-2 bg-card">
       <div className="flex items-center gap-2">
-        <GripVertical className="h-4 w-4 text-muted-foreground shrink-0 cursor-grab" />
+        <IconGripVertical className="h-4 w-4 text-muted-foreground shrink-0 cursor-grab" />
         <div className="flex-1 min-w-0">
           <EventCombobox
             value={event.event}
@@ -28,7 +28,7 @@ export function EventRow({ event, onChange, onRemove }: EventRowProps) {
           className="h-7 w-7 shrink-0"
           onClick={onRemove}
         >
-          <X className="h-4 w-4" />
+          <IconX className="h-4 w-4" />
         </Button>
       </div>
 

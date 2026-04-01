@@ -1,7 +1,12 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { Player, type PlayerRef } from "@remotion/player";
 import type { LibraryComponentEntry } from "@/remotion/componentRegistry";
-import { Play, Pause, SkipBack, Save } from "lucide-react";
+import {
+  IconPlayerPlay,
+  IconPlayerPause,
+  IconPlayerSkipBack,
+  IconDeviceFloppy,
+} from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import type { Zone } from "@/remotion/hooks/useEditableZones";
 
@@ -184,8 +189,10 @@ export function ComponentLibraryView({
                 onClick={handleSaveZones}
                 className="flex items-center gap-2 bg-white/20 hover:bg-white/30 px-4 py-2 rounded transition-colors"
               >
-                <Save className="w-4 h-4" />
-                <span className="text-sm font-semibold">Save Zones</span>
+                <IconDeviceFloppy className="w-4 h-4" />
+                <span className="text-sm font-semibold">
+                  IconDeviceFloppy Zones
+                </span>
               </button>
             </div>
           </div>
@@ -244,20 +251,20 @@ export function ComponentLibraryView({
                   title="Restart"
                   aria-label="Restart"
                 >
-                  <SkipBack className="w-4 h-4 text-white" />
+                  <IconPlayerSkipBack className="w-4 h-4 text-white" />
                 </button>
 
-                {/* Play/Pause */}
+                {/* IconPlayerPlay/IconPlayerPause */}
                 <button
                   onClick={handlePlayPause}
                   className="p-2 hover:bg-white/10 rounded transition-colors"
-                  title={playing ? "Pause" : "Play"}
-                  aria-label={playing ? "Pause" : "Play"}
+                  title={playing ? "IconPlayerPause" : "IconPlayerPlay"}
+                  aria-label={playing ? "IconPlayerPause" : "IconPlayerPlay"}
                 >
                   {playing ? (
-                    <Pause className="w-4 h-4 text-white" />
+                    <IconPlayerPause className="w-4 h-4 text-white" />
                   ) : (
-                    <Play className="w-4 h-4 text-white" />
+                    <IconPlayerPlay className="w-4 h-4 text-white" />
                   )}
                 </button>
 
@@ -279,8 +286,8 @@ export function ComponentLibraryView({
             <div>
               <h3 className="text-sm font-semibold mb-2">Preview Timeline</h3>
               <p className="text-xs text-muted-foreground mb-3">
-                Press <strong>Play</strong> to see the cursor demonstrate hover
-                and click interactions:
+                Press <strong>IconPlayerPlay</strong> to see the cursor
+                demonstrate hover and click interactions:
               </p>
               <ul className="text-xs text-muted-foreground space-y-1 ml-4 list-disc">
                 <li>
