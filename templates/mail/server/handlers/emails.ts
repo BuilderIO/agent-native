@@ -24,8 +24,9 @@ import {
   gmailGetThread,
   gmailListLabels,
   gmailModifyMessage,
-  gmailTrashMessage,
-  gmailUntrashMessage,
+  gmailModifyThread,
+  gmailTrashThread,
+  gmailUntrashThread,
   googleFetch,
   peopleListConnections,
   peopleListOtherContacts,
@@ -232,8 +233,13 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
         trash: "in:trash",
         all: "",
       };
-      let searchQuery = gmailQuery[view] ?? `label:${view}`;
-      if (q) searchQuery += ` ${q}`;
+      let searchQuery: string;
+      if (q) {
+        // Search across all mail, not scoped to current view
+        searchQuery = q;
+      } else {
+        searchQuery = gmailQuery[view] ?? `label:${view}`;
+      }
 
       // Fetch label name mapping from all accounts
       const accountTokens = await getAccountTokens(email);
@@ -549,8 +555,9 @@ export const archiveEmail = defineEventHandler(async (event: H3Event) => {
     }
     try {
       const id = getRouterParam(event, "id") as string;
-      await gmailModifyMessage(accessToken, id, undefined, ["INBOX"]);
-      return { id, isArchived: true };
+      const msg = await gmailGetMessage(accessToken, id, "minimal");
+      await gmailModifyThread(accessToken, msg.threadId, undefined, ["INBOX"]);
+      return { id, threadId: msg.threadId, isArchived: true };
     } catch (error: any) {
       console.error("[archiveEmail] Gmail error:", error.message);
       setResponseStatus(event, 500);
@@ -599,8 +606,9 @@ export const unarchiveEmail = defineEventHandler(async (event: H3Event) => {
     }
     try {
       const id = getRouterParam(event, "id") as string;
-      await gmailModifyMessage(accessToken, id, ["INBOX"]);
-      return { id, isArchived: false };
+      const msg = await gmailGetMessage(accessToken, id, "minimal");
+      await gmailModifyThread(accessToken, msg.threadId, ["INBOX"]);
+      return { id, threadId: msg.threadId, isArchived: false };
     } catch (error: any) {
       console.error("[unarchiveEmail] Gmail error:", error.message);
       setResponseStatus(event, 500);
@@ -651,8 +659,9 @@ export const trashEmail = defineEventHandler(async (event: H3Event) => {
     }
     try {
       const id = getRouterParam(event, "id") as string;
-      await gmailTrashMessage(accessToken, id);
-      return { id, isTrashed: true };
+      const msg = await gmailGetMessage(accessToken, id, "minimal");
+      await gmailTrashThread(accessToken, msg.threadId);
+      return { id, threadId: msg.threadId, isTrashed: true };
     } catch (error: any) {
       console.error("[trashEmail] Gmail error:", error.message);
       setResponseStatus(event, 500);
@@ -697,8 +706,9 @@ export const untrashEmail = defineEventHandler(async (event: H3Event) => {
     }
     try {
       const id = getRouterParam(event, "id") as string;
-      await gmailUntrashMessage(accessToken, id);
-      return { id, isTrashed: false };
+      const msg = await gmailGetMessage(accessToken, id, "minimal");
+      await gmailUntrashThread(accessToken, msg.threadId);
+      return { id, threadId: msg.threadId, isTrashed: false };
     } catch (error: any) {
       console.error("[untrashEmail] Gmail error:", error.message);
       setResponseStatus(event, 500);
@@ -757,25 +767,11 @@ export const reportSpam = defineEventHandler(async (event: H3Event) => {
       // Get the threadId from the message if not provided
       let threadId = bodyThreadId;
       if (!threadId) {
-        const msg = await googleFetch(
-          `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=minimal`,
-          accessToken,
-        );
+        const msg = await gmailGetMessage(accessToken, id, "minimal");
         threadId = msg.threadId;
       }
-      // Report spam on entire thread (like mute)
-      await googleFetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/threads/${threadId}/modify`,
-        accessToken,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            addLabelIds: ["SPAM"],
-            removeLabelIds: ["INBOX"],
-          }),
-        },
-      );
+      // Report spam on entire thread
+      await gmailModifyThread(accessToken, threadId, ["SPAM"], ["INBOX"]);
       return { id, threadId, spam: true };
     } catch (error: any) {
       console.error("[reportSpam] Gmail error:", error.message);
@@ -850,8 +846,9 @@ export const blockSender = defineEventHandler(async (event: H3Event) => {
     try {
       const id = getRouterParam(event, "id") as string;
 
-      // Also report the current message as spam
-      await gmailModifyMessage(accessToken, id, ["SPAM"], ["INBOX"]);
+      // Report the entire thread as spam
+      const msg = await gmailGetMessage(accessToken, id, "minimal");
+      await gmailModifyThread(accessToken, msg.threadId, ["SPAM"], ["INBOX"]);
 
       // Create a filter to auto-delete future emails from this sender
       try {
@@ -950,18 +947,7 @@ export const muteThread = defineEventHandler(async (event: H3Event) => {
     try {
       const threadId = getRouterParam(event, "threadId") as string;
       // Gmail "mute" = remove from inbox; future replies also skip inbox
-      // Use threads.modify endpoint
-      await googleFetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/threads/${threadId}/modify`,
-        accessToken,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            removeLabelIds: ["INBOX"],
-          }),
-        },
-      );
+      await gmailModifyThread(accessToken, threadId, undefined, ["INBOX"]);
       return { threadId, muted: true };
     } catch (error: any) {
       console.error("[muteThread] Gmail error:", error.message);
@@ -1072,8 +1058,26 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
       }
 
       if (selectedToken) {
+        // Fetch the sender's display name from Gmail send-as settings
+        let fromHeader = selectedEmail;
+        try {
+          const sendAs = await googleFetch(
+            `https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs`,
+            selectedToken,
+          );
+          const match = sendAs?.sendAs?.find(
+            (s: any) =>
+              s.sendAsEmail?.toLowerCase() === selectedEmail.toLowerCase(),
+          );
+          if (match?.displayName) {
+            fromHeader = `${match.displayName} <${selectedEmail}>`;
+          }
+        } catch {
+          // Fall back to email-only if settings fetch fails
+        }
+
         const raw = buildRawEmail({
-          from: selectedEmail,
+          from: fromHeader,
           to: to || "",
           cc: cc || "",
           bcc: bcc || "",

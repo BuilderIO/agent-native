@@ -17,7 +17,11 @@
  */
 
 import { parseArgs, output, fatal, getAccessTokens } from "./helpers.js";
-import { gmailGetMessage, gmailSendMessage } from "../server/lib/google-api.js";
+import {
+  gmailGetMessage,
+  gmailSendMessage,
+  googleFetch,
+} from "../server/lib/google-api.js";
 import { getSetting } from "@agent-native/core/settings";
 import type { ScriptTool } from "@agent-native/core";
 
@@ -132,8 +136,27 @@ export async function run(args: Record<string, string>): Promise<string> {
     }
   }
 
+  // Fetch sender display name from Gmail send-as settings
+  let fromHeader = settings.name
+    ? `${settings.name} <${selectedEmail}>`
+    : selectedEmail;
+  try {
+    const sendAs = await googleFetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs`,
+      selectedToken,
+    );
+    const match = sendAs?.sendAs?.find(
+      (s: any) => s.sendAsEmail?.toLowerCase() === selectedEmail.toLowerCase(),
+    );
+    if (match?.displayName) {
+      fromHeader = `${match.displayName} <${selectedEmail}>`;
+    }
+  } catch {
+    // Fall back to settings.name or email-only
+  }
+
   const raw = buildRawEmail({
-    from: settings.name ? `${settings.name} <${selectedEmail}>` : selectedEmail,
+    from: fromHeader,
     to: args.to,
     cc: args.cc,
     bcc: args.bcc,
