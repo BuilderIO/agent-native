@@ -53,6 +53,58 @@ function splitQuotedContent(body: string): [string, string] {
   return [editable, quoted];
 }
 
+const LAST_SEND_ACCOUNT_KEY = "mail:lastSendAccount";
+
+function FromAccountSelector({
+  accounts,
+  value,
+  onChange,
+}: {
+  accounts: Array<{ email: string }>;
+  value: string | undefined;
+  onChange: (email: string) => void;
+}) {
+  // On mount, if no account is set, apply the sticky default
+  const resolvedValue =
+    value ||
+    (accounts.some(
+      (a) => a.email === localStorage.getItem(LAST_SEND_ACCOUNT_KEY),
+    )
+      ? localStorage.getItem(LAST_SEND_ACCOUNT_KEY)!
+      : accounts[0]?.email) ||
+    "";
+
+  // Sync the sticky default into the draft if it wasn't set
+  useEffect(() => {
+    if (!value && resolvedValue) {
+      onChange(resolvedValue);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div className="flex items-center border-b border-border px-4">
+      <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
+        From
+      </span>
+      <select
+        value={resolvedValue}
+        onChange={(e) => {
+          const email = e.target.value;
+          localStorage.setItem(LAST_SEND_ACCOUNT_KEY, email);
+          onChange(email);
+        }}
+        className="flex-1 bg-transparent py-2 text-sm outline-none text-foreground cursor-pointer"
+      >
+        {accounts.map((acct) => (
+          <option key={acct.email} value={acct.email}>
+            {acct.email}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 interface ComposeModalProps {
   drafts: ComposeState[];
   activeId: string | null;
@@ -430,26 +482,13 @@ export function ComposeModal({
           {/* Header fields */}
           <div className="border-b border-border">
             {allAccounts.length > 1 && (
-              <div className="flex items-center border-b border-border px-4">
-                <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
-                  From
-                </span>
-                <select
-                  value={
-                    activeDraft.accountEmail || allAccounts[0]?.email || ""
-                  }
-                  onChange={(e) =>
-                    onUpdate(activeId!, { accountEmail: e.target.value })
-                  }
-                  className="flex-1 bg-transparent py-2 text-sm outline-none text-foreground cursor-pointer"
-                >
-                  {allAccounts.map((acct) => (
-                    <option key={acct.email} value={acct.email}>
-                      {acct.email}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <FromAccountSelector
+                accounts={allAccounts}
+                value={activeDraft.accountEmail}
+                onChange={(email) =>
+                  onUpdate(activeId!, { accountEmail: email })
+                }
+              />
             )}
             <div className="flex items-center border-b border-border px-4">
               <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
