@@ -445,8 +445,8 @@ export function markdownToNotionBlocks(markdown: string): any[] {
         i < lines.length &&
         parseMarkdownLine(lines[i]).kind !== "code-fence"
       ) {
-        const { text } = getLineIndent(lines[i]);
-        codeLines.push(text);
+        // Preserve raw indentation inside code blocks — it's syntactically significant
+        codeLines.push(lines[i]);
         i++;
       }
       attachBlock(parsed.indent, {

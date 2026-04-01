@@ -68,6 +68,11 @@ export function suppressThread(
   suppressedThreads.set(threadId, { action, timestamp: Date.now() });
 }
 
+/** Remove suppression — used on mutation error rollback. */
+export function unsuppressThread(threadId: string) {
+  suppressedThreads.delete(threadId);
+}
+
 function isSuppressedInView(threadId: string, view: string): boolean {
   const entry = suppressedThreads.get(threadId);
   if (!entry) return false;
@@ -225,9 +230,10 @@ export function useArchiveEmail() {
       qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
         old?.filter((e) => (e.threadId || e.id) !== threadId),
       );
-      return { previous };
+      return { previous, threadId };
     },
     onError: (_err, _vars, context) => {
+      if (context?.threadId) unsuppressThread(context.threadId);
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
     },
     onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
@@ -272,9 +278,10 @@ export function useTrashEmail() {
       qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
         old?.filter((e) => (e.threadId || e.id) !== threadId),
       );
-      return { previous };
+      return { previous, threadId };
     },
     onError: (_err, _id, context) => {
+      if (context?.threadId) unsuppressThread(context.threadId);
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
     },
     onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),

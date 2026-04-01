@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { toast } from "sonner";
 import { Editor } from "@tiptap/react";
 import {
   IconTypography,
@@ -163,6 +164,10 @@ export function SlashCommandMenu({
 
   function handleGenerateSubmit() {
     if (!generatePrompt.trim()) return;
+    if (!documentId) {
+      toast.error("No document selected");
+      return;
+    }
     setGenerateOpen(false);
     const content = (editor.storage as any).markdown.getMarkdown();
     send({
