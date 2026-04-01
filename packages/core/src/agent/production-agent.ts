@@ -187,9 +187,12 @@ async function runAgentLoop(opts: {
       } catch (err: unknown) {
         if (signal.aborted) throw err;
         if (retry < MAX_RETRIES && isRetryableError(err)) {
+          // Clear partial text from the failed attempt so the retry
+          // doesn't produce garbled duplicate output
+          send({ type: "clear" });
           send({
             type: "text",
-            text: `\n\n*API temporarily unavailable, retrying in ${(RETRY_BASE_DELAY_MS * Math.pow(2, retry)) / 1000}s...*\n\n`,
+            text: `*Retrying in ${(RETRY_BASE_DELAY_MS * Math.pow(2, retry)) / 1000}s...*\n\n`,
           });
           await retryDelay(retry, signal);
           continue;
@@ -282,7 +285,13 @@ export function createProductionAgentHandler(
       return { error: "Invalid request body" };
     }
 
-    const { message, history = [], references = [], threadId } = body;
+    const {
+      message,
+      history = [],
+      references = [],
+      threadId,
+      attachments,
+    } = body;
     if (!message) {
       setResponseStatus(event, 400);
       return { error: "message is required" };
@@ -333,6 +342,31 @@ export function createProductionAgentHandler(
     const client = new Anthropic({ apiKey });
     const enrichedMessage = enrichMessage(message, references);
 
+    // Build user content: text + any image attachments
+    const userContent: Anthropic.ContentBlockParam[] = [];
+    if (attachments?.length) {
+      for (const att of attachments) {
+        if (att.type === "image" && att.data) {
+          const match = att.data.match(/^data:(image\/[^;]+);base64,(.+)$/);
+          if (match) {
+            userContent.push({
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: match[1] as
+                  | "image/jpeg"
+                  | "image/png"
+                  | "image/gif"
+                  | "image/webp",
+                data: match[2],
+              },
+            });
+          }
+        }
+      }
+    }
+    userContent.push({ type: "text", text: enrichedMessage });
+
     const messages: Anthropic.MessageParam[] = [
       ...history
         .filter((m) => m.content.trim())
@@ -340,7 +374,7 @@ export function createProductionAgentHandler(
           role: m.role as "user" | "assistant",
           content: m.content,
         })),
-      { role: "user" as const, content: enrichedMessage },
+      { role: "user" as const, content: userContent },
     ];
 
     // Start agent loop in background via run-manager

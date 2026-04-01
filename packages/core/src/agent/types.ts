@@ -46,11 +46,20 @@ export interface MentionProvider {
   ) => MentionProviderItem[] | Promise<MentionProviderItem[]>;
 }
 
+export interface AgentChatAttachment {
+  type: string;
+  name: string;
+  data?: string;
+  contentType?: string;
+  text?: string;
+}
+
 export interface AgentChatRequest {
   message: string;
   history?: AgentMessage[];
   references?: AgentChatReference[];
   threadId?: string;
+  attachments?: AgentChatAttachment[];
 }
 
 export type AgentChatEvent =
@@ -60,7 +69,8 @@ export type AgentChatEvent =
   | { type: "done" }
   | { type: "error"; error: string }
   | { type: "missing_api_key" }
-  | { type: "loop_limit" };
+  | { type: "loop_limit" }
+  | { type: "clear" };
 
 export interface RunEvent {
   seq: number;

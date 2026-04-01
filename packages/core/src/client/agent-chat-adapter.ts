@@ -39,6 +39,12 @@ function processEvent(
   action: "continue" | "done" | "yield" | "error" | "missing_api_key";
   result?: ChatModelRunResult;
 } {
+  if (ev.type === "clear") {
+    // Server is retrying — discard partial text/tool output from the failed attempt
+    content.length = 0;
+    return { action: "continue" };
+  }
+
   if (ev.type === "text") {
     const lastPart = content[content.length - 1];
     if (lastPart && lastPart.type === "text") {
