@@ -24,6 +24,39 @@ export interface DbExec {
 }
 
 // ---------------------------------------------------------------------------
+// Per-app DATABASE_URL resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the database URL for the current app.
+ *
+ * Checks for `<APP_NAME>_DATABASE_URL` first (e.g. `MAIL_DATABASE_URL`),
+ * then falls back to `DATABASE_URL`. This allows multiple apps to run in the
+ * same process group (e.g. `dev:all` or builder.io) with separate databases.
+ *
+ * Set `APP_NAME=mail` in the child process env and
+ * `MAIL_DATABASE_URL=postgres://...` in the shared env.
+ */
+export function getDatabaseUrl(fallback = ""): string {
+  const appName = process.env.APP_NAME?.toUpperCase().replace(/-/g, "_");
+  if (appName) {
+    const prefixed = process.env[`${appName}_DATABASE_URL`];
+    if (prefixed) return prefixed;
+  }
+  return process.env.DATABASE_URL || fallback;
+}
+
+/** Same per-app resolution for DATABASE_AUTH_TOKEN (used by Turso/libsql). */
+export function getDatabaseAuthToken(): string | undefined {
+  const appName = process.env.APP_NAME?.toUpperCase().replace(/-/g, "_");
+  if (appName) {
+    const prefixed = process.env[`${appName}_DATABASE_AUTH_TOKEN`];
+    if (prefixed) return prefixed;
+  }
+  return process.env.DATABASE_AUTH_TOKEN;
+}
+
+// ---------------------------------------------------------------------------
 // Dialect detection
 // ---------------------------------------------------------------------------
 
@@ -33,7 +66,7 @@ export function getDialect(): Dialect {
   if (_dialect !== undefined) return _dialect;
 
   // DATABASE_URL takes priority over D1 when set.
-  const url = process.env.DATABASE_URL || "";
+  const url = getDatabaseUrl();
   if (url.startsWith("postgres://") || url.startsWith("postgresql://")) {
     _dialect = "postgres";
     return _dialect;
@@ -107,7 +140,7 @@ async function initClient(): Promise<void> {
     return;
   }
 
-  const url = process.env.DATABASE_URL || "file:./data/app.db";
+  const url = getDatabaseUrl("file:./data/app.db");
 
   // Postgres — uses postgres.js. Works on Node.js natively and on Cloudflare
   // Workers with the nodejs_compat compatibility flag (provides net/tls polyfills).
@@ -179,7 +212,7 @@ async function initClient(): Promise<void> {
   const { createClient } = await import("@libsql/client");
   const client = createClient({
     url,
-    authToken: process.env.DATABASE_AUTH_TOKEN,
+    authToken: getDatabaseAuthToken(),
   });
 
   _exec = {

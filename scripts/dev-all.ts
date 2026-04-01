@@ -80,7 +80,11 @@ templatePorts.forEach(({ name, port }) => {
   console.log(`\x1b[36m[dev-all]\x1b[0m ${name}: http://localhost:${port}`);
 
   names.push(name);
-  commands.push(`pnpm --filter ${name} exec vite --port ${port}`);
+  // Pass APP_NAME so each app can resolve its own DATABASE_URL
+  // (e.g. MAIL_DATABASE_URL when APP_NAME=mail)
+  commands.push(
+    `APP_NAME=${name} pnpm --filter ${name} exec vite --port ${port}`,
+  );
 });
 
 // Core TypeScript watch
