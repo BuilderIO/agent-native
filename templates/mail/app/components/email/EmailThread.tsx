@@ -684,7 +684,9 @@ export function EmailThread({
     "all",
     "important",
   ]);
-  const displayLabels = email.labelIds.filter((l) => !systemLabels.has(l));
+  const displayLabels = [...new Set(email.labelIds)].filter(
+    (l) => !systemLabels.has(l),
+  );
 
   // Strip "Re: " / "Fwd: " prefixes for thread subject
   const threadSubject = email.subject.replace(/^(Re|Fwd|Fw):\s*/i, "");
