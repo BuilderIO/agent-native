@@ -5,9 +5,18 @@ import {
   type H3Event,
 } from "h3";
 import { appStateGet } from "@agent-native/core/application-state";
+import { getSession } from "@agent-native/core/server";
 
-async function getPylonKey(): Promise<string | undefined> {
-  const data = await appStateGet("local", "pylon");
+async function getSessionId(event: H3Event): Promise<string> {
+  const session = await getSession(event);
+  if (!session) return "local";
+  if (session.email === "local@localhost") return "local";
+  return session.email;
+}
+
+async function getPylonKey(event: H3Event): Promise<string | undefined> {
+  const sessionId = await getSessionId(event);
+  const data = await appStateGet(sessionId, "pylon");
   return (data as any)?.apiKey || undefined;
 }
 
@@ -19,7 +28,7 @@ export const pylonContactLookup = defineEventHandler(async (event: H3Event) => {
     return { error: "email query param required" };
   }
 
-  const apiKey = await getPylonKey();
+  const apiKey = await getPylonKey(event);
   if (!apiKey) {
     setResponseStatus(event, 401);
     return { error: "Pylon API key not configured" };
