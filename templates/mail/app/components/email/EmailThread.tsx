@@ -1437,8 +1437,8 @@ const ExpandedMessageCard = forwardRef<
 /** Detect where quoted/forwarded content begins in a plain text email */
 function findQuoteStart(lines: string[]): number {
   for (let i = 0; i < lines.length; i++) {
-    // "On ... wrote:" pattern
-    if (/^On .+ wrote:$/i.test(lines[i].trim())) return i;
+    // "On ... wrote:" pattern (with optional em-dash/dash prefix)
+    if (/^[—–-]*\s*On .+ wrote:$/i.test(lines[i].trim())) return i;
     // "--- Original Message ---" / "--- Forwarded message ---"
     if (/^-{2,}\s*(Original|Forwarded)\s/i.test(lines[i].trim())) return i;
     // Block of consecutive ">" quoted lines (at least 2)

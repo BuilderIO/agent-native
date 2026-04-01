@@ -1,6 +1,7 @@
 import {
   createProductionAgentHandler,
   getActiveRunForThread,
+  getActiveRunForThreadAsync,
   getRun,
   abortRun,
   subscribeToRun,
@@ -955,11 +956,7 @@ export function createAgentChatPlugin(
         const abortMatch = url.match(/\/runs\/([^/?]+)\/abort/);
         if (abortMatch && method === "POST") {
           const runId = decodeURIComponent(abortMatch[1]);
-          const success = abortRun(runId);
-          if (!success) {
-            setResponseStatus(event, 404);
-            return { error: "Run not found" };
-          }
+          abortRun(runId); // Aborts in-memory + marks aborted in SQL
           return { ok: true };
         }
 
@@ -991,8 +988,9 @@ export function createAgentChatPlugin(
             return { error: "threadId query parameter is required" };
           }
 
-          const run = getActiveRunForThread(threadId);
-          if (!run || run.status !== "running") {
+          // Check in-memory first, then SQL (cross-isolate on Workers)
+          const run = await getActiveRunForThreadAsync(threadId);
+          if (!run) {
             setResponseStatus(event, 404);
             return { error: "No active run for this thread" };
           }
@@ -1001,7 +999,6 @@ export function createAgentChatPlugin(
             runId: run.runId,
             threadId: run.threadId,
             status: run.status,
-            eventCount: run.events.length,
           };
         }
 

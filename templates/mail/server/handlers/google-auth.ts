@@ -21,7 +21,10 @@ import {
   exchangeCode,
   getAuthStatus,
   disconnect,
+  getClient,
 } from "../lib/google-auth.js";
+import { googleFetch } from "../lib/google-api.js";
+import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 
 export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
@@ -79,6 +82,35 @@ export const handleGoogleCallback = defineEventHandler(
 
       // 2. Exchange code with Google (template-specific)
       const email = await exchangeCode(code, undefined, redirectUri, owner);
+
+      // 2b. Auto-populate display name in settings if not set
+      try {
+        const client = await getClient(email);
+        if (client) {
+          const settings = (await getUserSetting(
+            owner ?? email,
+            "mail-settings",
+          )) as Record<string, unknown> | null;
+          if (!settings?.name) {
+            const sendAs = await googleFetch(
+              `https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs`,
+              client.accessToken,
+            );
+            const match = sendAs?.sendAs?.find(
+              (s: any) => s.sendAsEmail?.toLowerCase() === email.toLowerCase(),
+            );
+            if (match?.displayName) {
+              await putUserSetting(owner ?? email, "mail-settings", {
+                ...(settings || {}),
+                name: match.displayName,
+                email,
+              });
+            }
+          }
+        }
+      } catch {
+        // Non-critical — settings can be set manually later
+      }
 
       // 3. Create session token (after we have the email)
       const { sessionToken } = await createOAuthSession(event, email, {

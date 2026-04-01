@@ -243,6 +243,9 @@ export default function CalendarView() {
         return;
       }
 
+      // Don't intercept keyboard shortcuts with modifier keys (Cmd+C, Ctrl+V, etc.)
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
       switch (e.key) {
         case "j":
         case "n":

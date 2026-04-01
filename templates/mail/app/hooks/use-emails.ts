@@ -424,6 +424,24 @@ export function useSendEmail() {
         : undefined;
       const threadId =
         replyTarget?.threadId || data.replyToId || makeTempId("thread");
+
+      // Check if an optimistic message was already added (by addOptimisticReply)
+      const existingMessages =
+        qc.getQueryData<EmailMessage[]>(["thread-messages", threadId]) ?? [];
+      const existingOptimistic = existingMessages.find(
+        (m) => m.id.startsWith("sent-") && m.isSent,
+      );
+
+      if (existingOptimistic) {
+        // Reuse the existing optimistic message — don't add another
+        return {
+          previousThreads,
+          optimisticMessage: existingOptimistic,
+          threadId,
+        };
+      }
+
+      // No prior optimistic message (e.g. sent from ComposeModal) — add one
       const optimisticMessage: EmailMessage = {
         id: makeTempId("sent"),
         threadId,
@@ -481,7 +499,6 @@ export function useSendEmail() {
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ["emails"] });
-      qc.invalidateQueries({ queryKey: ["thread-messages"] });
     },
   });
 }

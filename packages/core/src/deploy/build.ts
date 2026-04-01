@@ -128,7 +128,8 @@ ${routeRegistrations.join("\n")}
 
 export default {
   async fetch(request, env, ctx) {
-    // Expose env bindings globally for compatibility
+    // Expose env and ctx bindings globally for compatibility
+    if (ctx) globalThis.__cf_ctx = ctx;
     if (env) {
       globalThis.process = globalThis.process || { env: {} };
       globalThis.process.env = globalThis.process.env || {};

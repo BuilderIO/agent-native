@@ -187,14 +187,6 @@ export function EventDetailPanel({
                 {event.attendees && event.attendees.length > 0 && (
                   <ResearchMeetingButton event={event} />
                 )}
-
-                {/* Google Calendar badge */}
-                {event.source === "google" && (
-                  <div className="flex items-center gap-2 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
-                    <IconExternalLink className="h-3.5 w-3.5" />
-                    <span>Synced from Google Calendar</span>
-                  </div>
-                )}
               </div>
 
               {/* Actions */}
