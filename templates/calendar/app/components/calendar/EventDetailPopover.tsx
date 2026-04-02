@@ -28,6 +28,11 @@ import type { CalendarEvent } from "@shared/api";
 import { ResearchMeetingButton } from "@/components/calendar/ApolloPanel";
 import { EventAttendeesSection } from "@/components/calendar/EventAttendeesSection";
 import { useCalendarContext } from "@/components/layout/AppLayout";
+import {
+  sanitizeHtml,
+  stripGcalInviteHtml,
+  isHtml,
+} from "@/lib/sanitize-description";
 
 function formatDuration(start: string, end: string): string {
   const totalMinutes = differenceInMinutes(parseISO(end), parseISO(start));
@@ -46,95 +51,6 @@ function formatTimeShort(dateStr: string): string {
   const hour12 = h % 12 || 12;
   if (m === 0) return `${hour12} ${period}`;
   return `${hour12}:${m.toString().padStart(2, "0")} ${period}`;
-}
-
-/** Sanitize HTML: strip script tags and on* event handlers */
-function sanitizeHtml(html: string): string {
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, "")
-    .replace(/<script[\s\S]*?>/gi, "")
-    .replace(/\bon\w+\s*=\s*"[^"]*"/gi, "")
-    .replace(/\bon\w+\s*=\s*'[^']*'/gi, "")
-    .replace(/\bon\w+\s*=\s*[^\s>]*/gi, "");
-}
-
-/**
- * Strip Google Calendar invitation boilerplate from event descriptions.
- * GCal embeds the full invitation HTML (guest list, RSVP buttons, "More options",
- * meeting details, "Invitation from Google Calendar" footer) into the description.
- * We render all of that natively, so strip it out to avoid ugly duplication.
- */
-function stripGcalInviteHtml(html: string): string {
-  let cleaned = html;
-
-  // Remove "Reply for <email>" section with Yes/No/Maybe buttons
-  // This covers the RSVP table/block that Google Calendar injects
-  cleaned = cleaned.replace(
-    /<(table|div)[^>]*>[\s\S]*?Reply\s+for[\s\S]*?<\/(table|div)>/gi,
-    "",
-  );
-
-  // Remove standalone Yes/No/Maybe buttons (various Google formats)
-  cleaned = cleaned.replace(
-    /<(table|div)[^>]*>[\s\S]*?(?:>Yes<|>No<|>Maybe<)[\s\S]*?<\/(table|div)>/gi,
-    "",
-  );
-
-  // Remove "More options" link/button
-  cleaned = cleaned.replace(/<a[^>]*>[\s]*More\s+options[\s]*<\/a>/gi, "");
-  cleaned = cleaned.replace(
-    /<(table|div)[^>]*>[\s\S]*?More\s+options[\s\S]*?<\/(table|div)>/gi,
-    "",
-  );
-
-  // Remove "Invitation from Google Calendar" footer
-  cleaned = cleaned.replace(
-    /Invitation\s+from\s+<a[^>]*>Google\s+Calendar<\/a>/gi,
-    "",
-  );
-  cleaned = cleaned.replace(/Invitation\s+from\s+Google\s+Calendar/gi, "");
-
-  // Remove "You are receiving this email" disclaimer
-  cleaned = cleaned.replace(/You\s+are\s+receiving\s+this[\s\S]*?$/gi, "");
-
-  // Remove "View all guest info" links
-  cleaned = cleaned.replace(
-    /<a[^>]*>[\s]*View\s+all\s+guest\s+info[\s]*<\/a>/gi,
-    "",
-  );
-
-  // Remove the "When" / "Guests" sections that duplicate our native UI
-  cleaned = cleaned.replace(
-    /<b>When<\/b>[\s\S]*?(?=<b>|<hr|<br\s*\/?>[\s]*<br\s*\/?>|$)/gi,
-    "",
-  );
-
-  // Remove "Join Zoom Meeting" / "Join by phone" blocks that duplicate our meeting link
-  cleaned = cleaned.replace(
-    /<b>Join\s+Zoom\s+Meeting<\/b>[\s\S]*?(?=<b>Joining\s+notes|<hr|<br\s*\/?>[\s]*<br\s*\/?>[\s]*<br|$)/gi,
-    "",
-  );
-  cleaned = cleaned.replace(
-    /<b>Join\s+by\s+phone<\/b>[\s\S]*?(?=<b>|<hr|$)/gi,
-    "",
-  );
-
-  // Remove "Joining instructions" links
-  cleaned = cleaned.replace(
-    /<a[^>]*>[\s]*Joining\s+instructions[\s]*<\/a>/gi,
-    "",
-  );
-
-  // Clean up leftover separators and whitespace
-  cleaned = cleaned.replace(/(<hr\s*\/?>[\s]*){2,}/gi, "<hr/>");
-  cleaned = cleaned.replace(/(<br\s*\/?>[\s]*){4,}/gi, "<br/><br/>");
-  cleaned = cleaned.replace(/([-─]{5,}[\s]*){2,}/g, "");
-
-  // Trim leading/trailing whitespace and empty elements
-  cleaned = cleaned.replace(/^[\s<br\/>]*(<hr\s*\/?>)?[\s<br\/>]*/i, "");
-  cleaned = cleaned.replace(/[\s<br\/>]*(<hr\s*\/?>)?[\s<br\/>]*$/i, "");
-
-  return cleaned.trim();
 }
 
 /** Extract a Zoom/Meet/Teams link from location or description */
@@ -248,11 +164,6 @@ function formatRecurrence(recurrence?: string[]): string | null {
 /** Check if a string looks like a URL */
 function isUrl(str: string): boolean {
   return /^https?:\/\//i.test(str.trim());
-}
-
-/** IconCheck if description contains HTML */
-function isHtml(str: string): boolean {
-  return /<[a-z][\s\S]*>/i.test(str);
 }
 
 interface EventDetailPopoverProps {
