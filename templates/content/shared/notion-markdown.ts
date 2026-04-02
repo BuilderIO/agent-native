@@ -287,6 +287,14 @@ function nfmLinesToHtml(lines: string[]): string {
     const indentMatch = line.match(/^(\t*)(.*)/);
     const depth = (indentMatch ? indentMatch[1].length : 0) - baseIndent;
     const content = (indentMatch ? indentMatch[2] : line).trim();
+
+    // HTML tags (nested <details>, <summary>, <callout>, etc.) → pass through
+    if (/^<\/?[\w]/.test(content)) {
+      closeLists();
+      html.push(content);
+      continue;
+    }
+
     const listMatch = content.match(/^[-*+]\s+(.*)/);
 
     if (listMatch) {
