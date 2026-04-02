@@ -178,11 +178,13 @@ describe("parseNfmForEditor", () => {
     });
   });
 
-  describe("HTML containers are left untouched in pass 2", () => {
-    it("does not rewrite content inside callout", () => {
-      const input = "<callout>\n\tindented\n</callout>";
+  describe("callout content conversion", () => {
+    it("converts callout inner content to HTML with inline markdown", () => {
+      const input =
+        '<callout icon="💡">\n\tThis is **bold** and [a link](https://example.com)\n</callout>';
       const result = parseNfmForEditor(input);
-      expect(result).toContain("\tindented");
+      expect(result).toContain("<strong>bold</strong>");
+      expect(result).toContain('<a href="https://example.com">a link</a>');
     });
   });
 

@@ -158,20 +158,23 @@ export function parseNfmForEditor(markdown: string): string {
  *   Pass 3 – Insert blank lines between consecutive plain-text paragraphs.
  */
 function convertNfmToEditorMarkdown(nfm: string): string {
-  let result = convertDetailsContentToHtml(nfm);
+  let result = convertHtmlContainerContent(nfm);
   result = convertNfmBlocks(result);
   result = ensureParagraphSeparation(result);
   return result;
 }
 
-// ── Pass 1: Convert <details> inner content to HTML ─────────────────
-// markdown-it doesn't parse markdown inside HTML blocks, so toggle body
-// content must be actual HTML elements for TipTap to render them.
-function convertDetailsContentToHtml(nfm: string): string {
+// ── Pass 1: Convert HTML container inner content to HTML ─────────────
+// markdown-it doesn't parse markdown inside HTML blocks, so content
+// inside <details> and <callout> must be actual HTML elements.
+const HTML_CONTENT_CONTAINERS = /^<(details|callout)\b/;
+const HTML_CONTENT_CLOSE = /^<\/(details|callout)>/;
+
+function convertHtmlContainerContent(nfm: string): string {
   const lines = nfm.split("\n");
   const output: string[] = [];
   let inCodeFence = false;
-  let detailsDepth = 0;
+  let containerDepth = 0;
   let capturedContent: string[] = [];
   let capturedOpen = "";
   let capturedSummary = "";
@@ -179,7 +182,7 @@ function convertDetailsContentToHtml(nfm: string): string {
   for (const line of lines) {
     const trimmed = line.trim();
 
-    if (CODE_FENCE_RE.test(trimmed) && detailsDepth === 0) {
+    if (CODE_FENCE_RE.test(trimmed) && containerDepth === 0) {
       inCodeFence = !inCodeFence;
       output.push(line);
       continue;
@@ -189,9 +192,10 @@ function convertDetailsContentToHtml(nfm: string): string {
       continue;
     }
 
-    if (/^<details\b/.test(trimmed) && !trimmed.endsWith("/>")) {
-      detailsDepth++;
-      if (detailsDepth === 1) {
+    // Opening tag for containers whose content needs HTML conversion
+    if (HTML_CONTENT_CONTAINERS.test(trimmed) && !trimmed.endsWith("/>")) {
+      containerDepth++;
+      if (containerDepth === 1) {
         capturedOpen = line;
         capturedSummary = "";
         capturedContent = [];
@@ -199,26 +203,32 @@ function convertDetailsContentToHtml(nfm: string): string {
       }
     }
 
-    if (detailsDepth === 1 && /^<summary>/.test(trimmed) && !capturedSummary) {
+    // <summary> only relevant for <details>
+    if (
+      containerDepth === 1 &&
+      /^<summary>/.test(trimmed) &&
+      !capturedSummary
+    ) {
       capturedSummary = line;
       continue;
     }
 
-    if (/^<\/details>/.test(trimmed)) {
-      if (detailsDepth === 1) {
+    // Closing tag
+    if (HTML_CONTENT_CLOSE.test(trimmed)) {
+      if (containerDepth === 1) {
         output.push(capturedOpen);
         if (capturedSummary) output.push(capturedSummary);
         const htmlContent = nfmLinesToHtml(capturedContent);
         if (htmlContent) output.push(htmlContent);
         output.push(line);
-      } else if (detailsDepth > 1) {
+      } else if (containerDepth > 1) {
         capturedContent.push(line);
       }
-      detailsDepth = Math.max(0, detailsDepth - 1);
+      containerDepth = Math.max(0, containerDepth - 1);
       continue;
     }
 
-    if (detailsDepth > 0) {
+    if (containerDepth > 0) {
       capturedContent.push(line);
       continue;
     }
@@ -426,8 +436,8 @@ function ensureParagraphSeparation(text: string): string {
       (/^>/.test(cur) && !/^>/.test(next)) ||
       // Before `---`/`***`/`___` (prevent setext H2 interpretation)
       (cur !== "" && !/^</.test(cur) && /^(---+|\*\*\*+|___+)$/.test(next)) ||
-      // After HTML close tags like </details>
-      /^<\/(details|callout|columns|column)>/.test(cur);
+      // After any HTML close tag (</details>, </callout>, </table>, etc.)
+      /^<\/\w+>/.test(cur);
 
     if (needsBlank) {
       result.push("");
