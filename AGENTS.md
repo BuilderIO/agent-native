@@ -80,6 +80,30 @@ Auth is automatic and environment-driven. Templates include a `server/plugins/au
 
 See [docs/auth.md](docs/auth.md) for the full guide.
 
+## Core Routes Plugin
+
+Every template must include the `core-routes` plugin, which mounts all standard framework API routes (polling, SSE, health check, env management). This eliminates boilerplate route files and ensures templates automatically get new framework routes.
+
+```ts
+// server/plugins/core-routes.ts — simplest form
+export { defaultCoreRoutesPlugin as default } from "@agent-native/core/server";
+```
+
+For templates with env key management (Data Sources UI, API key settings):
+
+```ts
+// server/plugins/core-routes.ts
+import { createCoreRoutesPlugin } from "@agent-native/core/server";
+import { envKeys } from "../lib/env-config.js";
+
+export default createCoreRoutesPlugin({ envKeys });
+```
+
+**Routes provided:** `/api/poll`, `/api/events` (SSE), `/api/file-sync/status`, `/api/ping`, `/api/env-status` (with envKeys), `/api/env-vars` (with envKeys).
+
+**Do:** Always include `server/plugins/core-routes.ts` in every template.
+**Don't:** Create individual route files for poll, events, file-sync, ping, env-status, or env-vars — these are all handled by the plugin.
+
 ## Project Structure
 
 ```

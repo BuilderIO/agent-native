@@ -86,6 +86,71 @@ export default defineNitroPlugin(async () => {
 });
 ```
 
+### Core Routes Plugin
+
+The `createCoreRoutesPlugin()` mounts all standard framework API routes as a single Nitro plugin, eliminating the need for individual boilerplate route files. Every template should include this plugin.
+
+**Simplest usage** — no configuration needed:
+
+```ts
+// server/plugins/core-routes.ts
+export { defaultCoreRoutesPlugin as default } from "@agent-native/core/server";
+```
+
+**With env key management** — enables the settings UI to save API keys and credentials:
+
+```ts
+// server/plugins/core-routes.ts
+import { createCoreRoutesPlugin } from "@agent-native/core/server";
+import { envKeys } from "../lib/env-config.js";
+
+export default createCoreRoutesPlugin({ envKeys });
+```
+
+Where `env-config.ts` defines the allowed keys:
+
+```ts
+// server/lib/env-config.ts
+import type { EnvKeyConfig } from "@agent-native/core/server";
+
+export const envKeys: EnvKeyConfig[] = [
+  { key: "STRIPE_SECRET_KEY", label: "Stripe", required: false },
+  { key: "GITHUB_TOKEN", label: "GitHub", required: false },
+];
+```
+
+**With custom SSE route** — for templates where `/api/events` conflicts with app routes (e.g. a calendar app that has event CRUD at `/api/events/`):
+
+```ts
+// server/plugins/core-routes.ts
+import { createCoreRoutesPlugin } from "@agent-native/core/server";
+
+export default createCoreRoutesPlugin({ sseRoute: "/api/sse" });
+```
+
+#### Routes provided
+
+| Method | Path                    | Purpose                                           |
+| ------ | ----------------------- | ------------------------------------------------- |
+| GET    | `/api/poll`             | Polling endpoint for change detection             |
+| GET    | `/api/events`           | SSE endpoint for real-time sync (configurable)    |
+| GET    | `/api/file-sync/status` | File sync status (deprecated, backward compat)    |
+| GET    | `/api/ping`             | Health check                                      |
+| GET    | `/api/env-status`       | Env key configuration status (requires `envKeys`) |
+| POST   | `/api/env-vars`         | Save env vars to `.env` file (requires `envKeys`) |
+
+#### Options
+
+| Option            | Type             | Default         | Description                            |
+| ----------------- | ---------------- | --------------- | -------------------------------------- |
+| `sseRoute`        | `string`         | `"/api/events"` | Path for the SSE endpoint              |
+| `disableSSE`      | `boolean`        | `false`         | Disable the SSE endpoint entirely      |
+| `disableFileSync` | `boolean`        | `false`         | Disable the file-sync status endpoint  |
+| `disablePing`     | `boolean`        | `false`         | Disable the ping health check          |
+| `envKeys`         | `EnvKeyConfig[]` | —               | Enables env-status and env-vars routes |
+
+When new framework routes are added to `createCoreRoutesPlugin()`, all templates pick them up automatically on the next dependency update — no per-template file changes needed.
+
 ## Shared State Between Plugins and Routes
 
 Use a shared module in `server/lib/` to pass state from plugins to route handlers:

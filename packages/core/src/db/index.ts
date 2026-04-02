@@ -37,3 +37,4 @@ export {
   type DbExec,
   type Dialect,
 } from "./client.js";
+export { table, text, integer, now } from "./schema.js";

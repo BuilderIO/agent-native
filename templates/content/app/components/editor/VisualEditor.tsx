@@ -1,4 +1,4 @@
-import { useEditor, EditorContent } from "@tiptap/react";
+import { useEditor, EditorContent, Extension } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
@@ -9,6 +9,7 @@ import { TableRow } from "@tiptap/extension-table-row";
 import { TableCell } from "@tiptap/extension-table-cell";
 import { TableHeader } from "@tiptap/extension-table-header";
 import { Markdown } from "tiptap-markdown";
+import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { useEffect, useRef } from "react";
 import { BubbleToolbar } from "./BubbleToolbar";
 import { SlashCommandMenu } from "./SlashCommandMenu";
@@ -21,6 +22,40 @@ import {
   parseNfmForEditor,
   serializeEditorToNfm,
 } from "@shared/notion-markdown";
+
+const ARROW_REPLACEMENTS: [string, string][] = [
+  ["->", "→"],
+  ["<-", "←"],
+  ["=>", "⇒"],
+];
+
+const TypographyReplacements = Extension.create({
+  name: "typographyReplacements",
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: new PluginKey("typographyReplacements"),
+        props: {
+          handleTextInput(view, from, to, text) {
+            const { state } = view;
+            for (const [trigger, replacement] of ARROW_REPLACEMENTS) {
+              const lastChar = trigger[trigger.length - 1];
+              if (text !== lastChar) continue;
+              const prefix = trigger.slice(0, -1);
+              const start = from - prefix.length;
+              if (start < 0) continue;
+              const before = state.doc.textBetween(start, from, "");
+              if (before !== prefix) continue;
+              view.dispatch(state.tr.insertText(replacement, start, to));
+              return true;
+            }
+            return false;
+          },
+        },
+      }),
+    ];
+  },
+});
 
 const CustomTable = BaseTable.extend({
   addStorage() {
@@ -147,6 +182,7 @@ export function VisualEditor({
       TableHeader,
       TableCell,
       ...notionEditorExtensions,
+      TypographyReplacements,
       Markdown.configure({
         html: true,
         transformPastedText: true,

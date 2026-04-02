@@ -20,6 +20,7 @@
     "./vite": "./dist/vite/index.js",
     "./server": "./dist/server/index.js",
     "./db": "./dist/db/index.js",
+    "./db/schema": "./dist/db/schema.js",
     "./client": "./dist/client/index.js",
     "./shared": "./dist/shared/index.js",
     "./scripts": "./dist/scripts/index.js",
