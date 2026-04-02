@@ -108,12 +108,6 @@
     "ws": ">=8"
   },
   "peerDependenciesMeta": {
-    "@assistant-ui/react": {
-      "optional": true
-    },
-    "@assistant-ui/react-markdown": {
-      "optional": true
-    },
     "@tanstack/react-query": {
       "optional": true
     },
