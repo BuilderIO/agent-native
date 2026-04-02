@@ -85,13 +85,13 @@ export async function insertRunEvent(
 
 export async function getRunEventsSince(
   runId: string,
-  afterSeq: number,
+  fromSeq: number,
 ): Promise<Array<{ seq: number; eventData: string }>> {
   await ensureRunTables();
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT seq, event_data FROM agent_run_events WHERE run_id = ? AND seq > ? ORDER BY seq ASC`,
-    args: [runId, afterSeq],
+    sql: `SELECT seq, event_data FROM agent_run_events WHERE run_id = ? AND seq >= ? ORDER BY seq ASC`,
+    args: [runId, fromSeq],
   });
   return rows.map((r: any) => ({
     seq: Number(r.seq),
@@ -143,12 +143,20 @@ export async function getRunByThread(threadId: string): Promise<{
   };
 }
 
-/** Delete completed/errored runs older than the given threshold. */
+/** Delete completed/errored runs older than the given threshold,
+ *  and expire stale "running" rows that haven't had activity
+ *  (e.g. worker crashed before updating status). */
 export async function cleanupOldRuns(olderThanMs: number): Promise<void> {
   await ensureRunTables();
   const client = getDbExec();
   const cutoff = Date.now() - olderThanMs;
-  // Delete events first (FK-like cleanup)
+  // Expire stale running rows — if started more than threshold ago,
+  // the worker likely crashed. Mark as errored so clients stop waiting.
+  await client.execute({
+    sql: `UPDATE agent_runs SET status = 'errored', completed_at = ? WHERE status = 'running' AND started_at < ?`,
+    args: [Date.now(), cutoff],
+  });
+  // Delete events for old non-running runs
   await client.execute({
     sql: `DELETE FROM agent_run_events WHERE run_id IN (
       SELECT id FROM agent_runs WHERE status != 'running' AND completed_at < ?

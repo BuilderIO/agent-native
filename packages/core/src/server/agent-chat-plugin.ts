@@ -949,6 +949,9 @@ export function createAgentChatPlugin(
     nitroApp.h3App.use(
       `${routePath}/runs`,
       defineEventHandler(async (event) => {
+        // Auth check — ensure the user is authenticated
+        await getOwnerFromEvent(event);
+
         const method = getMethod(event);
         const url = event.node?.req?.url || event.path || "";
 

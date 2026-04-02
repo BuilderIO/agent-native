@@ -24,9 +24,15 @@ export const handleSqlQuery = defineEventHandler(async (event) => {
       return result;
     }
 
-    // app-db: read-only enforcement
+    // app-db: read-only enforcement — reject any DML/DDL keywords
     const trimmed = query.trim().toUpperCase();
     if (!trimmed.startsWith("SELECT") && !trimmed.startsWith("WITH")) {
+      setResponseStatus(event, 400);
+      return { error: "Only SELECT queries are allowed for app-db" };
+    }
+    const dmlPattern =
+      /\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|REPLACE)\b/i;
+    if (dmlPattern.test(query)) {
       setResponseStatus(event, 400);
       return { error: "Only SELECT queries are allowed for app-db" };
     }
