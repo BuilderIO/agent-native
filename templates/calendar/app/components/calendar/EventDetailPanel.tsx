@@ -26,6 +26,7 @@ import type { CalendarEvent } from "@shared/api";
 import { ResearchMeetingButton } from "@/components/calendar/ApolloPanel";
 import { EventAttendeesSection } from "@/components/calendar/EventAttendeesSection";
 import { useCalendarContext } from "@/components/layout/AppLayout";
+import { sanitizeHtml, stripGcalInviteHtml } from "@/lib/sanitize-description";
 
 interface EventDetailPanelProps {
   event: CalendarEvent | null;
@@ -142,33 +143,22 @@ export function EventDetailPanel({
                   </div>
                 )}
 
-                {/* Description — strip HTML and gcal invitation cruft */}
+                {/* Description — sanitize HTML and strip gcal invitation cruft */}
                 {event.description &&
                   (() => {
                     const hasHtml = /<[a-z][\s\S]*>/i.test(event.description);
                     if (hasHtml) {
-                      // Strip gcal invitation HTML and extract text
-                      const text = event.description
-                        .replace(/<style[\s\S]*?<\/style>/gi, "")
-                        .replace(/<[^>]+>/g, " ")
-                        .replace(/&nbsp;/g, " ")
-                        .replace(/&amp;/g, "&")
-                        .replace(/&lt;/g, "<")
-                        .replace(/&gt;/g, ">")
-                        .replace(/\s+/g, " ")
-                        .trim();
-                      // Skip if it's just Google Calendar boilerplate
-                      if (
-                        !text ||
-                        /^(Invitation from Google Calendar|Reply for|View all guest info)/i.test(
-                          text,
-                        )
-                      )
-                        return null;
+                      const cleanedHtml = stripGcalInviteHtml(
+                        sanitizeHtml(event.description),
+                      );
+                      const hasContent =
+                        cleanedHtml.replace(/<[^>]*>/g, "").trim().length > 0;
+                      if (!hasContent) return null;
                       return (
-                        <p className="rounded-md bg-muted/50 px-3 py-2.5 text-sm leading-relaxed text-foreground whitespace-pre-wrap">
-                          {text}
-                        </p>
+                        <div
+                          className="rounded-md bg-muted/50 px-3 py-2.5 text-sm leading-relaxed text-foreground prose prose-sm dark:prose-invert prose-p:my-1 prose-a:text-primary"
+                          dangerouslySetInnerHTML={{ __html: cleanedHtml }}
+                        />
                       );
                     }
                     return (

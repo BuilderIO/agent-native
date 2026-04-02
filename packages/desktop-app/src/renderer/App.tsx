@@ -375,6 +375,7 @@ export default function App() {
           />
           <button
             type="button"
+            tabIndex={-1}
             className="find-button"
             onClick={() =>
               runFind(findQuery, { findNext: true, forward: false })
@@ -384,6 +385,7 @@ export default function App() {
           </button>
           <button
             type="button"
+            tabIndex={-1}
             className="find-button"
             onClick={() =>
               runFind(findQuery, { findNext: true, forward: true })
@@ -393,6 +395,7 @@ export default function App() {
           </button>
           <button
             type="button"
+            tabIndex={-1}
             className="find-button find-button--close"
             onClick={closeFind}
           >

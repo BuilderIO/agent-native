@@ -47,16 +47,19 @@ export default function Sidebar({
       <div className="win-controls">
         <button
           className="win-btn win-btn--close"
+          tabIndex={-1}
           onClick={() => window.electronAPI?.windowControls.close()}
           title="Close"
         />
         <button
           className="win-btn win-btn--minimize"
+          tabIndex={-1}
           onClick={() => window.electronAPI?.windowControls.minimize()}
           title="Minimize"
         />
         <button
           className="win-btn win-btn--maximize"
+          tabIndex={-1}
           onClick={() => window.electronAPI?.windowControls.maximize()}
           title="Maximize"
         />
@@ -79,6 +82,7 @@ export default function Sidebar({
         <div className="sidebar-footer">
           <button
             className="sidebar-item"
+            tabIndex={-1}
             onClick={onSettingsClick}
             title="App Settings"
             aria-label="Settings"
@@ -108,6 +112,7 @@ function SidebarItem({ app, isActive, onClick }: SidebarItemProps) {
   return (
     <button
       className={`sidebar-item${isActive ? " sidebar-item--active" : ""}`}
+      tabIndex={-1}
       onClick={onClick}
       title={app.description}
       aria-label={app.name}

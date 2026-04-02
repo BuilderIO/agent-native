@@ -102,15 +102,17 @@ export function useRsvpEvent() {
       id,
       status,
       accountEmail,
+      scope,
     }: {
       id: string;
       status: "accepted" | "declined" | "tentative";
       accountEmail?: string;
+      scope?: "single" | "all" | "thisAndFollowing";
     }) => {
       const res = await fetch(`/api/events/${id}/rsvp`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status, accountEmail }),
+        body: JSON.stringify({ status, accountEmail, scope }),
       });
       if (!res.ok) throw new Error("Failed to update RSVP");
       return res.json();

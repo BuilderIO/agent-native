@@ -310,8 +310,10 @@ export const rsvpEvent = defineEventHandler(async (event: H3Event) => {
 
     const acctEmail = await resolveAccountEmail(body.accountEmail, email);
 
+    const scope = body?.scope || "single";
+
     try {
-      await googleCalendar.rsvpEvent(googleEventId, status, acctEmail);
+      await googleCalendar.rsvpEvent(googleEventId, status, acctEmail, scope);
     } catch (error: any) {
       setResponseStatus(event, 500);
       return { error: `Failed to update RSVP: ${error.message}` };

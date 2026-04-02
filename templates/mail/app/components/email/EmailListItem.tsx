@@ -1,6 +1,7 @@
 import { cn, formatEmailDate, truncate } from "@/lib/utils";
 import type { EmailMessage } from "@shared/types";
 import type { ThreadSummary } from "@/lib/threads";
+import { useAccountFilter } from "@/hooks/use-account-filter";
 
 interface EmailListItemProps {
   email: EmailMessage;
@@ -46,6 +47,26 @@ const labelColors: Record<string, { bg: string; text: string }> = {
   travel: { bg: "bg-cyan-500/20", text: "text-cyan-700 dark:text-cyan-300" },
 };
 
+/** Stable dot colors for distinguishing accounts */
+const accountDotColors = [
+  "bg-blue-400",
+  "bg-emerald-400",
+  "bg-amber-400",
+  "bg-rose-400",
+  "bg-violet-400",
+  "bg-cyan-400",
+  "bg-orange-400",
+  "bg-pink-400",
+];
+
+function getAccountColor(
+  email: string,
+  allAccounts: Array<{ email: string }>,
+): string {
+  const idx = allAccounts.findIndex((a) => a.email === email);
+  return accountDotColors[(idx >= 0 ? idx : 0) % accountDotColors.length];
+}
+
 function getLabelStyle(labelId: string): { bg: string; text: string } {
   const normalized = labelId.toLowerCase().replace(/^label:/, "");
   if (labelColors[normalized]) return labelColors[normalized];
@@ -68,6 +89,9 @@ export function EmailListItem({
   onStar,
   onHover,
 }: EmailListItemProps) {
+  const { allAccounts } = useAccountFilter();
+  const isMultiAccount = allAccounts.length > 1;
+
   const isThread = thread && thread.messageCount > 1;
   const senderName = isThread
     ? formatParticipants(thread.participants)
@@ -122,11 +146,18 @@ export function EmailListItem({
         <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-primary rounded-r" />
       )}
 
-      {/* Unread dot */}
+      {/* Unread / account dot */}
       <div className="w-5 shrink-0 flex items-center justify-center">
-        {isUnread && (
+        {isUnread ? (
           <div className="h-[7px] w-[7px] rounded-full bg-primary" />
-        )}
+        ) : isMultiAccount && email.accountEmail ? (
+          <div
+            className={cn(
+              "h-[5px] w-[5px] rounded-full opacity-50",
+              getAccountColor(email.accountEmail, allAccounts),
+            )}
+          />
+        ) : null}
       </div>
 
       {/* Sender name — fixed width column */}
@@ -137,6 +168,11 @@ export function EmailListItem({
             ? "font-semibold text-foreground"
             : "font-normal text-foreground/90",
         )}
+        title={
+          isMultiAccount && email.accountEmail
+            ? `Account: ${email.accountEmail}`
+            : undefined
+        }
       >
         {senderName}
       </span>

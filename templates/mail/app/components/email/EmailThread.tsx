@@ -28,12 +28,14 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { setUndoAction } from "@/hooks/use-undo";
 import { toast } from "sonner";
-import type { EmailMessage } from "@shared/types";
+import type { EmailMessage, MobileActionId } from "@shared/types";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   InlineReplyComposer,
   type InlineReplyHandle,
 } from "./InlineReplyComposer";
+import { MobileActionBar, DEFAULT_MOBILE_ACTIONS } from "./MobileActionBar";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 export function EmailThread({
   onArchived,
@@ -450,6 +452,7 @@ export function EmailThread({
   }, [email, toggleStar]);
 
   const { data: settings } = useSettings();
+  const updateSettings = useUpdateSettings();
   const { allAccounts } = useAccountFilter();
   const myEmails = useMemo(() => {
     const emails = new Set(allAccounts.map((a) => a.email.toLowerCase()));
@@ -655,6 +658,54 @@ export function EmailThread({
       },
     ],
     !!threadId,
+  );
+
+  // Mobile action bar
+  const isMobile = useIsMobile();
+  const mobileActions = settings?.mobileActions ?? DEFAULT_MOBILE_ACTIONS;
+  const handleMobileAction = useCallback(
+    (action: MobileActionId) => {
+      switch (action) {
+        case "archive":
+          handleArchive();
+          break;
+        case "trash":
+          handleTrash();
+          break;
+        case "star":
+          handleStar();
+          break;
+        case "reply":
+          handleReply();
+          break;
+        case "replyAll":
+          handleReplyAll();
+          break;
+        case "forward":
+          handleForward();
+          break;
+        case "markUnread":
+          if (email) markRead.mutate({ id: email.id, isRead: false });
+          break;
+        case "prev":
+          goToSibling(-1);
+          break;
+        case "next":
+          goToSibling(1);
+          break;
+      }
+    },
+    [
+      handleArchive,
+      handleTrash,
+      handleStar,
+      handleReply,
+      handleReplyAll,
+      handleForward,
+      email,
+      markRead,
+      goToSibling,
+    ],
   );
 
   // Extract GitHub PR URL from any message in the thread
@@ -979,6 +1030,18 @@ export function EmailThread({
           )}
         </div>
       </div>
+
+      {/* Mobile bottom action bar */}
+      {isMobile && (
+        <MobileActionBar
+          actions={mobileActions}
+          isStarred={email.isStarred}
+          onAction={handleMobileAction}
+          onUpdateActions={(actions) =>
+            updateSettings.mutate({ mobileActions: actions })
+          }
+        />
+      )}
     </div>
   );
 }
