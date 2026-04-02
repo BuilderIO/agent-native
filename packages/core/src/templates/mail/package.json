@@ -14,7 +14,7 @@
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
-    "@agent-native/core": "^0.4.1",
+    "@agent-native/core": "^0.4.5",
     "@libsql/client": "^0.15.0",
     "@tabler/icons-react": "^3.40.0",
     "chrono-node": "^2.7.6",
