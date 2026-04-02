@@ -173,6 +173,19 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isActive]);
 
+    // Auto-focus the webview when it becomes active so keyboard events
+    // (e.g. Tab to cycle mail filters) go to the app, not the shell.
+    useEffect(() => {
+      if (isActive && !app.placeholder && !error) {
+        const wv = webviewRef.current;
+        if (wv) {
+          // Small delay to ensure the webview is ready to accept focus
+          const timer = setTimeout(() => wv.focus(), 50);
+          return () => clearTimeout(timer);
+        }
+      }
+    }, [isActive, app.placeholder, error]);
+
     useEffect(() => {
       reportActiveWebview();
     }, [isActive, url]);
@@ -186,7 +199,16 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     }
 
     return (
-      <div className={`webview-slot${isActive ? "" : " webview-slot--hidden"}`}>
+      <div
+        className={`webview-slot${isActive ? "" : " webview-slot--hidden"}`}
+        onClick={() => {
+          // Re-focus the webview when clicking the content area so
+          // keyboard shortcuts (Tab, etc.) route into the app.
+          if (isActive && !app.placeholder && !error) {
+            webviewRef.current?.focus();
+          }
+        }}
+      >
         {app.placeholder && <PlaceholderScreen app={app} />}
 
         {!app.placeholder && error && (

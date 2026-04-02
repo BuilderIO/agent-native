@@ -8,6 +8,11 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import {
+  sanitizeHtml,
+  stripGcalInviteHtml,
+  isHtml,
+} from "@/lib/sanitize-description";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -237,11 +242,26 @@ export function EventDialog({ event, open, onClose }: EventDialogProps) {
             )}
 
             {/* Description */}
-            {event.description && (
-              <p className="rounded-md bg-muted/50 px-3 py-2.5 text-sm leading-relaxed text-foreground">
-                {event.description}
-              </p>
-            )}
+            {event.description &&
+              (() => {
+                if (isHtml(event.description)) {
+                  const cleanedHtml = stripGcalInviteHtml(
+                    sanitizeHtml(event.description),
+                  );
+                  if (!cleanedHtml.replace(/<[^>]*>/g, "").trim()) return null;
+                  return (
+                    <div
+                      className="rounded-md bg-muted/50 px-3 py-2.5 text-sm leading-relaxed text-foreground prose prose-sm dark:prose-invert prose-p:my-1 prose-a:text-primary"
+                      dangerouslySetInnerHTML={{ __html: cleanedHtml }}
+                    />
+                  );
+                }
+                return (
+                  <p className="rounded-md bg-muted/50 px-3 py-2.5 text-sm leading-relaxed text-foreground whitespace-pre-wrap">
+                    {event.description}
+                  </p>
+                );
+              })()}
 
             {/* Keyboard hint */}
             {!isGoogle && (

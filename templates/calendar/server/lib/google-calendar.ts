@@ -461,33 +461,96 @@ export async function deleteEvent(
 }
 
 /**
- * Update the current user's RSVP status for an event.
- * Fetches the full attendees list first to avoid overwriting other guests.
+ * RSVP a single event instance — fetches attendees first to avoid overwriting.
  */
-export async function rsvpEvent(
-  googleEventId: string,
-  responseStatus: "accepted" | "declined" | "tentative",
+async function rsvpSingleEvent(
+  accessToken: string,
+  eventId: string,
+  responseStatus: string,
   accountEmail: string,
 ): Promise<void> {
-  const client = await getClient(accountEmail);
-  if (!client) return;
-
-  // GET the current event to preserve the full attendees list — PATCH with a
-  // single-entry array would silently remove every other guest.
-  const existing = await calendarGetEvent(
-    client.accessToken,
-    "primary",
-    googleEventId,
-  );
+  const existing = await calendarGetEvent(accessToken, "primary", eventId);
   const attendees = (existing.attendees ?? []).map(
     (a: { email: string; responseStatus?: string }) =>
       a.email === accountEmail ? { ...a, responseStatus } : a,
   );
   await calendarPatchEvent(
+    accessToken,
+    "primary",
+    eventId,
+    { attendees },
+    "none",
+  );
+}
+
+/**
+ * Update the current user's RSVP status for an event.
+ * Supports recurring event scopes: "single", "all", or "thisAndFollowing".
+ */
+export async function rsvpEvent(
+  googleEventId: string,
+  responseStatus: "accepted" | "declined" | "tentative",
+  accountEmail: string,
+  scope: "single" | "all" | "thisAndFollowing" = "single",
+): Promise<void> {
+  const client = await getClient(accountEmail);
+  if (!client) return;
+
+  if (scope === "single") {
+    await rsvpSingleEvent(
+      client.accessToken,
+      googleEventId,
+      responseStatus,
+      accountEmail,
+    );
+    return;
+  }
+
+  // For "all" or "thisAndFollowing", we need the base recurring event ID.
+  const instance = await calendarGetEvent(
     client.accessToken,
     "primary",
     googleEventId,
-    { attendees },
-    "none",
+  );
+  const recurringEventId = instance.recurringEventId || googleEventId;
+
+  if (scope === "all") {
+    // RSVP the base recurring event — Google propagates to all instances
+    // that don't have individual overrides.
+    await rsvpSingleEvent(
+      client.accessToken,
+      recurringEventId,
+      responseStatus,
+      accountEmail,
+    );
+    return;
+  }
+
+  // "thisAndFollowing": RSVP this instance and all future instances.
+  // Get the start time of the current instance to use as the cutoff.
+  const instanceStart =
+    instance.start?.dateTime ||
+    instance.start?.date ||
+    new Date().toISOString();
+
+  // Fetch all future instances of this recurring event
+  const futureEvents = await calendarListEvents(client.accessToken, "primary", {
+    timeMin: instanceStart,
+    singleEvents: true,
+    orderBy: "startTime",
+    maxResults: 250,
+  });
+
+  // Filter to only instances of the same recurring series
+  const futureInstances = (futureEvents.items || []).filter(
+    (e: any) =>
+      e.recurringEventId === recurringEventId || e.id === recurringEventId,
+  );
+
+  // RSVP each instance (including the current one)
+  await Promise.all(
+    futureInstances.map((e: any) =>
+      rsvpSingleEvent(client.accessToken, e.id, responseStatus, accountEmail),
+    ),
   );
 }

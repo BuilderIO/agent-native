@@ -40,6 +40,8 @@ export interface WalkthroughStep {
   inputLabel?: string;
   inputPlaceholder?: string;
   inputType?: "text" | "password" | "textarea";
+  /** Allow file upload for this input (e.g. ".json") */
+  inputAcceptFile?: string;
 }
 
 export interface DataSource {
@@ -103,25 +105,26 @@ export const dataSources: DataSource[] = [
       {
         title: "Create a service account",
         description:
-          "Go to IAM & Admin > Service Accounts, create a new service account, and download the JSON key file.",
+          "Go to IAM & Admin > Service Accounts, create a new service account (no IAM roles needed on the project), then click the account → Keys → Add Key → Create new key → JSON. This downloads a .json file.",
         url: "https://console.cloud.google.com/iam-admin/serviceaccounts",
         linkText: "Service Accounts",
       },
       {
         title: "Add the service account to GA4",
         description:
-          "In Google Analytics, go to Admin > Property Access Management and add the service account email as a Viewer.",
+          'In Google Analytics, go to Admin > Property Access Management and add the service account email (from the JSON file\'s "client_email" field) with the Viewer role. This is what grants access — not IAM roles.',
         url: "https://analytics.google.com/analytics/web/#/a-p/admin",
         linkText: "GA4 Admin",
       },
       {
-        title: "Enter your service account credentials",
+        title: "Upload your service account credentials",
         description:
-          "Paste the contents of your service account JSON key file.",
+          "Upload the JSON key file you downloaded, or paste its contents.",
         inputKey: "GOOGLE_APPLICATION_CREDENTIALS_JSON",
         inputLabel: "Service Account JSON",
         inputPlaceholder: '{"type": "service_account", ...}',
         inputType: "textarea",
+        inputAcceptFile: ".json",
       },
       {
         title: "Enter your GA4 Property ID",
@@ -159,18 +162,19 @@ export const dataSources: DataSource[] = [
       {
         title: "Create a service account",
         description:
-          'Create a service account with "BigQuery Data Viewer" and "BigQuery Job User" roles, then download the JSON key.',
+          'Create a service account with "BigQuery Data Viewer" and "BigQuery Job User" IAM roles, then go to Keys → Add Key → Create new key → JSON to download the credentials file.',
         url: "https://console.cloud.google.com/iam-admin/serviceaccounts",
         linkText: "Service Accounts",
       },
       {
-        title: "Enter your service account credentials",
+        title: "Upload your service account credentials",
         description:
-          "Paste the contents of your service account JSON key file.",
+          "Upload the JSON key file you downloaded, or paste its contents.",
         inputKey: "GOOGLE_APPLICATION_CREDENTIALS_JSON",
         inputLabel: "Service Account JSON",
         inputPlaceholder: '{"type": "service_account", ...}',
         inputType: "textarea",
+        inputAcceptFile: ".json",
       },
       {
         title: "Enter your BigQuery Project ID",
@@ -579,13 +583,14 @@ export const dataSources: DataSource[] = [
         linkText: "Service Accounts",
       },
       {
-        title: "Enter your service account credentials",
+        title: "Upload your service account credentials",
         description:
-          "Paste the contents of your service account JSON key file.",
+          "Upload the JSON key file you downloaded, or paste its contents.",
         inputKey: "GOOGLE_APPLICATION_CREDENTIALS_JSON",
         inputLabel: "Service Account JSON",
         inputPlaceholder: '{"type": "service_account", ...}',
         inputType: "textarea",
+        inputAcceptFile: ".json",
       },
     ],
   },
