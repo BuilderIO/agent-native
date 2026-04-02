@@ -742,40 +742,6 @@ export function AgentPanel({
         >
           <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
             {renderModeButtons(mode)}
-            {mode === "chat" && (
-              <>
-                <div className="w-px h-4 bg-border shrink-0 mx-0.5" />
-                <div
-                  className="flex shrink-0 items-center rounded-md border border-border overflow-hidden"
-                  style={AGENT_PANEL_CONTROL_STYLE}
-                >
-                  <button
-                    onClick={() => switchExecMode("build")}
-                    className={cn(
-                      "flex items-center gap-1 px-2 py-1 text-[12px] leading-none",
-                      execMode === "build"
-                        ? "bg-accent text-foreground"
-                        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                    )}
-                    title="Build mode — agent executes immediately"
-                  >
-                    Build
-                  </button>
-                  <button
-                    onClick={() => switchExecMode("plan")}
-                    className={cn(
-                      "flex items-center gap-1 px-2 py-1 text-[12px] leading-none",
-                      execMode === "plan"
-                        ? "bg-amber-500/20 text-amber-700 dark:text-amber-400"
-                        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                    )}
-                    title="Plan mode — agent plans before executing"
-                  >
-                    Plan
-                  </button>
-                </div>
-              </>
-            )}
           </div>
           <div className="flex items-center gap-0.5">
             {mode !== "resources" && (
@@ -806,13 +772,6 @@ export function AgentPanel({
             {renderHeaderActions()}
           </div>
         </div>
-        {/* Plan mode banner */}
-        {mode === "chat" && execMode === "plan" && (
-          <div className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] text-amber-700 dark:text-amber-400 bg-amber-500/10 border-b border-amber-500/20">
-            <PlanIcon className="h-3 w-3 shrink-0" />
-            Plan mode — agent will plan before executing
-          </div>
-        )}
         {/* Tab bar: chat tabs or CLI tabs when multiple are open */}
         {((mode === "chat" && tabs.length > 1) ||
           (mode === "cli" && cliTabs.length > 1)) && (
@@ -908,8 +867,6 @@ export function AgentPanel({
     ),
     [
       mode,
-      execMode,
-      switchExecMode,
       renderHeaderActions,
       renderModeButtons,
       cliTabs,
@@ -955,6 +912,49 @@ export function AgentPanel({
             emptyStateText={emptyStateText}
             suggestions={suggestions}
             onSwitchToCli={isDevMode ? () => switchMode("cli") : undefined}
+            composerSlot={
+              <div className="shrink-0 px-3 pt-1.5 pb-0 flex items-center justify-between gap-2">
+                {execMode === "plan" ? (
+                  <div className="flex items-center gap-1.5 text-[11px] text-amber-700 dark:text-amber-400 min-w-0 truncate">
+                    <PlanIcon className="h-3 w-3 shrink-0" />
+                    <span className="truncate">
+                      Plan mode — will plan before executing
+                    </span>
+                  </div>
+                ) : (
+                  <div />
+                )}
+                <div
+                  className="flex shrink-0 items-center rounded-md border border-border overflow-hidden"
+                  style={AGENT_PANEL_CONTROL_STYLE}
+                >
+                  <button
+                    onClick={() => switchExecMode("build")}
+                    className={cn(
+                      "px-2 py-1 text-[11px] leading-none",
+                      execMode === "build"
+                        ? "bg-accent text-foreground"
+                        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                    )}
+                    title="Build mode — agent executes immediately"
+                  >
+                    Build
+                  </button>
+                  <button
+                    onClick={() => switchExecMode("plan")}
+                    className={cn(
+                      "px-2 py-1 text-[11px] leading-none",
+                      execMode === "plan"
+                        ? "bg-amber-500/20 text-amber-700 dark:text-amber-400"
+                        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                    )}
+                    title="Plan mode — agent plans before executing"
+                  >
+                    Plan
+                  </button>
+                </div>
+              </div>
+            }
           />
         )}
       </div>
