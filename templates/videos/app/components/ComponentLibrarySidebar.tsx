@@ -105,16 +105,16 @@ export function ComponentLibrarySidebar({
         onValueChange={(v) => setTab(v as "components" | "properties")}
         className="flex flex-col h-full"
       >
-        <TabsList className="w-full rounded-none border-b border-border bg-transparent h-auto p-0 shrink-0">
+        <TabsList className="w-full bg-transparent h-auto p-1.5 gap-1 border-b border-border shrink-0">
           <TabsTrigger
             value="components"
-            className="flex-1 rounded-none border-b-2 border-transparent px-3 py-2.5 text-[11px] font-medium text-muted-foreground data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+            className="flex-1 px-3 py-1.5 text-xs font-medium rounded-md text-muted-foreground data-[state=active]:bg-secondary data-[state=active]:text-foreground data-[state=active]:shadow-none"
           >
             Components
           </TabsTrigger>
           <TabsTrigger
             value="properties"
-            className="flex-1 rounded-none border-b-2 border-transparent px-3 py-2.5 text-[11px] font-medium text-muted-foreground data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+            className="flex-1 px-3 py-1.5 text-xs font-medium rounded-md text-muted-foreground data-[state=active]:bg-secondary data-[state=active]:text-foreground data-[state=active]:shadow-none"
           >
             Properties
           </TabsTrigger>
