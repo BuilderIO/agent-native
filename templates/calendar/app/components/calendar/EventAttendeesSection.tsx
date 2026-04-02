@@ -7,9 +7,20 @@ import {
 } from "@tabler/icons-react";
 import type { CalendarEvent } from "@shared/api";
 import { AttendeeApolloPopover } from "@/components/calendar/ApolloPanel";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 import { useAttendeePhotos } from "@/hooks/use-attendee-photos";
 import { useRsvpEvent } from "@/hooks/use-events";
 import { cn } from "@/lib/utils";
+
+type RecurringScope = "single" | "all" | "thisAndFollowing";
 
 type Attendee = NonNullable<CalendarEvent["attendees"]>[number];
 type RsvpStatus = "accepted" | "declined" | "tentative" | "needsAction";
@@ -80,13 +91,20 @@ function RsvpControls({
   accountEmail,
   value,
   onChange,
+  isRecurring,
 }: {
   eventId: string;
   accountEmail?: string;
   value: RsvpStatus;
   onChange: (status: RsvpStatus) => void;
+  isRecurring?: boolean;
 }) {
   const mutation = useRsvpEvent();
+  const [pendingStatus, setPendingStatus] = useState<Exclude<
+    RsvpStatus,
+    "needsAction"
+  > | null>(null);
+
   const options: Array<{
     value: Exclude<RsvpStatus, "needsAction">;
     label: string;
@@ -96,50 +114,105 @@ function RsvpControls({
     { value: "tentative", label: "Maybe" },
   ];
 
-  const handleRsvp = (status: Exclude<RsvpStatus, "needsAction">) => {
-    if (mutation.isPending || value === status) return;
+  const doRsvp = (
+    status: Exclude<RsvpStatus, "needsAction">,
+    scope?: RecurringScope,
+  ) => {
     const previous = value;
     onChange(status);
     mutation.mutate(
-      {
-        id: eventId,
-        status,
-        accountEmail,
-      },
-      {
-        onError: () => {
-          onChange(previous);
-        },
-      },
+      { id: eventId, status, accountEmail, scope },
+      { onError: () => onChange(previous) },
     );
   };
 
+  const handleRsvp = (status: Exclude<RsvpStatus, "needsAction">) => {
+    if (mutation.isPending || value === status) return;
+    if (isRecurring) {
+      setPendingStatus(status);
+    } else {
+      doRsvp(status);
+    }
+  };
+
   return (
-    <div className="mt-2 flex items-center gap-1 rounded-2xl bg-muted/60 p-1">
-      {options.map((option) => {
-        const active = value === option.value;
-        return (
-          <button
-            key={option.value}
-            type="button"
-            disabled={mutation.isPending}
-            onClick={(e) => {
-              e.stopPropagation();
-              handleRsvp(option.value);
-            }}
-            className={cn(
-              "min-w-0 flex-1 rounded-xl px-3 py-2 text-sm font-medium transition-colors",
-              active
-                ? "bg-background text-foreground shadow-sm ring-1 ring-border"
-                : "text-muted-foreground hover:bg-background/60 hover:text-foreground",
-              mutation.isPending && "opacity-60",
-            )}
-          >
-            {option.label}
-          </button>
-        );
-      })}
-    </div>
+    <>
+      <div className="mt-2 flex items-center gap-1 rounded-2xl bg-muted/60 p-1">
+        {options.map((option) => {
+          const active = value === option.value;
+          return (
+            <button
+              key={option.value}
+              type="button"
+              disabled={mutation.isPending}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleRsvp(option.value);
+              }}
+              className={cn(
+                "min-w-0 flex-1 rounded-xl px-3 py-2 text-sm font-medium transition-colors",
+                active
+                  ? "bg-background text-foreground shadow-sm ring-1 ring-border"
+                  : "text-muted-foreground hover:bg-background/60 hover:text-foreground",
+                mutation.isPending && "opacity-60",
+              )}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
+
+      <AlertDialog
+        open={!!pendingStatus}
+        onOpenChange={(open) => !open && setPendingStatus(null)}
+      >
+        <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>This is a recurring event</AlertDialogTitle>
+            <AlertDialogDescription>
+              Would you like to change your response for just this event, this
+              and all following events, or all events in the series?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col gap-2 sm:flex-col">
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={(e) => {
+                e.stopPropagation();
+                doRsvp(pendingStatus!, "single");
+                setPendingStatus(null);
+              }}
+            >
+              This event
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={(e) => {
+                e.stopPropagation();
+                doRsvp(pendingStatus!, "thisAndFollowing");
+                setPendingStatus(null);
+              }}
+            >
+              This and following events
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={(e) => {
+                e.stopPropagation();
+                doRsvp(pendingStatus!, "all");
+                setPendingStatus(null);
+              }}
+            >
+              All events
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 
@@ -150,6 +223,7 @@ function AttendeeRow({
   inlineRsvp,
   currentStatus,
   onStatusChange,
+  isRecurring,
 }: {
   attendee: Attendee;
   event: Pick<CalendarEvent, "id" | "accountEmail">;
@@ -157,6 +231,7 @@ function AttendeeRow({
   inlineRsvp?: boolean;
   currentStatus?: RsvpStatus;
   onStatusChange?: (status: Exclude<RsvpStatus, "needsAction">) => void;
+  isRecurring?: boolean;
 }) {
   return (
     <AttendeeApolloPopover attendee={attendee}>
@@ -194,6 +269,7 @@ function AttendeeRow({
             accountEmail={event.accountEmail}
             value={currentStatus}
             onChange={onStatusChange}
+            isRecurring={isRecurring}
           />
         )}
       </div>
@@ -216,7 +292,12 @@ export function EventAttendeesSection({
 }: {
   event: Pick<
     CalendarEvent,
-    "id" | "accountEmail" | "attendees" | "responseStatus" | "source"
+    | "id"
+    | "accountEmail"
+    | "attendees"
+    | "responseStatus"
+    | "source"
+    | "recurringEventId"
   >;
 }) {
   const attendees = event.attendees ?? [];
@@ -306,6 +387,7 @@ export function EventAttendeesSection({
                   inlineRsvp={event.source === "google"}
                   currentStatus={selfStatus}
                   onStatusChange={setSelfStatus}
+                  isRecurring={!!event.recurringEventId}
                 />
               </>
             )}
