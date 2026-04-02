@@ -1,9 +1,9 @@
 import { defineEventHandler, getQuery, setResponseStatus } from "h3";
-import { requireEnvKey } from "@agent-native/core/server";
+import { requireCredential } from "../lib/credentials";
 import { getAccounts, getIssues } from "../lib/pylon";
 
 export const handlePylonIssues = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "PYLON_API_KEY", "Pylon");
+  const missing = await requireCredential(event, "PYLON_API_KEY", "Pylon");
   if (missing) return missing;
   try {
     const { account_id, state, query } = getQuery(event);
@@ -21,7 +21,7 @@ export const handlePylonIssues = defineEventHandler(async (event) => {
 });
 
 export const handlePylonAccounts = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "PYLON_API_KEY", "Pylon");
+  const missing = await requireCredential(event, "PYLON_API_KEY", "Pylon");
   if (missing) return missing;
   try {
     const { query } = getQuery(event);

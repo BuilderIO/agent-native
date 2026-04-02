@@ -1,13 +1,25 @@
-import type { EnvKeyConfig } from "@agent-native/core/server";
+export interface CredentialKeyConfig {
+  key: string;
+  label: string;
+  required: boolean;
+}
 
-export const envKeys: EnvKeyConfig[] = [
-  // Google Analytics (GA4 Data API)
-  { key: "GA4_PROPERTY_ID", label: "GA4 Property ID", required: false },
-  // BigQuery / Google Cloud
-  { key: "BIGQUERY_PROJECT_ID", label: "BigQuery", required: false },
+/**
+ * All per-user/account credential keys. These are stored in the SQL
+ * settings table, NOT as env vars. The resolveCredential() helper
+ * checks process.env first for backward compat with .env files.
+ */
+export const credentialKeys: CredentialKeyConfig[] = [
+  // Google Cloud / Analytics / BigQuery
   {
     key: "GOOGLE_APPLICATION_CREDENTIALS_JSON",
     label: "Google Cloud",
+    required: false,
+  },
+  { key: "GA4_PROPERTY_ID", label: "GA4 Property ID", required: false },
+  {
+    key: "BIGQUERY_PROJECT_ID",
+    label: "BigQuery Project ID",
     required: false,
   },
   // Amplitude
@@ -18,7 +30,11 @@ export const envKeys: EnvKeyConfig[] = [
     required: false,
   },
   // Mixpanel
-  { key: "MIXPANEL_PROJECT_ID", label: "Mixpanel Project ID", required: false },
+  {
+    key: "MIXPANEL_PROJECT_ID",
+    label: "Mixpanel Project ID",
+    required: false,
+  },
   {
     key: "MIXPANEL_SERVICE_ACCOUNT",
     label: "Mixpanel Service Account",
@@ -27,7 +43,7 @@ export const envKeys: EnvKeyConfig[] = [
   // PostHog
   { key: "POSTHOG_API_KEY", label: "PostHog API Key", required: false },
   { key: "POSTHOG_PROJECT_ID", label: "PostHog Project ID", required: false },
-  // PostgreSQL
+  // PostgreSQL (user's external DB, not the app's DATABASE_URL)
   { key: "POSTGRES_URL", label: "PostgreSQL URL", required: false },
   // Stripe
   { key: "STRIPE_SECRET_KEY", label: "Stripe", required: false },
@@ -47,8 +63,6 @@ export const envKeys: EnvKeyConfig[] = [
   // Grafana
   { key: "GRAFANA_URL", label: "Grafana URL", required: false },
   { key: "GRAFANA_TOKEN", label: "Grafana Token", required: false },
-  // Google Cloud
-  { key: "GCLOUD_PROJECT_ID", label: "Google Cloud Project", required: false },
   // Slack
   { key: "SLACK_TOKEN", label: "Slack", required: false },
   // Notion
@@ -61,5 +75,9 @@ export const envKeys: EnvKeyConfig[] = [
   { key: "COMMONROOM_API_KEY", label: "Common Room", required: false },
   // DataForSEO
   { key: "DATAFORSEO_LOGIN", label: "DataForSEO", required: false },
-  { key: "DATAFORSEO_PASSWORD", label: "DataForSEO Password", required: false },
+  {
+    key: "DATAFORSEO_PASSWORD",
+    label: "DataForSEO Password",
+    required: false,
+  },
 ];

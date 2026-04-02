@@ -1,15 +1,22 @@
 import { createHash } from "crypto";
 import { getAccessToken } from "./gcloud";
+import { resolveCredential } from "./credentials";
 
-const PROJECT_ID = process.env.BIGQUERY_PROJECT_ID || "your-gcp-project-id";
-
-const APP_EVENTS_TABLE = `${PROJECT_ID}.analytics.events_partitioned`;
+let _projectId: string | null = null;
+async function getProjectId(): Promise<string> {
+  if (_projectId) return _projectId;
+  _projectId =
+    (await resolveCredential("BIGQUERY_PROJECT_ID")) || "your-gcp-project-id";
+  return _projectId;
+}
 
 /**
  * Resolve @app_events placeholder to the fully-qualified table name.
  */
-function resolveTablePlaceholder(sql: string): string {
-  return sql.replace(/@app_events/gi, `\`${APP_EVENTS_TABLE}\``);
+async function resolveTablePlaceholder(sql: string): Promise<string> {
+  const projectId = await getProjectId();
+  const appEventsTable = `${projectId}.analytics.events_partitioned`;
+  return sql.replace(/@app_events/gi, `\`${appEventsTable}\``);
 }
 
 /**
@@ -133,7 +140,7 @@ function rowsToObjects(
 }
 
 export async function runQuery(sql: string): Promise<QueryResult> {
-  let resolvedSql = resolveTablePlaceholder(sql);
+  let resolvedSql = await resolveTablePlaceholder(sql);
   resolvedSql = filterDevSchema(resolvedSql);
 
   const cached = getCached(resolvedSql);
@@ -142,7 +149,8 @@ export async function runQuery(sql: string): Promise<QueryResult> {
   }
 
   const token = await getAccessToken();
-  const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${PROJECT_ID}/queries`;
+  const projectId = await getProjectId();
+  const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/queries`;
 
   const res = await fetch(url, {
     method: "POST",
@@ -167,7 +175,7 @@ export async function runQuery(sql: string): Promise<QueryResult> {
   // If the job isn't complete, poll until it is
   if (!data.jobComplete && data.jobReference?.jobId) {
     const jobId = data.jobReference.jobId;
-    const resultsUrl = `https://bigquery.googleapis.com/bigquery/v2/projects/${PROJECT_ID}/queries/${jobId}`;
+    const resultsUrl = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/queries/${jobId}`;
 
     let attempts = 0;
     while (!data.jobComplete && attempts < 60) {

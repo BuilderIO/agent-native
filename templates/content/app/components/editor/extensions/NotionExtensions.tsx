@@ -108,9 +108,52 @@ function humanizeTag(tagName: string): string {
   return tagName.replace(/[_-]/g, " ");
 }
 
-function ToggleView({ node, updateAttributes }: NodeViewProps) {
+function ToggleView({ node, updateAttributes, editor, getPos }: NodeViewProps) {
   const [open, setOpen] = useState(false);
   const summary = (node.attrs.summary || "") as string;
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const pos = getPos();
+      if (typeof pos !== "number") return;
+      // Insert a new toggle after this one
+      const endPos = pos + node.nodeSize;
+      editor
+        .chain()
+        .focus()
+        .insertContentAt(endPos, {
+          type: "notionToggle",
+          attrs: { summary: "" },
+          content: [{ type: "paragraph" }],
+        })
+        .run();
+      // Focus the new toggle's summary input after render
+      setTimeout(() => {
+        const wrapper = editor.view.dom.closest(".visual-editor-wrapper");
+        if (!wrapper) return;
+        const toggles = wrapper.querySelectorAll(".notion-toggle__summary");
+        const allToggles = Array.from(toggles) as HTMLInputElement[];
+        const currentInput = e.currentTarget;
+        const idx = allToggles.indexOf(currentInput);
+        if (idx >= 0 && allToggles[idx + 1]) {
+          allToggles[idx + 1].focus();
+        }
+      }, 0);
+    } else if (e.key === "Backspace" && summary === "") {
+      e.preventDefault();
+      const pos = getPos();
+      if (typeof pos !== "number") return;
+      // Delete this empty toggle and replace with paragraph
+      editor
+        .chain()
+        .focus()
+        .deleteRange({ from: pos, to: pos + node.nodeSize })
+        .insertContentAt(pos, { type: "paragraph" })
+        .focus(pos + 1)
+        .run();
+    }
+  };
 
   return (
     <NodeViewWrapper
@@ -134,6 +177,7 @@ function ToggleView({ node, updateAttributes }: NodeViewProps) {
           onChange={(event) =>
             updateAttributes({ summary: event.currentTarget.value })
           }
+          onKeyDown={handleKeyDown}
           onClick={(e) => e.stopPropagation()}
           placeholder="Toggle"
           className="notion-toggle__summary"

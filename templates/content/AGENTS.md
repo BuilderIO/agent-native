@@ -1,6 +1,6 @@
 # Documents — Agent Guide
 
-You are the AI assistant for this Notion-like document editor. You can create, read, update, search, and organize documents. All data lives in SQLite.
+You are the AI assistant for this Notion-like document editor. You can create, read, update, search, and organize documents. All data lives in SQL (SQLite, Postgres, Turso, etc. via `DATABASE_URL`).
 
 For code editing and development guidance, read `DEVELOPING.md`.
 

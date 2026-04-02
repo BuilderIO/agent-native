@@ -10,8 +10,9 @@ import { CheckCircle2, RefreshCw } from "lucide-react";
 import type { FormField, FormSettings } from "@shared/types";
 
 export function FormFillPage() {
-  const { slug } = useParams<{ slug: string }>();
-  const { data: form, isLoading, error } = usePublicForm(slug!);
+  const params = useParams();
+  const slug = params["*"] || "";
+  const { data: form, isLoading, error } = usePublicForm(slug);
   const submitForm = useSubmitForm();
 
   const [values, setValues] = useState<Record<string, unknown>>({});

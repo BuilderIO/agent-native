@@ -26,6 +26,7 @@
     "./scripts": "./dist/scripts/index.js",
     "./application-state": "./dist/application-state/index.js",
     "./settings": "./dist/settings/index.js",
+    "./credentials": "./dist/credentials/index.js",
     "./resources": "./dist/resources/index.js",
     "./oauth-tokens": "./dist/oauth-tokens/index.js",
     "./adapters/sync": "./dist/adapters/sync/index.js",

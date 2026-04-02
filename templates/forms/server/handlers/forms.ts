@@ -6,7 +6,12 @@ import {
   type H3Event,
 } from "h3";
 import { eq, sql } from "drizzle-orm";
-import { nanoid } from "nanoid";
+import { customAlphabet } from "nanoid";
+
+const nanoid = customAlphabet(
+  "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
+);
+
 import { getDb, schema } from "../db/index.js";
 import type { Form, FormField, FormSettings } from "../../shared/types.js";
 
@@ -127,7 +132,7 @@ export const createForm = defineEventHandler(async (event: H3Event) => {
   const now = new Date().toISOString();
   const id = nanoid();
   const slug =
-    body.slug || slugify(body.title || "untitled") + "-" + id.slice(0, 6);
+    body.slug || slugify(body.title || "untitled") + "/" + id.slice(0, 6);
 
   const defaultSettings: FormSettings = {
     primaryColor: "#2563eb",
@@ -186,7 +191,14 @@ export const updateForm = defineEventHandler(async (event: H3Event) => {
   }
 
   const updates: Record<string, unknown> = { updatedAt: now };
-  if (body.title !== undefined) updates.title = body.title;
+  if (body.title !== undefined) {
+    updates.title = body.title;
+    // Auto-update slug when title changes (unless slug is explicitly provided)
+    if (body.slug === undefined) {
+      const idSuffix = id.slice(0, 6);
+      updates.slug = slugify(body.title || "untitled") + "/" + idSuffix;
+    }
+  }
   if (body.description !== undefined) updates.description = body.description;
   if (body.slug !== undefined) updates.slug = body.slug;
   if (body.fields !== undefined) updates.fields = JSON.stringify(body.fields);
@@ -206,8 +218,8 @@ export const updateForm = defineEventHandler(async (event: H3Event) => {
 
   // Invalidate cache for old and new slugs
   invalidatePublicFormCache(existing.slug);
-  if (body.slug && body.slug !== existing.slug) {
-    invalidatePublicFormCache(body.slug);
+  if (updates.slug && updates.slug !== existing.slug) {
+    invalidatePublicFormCache(updates.slug as string);
   }
 
   const row = await db

@@ -1,14 +1,16 @@
 // Common Room community platform API helper
 // Fetches community members, activities, and segments
 
+import { resolveCredential } from "./credentials";
+
 const API_BASE = "https://api.commonroom.io/community/v1";
 
 const cache = new Map<string, { data: unknown; ts: number }>();
 const CACHE_TTL_MS = 10 * 60 * 1000;
 const MAX_CACHE = 120;
 
-function getToken(): string {
-  const token = process.env.COMMONROOM_API_TOKEN;
+async function getToken(): Promise<string> {
+  const token = await resolveCredential("COMMONROOM_API_TOKEN");
   if (!token) throw new Error("COMMONROOM_API_TOKEN env var required");
   return token;
 }
@@ -22,7 +24,7 @@ async function apiGet<T>(path: string, cacheKey?: string): Promise<T> {
 
   const res = await fetch(`${API_BASE}${path}`, {
     headers: {
-      Authorization: `Bearer ${getToken()}`,
+      Authorization: `Bearer ${await getToken()}`,
       "Content-Type": "application/json",
     },
   });
@@ -57,7 +59,7 @@ async function apiPost<T>(
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${getToken()}`,
+      Authorization: `Bearer ${await getToken()}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),

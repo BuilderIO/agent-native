@@ -46,7 +46,7 @@ This is an agent-native form builder with:
 
 - **Admin (logged in):** Agent + GUI to build forms (split-pane live preview + properties panel)
 - **Public (logged out):** Fill out forms at `/f/:slug` — no agent, no login
-- **Responses:** Stored in SQLite DB via Drizzle ORM
+- **Responses:** Stored in SQL via Drizzle ORM (SQLite, Postgres, Turso, etc. via `DATABASE_URL`)
 - **Captcha:** Cloudflare Turnstile on public form submissions (opt-in)
 - **Branding:** "Built with Agent Native" badge on public forms
 
@@ -54,7 +54,7 @@ App settings are stored in SQL via the settings API (`getSetting`/`putSetting` f
 
 ## Core Database Scripts
 
-These **core scripts** are available automatically for inspecting and manipulating the SQLite database:
+These **core scripts** are available automatically for inspecting and manipulating the database:
 
 | Script      | Purpose                         | Example                                            |
 | ----------- | ------------------------------- | -------------------------------------------------- |
@@ -94,7 +94,7 @@ pnpm script update-form --id <id> --status published
 
 ## Key Conventions
 
-1. **Forms are DB-backed** — form definitions and responses live in SQLite via Drizzle, not JSON files. The agent creates/modifies forms via scripts that call the DB.
+1. **Forms are DB-backed** — form definitions and responses live in SQL via Drizzle, not JSON files. The agent creates/modifies forms via scripts that call the DB.
 2. **Agent + GUI work together** — The agent creates forms from natural language. The GUI provides live preview + click-to-edit for fine-tuning.
 3. **Public pages are logged-out** — Form filling pages at `/f/:slug` require no authentication. Captcha protects against bots.
 4. **Scripts for backend logic** — anything the agent needs to execute goes through `pnpm script`.

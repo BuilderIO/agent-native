@@ -14,6 +14,10 @@ import {
   Check,
   ArrowUp,
   MessageCircle,
+  Globe,
+  Hash,
+  Trash2,
+  Webhook,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -57,7 +61,14 @@ import {
 } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import type { FormField, FormFieldType, FormSettings } from "@shared/types";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import type {
+  FormField,
+  FormFieldType,
+  FormIntegration,
+  FormSettings,
+  IntegrationType,
+} from "@shared/types";
 
 const fieldTypeDefaults: Record<FormFieldType, Partial<FormField>> = {
   text: { label: "Text Field", placeholder: "Enter text..." },
@@ -109,6 +120,9 @@ export function FormBuilderPage() {
   const [agentPrompt, setAgentPrompt] = useState("");
   const agentPromptRef = useRef<HTMLTextAreaElement>(null);
   const { send, codeRequiredDialog } = useSendToAgentChat();
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">(
+    "idle",
+  );
 
   // Local state for text inputs and fields — prevents polling-driven refetches
   // from resetting input values while the user is typing or losing optimistic
@@ -138,13 +152,23 @@ export function FormBuilderPage() {
 
   // Debounced save
   const saveTimeout = useRef<ReturnType<typeof setTimeout>>();
+  const savedTimeout = useRef<ReturnType<typeof setTimeout>>();
   const save = useCallback(
     (data: Parameters<typeof updateForm.mutate>[0]) => {
       clearTimeout(saveTimeout.current);
+      clearTimeout(savedTimeout.current);
+      setSaveState("saving");
       saveTimeout.current = setTimeout(() => {
         updateForm.mutate(data, {
           onSettled: () => {
             fieldsDirty.current = false;
+          },
+          onSuccess: () => {
+            setSaveState("saved");
+            savedTimeout.current = setTimeout(() => setSaveState("idle"), 2000);
+          },
+          onError: () => {
+            setSaveState("idle");
           },
         });
       }, 500);
@@ -152,7 +176,13 @@ export function FormBuilderPage() {
     [updateForm],
   );
 
-  useEffect(() => () => clearTimeout(saveTimeout.current), []);
+  useEffect(
+    () => () => {
+      clearTimeout(saveTimeout.current);
+      clearTimeout(savedTimeout.current);
+    },
+    [],
+  );
 
   if (isLoading) {
     return (
@@ -308,6 +338,11 @@ export function FormBuilderPage() {
           >
             {form.status}
           </Badge>
+          {saveState !== "idle" && (
+            <span className="text-[11px] text-muted-foreground">
+              {saveState === "saving" ? "Saving…" : "Saved"}
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-1">
@@ -562,6 +597,36 @@ export function FormBuilderPage() {
 // Form settings editor dialog
 // ---------------------------------------------------------------------------
 
+const integrationMeta: Record<
+  IntegrationType,
+  { label: string; icon: typeof Webhook; placeholder: string; help: string }
+> = {
+  slack: {
+    label: "Slack",
+    icon: Hash,
+    placeholder: "https://hooks.slack.com/services/...",
+    help: "Create an Incoming Webhook in your Slack app settings",
+  },
+  discord: {
+    label: "Discord",
+    icon: Hash,
+    placeholder: "https://discord.com/api/webhooks/...",
+    help: "Channel Settings > Integrations > Webhooks",
+  },
+  webhook: {
+    label: "Webhook",
+    icon: Webhook,
+    placeholder: "https://...",
+    help: "Sends a JSON POST with submission data. Works with Zapier, Make, n8n, etc.",
+  },
+  "google-sheets": {
+    label: "Google Sheets",
+    icon: Globe,
+    placeholder: "https://script.google.com/macros/s/.../exec",
+    help: "Deploy an Apps Script web app that receives POST data",
+  },
+};
+
 function FormSettingsEditor({
   form,
   onSave,
@@ -575,71 +640,203 @@ function FormSettingsEditor({
     setSettings((prev) => ({ ...prev, ...partial }));
   }
 
+  function addIntegration(type: IntegrationType) {
+    const meta = integrationMeta[type];
+    const integration: FormIntegration = {
+      id: nanoid(8),
+      type,
+      name: meta.label,
+      enabled: true,
+      url: "",
+    };
+    update({
+      integrations: [...(settings.integrations ?? []), integration],
+    });
+  }
+
+  function updateIntegration(id: string, partial: Partial<FormIntegration>) {
+    update({
+      integrations: (settings.integrations ?? []).map((i) =>
+        i.id === id ? { ...i, ...partial } : i,
+      ),
+    });
+  }
+
+  function removeIntegration(id: string) {
+    update({
+      integrations: (settings.integrations ?? []).filter((i) => i.id !== id),
+    });
+  }
+
   return (
-    <div className="space-y-4 py-2">
-      <div className="space-y-2">
-        <Label className="text-xs">Submit button text</Label>
-        <Input
-          value={settings.submitText || "Submit"}
-          onChange={(e) => update({ submitText: e.target.value })}
-          className="h-8 text-sm"
-        />
-      </div>
+    <Tabs defaultValue="general" className="w-full">
+      <TabsList className="w-full">
+        <TabsTrigger value="general" className="flex-1">
+          General
+        </TabsTrigger>
+        <TabsTrigger value="integrations" className="flex-1">
+          Integrations
+          {(settings.integrations?.length ?? 0) > 0 && (
+            <Badge
+              variant="secondary"
+              className="ml-1.5 text-[10px] px-1.5 py-0"
+            >
+              {settings.integrations!.length}
+            </Badge>
+          )}
+        </TabsTrigger>
+      </TabsList>
 
-      <div className="space-y-2">
-        <Label className="text-xs">Success message</Label>
-        <Textarea
-          value={
-            settings.successMessage ||
-            "Thank you! Your response has been recorded."
-          }
-          onChange={(e) => update({ successMessage: e.target.value })}
-          rows={2}
-          className="text-sm"
-        />
-      </div>
-
-      <div className="space-y-2">
-        <Label className="text-xs">Redirect URL (optional)</Label>
-        <Input
-          value={settings.redirectUrl || ""}
-          onChange={(e) => update({ redirectUrl: e.target.value })}
-          placeholder="https://..."
-          className="h-8 text-sm"
-        />
-      </div>
-
-      <Separator />
-
-      <div className="space-y-2">
-        <Label className="text-xs">Primary color</Label>
-        <div className="flex items-center gap-2">
-          <input
-            type="color"
-            value={settings.primaryColor || "#334155"}
-            onChange={(e) => update({ primaryColor: e.target.value })}
-            className="h-8 w-8 rounded border border-border cursor-pointer"
-          />
+      <TabsContent value="general" className="space-y-4 py-2">
+        <div className="space-y-2">
+          <Label className="text-xs">Submit button text</Label>
           <Input
-            value={settings.primaryColor || "#334155"}
-            onChange={(e) => update({ primaryColor: e.target.value })}
-            className="h-8 text-sm flex-1"
+            value={settings.submitText || "Submit"}
+            onChange={(e) => update({ submitText: e.target.value })}
+            className="h-8 text-sm"
           />
         </div>
-      </div>
 
-      <div className="space-y-2">
-        <Label className="text-xs">Font family</Label>
-        <Input
-          value={settings.fontFamily || "Inter"}
-          onChange={(e) => update({ fontFamily: e.target.value })}
-          className="h-8 text-sm"
-        />
-      </div>
+        <div className="space-y-2">
+          <Label className="text-xs">Success message</Label>
+          <Textarea
+            value={
+              settings.successMessage ||
+              "Thank you! Your response has been recorded."
+            }
+            onChange={(e) => update({ successMessage: e.target.value })}
+            rows={2}
+            className="text-sm"
+          />
+        </div>
 
-      <Button onClick={() => onSave(settings)} className="w-full" size="sm">
-        Save Settings
-      </Button>
-    </div>
+        <div className="space-y-2">
+          <Label className="text-xs">Redirect URL (optional)</Label>
+          <Input
+            value={settings.redirectUrl || ""}
+            onChange={(e) => update({ redirectUrl: e.target.value })}
+            placeholder="https://..."
+            className="h-8 text-sm"
+          />
+        </div>
+
+        <Separator />
+
+        <div className="space-y-2">
+          <Label className="text-xs">Primary color</Label>
+          <div className="flex items-center gap-2">
+            <input
+              type="color"
+              value={settings.primaryColor || "#334155"}
+              onChange={(e) => update({ primaryColor: e.target.value })}
+              className="h-8 w-8 rounded border border-border cursor-pointer"
+            />
+            <Input
+              value={settings.primaryColor || "#334155"}
+              onChange={(e) => update({ primaryColor: e.target.value })}
+              className="h-8 text-sm flex-1"
+            />
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label className="text-xs">Font family</Label>
+          <Input
+            value={settings.fontFamily || "Inter"}
+            onChange={(e) => update({ fontFamily: e.target.value })}
+            className="h-8 text-sm"
+          />
+        </div>
+
+        <Button onClick={() => onSave(settings)} className="w-full" size="sm">
+          Save Settings
+        </Button>
+      </TabsContent>
+
+      <TabsContent value="integrations" className="space-y-4 py-2">
+        <p className="text-xs text-muted-foreground">
+          Send form submissions to external services automatically.
+        </p>
+
+        {(settings.integrations ?? []).map((integration) => {
+          const meta = integrationMeta[integration.type];
+          const Icon = meta.icon;
+          return (
+            <div
+              key={integration.id}
+              className="rounded-lg border border-border p-3 space-y-2.5"
+            >
+              <div className="flex items-center gap-2">
+                <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
+                <Input
+                  value={integration.name}
+                  onChange={(e) =>
+                    updateIntegration(integration.id, {
+                      name: e.target.value,
+                    })
+                  }
+                  className="h-7 text-sm font-medium flex-1"
+                />
+                <Switch
+                  checked={integration.enabled}
+                  onCheckedChange={(checked) =>
+                    updateIntegration(integration.id, { enabled: checked })
+                  }
+                />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                  onClick={() => removeIntegration(integration.id)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+              <Input
+                value={integration.url}
+                onChange={(e) =>
+                  updateIntegration(integration.id, { url: e.target.value })
+                }
+                placeholder={meta.placeholder}
+                className="h-8 text-sm font-mono"
+              />
+              <p className="text-[11px] text-muted-foreground">{meta.help}</p>
+            </div>
+          );
+        })}
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="w-full">
+              <Plus className="h-3.5 w-3.5 mr-1.5" />
+              Add Integration
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="center" className="w-56">
+            {(
+              Object.entries(integrationMeta) as [
+                IntegrationType,
+                (typeof integrationMeta)[IntegrationType],
+              ][]
+            ).map(([type, meta]) => {
+              const Icon = meta.icon;
+              return (
+                <DropdownMenuItem
+                  key={type}
+                  onClick={() => addIntegration(type)}
+                >
+                  <Icon className="h-4 w-4 mr-2" />
+                  {meta.label}
+                </DropdownMenuItem>
+              );
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <Button onClick={() => onSave(settings)} className="w-full" size="sm">
+          Save Settings
+        </Button>
+      </TabsContent>
+    </Tabs>
   );
 }

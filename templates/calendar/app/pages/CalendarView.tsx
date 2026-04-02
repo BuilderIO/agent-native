@@ -205,6 +205,25 @@ export default function CalendarView() {
     );
   }
 
+  // Move/resize event to new start/end times (drag from Week/Day views)
+  function handleEventTimeChange(
+    eventId: string,
+    newStart: Date,
+    newEnd: Date,
+  ) {
+    updateEvent.mutate(
+      {
+        id: eventId,
+        start: newStart.toISOString(),
+        end: newEnd.toISOString(),
+      },
+      {
+        onSuccess: () => toast.success("Event updated"),
+        onError: () => toast.error("Failed to update event"),
+      },
+    );
+  }
+
   // IconKeyboard shortcuts — don't fire when user is typing in an input
   const isTypingInInput = useCallback((e: KeyboardEvent) => {
     const target = e.target as HTMLElement;
@@ -490,6 +509,7 @@ export default function CalendarView() {
                 onDateSelect={handleDateSelect}
                 onEditEvent={handleEditEvent}
                 onDeleteEvent={handleDeleteEvent}
+                onEventTimeChange={handleEventTimeChange}
                 isLoading={eventsLoading}
               />
             )}
@@ -499,6 +519,7 @@ export default function CalendarView() {
                 date={selectedDate}
                 onEditEvent={handleEditEvent}
                 onDeleteEvent={handleDeleteEvent}
+                onEventTimeChange={handleEventTimeChange}
                 isLoading={eventsLoading}
               />
             )}

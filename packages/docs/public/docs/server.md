@@ -151,6 +151,37 @@ export default createCoreRoutesPlugin({ sseRoute: "/api/sse" });
 
 When new framework routes are added to `createCoreRoutesPlugin()`, all templates pick them up automatically on the next dependency update — no per-template file changes needed.
 
+## Credentials (SQL-Backed Secrets)
+
+For per-user or per-account credentials (API keys, tokens, service account files), use `@agent-native/core/credentials` instead of environment variables. Credentials are stored in the SQL `settings` table and work in all deployment environments including serverless.
+
+```ts
+import {
+  resolveCredential,
+  saveCredential,
+  hasCredential,
+} from "@agent-native/core/credentials";
+
+// Read — checks process.env first (backward compat), then SQL
+const token = await resolveCredential("STRIPE_SECRET_KEY");
+
+// Write — saves to SQL settings store
+await saveCredential("STRIPE_SECRET_KEY", "sk_live_...");
+
+// Check existence
+const configured = await hasCredential("STRIPE_SECRET_KEY");
+```
+
+### When to use credentials vs env vars
+
+| Type                 | Storage                          | Examples                                               |
+| -------------------- | -------------------------------- | ------------------------------------------------------ |
+| **Infrastructure**   | Env vars (`.env`, deploy config) | `DATABASE_URL`, `DATABASE_AUTH_TOKEN`                  |
+| **App-level shared** | Env vars                         | `GOOGLE_CLIENT_ID`, `ANTHROPIC_API_KEY`                |
+| **Per-user/account** | `@agent-native/core/credentials` | `STRIPE_SECRET_KEY`, `GA4_PROPERTY_ID`, `GITHUB_TOKEN` |
+
+The `envKeys` option on `createCoreRoutesPlugin` is for infrastructure keys that should be env vars. Use the credentials API for everything else.
+
 ## Shared State Between Plugins and Routes
 
 Use a shared module in `server/lib/` to pass state from plugins to route handlers:

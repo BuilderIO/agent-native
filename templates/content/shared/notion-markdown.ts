@@ -130,8 +130,91 @@ export function legacyMarkdownToNfm(markdown: string): string {
   return trimTrailingBlankLines(normalizeLegacyStructure(markdown));
 }
 
+/**
+ * Convert blockquote syntax (`> text`) back to tab-indented lines.
+ * The editor uses blockquotes to display Notion-style indentation,
+ * but NFM stores indentation as tabs. Without this, pushing to Notion
+ * turns indented paragraphs into quote blocks.
+ */
+function blockquotesToIndent(markdown: string): string {
+  const lines = normalizeLineEndings(markdown).split("\n");
+  const result: string[] = [];
+  let inCodeFence = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (CODE_FENCE_RE.test(trimmed)) inCodeFence = !inCodeFence;
+    if (inCodeFence) {
+      result.push(line);
+      continue;
+    }
+
+    // Count leading `> ` markers and convert to tabs
+    let depth = 0;
+    let rest = line;
+    while (rest.startsWith("> ")) {
+      depth++;
+      rest = rest.slice(2);
+    }
+    // Also handle `>` without trailing space at end of nested quotes
+    if (depth > 0 && rest.startsWith(">")) {
+      depth++;
+      rest = rest.slice(1);
+    }
+
+    if (depth > 0) {
+      result.push("\t".repeat(depth) + rest);
+    } else {
+      result.push(line);
+    }
+  }
+
+  return result.join("\n");
+}
+
+/**
+ * Preserve intentional empty lines as `<empty-block/>` tags.
+ * In the editor, consecutive blank lines represent vertical spacing,
+ * but markdown parsers collapse them. Converting extras to `<empty-block/>`
+ * ensures they survive round-tripping.
+ */
+function preserveEmptyLines(markdown: string): string {
+  const lines = normalizeLineEndings(markdown).split("\n");
+  const result: string[] = [];
+  let inCodeFence = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (CODE_FENCE_RE.test(trimmed)) inCodeFence = !inCodeFence;
+    if (inCodeFence) {
+      result.push(lines[i]);
+      continue;
+    }
+
+    // A blank line that follows another blank line (or <empty-block/>) is extra spacing
+    if (trimmed === "" && i > 0) {
+      const prevTrimmed =
+        result.length > 0 ? result[result.length - 1].trim() : "";
+      if (prevTrimmed === "" || prevTrimmed === "<empty-block/>") {
+        result.push("<empty-block/>");
+        continue;
+      }
+    }
+
+    // &nbsp; used by editor for empty paragraphs → <empty-block/>
+    if (trimmed === "&nbsp;") {
+      result.push("<empty-block/>");
+      continue;
+    }
+
+    result.push(lines[i]);
+  }
+
+  return result.join("\n");
+}
+
 export function normalizeNfmForStorage(markdown: string): string {
-  return legacyMarkdownToNfm(markdown);
+  return legacyMarkdownToNfm(preserveEmptyLines(blockquotesToIndent(markdown)));
 }
 
 export function parseNfmForEditor(markdown: string): string {
