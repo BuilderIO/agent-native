@@ -6,11 +6,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /**
- * Scaffold a new agent-native app from the default template.
+ * Scaffold a new agent-native app from a template.
  */
-export function createApp(name?: string): void {
+export function createApp(name?: string, template = "default"): void {
   if (!name) {
-    console.error("Usage: agent-native create <app-name>");
+    console.error("Usage: agent-native create <app-name> [--template <name>]");
     process.exit(1);
   }
 
@@ -30,14 +30,19 @@ export function createApp(name?: string): void {
   }
 
   // Locate the template directory
-  // In dist: dist/cli/create.js -> ../../src/templates/default
+  // In dist: dist/cli/create.js -> ../../src/templates/<template>
   // Resolve relative to the package root
   const packageRoot = path.resolve(__dirname, "../..");
-  const templateDir = path.join(packageRoot, "src/templates/default");
+  const templatesRoot = path.join(packageRoot, "src/templates");
+  const templateDir = path.join(templatesRoot, template);
 
   if (!fs.existsSync(templateDir)) {
+    const available = fs
+      .readdirSync(templatesRoot)
+      .filter((d) => fs.statSync(path.join(templatesRoot, d)).isDirectory())
+      .filter((d) => d !== "default");
     console.error(
-      `Template directory not found at ${templateDir}. Is the package installed correctly?`,
+      `Template "${template}" not found. Available templates: ${available.join(", ")}`,
     );
     process.exit(1);
   }
