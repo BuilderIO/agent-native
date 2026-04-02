@@ -4,6 +4,7 @@ import { and, eq } from "drizzle-orm";
 import type { InferSelectModel } from "drizzle-orm";
 import { getDb, schema } from "../db/index.js";
 import {
+  createNotionPageWithMarkdown,
   fetchNotionPage,
   getNotionConnectionForOwner,
   normalizeNotionPageId,
@@ -424,30 +425,14 @@ export async function createAndLinkNotionPage(
 
   const parentId = searchResult.results[0].id;
 
-  // Create a new page under the parent with the document's title
-  const newPage = await notionFetch<{ id: string; url: string }>(
-    "/pages",
-    connection.accessToken,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        parent: { type: "page_id", page_id: parentId },
-        properties: {
-          title: {
-            title: [
-              {
-                type: "text",
-                text: { content: document.title || "Untitled" },
-              },
-            ],
-          },
-        },
-        children: [],
-      }),
-    },
-  );
+  const newPage = await createNotionPageWithMarkdown({
+    accessToken: connection.accessToken,
+    parentPageId: parentId,
+    title: document.title,
+    content: document.content,
+    icon: document.icon,
+  });
 
-  // Link the document to the new page and push content
   await upsertSyncLink({
     documentId,
     remotePageId: newPage.id,
@@ -457,7 +442,7 @@ export async function createAndLinkNotionPage(
     hasConflict: false,
   });
 
-  return pushDocumentToNotion(owner, documentId, true);
+  return refreshDocumentSyncStatus(owner, documentId);
 }
 
 export async function listNotionLinks(owner: string) {

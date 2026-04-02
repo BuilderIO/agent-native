@@ -298,6 +298,18 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
                     {syncStatus.lastError}
                   </p>
                 )}
+                {syncStatus?.warnings?.length ? (
+                  <div className="mt-1.5 space-y-1">
+                    {syncStatus.warnings.slice(0, 3).map((warning, index) => (
+                      <p
+                        key={`${warning}-${index}`}
+                        className="text-[10px] text-muted-foreground"
+                      >
+                        {warning}
+                      </p>
+                    ))}
+                  </div>
+                ) : null}
               </div>
 
               {/* Conflict banner */}

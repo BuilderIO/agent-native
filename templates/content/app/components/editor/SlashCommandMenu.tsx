@@ -83,7 +83,15 @@ const commands: CommandItem[] = [
     description: "Notion-style toggle line",
     icon: IconChevronRight,
     action: (editor) =>
-      editor.chain().focus().setParagraph().insertContent("▶ ").run(),
+      editor
+        .chain()
+        .focus()
+        .insertContent({
+          type: "notionToggle",
+          attrs: { summary: "Toggle" },
+          content: [{ type: "paragraph" }],
+        })
+        .run(),
   },
   {
     title: "Code Block",

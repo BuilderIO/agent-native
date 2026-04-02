@@ -1,147 +1,109 @@
-import { describe, expect, it } from "vitest";
-import { markdownToNotionBlocks, notionBlocksToMarkdown } from "./notion";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  resolveNotionMarkdownResponse,
+  type NotionPageMarkdown,
+} from "./notion";
+import { normalizeNfmForStorage } from "../../shared/notion-markdown";
 
-const INDENT = "\u00A0\u00A0";
-
-function para(text: string, children?: any[]) {
-  return {
-    id: Math.random().toString(36).slice(2),
-    type: "paragraph" as const,
-    paragraph: { rich_text: [{ plain_text: text }] },
-    ...(children ? { children } : {}),
-  };
-}
-
-function bullet(text: string, children?: any[]) {
-  return {
-    id: Math.random().toString(36).slice(2),
-    type: "bulleted_list_item" as const,
-    bulleted_list_item: { rich_text: [{ plain_text: text }] },
-    ...(children ? { children } : {}),
-  };
-}
-
-function toggle(text: string, children?: any[]) {
-  return {
-    id: Math.random().toString(36).slice(2),
-    type: "toggle" as const,
-    toggle: { rich_text: [{ plain_text: text }] },
-    ...(children ? { children } : {}),
-  };
-}
-
-function code(text: string, language = "plain text") {
-  return {
-    id: Math.random().toString(36).slice(2),
-    type: "code" as const,
-    code: { language, rich_text: [{ plain_text: text }] },
-  };
-}
-
-describe("notionBlocksToMarkdown", () => {
-  it("preserves indented paragraph children without inventing bullets", () => {
-    const { markdown } = notionBlocksToMarkdown([
-      para("agent native starter project for brent", [
-        para("make that port the default port"),
-      ]),
-    ] as any);
-
-    expect(markdown).toBe(
-      `agent native starter project for brent\n${INDENT}make that port the default port`,
+describe("normalizeNfmForStorage", () => {
+  it("upgrades legacy toggle marker syntax into details blocks", () => {
+    expect(
+      normalizeNfmForStorage("▶ Product ideas\n  Ship docs\n  - Follow up"),
+    ).toBe(
+      [
+        "<details>",
+        "<summary>Product ideas</summary>",
+        "\tShip docs",
+        "\t- Follow up",
+        "</details>",
+      ].join("\n"),
     );
   });
 
-  it("preserves multiple indented child paragraphs on separate lines", () => {
-    const { markdown } = notionBlocksToMarkdown([
-      para("blog sidebar and bottom a/b tests", [
-        para("multiplayer claude code"),
-        para("release video"),
-      ]),
-    ] as any);
-
-    expect(markdown).toBe(
-      `blog sidebar and bottom a/b tests\n${INDENT}multiplayer claude code\n${INDENT}release video`,
-    );
-  });
-
-  it("renders toggles as explicit toggle markers rather than bullets", () => {
-    const { markdown } = notionBlocksToMarkdown([
-      toggle("team mtg dek", [para("generate"), bullet("follow up")]),
-    ] as any);
-
-    expect(markdown).toBe(`▶ team mtg dek\n${INDENT}generate\n  - follow up`);
-  });
-
-  it("preserves paragraph spacing between top-level blocks", () => {
-    const { markdown } = notionBlocksToMarkdown([
-      para("line one"),
-      para("line two"),
-    ] as any);
-
-    expect(markdown).toBe("line one\n\nline two");
-  });
-
-  it("flattens plain-text code blocks that do not look like code", () => {
-    const { markdown } = notionBlocksToMarkdown([
-      code("teams (with permissions)\n\nalso book me links"),
-    ] as any);
-
-    expect(markdown).toBe("teams (with permissions)\n\nalso book me links");
-  });
-
-  it("keeps real code blocks fenced", () => {
-    const { markdown } = notionBlocksToMarkdown([
-      code("const x = 1;", "typescript"),
-    ] as any);
-
-    expect(markdown).toBe("```typescript\nconst x = 1;\n```");
+  it("normalizes visual indents without touching fenced code", () => {
+    expect(
+      normalizeNfmForStorage(
+        ["Parent", "\u00A0\u00A0Child", "```ts", "  const x = 1;", "```"].join(
+          "\n",
+        ),
+      ),
+    ).toBe(["Parent", "\tChild", "```ts", "  const x = 1;", "```"].join("\n"));
   });
 });
 
-describe("markdownToNotionBlocks", () => {
-  it("parses visual indented lines back into child paragraphs", () => {
-    const blocks = markdownToNotionBlocks(
-      `agent native starter project for brent\n${INDENT}make that port the default port`,
+describe("resolveNotionMarkdownResponse", () => {
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    global.fetch = originalFetch;
+  });
+
+  it("hydrates unknown block ids into the first matching placeholder", async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          object: "page_markdown",
+          id: "child-block",
+          markdown: '<callout icon="💡">\n\tRecovered subtree\n</callout>',
+          truncated: false,
+          unknown_block_ids: [],
+        } satisfies NotionPageMarkdown),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     );
 
-    expect(blocks).toHaveLength(1);
-    expect(blocks[0].type).toBe("paragraph");
-    expect(blocks[0].children).toHaveLength(1);
-    expect(blocks[0].children[0].type).toBe("paragraph");
-    expect(blocks[0].children[0].paragraph.rich_text[0].text.content).toBe(
-      "make that port the default port",
+    const result = await resolveNotionMarkdownResponse("token", {
+      object: "page_markdown",
+      id: "page-id",
+      markdown:
+        '# Imported\n\n<unknown url="https://notion.so/x" alt="embed"/>',
+      truncated: true,
+      unknown_block_ids: ["child-block"],
+    });
+
+    expect(result.markdown).toContain('<callout icon="💡">');
+    expect(result.markdown).not.toContain("<unknown");
+    expect(result.warnings).toContain(
+      "This Notion page exceeded the markdown API block limit. The importer fetched additional subtrees where possible and preserved any remaining gaps as <unknown /> blocks.",
     );
   });
 
-  it("parses toggle marker syntax into notion toggles", () => {
-    const blocks = markdownToNotionBlocks(
-      `work for sajal\n${INDENT}▶ team mtg dek\n${INDENT}${INDENT}generate`,
+  it("preserves inaccessible unknown blocks and records a warning", async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          code: "object_not_found",
+          message: "Could not find block",
+        }),
+        {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     );
 
-    expect(blocks[0].type).toBe("paragraph");
-    expect(blocks[0].children[0].type).toBe("toggle");
-    expect(blocks[0].children[0].toggle.rich_text[0].text.content).toBe(
-      "team mtg dek",
+    const result = await resolveNotionMarkdownResponse("token", {
+      object: "page_markdown",
+      id: "page-id",
+      markdown: '<unknown url="https://notion.so/hidden" alt="child_page"/>',
+      truncated: true,
+      unknown_block_ids: ["hidden-block"],
+    });
+
+    expect(result.markdown).toContain("<unknown");
+    expect(result.warnings).toContain(
+      "Some child Notion blocks could not be loaded because the integration does not have access to them.",
     );
-    expect(
-      blocks[0].children[0].children[0].paragraph.rich_text[0].text.content,
-    ).toBe("generate");
-  });
-
-  it("supports legacy bullet-toggle markdown when exporting to notion", () => {
-    const blocks = markdownToNotionBlocks("- ▶ click to expand");
-
-    expect(blocks[0].type).toBe("toggle");
-    expect(blocks[0].toggle.rich_text[0].text.content).toBe("click to expand");
-  });
-
-  it("keeps nested bullets as bullets", () => {
-    const blocks = markdownToNotionBlocks("- parent\n  - child");
-
-    expect(blocks[0].type).toBe("bulleted_list_item");
-    expect(blocks[0].children[0].type).toBe("bulleted_list_item");
-    expect(
-      blocks[0].children[0].bulleted_list_item.rich_text[0].text.content,
-    ).toBe("child");
+    expect(result.warnings).toContain(
+      "One Notion block is still preserved as <unknown /> because it is unsupported or inaccessible.",
+    );
   });
 });
