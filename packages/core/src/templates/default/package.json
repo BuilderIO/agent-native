@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "@agent-native/core": "^0.4.1",
+    "@assistant-ui/react": "^0.12.19",
+    "@assistant-ui/react-markdown": "^0.12.6",
     "@tabler/icons-react": "^3.40.0",
     "h3": "^1.13.0",
     "isbot": "^5"
