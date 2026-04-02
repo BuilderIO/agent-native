@@ -166,9 +166,9 @@ function convertNfmToEditorMarkdown(nfm: string): string {
 
 // ── Pass 1: Convert HTML container inner content to HTML ─────────────
 // markdown-it doesn't parse markdown inside HTML blocks, so content
-// inside <details> and <callout> must be actual HTML elements.
-const HTML_CONTENT_CONTAINERS = /^<(details|callout)\b/;
-const HTML_CONTENT_CLOSE = /^<\/(details|callout)>/;
+// inside <details>, <callout>, <columns>, and <column> must be actual HTML elements.
+const HTML_CONTENT_CONTAINERS = /^<(details|callout|columns|column)\b/;
+const HTML_CONTENT_CLOSE = /^<\/(details|callout|columns|column)>/;
 
 function convertHtmlContainerContent(nfm: string): string {
   const lines = nfm.split("\n");
