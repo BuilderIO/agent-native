@@ -383,7 +383,7 @@ export function EventDetailPopover({
                     href={meetingLink.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center justify-center w-full rounded-xl bg-[#4965E0] hover:bg-[#5A75F0] text-white font-semibold py-3 px-4 text-[15px] relative"
+                    className="flex items-center justify-center w-full rounded-xl bg-[#4965E0] hover:bg-[#5A75F0] text-white font-semibold py-2 px-4 text-[15px] relative"
                   >
                     <IconVideo className="h-5 w-5 mr-2 opacity-80" />
                     <span>{getMeetingLabel(meetingLink.type)}</span>
