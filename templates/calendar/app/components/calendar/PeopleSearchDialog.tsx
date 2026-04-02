@@ -146,7 +146,7 @@ export function PeopleSearchDialog({
           <DialogTitle className="text-base">People</DialogTitle>
         </DialogHeader>
 
-        {/* IconSearch input */}
+        {/* Search input */}
         <div className="relative px-4 pt-3 pb-2">
           <IconSearch className="absolute left-7 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
@@ -154,7 +154,7 @@ export function PeopleSearchDialog({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="IconSearch by name or type an email..."
+            placeholder="Search by name or type an email..."
             className="h-9 w-full rounded-md border border-input bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             autoFocus
           />

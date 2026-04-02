@@ -2,6 +2,7 @@ import {
   defineEventHandler,
   getQuery,
   readBody,
+  sendRedirect,
   setResponseStatus,
   type H3Event,
 } from "h3";
@@ -95,6 +96,17 @@ export const handleAtlassianCallback = defineEventHandler(
       });
     } catch (error: any) {
       const msg = error.message || "Unknown error";
+      // Authorization code errors usually mean the code was already used
+      // (double-fetch, page reload) or expired. Check if we're actually
+      // connected from a prior successful exchange.
+      if (msg.includes("invalid_grant") || msg.includes("authorization_code")) {
+        const { connected } = await getAuthStatus();
+        if (connected) {
+          return sendRedirect(event, "/");
+        }
+        // Not connected — redirect back to try again with a fresh auth URL
+        return sendRedirect(event, "/?connect=retry");
+      }
       return oauthErrorPage(`Connection failed: ${msg}`);
     }
   },

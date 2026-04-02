@@ -1,22 +1,5 @@
-import BookingsList from "@/pages/BookingsList";
-import { AppLayout } from "@/components/layout/AppLayout";
-
-export function meta() {
-  return [{ title: "Bookings — Calendar" }];
-}
-
-export function HydrateFallback() {
-  return (
-    <div className="flex items-center justify-center h-screen w-full">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-foreground" />
-    </div>
-  );
-}
+import { Navigate } from "react-router";
 
 export default function BookingsRoute() {
-  return (
-    <AppLayout>
-      <BookingsList />
-    </AppLayout>
-  );
+  return <Navigate to="/booking-links?tab=bookings" replace />;
 }

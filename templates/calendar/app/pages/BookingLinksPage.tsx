@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import {
   IconCalendar,
   IconChevronDown,
@@ -79,6 +79,7 @@ import {
 } from "@/hooks/use-availability";
 import { useDbStatus } from "@/hooks/use-db-status";
 import { CloudUpgrade } from "@/components/CloudUpgrade";
+import BookingsList from "./BookingsList";
 import type {
   AvailabilityConfig,
   ConferencingConfig,
@@ -129,7 +130,7 @@ const DEFAULT_SCHEDULE: DaySchedule = {
   slots: [{ start: "09:00", end: "17:00" }],
 };
 
-type Tab = "links" | "availability";
+type Tab = "links" | "availability" | "bookings";
 
 /** Format "09:00" → "9 am", "17:00" → "5 pm" */
 function formatTime12(time: string) {
@@ -193,11 +194,13 @@ export default function BookingLinksPage({
   selectedId?: string | null;
 }) {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const initialTab = (searchParams.get("tab") as Tab) || "links";
   const { data: bookingLinks = [], isLoading } = useBookingLinks();
   const createBookingLink = useCreateBookingLink();
   const updateBookingLink = useUpdateBookingLink();
   const deleteBookingLink = useDeleteBookingLink();
-  const [activeTab, setActiveTab] = useState<Tab>("links");
+  const [activeTab, setActiveTab] = useState<Tab>(initialTab);
   const [draft, setDraft] = useState<DraftLink>({
     title: "",
     slug: "",
@@ -693,16 +696,19 @@ export default function BookingLinksPage({
             availability.
           </p>
         </div>
-        <Button onClick={handleCreate} className="gap-2">
-          <IconPlus className="h-4 w-4" />
-          New booking link
-        </Button>
+        {activeTab === "links" && (
+          <Button onClick={handleCreate} className="gap-2">
+            <IconPlus className="h-4 w-4" />
+            New booking link
+          </Button>
+        )}
       </div>
 
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as Tab)}>
         <TabsList>
           <TabsTrigger value="links">Meeting Types</TabsTrigger>
           <TabsTrigger value="availability">Availability</TabsTrigger>
+          <TabsTrigger value="bookings">Bookings</TabsTrigger>
         </TabsList>
 
         <TabsContent value="links">
@@ -781,7 +787,7 @@ export default function BookingLinksPage({
                                 className="flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 text-sm font-medium text-foreground hover:bg-accent/60"
                               >
                                 <IconLink className="h-3.5 w-3.5" />
-                                IconCopy link
+                                Copy link
                               </button>
                               <button
                                 type="button"
@@ -996,6 +1002,10 @@ export default function BookingLinksPage({
               {updateAvailability.isPending ? "Saving..." : "Save Availability"}
             </Button>
           </div>
+        </TabsContent>
+
+        <TabsContent value="bookings">
+          <BookingsList />
         </TabsContent>
       </Tabs>
 
@@ -1256,7 +1266,7 @@ function BookingPreview({
                 type="button"
                 onClick={onCopy}
                 className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60"
-                title="IconCopy link"
+                title="Copy link"
               >
                 <IconCopy className="h-3.5 w-3.5" />
               </button>

@@ -255,7 +255,7 @@ export function Sidebar({
                     <summary className="cursor-pointer list-none">
                       <div className="flex items-center gap-2 p-2 rounded hover:bg-secondary/50 transition-colors">
                         <IconCamera className="w-3.5 h-3.5 text-blue-400 mr-1 ml-[3px]" />
-                        <span className="text-xs font-medium">IconCamera</span>
+                        <span className="text-xs font-medium">Camera</span>
                         <IconChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
                       </div>
                     </summary>

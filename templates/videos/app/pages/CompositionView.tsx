@@ -192,7 +192,7 @@ export default function CompositionView({
             // Wait before retrying (exponential backoff: 500ms, 1000ms, 2000ms)
             const delay = 500 * Math.pow(2, attempt);
             console.log(
-              `[IconDeviceFloppy] Retry ${attempt + 1}/${maxRetries} after ${delay}ms...`,
+              `[Save] Retry ${attempt + 1}/${maxRetries} after ${delay}ms...`,
             );
             await new Promise((resolve) => setTimeout(resolve, delay));
           }
@@ -206,9 +206,7 @@ export default function CompositionView({
           localStorage.removeItem(`videos-comp-settings:${composition.id}`);
           localStorage.removeItem(`videos-tracks-version:${composition.id}`);
 
-          console.log(
-            `[IconDeviceFloppy] Saved "${composition.title}" to registry`,
-          );
+          console.log(`[Save] Saved "${composition.title}" to registry`);
 
           if (!silent) {
             alert(
@@ -221,10 +219,7 @@ export default function CompositionView({
         } else if (lastError) {
           // Network error or server not available after all retries
           const errorMessage = lastError.message;
-          console.error(
-            "[IconDeviceFloppy] Failed to save after retries:",
-            errorMessage,
-          );
+          console.error("[Save] Failed to save after retries:", errorMessage);
 
           if (!silent) {
             alert(
@@ -239,7 +234,7 @@ export default function CompositionView({
           throw lastError; // Re-throw to be caught by outer catch
         }
       } catch (error) {
-        console.error("[IconDeviceFloppy] Failed to save:", error);
+        console.error("[Save] Failed to save:", error);
         // Error already handled above, just log it
       }
     },
@@ -251,7 +246,7 @@ export default function CompositionView({
     if (!composition) return;
 
     const confirmed = window.confirm(
-      `IconDeviceFloppy current settings as default for "${composition.title}"?\n\nThis will update the registry file with:\n- Current tracks and animations\n- Current properties\n- Current composition settings`,
+      `Save current settings as default for "${composition.title}"?\n\nThis will update the registry file with:\n- Current tracks and animations\n- Current properties\n- Current composition settings`,
     );
 
     if (!confirmed) return;
@@ -264,7 +259,7 @@ export default function CompositionView({
     const handleAutoSave = async (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (detail && detail.compositionId === composition?.id) {
-        console.log("[Auto-IconDeviceFloppy] Triggered for:", composition?.id);
+        console.log("[Auto-save] Triggered for:", composition?.id);
         await performSave(true); // Silent mode - no alerts
       }
     };
@@ -376,14 +371,14 @@ export default function CompositionView({
               )}
               title={
                 !isDevMode
-                  ? "IconDeviceFloppy to registry requires local development mode"
+                  ? "Save to registry requires local development mode"
                   : hasUnsavedChanges
-                    ? "IconDeviceFloppy current settings as default for this composition"
+                    ? "Save current settings as default for this composition"
                     : "All changes saved to registry"
               }
             >
               <IconDeviceFloppy className="w-3.5 h-3.5" />
-              IconDeviceFloppy
+              Save
             </button>
           </div>
         </div>

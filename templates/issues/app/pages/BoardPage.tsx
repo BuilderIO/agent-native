@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { useNavigate, useParams } from "react-router";
+import { AgentToggleButton } from "@agent-native/core/client";
 import { useBoardConfig } from "@/hooks/use-boards";
 import { useIssues } from "@/hooks/use-issues";
 import { useTransitionIssue } from "@/hooks/use-transitions";
@@ -74,6 +75,8 @@ export function BoardPage({
           <h1 className="text-sm font-semibold text-foreground">
             {boardConfig?.name || "Board"}
           </h1>
+          <div className="flex-1" />
+          <AgentToggleButton className="h-8 w-8 rounded-md border border-border bg-background" />
         </div>
 
         <div className="flex-1 overflow-x-auto overflow-y-hidden p-4">

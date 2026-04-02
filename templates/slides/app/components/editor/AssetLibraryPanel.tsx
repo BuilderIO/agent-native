@@ -130,7 +130,7 @@ export default function AssetLibraryPanel({
       </div>
 
       <div className="px-4 pb-4 space-y-3 overflow-y-auto flex-1">
-        {/* IconUpload */}
+        {/* Upload */}
         <label className="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-lg border border-dashed border-white/[0.1] hover:border-[#609FF8]/40 hover:bg-white/[0.02] cursor-pointer transition-all">
           {uploading ? (
             <IconLoader2 className="w-3.5 h-3.5 text-white/50 animate-spin" />
@@ -138,7 +138,7 @@ export default function AssetLibraryPanel({
             <IconUpload className="w-3.5 h-3.5 text-white/50" />
           )}
           <span className="text-xs text-white/50">
-            {uploading ? "Uploading..." : "IconUpload images"}
+            {uploading ? "Uploading..." : "Upload images"}
           </span>
           <input
             type="file"

@@ -17,6 +17,7 @@ import {
   startRun,
   subscribeToRun,
   getActiveRunForThread,
+  getActiveRunForThreadAsync,
   getRun,
   abortRun,
 } from "./run-manager.js";
@@ -414,4 +415,10 @@ export function createProductionAgentHandler(
   });
 }
 
-export { getActiveRunForThread, getRun, abortRun, subscribeToRun };
+export {
+  getActiveRunForThread,
+  getActiveRunForThreadAsync,
+  getRun,
+  abortRun,
+  subscribeToRun,
+};

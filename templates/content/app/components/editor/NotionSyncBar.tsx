@@ -168,9 +168,16 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
             </p>
           )}
           {syncStatus?.warnings?.length ? (
-            <p className="mt-1 text-xs text-muted-foreground">
-              {syncStatus.warnings[0]}
-            </p>
+            <div className="mt-1 space-y-1">
+              {syncStatus.warnings.slice(0, 3).map((warning, index) => (
+                <p
+                  key={`${warning}-${index}`}
+                  className="text-xs text-muted-foreground"
+                >
+                  {warning}
+                </p>
+              ))}
+            </div>
           ) : null}
         </div>
 

@@ -1,4 +1,15 @@
 import type { AgentChatEvent, RunEvent, RunStatus } from "./types.js";
+import {
+  insertRun,
+  insertRunEvent,
+  updateRunStatus,
+  markRunAborted,
+  isRunAborted,
+  getRunEventsSince,
+  getRunById,
+  getRunByThread,
+  cleanupOldRuns,
+} from "./run-store.js";
 
 export interface ActiveRun {
   runId: string;
@@ -20,6 +31,8 @@ const CLEANUP_DELAY_MS = 5 * 60 * 1000;
  * Start a new agent run in the background.
  * `runFn` receives a `send` callback and an `AbortSignal`.
  * The run continues even if all SSE subscribers disconnect.
+ *
+ * Events are persisted to SQL for cross-isolate access (Cloudflare Workers).
  */
 export function startRun(
   runId: string,
@@ -50,21 +63,42 @@ export function startRun(
   activeRuns.set(runId, run);
   threadToRun.set(threadId, runId);
 
+  // Persist run to SQL (fire-and-forget — don't block the response)
+  insertRun(runId, threadId).catch(() => {});
+
+  // Periodic SQL abort check interval (for cross-isolate abort on Workers)
+  let lastAbortCheck = Date.now();
+
   const send = (event: AgentChatEvent) => {
     const runEvent: RunEvent = { seq: run.events.length, event };
     run.events.push(runEvent);
+
+    // Notify in-memory subscribers (same isolate, fast path)
     for (const subscriber of run.subscribers) {
       try {
         subscriber(runEvent);
       } catch {
-        // Subscriber errored, remove it
         run.subscribers.delete(subscriber);
       }
+    }
+
+    // Persist event to SQL (fire-and-forget)
+    insertRunEvent(runId, runEvent.seq, JSON.stringify(event)).catch(() => {});
+
+    // Check SQL for cross-isolate abort every 3 seconds
+    const now = Date.now();
+    if (now - lastAbortCheck > 3000) {
+      lastAbortCheck = now;
+      isRunAborted(runId)
+        .then((aborted) => {
+          if (aborted && !abort.signal.aborted) abort.abort();
+        })
+        .catch(() => {});
     }
   };
 
   // Run in background — intentionally detached from any HTTP connection
-  runFn(send, abort.signal)
+  const runPromise = runFn(send, abort.signal)
     .then(() => {
       run.status = "completed";
     })
@@ -99,6 +133,12 @@ export function startRun(
             last.event.type !== "loop_limit")
         ) {
           run.events.push(terminal);
+          // Persist terminal event to SQL
+          insertRunEvent(
+            runId,
+            terminal.seq,
+            JSON.stringify(terminal.event),
+          ).catch(() => {});
           for (const subscriber of run.subscribers) {
             try {
               subscriber(terminal);
@@ -112,6 +152,11 @@ export function startRun(
       for (const subscriber of run.subscribers) {
         run.subscribers.delete(subscriber);
       }
+      // Persist final status to SQL
+      updateRunStatus(
+        runId,
+        run.status === "errored" ? "errored" : "completed",
+      ).catch(() => {});
       // Call completion callback (e.g. to save thread data)
       if (onComplete) {
         try {
@@ -120,14 +165,26 @@ export function startRun(
           // Don't let callback errors break cleanup
         }
       }
-      // Schedule cleanup
+      // Schedule in-memory cleanup
       setTimeout(() => {
         activeRuns.delete(runId);
         if (threadToRun.get(threadId) === runId) {
           threadToRun.delete(threadId);
         }
       }, CLEANUP_DELAY_MS);
+      // Opportunistically clean up old SQL runs (>30 min)
+      cleanupOldRuns(30 * 60 * 1000).catch(() => {});
     });
+
+  // On Cloudflare Workers, keep the isolate alive for this run
+  try {
+    const cfCtx = (globalThis as any).__cf_ctx;
+    if (cfCtx?.waitUntil) {
+      cfCtx.waitUntil(runPromise);
+    }
+  } catch {
+    // Not on Workers — ignore
+  }
 
   return run;
 }
@@ -136,14 +193,27 @@ export function startRun(
  * Subscribe to a run's events starting from `fromSeq`.
  * Returns a ReadableStream that replays buffered events then live-tails.
  * Cancelling the stream only unsubscribes — does NOT abort the agent.
+ *
+ * Falls back to SQL polling when the run is not in local memory
+ * (cross-isolate reconnection on Workers).
  */
 export function subscribeToRun(
   runId: string,
   fromSeq: number,
 ): ReadableStream<Uint8Array> | null {
   const run = activeRuns.get(runId);
-  if (!run) return null;
+  if (run) {
+    return subscribeInMemory(run, fromSeq);
+  }
+  // Not in local memory — try SQL (cross-isolate path)
+  return subscribeFromSQL(runId, fromSeq);
+}
 
+/** In-memory subscription (same isolate, fast path) */
+function subscribeInMemory(
+  run: ActiveRun,
+  fromSeq: number,
+): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
   let subscriberRef: ((event: RunEvent) => void) | null = null;
 
@@ -200,13 +270,157 @@ export function subscribeToRun(
   });
 }
 
-/** Get the active run for a thread (if any) */
+/** SQL-based subscription (cross-isolate, polling) */
+function subscribeFromSQL(
+  runId: string,
+  fromSeq: number,
+): ReadableStream<Uint8Array> | null {
+  const encoder = new TextEncoder();
+  let cancelled = false;
+  let pollTimer: ReturnType<typeof setTimeout> | null = null;
+
+  return new ReadableStream({
+    async start(controller) {
+      let lastSeq = fromSeq;
+
+      const poll = async () => {
+        if (cancelled) return;
+        try {
+          // Read new events from SQL
+          const events = await getRunEventsSince(runId, lastSeq);
+          for (const { seq, eventData } of events) {
+            let parsed: any;
+            try {
+              parsed = JSON.parse(eventData);
+            } catch {
+              continue;
+            }
+            try {
+              controller.enqueue(
+                encoder.encode(
+                  `data: ${JSON.stringify({ ...parsed, seq })}\n\n`,
+                ),
+              );
+            } catch {
+              cancelled = true;
+              return;
+            }
+            lastSeq = seq;
+
+            // Close on terminal events
+            if (
+              parsed.type === "done" ||
+              parsed.type === "error" ||
+              parsed.type === "missing_api_key" ||
+              parsed.type === "loop_limit"
+            ) {
+              controller.close();
+              return;
+            }
+          }
+
+          // Check if run completed (no terminal event but status changed)
+          if (events.length === 0) {
+            const run = await getRunById(runId);
+            if (!run || run.status !== "running") {
+              // Run ended — do one final event read, then close
+              const finalEvents = await getRunEventsSince(runId, lastSeq);
+              for (const { seq, eventData } of finalEvents) {
+                let parsed: any;
+                try {
+                  parsed = JSON.parse(eventData);
+                } catch {
+                  continue;
+                }
+                try {
+                  controller.enqueue(
+                    encoder.encode(
+                      `data: ${JSON.stringify({ ...parsed, seq })}\n\n`,
+                    ),
+                  );
+                } catch {
+                  cancelled = true;
+                  return;
+                }
+              }
+              controller.close();
+              return;
+            }
+          }
+
+          // Schedule next poll
+          if (!cancelled) {
+            pollTimer = setTimeout(poll, 500);
+          }
+        } catch {
+          // SQL error — close stream
+          try {
+            controller.close();
+          } catch {}
+        }
+      };
+
+      // Verify run exists before starting poll
+      try {
+        const run = await getRunById(runId);
+        if (!run) {
+          controller.close();
+          return;
+        }
+      } catch {
+        controller.close();
+        return;
+      }
+
+      await poll();
+    },
+    cancel() {
+      cancelled = true;
+      if (pollTimer) clearTimeout(pollTimer);
+    },
+  });
+}
+
+/** Get the active run for a thread (if any) — checks memory then SQL */
 export function getActiveRunForThread(threadId: string): ActiveRun | null {
   const runId = threadToRun.get(threadId);
-  if (!runId) return null;
-  const run = activeRuns.get(runId);
-  if (!run) return null;
-  return run;
+  if (runId) {
+    const run = activeRuns.get(runId);
+    if (run) return run;
+  }
+  return null;
+}
+
+/**
+ * Async version that also checks SQL — for cross-isolate access.
+ * Used by the /runs/active endpoint.
+ */
+export async function getActiveRunForThreadAsync(
+  threadId: string,
+): Promise<{ runId: string; threadId: string; status: string } | null> {
+  // Check memory first
+  const memRun = getActiveRunForThread(threadId);
+  if (memRun && memRun.status === "running") {
+    return {
+      runId: memRun.runId,
+      threadId: memRun.threadId,
+      status: memRun.status,
+    };
+  }
+  // Fall back to SQL
+  try {
+    const sqlRun = await getRunByThread(threadId);
+    if (sqlRun && sqlRun.status === "running") {
+      return {
+        runId: sqlRun.id,
+        threadId: sqlRun.threadId,
+        status: sqlRun.status,
+      };
+    }
+  } catch {
+    // SQL error — fall through
+  }
+  return null;
 }
 
 /** Get a run by ID */
@@ -217,7 +431,10 @@ export function getRun(runId: string): ActiveRun | null {
 /** Explicitly abort a run (e.g. Stop button) */
 export function abortRun(runId: string): boolean {
   const run = activeRuns.get(runId);
-  if (!run) return false;
-  run.abort.abort();
-  return true;
+  if (run) {
+    run.abort.abort();
+  }
+  // Also mark as aborted in SQL (for cross-isolate abort on Workers)
+  markRunAborted(runId).catch(() => {});
+  return !!run;
 }

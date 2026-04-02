@@ -55,7 +55,7 @@ export interface DataSource {
 
 export const categoryLabels: Record<DataSourceCategory, string> = {
   analytics: "Analytics & Product",
-  database: "IconDatabase",
+  database: "Database",
   payments: "Payments",
   crm: "CRM & Sales",
   engineering: "Engineering",
@@ -88,16 +88,15 @@ export const dataSources: DataSource[] = [
       "https://developers.google.com/analytics/devguides/reporting/data/v1",
     walkthroughSteps: [
       {
-        title: "Create a Google IconCloud project",
+        title: "Create a Google Cloud project",
         description:
-          "If you don't already have one, create a project in the Google IconCloud Console.",
+          "If you don't already have one, create a project in the Google Cloud Console.",
         url: "https://console.cloud.google.com/projectcreate",
         linkText: "Create project",
       },
       {
         title: "Enable the Google Analytics Data API",
-        description:
-          'IconSearch for "Google Analytics Data API" and click Enable.',
+        description: 'Search for "Google Analytics Data API" and click Enable.',
         url: "https://console.cloud.google.com/apis/library/analyticsdata.googleapis.com",
         linkText: "Enable API",
       },
@@ -145,9 +144,9 @@ export const dataSources: DataSource[] = [
     docsUrl: "https://cloud.google.com/bigquery/docs",
     walkthroughSteps: [
       {
-        title: "Create a Google IconCloud project",
+        title: "Create a Google Cloud project",
         description:
-          "If you don't already have one, create a project in the Google IconCloud Console.",
+          "If you don't already have one, create a project in the Google Cloud Console.",
         url: "https://console.cloud.google.com/projectcreate",
         linkText: "Create project",
       },
@@ -176,7 +175,7 @@ export const dataSources: DataSource[] = [
       {
         title: "Enter your BigQuery Project ID",
         description:
-          "The Google IconCloud project ID where your BigQuery data lives.",
+          "The Google Cloud project ID where your BigQuery data lives.",
         inputKey: "BIGQUERY_PROJECT_ID",
         inputLabel: "Project ID",
         inputPlaceholder: "my-project-123",
@@ -565,8 +564,8 @@ export const dataSources: DataSource[] = [
   },
   {
     id: "gcloud",
-    name: "Google IconCloud",
-    description: "IconCloud Run, Functions, and infrastructure metrics",
+    name: "Google Cloud",
+    description: "Cloud Run, Functions, and infrastructure metrics",
     category: "engineering",
     icon: IconCloud,
     envKeys: ["GOOGLE_APPLICATION_CREDENTIALS_JSON"],
@@ -657,7 +656,7 @@ export const dataSources: DataSource[] = [
   },
   {
     id: "twitter",
-    name: "IconBrandX / X",
+    name: "X / Twitter",
     description: "Tweet engagement and social metrics",
     category: "communication",
     icon: IconBrandX,

@@ -38,11 +38,11 @@ const electronAPI = {
 
     /** Generic shortcut forwarding from webview guests */
     onKeydown: (
-      cb: (info: { key: string; shiftKey: boolean }) => void,
+      cb: (info: { key: string; shiftKey: boolean; altKey?: boolean }) => void,
     ): (() => void) => {
       const handler = (
         _: Electron.IpcRendererEvent,
-        info: { key: string; shiftKey: boolean },
+        info: { key: string; shiftKey: boolean; altKey?: boolean },
       ) => cb(info);
       ipcRenderer.on("shortcut:keydown", handler);
       return () => ipcRenderer.removeListener("shortcut:keydown", handler);

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
+import { AgentToggleButton } from "@agent-native/core/client";
 import { useSprints, useSprintIssues } from "@/hooks/use-boards";
 import { IssueList } from "@/components/issues/IssueList";
 import { IssueDetail } from "@/components/issues/IssueDetail";
@@ -39,6 +40,8 @@ export function SprintPage({
           <h1 className="text-sm font-semibold text-foreground">
             Sprint Planning
           </h1>
+          <div className="flex-1" />
+          <AgentToggleButton className="h-8 w-8 rounded-md border border-border bg-background" />
         </div>
 
         <div className="flex-1 overflow-y-auto">

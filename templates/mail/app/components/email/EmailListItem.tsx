@@ -99,7 +99,9 @@ export function EmailListItem({
     "UNREAD",
   ]);
   const allLabelIds = thread ? thread.labelIds : email.labelIds;
-  const displayLabels = allLabelIds.filter((l) => !systemLabels.has(l));
+  const displayLabels = [...new Set(allLabelIds)].filter(
+    (l) => !systemLabels.has(l),
+  );
 
   return (
     <div

@@ -5,7 +5,6 @@ import {
   IconClock,
   IconEdit,
   IconTrash,
-  IconExternalLink,
   IconX,
 } from "@tabler/icons-react";
 import {
@@ -242,14 +241,6 @@ export function EventDialog({ event, open, onClose }: EventDialogProps) {
               <p className="rounded-md bg-muted/50 px-3 py-2.5 text-sm leading-relaxed text-foreground">
                 {event.description}
               </p>
-            )}
-
-            {/* Google Calendar badge */}
-            {isGoogle && (
-              <div className="flex items-center gap-2 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
-                <IconExternalLink className="h-3.5 w-3.5" />
-                <span>Synced from Google Calendar</span>
-              </div>
             )}
 
             {/* Keyboard hint */}

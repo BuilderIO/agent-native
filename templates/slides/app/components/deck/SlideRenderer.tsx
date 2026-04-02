@@ -108,12 +108,13 @@ export function SlideInner({ slide }: { slide: Slide }) {
   );
 
   // Slides with fmd-slide class use inline styles — render as raw HTML to avoid layout conflicts
+  const content = slide.content || "";
   const isRawHtml =
-    slide.content.includes('class="fmd-slide"') ||
+    content.includes('class="fmd-slide"') ||
     ["blank", "section", "statement", "full-image"].includes(slide.layout);
 
   if (!isRawHtml && slide.layout === "two-column") {
-    const parts = slide.content.split("---");
+    const parts = content.split("---");
     const left = parts[0] || "";
     const right = parts[1] || "";
 
@@ -149,7 +150,7 @@ export function SlideInner({ slide }: { slide: Slide }) {
         className={`w-[960px] h-[540px] ${bgClass} ${layoutClasses.blank}`}
         style={bgStyle}
       >
-        <BlankSlideContent content={slide.content} />
+        <BlankSlideContent content={content} />
       </div>
     );
   }
@@ -165,7 +166,7 @@ export function SlideInner({ slide }: { slide: Slide }) {
           rehypePlugins={[rehypeRaw]}
           components={markdownComponents}
         >
-          {slide.content}
+          {content}
         </ReactMarkdown>
       </div>
     </div>

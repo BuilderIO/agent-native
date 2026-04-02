@@ -7,6 +7,7 @@ import {
   useHubSpotContact,
   useGongCalls,
   usePylonContact,
+  isAuthError,
 } from "@/hooks/use-integrations";
 import { useApolloPerson } from "@/hooks/use-apollo";
 import type { ApolloPersonResult } from "@shared/types";
@@ -532,13 +533,135 @@ function IntegrationKeyEntry({
   );
 }
 
+// ─── Integration Notice (error / no-data) ──────────────────────────────────
+
+function IntegrationNotice({
+  email,
+  error,
+  providerId,
+}: {
+  email: string;
+  error: unknown;
+  providerId: ProviderId;
+}) {
+  const authErr = isAuthError(error);
+  const [reconnecting, setReconnecting] = useState(false);
+  const def = INTEGRATIONS.find((i) => i.id === providerId)!;
+  const { connect } = useIntegration(providerId);
+  const [apiKey, setApiKey] = useState("");
+
+  if (reconnecting) {
+    return (
+      <div className="px-4 py-3">
+        <div className="flex items-center gap-2 mb-2">
+          <button
+            onClick={() => setReconnecting(false)}
+            className="text-muted-foreground/50 hover:text-muted-foreground"
+          >
+            <svg
+              viewBox="0 0 16 16"
+              fill="currentColor"
+              className="h-3.5 w-3.5"
+            >
+              <path
+                fillRule="evenodd"
+                d="M9.78 4.22a.75.75 0 0 1 0 1.06L7.06 8l2.72 2.72a.75.75 0 1 1-1.06 1.06L5.47 8.53a.75.75 0 0 1 0-1.06l3.25-3.25a.75.75 0 0 1 1.06 0Z"
+                clipRule="evenodd"
+              />
+            </svg>
+          </button>
+          <div className="h-5 w-5 rounded-md overflow-hidden shrink-0 bg-accent/30 p-0.5">
+            {def.logo}
+          </div>
+          <span className="text-[12px] font-medium text-foreground">
+            Reconnect {def.name}
+          </span>
+        </div>
+        <div className="flex gap-1.5 mb-2">
+          <input
+            type="password"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            placeholder={def.keyPlaceholder}
+            autoFocus
+            className="flex-1 min-w-0 rounded-md border border-border bg-background px-2 py-1 text-[12px] outline-none focus:border-primary/50 placeholder:text-muted-foreground/40"
+          />
+          <button
+            onClick={() => {
+              if (apiKey.trim()) {
+                connect.mutate(apiKey.trim(), {
+                  onSuccess: () => setReconnecting(false),
+                });
+              }
+            }}
+            disabled={!apiKey.trim() || connect.isPending}
+            className="shrink-0 rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          >
+            {connect.isPending ? "..." : "Save"}
+          </button>
+        </div>
+        <a
+          href={def.helpUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-[11px] text-primary/80 hover:text-primary hover:underline"
+        >
+          Open {def.name} Settings &rarr;
+        </a>
+      </div>
+    );
+  }
+
+  return (
+    <div className="px-4 py-3">
+      <p className="text-[13px] font-medium text-foreground truncate">
+        {email}
+      </p>
+      {authErr ? (
+        <button
+          onClick={() => setReconnecting(true)}
+          className="text-[11px] text-amber-400/80 hover:text-amber-300 mt-1 text-left"
+        >
+          {def.name} API key is invalid or expired —{" "}
+          <span className="underline">reconnect</span>
+        </button>
+      ) : error ? (
+        <p className="text-[11px] text-red-400/70 mt-1">
+          Could not reach {def.name}
+        </p>
+      ) : (
+        <p className="text-[11px] text-muted-foreground/50 mt-1">
+          No data found in {def.name}
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ─── Apollo Section ─────────────────────────────────────────────────────────
 
 function ApolloSection({ email }: { email: string }) {
-  const { data: person, isLoading } = useApolloPerson(email);
+  const { data: person, isLoading, error } = useApolloPerson(email);
 
   if (isLoading) return <SectionLoading />;
-  if (!person) return null;
+  if (error) {
+    return (
+      <IntegrationNotice email={email} error={error} providerId="apollo" />
+    );
+  }
+  if (!person) {
+    // No enrichment data — show basic info (email + domain)
+    return (
+      <div className="px-4 pt-4 pb-3">
+        <h3 className="text-[14px] font-semibold text-foreground truncate">
+          {email}
+        </h3>
+        <p className="text-[11px] text-muted-foreground/50">
+          {email.split("@")[1]}
+        </p>
+      </div>
+    );
+  }
 
   const name =
     person.first_name || person.last_name
@@ -729,9 +852,22 @@ function ApolloSection({ email }: { email: string }) {
 // ─── HubSpot Section ────────────────────────────────────────────────────────
 
 function HubSpotSection({ email }: { email: string }) {
-  const { data: contact, isLoading } = useHubSpotContact(email);
+  const {
+    data: contact,
+    isLoading,
+    error,
+  } = useHubSpotContact(email) as {
+    data: Record<string, any> | undefined;
+    isLoading: boolean;
+    error: unknown;
+  };
 
   if (isLoading) return <SectionLoading />;
+  if (error) {
+    return (
+      <IntegrationNotice email={email} error={error} providerId="hubspot" />
+    );
+  }
   if (!contact) return null;
 
   const name = [contact.firstName, contact.lastName].filter(Boolean).join(" ");
@@ -810,10 +946,25 @@ function HubSpotSection({ email }: { email: string }) {
 // ─── Gong Section ───────────────────────────────────────────────────────────
 
 function GongSection({ email }: { email: string }) {
-  const { data: calls, isLoading } = useGongCalls(email);
+  const {
+    data: calls,
+    isLoading,
+    error,
+  } = useGongCalls(email) as {
+    data: any[] | undefined;
+    isLoading: boolean;
+    error: unknown;
+  };
 
   if (isLoading) return <SectionLoading />;
-  if (!calls || calls.length === 0) return null;
+  if (!calls || calls.length === 0) {
+    if (error) {
+      return (
+        <IntegrationNotice email={email} error={error} providerId="gong" />
+      );
+    }
+    return null;
+  }
 
   return (
     <>
@@ -849,10 +1000,21 @@ function GongSection({ email }: { email: string }) {
 // ─── Pylon Section ──────────────────────────────────────────────────────────
 
 function PylonSection({ email }: { email: string }) {
-  const { data, isLoading } = usePylonContact(email);
+  const { data, isLoading, error } = usePylonContact(email) as {
+    data: Record<string, any> | undefined;
+    isLoading: boolean;
+    error: unknown;
+  };
 
   if (isLoading) return <SectionLoading />;
-  if (!data || (!data.account && data.issues?.length === 0)) return null;
+  if (!data || (!data.account && data.issues?.length === 0)) {
+    if (error) {
+      return (
+        <IntegrationNotice email={email} error={error} providerId="pylon" />
+      );
+    }
+    return null;
+  }
 
   return (
     <>

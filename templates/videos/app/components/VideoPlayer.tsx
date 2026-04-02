@@ -371,8 +371,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               </button>
               <button
                 onClick={togglePlay}
-                title={playing ? "IconPlayerPause" : "IconPlayerPlay"}
-                aria-label={playing ? "IconPlayerPause" : "IconPlayerPlay"}
+                title={playing ? "Pause" : "Play"}
+                aria-label={playing ? "Pause" : "Play"}
                 className="p-2 text-foreground hover:bg-secondary rounded-lg transition-colors"
               >
                 {playing ? (

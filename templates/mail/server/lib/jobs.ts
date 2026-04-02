@@ -15,6 +15,7 @@ import {
   gmailGetThread,
   gmailListLabels,
   gmailModifyMessage,
+  gmailModifyThread,
   googleFetch,
 } from "./google-api.js";
 
@@ -176,15 +177,9 @@ async function archiveThreadForSnooze(
   if (await isConnected(ownerEmail)) {
     const account = await getFirstAccountToken(accountEmail);
     if (account) {
-      await googleFetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/threads/${threadId}/modify`,
-        account.accessToken,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ removeLabelIds: ["INBOX"] }),
-        },
-      );
+      await gmailModifyThread(account.accessToken, threadId, undefined, [
+        "INBOX",
+      ]);
       return;
     }
   }
@@ -337,15 +332,7 @@ export async function resurfaceEmail(
     const account = await getFirstAccountToken(accountEmail);
     if (account) {
       if (threadId) {
-        await googleFetch(
-          `https://gmail.googleapis.com/gmail/v1/users/me/threads/${threadId}/modify`,
-          account.accessToken,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ addLabelIds: ["INBOX"] }),
-          },
-        );
+        await gmailModifyThread(account.accessToken, threadId, ["INBOX"]);
       } else {
         await gmailModifyMessage(account.accessToken, emailId, ["INBOX"], []);
       }

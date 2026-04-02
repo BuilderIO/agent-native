@@ -53,73 +53,85 @@ function isSourceConnected(
 
 function NewDashboardPrompt() {
   const [prompt, setPrompt] = useState("");
-  const { send, isGenerating, codeRequiredDialog } = useSendToAgentChat();
+  const { send, isGenerating } = useSendToAgentChat();
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!prompt.trim() || isGenerating) return;
 
-    const today = new Date().toISOString().slice(0, 10);
-
     send({
       message: prompt.trim(),
       context:
         "The user wants to create a new analytics dashboard. " +
-        `REQUIRED: Set lastUpdated="${today}" in the registry entry. ` +
+        "Create a SQL-driven dashboard by saving a JSON config via PUT /api/sql-dashboards/{id}. " +
+        "The config shape is: { name: string, panels: [{ id, title, sql, source, chartType, width, config? }] }. " +
+        "Each panel needs: id (unique string), title, sql (the query), source ('bigquery' or 'app-db'), " +
+        "chartType ('line' | 'area' | 'bar' | 'metric' | 'table' | 'pie'), width (1 or 2). " +
+        "Optional config: { xKey, yKey, yKeys, color, colors, yFormatter ('number'|'currency'|'percent'), description }. " +
         "First check /api/env-status to see which data sources are connected. " +
-        "Create a new dashboard page in app/pages/adhoc/ with the appropriate charts and data. " +
-        "Register it in app/pages/adhoc/registry.ts (both the dashboards array and dashboardComponents map). " +
-        "Use the existing chart components from app/components/dashboard/ and Recharts. " +
-        "Use the existing server libs for the relevant data source. " +
-        "Refer to .builder/skills/<provider>/SKILL.md for query patterns.",
+        "Refer to .builder/skills/<provider>/SKILL.md for SQL patterns and table names. " +
+        "NO code files need to be created — only the dashboard config JSON via the API. " +
+        "After saving, the dashboard will be accessible at /adhoc/{id}.",
       submit: true,
-      requiresCode: true,
     });
 
     setPrompt("");
   }
 
   return (
-    <>
-      {codeRequiredDialog}
-      <Card className="bg-card border-border/50 border-dashed">
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <IconPlus className="h-4 w-4" />
-            Create a Dashboard
-          </CardTitle>
-          <CardDescription>
-            Describe what you want to see and the agent will build it
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-3">
-            <textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              placeholder='e.g., "Show me a Stripe revenue dashboard with MRR, churn rate, and subscription growth"'
-              className="flex w-full rounded-md border border-input bg-background px-3 py-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 min-h-[100px] resize-y"
-              onKeyDown={(e) => {
-                if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                  e.preventDefault();
-                  if (prompt.trim()) handleSubmit(e);
-                }
-              }}
-            />
-            <div className="flex justify-end">
-              <Button
-                type="submit"
-                size="sm"
-                disabled={!prompt.trim() || isGenerating}
-              >
-                {isGenerating ? "Generating..." : "Create Dashboard"}
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
-    </>
+    <Card className="bg-card border-border/50 border-dashed">
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <IconPlus className="h-4 w-4" />
+          Create a Dashboard
+        </CardTitle>
+        <CardDescription>
+          Describe what you want to see and the agent will build it
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <textarea
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            placeholder='e.g., "Show me a Stripe revenue dashboard with MRR, churn rate, and subscription growth"'
+            className="flex w-full rounded-md border border-input bg-background px-3 py-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 min-h-[100px] resize-y"
+            onKeyDown={(e) => {
+              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                e.preventDefault();
+                if (prompt.trim()) handleSubmit(e);
+              }
+            }}
+          />
+          <div className="flex justify-end">
+            <Button
+              type="submit"
+              size="sm"
+              disabled={!prompt.trim() || isGenerating}
+            >
+              {isGenerating ? "Generating..." : "Create Dashboard"}
+            </Button>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
   );
+}
+
+async function fetchSqlDashboards(): Promise<
+  { id: string; name: string; description?: string }[]
+> {
+  const token = await getIdToken();
+  const res = await fetch("/api/sql-dashboards", {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return (data.dashboards ?? []).map((d: any) => ({
+    id: d.id,
+    name: d.name,
+    description: d.description,
+  }));
 }
 
 export default function Index() {
@@ -127,6 +139,12 @@ export default function Index() {
     queryKey: ["env-status"],
     queryFn: fetchEnvStatus,
     staleTime: 10_000,
+  });
+
+  const { data: sqlDashboards = [] } = useQuery({
+    queryKey: ["sql-dashboards-index"],
+    queryFn: fetchSqlDashboards,
+    staleTime: 30_000,
   });
 
   const connectedSources = dataSources.filter((s) =>
@@ -232,7 +250,7 @@ export default function Index() {
         )}
 
         {/* Dashboards */}
-        {dashboards.length > 0 && (
+        {(dashboards.length > 0 || sqlDashboards.length > 0) && (
           <div className="space-y-3">
             <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
               Dashboards
@@ -240,6 +258,25 @@ export default function Index() {
             <div className="grid gap-3 sm:grid-cols-2">
               {dashboards.map((d) => (
                 <Link key={d.id} to={`/adhoc/${d.id}`}>
+                  <Card className="bg-card border-border/50 hover:border-primary/30 cursor-pointer">
+                    <CardHeader className="pb-2">
+                      <div className="flex items-center gap-2">
+                        <IconChartBar className="h-4 w-4 text-primary" />
+                        <CardTitle className="text-sm">{d.name}</CardTitle>
+                      </div>
+                    </CardHeader>
+                    {d.description && (
+                      <CardContent className="pt-0">
+                        <p className="text-xs text-muted-foreground">
+                          {d.description}
+                        </p>
+                      </CardContent>
+                    )}
+                  </Card>
+                </Link>
+              ))}
+              {sqlDashboards.map((d) => (
+                <Link key={`sql-${d.id}`} to={`/adhoc/${d.id}`}>
                   <Card className="bg-card border-border/50 hover:border-primary/30 cursor-pointer">
                     <CardHeader className="pb-2">
                       <div className="flex items-center gap-2">

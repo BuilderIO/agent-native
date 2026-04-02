@@ -94,3 +94,29 @@ export function useDeleteEvent() {
     },
   });
 }
+
+export function useRsvpEvent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      status,
+      accountEmail,
+    }: {
+      id: string;
+      status: "accepted" | "declined" | "tentative";
+      accountEmail?: string;
+    }) => {
+      const res = await fetch(`/api/events/${id}/rsvp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status, accountEmail }),
+      });
+      if (!res.ok) throw new Error("Failed to update RSVP");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["events"] });
+    },
+  });
+}

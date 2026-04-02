@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { toast } from "sonner";
 import { Editor } from "@tiptap/react";
 import {
   IconTypography,
@@ -8,15 +9,20 @@ import {
   IconList,
   IconListNumbers,
   IconSquareCheck,
+  IconChevronRight,
   IconCode,
   IconQuote,
   IconMinus,
   IconTable as TableIcon,
+  IconSparkles,
+  IconArrowUp,
 } from "@tabler/icons-react";
+import { useSendToAgentChat } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
 
 interface SlashCommandMenuProps {
   editor: Editor;
+  documentId?: string;
 }
 
 interface CommandItem {
@@ -55,22 +61,37 @@ const commands: CommandItem[] = [
       editor.chain().focus().toggleHeading({ level: 3 }).run(),
   },
   {
-    title: "Bullet IconList",
+    title: "Bullet List",
     description: "Unordered list",
     icon: IconList,
     action: (editor) => editor.chain().focus().toggleBulletList().run(),
   },
   {
-    title: "Numbered IconList",
+    title: "Numbered List",
     description: "Ordered list",
     icon: IconListNumbers,
     action: (editor) => editor.chain().focus().toggleOrderedList().run(),
   },
   {
-    title: "To-do IconList",
+    title: "To-do List",
     description: "Checklist items",
     icon: IconSquareCheck,
     action: (editor) => editor.chain().focus().toggleTaskList().run(),
+  },
+  {
+    title: "Toggle",
+    description: "Notion-style toggle line",
+    icon: IconChevronRight,
+    action: (editor) =>
+      editor
+        .chain()
+        .focus()
+        .insertContent({
+          type: "notionToggle",
+          attrs: { summary: "Toggle" },
+          content: [{ type: "paragraph" }],
+        })
+        .run(),
   },
   {
     title: "Code Block",
@@ -79,7 +100,7 @@ const commands: CommandItem[] = [
     action: (editor) => editor.chain().focus().toggleCodeBlock().run(),
   },
   {
-    title: "IconQuote",
+    title: "Quote",
     description: "Block quote",
     icon: IconQuote,
     action: (editor) => editor.chain().focus().toggleBlockquote().run(),
@@ -103,7 +124,12 @@ const commands: CommandItem[] = [
   },
 ];
 
-export function SlashCommandMenu({ editor }: SlashCommandMenuProps) {
+export function SlashCommandMenu({
+  editor,
+  documentId,
+}: SlashCommandMenuProps) {
+  const { send } = useSendToAgentChat();
+
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -114,11 +140,49 @@ export function SlashCommandMenu({ editor }: SlashCommandMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const slashPosRef = useRef<number | null>(null);
 
-  const filteredCommands = commands.filter(
+  // Generate prompt popover state
+  const [generateOpen, setGenerateOpen] = useState(false);
+  const [generatePrompt, setGeneratePrompt] = useState("");
+  const [generatePos, setGeneratePos] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
+  const generateTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const generateCommand: CommandItem = {
+    title: "Generate",
+    description: "Generate content with AI",
+    icon: IconSparkles,
+    action: () => {
+      // Show the prompt popover at current position
+      setGeneratePos(position);
+      setGeneratePrompt("");
+      setGenerateOpen(true);
+      setTimeout(() => generateTextareaRef.current?.focus(), 0);
+    },
+  };
+
+  const allCommands = [generateCommand, ...commands];
+
+  const filteredCommands = allCommands.filter(
     (cmd) =>
       cmd.title.toLowerCase().includes(query.toLowerCase()) ||
       cmd.description.toLowerCase().includes(query.toLowerCase()),
   );
+
+  function handleGenerateSubmit() {
+    if (!generatePrompt.trim()) return;
+    if (!documentId) {
+      toast.error("No document selected");
+      return;
+    }
+    setGenerateOpen(false);
+    const content = (editor.storage as any).markdown.getMarkdown();
+    send({
+      message: generatePrompt.trim(),
+      context: `The user is asking you to generate content for their document (id: ${documentId}). Update the document using db-exec — write the generated markdown into the content column, and update the title if appropriate.${content ? `\n\nCurrent document content:\n${content}` : "\n\nThe document is currently empty."}`,
+    });
+  }
 
   const executeCommand = useCallback(
     (cmd: CommandItem) => {
@@ -214,37 +278,90 @@ export function SlashCommandMenu({ editor }: SlashCommandMenuProps) {
     };
   }, [editor, isOpen]);
 
-  if (!isOpen || !position || filteredCommands.length === 0) return null;
-
   return (
-    <div
-      ref={menuRef}
-      className="slash-command-menu"
-      style={{
-        position: "absolute",
-        top: position.top,
-        left: Math.min(position.left, 400),
-        zIndex: 50,
-      }}
-    >
-      <div className="py-1.5">
-        <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Blocks
+    <>
+      {/* Slash command menu */}
+      {isOpen && position && filteredCommands.length > 0 && (
+        <div
+          ref={menuRef}
+          className="slash-command-menu"
+          style={{
+            position: "absolute",
+            top: position.top,
+            left: Math.min(position.left, 400),
+            zIndex: 50,
+          }}
+        >
+          <div className="py-1.5">
+            <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Blocks
+            </div>
+            {filteredCommands.map((cmd) => {
+              const globalIndex = filteredCommands.indexOf(cmd);
+              return (
+                <CommandButton
+                  key={cmd.title}
+                  cmd={cmd}
+                  isSelected={globalIndex === selectedIndex}
+                  onExecute={() => executeCommand(cmd)}
+                  onHover={() => setSelectedIndex(globalIndex)}
+                />
+              );
+            })}
+          </div>
         </div>
-        {filteredCommands.map((cmd) => {
-          const globalIndex = filteredCommands.indexOf(cmd);
-          return (
-            <CommandButton
-              key={cmd.title}
-              cmd={cmd}
-              isSelected={globalIndex === selectedIndex}
-              onExecute={() => executeCommand(cmd)}
-              onHover={() => setSelectedIndex(globalIndex)}
-            />
-          );
-        })}
-      </div>
-    </div>
+      )}
+
+      {/* Generate prompt popover */}
+      {generateOpen && generatePos && (
+        <>
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => setGenerateOpen(false)}
+          />
+          <div
+            className="absolute z-50 w-80 rounded-xl border border-border bg-popover shadow-lg"
+            style={{
+              top: generatePos.top,
+              left: Math.min(generatePos.left, 400),
+            }}
+          >
+            <div className="p-4 pb-3">
+              <p className="text-sm font-semibold flex items-center gap-1.5">
+                <IconSparkles size={14} className="text-muted-foreground" />
+                Generate with AI
+              </p>
+              <textarea
+                ref={generateTextareaRef}
+                value={generatePrompt}
+                onChange={(e) => setGeneratePrompt(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleGenerateSubmit();
+                  }
+                  if (e.key === "Escape") {
+                    setGenerateOpen(false);
+                  }
+                }}
+                placeholder="Describe what to generate..."
+                className="mt-2 w-full resize-none bg-transparent text-sm placeholder:text-muted-foreground/50 focus:outline-none"
+                rows={3}
+              />
+            </div>
+            <div className="flex items-center justify-end border-t border-border px-4 py-2.5">
+              <button
+                className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted hover:bg-accent disabled:opacity-30"
+                onClick={handleGenerateSubmit}
+                disabled={!generatePrompt.trim()}
+              >
+                <IconArrowUp size={14} />
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </>
   );
 }
 

@@ -202,7 +202,7 @@ function toggleWebviewDevTools() {
     if (target.isDevToolsOpened()) {
       target.closeDevTools();
     } else {
-      target.openDevTools();
+      target.openDevTools({ mode: "right" });
     }
   }
 }
@@ -393,6 +393,17 @@ app.on("web-contents-created", (_event, contents) => {
       return;
     }
 
+    // Cmd+Option+Up/Down — previous/next app
+    if (input.alt && (key === "arrowup" || key === "arrowdown")) {
+      event.preventDefault();
+      win.webContents.send("shortcut:keydown", {
+        key: input.key,
+        shiftKey: input.shift,
+        altKey: true,
+      });
+      return;
+    }
+
     // Forward other Cmd+ shortcuts: F, R, T, Shift+T, 1-9, [, ]
     const isShortcut =
       key === "f" ||
@@ -407,6 +418,7 @@ app.on("web-contents-created", (_event, contents) => {
       win.webContents.send("shortcut:keydown", {
         key: input.key,
         shiftKey: input.shift,
+        altKey: false,
       });
     }
   });

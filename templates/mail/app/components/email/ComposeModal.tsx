@@ -22,7 +22,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useSendEmail } from "@/hooks/use-emails";
+import { useSendEmail, useAddOptimisticReply } from "@/hooks/use-emails";
 import { useAliases } from "@/hooks/use-aliases";
 import { useScheduleEmail } from "@/hooks/use-scheduled-jobs";
 import { SendLaterButton } from "./SendLaterButton";
@@ -34,6 +34,7 @@ import { RecipientInput } from "./RecipientInput";
 import { ComposeEditor, type ComposeEditorHandle } from "./ComposeEditor";
 import { openFilePicker, uploadFile, formatFileSize } from "@/lib/upload";
 import type { ComposeAttachment } from "@shared/types";
+import { useAccountFilter } from "@/hooks/use-account-filter";
 
 /**
  * Split a compose body into the editable portion and the quoted history.
@@ -50,6 +51,58 @@ function splitQuotedContent(body: string): [string, string] {
   const editable = body.slice(0, match.index);
   const quoted = body.slice(match.index);
   return [editable, quoted];
+}
+
+const LAST_SEND_ACCOUNT_KEY = "mail:lastSendAccount";
+
+function FromAccountSelector({
+  accounts,
+  value,
+  onChange,
+}: {
+  accounts: Array<{ email: string }>;
+  value: string | undefined;
+  onChange: (email: string) => void;
+}) {
+  // On mount, if no account is set, apply the sticky default
+  const resolvedValue =
+    value ||
+    (accounts.some(
+      (a) => a.email === localStorage.getItem(LAST_SEND_ACCOUNT_KEY),
+    )
+      ? localStorage.getItem(LAST_SEND_ACCOUNT_KEY)!
+      : accounts[0]?.email) ||
+    "";
+
+  // Sync the sticky default into the draft if it wasn't set
+  useEffect(() => {
+    if (!value && resolvedValue) {
+      onChange(resolvedValue);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div className="flex items-center border-b border-border px-4">
+      <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
+        From
+      </span>
+      <select
+        value={resolvedValue}
+        onChange={(e) => {
+          const email = e.target.value;
+          localStorage.setItem(LAST_SEND_ACCOUNT_KEY, email);
+          onChange(email);
+        }}
+        className="flex-1 bg-transparent py-2 text-sm outline-none text-foreground cursor-pointer"
+      >
+        {accounts.map((acct) => (
+          <option key={acct.email} value={acct.email}>
+            {acct.email}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
 }
 
 interface ComposeModalProps {
@@ -112,8 +165,10 @@ export function ComposeModal({
 
   const [isGenerating, sendToAgent] = useAgentChatGenerating();
   const sendEmail = useSendEmail();
+  const addOptimisticReply = useAddOptimisticReply();
   const scheduleEmail = useScheduleEmail();
   const { data: aliases = [] } = useAliases();
+  const { allAccounts } = useAccountFilter();
   const editorRef = useRef<ComposeEditorHandle>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const sendingRef = useRef(false);
@@ -152,6 +207,19 @@ export function ComposeModal({
       fetch(`/api/emails/draft/${savedDraftId}`, { method: "DELETE" });
     }
 
+    // Show optimistic reply in the thread immediately (for replies)
+    const undoOptimistic = draftSnapshot.replyToId
+      ? addOptimisticReply({
+          to: expandAliasTokens(draftSnapshot.to, aliases),
+          cc: expandAliasTokens(draftSnapshot.cc ?? "", aliases) || undefined,
+          subject: draftSnapshot.subject,
+          body: draftSnapshot.body,
+          replyToId: draftSnapshot.replyToId,
+          replyToThreadId: draftSnapshot.replyToThreadId,
+          accountEmail: draftSnapshot.accountEmail,
+        })
+      : undefined;
+
     let cancelled = false;
 
     const handleUndo = () => {
@@ -161,6 +229,7 @@ export function ComposeModal({
       clearTimeout(sendTimer);
       clearTimeout(transitionTimer);
       toast.dismiss(toastId);
+      undoOptimistic?.();
       // Reopen composer with the saved draft
       const { id: _id, ...reopenData } = draftSnapshot;
       onReopen(reopenData);
@@ -427,6 +496,15 @@ export function ComposeModal({
         <>
           {/* Header fields */}
           <div className="border-b border-border">
+            {allAccounts.length > 1 && (
+              <FromAccountSelector
+                accounts={allAccounts}
+                value={activeDraft.accountEmail}
+                onChange={(email) =>
+                  onUpdate(activeId!, { accountEmail: email })
+                }
+              />
+            )}
             <div className="flex items-center border-b border-border px-4">
               <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
                 To
@@ -551,7 +629,7 @@ export function ComposeModal({
                     <IconBold className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>IconBold</TooltipContent>
+                <TooltipContent>Bold</TooltipContent>
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -564,7 +642,7 @@ export function ComposeModal({
                     <IconItalic className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>IconItalic</TooltipContent>
+                <TooltipContent>Italic</TooltipContent>
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>

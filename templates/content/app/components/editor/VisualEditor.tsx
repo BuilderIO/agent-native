@@ -15,7 +15,12 @@ import { SlashCommandMenu } from "./SlashCommandMenu";
 import { LinkHoverPreview } from "./LinkHoverPreview";
 import { TableHoverControls } from "./TableHoverControls";
 import { ImageNode } from "./extensions/ImageNode";
+import { notionEditorExtensions } from "./extensions/NotionExtensions";
 import { toast } from "sonner";
+import {
+  parseNfmForEditor,
+  serializeEditorToNfm,
+} from "@shared/notion-markdown";
 
 const CustomTable = BaseTable.extend({
   addStorage() {
@@ -116,7 +121,7 @@ export function VisualEditor({
             if (level === 2) return "Heading 2";
             return "Heading 3";
           }
-          return "Type '/' for commands...";
+          return "Type /generate to generate...";
         },
         showOnlyWhenEditable: true,
         showOnlyCurrent: true,
@@ -141,13 +146,14 @@ export function VisualEditor({
       TableRow,
       TableHeader,
       TableCell,
+      ...notionEditorExtensions,
       Markdown.configure({
         html: true,
         transformPastedText: true,
         transformCopiedText: true,
       }),
     ],
-    content,
+    content: parseNfmForEditor(content),
     editorProps: {
       attributes: {
         class: "notion-editor",
@@ -157,7 +163,7 @@ export function VisualEditor({
       if (isSettingContent.current) return;
       try {
         const md = (editor.storage as any).markdown.getMarkdown();
-        onChangeRef.current(md);
+        onChangeRef.current(serializeEditorToNfm(md));
       } catch (err: any) {
         toast.error("Markdown serialization error: " + err.message);
         console.error("Markdown serialization error:", err);
@@ -175,13 +181,16 @@ export function VisualEditor({
     if (!editor || editor.isDestroyed) return;
     const docChanged = documentId !== prevDocIdRef.current;
     if (docChanged) prevDocIdRef.current = documentId;
-    const currentMd = (editor.storage as any).markdown.getMarkdown();
-    if (currentMd !== content) {
+    const nextEditorContent = parseNfmForEditor(content);
+    const currentMd = serializeEditorToNfm(
+      (editor.storage as any).markdown.getMarkdown(),
+    );
+    if (currentMd !== serializeEditorToNfm(nextEditorContent)) {
       // Skip sync when editor is focused UNLESS the document changed —
       // during navigation we must force content replacement
       if (editor.isFocused && !docChanged) return;
       isSettingContent.current = true;
-      editor.commands.setContent(content);
+      editor.commands.setContent(nextEditorContent);
       isSettingContent.current = false;
     }
   }, [content, editor, documentId]);
@@ -191,7 +200,7 @@ export function VisualEditor({
   return (
     <div className="visual-editor-wrapper">
       <BubbleToolbar editor={editor} />
-      <SlashCommandMenu editor={editor} />
+      <SlashCommandMenu editor={editor} documentId={documentId} />
       <LinkHoverPreview editor={editor} />
       <TableHoverControls editor={editor} />
       <EditorContent editor={editor} />

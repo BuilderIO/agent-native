@@ -136,8 +136,8 @@ export function JiraConnectBanner() {
             onActivate={() => setStep(4)}
           >
             <p className="text-[13px] text-muted-foreground">
-              IconCopy the <strong>Client ID</strong> and{" "}
-              <strong>Secret</strong> from your app&apos;s Settings page.
+              Copy the <strong>Client ID</strong> and <strong>Secret</strong>{" "}
+              from your app&apos;s Settings page.
             </p>
             <div className="mt-3 space-y-2.5">
               <div>

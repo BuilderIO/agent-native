@@ -281,7 +281,7 @@ export function LeaderboardView() {
                   <TableHeader>
                     <TableRow>
                       <TableHead className="w-16">Rank</TableHead>
-                      <TableHead>IconUser</TableHead>
+                      <TableHead>User</TableHead>
                       <TableHead>Persona</TableHead>
                       <TableHead>Department</TableHead>
                       <TableHead className="text-right">Points</TableHead>

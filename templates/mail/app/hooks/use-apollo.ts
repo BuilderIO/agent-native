@@ -44,7 +44,7 @@ export function useApolloConnect() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["apollo-status"] });
-      qc.invalidateQueries({ queryKey: ["apollo-person"] });
+      qc.invalidateQueries({ queryKey: ["integration-data", "apollo"] });
     },
   });
 }
@@ -58,7 +58,7 @@ export function useApolloDisconnect() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["apollo-status"] });
-      qc.invalidateQueries({ queryKey: ["apollo-person"] });
+      qc.invalidateQueries({ queryKey: ["integration-data", "apollo"] });
     },
   });
 }
@@ -67,7 +67,7 @@ export function useApolloPerson(email: string | undefined) {
   const { connected } = useApolloStatus();
 
   return useQuery<ApolloPersonResult | null>({
-    queryKey: ["apollo-person", email],
+    queryKey: ["integration-data", "apollo", email],
     queryFn: async () => {
       const result = await apiFetch<ApolloPersonResult | null>(
         `/api/apollo/person?email=${encodeURIComponent(email!)}`,

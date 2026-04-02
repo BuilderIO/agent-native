@@ -503,9 +503,7 @@ export function NotionButton() {
                           <div className="space-y-2">
                             <label className="flex items-center gap-2 cursor-pointer rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground hover:border-foreground/30 hover:text-foreground">
                               <IconUpload size={14} />
-                              {saving
-                                ? "Saving..."
-                                : "IconUpload credentials JSON"}
+                              {saving ? "Saving..." : "Upload credentials JSON"}
                               <input
                                 type="file"
                                 accept=".json"

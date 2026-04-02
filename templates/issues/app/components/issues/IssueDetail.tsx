@@ -7,6 +7,7 @@ import {
   IconHistory,
   IconListTree,
 } from "@tabler/icons-react";
+import { AgentToggleButton } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
 import { useIssue } from "@/hooks/use-issues";
 import { IssueProperties } from "./IssueProperties";
@@ -60,12 +61,15 @@ export function IssueDetail({ issueKey, closePath }: IssueDetailProps) {
             {issueKey}
           </span>
         </div>
-        <Link
-          to={closePath}
-          className="hidden lg:flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-        >
-          <IconX className="h-4 w-4" />
-        </Link>
+        <div className="flex items-center gap-2">
+          <AgentToggleButton className="h-8 w-8 rounded-md border border-border bg-background" />
+          <Link
+            to={closePath}
+            className="hidden lg:flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <IconX className="h-4 w-4" />
+          </Link>
+        </div>
       </div>
 
       {/* Scrollable content */}

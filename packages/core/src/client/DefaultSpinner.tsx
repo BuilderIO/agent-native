@@ -1,6 +1,7 @@
 /**
  * Full-screen loading spinner rendered during SSR and initial hydration.
  * Uses inline styles because Tailwind may not be loaded yet on the server.
+ * Respects the user's OS color scheme so dark-mode users don't get a white flash.
  */
 export function DefaultSpinner() {
   return (
@@ -23,7 +24,12 @@ export function DefaultSpinner() {
           animation: "an-spin 0.8s linear infinite",
         }}
       />
-      <style>{`@keyframes an-spin { to { transform: rotate(360deg) } }`}</style>
+      <style>{`
+        @keyframes an-spin { to { transform: rotate(360deg) } }
+        @media (prefers-color-scheme: dark) {
+          html { background: #09090b; color: #fafafa }
+        }
+      `}</style>
     </div>
   );
 }

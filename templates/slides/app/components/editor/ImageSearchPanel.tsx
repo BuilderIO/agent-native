@@ -58,13 +58,13 @@ export default function ImageSearchPanel({
       );
       if (!res.ok) {
         const data = await res.json();
-        setError(data.error || "IconSearch failed");
+        setError(data.error || "Search failed");
         setResults([]);
       } else {
         setResults(await res.json());
       }
     } catch {
-      setError("IconSearch failed");
+      setError("Search failed");
     } finally {
       setLoading(false);
     }
@@ -90,9 +90,7 @@ export default function ImageSearchPanel({
       className="w-96 max-h-[480px] bg-[hsl(240,5%,10%)] border border-white/[0.1] rounded-xl shadow-2xl shadow-black/60 overflow-hidden flex flex-col"
     >
       <div className="px-4 pt-3 pb-2 flex items-center justify-between flex-shrink-0">
-        <h3 className="text-sm font-semibold text-white/90">
-          IconSearch Images
-        </h3>
+        <h3 className="text-sm font-semibold text-white/90">Search Images</h3>
         <button
           onClick={() => onOpenChange(false)}
           className="text-white/30 hover:text-white/60 transition-colors"
@@ -114,7 +112,7 @@ export default function ImageSearchPanel({
               onKeyDown={(e) => {
                 if (e.key === "Enter") handleSearch();
               }}
-              placeholder="IconSearch for images..."
+              placeholder="Search for images..."
               className="w-full pl-8 pr-3 py-1.5 bg-white/[0.04] border border-white/[0.08] rounded-lg text-sm text-white/90 placeholder:text-white/30 outline-none focus:border-[#609FF8]/50"
             />
           </div>
@@ -126,7 +124,7 @@ export default function ImageSearchPanel({
             {loading ? (
               <IconLoader2 className="w-3.5 h-3.5 animate-spin" />
             ) : (
-              "IconSearch"
+              "Search"
             )}
           </button>
         </div>
@@ -140,7 +138,7 @@ export default function ImageSearchPanel({
         )}
         {!loading && results.length === 0 && !error && (
           <div className="text-center py-8 text-white/30 text-xs">
-            IconSearch for logos, images, icons...
+            Search for logos, images, icons...
           </div>
         )}
         {loading && (

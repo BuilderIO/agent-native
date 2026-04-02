@@ -50,7 +50,7 @@ import {
 } from "@/components/ui/popover";
 import { AgentToggleButton } from "@agent-native/core/client";
 import { NewDashboardDialog } from "./NewDashboardDialog";
-import { FeedbackButton } from "./FeedbackButton";
+
 import {
   DndContext,
   closestCenter,
@@ -272,6 +272,16 @@ async function fetchExplorerDashboards(): Promise<
   return (data.dashboards ?? []).map((d: any) => ({ id: d.id, name: d.name }));
 }
 
+async function fetchSqlDashboards(): Promise<{ id: string; name: string }[]> {
+  const token = await getIdToken();
+  const res = await fetch("/api/sql-dashboards", {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return (data.dashboards ?? []).map((d: any) => ({ id: d.id, name: d.name }));
+}
+
 function NewExplorerDashboardButton() {
   const navigate = useNavigate();
   const queryClient = __useQueryClient();
@@ -480,6 +490,12 @@ export function Sidebar() {
     staleTime: 30_000,
   });
 
+  const { data: sqlDashboards = [] } = useQuery({
+    queryKey: ["sql-dashboards-sidebar"],
+    queryFn: fetchSqlDashboards,
+    staleTime: 30_000,
+  });
+
   const visibleDashboards = useMemo(() => {
     const filtered = dashboards.filter((d) => !hiddenIds.has(d.id));
     // If no custom order yet, sort favorites to top
@@ -667,6 +683,21 @@ export function Sidebar() {
                       setHiddenIds={setHiddenIds}
                     />
                   ))}
+                  {sqlDashboards.map((d) => (
+                    <Link
+                      key={`sql-${d.id}`}
+                      to={`/adhoc/${d.id}`}
+                      className={cn(
+                        "flex items-center gap-2 rounded-md px-3 py-1 text-[13px] transition-all hover:text-primary",
+                        location.pathname === `/adhoc/${d.id}`
+                          ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                          : "text-muted-foreground hover:bg-sidebar-accent/50",
+                      )}
+                    >
+                      <IconChartBar className="h-3.5 w-3.5 shrink-0" />
+                      <span className="truncate">{d.name}</span>
+                    </Link>
+                  ))}
                   <NewDashboardDialog />
                 </div>
               </SortableContext>
@@ -763,7 +794,7 @@ export function Sidebar() {
             {navigator.platform?.includes("Mac") ? "\u2318" : "Ctrl+"}P
           </kbd>
         </button>
-        <FeedbackButton />
+
         <TooltipProvider delayDuration={200}>
           <div className="flex items-center justify-between">
             <Popover open={logoutOpen} onOpenChange={setLogoutOpen}>

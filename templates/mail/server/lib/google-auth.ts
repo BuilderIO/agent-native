@@ -472,6 +472,48 @@ export async function fetchGmailLabelMap(
   return map;
 }
 
+/** Extract regular (non-inline) attachments from a Gmail message payload */
+function getAttachments(
+  payload: any,
+): Array<{ id: string; filename: string; mimeType: string; size: number }> {
+  const attachments: Array<{
+    id: string;
+    filename: string;
+    mimeType: string;
+    size: number;
+  }> = [];
+  function walk(part: any) {
+    const attachmentId = part.body?.attachmentId;
+    const filename = part.filename;
+    // Only include parts with a filename and attachmentId (regular attachments)
+    // Skip inline images (they have Content-Disposition: inline or Content-ID)
+    if (attachmentId && filename) {
+      const headers = part.headers || [];
+      const contentDisposition = headers
+        .find((h: any) => h.name.toLowerCase() === "content-disposition")
+        ?.value?.toLowerCase();
+      const contentId = headers.find(
+        (h: any) => h.name.toLowerCase() === "content-id",
+      )?.value;
+      // Skip purely inline attachments (have content-id and inline disposition)
+      const isInline = contentDisposition?.startsWith("inline") && contentId;
+      if (!isInline) {
+        attachments.push({
+          id: attachmentId,
+          filename,
+          mimeType: part.mimeType || "application/octet-stream",
+          size: part.body?.size || 0,
+        });
+      }
+    }
+    if (part.parts) {
+      for (const p of part.parts) walk(p);
+    }
+  }
+  walk(payload);
+  return attachments;
+}
+
 export function gmailToEmailMessage(
   msg: any,
   accountEmail?: string,
@@ -491,6 +533,7 @@ export function gmailToEmailMessage(
   if (bodyHtml && inlineAttachments.size > 0) {
     bodyHtml = replaceCidUrls(bodyHtml, msg.id, inlineAttachments);
   }
+  const attachments = getAttachments(payload);
 
   return {
     id: msg.id,
@@ -534,6 +577,7 @@ export function gmailToEmailMessage(
         if (lastSlash >= 0) name = name.slice(lastSlash + 1);
         return name.replace(/_/g, " ").toLowerCase();
       }),
+    attachments: attachments.length > 0 ? attachments : undefined,
     accountEmail: accountEmail || msg._accountEmail,
   };
 }

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useSearchParams, useParams, useNavigate } from "react-router";
 import { IconPlus, IconSearch, IconCircleDot } from "@tabler/icons-react";
+import { AgentToggleButton } from "@agent-native/core/client";
 import { useIssues } from "@/hooks/use-issues";
 import { useProject } from "@/hooks/use-projects";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
@@ -68,7 +69,7 @@ export function ProjectIssuesPage({
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="IconSearch..."
+              placeholder="Search..."
               className="h-8 w-48 rounded-md border border-border bg-background pl-8 pr-3 text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
             />
           </form>
@@ -79,6 +80,7 @@ export function ProjectIssuesPage({
             <IconPlus className="h-3.5 w-3.5" />
             New
           </button>
+          <AgentToggleButton className="h-8 w-8 rounded-md border border-border bg-background" />
         </div>
 
         <div className="flex-1 overflow-y-auto">

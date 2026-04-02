@@ -39,7 +39,7 @@ interface CommandPaletteProps {
 
 const navCommands = [
   {
-    label: "Go to IconInbox",
+    label: "Go to Inbox",
     icon: IconInbox,
     route: "/inbox",
     shortcut: "G I",
@@ -58,7 +58,7 @@ const navCommands = [
     shortcut: "G D",
   },
   {
-    label: "Go to IconArchive",
+    label: "Go to Archive",
     icon: IconArchive,
     route: "/archive",
     shortcut: "G A",
@@ -120,7 +120,7 @@ export function CommandPalette({
           keywords={["search", "find"]}
         >
           <IconSearch className="h-4 w-4" />
-          IconSearch emails
+          Search emails
           <CommandMenu.Shortcut>/</CommandMenu.Shortcut>
         </CommandMenu.Item>
         <CommandMenu.Item

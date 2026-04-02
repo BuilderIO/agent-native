@@ -28,7 +28,7 @@ const createDefaultCameraTrack = (
   durationInFrames: number,
 ): AnimationTrack => ({
   id: "camera",
-  label: "IconCamera",
+  label: "Camera",
   startFrame: 0,
   endFrame: durationInFrames,
   easing: "linear",

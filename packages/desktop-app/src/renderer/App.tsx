@@ -199,8 +199,21 @@ export default function App() {
   }, [activeSidebarAppId, enabledApps]);
 
   const handleShortcut = useCallback(
-    (key: string, shiftKey: boolean) => {
+    (key: string, shiftKey: boolean, altKey: boolean = false) => {
       const k = key.toLowerCase();
+
+      // Cmd+Option+Up/Down — previous/next app
+      if (altKey && (k === "arrowup" || k === "arrowdown")) {
+        setActiveSidebarAppId((current) => {
+          const idx = appDefs.findIndex((a) => a.id === current);
+          const next =
+            k === "arrowdown"
+              ? (idx + 1) % appDefs.length
+              : (idx - 1 + appDefs.length) % appDefs.length;
+          return appDefs[next].id;
+        });
+        return;
+      }
 
       if (k === "f") {
         setFindOpen(true);
@@ -248,7 +261,7 @@ export default function App() {
     const handler = (e: KeyboardEvent) => {
       if (!e.metaKey && !e.ctrlKey) return;
       e.preventDefault();
-      handleShortcut(e.key, e.shiftKey);
+      handleShortcut(e.key, e.shiftKey, e.altKey);
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -256,9 +269,11 @@ export default function App() {
 
   useEffect(() => {
     if (!window.electronAPI?.shortcuts?.onKeydown) return;
-    return window.electronAPI.shortcuts.onKeydown(({ key, shiftKey }) => {
-      handleShortcut(key, shiftKey);
-    });
+    return window.electronAPI.shortcuts.onKeydown(
+      ({ key, shiftKey, altKey }) => {
+        handleShortcut(key, shiftKey, altKey);
+      },
+    );
   }, [handleShortcut]);
 
   // Report the active app to main process so DevTools targets the right webview

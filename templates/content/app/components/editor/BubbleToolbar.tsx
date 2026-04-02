@@ -49,25 +49,25 @@ export function BubbleToolbar({ editor }: BubbleToolbarProps) {
   const items = [
     {
       icon: IconBold,
-      title: "IconBold",
+      title: "Bold",
       action: () => editor.chain().focus().toggleBold().run(),
       isActive: () => editor.isActive("bold"),
     },
     {
       icon: IconItalic,
-      title: "IconItalic",
+      title: "Italic",
       action: () => editor.chain().focus().toggleItalic().run(),
       isActive: () => editor.isActive("italic"),
     },
     {
       icon: IconStrikethrough,
-      title: "IconStrikethrough",
+      title: "Strikethrough",
       action: () => editor.chain().focus().toggleStrike().run(),
       isActive: () => editor.isActive("strike"),
     },
     {
       icon: IconCode,
-      title: "IconCode",
+      title: "Code",
       action: () => editor.chain().focus().toggleCode().run(),
       isActive: () => editor.isActive("code"),
     },
@@ -93,7 +93,7 @@ export function BubbleToolbar({ editor }: BubbleToolbarProps) {
     { type: "divider" as const },
     {
       icon: IconLink,
-      title: "IconLink",
+      title: "Link",
       action: toggleLink,
       isActive: () => editor.isActive("link"),
     },

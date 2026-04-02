@@ -189,10 +189,8 @@ export function ComponentLibraryView({
                 onClick={handleSaveZones}
                 className="flex items-center gap-2 bg-white/20 hover:bg-white/30 px-4 py-2 rounded transition-colors"
               >
-                <IconDeviceFloppy className="w-4 h-4" />
-                <span className="text-sm font-semibold">
-                  IconDeviceFloppy Zones
-                </span>
+                <Save className="w-4 h-4" />
+                <span className="text-sm font-semibold">Save Zones</span>
               </button>
             </div>
           </div>
@@ -258,8 +256,8 @@ export function ComponentLibraryView({
                 <button
                   onClick={handlePlayPause}
                   className="p-2 hover:bg-white/10 rounded transition-colors"
-                  title={playing ? "IconPlayerPause" : "IconPlayerPlay"}
-                  aria-label={playing ? "IconPlayerPause" : "IconPlayerPlay"}
+                  title={playing ? "Pause" : "Play"}
+                  aria-label={playing ? "Pause" : "Play"}
                 >
                   {playing ? (
                     <IconPlayerPause className="w-4 h-4 text-white" />
@@ -286,8 +284,8 @@ export function ComponentLibraryView({
             <div>
               <h3 className="text-sm font-semibold mb-2">Preview Timeline</h3>
               <p className="text-xs text-muted-foreground mb-3">
-                Press <strong>IconPlayerPlay</strong> to see the cursor
-                demonstrate hover and click interactions:
+                Press <strong>Play</strong> to see the cursor demonstrate hover
+                and click interactions:
               </p>
               <ul className="text-xs text-muted-foreground space-y-1 ml-4 list-disc">
                 <li>

@@ -18,7 +18,6 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconChevronDown,
-  IconKeyboard,
   IconSearch,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
@@ -217,6 +216,13 @@ export default function CalendarView() {
   }, []);
 
   useEffect(() => {
+    const openShortcuts = () => setShortcutsHelpOpen(true);
+    window.addEventListener("calendar:open-shortcuts", openShortcuts);
+    return () =>
+      window.removeEventListener("calendar:open-shortcuts", openShortcuts);
+  }, []);
+
+  useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       // Cmd+K / Ctrl+K — always open command palette
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
@@ -236,6 +242,9 @@ export default function CalendarView() {
         setSidebarEvent(null);
         return;
       }
+
+      // Don't intercept keyboard shortcuts with modifier keys (Cmd+C, Ctrl+V, etc.)
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
 
       switch (e.key) {
         case "j":
@@ -322,9 +331,9 @@ export default function CalendarView() {
           )}
 
           {/* Top bar */}
-          <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-3">
+          <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-3">
             {/* Left: view mode dropdown */}
-            <div className="flex items-center gap-2">
+            <div className="flex shrink-0 items-center gap-2">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
@@ -360,7 +369,7 @@ export default function CalendarView() {
             </div>
 
             {/* Center: today, nav arrows, date label */}
-            <div className="flex items-center gap-1">
+            <div className="flex min-w-0 flex-1 items-center justify-center gap-1">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -424,11 +433,13 @@ export default function CalendarView() {
                 </TooltipContent>
               </Tooltip>
 
-              <span className="ml-1 text-sm font-semibold">{headerLabel}</span>
+              <span className="ml-1 min-w-0 flex-1 truncate whitespace-nowrap text-center text-sm font-semibold">
+                {headerLabel}
+              </span>
             </div>
 
-            {/* Right: search, shortcuts, new event */}
-            <div className="flex items-center gap-1">
+            {/* Right: search, new event */}
+            <div className="flex shrink-0 items-center gap-1">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -445,27 +456,6 @@ export default function CalendarView() {
                     IconSearch{" "}
                     <kbd className="ml-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
                       /
-                    </kbd>
-                  </p>
-                </TooltipContent>
-              </Tooltip>
-
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7"
-                    onClick={() => setShortcutsHelpOpen(true)}
-                  >
-                    <IconKeyboard className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  <p>
-                    IconKeyboard shortcuts{" "}
-                    <kbd className="ml-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
-                      ?
                     </kbd>
                   </p>
                 </TooltipContent>

@@ -83,7 +83,7 @@ export default function LogoSearchPanel({
       const res = await fetch(`/api/logo/search?q=${encodeURIComponent(q)}`);
       if (!res.ok) {
         const data = await res.json();
-        setError(data.error || "IconSearch failed");
+        setError(data.error || "Search failed");
         return;
       }
       const data: LogoResult[] = await res.json();
@@ -93,7 +93,7 @@ export default function LogoSearchPanel({
         setResults(data);
       }
     } catch {
-      setError("IconSearch failed");
+      setError("Search failed");
     } finally {
       setLoading(false);
     }
@@ -134,7 +134,7 @@ export default function LogoSearchPanel({
               {selectedDomain}
             </button>
           ) : (
-            "Logo IconSearch"
+            "Logo Search"
           )}
         </h3>
         <button
@@ -159,7 +159,7 @@ export default function LogoSearchPanel({
                 onKeyDown={(e) => {
                   if (e.key === "Enter") handleSearch();
                 }}
-                placeholder="IconSearch company name (e.g. Intuit)"
+                placeholder="Search company name (e.g. Intuit)"
                 className="w-full pl-8 pr-3 py-1.5 bg-white/[0.04] border border-white/[0.08] rounded-lg text-sm text-white/90 placeholder:text-white/30 outline-none focus:border-[#609FF8]/50"
               />
             </div>
@@ -171,7 +171,7 @@ export default function LogoSearchPanel({
               {loading ? (
                 <IconLoader2 className="w-3.5 h-3.5 animate-spin" />
               ) : (
-                "IconSearch"
+                "Search"
               )}
             </button>
           </div>
@@ -188,7 +188,7 @@ export default function LogoSearchPanel({
         {/* IconSearch results */}
         {!selectedDomain && !loading && results.length === 0 && !error && (
           <div className="text-center py-6 text-white/30 text-xs">
-            IconSearch for a company to find their logo
+            Search for a company to find their logo
           </div>
         )}
 

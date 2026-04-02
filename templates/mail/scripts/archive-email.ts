@@ -10,7 +10,10 @@
  */
 
 import { parseArgs, output, fatal, getAccessTokens } from "./helpers.js";
-import { gmailModifyMessage } from "../server/lib/google-api.js";
+import {
+  gmailGetMessage,
+  gmailModifyThread,
+} from "../server/lib/google-api.js";
 import { writeAppState } from "@agent-native/core/application-state";
 import type { ScriptTool } from "@agent-native/core";
 
@@ -51,7 +54,10 @@ export async function run(args: Record<string, string>): Promise<string> {
     const errors: string[] = [];
     for (const { accessToken } of accounts) {
       try {
-        await gmailModifyMessage(accessToken, id, undefined, ["INBOX"]);
+        const msg = await gmailGetMessage(accessToken, id, "minimal");
+        await gmailModifyThread(accessToken, msg.threadId, undefined, [
+          "INBOX",
+        ]);
         success = true;
         break;
       } catch (err: any) {

@@ -264,17 +264,21 @@ export function EmailThread({
     [navigate, view, labelSuffix],
   );
 
-  // Navigate between threads (j/k)
+  // Navigate between threads (j/k) — use ref to avoid stale closure
+  const emailIdsRef = useRef(emailIds);
+  emailIdsRef.current = emailIds;
+
   const goToSibling = useCallback(
     (delta: number) => {
-      if (!threadId || emailIds.length === 0) return;
-      const idx = emailIds.indexOf(threadId);
+      const ids = emailIdsRef.current;
+      if (!threadId || ids.length === 0) return;
+      const idx = ids.indexOf(threadId);
       if (idx === -1) return;
       const nextIdx = idx + delta;
-      if (nextIdx < 0 || nextIdx >= emailIds.length) return;
-      navigate(`/${view}/${emailIds[nextIdx]}${labelSuffix}`);
+      if (nextIdx < 0 || nextIdx >= ids.length) return;
+      navigate(`/${view}/${ids[nextIdx]}${labelSuffix}`);
     },
-    [threadId, emailIds, view, navigate, labelSuffix],
+    [threadId, view, navigate, labelSuffix],
   );
 
   useEffect(() => {
@@ -394,7 +398,11 @@ export function EmailThread({
       },
     });
     advanceOrGoBack();
-    archiveEmail.mutate({ id, accountEmail: email.accountEmail });
+    archiveEmail.mutate({
+      id,
+      accountEmail: email.accountEmail,
+      removeLabel: labelParam || undefined,
+    });
   }, [
     email,
     threadId,
@@ -403,6 +411,7 @@ export function EmailThread({
     advanceOrGoBack,
     onArchived,
     queryClient,
+    labelParam,
   ]);
 
   const handleTrash = useCallback(() => {
@@ -684,7 +693,9 @@ export function EmailThread({
     "all",
     "important",
   ]);
-  const displayLabels = email.labelIds.filter((l) => !systemLabels.has(l));
+  const displayLabels = [...new Set(email.labelIds)].filter(
+    (l) => !systemLabels.has(l),
+  );
 
   // Strip "Re: " / "Fwd: " prefixes for thread subject
   const threadSubject = email.subject.replace(/^(Re|Fwd|Fw):\s*/i, "");
@@ -713,40 +724,6 @@ export function EmailThread({
           </button>
 
           <div className="flex-1 min-w-0">
-            {githubPrUrl && (
-              <div className="mb-1.5">
-                <a
-                  href={githubPrUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="group relative inline-flex items-center gap-1.5 text-[12px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
-                  title="View Pull Request (⌘O)"
-                >
-                  <svg
-                    viewBox="0 0 16 16"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className="h-3 w-3"
-                  >
-                    <path d="M6 3H3v10h10v-3M9 3h4m0 0v4m0-4L7 11" />
-                  </svg>
-                  View Pull Request
-                  {/* Tooltip showing ⌘O shortcut */}
-                  <span className="pointer-events-none absolute left-0 top-full mt-1 z-50 hidden group-hover:flex items-center gap-1.5 rounded-md border border-border/50 bg-popover px-2.5 py-1.5 text-[12px] font-medium text-foreground shadow-lg whitespace-nowrap">
-                    View Pull Request
-                    <kbd className="flex items-center justify-center rounded border border-border/60 bg-muted px-1 text-[10px] text-muted-foreground">
-                      ⌘
-                    </kbd>
-                    <kbd className="flex items-center justify-center rounded border border-border/60 bg-muted px-1.5 text-[10px] text-muted-foreground">
-                      O
-                    </kbd>
-                  </span>
-                </a>
-              </div>
-            )}
             <div className="flex items-start gap-2 flex-wrap">
               <h1 className="text-lg font-semibold leading-tight text-foreground">
                 {threadSubject}
@@ -815,6 +792,39 @@ export function EmailThread({
                 </button>
               </div>
             </div>
+            {githubPrUrl && (
+              <div className="mt-1.5">
+                <a
+                  href={githubPrUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="group relative inline-flex items-center gap-1.5 text-[12px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+                  title="View Pull Request (⌘O)"
+                >
+                  <svg
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="h-3 w-3"
+                  >
+                    <path d="M6 3H3v10h10v-3M9 3h4m0 0v4m0-4L7 11" />
+                  </svg>
+                  View Pull Request
+                  <span className="pointer-events-none absolute left-0 top-full mt-1 z-50 hidden group-hover:flex items-center gap-1.5 rounded-md border border-border/50 bg-popover px-2.5 py-1.5 text-[12px] font-medium text-foreground shadow-lg whitespace-nowrap">
+                    View Pull Request
+                    <kbd className="flex items-center justify-center rounded border border-border/60 bg-muted px-1 text-[10px] text-muted-foreground">
+                      ⌘
+                    </kbd>
+                    <kbd className="flex items-center justify-center rounded border border-border/60 bg-muted px-1.5 text-[10px] text-muted-foreground">
+                      O
+                    </kbd>
+                  </span>
+                </a>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -1338,25 +1348,84 @@ const ExpandedMessageCard = forwardRef<
 
       {/* Attachments */}
       {email.attachments && email.attachments.length > 0 && (
-        <div className="px-4 pb-4 flex flex-wrap gap-2">
-          {email.attachments.map((att) => (
-            <div
-              key={att.id}
-              className="flex items-center gap-2 rounded-lg bg-accent/60 px-3 py-2 text-xs hover:bg-accent transition-colors cursor-pointer"
-            >
-              <svg
-                viewBox="0 0 16 16"
-                fill="currentColor"
-                className="h-3 w-3 text-muted-foreground shrink-0"
-              >
-                <path d="M11.28 1.47a.75.75 0 0 1 0 1.06L5.56 8.25a2.5 2.5 0 0 0 3.536 3.536l5.72-5.72a.75.75 0 0 1 1.06 1.06l-5.72 5.72a4 4 0 0 1-5.656-5.656l5.72-5.72a.75.75 0 0 1 1.06 0z" />
-              </svg>
-              <span className="text-foreground/80">{att.filename}</span>
-              <span className="text-muted-foreground">
-                {formatFileSize(att.size)}
-              </span>
+        <div className="px-4 pb-4">
+          {/* Image thumbnails */}
+          {email.attachments.some((a) => a.mimeType.startsWith("image/")) && (
+            <div className="flex flex-wrap gap-2 mb-2">
+              {email.attachments
+                .filter((a) => a.mimeType.startsWith("image/"))
+                .map((att) => {
+                  const url = `/api/attachments?messageId=${email.id}&id=${encodeURIComponent(att.id)}&mimeType=${encodeURIComponent(att.mimeType)}`;
+                  return (
+                    <a
+                      key={att.id}
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block rounded-lg overflow-hidden border border-border/40 hover:border-border bg-accent/30 hover:bg-accent/50"
+                      title={att.filename}
+                    >
+                      <img
+                        src={url}
+                        alt={att.filename}
+                        className="h-32 max-w-[200px] object-cover"
+                        loading="lazy"
+                      />
+                    </a>
+                  );
+                })}
             </div>
-          ))}
+          )}
+          {/* Non-image files + download all */}
+          <div className="flex flex-wrap items-center gap-2">
+            {email.attachments
+              .filter((a) => !a.mimeType.startsWith("image/"))
+              .map((att) => (
+                <a
+                  key={att.id}
+                  href={`/api/attachments?messageId=${email.id}&id=${encodeURIComponent(att.id)}`}
+                  download={att.filename}
+                  className="flex items-center gap-2 rounded-lg bg-accent/60 px-3 py-2 text-xs hover:bg-accent cursor-pointer"
+                >
+                  <svg
+                    viewBox="0 0 16 16"
+                    fill="currentColor"
+                    className="h-3 w-3 text-muted-foreground shrink-0"
+                  >
+                    <path d="M11.28 1.47a.75.75 0 0 1 0 1.06L5.56 8.25a2.5 2.5 0 0 0 3.536 3.536l5.72-5.72a.75.75 0 0 1 1.06 1.06l-5.72 5.72a4 4 0 0 1-5.656-5.656l5.72-5.72a.75.75 0 0 1 1.06 0z" />
+                  </svg>
+                  <span className="text-foreground/80 truncate max-w-[180px]">
+                    {att.filename}
+                  </span>
+                  <span className="text-muted-foreground">
+                    {formatFileSize(att.size)}
+                  </span>
+                </a>
+              ))}
+            {email.attachments.length > 1 && (
+              <button
+                onClick={() => {
+                  for (const att of email.attachments!) {
+                    const a = document.createElement("a");
+                    a.href = `/api/attachments?messageId=${email.id}&id=${encodeURIComponent(att.id)}`;
+                    a.download = att.filename;
+                    a.click();
+                  }
+                }}
+                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+              >
+                <svg
+                  viewBox="0 0 16 16"
+                  fill="currentColor"
+                  className="h-3 w-3"
+                >
+                  <path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14H2.75z" />
+                  <path d="M7.25 7.689V2a.75.75 0 0 1 1.5 0v5.689l1.97-1.969a.749.749 0 1 1 1.06 1.06l-3.25 3.25a.749.749 0 0 1-1.06 0L4.22 6.78a.749.749 0 1 1 1.06-1.06l1.97 1.969z" />
+                </svg>
+                Download all
+              </button>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -1368,8 +1437,8 @@ const ExpandedMessageCard = forwardRef<
 /** Detect where quoted/forwarded content begins in a plain text email */
 function findQuoteStart(lines: string[]): number {
   for (let i = 0; i < lines.length; i++) {
-    // "On ... wrote:" pattern
-    if (/^On .+ wrote:$/i.test(lines[i].trim())) return i;
+    // "On ... wrote:" pattern (with optional em-dash/dash prefix)
+    if (/^[—–-]*\s*On .+ wrote:$/i.test(lines[i].trim())) return i;
     // "--- Original Message ---" / "--- Forwarded message ---"
     if (/^-{2,}\s*(Original|Forwarded)\s/i.test(lines[i].trim())) return i;
     // Block of consecutive ">" quoted lines (at least 2)
@@ -1497,46 +1566,172 @@ function PlainTextBody({
 const IFRAME_BG_DARK = "#17181a";
 const IFRAME_BG_LIGHT = "#ffffff";
 
-/**
- * Detect if an HTML email has its own custom color/background styling.
- * Emails with custom styling were designed for specific backgrounds — we render
- * them on white instead of inverting to dark mode (like Superhuman does).
- */
-function emailHasCustomStyling(html: string): boolean {
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(html, "text/html");
+// ─── Color utilities for light-background detection ─────────────────────────
 
-  // bgcolor on ANY element — this attribute is exclusively used in HTML emails
-  // to set structural background colors; it's never set by accident
-  if (doc.querySelector("[bgcolor]")) return true;
+const DARK_NAMED_COLORS: Record<string, [number, number, number]> = {
+  black: [0, 0, 0],
+  navy: [0, 0, 128],
+  darkblue: [0, 0, 139],
+  darkgreen: [0, 100, 0],
+  maroon: [128, 0, 0],
+  darkred: [139, 0, 0],
+  brown: [165, 42, 42],
+  purple: [128, 0, 128],
+  indigo: [75, 0, 130],
+  midnightblue: [25, 25, 112],
+  darkslategray: [47, 79, 79],
+  darkslategrey: [47, 79, 79],
+  dimgray: [105, 105, 105],
+  dimgrey: [105, 105, 105],
+};
 
-  // background-color on <body> inline style
-  const body = doc.body;
-  const bodyStyle = body?.getAttribute("style") || "";
-  if (/background(-color)?:/i.test(bodyStyle)) return true;
+function parseColorToRgb(
+  color: string,
+): { r: number; g: number; b: number } | null {
+  const c = color.trim().toLowerCase();
 
-  // background-color on direct children of <body> (outer wrapper divs/tables)
-  for (const child of Array.from(body?.children ?? [])) {
-    const style = child.getAttribute("style") || "";
-    if (/background(-color)?:/i.test(style)) return true;
+  if (DARK_NAMED_COLORS[c]) {
+    const [r, g, b] = DARK_NAMED_COLORS[c];
+    return { r, g, b };
   }
 
-  // background-color in <style> blocks targeting structural email selectors
+  // Hex: #RGB or #RRGGBB
+  const hexMatch = c.match(/^#([0-9a-f]{3,8})$/);
+  if (hexMatch) {
+    const hex = hexMatch[1];
+    if (hex.length === 3) {
+      return {
+        r: parseInt(hex[0] + hex[0], 16),
+        g: parseInt(hex[1] + hex[1], 16),
+        b: parseInt(hex[2] + hex[2], 16),
+      };
+    }
+    if (hex.length >= 6) {
+      return {
+        r: parseInt(hex.slice(0, 2), 16),
+        g: parseInt(hex.slice(2, 4), 16),
+        b: parseInt(hex.slice(4, 6), 16),
+      };
+    }
+  }
+
+  // rgb(r, g, b) or rgba(r, g, b, a)
+  const rgbMatch = c.match(
+    /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)/,
+  );
+  if (rgbMatch) {
+    const alpha = rgbMatch[4] !== undefined ? parseFloat(rgbMatch[4]) : 1;
+    if (alpha < 0.5) return null;
+    return {
+      r: parseInt(rgbMatch[1]),
+      g: parseInt(rgbMatch[2]),
+      b: parseInt(rgbMatch[3]),
+    };
+  }
+
+  return null;
+}
+
+function relativeLuminance(r: number, g: number, b: number): number {
+  const [rs, gs, bs] = [r, g, b].map((ch) => {
+    const s = ch / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * rs + 0.7152 * gs + 0.0722 * bs;
+}
+
+// Would this color be illegible on our dark background (#17181a, luminance ~0.01)?
+// Only flags truly dark colors — threshold 0.1 catches black through ~#555.
+// Colors like #666+ are readable on dark bg and should NOT trigger light mode.
+function isIllegiblyDark(colorStr: string): boolean {
+  const rgb = parseColorToRgb(colorStr);
+  if (!rgb) return false;
+  return relativeLuminance(rgb.r, rgb.g, rgb.b) < 0.1;
+}
+
+/**
+ * Detect if an HTML email would be illegible on a dark background.
+ * This is an escape hatch — we WANT dark mode as much as possible.
+ * Only bail to white when the email has significant dark text or
+ * structural light backgrounds that would make content unreadable.
+ */
+function emailExpectsLightBackground(html: string): boolean {
+  // Fast path: skip DOMParser for truly plain emails
+  const lower = html.toLowerCase();
+  if (
+    !lower.includes("style") &&
+    !lower.includes("bgcolor") &&
+    !lower.includes("<font") &&
+    !lower.includes("color")
+  ) {
+    return false;
+  }
+
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, "text/html");
+  const body = doc.body;
+
+  // ── Structural light backgrounds ──
+  // Only trigger on body/html-level backgrounds — these define the entire email canvas.
+  // Ignore bgcolor on inner elements (table cells, etc.) — our dark CSS can coexist.
+
+  const bodyStyle = body?.getAttribute("style") || "";
+  if (/background(-color)?:/i.test(bodyStyle)) {
+    // Body has an explicit background — email was designed for a specific look
+    return true;
+  }
+
+  // bgcolor on body or html
+  const bodyBg = body?.getAttribute("bgcolor");
+  const htmlEl = doc.documentElement;
+  const htmlBg = htmlEl?.getAttribute("bgcolor");
+  if (bodyBg || htmlBg) return true;
+
+  // background-color in <style> blocks on html/body only
   const styleTags = doc.querySelectorAll("style");
   for (const tag of styleTags) {
     const text = tag.textContent || "";
-    // html/body/table/td/div element selectors
-    if (
-      /(?:html|body|table|td|th|div)\s*\{[^}]*background(-color)?:/im.test(text)
-    )
-      return true;
-    // common email wrapper class names
-    if (
-      /\.(?:wrapper|container|email|body|content|main|outer)\s*\{[^}]*background(-color)?:/im.test(
-        text,
-      )
-    )
-      return true;
+    if (/(?:html|body)\s*\{[^}]*background(-color)?:/im.test(text)) return true;
+  }
+
+  // ── Dark text that would be illegible ──
+  // Count how many text characters are styled with illegibly dark colors.
+  // Only bail if a significant portion of the email text is affected.
+
+  let darkTextChars = 0;
+  const DARK_CHAR_THRESHOLD = 100; // need 100+ chars of dark text to trigger
+
+  // <font color="..."> with dark color (legacy HTML emails)
+  const fontEls = doc.querySelectorAll("font[color]");
+  for (const el of fontEls) {
+    const c = el.getAttribute("color") || "";
+    if (c && isIllegiblyDark(c)) {
+      darkTextChars += (el.textContent || "").trim().length;
+      if (darkTextChars >= DARK_CHAR_THRESHOLD) return true;
+    }
+  }
+
+  // Inline style color: on elements
+  const styledEls = doc.querySelectorAll('[style*="color"]');
+  let checked = 0;
+  for (const el of styledEls) {
+    if (checked++ > 100) break;
+    const style = el.getAttribute("style") || "";
+    const colorMatch = style.match(/(?<![a-z-])color\s*:\s*([^;!]+)/i);
+    if (colorMatch && isIllegiblyDark(colorMatch[1].trim())) {
+      darkTextChars += (el.textContent || "").trim().length;
+      if (darkTextChars >= DARK_CHAR_THRESHOLD) return true;
+    }
+  }
+
+  // color: in <style> blocks on body/td/p — broad text selectors
+  // Only trigger if it targets elements that carry most of the text
+  for (const tag of styleTags) {
+    const text = tag.textContent || "";
+    const ruleMatch = text.match(
+      /(?:body|td|p)\s*(?:,\s*(?:body|td|p)\s*)*\{[^}]*(?<![a-z-])color\s*:\s*([^;}]+)/im,
+    );
+    if (ruleMatch && isIllegiblyDark(ruleMatch[1].trim())) return true;
   }
 
   return false;
@@ -1690,9 +1885,12 @@ function HtmlEmailBody({
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const sanitizedHtml = useMemo(() => sanitizeEmailHtml(html), [html]);
-  const isCustomStyled = useMemo(() => emailHasCustomStyling(html), [html]);
+  const expectsLightBg = useMemo(
+    () => emailExpectsLightBackground(html),
+    [html],
+  );
   const IFRAME_BG =
-    isCustomStyled || !isDark ? IFRAME_BG_LIGHT : IFRAME_BG_DARK;
+    expectsLightBg || !isDark ? IFRAME_BG_LIGHT : IFRAME_BG_DARK;
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
 
@@ -1729,7 +1927,7 @@ function HtmlEmailBody({
     setShowImagesForThread(true);
   };
 
-  const useDarkIframeCss = !isCustomStyled && isDark;
+  const useDarkIframeCss = !expectsLightBg && isDark;
 
   useEffect(() => {
     const iframe = iframeRef.current;
@@ -2009,7 +2207,7 @@ function HtmlEmailBody({
   }, [
     processedHtml,
     sanitizedHtml.headHtml,
-    isCustomStyled,
+    expectsLightBg,
     isDark,
     useDarkIframeCss,
     IFRAME_BG,
@@ -2142,7 +2340,7 @@ function HtmlEmailBody({
           border: "none",
           background: IFRAME_BG,
           colorScheme: useDarkIframeCss ? "dark" : "light",
-          borderRadius: isCustomStyled ? "6px" : undefined,
+          borderRadius: expectsLightBg ? "6px" : undefined,
         }}
         title="Email content"
       />

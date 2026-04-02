@@ -5,9 +5,18 @@ import {
   type H3Event,
 } from "h3";
 import { appStateGet } from "@agent-native/core/application-state";
+import { getSession } from "@agent-native/core/server";
 
-async function getHubSpotKey(): Promise<string | undefined> {
-  const data = await appStateGet("local", "hubspot");
+async function getSessionId(event: H3Event): Promise<string> {
+  const session = await getSession(event);
+  if (!session) return "local";
+  if (session.email === "local@localhost") return "local";
+  return session.email;
+}
+
+async function getHubSpotKey(event: H3Event): Promise<string | undefined> {
+  const sessionId = await getSessionId(event);
+  const data = await appStateGet(sessionId, "hubspot");
   return (data as any)?.apiKey || undefined;
 }
 
@@ -20,7 +29,7 @@ export const hubspotContactLookup = defineEventHandler(
       return { error: "email query param required" };
     }
 
-    const apiKey = await getHubSpotKey();
+    const apiKey = await getHubSpotKey(event);
     if (!apiKey) {
       setResponseStatus(event, 401);
       return { error: "HubSpot API key not configured" };

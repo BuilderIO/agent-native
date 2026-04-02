@@ -66,15 +66,29 @@ export default defineEventHandler(async (event) => {
     return { error: "No Google account connected" };
   }
 
-  const { messageId, id } = getQuery(event) as {
+  const { messageId, id, mimeType } = getQuery(event) as {
     messageId?: string;
     id?: string;
+    mimeType?: string;
   };
 
   if (!messageId || !id) {
     setResponseStatus(event, 400);
     return { error: "messageId and id are required" };
   }
+
+  // Allowlist of safe content types for inline display
+  const SAFE_TYPES = new Set([
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+    "application/pdf",
+  ]);
+  const contentType =
+    mimeType && SAFE_TYPES.has(mimeType)
+      ? mimeType
+      : "application/octet-stream";
 
   const accounts = await listOAuthAccounts("google");
   for (const account of accounts) {
@@ -94,7 +108,7 @@ export default defineEventHandler(async (event) => {
       setResponseHeader(event, "Content-Length", buffer.length);
       // X-Content-Type-Options prevents MIME sniffing of HTML for XSS
       setResponseHeader(event, "X-Content-Type-Options", "nosniff");
-      setResponseHeader(event, "Content-Type", "application/octet-stream");
+      setResponseHeader(event, "Content-Type", contentType);
 
       return buffer;
     } catch {

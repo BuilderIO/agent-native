@@ -49,7 +49,7 @@ const STEPS = [
     showRedirectUri: true,
   },
   {
-    title: "IconUpload credentials JSON",
+    title: "Upload credentials JSON",
     description:
       'Click "Download JSON" on the credentials page, then upload it here.',
     showUpload: true,
@@ -102,7 +102,7 @@ export function GoogleConnectBanner({
     }
   }, []);
 
-  // IconCheck if credentials are already configured on mount
+  // Check if credentials are already configured on mount
   useEffect(() => {
     fetchStatus();
   }, [fetchStatus]);
@@ -575,7 +575,7 @@ function SetupWizard({
                           ) : (
                             <IconUpload className="h-3 w-3" />
                           )}
-                          {saving ? "Saving..." : "IconUpload JSON"}
+                          {saving ? "Saving..." : "Upload JSON"}
                         </Button>
                       </div>
                     )}
