@@ -260,6 +260,7 @@ function inlineMarkdownToHtml(text: string): string {
 function nfmLinesToHtml(lines: string[]): string {
   const html: string[] = [];
   let openLevels = 0;
+  let inCodeFence = false;
 
   let baseIndent = Infinity;
   for (const line of lines) {
@@ -279,6 +280,33 @@ function nfmLinesToHtml(lines: string[]): string {
   for (const line of lines) {
     const trimmed = line.trim();
 
+    // Code fences — pass through as a <pre><code> block
+    if (CODE_FENCE_RE.test(trimmed)) {
+      if (!inCodeFence) {
+        closeLists();
+        const lang = trimmed.slice(3).trim();
+        html.push(
+          lang
+            ? `<pre><code class="language-${escapeHtml(lang)}">`
+            : "<pre><code>",
+        );
+      } else {
+        html.push("</code></pre>");
+      }
+      inCodeFence = !inCodeFence;
+      continue;
+    }
+    if (inCodeFence) {
+      html.push(
+        escapeHtml(
+          line.startsWith("\t".repeat(baseIndent))
+            ? line.slice(baseIndent)
+            : line,
+        ),
+      );
+      continue;
+    }
+
     if (!trimmed || /^<empty-block\b[^>]*\/>$/.test(trimmed)) {
       closeLists();
       continue;
@@ -288,8 +316,9 @@ function nfmLinesToHtml(lines: string[]): string {
     const depth = (indentMatch ? indentMatch[1].length : 0) - baseIndent;
     const content = (indentMatch ? indentMatch[2] : line).trim();
 
-    // HTML tags (nested <details>, <summary>, <callout>, etc.) → pass through
-    if (/^<\/?[\w]/.test(content)) {
+    // HTML element tags (nested <details>, <summary>, <callout>, etc.)
+    // Use [a-zA-Z] to avoid matching text like "<3"
+    if (/^<\/?[a-zA-Z]/.test(content)) {
       closeLists();
       html.push(content);
       continue;
@@ -444,8 +473,8 @@ function ensureParagraphSeparation(text: string): string {
       (/^>/.test(cur) && !/^>/.test(next)) ||
       // Before `---`/`***`/`___` (prevent setext H2 interpretation)
       (cur !== "" && !/^</.test(cur) && /^(---+|\*\*\*+|___+)$/.test(next)) ||
-      // After any HTML close tag (</details>, </callout>, </table>, etc.)
-      /^<\/\w+>/.test(cur);
+      // After block-level HTML close tags (not </li>, </ul>, etc.)
+      /^<\/(details|callout|table|columns|column)>/.test(cur);
 
     if (needsBlank) {
       result.push("");
