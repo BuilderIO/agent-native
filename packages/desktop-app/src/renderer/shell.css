@@ -415,8 +415,9 @@ body {
 /* ─── Webview slot ───────────────────────────────────────────── */
 /* Each slot is absolutely positioned so they stack on top of each
    other. The webview inside uses flex:1 in a flex-column container
-   to fill the full height. visibility:hidden on the slot hides
-   inactive tabs without removing them from DOM. */
+   to fill the full height. Hidden slots use display:none so Electron
+   stops painting their native guest surfaces; visibility:hidden still
+   lets stacked webviews cover docked DevTools. */
 .webview-slot {
   position: absolute;
   top: 0;
@@ -428,8 +429,7 @@ body {
 }
 
 .webview-slot--hidden {
-  visibility: hidden;
-  pointer-events: none;
+  display: none;
 }
 
 /* Electron's <webview> uses display:flex internally — never set
