@@ -53,6 +53,7 @@ export default function TabBar({
           <button
             key={tab.id}
             className={`tab${isActive ? " tab--active" : ""}`}
+            tabIndex={-1}
             onClick={() => onTabSelect(tab.id)}
             onMouseDown={(e) => {
               // Middle-click to close
@@ -78,7 +79,12 @@ export default function TabBar({
           </button>
         );
       })}
-      <button className="tab-new" onClick={onNewTab} title="New tab">
+      <button
+        className="tab-new"
+        tabIndex={-1}
+        onClick={onNewTab}
+        title="New tab"
+      >
         <IconPlus size={14} strokeWidth={1.75} />
       </button>
     </div>

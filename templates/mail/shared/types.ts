@@ -114,7 +114,21 @@ export type UserSettings = {
   imagePolicy?: "show" | "block-trackers" | "block-all";
   /** Senders whose images are always loaded even when imagePolicy is "block-all" */
   trustedSenders?: string[];
+  /** Actions shown in the mobile bottom action bar (detail view). Order matters. */
+  mobileActions?: MobileActionId[];
 };
+
+/** Identifiers for actions available in the mobile bottom bar */
+export type MobileActionId =
+  | "archive"
+  | "trash"
+  | "star"
+  | "reply"
+  | "replyAll"
+  | "forward"
+  | "markUnread"
+  | "prev"
+  | "next";
 
 export type Alias = {
   id: string;
