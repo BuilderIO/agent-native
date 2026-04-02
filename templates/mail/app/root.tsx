@@ -86,6 +86,22 @@ function AutomationTrigger() {
   return null;
 }
 
+/** Invalidate email queries when the window regains visibility */
+function VisibilityRefresh() {
+  const qc = useQueryClient();
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        qc.invalidateQueries({ queryKey: ["emails"] });
+        qc.invalidateQueries({ queryKey: ["labels"] });
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [qc]);
+  return null;
+}
+
 function FileWatcherSetup() {
   const qc = useQueryClient();
 
@@ -160,6 +176,7 @@ export default function Root() {
             <Toaster richColors position="bottom-left" />
             <AutoFocus />
             <AutomationTrigger />
+            <VisibilityRefresh />
             <FileWatcherSetup />
             <AppLayout>
               <Outlet />

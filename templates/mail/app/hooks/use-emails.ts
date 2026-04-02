@@ -164,8 +164,8 @@ export function useEmails(view: string = "inbox", search?: string) {
     },
     select: (data) => filterSuppressed(data, view),
     staleTime: 15_000,
-    refetchInterval: 60_000,
-    refetchOnWindowFocus: true,
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: "always",
     retry: false,
   });
 }
