@@ -42,13 +42,13 @@ const INBOX_ZERO_PHOTOS = [
   "photo-1441974231531-c6227db76b6e", // Forest sunlight
   "photo-1469474968028-56623f02e42e", // Golden sunset coast
   "photo-1472214103451-9374bd1c798e", // Green rolling hills
-  "photo-1500534314263-0869cef46947", // Aurora borealis
+  "photo-1483347756197-71ef80e95f73", // Aurora borealis
   "photo-1507525428034-b723cf961d3e", // Tropical beach
   "photo-1505765050516-f72dcac9c60e", // Mountain reflection lake
   "photo-1464822759023-fed622ff2c3b", // Snow-capped mountain
   "photo-1433086966358-54859d0ed716", // Waterfall in forest
   "photo-1501854140801-50d01698950b", // Aerial forest
-  "photo-1518173946687-a24f76e138a6", // Pink sky desert
+  "photo-1643840154819-6831d22f7621", // Pink sky desert
   "photo-1502082553048-f009c37129b9", // Sun through trees
   "photo-1536431311719-398b6704d4cc", // Dramatic clouds
   "photo-1475924156734-496f6cac6ec1", // Northern lights

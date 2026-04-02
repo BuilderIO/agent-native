@@ -18,6 +18,7 @@ import {
   IconCircle,
   IconCopy,
   IconAlertCircle,
+  IconUpload,
 } from "@tabler/icons-react";
 import { getIdToken } from "@/lib/auth";
 import {
@@ -103,6 +104,20 @@ function StepItem({
 }) {
   const [copied, setCopied] = useState(false);
 
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !step.inputKey) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        onInputChange(step.inputKey!, reader.result);
+      }
+    };
+    reader.readAsText(file);
+    // Reset so the same file can be re-selected
+    e.target.value = "";
+  };
+
   return (
     <div className="flex gap-3 py-3">
       <div className="flex flex-col items-center">
@@ -139,9 +154,23 @@ function StepItem({
         )}
         {step.inputKey && (
           <div className="space-y-1.5 pt-1">
-            <label className="text-xs font-medium text-muted-foreground">
-              {step.inputLabel || step.inputKey}
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-medium text-muted-foreground">
+                {step.inputLabel || step.inputKey}
+              </label>
+              {step.inputAcceptFile && (
+                <label className="inline-flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 cursor-pointer">
+                  <IconUpload className="h-3 w-3" />
+                  Upload file
+                  <input
+                    type="file"
+                    accept={step.inputAcceptFile}
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+                </label>
+              )}
+            </div>
             {step.inputType === "textarea" ? (
               <textarea
                 value={inputValues[step.inputKey] || ""}
