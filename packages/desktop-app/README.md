@@ -78,7 +78,7 @@ packages/electron-shell/
 
 ### How tab state is preserved
 
-Each app's `<webview>` is **mounted once and never unmounted**. Switching tabs simply toggles `display: none` on the inactive slots. The webview process keeps running in the background, so:
+Each app's `<webview>` is **mounted once and never unmounted**. Switching tabs simply toggles `visibility: hidden` + `pointer-events: none` on the inactive slots. The webview process keeps running in the background, so:
 
 - Login sessions survive tab switches
 - Scroll positions are preserved
