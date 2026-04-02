@@ -712,12 +712,30 @@ export function createAgentChatPlugin(
               withFileTypes: true,
             });
             for (const entry of entries) {
-              if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
-              try {
-                const content = fs.readFileSync(
-                  nodePath.join(skillsDir, entry.name),
-                  "utf-8",
+              // Support both flat .md files and subdirectory-based skills (dir/SKILL.md)
+              let skillFilePath: string;
+              let skillRelPath: string;
+
+              if (entry.isDirectory()) {
+                // Subdirectory layout: .agents/skills/<name>/SKILL.md
+                const candidate = nodePath.join(
+                  skillsDir,
+                  entry.name,
+                  "SKILL.md",
                 );
+                if (!fs.existsSync(candidate)) continue;
+                skillFilePath = candidate;
+                skillRelPath = `.agents/skills/${entry.name}/SKILL.md`;
+              } else if (entry.isFile() && entry.name.endsWith(".md")) {
+                // Flat layout: .agents/skills/<name>.md
+                skillFilePath = nodePath.join(skillsDir, entry.name);
+                skillRelPath = `.agents/skills/${entry.name}`;
+              } else {
+                continue;
+              }
+
+              try {
+                const content = fs.readFileSync(skillFilePath, "utf-8");
                 const fm = parseSkillFrontmatter(content);
                 const skillName = fm.name || entry.name.replace(/\.md$/, "");
                 if (!seenNames.has(skillName)) {
@@ -725,7 +743,7 @@ export function createAgentChatPlugin(
                   skills.push({
                     name: skillName,
                     description: fm.description,
-                    path: `.agents/skills/${entry.name}`,
+                    path: skillRelPath,
                     source: "codebase",
                   });
                 }
