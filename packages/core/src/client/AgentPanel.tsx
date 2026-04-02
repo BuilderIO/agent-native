@@ -55,6 +55,8 @@ const ResourcesPanel = lazy(() =>
 
 const CLI_STORAGE_KEY = "agent-native-cli-command";
 const CLI_DEFAULT = "builder";
+const EXEC_MODE_KEY = "agent-native-exec-mode";
+type ExecMode = "build" | "plan";
 const AGENT_PANEL_FONT_FAMILY =
   'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
 const AGENT_PANEL_ROOT_STYLE = {
@@ -260,6 +262,23 @@ function XIcon({ className }: { className?: string }) {
       className={className}
     >
       <path d="M18 6L6 18M6 6l12 12" />
+    </svg>
+  );
+}
+
+function PlanIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4Z" />
     </svg>
   );
 }
@@ -538,6 +557,26 @@ export function AgentPanel({
   onCollapse,
 }: AgentPanelProps) {
   const mounted = useClientOnly();
+  const [execMode, setExecMode] = useState<ExecMode>(() => {
+    try {
+      const saved = localStorage.getItem(EXEC_MODE_KEY);
+      if (saved === "build" || saved === "plan") return saved;
+    } catch {}
+    return "build";
+  });
+
+  const switchExecMode = useCallback((next: ExecMode) => {
+    setExecMode(next);
+    try {
+      localStorage.setItem(EXEC_MODE_KEY, next);
+    } catch {}
+    window.dispatchEvent(
+      new CustomEvent("agent-panel:exec-mode-change", {
+        detail: { mode: next },
+      }),
+    );
+  }, []);
+
   const [mode, setMode] = useState<"chat" | "cli" | "resources">(() => {
     try {
       const saved = localStorage.getItem("agent-native-panel-mode");
@@ -703,6 +742,40 @@ export function AgentPanel({
         >
           <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
             {renderModeButtons(mode)}
+            {mode === "chat" && (
+              <>
+                <div className="w-px h-4 bg-border shrink-0 mx-0.5" />
+                <div
+                  className="flex shrink-0 items-center rounded-md border border-border overflow-hidden"
+                  style={AGENT_PANEL_CONTROL_STYLE}
+                >
+                  <button
+                    onClick={() => switchExecMode("build")}
+                    className={cn(
+                      "flex items-center gap-1 px-2 py-1 text-[12px] leading-none",
+                      execMode === "build"
+                        ? "bg-accent text-foreground"
+                        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                    )}
+                    title="Build mode — agent executes immediately"
+                  >
+                    Build
+                  </button>
+                  <button
+                    onClick={() => switchExecMode("plan")}
+                    className={cn(
+                      "flex items-center gap-1 px-2 py-1 text-[12px] leading-none",
+                      execMode === "plan"
+                        ? "bg-amber-500/20 text-amber-700 dark:text-amber-400"
+                        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                    )}
+                    title="Plan mode — agent plans before executing"
+                  >
+                    Plan
+                  </button>
+                </div>
+              </>
+            )}
           </div>
           <div className="flex items-center gap-0.5">
             {mode !== "resources" && (
@@ -733,6 +806,13 @@ export function AgentPanel({
             {renderHeaderActions()}
           </div>
         </div>
+        {/* Plan mode banner */}
+        {mode === "chat" && execMode === "plan" && (
+          <div className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] text-amber-700 dark:text-amber-400 bg-amber-500/10 border-b border-amber-500/20">
+            <PlanIcon className="h-3 w-3 shrink-0" />
+            Plan mode — agent will plan before executing
+          </div>
+        )}
         {/* Tab bar: chat tabs or CLI tabs when multiple are open */}
         {((mode === "chat" && tabs.length > 1) ||
           (mode === "cli" && cliTabs.length > 1)) && (
@@ -828,6 +908,8 @@ export function AgentPanel({
     ),
     [
       mode,
+      execMode,
+      switchExecMode,
       renderHeaderActions,
       renderModeButtons,
       cliTabs,
