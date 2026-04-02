@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Mark,
   Node,
@@ -7,6 +8,7 @@ import {
   mergeAttributes,
   type NodeViewProps,
 } from "@tiptap/react";
+import { IconChevronRight, IconChevronDown } from "@tabler/icons-react";
 import {
   escapeHtml,
   indentMarkdown,
@@ -72,6 +74,9 @@ function parseAttrsJson(
 }
 
 function serializeInnerMarkdown(editor: any, node: any): string {
+  if (!editor?.storage?.markdown?.serializer) {
+    return node.textContent || "";
+  }
   return editor.storage.markdown.serializer.serialize(node).trimEnd();
 }
 
@@ -104,30 +109,41 @@ function humanizeTag(tagName: string): string {
 }
 
 function ToggleView({ node, updateAttributes }: NodeViewProps) {
+  const [open, setOpen] = useState(false);
   const summary = (node.attrs.summary || "") as string;
 
   return (
     <NodeViewWrapper
-      className="notion-toggle"
+      className={`notion-toggle ${open ? "notion-toggle--open" : ""}`}
       data-color={node.attrs.color || undefined}
       data-heading-level={node.attrs.headingLevel || undefined}
     >
-      <div className="notion-toggle__summary-row">
+      <div
+        className="notion-toggle__summary-row"
+        onClick={() => setOpen(!open)}
+      >
         <span className="notion-toggle__chevron" contentEditable={false}>
-          ▾
+          {open ? (
+            <IconChevronDown size={18} stroke={2} />
+          ) : (
+            <IconChevronRight size={18} stroke={2} />
+          )}
         </span>
         <input
           value={summary}
           onChange={(event) =>
             updateAttributes({ summary: event.currentTarget.value })
           }
+          onClick={(e) => e.stopPropagation()}
           placeholder="Toggle"
           className="notion-toggle__summary"
         />
       </div>
-      <div className="notion-toggle__body">
-        <NodeViewContent className="notion-toggle__content" />
-      </div>
+      {open && (
+        <div className="notion-toggle__body">
+          <NodeViewContent className="notion-toggle__content" />
+        </div>
+      )}
     </NodeViewWrapper>
   );
 }
