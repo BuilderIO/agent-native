@@ -1,6 +1,7 @@
 import {
   createProductionAgentHandler,
   getActiveRunForThread,
+  getActiveRunForThreadAsync,
   getRun,
   abortRun,
   subscribeToRun,
@@ -11,6 +12,10 @@ import type {
   MentionProvider,
   MentionProviderItem,
 } from "../agent/types.js";
+import {
+  buildAssistantMessage,
+  extractThreadMeta,
+} from "../agent/thread-data-builder.js";
 import {
   defineEventHandler,
   readBody,
@@ -438,13 +443,17 @@ export function createAgentChatPlugin(
       }
     };
 
-    // Callback to update thread timestamp when agent finishes (even if client disconnected)
-    const onRunComplete = async (_run: any, threadId: string | undefined) => {
+    // Callback to persist agent response when run finishes (even if client disconnected).
+    // Reconstructs the assistant message from buffered events and appends to thread_data.
+    const onRunComplete = async (run: any, threadId: string | undefined) => {
       if (!threadId) return;
       try {
         const thread = await getThread(threadId);
-        if (thread) {
-          // Update timestamp so client knows to re-fetch
+        if (!thread) return;
+
+        const assistantMsg = buildAssistantMessage(run.events ?? [], run.runId);
+        if (!assistantMsg) {
+          // No content produced — just bump timestamp
           await updateThreadData(
             threadId,
             thread.threadData,
@@ -452,7 +461,43 @@ export function createAgentChatPlugin(
             thread.preview,
             thread.messageCount,
           );
+          return;
         }
+
+        // Parse existing thread_data, append assistant message only if
+        // the frontend hasn't already saved it (avoids duplicates when
+        // the client is still connected during a normal flow).
+        let repo: any;
+        try {
+          repo = JSON.parse(thread.threadData || "{}");
+        } catch {
+          repo = {};
+        }
+        if (!Array.isArray(repo.messages)) repo.messages = [];
+
+        const lastMsg = repo.messages[repo.messages.length - 1];
+        if (lastMsg?.role === "assistant") {
+          // Frontend already saved the assistant response — just bump timestamp
+          await updateThreadData(
+            threadId,
+            thread.threadData,
+            thread.title,
+            thread.preview,
+            thread.messageCount,
+          );
+          return;
+        }
+
+        repo.messages.push(assistantMsg);
+
+        const meta = extractThreadMeta(repo);
+        await updateThreadData(
+          threadId,
+          JSON.stringify(repo),
+          meta.title || thread.title,
+          meta.preview || thread.preview,
+          repo.messages.length,
+        );
       } catch {
         // Best-effort — don't break cleanup
       }
@@ -904,6 +949,9 @@ export function createAgentChatPlugin(
     nitroApp.h3App.use(
       `${routePath}/runs`,
       defineEventHandler(async (event) => {
+        // Auth check — ensure the user is authenticated
+        await getOwnerFromEvent(event);
+
         const method = getMethod(event);
         const url = event.node?.req?.url || event.path || "";
 
@@ -911,11 +959,7 @@ export function createAgentChatPlugin(
         const abortMatch = url.match(/\/runs\/([^/?]+)\/abort/);
         if (abortMatch && method === "POST") {
           const runId = decodeURIComponent(abortMatch[1]);
-          const success = abortRun(runId);
-          if (!success) {
-            setResponseStatus(event, 404);
-            return { error: "Run not found" };
-          }
+          abortRun(runId); // Aborts in-memory + marks aborted in SQL
           return { ok: true };
         }
 
@@ -947,8 +991,9 @@ export function createAgentChatPlugin(
             return { error: "threadId query parameter is required" };
           }
 
-          const run = getActiveRunForThread(threadId);
-          if (!run || run.status !== "running") {
+          // Check in-memory first, then SQL (cross-isolate on Workers)
+          const run = await getActiveRunForThreadAsync(threadId);
+          if (!run) {
             setResponseStatus(event, 404);
             return { error: "No active run for this thread" };
           }
@@ -957,7 +1002,6 @@ export function createAgentChatPlugin(
             runId: run.runId,
             threadId: run.threadId,
             status: run.status,
-            eventCount: run.events.length,
           };
         }
 

@@ -193,14 +193,39 @@ export function gmailModifyMessage(
   });
 }
 
+export function gmailModifyThread(
+  accessToken: string,
+  threadId: string,
+  addLabelIds?: string[],
+  removeLabelIds?: string[],
+) {
+  return googleFetch(`${GMAIL_BASE}/threads/${threadId}/modify`, accessToken, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ addLabelIds, removeLabelIds }),
+  });
+}
+
 export function gmailTrashMessage(accessToken: string, id: string) {
   return googleFetch(`${GMAIL_BASE}/messages/${id}/trash`, accessToken, {
     method: "POST",
   });
 }
 
+export function gmailTrashThread(accessToken: string, threadId: string) {
+  return googleFetch(`${GMAIL_BASE}/threads/${threadId}/trash`, accessToken, {
+    method: "POST",
+  });
+}
+
 export function gmailUntrashMessage(accessToken: string, id: string) {
   return googleFetch(`${GMAIL_BASE}/messages/${id}/untrash`, accessToken, {
+    method: "POST",
+  });
+}
+
+export function gmailUntrashThread(accessToken: string, threadId: string) {
+  return googleFetch(`${GMAIL_BASE}/threads/${threadId}/untrash`, accessToken, {
     method: "POST",
   });
 }

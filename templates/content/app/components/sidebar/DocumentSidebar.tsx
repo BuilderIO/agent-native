@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { useNavigate } from "react-router";
 import {
-  IconArrowUp,
   IconPlus,
   IconSearch,
   IconStar,
@@ -10,12 +9,6 @@ import {
 import { toast } from "sonner";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { useSendToAgentChat } from "@agent-native/core/client";
-import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from "@/components/ui/popover";
 import { NotionButton } from "./NotionButton";
 import { DocumentTreeItem } from "./DocumentTreeItem";
 import {
@@ -37,22 +30,11 @@ export function DocumentSidebar({ activeDocumentId }: DocumentSidebarProps) {
   const createDocument = useCreateDocument();
   const deleteDocument = useDeleteDocument();
   const updateDocument = useUpdateDocument();
-  const { send } = useSendToAgentChat();
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
-  const [popoverOpen, setPopoverOpen] = useState(false);
-  const [prompt, setPrompt] = useState("");
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const tree = buildDocumentTree(documents);
   const favorites = documents.filter((d) => d.isFavorite);
-
-  useEffect(() => {
-    if (popoverOpen) {
-      setPrompt("");
-      setTimeout(() => textareaRef.current?.focus(), 0);
-    }
-  }, [popoverOpen]);
 
   const handleCreatePage = useCallback(
     async (parentId?: string) => {
@@ -70,21 +52,6 @@ export function DocumentSidebar({ activeDocumentId }: DocumentSidebarProps) {
     },
     [createDocument, navigate],
   );
-
-  function handleSkip() {
-    setPopoverOpen(false);
-    handleCreatePage();
-  }
-
-  function handleSubmitPrompt() {
-    if (!prompt.trim()) return;
-    setPopoverOpen(false);
-    send({
-      message: `Create a new document based on this description: ${prompt.trim()}`,
-      context:
-        "Create the document using db-exec to insert into the documents table with appropriate title and markdown content. After creating, tell the user the document title and a brief summary of what you created.",
-    });
-  }
 
   const handleDelete = useCallback(
     async (id: string) => {
@@ -109,51 +76,6 @@ export function DocumentSidebar({ activeDocumentId }: DocumentSidebarProps) {
       )
     : null;
 
-  const newPagePopover = (
-    <PopoverContent
-      side="right"
-      align="start"
-      sideOffset={8}
-      className="w-80 p-0 rounded-xl"
-    >
-      <div className="p-4 pb-3">
-        <p className="text-sm font-semibold">New page</p>
-        <textarea
-          ref={textareaRef}
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              handleSubmitPrompt();
-            }
-          }}
-          placeholder="Describe your page..."
-          className="mt-2 w-full resize-none bg-transparent text-sm placeholder:text-muted-foreground/50 focus:outline-none"
-          rows={4}
-        />
-      </div>
-      <div className="flex items-center justify-between border-t border-border px-4 py-2.5">
-        <div />
-        <div className="flex items-center gap-3">
-          <button
-            className="text-xs text-blue-400 hover:text-blue-300"
-            onClick={handleSkip}
-          >
-            Skip prompt
-          </button>
-          <button
-            className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted hover:bg-accent disabled:opacity-30"
-            onClick={handleSubmitPrompt}
-            disabled={!prompt.trim()}
-          >
-            <IconArrowUp size={14} />
-          </button>
-        </div>
-      </div>
-    </PopoverContent>
-  );
-
   return (
     <div className="flex flex-col h-full w-60 border-r border-border bg-muted/30">
       {/* Header */}
@@ -164,7 +86,7 @@ export function DocumentSidebar({ activeDocumentId }: DocumentSidebarProps) {
         <button
           className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent text-muted-foreground hover:text-foreground"
           onClick={() => setIsSearching(!isSearching)}
-          title="IconSearch"
+          title="Search"
         >
           <IconSearch size={14} />
         </button>
@@ -176,7 +98,7 @@ export function DocumentSidebar({ activeDocumentId }: DocumentSidebarProps) {
           <input
             autoFocus
             type="text"
-            placeholder="IconSearch pages..."
+            placeholder="Search pages..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => {
@@ -300,15 +222,13 @@ export function DocumentSidebar({ activeDocumentId }: DocumentSidebarProps) {
           )}
 
           {/* New page button — under the list */}
-          <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
-            <PopoverTrigger asChild>
-              <button className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground">
-                <IconPlus size={14} className="shrink-0" />
-                <span>New page</span>
-              </button>
-            </PopoverTrigger>
-            {newPagePopover}
-          </Popover>
+          <button
+            className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+            onClick={() => handleCreatePage()}
+          >
+            <IconPlus size={14} className="shrink-0" />
+            <span>New page</span>
+          </button>
         </div>
       </ScrollArea>
 

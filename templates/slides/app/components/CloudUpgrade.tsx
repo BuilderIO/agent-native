@@ -62,7 +62,7 @@ const PROVIDERS: Provider[] = [
       "Go to supabase.com/dashboard and sign up or log in",
       'Click "New Project" → set a name and database password → click Create',
       "Wait for the project to finish provisioning (~30 seconds)",
-      "Go to Project Settings → IconDatabase → Connection string",
+      "Go to Project Settings → Database → Connection string",
       'Select "URI" tab → copy the postgres://... string (replace [YOUR-PASSWORD] with your DB password)',
     ],
   },
@@ -73,9 +73,9 @@ const PROVIDERS: Provider[] = [
     urlPrefix: "d1://",
     needsAuthToken: true,
     steps: [
-      "Go to dash.cloudflare.com → Workers & Pages → D1 SQL IconDatabase",
+      "Go to dash.cloudflare.com → Workers & Pages → D1 SQL Database",
       'Click "Create" → name your database → click Create',
-      "Copy the IconDatabase ID from the database overview page",
+      "Copy the Database ID from the database overview page",
       "For the auth token: go to My Profile → API Tokens → Create Token",
       'Select "Edit Cloudflare Workers" template → Create Token → copy it',
       "Paste as: d1://<database-id> with the API token below",
@@ -104,7 +104,7 @@ export function CloudUpgrade({
     connectingRef.current = true;
 
     if (!dbUrl.trim()) {
-      setErrorMsg("IconDatabase URL is required");
+      setErrorMsg("Database URL is required");
       setStatus("error");
       connectingRef.current = false;
       return;
@@ -151,7 +151,7 @@ export function CloudUpgrade({
 
       if (!ok) {
         throw new Error(
-          "IconDatabase connection failed after 30 attempts. IconCheck your credentials.",
+          "Database connection failed after 30 attempts. Check your credentials.",
         );
       }
 

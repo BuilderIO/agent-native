@@ -66,6 +66,9 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [resolvingDirection, setResolvingDirection] = useState<
+    "pull" | "push" | null
+  >(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
@@ -156,6 +159,7 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
 
   const handleResolve = useCallback(
     (direction: "pull" | "push") => {
+      setResolvingDirection(direction);
       resolveConflict.mutate(
         { direction },
         {
@@ -171,9 +175,11 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
                 ? "Resolved — pulled from Notion."
                 : "Resolved — pushed local version.",
             );
+            setResolvingDirection(null);
             setOpen(false);
           },
           onError: (error) => {
+            setResolvingDirection(null);
             toast.error(
               error instanceof Error ? error.message : "Resolve failed.",
             );
@@ -292,6 +298,18 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
                     {syncStatus.lastError}
                   </p>
                 )}
+                {syncStatus?.warnings?.length ? (
+                  <div className="mt-1.5 space-y-1">
+                    {syncStatus.warnings.slice(0, 3).map((warning, index) => (
+                      <p
+                        key={`${warning}-${index}`}
+                        className="text-[10px] text-muted-foreground"
+                      >
+                        {warning}
+                      </p>
+                    ))}
+                  </div>
+                ) : null}
               </div>
 
               {/* Conflict banner */}
@@ -308,7 +326,7 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
                       onClick={() => handleResolve("pull")}
                       disabled={isWorking}
                     >
-                      {resolveConflict.isPending ? (
+                      {resolvingDirection === "pull" ? (
                         <IconLoader2
                           size={12}
                           className="animate-spin mr-1.5"
@@ -323,7 +341,7 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
                       onClick={() => handleResolve("push")}
                       disabled={isWorking}
                     >
-                      {resolveConflict.isPending ? (
+                      {resolvingDirection === "push" ? (
                         <IconLoader2
                           size={12}
                           className="animate-spin mr-1.5"
@@ -401,7 +419,7 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="IconSearch Notion pages..."
+                    placeholder="Search Notion pages..."
                     className="w-full rounded-md border border-input bg-background pl-8 pr-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground"
                   />
                 </div>

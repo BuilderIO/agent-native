@@ -35,11 +35,6 @@ const defaultTools = [
     name: "Customer Health",
     href: "/adhoc/customer-health",
   },
-  {
-    id: "slack-feedback",
-    name: "Slack Feedback",
-    href: "/adhoc/slack-feedback",
-  },
   { id: "query-explorer", name: "Query Explorer", href: "/query" },
 ];
 
@@ -65,6 +60,16 @@ async function fetchExplorerDashboards(): Promise<ExplorerDashboard[]> {
   return (data.dashboards ?? []).map((d: any) => ({ id: d.id, name: d.name }));
 }
 
+async function fetchSqlDashboards(): Promise<{ id: string; name: string }[]> {
+  const token = await getIdToken();
+  const res = await fetch("/api/sql-dashboards", {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return (data.dashboards ?? []).map((d: any) => ({ id: d.id, name: d.name }));
+}
+
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
@@ -79,6 +84,13 @@ export function CommandPalette() {
   const { data: explorerDashboards = [] } = useQuery({
     queryKey: ["explorer-dashboards-palette"],
     queryFn: fetchExplorerDashboards,
+    staleTime: 30_000,
+    enabled: open,
+  });
+
+  const { data: sqlDashboards = [] } = useQuery({
+    queryKey: ["sql-dashboards-palette"],
+    queryFn: fetchSqlDashboards,
     staleTime: 30_000,
     enabled: open,
   });
@@ -114,6 +126,20 @@ export function CommandPalette() {
               <CommandItem
                 key={`ed-${d.id}`}
                 onSelect={() => go(`/adhoc/explorer-dashboard?id=${d.id}`)}
+              >
+                <IconLayoutDashboard className="mr-2 h-4 w-4 text-muted-foreground" />
+                {d.name}
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        )}
+
+        {sqlDashboards.length > 0 && (
+          <CommandGroup heading="SQL Dashboards">
+            {sqlDashboards.map((d) => (
+              <CommandItem
+                key={`sql-${d.id}`}
+                onSelect={() => go(`/adhoc/${d.id}`)}
               >
                 <IconLayoutDashboard className="mr-2 h-4 w-4 text-muted-foreground" />
                 {d.name}

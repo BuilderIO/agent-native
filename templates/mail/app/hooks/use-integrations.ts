@@ -66,17 +66,21 @@ export function useIntegration(provider: Provider) {
   return { connected, connect, disconnect };
 }
 
+async function integrationFetch<T>(url: string): Promise<T> {
+  const res = await fetch(url);
+  if (res.status === 401) throw new Error("unauthorized");
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
 export function useHubSpotContact(email: string | undefined) {
   const connected = useIntegrationStatus("hubspot");
   return useQuery({
     queryKey: ["integration-data", "hubspot", email],
-    queryFn: async () => {
-      const res = await fetch(
+    queryFn: () =>
+      integrationFetch(
         `/api/hubspot/contact?email=${encodeURIComponent(email!)}`,
-      );
-      if (!res.ok) return null;
-      return res.json();
-    },
+      ),
     enabled: !!email && connected,
     staleTime: 5 * 60 * 1000,
     retry: false,
@@ -87,13 +91,10 @@ export function usePylonContact(email: string | undefined) {
   const connected = useIntegrationStatus("pylon");
   return useQuery({
     queryKey: ["integration-data", "pylon", email],
-    queryFn: async () => {
-      const res = await fetch(
+    queryFn: () =>
+      integrationFetch(
         `/api/pylon/contact?email=${encodeURIComponent(email!)}`,
-      );
-      if (!res.ok) return null;
-      return res.json();
-    },
+      ),
     enabled: !!email && connected,
     staleTime: 5 * 60 * 1000,
     retry: false,
@@ -104,15 +105,16 @@ export function useGongCalls(email: string | undefined) {
   const connected = useIntegrationStatus("gong");
   return useQuery({
     queryKey: ["integration-data", "gong", email],
-    queryFn: async () => {
-      const res = await fetch(
-        `/api/gong/calls?email=${encodeURIComponent(email!)}`,
-      );
-      if (!res.ok) return null;
-      return res.json();
-    },
+    queryFn: () =>
+      integrationFetch(`/api/gong/calls?email=${encodeURIComponent(email!)}`),
     enabled: !!email && connected,
     staleTime: 5 * 60 * 1000,
     retry: false,
   });
+}
+
+/** Check if a React Query error is an auth/key error */
+export function isAuthError(error: Error | null | unknown): boolean {
+  if (!error || !(error instanceof Error)) return false;
+  return error.message === "unauthorized" || error.message === "401";
 }

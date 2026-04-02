@@ -35,7 +35,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange}>
       <CommandInput
-        placeholder="IconSearch issues, navigate..."
+        placeholder="Search issues, navigate..."
         value={search}
         onValueChange={setSearch}
       />
@@ -61,12 +61,12 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
           </CommandItem>
           <CommandItem onSelect={() => runCommand(() => navigate("/settings"))}>
             <IconSettings className="mr-2 h-4 w-4" />
-            IconSettings
+            Settings
           </CommandItem>
         </CommandGroup>
 
         {search && (
-          <CommandGroup heading="IconSearch">
+          <CommandGroup heading="Search">
             <CommandItem
               onSelect={() =>
                 runCommand(() =>
@@ -75,7 +75,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
               }
             >
               <IconSearch className="mr-2 h-4 w-4" />
-              IconSearch issues for &ldquo;{search}&rdquo;
+              Search issues for &ldquo;{search}&rdquo;
             </CommandItem>
           </CommandGroup>
         )}

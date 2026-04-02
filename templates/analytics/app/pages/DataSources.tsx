@@ -175,11 +175,13 @@ function DataSourceCard({
   onSaved: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [currentStep, setCurrentStep] = useState(0);
   const [inputValues, setInputValues] = useState<Record<string, string>>({});
   const [testResult, setTestResult] = useState<{
     ok: boolean;
     error?: string;
   } | null>(null);
+  const totalSteps = source.walkthroughSteps.length;
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -248,24 +250,74 @@ function DataSourceCard({
 
       {expanded && (
         <CardContent className="pt-0 border-t border-border/50">
-          <div className="divide-y divide-border/30">
-            {source.walkthroughSteps.map((step, i) => {
-              const isComplete =
-                step.inputKey && connected && !inputValues[step.inputKey];
-              return (
-                <StepItem
-                  key={i}
-                  step={step}
-                  index={i}
-                  isComplete={!!isComplete}
-                  isActive={!isComplete}
-                  inputValues={inputValues}
-                  onInputChange={(key, value) =>
-                    setInputValues((prev) => ({ ...prev, [key]: value }))
-                  }
-                />
-              );
-            })}
+          {/* Step progress */}
+          <div className="flex items-center gap-1.5 py-3">
+            {source.walkthroughSteps.map((_, i) => (
+              <button
+                key={i}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCurrentStep(i);
+                }}
+                className={`h-1.5 flex-1 rounded-full transition-colors ${
+                  i < currentStep
+                    ? "bg-emerald-500/60"
+                    : i === currentStep
+                      ? "bg-primary"
+                      : "bg-muted"
+                }`}
+              />
+            ))}
+          </div>
+
+          {/* Current step */}
+          {(() => {
+            const step = source.walkthroughSteps[currentStep];
+            const isComplete =
+              step.inputKey && connected && !inputValues[step.inputKey];
+            return (
+              <StepItem
+                key={currentStep}
+                step={step}
+                index={currentStep}
+                isComplete={!!isComplete}
+                isActive={!isComplete}
+                inputValues={inputValues}
+                onInputChange={(key, value) =>
+                  setInputValues((prev) => ({ ...prev, [key]: value }))
+                }
+              />
+            );
+          })()}
+
+          {/* Step navigation */}
+          <div className="flex items-center gap-2 pt-2 pb-4">
+            {currentStep > 0 && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCurrentStep((s) => s - 1);
+                }}
+                className="text-xs"
+              >
+                Back
+              </Button>
+            )}
+            {currentStep < totalSteps - 1 && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCurrentStep((s) => s + 1);
+                }}
+                className="text-xs"
+              >
+                Continue
+              </Button>
+            )}
           </div>
 
           <div className="flex items-center gap-2 pt-4 border-t border-border/30">

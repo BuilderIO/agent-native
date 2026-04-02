@@ -1124,7 +1124,7 @@ export function AgentSidebar({
       {isLeft ? null : <ResizeHandle position={position} onDrag={handleDrag} />}
       <div
         className="agent-sidebar-panel flex shrink-0 flex-col overflow-hidden text-[13px] leading-[1.2] antialiased"
-        style={{ ...AGENT_PANEL_ROOT_STYLE, width }}
+        style={{ ...AGENT_PANEL_ROOT_STYLE, width, maxHeight: "100vh" }}
       >
         <AgentPanel
           emptyStateText={emptyStateText}
@@ -1137,7 +1137,7 @@ export function AgentSidebar({
   );
 
   return (
-    <div className="flex flex-1 overflow-hidden">
+    <div className="flex min-w-0 flex-1 overflow-hidden">
       {isLeft && open ? sidebar : null}
       <div className="flex flex-1 flex-col overflow-hidden min-w-0">
         {children}

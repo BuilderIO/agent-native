@@ -24,8 +24,9 @@ import {
   gmailGetThread,
   gmailListLabels,
   gmailModifyMessage,
-  gmailTrashMessage,
-  gmailUntrashMessage,
+  gmailModifyThread,
+  gmailTrashThread,
+  gmailUntrashThread,
   googleFetch,
   peopleListConnections,
   peopleListOtherContacts,
@@ -232,8 +233,13 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
         trash: "in:trash",
         all: "",
       };
-      let searchQuery = gmailQuery[view] ?? `label:${view}`;
-      if (q) searchQuery += ` ${q}`;
+      let searchQuery: string;
+      if (q) {
+        // Search across all mail, not scoped to current view
+        searchQuery = q;
+      } else {
+        searchQuery = gmailQuery[view] ?? `label:${view}`;
+      }
 
       // Fetch label name mapping from all accounts
       const accountTokens = await getAccountTokens(email);
@@ -549,8 +555,27 @@ export const archiveEmail = defineEventHandler(async (event: H3Event) => {
     }
     try {
       const id = getRouterParam(event, "id") as string;
-      await gmailModifyMessage(accessToken, id, undefined, ["INBOX"]);
-      return { id, isArchived: true };
+      const msg = await gmailGetMessage(accessToken, id, "minimal");
+      // Remove INBOX + the current label (if archiving from a label view)
+      const removeLabels = ["INBOX"];
+      if (body?.removeLabel) {
+        // Gmail label IDs for user labels are the label name or a Label_N id
+        const labelId = msg.labelIds?.find(
+          (l: string) =>
+            l === body.removeLabel ||
+            l.toLowerCase() === body.removeLabel.toLowerCase(),
+        );
+        if (labelId && !removeLabels.includes(labelId)) {
+          removeLabels.push(labelId);
+        }
+      }
+      await gmailModifyThread(
+        accessToken,
+        msg.threadId,
+        undefined,
+        removeLabels,
+      );
+      return { id, threadId: msg.threadId, isArchived: true };
     } catch (error: any) {
       console.error("[archiveEmail] Gmail error:", error.message);
       setResponseStatus(event, 500);
@@ -599,8 +624,9 @@ export const unarchiveEmail = defineEventHandler(async (event: H3Event) => {
     }
     try {
       const id = getRouterParam(event, "id") as string;
-      await gmailModifyMessage(accessToken, id, ["INBOX"]);
-      return { id, isArchived: false };
+      const msg = await gmailGetMessage(accessToken, id, "minimal");
+      await gmailModifyThread(accessToken, msg.threadId, ["INBOX"]);
+      return { id, threadId: msg.threadId, isArchived: false };
     } catch (error: any) {
       console.error("[unarchiveEmail] Gmail error:", error.message);
       setResponseStatus(event, 500);
@@ -651,8 +677,9 @@ export const trashEmail = defineEventHandler(async (event: H3Event) => {
     }
     try {
       const id = getRouterParam(event, "id") as string;
-      await gmailTrashMessage(accessToken, id);
-      return { id, isTrashed: true };
+      const msg = await gmailGetMessage(accessToken, id, "minimal");
+      await gmailTrashThread(accessToken, msg.threadId);
+      return { id, threadId: msg.threadId, isTrashed: true };
     } catch (error: any) {
       console.error("[trashEmail] Gmail error:", error.message);
       setResponseStatus(event, 500);
@@ -697,8 +724,9 @@ export const untrashEmail = defineEventHandler(async (event: H3Event) => {
     }
     try {
       const id = getRouterParam(event, "id") as string;
-      await gmailUntrashMessage(accessToken, id);
-      return { id, isTrashed: false };
+      const msg = await gmailGetMessage(accessToken, id, "minimal");
+      await gmailUntrashThread(accessToken, msg.threadId);
+      return { id, threadId: msg.threadId, isTrashed: false };
     } catch (error: any) {
       console.error("[untrashEmail] Gmail error:", error.message);
       setResponseStatus(event, 500);
@@ -757,25 +785,11 @@ export const reportSpam = defineEventHandler(async (event: H3Event) => {
       // Get the threadId from the message if not provided
       let threadId = bodyThreadId;
       if (!threadId) {
-        const msg = await googleFetch(
-          `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=minimal`,
-          accessToken,
-        );
+        const msg = await gmailGetMessage(accessToken, id, "minimal");
         threadId = msg.threadId;
       }
-      // Report spam on entire thread (like mute)
-      await googleFetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/threads/${threadId}/modify`,
-        accessToken,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            addLabelIds: ["SPAM"],
-            removeLabelIds: ["INBOX"],
-          }),
-        },
-      );
+      // Report spam on entire thread
+      await gmailModifyThread(accessToken, threadId, ["SPAM"], ["INBOX"]);
       return { id, threadId, spam: true };
     } catch (error: any) {
       console.error("[reportSpam] Gmail error:", error.message);
@@ -850,8 +864,9 @@ export const blockSender = defineEventHandler(async (event: H3Event) => {
     try {
       const id = getRouterParam(event, "id") as string;
 
-      // Also report the current message as spam
-      await gmailModifyMessage(accessToken, id, ["SPAM"], ["INBOX"]);
+      // Report the entire thread as spam
+      const msg = await gmailGetMessage(accessToken, id, "minimal");
+      await gmailModifyThread(accessToken, msg.threadId, ["SPAM"], ["INBOX"]);
 
       // Create a filter to auto-delete future emails from this sender
       try {
@@ -950,18 +965,7 @@ export const muteThread = defineEventHandler(async (event: H3Event) => {
     try {
       const threadId = getRouterParam(event, "threadId") as string;
       // Gmail "mute" = remove from inbox; future replies also skip inbox
-      // Use threads.modify endpoint
-      await googleFetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/threads/${threadId}/modify`,
-        accessToken,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            removeLabelIds: ["INBOX"],
-          }),
-        },
-      );
+      await gmailModifyThread(accessToken, threadId, undefined, ["INBOX"]);
       return { threadId, muted: true };
     } catch (error: any) {
       console.error("[muteThread] Gmail error:", error.message);
@@ -1072,8 +1076,26 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
       }
 
       if (selectedToken) {
+        // Fetch the sender's display name from Gmail send-as settings
+        let fromHeader = selectedEmail;
+        try {
+          const sendAs = await googleFetch(
+            `https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs`,
+            selectedToken,
+          );
+          const match = sendAs?.sendAs?.find(
+            (s: any) =>
+              s.sendAsEmail?.toLowerCase() === selectedEmail.toLowerCase(),
+          );
+          if (match?.displayName) {
+            fromHeader = `${match.displayName} <${selectedEmail}>`;
+          }
+        } catch {
+          // Fall back to email-only if settings fetch fails
+        }
+
         const raw = buildRawEmail({
-          from: selectedEmail,
+          from: fromHeader,
           to: to || "",
           cc: cc || "",
           bcc: bcc || "",
@@ -1141,7 +1163,7 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
     subject,
     snippet: body.slice(0, 120).replace(/\n/g, " "),
     body,
-    bodyHtml: markdownToHtml(body),
+    bodyHtml: bodyToHtml(body),
     date: new Date().toISOString(),
     isRead: true,
     isStarred: false,
@@ -1262,7 +1284,7 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
     subject: subject || "(no subject)",
     snippet: (body || "").slice(0, 120).replace(/\n/g, " "),
     body: body || "",
-    bodyHtml: markdownToHtml(body || ""),
+    bodyHtml: bodyToHtml(body || ""),
     date: new Date().toISOString(),
     isRead: true,
     isStarred: false,
@@ -1300,7 +1322,7 @@ function buildRawEmail(opts: {
 }): string {
   const boundary = `agent-native-${nanoid(12)}`;
   const textBody = markdownToPlainText(opts.body);
-  const htmlBody = markdownToHtml(opts.body);
+  const htmlBody = bodyToHtml(opts.body);
   const lines = [
     `From: ${opts.from}`,
     `To: ${opts.to}`,
@@ -1413,6 +1435,63 @@ function markdownToPlainText(markdown: string): string {
     .replace(/\*\*([^*]+)\*\*/g, "$1")
     .replace(/(^|[\s(])\*([^*\n]+)\*(?=$|[\s).,!?:;])/g, "$1$2")
     .trim();
+}
+
+/**
+ * Split a compose body at the reply/forward quote separator.
+ * Returns null for non-reply bodies (no separator found).
+ */
+function splitReplyQuote(body: string): {
+  newContent: string;
+  attribution: string;
+  quotedBody: string;
+} | null {
+  const replyMatch = body.match(/\n?\n?— On (.+? wrote):\n/);
+  const fwdMatch = body.match(/\n?\n?(— Forwarded message —)\n/);
+  const match = replyMatch || fwdMatch;
+  if (!match || match.index === undefined) return null;
+
+  const newContent = body.slice(0, match.index);
+  const attribution = replyMatch ? `On ${match[1]}:` : "Forwarded message";
+  const afterSeparator = body.slice(match.index + match[0].length);
+  return { newContent, attribution, quotedBody: afterSeparator };
+}
+
+/**
+ * Convert quoted content into Gmail-compatible HTML blockquote.
+ * Strips leading `> ` prefixes from each line before converting to HTML.
+ */
+function quotedContentToHtml(attribution: string, quotedBody: string): string {
+  const stripped = quotedBody
+    .split("\n")
+    .map((line) => {
+      if (line.startsWith("> ")) return line.slice(2);
+      if (line === ">") return "";
+      return line;
+    })
+    .join("\n");
+  const innerHtml = markdownToHtml(stripped);
+  return (
+    `<div class="gmail_quote">` +
+    `<div class="gmail_attr">${escapeHtml(attribution)}</div>` +
+    `<blockquote class="gmail_quote" style="margin:0 0 0 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex">` +
+    innerHtml +
+    `</blockquote></div>`
+  );
+}
+
+/**
+ * Convert a compose body to HTML, properly formatting reply/forward quotes
+ * with Gmail-compatible blockquote structure so email clients can clip them.
+ */
+function bodyToHtml(body: string): string {
+  const split = splitReplyQuote(body);
+  if (split) {
+    const newHtml = markdownToHtml(split.newContent);
+    const quoteHtml = quotedContentToHtml(split.attribution, split.quotedBody);
+    return newHtml + quoteHtml;
+  }
+  return markdownToHtml(body);
 }
 
 // ─── Delete draft ─────────────────────────────────────────────────────────────

@@ -1,9 +1,13 @@
-import { Suspense } from "react";
-import { useParams } from "react-router";
+import { Suspense, lazy } from "react";
+import { useParams, useSearchParams } from "react-router";
+import { useQuery } from "@tanstack/react-query";
 import { Layout } from "@/components/layout/Layout";
 import { Skeleton } from "@/components/ui/skeleton";
+import { getIdToken } from "@/lib/auth";
 import { dashboardComponents } from "./registry";
 import BlankDashboard from "./BlankDashboard";
+
+const SqlDashboardPage = lazy(() => import("./sql-dashboard"));
 
 function DashboardSkeleton() {
   return (
@@ -26,19 +30,51 @@ function DashboardSkeleton() {
   );
 }
 
-export default function AdhocRouter() {
-  const { id = "default" } = useParams<{ id: string }>();
-  const Component = dashboardComponents[id];
+function SqlDashboardLoader({ id }: { id: string }) {
+  const { data: exists, isLoading } = useQuery({
+    queryKey: ["sql-dashboard-exists", id],
+    queryFn: async () => {
+      const token = await getIdToken();
+      const res = await fetch(`/api/sql-dashboards/${id}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      return res.ok;
+    },
+    staleTime: 30_000,
+  });
+
+  if (isLoading) return <DashboardSkeleton />;
+  if (!exists) return <BlankDashboard />;
 
   return (
-    <Layout>
-      {Component ? (
+    <Suspense fallback={<DashboardSkeleton />}>
+      <SqlDashboardPage />
+    </Suspense>
+  );
+}
+
+export default function AdhocRouter() {
+  const { id = "default" } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
+  const Component = dashboardComponents[id];
+
+  // Code-based dashboards take priority
+  if (Component) {
+    return (
+      <Layout>
         <Suspense fallback={<DashboardSkeleton />}>
           <Component />
         </Suspense>
-      ) : (
-        <BlankDashboard />
-      )}
+      </Layout>
+    );
+  }
+
+  // Check for SQL dashboard (id passed via URL param, or use the route id)
+  const sqlId = searchParams.get("id") || id;
+
+  return (
+    <Layout>
+      <SqlDashboardLoader id={sqlId} />
     </Layout>
   );
 }

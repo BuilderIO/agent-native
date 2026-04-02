@@ -134,7 +134,7 @@ function TopPagesTable({
               Views
             </th>
             <th className="text-right py-2 pl-4 font-medium text-muted-foreground">
-              IconUsers
+              Users
             </th>
           </tr>
         </thead>
@@ -397,7 +397,7 @@ export default function GoogleAnalyticsDashboard() {
       {/* Metric cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <MetricCard
-          title="Active IconUsers"
+          title="Active Users"
           value={activeUsers}
           icon={IconUsers}
           isLoading={totals.isLoading}
@@ -464,7 +464,7 @@ export default function GoogleAnalyticsDashboard() {
 
       <Card className="bg-card border-border/50">
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">IconUsers by Country</CardTitle>
+          <CardTitle className="text-base">Users by Country</CardTitle>
         </CardHeader>
         <CardContent>
           <CountryTable

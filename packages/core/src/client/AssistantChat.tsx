@@ -27,6 +27,7 @@ import {
 } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import { createAgentChatAdapter } from "./agent-chat-adapter.js";
+import { type ContentPart, readSSEStreamRaw } from "./sse-event-processor.js";
 import { cn } from "./utils.js";
 import {
   TiptapComposer,
@@ -338,8 +339,98 @@ function ToolCallFallback({
   result,
 }: ToolCallMessagePartProps) {
   const [expanded, setExpanded] = useState(false);
-  const isRunning = result === undefined;
+  const thread = useThread();
+  const isRunning = result === undefined && thread.isRunning;
   const argsStr = Object.entries(args as Record<string, unknown>)
+    .map(([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`)
+    .join(", ");
+
+  return (
+    <div className="my-1 overflow-hidden">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className={cn(
+          "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-mono w-full text-left overflow-hidden",
+          isRunning
+            ? "bg-muted text-muted-foreground"
+            : "bg-muted text-muted-foreground hover:bg-accent",
+        )}
+      >
+        <span className="shrink-0">
+          {isRunning ? (
+            <svg
+              className="h-3 w-3 animate-spin"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <circle
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="3"
+                strokeDasharray="31 62"
+              />
+            </svg>
+          ) : result !== undefined ? (
+            <CheckIcon className="h-3 w-3 text-emerald-500" />
+          ) : (
+            <svg
+              className="h-3 w-3 text-muted-foreground"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <rect
+                x="6"
+                y="6"
+                width="12"
+                height="12"
+                rx="2"
+                fill="currentColor"
+              />
+            </svg>
+          )}
+        </span>
+        <span className="truncate min-w-0">
+          <span className="font-medium">{toolName}</span>
+          {argsStr && <span className="opacity-60 ml-1">({argsStr})</span>}
+        </span>
+        {!isRunning && result !== undefined && (
+          <ChevronDownIcon
+            className={cn(
+              "ml-auto h-3 w-3 shrink-0 opacity-40",
+              expanded && "rotate-180",
+            )}
+          />
+        )}
+      </button>
+      {expanded && result !== undefined && (
+        <div className="mt-1 rounded-md bg-muted/50 px-3 py-2 text-xs font-mono text-muted-foreground whitespace-pre-wrap break-all max-h-48 overflow-y-auto">
+          {typeof result === "string"
+            ? result
+            : JSON.stringify(result, null, 2)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Reconnect Stream Message ───────────────────────────────────────────────
+// Renders the agent's in-progress response during reconnection (outside
+// assistant-ui's runtime). Uses the same visual styling as normal messages.
+
+function ReconnectStreamToolCall({
+  toolName,
+  args,
+  result,
+}: {
+  toolName: string;
+  args: Record<string, string>;
+  result?: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const isRunning = result === undefined;
+  const argsStr = Object.entries(args)
     .map(([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`)
     .join(", ");
 
@@ -378,7 +469,7 @@ function ToolCallFallback({
           <span className="font-medium">{toolName}</span>
           {argsStr && <span className="opacity-60 ml-1">({argsStr})</span>}
         </span>
-        {!isRunning && (
+        {!isRunning && result !== undefined && (
           <ChevronDownIcon
             className={cn(
               "ml-auto h-3 w-3 shrink-0 opacity-40",
@@ -398,17 +489,108 @@ function ToolCallFallback({
   );
 }
 
+function ReconnectStreamMessage({ content }: { content: ContentPart[] }) {
+  const endRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [content]);
+
+  return (
+    <div className="flex justify-start px-4 py-2">
+      <div className="max-w-[85%] space-y-1">
+        <div className="flex items-center gap-1.5 mb-1">
+          <SparklesIcon className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">
+            Agent
+          </span>
+        </div>
+        {content.map((part, i) => {
+          if (part.type === "text") {
+            return (
+              <div
+                key={`reconnect-text-${i}`}
+                className="text-sm leading-relaxed whitespace-pre-wrap break-words"
+              >
+                {part.text}
+              </div>
+            );
+          }
+          if (part.type === "tool-call") {
+            return (
+              <ReconnectStreamToolCall
+                key={`reconnect-tool-${i}`}
+                toolName={part.toolName}
+                args={part.args}
+                result={part.result}
+              />
+            );
+          }
+          return null;
+        })}
+        <div ref={endRef} />
+      </div>
+    </div>
+  );
+}
+
 // ─── Message Components ─────────────────────────────────────────────────────
 
 function UserMessage() {
+  const [expanded, setExpanded] = useState(false);
+  const [isExpandable, setIsExpandable] = useState(false);
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = contentRef.current;
+    if (!el) return;
+
+    const measure = () => {
+      setIsExpandable(el.scrollHeight > 200);
+    };
+
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   return (
     <div className="flex justify-end" style={{ contentVisibility: "auto" }}>
-      <div className="max-w-[85%] rounded-lg bg-accent text-foreground px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words">
-        <MessagePrimitive.Parts
-          components={{
-            Text: ({ text }) => <>{text}</>,
-          }}
-        />
+      <div className="max-w-[85%]">
+        <div className="relative rounded-lg bg-accent px-3 py-2 text-sm leading-relaxed text-foreground">
+          <div
+            ref={contentRef}
+            className={cn(
+              "whitespace-pre-wrap break-words",
+              !expanded && isExpandable && "max-h-[200px] overflow-hidden",
+            )}
+          >
+            <MessagePrimitive.Parts
+              components={{
+                Text: ({ text }) => <>{text}</>,
+              }}
+            />
+          </div>
+          {!expanded && isExpandable && (
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-14 rounded-b-lg bg-gradient-to-t from-accent via-accent/90 to-transparent" />
+          )}
+        </div>
+        {isExpandable && (
+          <button
+            type="button"
+            onClick={() => setExpanded((prev) => !prev)}
+            className="mt-1 inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground"
+          >
+            <ChevronDownIcon
+              className={cn(
+                "h-3.5 w-3.5 transition-transform",
+                expanded && "rotate-180",
+              )}
+            />
+            {expanded ? "Collapse" : "Expand"}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -806,32 +988,9 @@ export function clearChatStorage(tabId?: string) {
   } catch {}
 }
 
-/** Extract title and preview from a thread runtime export */
-function extractThreadMeta(repo: any): { title: string; preview: string } {
-  const msgs = repo?.messages;
-  if (!Array.isArray(msgs) || msgs.length === 0)
-    return { title: "", preview: "" };
-
-  // Find the first user message for the title
-  let title = "";
-  let preview = "";
-  for (const msg of msgs) {
-    if (msg.role !== "user") continue;
-    const textParts = Array.isArray(msg.content)
-      ? msg.content
-          .filter((p: any) => p.type === "text")
-          .map((p: any) => p.text)
-          .join(" ")
-      : typeof msg.content === "string"
-        ? msg.content
-        : "";
-    if (textParts.trim()) {
-      if (!title) title = textParts.trim().slice(0, 80);
-      preview = textParts.trim().slice(0, 120);
-    }
-  }
-  return { title, preview };
-}
+// Re-export for backwards compatibility
+import { extractThreadMeta } from "../agent/thread-data-builder.js";
+export { extractThreadMeta };
 
 const AssistantChatInner = forwardRef<
   AssistantChatHandle,
@@ -863,6 +1022,7 @@ const AssistantChatInner = forwardRef<
   >([]);
   const [showContinue, setShowContinue] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
+  const [reconnectContent, setReconnectContent] = useState<ContentPart[]>([]);
   const wasRunningRef = useRef(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const tiptapRef = useRef<TiptapComposerHandle>(null);
@@ -911,21 +1071,51 @@ const AssistantChatInner = forwardRef<
               `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
             );
             if (runRes.ok) {
-              // Agent is still running — poll until complete, then refresh
+              const runInfo = await runRes.json();
+              // Agent is still running — subscribe to live SSE stream
               setIsReconnecting(true);
-              const pollForCompletion = async () => {
-                while (true) {
-                  await new Promise((r) => setTimeout(r, 2000));
-                  try {
-                    const check = await fetch(
-                      `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
+              setReconnectContent([]);
+
+              const streamReconnect = async () => {
+                try {
+                  const sseRes = await fetch(
+                    `${apiUrl}/runs/${encodeURIComponent(runInfo.runId)}/events?after=0`,
+                  );
+                  if (sseRes.ok && sseRes.body) {
+                    const content: ContentPart[] = [];
+                    const toolCallCounter = { value: 0 };
+
+                    // Throttle React state updates via requestAnimationFrame
+                    let rafPending = false;
+                    let latestSnapshot: ContentPart[] = [];
+                    const scheduleUpdate = (snapshot: ContentPart[]) => {
+                      latestSnapshot = snapshot;
+                      if (!rafPending) {
+                        rafPending = true;
+                        requestAnimationFrame(() => {
+                          rafPending = false;
+                          setReconnectContent(latestSnapshot);
+                        });
+                      }
+                    };
+
+                    await readSSEStreamRaw(
+                      sseRes.body,
+                      content,
+                      toolCallCounter,
+                      tabId,
+                      scheduleUpdate,
                     );
-                    if (!check.ok) break; // 404 = run completed
-                  } catch {
-                    break;
+
+                    // Final update with complete content
+                    setReconnectContent([...content]);
                   }
+                } catch {
+                  // Stream error — fall through to re-fetch
                 }
+
                 // Run finished — re-fetch thread data from server
+                // (server now persists assistant response on completion)
                 try {
                   const refreshRes = await fetch(
                     `${apiUrl}/threads/${encodeURIComponent(threadId)}`,
@@ -943,9 +1133,10 @@ const AssistantChatInner = forwardRef<
                     }
                   }
                 } catch {}
+                setReconnectContent([]);
                 setIsReconnecting(false);
               };
-              pollForCompletion();
+              streamReconnect();
             }
           } catch {
             // No active run — nothing to reconnect to
@@ -1135,18 +1326,41 @@ const AssistantChatInner = forwardRef<
 
   // Track whether user has scrolled away from bottom
   const isNearBottomRef = useRef(true);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     function onScroll() {
       if (!el) return;
       const threshold = 40;
-      isNearBottomRef.current =
+      const nearBottom =
         el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+      isNearBottomRef.current = nearBottom;
+      setShowScrollToBottom(!nearBottom && messages.length > 0);
     }
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
+  }, [messages.length]);
+
+  const scrollToBottom = useCallback(() => {
+    const el = scrollRef.current;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+      isNearBottomRef.current = true;
+      setShowScrollToBottom(false);
+    }
   }, []);
+
+  // Scroll to bottom when a restored thread finishes loading
+  const wasRestoringRef = useRef(isRestoring);
+  useEffect(() => {
+    if (wasRestoringRef.current && !isRestoring) {
+      requestAnimationFrame(() => {
+        scrollToBottom();
+      });
+    }
+    wasRestoringRef.current = isRestoring;
+  }, [isRestoring, scrollToBottom]);
 
   // Auto-scroll on new messages or queued messages (only if near bottom)
   useEffect(() => {
@@ -1216,7 +1430,7 @@ const AssistantChatInner = forwardRef<
               <div className="h-4 w-40 rounded bg-muted animate-pulse" />
             </div>
           </div>
-        ) : messages.length === 0 ? (
+        ) : messages.length === 0 && !isReconnecting ? (
           <div className="flex flex-col items-center justify-center gap-4 py-16 px-4 h-full">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
               <SparklesIcon className="h-5 w-5 text-muted-foreground" />
@@ -1266,17 +1480,11 @@ const AssistantChatInner = forwardRef<
               </div>
             )}
             {isRunning && <ThinkingIndicator />}
-            {isReconnecting && !isRunning && (
-              <div className="flex items-center gap-2 px-4 py-2">
-                <div className="flex gap-1">
-                  <div className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50 animate-pulse" />
-                  <div className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50 animate-pulse [animation-delay:150ms]" />
-                  <div className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50 animate-pulse [animation-delay:300ms]" />
-                </div>
-                <span className="text-xs text-muted-foreground">
-                  Agent is working...
-                </span>
-              </div>
+            {isReconnecting && !isRunning && reconnectContent.length > 0 && (
+              <ReconnectStreamMessage content={reconnectContent} />
+            )}
+            {isReconnecting && !isRunning && reconnectContent.length === 0 && (
+              <ThinkingIndicator />
             )}
             {queuedMessages.map((msg, i) => (
               <div key={`queued-${i}`} className="flex justify-end">
@@ -1315,6 +1523,30 @@ const AssistantChatInner = forwardRef<
           </div>
         )}
       </div>
+
+      {/* Scroll to bottom button */}
+      {showScrollToBottom && (
+        <div className="shrink-0 flex justify-center -mb-1">
+          <button
+            type="button"
+            onClick={scrollToBottom}
+            className="flex h-7 w-7 items-center justify-center rounded-full border border-border bg-background shadow-sm hover:bg-accent"
+            aria-label="Scroll to bottom"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="h-3.5 w-3.5 text-muted-foreground"
+            >
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </button>
+        </div>
+      )}
 
       {/* Input area */}
       <div className="shrink-0 px-3 py-2">

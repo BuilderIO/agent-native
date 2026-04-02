@@ -168,7 +168,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           <NavItem
             to="/settings"
             icon={<IconSettings className="h-4 w-4" />}
-            label="IconSettings"
+            label="Settings"
             active={isActive("/settings")}
             collapsed={sidebarCollapsed}
           />
@@ -178,20 +178,16 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
-      {/* Main content */}
-      <main className="flex-1 overflow-hidden">
-        {isConnected || isActive("/settings") ? (
-          children
-        ) : (
-          <JiraConnectBanner />
-        )}
-      </main>
-
-      {/* Agent sidebar */}
       <AgentSidebar>
-        <>{/* Agent panel content managed by core */}</>
+        {/* Main content */}
+        <main className="flex min-w-0 flex-1 overflow-hidden">
+          {isConnected || isActive("/settings") ? (
+            children
+          ) : (
+            <JiraConnectBanner />
+          )}
+        </main>
       </AgentSidebar>
-      <AgentToggleButton />
 
       {/* Command palette */}
       <CommandPalette open={cmdOpen} onOpenChange={setCmdOpen} />

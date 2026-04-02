@@ -27,7 +27,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { useSendEmail } from "@/hooks/use-emails";
+import { useSendEmail, useAddOptimisticReply } from "@/hooks/use-emails";
 import { useAliases } from "@/hooks/use-aliases";
 import { expandAliasTokens } from "@/lib/alias-utils";
 import { useAgentChatGenerating } from "@agent-native/core";
@@ -85,6 +85,7 @@ export const InlineReplyComposer = forwardRef<
   const [generatePrompt, setGeneratePrompt] = useState("");
   const [isGenerating, sendToAgent] = useAgentChatGenerating();
   const sendEmail = useSendEmail();
+  const addOptimisticReply = useAddOptimisticReply();
   const { data: aliases = [] } = useAliases();
   const editorRef = useRef<ComposeEditorHandle>(null);
   const composerRef = useRef<HTMLDivElement>(null);
@@ -160,6 +161,17 @@ export const InlineReplyComposer = forwardRef<
       fetch(`/api/emails/draft/${savedDraftId}`, { method: "DELETE" });
     }
 
+    // Show optimistic reply in the thread immediately
+    const undoOptimistic = addOptimisticReply({
+      to: expandAliasTokens(draftSnapshot.to, aliases),
+      cc: expandAliasTokens(draftSnapshot.cc ?? "", aliases) || undefined,
+      subject: draftSnapshot.subject,
+      body: draftSnapshot.body,
+      replyToId: draftSnapshot.replyToId,
+      replyToThreadId: draftSnapshot.replyToThreadId,
+      accountEmail: draftSnapshot.accountEmail,
+    });
+
     let cancelled = false;
 
     const handleUndo = () => {
@@ -168,6 +180,7 @@ export const InlineReplyComposer = forwardRef<
       clearTimeout(sendTimer);
       clearTimeout(transitionTimer);
       toast.dismiss(toastId);
+      undoOptimistic?.();
       const { id: _id, ...reopenData } = draftSnapshot;
       onReopen(reopenData);
     };
@@ -418,7 +431,7 @@ export const InlineReplyComposer = forwardRef<
                 <IconBold className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>IconBold</TooltipContent>
+            <TooltipContent>Bold</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -431,7 +444,7 @@ export const InlineReplyComposer = forwardRef<
                 <IconItalic className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>IconItalic</TooltipContent>
+            <TooltipContent>Italic</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -540,7 +553,7 @@ export const InlineReplyComposer = forwardRef<
             className="gap-1.5"
           >
             <IconSend className="h-3.5 w-3.5" />
-            IconSend
+            Send
           </Button>
         </div>
       </div>

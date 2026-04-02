@@ -3,7 +3,7 @@ import {
   IconCalendar,
   IconFileText,
   IconChartBar,
-  IconLayoutGrid,
+  IconPresentation,
   IconStack2,
   IconVideo,
   IconCircleDot,
@@ -14,19 +14,18 @@ import {
 } from "@tabler/icons-react";
 import type { AppDefinition } from "@shared/app-registry";
 
-// Map icon name strings (from app-registry) to Lucide components
+// Map icon name strings (from shared-app-config) to Tabler components
 const ICON_MAP: Record<string, React.ComponentType<Record<string, unknown>>> = {
-  IconMail,
-  IconCalendar,
-  IconFileText,
-  IconChartBar,
-  IconLayoutGrid,
-  IconStack2,
-  IconVideo,
-  IconCircleDot,
-  IconClipboardList,
-  IconUsers,
-  IconCode,
+  Mail: IconMail,
+  CalendarDays: IconCalendar,
+  FileText: IconFileText,
+  BarChart2: IconChartBar,
+  GalleryHorizontal: IconPresentation,
+  Video: IconVideo,
+  CircleDot: IconCircleDot,
+  ClipboardList: IconClipboardList,
+  Users: IconUsers,
+  Code: IconCode,
 };
 
 interface SidebarProps {
@@ -81,13 +80,13 @@ export default function Sidebar({
           <button
             className="sidebar-item"
             onClick={onSettingsClick}
-            title="App IconSettings"
-            aria-label="IconSettings"
+            title="App Settings"
+            aria-label="Settings"
           >
             <span className="icon-wrapper">
               <IconSettings size={18} strokeWidth={1.75} />
             </span>
-            <span className="item-label">IconSettings</span>
+            <span className="item-label">Settings</span>
           </button>
         </div>
       )}

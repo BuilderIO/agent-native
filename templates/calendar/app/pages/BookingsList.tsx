@@ -53,16 +53,7 @@ export default function BookingsList() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 px-4 py-8 pb-12">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Bookings</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Manage your scheduled bookings.
-          </p>
-        </div>
-      </div>
-
+    <div className="space-y-6">
       <Tabs value={filter} onValueChange={(v) => setFilter(v as FilterStatus)}>
         <TabsList>
           <TabsTrigger value="all">All ({bookings.length})</TabsTrigger>

@@ -1,6 +1,6 @@
 import { drizzle as drizzleD1 } from "drizzle-orm/d1";
 import type { LibSQLDatabase } from "drizzle-orm/libsql";
-import { getDialect } from "./client.js";
+import { getDialect, getDatabaseUrl, getDatabaseAuthToken } from "./client.js";
 
 // Lazy driver loaders — cached promises so dynamic import only runs once.
 let _pgDrizzle: Promise<{ drizzle: any; postgres: any }> | undefined;
@@ -34,7 +34,7 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
   function startInit(): Promise<any> {
     if (_dbReady) return _dbReady;
 
-    const url = process.env.DATABASE_URL || "file:./data/app.db";
+    const url = getDatabaseUrl("file:./data/app.db");
     const dialect = getDialect();
 
     // D1 only if dialect detected it (DATABASE_URL takes priority)
@@ -54,7 +54,7 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
     } else {
       _dbReady = getLibsqlDrizzle().then(({ drizzle }) => {
         _db = drizzle({
-          connection: { url, authToken: process.env.DATABASE_AUTH_TOKEN },
+          connection: { url, authToken: getDatabaseAuthToken() },
           schema,
         });
       });

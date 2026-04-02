@@ -1,4 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import type { EmailMessage } from "@shared/types";
+import { suppressThread, unsuppressThread } from "./use-emails";
 
 export interface ScheduledJob {
   id: string;
@@ -68,10 +70,32 @@ export function useSnoozeEmail() {
       }
       return res.json() as Promise<ScheduledJob>;
     },
-    onSuccess: () => {
+    onMutate: async (data) => {
+      await qc.cancelQueries({ queryKey: ["emails"] });
+      const previous = qc.getQueriesData<EmailMessage[]>({
+        queryKey: ["emails"],
+      });
+      const target = previous
+        .flatMap(([, emails]) => emails ?? [])
+        .find((e) => e.id === data.emailId);
+      const threadId = target?.threadId || data.emailId;
+      suppressThread(threadId, "snooze");
+      qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
+        old?.filter((e) => (e.threadId || e.id) !== threadId),
+      );
+      return { previous, threadId };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.threadId) unsuppressThread(context.threadId);
+      context?.previous?.forEach(([key, data]) => qc.setQueryData(key, data));
+    },
+    onSettled: () => {
       qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
-      qc.invalidateQueries({ queryKey: ["emails"] });
-      qc.invalidateQueries({ queryKey: ["labels"] });
+      // Delay email/label refetch — Gmail eventual consistency
+      setTimeout(() => {
+        qc.invalidateQueries({ queryKey: ["emails"] });
+        qc.invalidateQueries({ queryKey: ["labels"] });
+      }, 3000);
     },
   });
 }

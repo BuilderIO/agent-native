@@ -11,6 +11,7 @@
 
 import path from "path";
 import { createClient, type Client } from "@libsql/client";
+import { getDatabaseUrl, getDatabaseAuthToken } from "../../db/client.js";
 import { parseArgs, fail } from "../utils.js";
 
 interface ColumnInfo {
@@ -223,8 +224,8 @@ Options:
   let url: string;
   if (parsed.db) {
     url = "file:" + path.resolve(parsed.db);
-  } else if (process.env.DATABASE_URL) {
-    url = process.env.DATABASE_URL;
+  } else if (getDatabaseUrl()) {
+    url = getDatabaseUrl();
   } else {
     url = "file:" + path.resolve(process.cwd(), "data", "app.db");
   }
@@ -237,7 +238,7 @@ Options:
   // SQLite / libsql path
   const client = createClient({
     url,
-    authToken: process.env.DATABASE_AUTH_TOKEN,
+    authToken: getDatabaseAuthToken(),
   });
 
   try {

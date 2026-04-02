@@ -49,16 +49,120 @@ function delayedInvalidate(
   }, ms);
 }
 
+// ─── Optimistic sent message ────────────────────────────────────────────────
+// Used to show a reply in the thread immediately when the user clicks Send,
+// before the 5-second undo delay fires the actual mutation.
+
+export function useAddOptimisticReply() {
+  const qc = useQueryClient();
+
+  return (data: {
+    to: string;
+    cc?: string;
+    bcc?: string;
+    subject: string;
+    body: string;
+    replyToId?: string;
+    replyToThreadId?: string;
+    accountEmail?: string;
+  }): (() => void) | undefined => {
+    const settings = qc.getQueryData<UserSettings>(["settings"]);
+    const threadId = data.replyToThreadId || data.replyToId;
+    if (!threadId) return;
+
+    const optimisticMessage: EmailMessage = {
+      id: makeTempId("sent"),
+      threadId,
+      from: {
+        name: settings?.name || settings?.email || data.accountEmail || "Me",
+        email: data.accountEmail || settings?.email || "",
+      },
+      to: parseRecipients(data.to),
+      ...(data.cc ? { cc: parseRecipients(data.cc) } : {}),
+      subject: data.subject || "(no subject)",
+      snippet: data.body.slice(0, 120).replace(/\n/g, " "),
+      body: data.body,
+      date: new Date().toISOString(),
+      isRead: true,
+      isStarred: false,
+      isSent: true,
+      isArchived: false,
+      isTrashed: false,
+      labelIds: ["sent"],
+      ...(data.accountEmail ? { accountEmail: data.accountEmail } : {}),
+    };
+
+    qc.setQueryData<EmailMessage[]>(["thread-messages", threadId], (old) =>
+      [...(old ?? []), optimisticMessage].sort(
+        (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+      ),
+    );
+
+    // Return undo function that removes the optimistic message
+    return () => {
+      qc.setQueryData<EmailMessage[]>(["thread-messages", threadId], (old) =>
+        (old ?? []).filter((m) => m.id !== optimisticMessage.id),
+      );
+    };
+  };
+}
+
+// ─── Thread suppression ─────────────────────────────────────────────────────
+// Gmail's search index has eventual consistency that can exceed the delay above.
+// When we archive/trash/snooze/etc., we track the thread ID so that stale data
+// from subsequent refetches is filtered out via `select` in useEmails.
+
+const suppressedThreads = new Map<
+  string,
+  { action: string; timestamp: number }
+>();
+const SUPPRESS_DURATION = 60_000; // 60s — covers Gmail's consistency window
+
+/** Suppress a thread from appearing in views it was removed from. */
+export function suppressThread(
+  threadId: string,
+  action: "archive" | "trash" | "spam" | "block" | "mute" | "snooze",
+) {
+  suppressedThreads.set(threadId, { action, timestamp: Date.now() });
+}
+
+/** Remove suppression — used on mutation error rollback. */
+export function unsuppressThread(threadId: string) {
+  suppressedThreads.delete(threadId);
+}
+
+function isSuppressedInView(threadId: string, view: string): boolean {
+  const entry = suppressedThreads.get(threadId);
+  if (!entry) return false;
+  if (Date.now() - entry.timestamp > SUPPRESS_DURATION) {
+    suppressedThreads.delete(threadId);
+    return false;
+  }
+  // Don't suppress in the "destination" view for the action
+  if (entry.action === "archive" && view === "archive") return false;
+  if (entry.action === "trash" && view === "trash") return false;
+  return true;
+}
+
+function filterSuppressed(
+  emails: EmailMessage[],
+  view: string,
+): EmailMessage[] {
+  if (suppressedThreads.size === 0) return emails;
+  return emails.filter((e) => !isSuppressedInView(e.threadId || e.id, view));
+}
+
 // ─── Emails ──────────────────────────────────────────────────────────────────
 
 export function useEmails(view: string = "inbox", search?: string) {
-  return useQuery<EmailMessage[]>({
+  return useQuery<EmailMessage[], Error, EmailMessage[]>({
     queryKey: ["emails", view, search],
     queryFn: () => {
       const params = new URLSearchParams({ view });
       if (search) params.set("q", search);
       return apiFetch(`/api/emails?${params}`);
     },
+    select: (data) => filterSuppressed(data, view),
     staleTime: 15_000,
     refetchInterval: 60_000,
     refetchOnWindowFocus: true,
@@ -166,12 +270,26 @@ export function useToggleStar() {
 export function useArchiveEmail() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, accountEmail }: { id: string; accountEmail?: string }) =>
+    mutationFn: ({
+      id,
+      accountEmail,
+      removeLabel,
+    }: {
+      id: string;
+      accountEmail?: string;
+      removeLabel?: string;
+    }) =>
       apiFetch(`/api/emails/${id}/archive`, {
         method: "PATCH",
-        body: JSON.stringify({ accountEmail }),
+        body: JSON.stringify({ accountEmail, removeLabel }),
       }),
-    onMutate: async ({ id }: { id: string; accountEmail?: string }) => {
+    onMutate: async ({
+      id,
+    }: {
+      id: string;
+      accountEmail?: string;
+      removeLabel?: string;
+    }) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
       const previous = qc.getQueriesData<EmailMessage[]>({
         queryKey: ["emails"],
@@ -180,12 +298,14 @@ export function useArchiveEmail() {
         .flatMap(([, data]) => data ?? [])
         .find((e) => e.id === id);
       const threadId = target?.threadId || id;
+      suppressThread(threadId, "archive");
       qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
         old?.filter((e) => (e.threadId || e.id) !== threadId),
       );
-      return { previous };
+      return { previous, threadId };
     },
     onError: (_err, _vars, context) => {
+      if (context?.threadId) unsuppressThread(context.threadId);
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
     },
     onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
@@ -225,13 +345,15 @@ export function useTrashEmail() {
         .flatMap(([, data]) => data ?? [])
         .find((e) => e.id === id);
       const threadId = target?.threadId || id;
+      suppressThread(threadId, "trash");
       // Remove all thread messages from all cached email queries
       qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
         old?.filter((e) => (e.threadId || e.id) !== threadId),
       );
-      return { previous };
+      return { previous, threadId };
     },
     onError: (_err, _id, context) => {
+      if (context?.threadId) unsuppressThread(context.threadId);
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
     },
     onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
@@ -302,6 +424,24 @@ export function useSendEmail() {
         : undefined;
       const threadId =
         replyTarget?.threadId || data.replyToId || makeTempId("thread");
+
+      // Check if an optimistic message was already added (by addOptimisticReply)
+      const existingMessages =
+        qc.getQueryData<EmailMessage[]>(["thread-messages", threadId]) ?? [];
+      const existingOptimistic = existingMessages.find(
+        (m) => m.id.startsWith("sent-") && m.isSent,
+      );
+
+      if (existingOptimistic) {
+        // Reuse the existing optimistic message — don't add another
+        return {
+          previousThreads,
+          optimisticMessage: existingOptimistic,
+          threadId,
+        };
+      }
+
+      // No prior optimistic message (e.g. sent from ComposeModal) — add one
       const optimisticMessage: EmailMessage = {
         id: makeTempId("sent"),
         threadId,
@@ -359,7 +499,6 @@ export function useSendEmail() {
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ["emails"] });
-      qc.invalidateQueries({ queryKey: ["thread-messages"] });
     },
   });
 }
@@ -383,13 +522,15 @@ export function useReportSpam() {
       const previous = qc.getQueriesData<EmailMessage[]>({
         queryKey: ["emails"],
       });
+      suppressThread(threadId, "spam");
       // Filter out entire thread, not just the single message
       qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
         old?.filter((e) => (e.threadId || e.id) !== threadId),
       );
-      return { previous };
+      return { previous, threadId };
     },
     onError: (_err, _vars, context) => {
+      if (context?.threadId) unsuppressThread(context.threadId);
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
     },
     onSettled: () => qc.invalidateQueries({ queryKey: ["emails"] }),
@@ -417,13 +558,15 @@ export function useBlockSender() {
       const previous = qc.getQueriesData<EmailMessage[]>({
         queryKey: ["emails"],
       });
+      suppressThread(threadId, "block");
       // Filter out entire thread, not just the single message
       qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
         old?.filter((e) => (e.threadId || e.id) !== threadId),
       );
-      return { previous };
+      return { previous, threadId };
     },
     onError: (_err, _vars, context) => {
+      if (context?.threadId) unsuppressThread(context.threadId);
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
     },
     onSettled: () => qc.invalidateQueries({ queryKey: ["emails"] }),
@@ -440,12 +583,14 @@ export function useMuteThread() {
       const previous = qc.getQueriesData<EmailMessage[]>({
         queryKey: ["emails"],
       });
+      suppressThread(threadId, "mute");
       qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
         old?.filter((e) => (e.threadId || e.id) !== threadId),
       );
-      return { previous };
+      return { previous, threadId };
     },
     onError: (_err, _id, context) => {
+      if (context?.threadId) unsuppressThread(context.threadId);
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
     },
     onSettled: () => qc.invalidateQueries({ queryKey: ["emails"] }),

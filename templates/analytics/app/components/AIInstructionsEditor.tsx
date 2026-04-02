@@ -539,7 +539,7 @@ export function AIInstructionsEditor() {
                   ) : (
                     <IconCircleCheck className="h-3.5 w-3.5 mr-1.5" />
                   )}
-                  {hasChanges ? "IconDeviceFloppy Changes" : "Saved"}
+                  {hasChanges ? "Save Changes" : "Saved"}
                 </>
               )}
             </Button>
