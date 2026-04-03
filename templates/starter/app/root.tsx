@@ -7,8 +7,8 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
-import { useDbSync } from "@agent-native/core";
 import {
+  useDbSync,
   ClientOnly,
   CommandMenu,
   DefaultSpinner,

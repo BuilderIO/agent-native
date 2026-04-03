@@ -9,8 +9,7 @@ import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { useDbSync } from "@agent-native/core";
-import { ClientOnly, DefaultSpinner } from "@agent-native/core/client";
+import { useDbSync, ClientOnly, DefaultSpinner } from "@agent-native/core/client";
 import { TAB_ID } from "@/lib/tab-id";
 import "./global.css";
 
