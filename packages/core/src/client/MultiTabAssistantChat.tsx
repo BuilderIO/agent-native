@@ -1,5 +1,11 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
+  IconX,
+  IconPlus,
+  IconClockHour3,
+  IconSearch,
+} from "@tabler/icons-react";
+import {
   AssistantChat,
   type AssistantChatProps,
   type AssistantChatHandle,
@@ -7,79 +13,6 @@ import {
 import { getHarnessOrigin } from "./harness.js";
 import { cn } from "./utils.js";
 import { useChatThreads, type ChatThreadSummary } from "./use-chat-threads.js";
-
-// ─── Inline Icons ───────────────────────────────────────────────────────────
-
-function IconX({ size = 10 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2.5}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M18 6L6 18M6 6l12 12" />
-    </svg>
-  );
-}
-
-function IconPlus({ size = 12 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M12 5v14M5 12h14" />
-    </svg>
-  );
-}
-
-function IconHistory({ size = 12 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-      <path d="M3 3v5h5" />
-      <path d="M12 7v5l4 2" />
-    </svg>
-  );
-}
-
-function IconSearch({ size = 14 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <circle cx="11" cy="11" r="8" />
-      <path d="m21 21-4.3-4.3" />
-    </svg>
-  );
-}
 
 // ─── Skeleton Loader ─────────────────────────────────────────────────────────
 
@@ -390,6 +323,14 @@ export function MultiTabAssistantChat({
 
   // Listen for builder.submitChat postMessages
   useEffect(() => {
+    const EXEC_MODE_KEY = "agent-native-exec-mode";
+    const PLAN_MODE_INSTRUCTION =
+      `PLAN MODE ACTIVE: Before making any changes, you MUST:\n` +
+      `1. Explore the codebase to understand what's needed\n` +
+      `2. Write a plan to \`.builder/plans/YYYY-MM-DD-<topic>.md\`\n` +
+      `3. Present your approach clearly and wait for the user's explicit approval\n` +
+      `Do NOT edit any files, run any scripts, or make any changes until the user says to proceed.`;
+
     const handler = (event: MessageEvent) => {
       if (
         event.origin !== window.location.origin &&
@@ -401,9 +342,22 @@ export function MultiTabAssistantChat({
       const message = event.data.data?.message as string;
       if (!message) return;
       const context = event.data.data?.context as string | undefined;
-      const fullMessage = context
+
+      const isPlanMode = (() => {
+        try {
+          return localStorage.getItem(EXEC_MODE_KEY) === "plan";
+        } catch {
+          return false;
+        }
+      })();
+
+      const baseMessage = context
         ? `${message}\n\n<context>\n${context}\n</context>`
         : message;
+
+      const fullMessage = isPlanMode
+        ? `${PLAN_MODE_INSTRUCTION}\n\n${baseMessage}`
+        : baseMessage;
 
       const currentTabId = activeThreadIdRef.current;
       if (!currentTabId) return;
@@ -627,7 +581,7 @@ export function MultiTabAssistantChat({
               )}
               title="Chat history"
             >
-              <IconHistory size={12} />
+              <IconClockHour3 size={12} />
             </button>
           </div>
         </div>
