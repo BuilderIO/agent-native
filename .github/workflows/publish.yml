@@ -50,9 +50,6 @@ jobs:
           node-version: "22"
           cache: "pnpm"
 
-      - name: Install npm with OIDC provenance support
-        run: npm install -g npm@10
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
