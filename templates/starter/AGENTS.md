@@ -1,81 +1,81 @@
-# {{APP_NAME}} — Agent-Native App
+# {{APP_NAME}} — Agent Guide
 
-## Architecture
+This app follows the agent-native core philosophy: the agent and UI are equal partners. Everything the UI can do, the agent can do via scripts. The agent always knows what you're looking at via application state. See the root AGENTS.md for full framework documentation.
 
-This is an **@agent-native/core** application — the AI agent and UI share state through a SQL database, with SSE for real-time sync.
-
-### Core Principles
-
-1. **Shared SQL database** — All app state lives in SQL (SQLite locally, cloud DB via `DATABASE_URL` in production). Core stores: `application_state`, `settings`, `oauth_tokens`, `sessions`.
-2. **All AI through agent chat** — No inline LLM calls. UI delegates to the AI via `sendToAgentChat()` / `agentChat.submit()`.
-3. **Scripts for agent operations** — `pnpm script <name>` dispatches to callable script files in `scripts/`.
-4. **SSE for real-time sync** — Database writes emit events that keep the UI in sync automatically.
-5. **Agent can update code** — The agent can modify this app's source code directly.
-
-### Authentication
-
-Auth is automatic and environment-driven. The `server/plugins/auth.ts` plugin calls `autoMountAuth(app)` at startup.
-
-- **Dev mode**: Auth is bypassed. `getSession()` returns `{ email: "local@localhost" }`. Zero friction.
-- **Production** (`ACCESS_TOKEN` set): Auth middleware auto-mounts. Login page for unauthenticated visitors.
-- **Production** (no token, no `AUTH_DISABLED=true`): Server refuses to start.
-
-Use `getSession(event)` server-side and `useSession()` client-side. See [docs/auth.md](docs/auth.md).
+This is an **@agent-native/core** application -- the AI agent and UI share state through a SQL database, with polling for real-time sync.
 
 ## Resources
 
-Resources are SQL-backed persistent files that store notes, learnings, context, and other long-lived information. They replace the old `LEARNINGS.md` file approach with a structured, scriptable system.
-
-- **Personal resources** — scoped to the current user. Use these for individual preferences, corrections, and context.
-- **Shared resources** — visible to all users. Use these for team-wide patterns, app-specific knowledge, and shared context.
-
-### Startup resources
+Resources are SQL-backed persistent files for storing notes, learnings, and context.
 
 **At the start of every conversation, read these resources (both personal and shared scopes):**
 
-1. **`AGENTS.md`** — contains user-specific context like contacts, nicknames, and preferences that help you act on vague requests. Read both `--scope personal` and `--scope shared`.
-2. **`LEARNINGS.md`** — the app's memory with user preferences, corrections, important context, and patterns learned from past interactions. Read both `--scope personal` and `--scope shared`.
+1. **`AGENTS.md`** — user-specific context. Read both `--scope personal` and `--scope shared`.
+2. **`LEARNINGS.md`** — app memory with user preferences and corrections. Read both scopes.
 
-**Update `LEARNINGS.md` when you learn something important:**
-
-- User corrects your tone, style, or approach
-- User shares personal info relevant to the app (contacts, preferences, habits)
-- You discover a non-obvious pattern or gotcha
-- User gives feedback that should apply to future conversations
-
-Keep entries concise and actionable. Group by category.
+**Update `LEARNINGS.md` when you learn something important.**
 
 ### Resource scripts
 
-| Script            | Purpose                     | Example                                                          |
-| ----------------- | --------------------------- | ---------------------------------------------------------------- |
-| `resource-read`   | Read a resource             | `pnpm script resource-read --name LEARNINGS.md`                  |
-| `resource-write`  | Create or update a resource | `pnpm script resource-write --name LEARNINGS.md --content "..."` |
-| `resource-list`   | List all resources          | `pnpm script resource-list`                                      |
-| `resource-delete` | Delete a resource           | `pnpm script resource-delete --name old-notes.md`                |
+| Script            | Args                                           | Purpose                 |
+| ----------------- | ---------------------------------------------- | ----------------------- |
+| `resource-read`   | `--name <name> [--scope personal\|shared]`     | Read a resource         |
+| `resource-write`  | `--name <name> --content <text> [--scope ...]` | Write/update a resource |
+| `resource-list`   | `[--scope personal\|shared]`                   | List all resources      |
+| `resource-delete` | `--name <name> [--scope personal\|shared]`     | Delete a resource       |
 
-## Available Scripts
+## Application State
 
-| Script      | Purpose                         | Example                                            |
-| ----------- | ------------------------------- | -------------------------------------------------- |
-| `db-schema` | Show all tables, columns, types | `pnpm script db-schema`                            |
-| `db-query`  | Run a SELECT query              | `pnpm script db-query --sql "SELECT * FROM forms"` |
-| `db-exec`   | Run INSERT/UPDATE/DELETE        | `pnpm script db-exec --sql "UPDATE forms SET ..."` |
+Ephemeral UI state is stored in the SQL `application_state` table, accessed via `readAppState(key)` and `writeAppState(key, value)` from `@agent-native/core/application-state`.
+
+| State Key    | Purpose                                   | Direction                  |
+| ------------ | ----------------------------------------- | -------------------------- |
+| `navigation` | Current view                              | UI -> Agent (read-only)    |
+| `navigate`   | Navigate command (one-shot, auto-deleted) | Agent -> UI (auto-deleted) |
+
+## Agent Operations
+
+**Always run `pnpm script view-screen` first** before taking any action.
+
+### Scripts
+
+| Script        | Args                              | Purpose                         |
+| ------------- | --------------------------------- | ------------------------------- |
+| `view-screen` |                                   | See current UI state            |
+| `navigate`    | `--view <name>` or `--path <url>` | Navigate the UI                 |
+| `hello`       | `[--name <name>]`                 | Example script                  |
+| `db-schema`   |                                   | Show all tables, columns, types |
+| `db-query`    | `--sql "SELECT ..."`              | Run a SELECT query              |
+| `db-exec`     | `--sql "INSERT ..."`              | Run INSERT/UPDATE/DELETE        |
 
 ## Skills
-
-Skills in `.agents/skills/` provide detailed guidance for each architectural rule. Read them before making changes.
 
 | Skill                 | When to read                                                   |
 | --------------------- | -------------------------------------------------------------- |
 | `storing-data`        | Before storing or reading any app state                        |
 | `delegate-to-agent`   | Before adding LLM calls or AI delegation                       |
 | `scripts`             | Before creating or modifying scripts                           |
-| `real-time-sync`      | Before wiring up real-time UI sync                             |
 | `self-modifying-code` | Before editing source, components, or styles                   |
 | `frontend-design`     | Before building or restyling any UI component, page, or layout |
 
-The **`frontend-design`** skill (sourced from [Anthropic's skills library](https://github.com/anthropics/skills/blob/main/skills/frontend-design/SKILL.md)) enforces distinctive, production-grade aesthetics — committing to a clear visual direction and avoiding generic patterns like purple gradients, overused fonts, and cookie-cutter layouts.
+## When Adding Features
+
+As you build out this app, follow this checklist for each new feature:
+
+1. **Add navigation state entries** -- extend `use-navigation-state.ts` to track new routes
+2. **Enhance view-screen** -- make the view-screen script return relevant context for the new view
+3. **Create domain scripts** -- add scripts for CRUD operations on new data models
+4. **Create domain skills** -- add `.agents/skills/<feature>/SKILL.md` documenting the data model, storage patterns, and agent operations
+5. **Update this AGENTS.md** -- add the new scripts, state keys, and common tasks
+
+### Authentication
+
+Auth is automatic and environment-driven:
+
+- **Dev mode**: Auth is bypassed. `getSession()` returns `{ email: "local@localhost" }`.
+- **Production** (`ACCESS_TOKEN` set): Auth middleware auto-mounts.
+
+Use `getSession(event)` server-side and `useSession()` client-side.
 
 ---
 

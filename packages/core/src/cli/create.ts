@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { setupAgentSymlinks } from "./setup-agents.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -74,22 +75,8 @@ export function createApp(name?: string): void {
     fs.renameSync(gitignoreSrc, gitignoreDst);
   }
 
-  // Ensure .claude/skills -> .agents/skills symlink exists for Claude Code discovery.
-  // The template includes this symlink tracked in git, but recreate it as a safety net
-  // (e.g. if git didn't preserve the symlink on Windows).
-  const agentsSkills = path.join(targetDir, ".agents", "skills");
-  const claudeDir = path.join(targetDir, ".claude");
-  const claudeSkills = path.join(claudeDir, "skills");
-  if (fs.existsSync(agentsSkills) && !fs.existsSync(claudeSkills)) {
-    fs.mkdirSync(claudeDir, { recursive: true });
-    const rel = path.relative(claudeDir, agentsSkills);
-    const type = process.platform === "win32" ? "junction" : "dir";
-    try {
-      fs.symlinkSync(rel, claudeSkills, type);
-    } catch {
-      copyDir(agentsSkills, claudeSkills);
-    }
-  }
+  // Create symlinks for all agent tools (Claude, Cursor, Windsurf, etc.)
+  setupAgentSymlinks(targetDir);
 
   console.log(`\nDone! Created ${name} at ${targetDir}\n`);
   console.log(`Next steps:`);
