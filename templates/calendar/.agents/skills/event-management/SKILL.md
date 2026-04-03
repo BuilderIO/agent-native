@@ -87,7 +87,7 @@ When the user says:
 
 ## Google Calendar Connection
 
-Events require a connected Google Calendar account. Check with `GET /api/google/status`. If not connected, tell the user to connect via the Settings page.
+Events require a connected Google Calendar account. Check with `GET /_agent-native/google/status`. If not connected, tell the user to connect via the Settings page.
 
 ## Event Object Shape
 

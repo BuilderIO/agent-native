@@ -389,8 +389,7 @@ export function createProductionAgentHandler(
       async (send, signal) => {
         // Resolve agent @-mentions via A2A calls (inside run so we can emit SSE events)
         if (agentRefs.length > 0) {
-          const { callPeerAgent } =
-            await import("../server/call-peer-agent.js");
+          const { callAgent } = await import("../a2a/client.js");
           const agentResponses: string[] = [];
 
           const results = await Promise.allSettled(
@@ -401,7 +400,7 @@ export function createProductionAgentHandler(
                 status: "start",
               });
               try {
-                const response = await callPeerAgent(ref.path, message);
+                const response = await callAgent(ref.path, message);
                 send({
                   type: "agent_call",
                   agent: ref.name,

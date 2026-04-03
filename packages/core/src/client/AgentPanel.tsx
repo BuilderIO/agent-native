@@ -96,7 +96,7 @@ function useAvailableClis() {
   useEffect(() => {
     // Try to fetch available CLIs — endpoint is provided by the terminal plugin.
     // Returns 404 gracefully when the plugin isn't loaded.
-    fetch("/api/available-clis")
+    fetch("/_agent-native/available-clis")
       .then((r) => (r.ok ? r.json() : []))
       .then((data) => setClis(data))
       .catch(() => {});

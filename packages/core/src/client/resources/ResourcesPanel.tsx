@@ -376,12 +376,12 @@ export function ResourcesPanel() {
   const uploadResource = useUploadResource();
 
   // Ensure AGENTS.md exists in shared scope when panel opens.
-  // Uses the server's /api/resources endpoint which handles dedup via INSERT OR IGNORE.
+  // Uses the server's /_agent-native/resources endpoint which handles dedup via INSERT OR IGNORE.
   const seededRef = useRef(false);
   useEffect(() => {
     if (seededRef.current) return;
     seededRef.current = true;
-    fetch("/api/resources", {
+    fetch("/_agent-native/resources", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

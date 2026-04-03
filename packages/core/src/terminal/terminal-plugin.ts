@@ -3,7 +3,7 @@
  *
  * Starts a PTY WebSocket server alongside the app so the <AgentTerminal />
  * component can connect to a real CLI. Mounts a discovery endpoint at
- * /api/agent-terminal-info for the client component.
+ * /_agent-native/agent-terminal-info for the client component.
  *
  * Skips activation when running inside a harness (HARNESS_PORT is set).
  */
@@ -23,9 +23,9 @@ export interface TerminalPluginOptions {
 
 export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
   return async (nitroApp: any) => {
-    // Always mount /api/available-clis so the client doesn't get 404s
+    // Always mount /_agent-native/available-clis so the client doesn't get 404s
     nitroApp.h3App.use(
-      "/api/available-clis",
+      "/_agent-native/available-clis",
       defineEventHandler(async () => {
         try {
           const { CLI_REGISTRY, commandExists } =
@@ -62,7 +62,7 @@ export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
       );
       // Mount a disabled info endpoint
       nitroApp.h3App.use(
-        "/api/agent-terminal-info",
+        "/_agent-native/agent-terminal-info",
         defineEventHandler(() => ({ available: false })),
       );
       return;
@@ -75,7 +75,7 @@ export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
           "Pass an authCheck function to createTerminalPlugin().",
       );
       nitroApp.h3App.use(
-        "/api/agent-terminal-info",
+        "/_agent-native/agent-terminal-info",
         defineEventHandler(() => ({
           available: false,
           error: "Terminal requires authCheck in production",
@@ -91,7 +91,7 @@ export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
         `[terminal] PTY server already running on port ${existingPort}, skipping`,
       );
       nitroApp.h3App.use(
-        "/api/agent-terminal-info",
+        "/_agent-native/agent-terminal-info",
         defineEventHandler(() => ({
           available: true,
           wsPort: existingPort ? parseInt(existingPort, 10) : 0,
@@ -127,7 +127,7 @@ export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
 
       // Mount discovery endpoint
       nitroApp.h3App.use(
-        "/api/agent-terminal-info",
+        "/_agent-native/agent-terminal-info",
         defineEventHandler(() => ({
           available: true,
           wsPort: result.port,
@@ -151,7 +151,7 @@ export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
 
       // Mount a fallback info endpoint
       nitroApp.h3App.use(
-        "/api/agent-terminal-info",
+        "/_agent-native/agent-terminal-info",
         defineEventHandler(() => ({
           available: false,
           error: "PTY server failed to start",

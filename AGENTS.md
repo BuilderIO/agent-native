@@ -105,7 +105,9 @@ The framework supports all SQL databases via Drizzle ORM. Never write SQLite-onl
 
 ### Hosting Agnostic
 
-The server runs on **Nitro**, which compiles to any deployment target: Node.js, Cloudflare Workers/Pages, Netlify, Vercel, Deno Deploy, AWS Lambda, Bun.
+The server runs on **Nitro** with **H3** as the HTTP framework. It compiles to any deployment target: Node.js, Cloudflare Workers/Pages, Netlify, Vercel, Deno Deploy, AWS Lambda, Bun.
+
+**Never use Express.** All server code uses H3/Nitro — `defineEventHandler`, `readBody`, `getMethod`, `setResponseHeader`, etc. Express is not a dependency. If you see Express types or patterns anywhere, replace them with H3 equivalents.
 
 Never use Node-specific APIs (`fs`, `child_process`, `path`) in server routes and plugins. Use Nitro abstractions. Scripts in `scripts/` run in Node.js and can use Node APIs freely.
 
@@ -121,29 +123,14 @@ Per-user data isolation exists for multi-user organizations (via `owner_email` c
 
 Agents can call other agents using the A2A protocol. From the mail app, you can tag the analytics agent to query data and include results in a draft. An agent discovers what other agents are available, calls them over the protocol, and shows results in the UI.
 
-### Enabling A2A
+### Auto-Mounted A2A
 
-```ts
-import { enableA2A } from "@agent-native/core/a2a";
+A2A is **auto-mounted** by the agent-chat plugin. Every app automatically gets:
 
-enableA2A(app, {
-  name: "Analytics Agent",
-  description: "Queries analytics data across providers",
-  skills: [
-    {
-      id: "query-data",
-      name: "Query Data",
-      description: "Run analytics queries",
-    },
-  ],
-  apiKeyEnv: "A2A_API_KEY",
-});
-```
+- `GET /.well-known/agent-card.json` — public agent card with skills derived from registered scripts
+- `POST /_agent-native/a2a` — JSON-RPC endpoint
 
-This mounts:
-
-- `GET /.well-known/agent-card.json` — public agent discovery (no auth)
-- `POST /a2a` — JSON-RPC endpoint (bearer token auth)
+No setup needed. The agent card is auto-generated from your template's scripts. For custom configuration, use `mountA2A()` from `@agent-native/core/a2a` in a server plugin.
 
 ### Calling Another Agent
 
@@ -218,8 +205,15 @@ All framework-level routes live under the `/_agent-native/` prefix to avoid coll
 | `GET /_agent-native/agent-chat/mentions`                      | Mention search for @-tagging             |
 | `GET /_agent-native/env-status`                               | Env key configuration status             |
 | `POST /_agent-native/env-vars`                                | Save env vars                            |
+| `/_agent-native/auth/*`                                       | Authentication (login, session, logout)  |
+| `/_agent-native/google/*`                                     | Google OAuth (callback, auth-url, etc.)  |
+| `/_agent-native/resources/*`                                  | Resource CRUD                            |
+| `/_agent-native/available-clis`                               | Available CLI tools                      |
+| `/_agent-native/agent-terminal-info`                          | Terminal connection info                 |
 
-Templates define their own routes under `/api/*` (e.g., `/api/emails`, `/api/forms`). Never put template routes under `/_agent-native/`.
+**Hard rule: ALL framework routes go under `/_agent-native/`.** Templates own `/api/*` for their domain routes (e.g., `/api/emails`, `/api/forms`, `/api/events`). When adding new framework functionality — whether in core plugins, the auth system, resources, terminal, or any other framework feature — always use the `/_agent-native/` prefix. Never put framework routes under `/api/`. Never put template routes under `/_agent-native/`.
+
+The Vite dev middleware intercepts both `/api/` and `/_agent-native/` prefixes before react-router's SSR handler (see `dev-api-server.ts`). If you add a new framework route prefix, update that middleware too.
 
 ## Project Structure
 

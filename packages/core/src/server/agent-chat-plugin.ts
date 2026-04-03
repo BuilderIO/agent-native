@@ -484,6 +484,26 @@ export function createAgentChatPlugin(
     const resourceScripts = await createResourceScriptEntries();
     const callAgentScript = await createCallAgentScriptEntry();
 
+    // Auto-mount A2A protocol endpoints so every app is discoverable
+    // and callable by other agents via the standard protocol.
+    const allScripts = {
+      ...templateScripts,
+      ...resourceScripts,
+      ...callAgentScript,
+    };
+    const { mountA2A } = await import("../a2a/server.js");
+    mountA2A(nitroApp, {
+      name: options?.appId
+        ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
+        : "Agent",
+      description: `Agent-native ${options?.appId ?? "app"} agent`,
+      skills: Object.entries(allScripts).map(([name, entry]) => ({
+        id: name,
+        name,
+        description: entry.tool.description,
+      })),
+    });
+
     // Build system prompts — dynamic functions that pre-load resources per-request.
     // Production gets PROD_FRAMEWORK_PROMPT, dev gets DEV_FRAMEWORK_PROMPT.
     // Custom systemPrompt from options overrides the framework default entirely.
@@ -1213,8 +1233,8 @@ export function createAgentChatPlugin(
     );
 
     // Mount the main chat handler — delegates to dev or prod handler based on current mode.
-    // This is mounted last because h3's use() is prefix-based, meaning /api/agent-chat
-    // also matches /api/agent-chat/threads/... — we skip sub-path requests here so the
+    // This is mounted last because h3's use() is prefix-based, meaning /_agent-native/agent-chat
+    // also matches /_agent-native/agent-chat/threads/... — we skip sub-path requests here so the
     // earlier-mounted handlers (mode, save-key, files, skills, mentions, threads) handle them.
     nitroApp.h3App.use(
       routePath,

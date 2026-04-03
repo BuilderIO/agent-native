@@ -26,9 +26,9 @@ export interface CreateServerOptions {
   jsonLimit?: string;
   /** Custom ping message. Default: reads PING_MESSAGE env var, falls back to "pong" */
   pingMessage?: string;
-  /** Disable the /api/ping health check. Default: false */
+  /** Disable the /_agent-native/ping health check. Default: false */
   disablePing?: boolean;
-  /** Env key configuration for the settings UI. Enables /api/env-status and /api/env-vars routes. */
+  /** Env key configuration for the settings UI. Enables /_agent-native/env-status and /_agent-native/env-vars routes. */
   envKeys?: EnvKeyConfig[];
 }
 
@@ -118,8 +118,8 @@ export interface CreateServerResult {
 /**
  * Create a pre-configured H3 app with standard agent-native setup:
  * - CORS headers via middleware
- * - /api/ping health check
- * - /api/env-status and /api/env-vars (when envKeys is provided)
+ * - /_agent-native/ping health check
+ * - /_agent-native/env-status and /_agent-native/env-vars (when envKeys is provided)
  *
  * Returns { app, router } — mount routes on `router`.
  */

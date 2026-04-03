@@ -1,6 +1,6 @@
 import type { ScriptTool } from "../agent/types.js";
 import { findAgent, discoverAgents } from "../server/agent-discovery.js";
-import { callPeerAgent } from "../server/call-peer-agent.js";
+import { callAgent } from "../a2a/client.js";
 
 export const tool: ScriptTool = {
   description:
@@ -37,7 +37,7 @@ export async function run(args: Record<string, string>): Promise<string> {
   }
 
   try {
-    const response = await callPeerAgent(agent.url, message);
+    const response = await callAgent(agent.url, message);
     return response || "(empty response)";
   } catch (err: any) {
     return `Error calling ${agent.name}: ${err?.message}`;

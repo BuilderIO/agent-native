@@ -76,7 +76,7 @@ const GOOGLE_LOGIN_HTML = `<!DOCTYPE html>
     btn.disabled = true;
     err.classList.remove('show');
     try {
-      var res = await fetch('/api/google/auth-url');
+      var res = await fetch('/_agent-native/google/auth-url');
       var data = await res.json();
       if (data.url) {
         try { sessionStorage.setItem('__an_signin', '1'); } catch(e) {}
@@ -122,8 +122,8 @@ export function createGoogleAuthPlugin(
       return { email, token: cookie };
     },
     publicPaths: [
-      "/api/google/callback",
-      "/api/google/auth-url",
+      "/_agent-native/google/callback",
+      "/_agent-native/google/auth-url",
       ...(options?.publicPaths ?? []),
     ],
     loginHtml: GOOGLE_LOGIN_HTML,

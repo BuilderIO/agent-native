@@ -368,7 +368,7 @@ export const searchIndex: SearchEntry[] = [
     path: "/docs/a2a-protocol",
     section: "Overview",
     sectionId: "overview",
-    text: "Agent-to-agent communication via JSON-RPC protocol. Agents discover each other via agent cards send messages and receive structured results. enableA2A server setup. A2AClient for calling other agents. callAgent convenience helper.",
+    text: "Agent-to-agent communication via JSON-RPC protocol. Agents discover each other via agent cards send messages and receive structured results. mountA2A server setup. A2AClient for calling other agents. callAgent convenience helper.",
   },
   {
     page: "A2A Protocol",

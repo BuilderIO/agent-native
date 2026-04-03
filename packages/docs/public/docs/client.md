@@ -131,7 +131,7 @@ function UserMenu() {
   const { session, isLoading } = useSession();
 
   if (isLoading) return <span>Loading...</span>;
-  if (!session) return <a href="/api/auth/login">Login</a>;
+  if (!session) return <a href="/_agent-native/auth/login">Login</a>;
 
   return <span>Logged in as {session.email}</span>;
 }

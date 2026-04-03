@@ -293,7 +293,7 @@ import { mountAuthMiddleware } from "@agent-native/core";
 mountAuthMiddleware(app, process.env.ACCESS_TOKEN!);
 ```
 
-Adds two routes automatically: `POST /api/auth/login` and `POST /api/auth/logout`.
+Adds two routes automatically: `POST /_agent-native/auth/login` and `POST /_agent-native/auth/logout`.
 
 ## createProductionAgentHandler(options)
 
