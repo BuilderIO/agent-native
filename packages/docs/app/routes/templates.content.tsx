@@ -143,7 +143,7 @@ export default function ContentTemplate() {
                   })
                 }
               >
-                Try Live Demo
+                Try It
                 <svg
                   width="16"
                   height="16"

@@ -141,7 +141,7 @@ export default function MailTemplate() {
                   })
                 }
               >
-                Try Live Demo
+                Try It
                 <svg
                   width="16"
                   height="16"

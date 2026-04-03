@@ -144,7 +144,7 @@ export default function CalendarTemplate() {
                   })
                 }
               >
-                Try Live Demo
+                Try It
                 <svg
                   width="16"
                   height="16"

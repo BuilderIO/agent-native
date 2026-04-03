@@ -1076,7 +1076,8 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
       }
 
       if (selectedToken) {
-        // Fetch the sender's display name from Gmail send-as settings
+        // Fetch the sender's display name from Gmail send-as settings,
+        // falling back to Google profile name
         let fromHeader = selectedEmail;
         try {
           const sendAs = await googleFetch(
@@ -1091,7 +1092,21 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
             fromHeader = `${match.displayName} <${selectedEmail}>`;
           }
         } catch {
-          // Fall back to email-only if settings fetch fails
+          // Fall back to profile name below
+        }
+        // If sendAs didn't have a display name, try Google profile
+        if (fromHeader === selectedEmail) {
+          try {
+            const profile = await googleFetch(
+              `https://www.googleapis.com/oauth2/v2/userinfo`,
+              selectedToken,
+            );
+            if (profile?.name) {
+              fromHeader = `${profile.name} <${selectedEmail}>`;
+            }
+          } catch {
+            // Fall back to email-only
+          }
         }
 
         const raw = buildRawEmail({

@@ -66,6 +66,7 @@ export const templates = [
     slug: "video",
     replaces: "Replaces or augments video editing",
     cliCommand: "npx @agent-native/core create my-app --template video",
+    demoUrl: "https://video.agent-native.com",
     description:
       "Build React-based video compositions with Remotion. Keyframe animation, 30+ easing curves, camera controls, and agent-assisted editing.",
     color: "#ec4899",
@@ -232,7 +233,7 @@ function TemplateLaunchButton({ template }: { template: Template }) {
             <polyline points="15 3 21 3 21 9" />
             <line x1="10" y1="14" x2="21" y2="3" />
           </svg>
-          Try Live Demo
+          Try It
         </a>
       )}
       <button
