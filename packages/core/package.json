@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "type": "module",
   "description": "Framework for agent-native application development — where AI agents and UI share state via files",
   "license": "MIT",
@@ -63,6 +63,7 @@
     "@radix-ui/react-tooltip": "^1.2.8",
     "@react-router/dev": "^7.13.1",
     "@react-router/fs-routes": "^7.13.1",
+    "@tabler/icons-react": "^3",
     "@tailwindcss/typography": "^0.5.19",
     "@tiptap/core": "^2.12.0",
     "@tiptap/extension-link": "^2.12.0",

@@ -723,6 +723,8 @@ export interface AssistantChatProps {
   }) => void;
   /** Callback to generate a title from the first user message */
   onGenerateTitle?: (message: string) => void;
+  /** Optional content rendered just above the composer input */
+  composerSlot?: React.ReactNode;
 }
 
 // ─── Queue Composer ──────────────────────────────────────────────────────────
@@ -898,6 +900,7 @@ const AssistantChatInner = forwardRef<
     onMessageCountChange,
     onSaveThread,
     onGenerateTitle,
+    composerSlot,
   },
   ref,
 ) {
@@ -1417,6 +1420,7 @@ const AssistantChatInner = forwardRef<
         </div>
       )}
 
+      {composerSlot}
       {/* Input area */}
       <div className="shrink-0 px-3 py-2">
         {isRunning ? (

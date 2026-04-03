@@ -1,11 +1,11 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
+import { IconX, IconPlus, IconHistory, IconSearch } from "@tabler/icons-react";
 import {
   AssistantChat,
   type AssistantChatProps,
   type AssistantChatHandle,
 } from "./AssistantChat.js";
 import { getHarnessOrigin } from "./harness.js";
-import { IconX, IconPlus, IconHistory, IconSearch } from "@tabler/icons-react";
 import { cn } from "./utils.js";
 import { useChatThreads, type ChatThreadSummary } from "./use-chat-threads.js";
 
@@ -318,6 +318,14 @@ export function MultiTabAssistantChat({
 
   // Listen for builder.submitChat postMessages
   useEffect(() => {
+    const EXEC_MODE_KEY = "agent-native-exec-mode";
+    const PLAN_MODE_INSTRUCTION =
+      `PLAN MODE ACTIVE: Before making any changes, you MUST:\n` +
+      `1. Explore the codebase to understand what's needed\n` +
+      `2. Write a plan to \`.builder/plans/YYYY-MM-DD-<topic>.md\`\n` +
+      `3. Present your approach clearly and wait for the user's explicit approval\n` +
+      `Do NOT edit any files, run any scripts, or make any changes until the user says to proceed.`;
+
     const handler = (event: MessageEvent) => {
       if (
         event.origin !== window.location.origin &&
@@ -329,9 +337,22 @@ export function MultiTabAssistantChat({
       const message = event.data.data?.message as string;
       if (!message) return;
       const context = event.data.data?.context as string | undefined;
-      const fullMessage = context
+
+      const isPlanMode = (() => {
+        try {
+          return localStorage.getItem(EXEC_MODE_KEY) === "plan";
+        } catch {
+          return false;
+        }
+      })();
+
+      const baseMessage = context
         ? `${message}\n\n<context>\n${context}\n</context>`
         : message;
+
+      const fullMessage = isPlanMode
+        ? `${PLAN_MODE_INSTRUCTION}\n\n${baseMessage}`
+        : baseMessage;
 
       const currentTabId = activeThreadIdRef.current;
       if (!currentTabId) return;

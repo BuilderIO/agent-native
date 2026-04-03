@@ -39,6 +39,9 @@ importers:
       '@react-router/fs-routes':
         specifier: ^7.13.1
         version: 7.13.1(@react-router/dev@7.13.1(@types/node@24.12.0)(jiti@1.21.7)(lightningcss@1.32.0)(react-router@7.13.1(react-dom@19.2.4(react@18.3.1))(react@18.3.1))(terser@5.46.1)(tsx@4.21.0)(typescript@5.9.3)(vite@8.0.0(@types/node@24.12.0)(esbuild@0.27.4)(jiti@1.21.7)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.2))(yaml@2.8.2))(typescript@5.9.3)
+      '@tabler/icons-react':
+        specifier: ^3
+        version: 3.40.0(react@18.3.1)
       '@tailwindcss/typography':
         specifier: ^0.5.19
         version: 0.5.19(tailwindcss@3.4.19(tsx@4.21.0)(yaml@2.8.2))
@@ -7326,6 +7329,7 @@ packages:
   '@xmldom/xmldom@0.8.11':
     resolution: {integrity: sha512-cQzWCtO6C8TQiYl1ruKNn2U6Ao4o4WBBcbL61yJl84x+j5sOWWFU9X7DpND8XZG3daDppSsigMdfAIl2upQBRw==}
     engines: {node: '>=10.0.0'}
+    deprecated: this version has critical issues, please update to the latest version
 
   '@xterm/addon-fit@0.10.0':
     resolution: {integrity: sha512-UFYkDm4HUahf2lnEyHvio51TNGiLK66mqP2JoATy7hRZeXaGMRDr00JiSF7m63vR5WKATF605yEggJKsw0JpMQ==}

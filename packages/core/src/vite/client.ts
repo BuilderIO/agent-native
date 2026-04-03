@@ -22,6 +22,77 @@ function hasDep(pkg: string, cwd: string): boolean {
   }
 }
 
+/**
+ * In monorepo dev mode, resolve @agent-native/core imports to source (src/)
+ * instead of dist/ so that Vite HMR picks up changes without rebuilding.
+ */
+function getCoreSourceAliases(cwd: string): Record<string, string> {
+  // Detect monorepo: walk up to find packages/core/src/
+  const candidates = [
+    path.resolve(cwd, "../../packages/core"), // templates/<name>/
+    path.resolve(cwd, "../core"), // packages/<name>/
+  ];
+
+  let coreSrc = "";
+  for (const candidate of candidates) {
+    if (fs.existsSync(path.join(candidate, "src/index.ts"))) {
+      coreSrc = path.join(candidate, "src");
+      break;
+    }
+  }
+
+  if (!coreSrc) return {}; // Not in monorepo — use dist as normal
+
+  // Map every @agent-native/core/* export to its src/ equivalent
+  const map: Record<string, string> = {
+    "@agent-native/core": path.join(coreSrc, "index.ts"),
+    "@agent-native/core/server": path.join(coreSrc, "server/index.ts"),
+    "@agent-native/core/client": path.join(coreSrc, "client/index.ts"),
+    "@agent-native/core/db": path.join(coreSrc, "db/index.ts"),
+    "@agent-native/core/db/schema": path.join(coreSrc, "db/schema.ts"),
+    "@agent-native/core/shared": path.join(coreSrc, "shared/index.ts"),
+    "@agent-native/core/scripts": path.join(coreSrc, "scripts/index.ts"),
+    "@agent-native/core/application-state": path.join(
+      coreSrc,
+      "application-state/index.ts",
+    ),
+    "@agent-native/core/settings": path.join(coreSrc, "settings/index.ts"),
+    "@agent-native/core/credentials": path.join(
+      coreSrc,
+      "credentials/index.ts",
+    ),
+    "@agent-native/core/resources": path.join(coreSrc, "resources/index.ts"),
+    "@agent-native/core/oauth-tokens": path.join(
+      coreSrc,
+      "oauth-tokens/index.ts",
+    ),
+    "@agent-native/core/a2a": path.join(coreSrc, "a2a/index.ts"),
+    "@agent-native/core/router": path.join(coreSrc, "router/index.ts"),
+    "@agent-native/core/terminal": path.join(
+      coreSrc,
+      "client/terminal/index.ts",
+    ),
+    "@agent-native/core/terminal/server": path.join(
+      coreSrc,
+      "terminal/index.ts",
+    ),
+    "@agent-native/core/adapters/sync": path.join(
+      coreSrc,
+      "adapters/sync/index.ts",
+    ),
+    "@agent-native/core/adapters/drizzle": path.join(
+      coreSrc,
+      "adapters/drizzle/index.ts",
+    ),
+    "@agent-native/core/adapters/cli": path.join(
+      coreSrc,
+      "adapters/cli/index.ts",
+    ),
+  };
+
+  return map;
+}
+
 export interface NitroOptions {
   /** Nitro deployment preset (e.g. "node", "vercel", "netlify", "cloudflare_pages"). Default: "node" */
   preset?: string;
@@ -215,6 +286,8 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     },
     resolve: {
       alias: {
+        // In monorepo dev: resolve @agent-native/core to source for HMR
+        ...getCoreSourceAliases(cwd),
         "@": path.resolve(cwd, "./app"),
         "@shared": path.resolve(cwd, "./shared"),
         ...options.aliases,

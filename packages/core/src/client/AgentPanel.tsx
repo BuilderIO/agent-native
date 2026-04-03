@@ -34,24 +34,25 @@ import React, {
 import * as SelectPrimitive from "@radix-ui/react-select";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import {
+  IconMessage,
+  IconTerminal2,
+  IconSettings,
+  IconLayoutSidebarRightCollapse,
+  IconChevronDown,
+  IconCheck,
+  IconPlus,
+  IconFolder,
+  IconX,
+  IconPencil,
+  IconClockHour3,
+} from "@tabler/icons-react";
+import {
   MultiTabAssistantChat,
   type MultiTabAssistantChatHeaderProps,
 } from "./MultiTabAssistantChat.js";
 import type { AssistantChatProps } from "./AssistantChat.js";
 import { useDevMode } from "./use-dev-mode.js";
 import { cn } from "./utils.js";
-import {
-  IconMessage,
-  IconTerminal,
-  IconSettings,
-  IconLayoutSidebar,
-  IconChevronDown,
-  IconCheck,
-  IconPlus,
-  IconFolder,
-  IconX,
-  IconHistory,
-} from "@tabler/icons-react";
 
 // Lazy-load AgentTerminal to avoid bundling xterm.js when not needed
 const AgentTerminal = lazy(() =>
@@ -67,6 +68,8 @@ const ResourcesPanel = lazy(() =>
 
 const CLI_STORAGE_KEY = "agent-native-cli-command";
 const CLI_DEFAULT = "builder";
+const EXEC_MODE_KEY = "agent-native-exec-mode";
+type ExecMode = "build" | "plan";
 const AGENT_PANEL_FONT_FAMILY =
   'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
 const AGENT_PANEL_ROOT_STYLE = {
@@ -159,7 +162,7 @@ function SettingsSelect({
             {selected?.label ?? value}
           </SelectPrimitive.Value>
           <SelectPrimitive.Icon asChild>
-            <IconChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+            <IconChevronDown size={14} className="text-muted-foreground" />
           </SelectPrimitive.Icon>
         </SelectPrimitive.Trigger>
         <SelectPrimitive.Portal>
@@ -178,7 +181,7 @@ function SettingsSelect({
                 >
                   <span className="absolute left-2 top-2.5 flex h-4 w-4 items-center justify-center text-muted-foreground">
                     <SelectPrimitive.ItemIndicator>
-                      <IconCheck className="h-3.5 w-3.5" />
+                      <IconCheck size={14} />
                     </SelectPrimitive.ItemIndicator>
                   </span>
                   <div className="flex min-w-0 flex-col">
@@ -317,7 +320,7 @@ function AgentSettingsPopover({
         )}
         title="Agent settings"
       >
-        <IconSettings className="h-3.5 w-3.5" />
+        <IconSettings size={14} />
       </button>
       {open &&
         pos &&
@@ -383,6 +386,26 @@ export function AgentPanel({
   onCollapse,
 }: AgentPanelProps) {
   const mounted = useClientOnly();
+  const [execMode, setExecMode] = useState<ExecMode>(() => {
+    try {
+      const saved = localStorage.getItem(EXEC_MODE_KEY);
+      if (saved === "build" || saved === "plan") return saved;
+    } catch {}
+    return "build";
+  });
+
+  const switchExecMode = useCallback((next: ExecMode) => {
+    setExecMode(next);
+    try {
+      localStorage.setItem(EXEC_MODE_KEY, next);
+    } catch {}
+    window.dispatchEvent(
+      new CustomEvent("agent-panel:exec-mode-change", {
+        detail: { mode: next },
+      }),
+    );
+  }, []);
+
   const [mode, setMode] = useState<"chat" | "cli" | "resources">(() => {
     try {
       const saved = localStorage.getItem("agent-native-panel-mode");
@@ -452,7 +475,7 @@ export function AgentPanel({
           title="Chat mode"
           style={AGENT_PANEL_CONTROL_STYLE}
         >
-          <IconMessage className="h-3.5 w-3.5" />
+          <IconMessage size={14} />
           Chat
         </button>
         {isDevMode && (
@@ -467,7 +490,7 @@ export function AgentPanel({
             title="CLI terminal mode"
             style={AGENT_PANEL_CONTROL_STYLE}
           >
-            <IconTerminal className="h-3.5 w-3.5" />
+            <IconTerminal2 size={14} />
             CLI
           </button>
         )}
@@ -482,7 +505,7 @@ export function AgentPanel({
           title="Files & resources"
           style={AGENT_PANEL_CONTROL_STYLE}
         >
-          <IconFolder className="h-3.5 w-3.5" />
+          <IconFolder size={14} />
           Files
         </button>
       </div>
@@ -512,7 +535,7 @@ export function AgentPanel({
               onClick={onCollapse}
               className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
             >
-              <IconLayoutSidebar className="h-3.5 w-3.5" />
+              <IconLayoutSidebarRightCollapse size={14} />
             </button>
           </IconTooltip>
         )}
@@ -558,7 +581,7 @@ export function AgentPanel({
                   onClick={mode === "cli" ? addCliTab : addTab}
                   className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
                 >
-                  <IconPlus className="h-3.5 w-3.5" />
+                  <IconPlus size={14} />
                 </button>
               </IconTooltip>
             )}
@@ -571,7 +594,7 @@ export function AgentPanel({
                     showHistory && "bg-accent text-foreground",
                   )}
                 >
-                  <IconHistory className="h-3.5 w-3.5" />
+                  <IconClockHour3 size={14} />
                 </button>
               </IconTooltip>
             )}
@@ -619,7 +642,7 @@ export function AgentPanel({
                           "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
                       }}
                     >
-                      <IconX className="h-2.5 w-2.5" />
+                      <IconX size={10} />
                     </button>
                   </div>
                 ))
@@ -656,7 +679,7 @@ export function AgentPanel({
                           "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
                       }}
                     >
-                      <IconX className="h-2.5 w-2.5" />
+                      <IconX size={10} />
                     </button>
                   </div>
                 ))}
@@ -665,7 +688,7 @@ export function AgentPanel({
               className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
               title={mode === "cli" ? "New terminal" : "New chat"}
             >
-              <IconPlus className="h-3.5 w-3.5" />
+              <IconPlus size={14} />
             </button>
           </div>
         )}
@@ -718,6 +741,49 @@ export function AgentPanel({
             emptyStateText={emptyStateText}
             suggestions={suggestions}
             onSwitchToCli={isDevMode ? () => switchMode("cli") : undefined}
+            composerSlot={
+              <div className="shrink-0 px-3 pt-1.5 pb-0 flex items-center justify-between gap-2">
+                {execMode === "plan" ? (
+                  <div className="flex items-center gap-1.5 text-[11px] text-amber-700 dark:text-amber-400 min-w-0 truncate">
+                    <IconPencil size={12} className="shrink-0" />
+                    <span className="truncate">
+                      Plan mode — will plan before executing
+                    </span>
+                  </div>
+                ) : (
+                  <div />
+                )}
+                <div
+                  className="flex shrink-0 items-center rounded-md border border-border overflow-hidden"
+                  style={AGENT_PANEL_CONTROL_STYLE}
+                >
+                  <button
+                    onClick={() => switchExecMode("build")}
+                    className={cn(
+                      "px-2 py-1 text-[11px] leading-none",
+                      execMode === "build"
+                        ? "bg-accent text-foreground"
+                        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                    )}
+                    title="Build mode — agent executes immediately"
+                  >
+                    Build
+                  </button>
+                  <button
+                    onClick={() => switchExecMode("plan")}
+                    className={cn(
+                      "px-2 py-1 text-[11px] leading-none",
+                      execMode === "plan"
+                        ? "bg-amber-500/20 text-amber-700 dark:text-amber-400"
+                        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                    )}
+                    title="Plan mode — agent plans before executing"
+                  >
+                    Plan
+                  </button>
+                </div>
+              </div>
+            }
           />
         )}
       </div>
@@ -1028,7 +1094,7 @@ export function AgentToggleButton({ className }: { className?: string }) {
       )}
       title="Toggle agent"
     >
-      <IconMessage className="h-4 w-4" />
+      <IconMessage size={16} />
     </button>
   );
 }
