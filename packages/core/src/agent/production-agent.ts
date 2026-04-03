@@ -423,14 +423,20 @@ export function createProductionAgentHandler(
               try {
                 // Try streaming first — shows progressive text in the UI
                 const client = new A2AClient(ref.path);
+                const callerEmail = process.env.AGENT_USER_EMAIL;
                 let responseText = "";
                 let lastSentLength = 0;
 
                 try {
-                  for await (const task of client.stream({
-                    role: "user",
-                    parts: [{ type: "text", text: message }],
-                  })) {
+                  for await (const task of client.stream(
+                    {
+                      role: "user",
+                      parts: [{ type: "text", text: message }],
+                    },
+                    callerEmail
+                      ? { metadata: { userEmail: callerEmail } }
+                      : undefined,
+                  )) {
                     const newText =
                       task.status?.message?.parts
                         ?.filter(

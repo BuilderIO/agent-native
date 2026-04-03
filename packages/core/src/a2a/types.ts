@@ -124,6 +124,8 @@ export interface JsonRpcResponse {
 export interface A2AHandlerContext {
   taskId: string;
   contextId?: string;
+  /** Metadata from the caller (e.g., userEmail for identity forwarding) */
+  metadata?: Record<string, unknown>;
   writeArtifact: (name: string, content: string, mimeType?: string) => string;
 }
 

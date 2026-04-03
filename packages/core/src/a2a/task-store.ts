@@ -2,26 +2,29 @@ import crypto from "crypto";
 import { getDbExec, isPostgres, intType } from "../db/client.js";
 import type { Task, Message, TaskState, Artifact } from "./types.js";
 
-let _initialized = false;
+let _initPromise: Promise<void> | undefined;
 
 async function ensureTable(): Promise<void> {
-  if (_initialized) return;
-  const client = getDbExec();
-  await client.execute(`
-    CREATE TABLE IF NOT EXISTS a2a_tasks (
-      id TEXT PRIMARY KEY,
-      context_id TEXT,
-      status_state TEXT NOT NULL DEFAULT 'submitted',
-      status_message TEXT,
-      status_timestamp TEXT NOT NULL,
-      history TEXT NOT NULL DEFAULT '[]',
-      artifacts TEXT NOT NULL DEFAULT '[]',
-      metadata TEXT,
-      created_at ${intType()} NOT NULL,
-      updated_at ${intType()} NOT NULL
-    )
-  `);
-  _initialized = true;
+  if (!_initPromise) {
+    _initPromise = (async () => {
+      const client = getDbExec();
+      await client.execute(`
+        CREATE TABLE IF NOT EXISTS a2a_tasks (
+          id TEXT PRIMARY KEY,
+          context_id TEXT,
+          status_state TEXT NOT NULL DEFAULT 'submitted',
+          status_message TEXT,
+          status_timestamp TEXT NOT NULL,
+          history TEXT NOT NULL DEFAULT '[]',
+          artifacts TEXT NOT NULL DEFAULT '[]',
+          metadata TEXT,
+          created_at ${intType()} NOT NULL,
+          updated_at ${intType()} NOT NULL
+        )
+      `);
+    })();
+  }
+  return _initPromise;
 }
 
 function taskFromRow(row: any): Task {

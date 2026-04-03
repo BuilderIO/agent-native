@@ -84,6 +84,7 @@ function jsonRpcResult(id: string | number, result: unknown): JsonRpcResponse {
 function makeHandlerContext(
   taskId: string,
   contextId?: string,
+  metadata?: Record<string, unknown>,
 ): {
   context: A2AHandlerContext;
   artifacts: Artifact[];
@@ -92,6 +93,7 @@ function makeHandlerContext(
   const context: A2AHandlerContext = {
     taskId,
     contextId,
+    metadata,
     writeArtifact(name, content, mimeType) {
       const artifact: Artifact = {
         name,
@@ -132,11 +134,16 @@ async function handleSend(
   }
 
   const contextId = params.contextId as string | undefined;
+  const metadata = params.metadata as Record<string, unknown> | undefined;
   const task = await createTask(message, contextId);
 
   await updateTask(task.id, { state: "working" });
 
-  const { context, artifacts } = makeHandlerContext(task.id, contextId);
+  const { context, artifacts } = makeHandlerContext(
+    task.id,
+    contextId,
+    metadata,
+  );
 
   try {
     const result = getHandler(config)(message, context);
@@ -200,11 +207,16 @@ async function handleStream(
   }
 
   const contextId = params.contextId as string | undefined;
+  const metadata = params.metadata as Record<string, unknown> | undefined;
   const task = await createTask(message, contextId);
 
   await updateTask(task.id, { state: "working" });
 
-  const { context, artifacts } = makeHandlerContext(task.id, contextId);
+  const { context, artifacts } = makeHandlerContext(
+    task.id,
+    contextId,
+    metadata,
+  );
 
   try {
     const result = getHandler(config)(message, context);

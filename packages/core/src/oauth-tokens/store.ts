@@ -1,31 +1,34 @@
 import { getDbExec, isPostgres, intType, type DbExec } from "../db/client.js";
 
-let _initialized = false;
+let _initPromise: Promise<void> | undefined;
 
 async function ensureTable(): Promise<void> {
-  if (_initialized) return;
-  const client = getDbExec();
-  await client.execute(`
-    CREATE TABLE IF NOT EXISTS oauth_tokens (
-      provider TEXT NOT NULL,
-      account_id TEXT NOT NULL,
-      owner TEXT,
-      tokens TEXT NOT NULL,
-      updated_at ${intType()} NOT NULL,
-      PRIMARY KEY (provider, account_id)
-    )
-  `);
-  // Migration: add owner column to existing tables
-  try {
-    await client.execute(`ALTER TABLE oauth_tokens ADD COLUMN owner TEXT`);
-  } catch {
-    // Column already exists
+  if (!_initPromise) {
+    _initPromise = (async () => {
+      const client = getDbExec();
+      await client.execute(`
+        CREATE TABLE IF NOT EXISTS oauth_tokens (
+          provider TEXT NOT NULL,
+          account_id TEXT NOT NULL,
+          owner TEXT,
+          tokens TEXT NOT NULL,
+          updated_at ${intType()} NOT NULL,
+          PRIMARY KEY (provider, account_id)
+        )
+      `);
+      // Migration: add owner column to existing tables
+      try {
+        await client.execute(`ALTER TABLE oauth_tokens ADD COLUMN owner TEXT`);
+      } catch {
+        // Column already exists
+      }
+      // Backfill: set owner = account_id for existing rows without an owner
+      await client.execute(
+        `UPDATE oauth_tokens SET owner = account_id WHERE owner IS NULL`,
+      );
+    })();
   }
-  // Backfill: set owner = account_id for existing rows without an owner
-  await client.execute(
-    `UPDATE oauth_tokens SET owner = account_id WHERE owner IS NULL`,
-  );
-  _initialized = true;
+  return _initPromise;
 }
 
 export async function getOAuthTokens(

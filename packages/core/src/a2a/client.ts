@@ -161,15 +161,20 @@ export class A2AClient {
 export async function callAgent(
   url: string,
   text: string,
-  opts?: { apiKey?: string; contextId?: string },
+  opts?: {
+    apiKey?: string;
+    contextId?: string;
+    userEmail?: string;
+  },
 ): Promise<string> {
   const client = new A2AClient(url, opts?.apiKey);
+  const metadata = opts?.userEmail ? { userEmail: opts.userEmail } : undefined;
   const task = await client.send(
     {
       role: "user",
       parts: [{ type: "text", text }],
     },
-    { contextId: opts?.contextId },
+    { contextId: opts?.contextId, metadata },
   );
 
   // Extract text from the response
