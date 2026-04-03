@@ -501,12 +501,21 @@ export function createAgentChatPlugin(
 
     // Auto-mount A2A protocol endpoints so every app is discoverable
     // and callable by other agents via the standard protocol.
-    // The custom handler calls the local agent-chat endpoint to process
-    // A2A messages using the same production agent pipeline.
+    // In dev mode, include dev scripts (filesystem-discovered) so the A2A agent
+    // has access to the same tools as the interactive agent.
+    let devScriptsForA2A: Record<string, ActionEntry> = {};
+    if (canToggle) {
+      try {
+        const { createDevScriptRegistry } =
+          await import("../scripts/dev/index.js");
+        devScriptsForA2A = await createDevScriptRegistry();
+      } catch {}
+    }
     const allScripts = {
       ...templateScripts,
       ...resourceScripts,
       ...callAgentScript,
+      ...devScriptsForA2A,
     };
     const { mountA2A } = await import("../a2a/server.js");
     mountA2A(nitroApp, {
@@ -605,7 +614,7 @@ export function createAgentChatPlugin(
           `You are the ${options?.appId ?? "app"} agent responding to a request from another agent. Be concise and helpful. Use your tools to look up data or take actions as needed. Do not ask for clarification — use your tools to find the answer.` +
           resources;
 
-        const tools: any[] = Object.entries(templateScripts).map(
+        const tools: any[] = Object.entries(allScripts).map(
           ([name, entry]) => ({
             name,
             description: entry.tool.description,
