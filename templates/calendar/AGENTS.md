@@ -144,7 +144,7 @@ The `--to` bound is exclusive, so use tomorrow's date for today's events.
 | "Find meetings about X"         | `search-events --query "X"`                                       |
 | "Show my availability settings" | `navigate --view=availability`                                    |
 | "Show my bookings"              | `navigate --view=bookings`                                        |
-| "Switch to day/week/month view"  | `navigate --view=calendar --calendarViewMode=day`                 |
+| "Switch to day/week/month view" | `navigate --view=calendar --calendarViewMode=day`                 |
 | "Go to next week"               | `navigate --view=calendar --date=<next-monday>`                   |
 
 ## Google Calendar OAuth Flow
