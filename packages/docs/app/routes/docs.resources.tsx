@@ -247,7 +247,7 @@ WHERE DATE(created_at) BETWEEN @start_date AND @end_date
 
       <h2 id="resource-api">Resource API</h2>
       <p>
-        Resources can be managed from server code, scripts, or the REST API.
+        Resources can be managed from server code, actions, or the REST API.
       </p>
 
       <h3 id="server-api">Server API</h3>
@@ -285,23 +285,23 @@ WHERE DATE(created_at) BETWEEN @start_date AND @end_date
         </tbody>
       </table>
 
-      <h3 id="script-api">Script API</h3>
+      <h3 id="action-api">Action API</h3>
       <p>
-        The agent uses these built-in scripts. You can also call them from your
-        own scripts:
+        The agent uses these built-in actions. You can also call them from your
+        own actions:
       </p>
       <CodeBlock
         code={`# List all resources
-pnpm script resource-list --scope all
+pnpm action resource-list --scope all
 
 # Read a resource
-pnpm script resource-read --path "skills/my-skill.md"
+pnpm action resource-read --path "skills/my-skill.md"
 
 # Write a resource
-pnpm script resource-write --path "notes/meeting.md" --content "# Meeting Notes..."
+pnpm action resource-write --path "notes/meeting.md" --content "# Meeting Notes..."
 
 # Delete a resource
-pnpm script resource-delete --path "notes/old.md"`}
+pnpm action resource-delete --path "notes/old.md"`}
         lang="bash"
       />
     </DocsLayout>

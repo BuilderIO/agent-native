@@ -3,35 +3,35 @@ import DocsLayout from "../components/DocsLayout";
 import CodeBlock from "../components/CodeBlock";
 
 const TOC = [
-  { id: "script-dispatcher", label: "Script Dispatcher" },
+  { id: "action-dispatcher", label: "Action Dispatcher" },
   { id: "parseargs", label: "parseArgs()" },
-  { id: "standard-scripts", label: "Standard Scripts" },
+  { id: "standard-actions", label: "Standard Actions" },
   { id: "shared-agent-chat", label: "Shared Agent Chat" },
   { id: "utility-functions", label: "Utility Functions" },
 ];
 
-export default function ScriptsDocs() {
+export default function ActionsDocs() {
   return (
     <DocsLayout toc={TOC}>
-      <h1 className="mb-2 text-4xl font-semibold tracking-tight">Scripts</h1>
+      <h1 className="mb-2 text-4xl font-semibold tracking-tight">Actions</h1>
       <p className="mb-4 text-base text-[var(--fg-secondary)]">
-        <code>@agent-native/core</code> provides a script dispatcher and
-        utilities for building agent-callable scripts.
+        <code>@agent-native/core</code> provides an action dispatcher and
+        utilities for building agent-callable actions.
       </p>
 
-      <h2 id="script-dispatcher">Script Dispatcher</h2>
+      <h2 id="action-dispatcher">Action Dispatcher</h2>
       <p>
-        The script system lets you create scripts that agents can invoke via{" "}
-        <code>pnpm script &lt;name&gt;</code>. Each script is a TypeScript file
+        The action system lets you create actions that agents can invoke via{" "}
+        <code>pnpm action &lt;name&gt;</code>. Each action is a TypeScript file
         that exports a default async function.
       </p>
       <CodeBlock
-        code={`// scripts/run.ts — dispatcher (one-time setup)
+        code={`// actions/run.ts — dispatcher (one-time setup)
 import { runScript } from "@agent-native/core";
 runScript();`}
       />
       <CodeBlock
-        code={`// scripts/hello.ts — example script
+        code={`// actions/hello.ts — example action
 import { parseArgs } from "@agent-native/core";
 
 export default async function hello(args: string[]) {
@@ -41,7 +41,7 @@ export default async function hello(args: string[]) {
       />
       <CodeBlock
         code={`# Run it
-pnpm script hello --name Steve`}
+pnpm action hello --name Steve`}
         lang="bash"
       />
 
@@ -57,9 +57,9 @@ const args = parseArgs(["--name", "Steve", "--verbose", "--count=3"]);
 // { name: "Steve", verbose: "true", count: "3" }`}
       />
 
-      <h2 id="standard-scripts">Standard scripts</h2>
+      <h2 id="standard-actions">Standard actions</h2>
       <p>
-        Every template should include these two scripts for{" "}
+        Every template should include these two actions for{" "}
         <Link to="/docs/context-awareness" className="text-[var(--accent)]">
           context awareness
         </Link>
@@ -72,7 +72,7 @@ const args = parseArgs(["--name", "Steve", "--verbose", "--count=3"]);
         before acting.
       </p>
       <CodeBlock
-        code={`// scripts/view-screen.ts
+        code={`// actions/view-screen.ts
 import { readAppState } from "@agent-native/core/application-state";
 
 export default async function main() {
@@ -87,14 +87,14 @@ export default async function main() {
   console.log(JSON.stringify(screen, null, 2));
 }`}
       />
-      <CodeBlock code={`pnpm script view-screen`} lang="bash" />
+      <CodeBlock code={`pnpm action view-screen`} lang="bash" />
       <h3>navigate</h3>
       <p>
         Writes a one-shot navigation command to application-state. The UI reads
         it, navigates, and deletes the entry.
       </p>
       <CodeBlock
-        code={`// scripts/navigate.ts
+        code={`// actions/navigate.ts
 import { parseArgs } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 
@@ -105,7 +105,7 @@ export default async function main(args: string[]) {
 }`}
       />
       <CodeBlock
-        code={`pnpm script navigate --view inbox --threadId thread-123`}
+        code={`pnpm action navigate --view inbox --threadId thread-123`}
         lang="bash"
       />
 
@@ -132,7 +132,7 @@ agentChat.send({
       />
       <p>
         In the browser, messages are sent via <code>window.postMessage()</code>.
-        In Node.js (scripts), they use the <code>BUILDER_PARENT_MESSAGE:</code>{" "}
+        In Node.js (actions), they use the <code>BUILDER_PARENT_MESSAGE:</code>{" "}
         stdout format that the Electron host translates to postMessage.
       </p>
 

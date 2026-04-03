@@ -4,8 +4,8 @@ import CodeBlock from "../components/CodeBlock";
 const TOC = [
   { id: "overview", label: "Overview" },
   { id: "navigation-state", label: "Navigation State" },
-  { id: "view-screen-script", label: "The view-screen Script" },
-  { id: "navigate-script", label: "The navigate Script" },
+  { id: "view-screen-action", label: "The view-screen Action" },
+  { id: "navigate-action", label: "The navigate Action" },
   { id: "use-navigation-state", label: "useNavigationState Hook" },
   { id: "jitter-prevention", label: "Jitter Prevention" },
 ];
@@ -47,7 +47,7 @@ export default function ContextAwarenessDocs() {
           <strong>
             <code>view-screen</code>
           </strong>{" "}
-          — a script that reads navigation state, fetches contextual data, and
+          — an action that reads navigation state, fetches contextual data, and
           returns a snapshot of what the user sees
         </li>
         <li>
@@ -96,14 +96,14 @@ const navigation = await readAppState("navigation");
 // { view: "inbox", threadId: "thread-123", label: "important" }`}
       />
 
-      <h2 id="view-screen-script">The view-screen script</h2>
+      <h2 id="view-screen-action">The view-screen action</h2>
       <p>
-        Every template should have a <code>view-screen</code> script. It reads
+        Every template should have a <code>view-screen</code> action. It reads
         navigation state, fetches the relevant data, and returns a snapshot of
         what the user sees. This is the agent's eyes.
       </p>
       <CodeBlock
-        code={`// scripts/view-screen.ts
+        code={`// actions/view-screen.ts
 import { readAppState } from "@agent-native/core/application-state";
 
 export default async function main() {
@@ -124,13 +124,13 @@ export default async function main() {
 }`}
       />
       <p>
-        The agent should always call <code>pnpm script view-screen</code> before
+        The agent should always call <code>pnpm action view-screen</code> before
         acting. This is a hard convention across all templates. When adding new
         features, update <code>view-screen</code> to return data for the new
         view.
       </p>
 
-      <h2 id="navigate-script">The navigate script</h2>
+      <h2 id="navigate-action">The navigate action</h2>
       <p>
         The agent writes a one-shot <code>navigate</code> command to
         application-state. The UI reads it, performs the navigation, and deletes
@@ -223,7 +223,7 @@ useDbSync({
       <ul className="list-disc space-y-1 pl-5">
         <li>
           Agent writes are tagged with <code>{'requestSource: "agent"'}</code>{" "}
-          (the script helpers do this automatically)
+          (the action helpers do this automatically)
         </li>
         <li>
           UI writes include the tab's unique ID via{" "}
@@ -236,7 +236,7 @@ useDbSync({
           wrote
         </li>
         <li>
-          Events from agents, other tabs, and scripts still come through
+          Events from agents, other tabs, and actions still come through
           normally
         </li>
       </ul>

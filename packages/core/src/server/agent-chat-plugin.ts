@@ -1,5 +1,6 @@
 import {
   createProductionAgentHandler,
+  runAgentLoop,
   getActiveRunForThread,
   getActiveRunForThreadAsync,
   getRun,
@@ -219,6 +220,66 @@ async function createResourceScriptEntries(): Promise<
 }
 
 /**
+ * Creates chat management ActionEntries (search-chats, open-chat).
+ */
+async function createChatScriptEntries(): Promise<Record<string, ActionEntry>> {
+  try {
+    const [searchMod, openMod] = await Promise.all([
+      import("../scripts/chat/search-chats.js"),
+      import("../scripts/chat/open-chat.js"),
+    ]);
+
+    return {
+      "search-chats": wrapCliScript(
+        {
+          description:
+            "Search or list past agent chat threads. Use this to find previous conversations by keyword.",
+          parameters: {
+            type: "object",
+            properties: {
+              query: {
+                type: "string",
+                description:
+                  "Search term to find chats by title, preview, or content",
+              },
+              limit: {
+                type: "string",
+                description: "Max number of results (default: 20)",
+              },
+              format: {
+                type: "string",
+                description: "Output format",
+                enum: ["json", "text"],
+              },
+            },
+          },
+        },
+        searchMod.default,
+      ),
+      "open-chat": wrapCliScript(
+        {
+          description:
+            "Open a chat thread in the UI as a new tab and focus it. Use search-chats first to find the thread ID.",
+          parameters: {
+            type: "object",
+            properties: {
+              id: {
+                type: "string",
+                description: "The chat thread ID to open",
+              },
+            },
+            required: ["id"],
+          },
+        },
+        openMod.default,
+      ),
+    };
+  } catch {
+    return {};
+  }
+}
+
+/**
  * Creates the call-agent ActionEntry for cross-agent A2A communication.
  */
 async function createCallAgentScriptEntry(): Promise<
@@ -302,6 +363,14 @@ When the user gives instructions that should apply to all users/sessions, update
 ### Navigation Rule
 
 When the user says "show me", "go to", "open", "switch to", or similar navigation language, ALWAYS use the \`navigate\` action to update the UI. The user expects to SEE the result in the main app, not just read it in chat. Navigate first, then fetch/display data.
+
+### Chat History
+
+You can search and restore previous chat conversations:
+- \`search-chats\` — Search or list past chat threads by keyword
+- \`open-chat\` — Open a chat thread in the UI as a new tab and focus it
+
+When the user asks to find a previous conversation, use \`search-chats\` first to find matching threads, then \`open-chat\` to restore the one they want.
 `;
 
 const PROD_FRAMEWORK_PROMPT = `## Agent-Native Framework — Production Mode
@@ -319,7 +388,15 @@ You are an AI agent in an agent-native application, running in **development mod
 
 The agent and the UI are equal partners — everything the UI can do, you can do via tools/scripts, and vice versa. They share the same SQL database and stay in sync automatically.
 
-**In development mode, you have full access to the project filesystem, shell, and database** — in addition to all the app's production tools. You can edit source code, run commands, install packages, and modify the app directly.
+**In development mode, you have UNRESTRICTED access.** You can:
+- Run ANY shell command via the \`shell\` tool (bash, node, curl, pnpm, etc.)
+- Execute arbitrary code: \`shell({ command: 'node -e "console.log(1+1)"' })\`
+- Read/write any file on the filesystem
+- Query and modify the database
+- Call external APIs (via shell with curl, or via scripts)
+- Edit source code, install packages, modify the app
+
+**There are NO restrictions in dev mode.** If a dedicated tool/action doesn't exist for what you need, use \`shell\` to run any command. For example: \`shell({ command: 'curl -s https://api.example.com/data' })\`
 
 When editing code, follow the agent-native architecture:
 - Every feature needs all four areas: UI + scripts + skills/instructions + application-state sync
@@ -495,18 +572,93 @@ export function createAgentChatPlugin(
         ? await rawActions()
         : (rawActions ?? {});
 
-    // Resource and cross-agent scripts are available in both prod and dev modes
+    // Resource, chat, and cross-agent scripts are available in both prod and dev modes
     const resourceScripts = await createResourceScriptEntries();
+    const chatScripts = await createChatScriptEntries();
     const callAgentScript = await createCallAgentScriptEntry();
 
     // Auto-mount A2A protocol endpoints so every app is discoverable
     // and callable by other agents via the standard protocol.
-    // The custom handler calls the local agent-chat endpoint to process
-    // A2A messages using the same production agent pipeline.
+    // In dev mode, include dev scripts (filesystem-discovered) so the A2A agent
+    // has access to the same tools as the interactive agent.
+    let devScriptsForA2A: Record<string, ActionEntry> = {};
+    let discoveredActions: Record<string, ActionEntry> = {};
+    if (canToggle) {
+      try {
+        const { createDevScriptRegistry } =
+          await import("../scripts/dev/index.js");
+        devScriptsForA2A = await createDevScriptRegistry();
+      } catch {}
+
+      // Auto-discover template action files and register as shell-based tools.
+      // This ensures templates without a custom agent-chat plugin (e.g., analytics)
+      // still have their domain actions available as tools.
+      try {
+        const fs = await import("fs");
+        const pathMod = await import("path");
+        const cwd = process.cwd();
+        const skipFiles = new Set([
+          "helpers",
+          "run",
+          "registry",
+          "_utils",
+          "db-connect",
+          "db-status",
+        ]);
+
+        for (const dir of ["actions", "scripts"]) {
+          const actionsDir = pathMod.join(cwd, dir);
+          if (!fs.existsSync(actionsDir)) continue;
+          const files = fs
+            .readdirSync(actionsDir)
+            .filter(
+              (f: string) =>
+                f.endsWith(".ts") &&
+                !f.startsWith("_") &&
+                !skipFiles.has(f.replace(/\.ts$/, "")),
+            );
+          for (const file of files) {
+            const name = file.replace(/\.ts$/, "");
+            if (templateScripts[name] || devScriptsForA2A[name]) continue;
+            // Register as shell-based tool
+            discoveredActions[name] = {
+              tool: {
+                description: `Run the ${name} action. Use: pnpm action ${name} --arg=value`,
+                parameters: {
+                  type: "object",
+                  properties: {
+                    args: {
+                      type: "string",
+                      description:
+                        "CLI arguments as a string (e.g., --metrics=sessions --days=7)",
+                    },
+                  },
+                },
+              },
+              run: async (input: Record<string, string>) => {
+                const shellEntry = devScriptsForA2A["shell"];
+                if (!shellEntry) return "Error: shell not available";
+                return shellEntry.run({
+                  command: `pnpm action ${name} ${input.args || ""}`.trim(),
+                });
+              },
+            };
+          }
+        }
+        if (Object.keys(discoveredActions).length > 0) {
+          console.log(
+            `[agent-chat] Auto-discovered ${Object.keys(discoveredActions).length} action(s): ${Object.keys(discoveredActions).join(", ")}`,
+          );
+        }
+      } catch {}
+    }
     const allScripts = {
+      ...discoveredActions,
       ...templateScripts,
       ...resourceScripts,
+      ...chatScripts,
       ...callAgentScript,
+      ...devScriptsForA2A,
     };
     const { mountA2A } = await import("../a2a/server.js");
     mountA2A(nitroApp, {
@@ -522,13 +674,10 @@ export function createAgentChatPlugin(
       streaming: true,
       handler: async function* (message, context) {
         // Resolve the caller's identity for user-scoped data access.
-        // Dev: use most recent session from local DB (single user, no verification).
-        // Prod: verify Google OAuth token from caller, check email domain.
         const isDev = process.env.NODE_ENV !== "production";
         let userEmail: string | undefined;
 
         if (isDev) {
-          // Dev mode: trust the caller's claimed email, or auto-detect from local sessions
           userEmail = (context.metadata?.userEmail as string) || undefined;
           if (!userEmail) {
             try {
@@ -542,7 +691,6 @@ export function createAgentChatPlugin(
             } catch {}
           }
         } else {
-          // Prod mode: verify identity via Google OAuth token
           const googleToken = context.metadata?.googleToken as string;
           if (googleToken) {
             try {
@@ -581,6 +729,8 @@ export function createAgentChatPlugin(
           return;
         }
 
+        // Use the SAME agent setup as the interactive chat — identical tools,
+        // prompt, and capabilities. The A2A agent IS the app's agent.
         const Anthropic = (await import("@anthropic-ai/sdk")).default;
         const apiKey = options?.apiKey ?? process.env.ANTHROPIC_API_KEY;
         if (!apiKey) {
@@ -595,11 +745,33 @@ export function createAgentChatPlugin(
           };
           return;
         }
-        const client = new Anthropic({ apiKey });
-        const model = options?.model ?? "claude-sonnet-4-6";
-        const a2aSystemPrompt = `You are the ${options?.appId ?? "app"} agent responding to a request from another agent. Be concise and helpful. Use your tools to look up data or take actions as needed.`;
 
-        const tools: any[] = Object.entries(templateScripts).map(
+        // Use the same handler (dev or prod) that the interactive chat uses
+        const handler = canToggle && devHandler ? devHandler : prodHandler;
+
+        // Build the same system prompt the interactive agent uses
+        const owner = userEmail || "local@localhost";
+        const resources = await loadResourcesForPrompt(owner);
+        const systemPrompt = canToggle
+          ? devPrompt + resources
+          : basePrompt + resources;
+
+        const a2aClient = new Anthropic({ apiKey });
+        const model = options?.model ?? "claude-sonnet-4-6";
+
+        // Build tools — same as interactive handler but WITHOUT call-agent
+        // to prevent infinite recursive A2A loops (agent calling itself).
+        const a2aActions = canToggle
+          ? {
+              ...discoveredActions,
+              ...templateScripts,
+              ...resourceScripts,
+              ...chatScripts,
+              ...devScriptsForA2A,
+            }
+          : { ...templateScripts, ...resourceScripts, ...chatScripts };
+
+        const tools: any[] = Object.entries(a2aActions).map(
           ([name, entry]) => ({
             name,
             description: entry.tool.description,
@@ -610,77 +782,53 @@ export function createAgentChatPlugin(
           }),
         );
 
-        const msgs: any[] = [{ role: "user", content: text }];
+        const messages: any[] = [{ role: "user", content: text }];
+
+        // Run the SAME agent loop, collect text events, yield as A2A messages
         let accumulatedText = "";
+        const controller = new AbortController();
 
-        for (let i = 0; i < 10; i++) {
-          // Stream the Anthropic response so we can yield text chunks
-          const apiStream = client.messages.stream({
-            model,
-            max_tokens: 4096,
-            system: a2aSystemPrompt,
-            tools: tools.length > 0 ? tools : undefined,
-            messages: msgs,
-          });
+        console.log(
+          `[A2A] Starting agent loop: ${tools.length} tools, prompt ${systemPrompt.length} chars`,
+        );
 
-          // Yield text deltas as they arrive
-          for await (const event of apiStream) {
-            if (
-              event.type === "content_block_delta" &&
-              (event.delta as any)?.type === "text_delta"
-            ) {
-              accumulatedText += (event.delta as any).text;
-              yield {
-                role: "agent" as const,
-                parts: [{ type: "text" as const, text: accumulatedText }],
-              };
+        await runAgentLoop({
+          client: a2aClient,
+          model,
+          systemPrompt,
+          tools,
+          messages,
+          actions: a2aActions,
+          send: (event) => {
+            if (event.type === "text") {
+              accumulatedText += event.text;
+            } else if (event.type === "tool_start") {
+              console.log(`[A2A] Tool call: ${event.tool}`);
+            } else if (event.type === "error") {
+              console.error(`[A2A] Error: ${event.error}`);
+            } else if (event.type === "done") {
+              console.log(
+                `[A2A] Done. Response: ${accumulatedText.length} chars`,
+              );
             }
-          }
+          },
+          signal: controller.signal,
+        });
 
-          // Get the complete message for tool_use detection
-          const finalMessage = await apiStream.finalMessage();
-          const toolUseBlocks = finalMessage.content.filter(
-            (b: any) => b.type === "tool_use",
-          );
+        console.log(
+          `[A2A] Loop complete. Text: ${accumulatedText.slice(0, 100)}...`,
+        );
 
-          if (
-            toolUseBlocks.length === 0 ||
-            finalMessage.stop_reason !== "tool_use"
-          ) {
-            break;
-          }
-
-          // Execute tools and continue the loop
-          msgs.push({ role: "assistant", content: finalMessage.content });
-          const toolResults = [];
-          for (const tb of toolUseBlocks) {
-            const script = allScripts[(tb as any).name];
-            let result = `Unknown tool: ${(tb as any).name}`;
-            if (script) {
-              try {
-                result = await script.run(
-                  (tb as any).input as Record<string, string>,
-                );
-              } catch (err: any) {
-                result = `Error: ${err?.message}`;
-              }
-            }
-            toolResults.push({
-              type: "tool_result" as const,
-              tool_use_id: (tb as any).id,
-              content: result,
-            });
-          }
-          msgs.push({ role: "user", content: toolResults });
-        }
-
-        // Final yield if nothing was yielded yet
-        if (!accumulatedText) {
-          yield {
-            role: "agent" as const,
-            parts: [{ type: "text" as const, text: "(no response)" }],
-          };
-        }
+        // Yield the final accumulated text
+        yield {
+          role: "agent" as const,
+          parts: [
+            {
+              type: "text" as const,
+              text: accumulatedText || "(no response)",
+            },
+          ],
+        };
       },
     });
 
@@ -774,7 +922,12 @@ export function createAgentChatPlugin(
 
     // Always build the production handler (includes resource tools + call-agent)
     const prodHandler = createProductionAgentHandler({
-      actions: { ...templateScripts, ...resourceScripts, ...callAgentScript },
+      actions: {
+        ...templateScripts,
+        ...resourceScripts,
+        ...chatScripts,
+        ...callAgentScript,
+      },
       systemPrompt: async (event: any) => {
         const owner = await getOwnerFromEvent(event);
         const resources = await loadResourcesForPrompt(owner);
@@ -792,8 +945,10 @@ export function createAgentChatPlugin(
       const { createDevScriptRegistry } =
         await import("../scripts/dev/index.js");
       const devActions = {
+        ...discoveredActions,
         ...templateScripts,
         ...resourceScripts,
+        ...chatScripts,
         ...callAgentScript,
         ...(await createDevScriptRegistry()),
       };

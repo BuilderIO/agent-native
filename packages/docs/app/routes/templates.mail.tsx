@@ -124,11 +124,39 @@ export default function MailTemplate() {
 
             <p className="mb-6 text-lg leading-relaxed text-[var(--fg-secondary)]">
               A Superhuman-style email client with keyboard shortcuts,
-              AI-powered triage, and smart search. Own your inbox workflow — no
-              subscription fees, no vendor lock-in.
+              AI-powered triage, smart search, and multi-account support. Own
+              your inbox workflow — no subscription fees, no vendor lock-in.
             </p>
 
-            <div className="mb-8 flex flex-col items-start gap-3">
+            <div className="mb-8 flex flex-wrap items-center gap-3">
+              <a
+                href="https://mail.agent-native.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
+                onClick={() =>
+                  trackEvent("try_live_demo", {
+                    template: "mail",
+                    location: "landing_page",
+                  })
+                }
+              >
+                Try It
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                  <polyline points="15 3 21 3 21 9" />
+                  <line x1="10" y1="14" x2="21" y2="3" />
+                </svg>
+              </a>
               <CliCopy />
             </div>
           </div>
@@ -214,7 +242,8 @@ export default function MailTemplate() {
             <h3 className="mb-1 text-sm font-semibold">AI Triage</h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
               The agent reads your inbox, surfaces what matters, drafts replies,
-              and handles routine emails automatically.
+              and handles routine emails automatically. Set up automations for
+              auto-labeling and auto-archiving.
             </p>
           </div>
           <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
@@ -290,7 +319,7 @@ export default function MailTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                Automatic labeling and priority sorting
+                Automatic labeling, priority sorting, and auto-archive rules
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -349,7 +378,7 @@ export default function MailTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                Global command palette for everything
+                Multiple draft tabs for composing several emails at once
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -388,7 +417,7 @@ export default function MailTemplate() {
         </div>
       </section>
 
-      {/* Agent scripts */}
+      {/* Agent actions */}
       <section className="border-t border-[var(--border)] py-16">
         <div className="grid gap-8 lg:grid-cols-2 lg:items-center">
           <div>
@@ -469,30 +498,30 @@ export default function MailTemplate() {
           <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-6">
             <div className="space-y-3 font-mono text-sm">
               <div className="text-[var(--fg-secondary)]">
-                {"// Available agent scripts"}
+                {"// Available agent actions"}
               </div>
               <div>
                 <span className="text-[var(--accent)]">$</span>{" "}
                 <span className="text-[var(--fg)]">
-                  pnpm script sync-inbox --since 7d
+                  pnpm action sync-inbox --since 7d
                 </span>
               </div>
               <div>
                 <span className="text-[var(--accent)]">$</span>{" "}
                 <span className="text-[var(--fg)]">
-                  pnpm script triage --label priority
+                  pnpm action triage --label priority
                 </span>
               </div>
               <div>
                 <span className="text-[var(--accent)]">$</span>{" "}
                 <span className="text-[var(--fg)]">
-                  pnpm script draft-reply --thread "RE: Q2 update"
+                  pnpm action draft-reply --thread "RE: Q2 update"
                 </span>
               </div>
               <div>
                 <span className="text-[var(--accent)]">$</span>{" "}
                 <span className="text-[var(--fg)]">
-                  pnpm script summarize --unread
+                  pnpm action summarize --unread
                 </span>
               </div>
             </div>

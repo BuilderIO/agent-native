@@ -301,7 +301,7 @@ const client = new A2AClient(url, process.env.A2A_API_KEY);`}
         "run-query" skill via A2A:
       </p>
       <CodeBlock
-        code={`// In the mail agent's scripts/get-analytics.ts
+        code={`// In the mail agent's actions/get-analytics.ts
 import { callAgent } from "@agent-native/core/a2a";
 
 export default async function(args: string[]) {

@@ -1,10 +1,8 @@
 # Agent-Native
 
-**Agentic applications you own.**
+**Agentic apps that self improve.**
 
-Agent-native is an open source framework for building full-featured apps with agentic capabilities integrated from the ground up.
-
-SaaS products charge you for rigid software you can't change. Agent-native gives you the code — you own it, you customize it, you evolve it with AI.
+Don't choose between structured user flows and autonomous agents. Every Agent-Native app is both.
 
 ## Agents and UIs — Fully Connected
 
@@ -12,10 +10,12 @@ The agent and the UI are equal citizens of the same system. Every action works b
 
 ![Agents and UIs fully connected](https://cdn.builder.io/api/v1/file/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fadc1e9e9368e4a8cb1b4dbb5aae5aaa2)
 
-- **The agent sees everything** — It can read and update any UI, any data, any state in the application.
-- **The UI talks to the agent** — Buttons, forms, and workflows push structured content to the agent, giving you guided flows that all go through the agent — including skills, rules, and instructions.
-- **The agent updates its own code** — It can modify the app itself to change features and functionality. Your tools get better over time.
-- **Everything works both ways** — Every action available in the UI is also available to the agent. You can click to do something, or ask the agent to do it.
+- **Everything syncs** — Agent and UI share one database and one state. Changes from either side show up instantly on the other.
+- **Context-aware** — The agent knows what you're looking at. Select text, hit Cmd+I, and tell it what to do.
+- **Agents call agents** — Tag another agent from any app. They discover each other over A2A and take action across your stack.
+- **Apps that improve themselves** — Your apps get better on their own. The agent can add features, fix bugs, and refine the UI over time.
+- **Any database, any host** — Any SQL database Drizzle supports. Any hosting target Nitro supports. No lock-in.
+- **Any AI agent** — Claude Code, Codex, Gemini CLI, OpenCode, or Builder.io. Use whichever agent you prefer.
 
 ## Templates
 
@@ -98,51 +98,33 @@ Every template is forkable, open source, and designed to be customized. Try them
 
 ## Quick Start
 
+Pick a template and create your app:
+
 ```bash
-npx @agent-native/core create my-app
+npx @agent-native/core create my-app --template mail
 cd my-app
 pnpm install
 pnpm dev
 ```
 
-Or **[launch a template](https://agent-native.com/templates)** — no setup required.
+Replace `mail` with any template: `calendar`, `content`, `slides`, `video`, `analytics`, or `forms`.
+
+Or start from a blank canvas without the `--template` flag:
+
+```bash
+npx @agent-native/core create my-app
+```
+
+Browse the **[template gallery](https://agent-native.com/templates)** for live demos and detailed feature lists.
 
 ## The Best of Both Worlds
 
-|                      | SaaS Tools         | Raw AI Agents           | Internal Tools   | Agent-Native            |
-| -------------------- | ------------------ | ----------------------- | ---------------- | ----------------------- |
-| **UI**               | Polished but rigid | None                    | Months to build  | Full UI, fork & go      |
-| **AI**               | Bolted on          | Powerful, no guardrails | Disconnected     | Agent-first, integrated |
-| **Customization**    | Can't              | Prompt-only             | Full but slow    | Agent modifies the app  |
-| **Ownership**        | Rented             | N/A                     | Yours but costly | You own the code        |
-| **Non-dev friendly** | Yes                | No                      | Rarely           | Guided UI + agent       |
-
-## Architecture
-
-Agent-native is designed to be agnostic at every layer — use the defaults or swap in your own.
-
-| Layer        | Default                                                           | Swappable?                                                                    |
-| ------------ | ----------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| **Server**   | [Nitro](https://nitro.build) (H3)                                 | Deploy anywhere Nitro supports (Node, Cloudflare, Vercel, Netlify, Deno, Bun) |
-| **Auth**     | Token-based (zero-config)                                         | Plug in Auth.js, Clerk, Lucia, or any auth system via `getSession()` contract |
-| **Database** | Files (`data/` directory)                                         | Add Drizzle, Prisma, or any ORM when you need a real DB                       |
-| **Frontend** | React + React Router + Tailwind                                   | Modify or replace — it's your code                                            |
-| **Agent**    | Works with any CLI-based agent (Claude Code, Codex, Cursor, etc.) | Agent-agnostic by design                                                      |
-| **Hosting**  | Any (Netlify, Vercel, Cloudflare, self-hosted)                    | Nitro's preset system handles deployment targets                              |
-
-### Auth: Zero to Production
-
-Auth is invisible in development and automatic in production. No code changes required.
-
-```bash
-# Development — no auth, no config
-pnpm dev
-
-# Production — set one env var, auth activates
-ACCESS_TOKEN=your-secret pnpm start
-```
-
-See [docs/auth.md](docs/auth.md) for the full auth guide, including multi-token team access and bring-your-own-auth.
+|                   | SaaS Tools         | Raw AI Agents           | Internal Tools             | Agent-Native            |
+| ----------------- | ------------------ | ----------------------- | -------------------------- | ----------------------- |
+| **UI**            | Polished but rigid | None                    | Mixed quality              | Full UI, fork & go      |
+| **AI**            | Bolted on          | Powerful                | Shallowly connected        | Agent-first, integrated |
+| **Customization** | Can't              | Instructions and skills | Full, but high maintenance | Agent modifies the app  |
+| **Ownership**     | Rented             | Somewhat yours          | You own the code           | You own the code        |
 
 ## Community
 

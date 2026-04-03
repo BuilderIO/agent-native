@@ -29,7 +29,8 @@ export function useKeyboardShortcuts(shortcuts: Shortcut[], enabled = true) {
             tag === "input" ||
             tag === "textarea" ||
             isEditable ||
-            (e.target as HTMLElement)?.closest("[contenteditable]") != null
+            (e.target instanceof HTMLElement &&
+              e.target.closest("[contenteditable]") != null)
           )
             continue;
         }
@@ -75,7 +76,8 @@ export function useSequenceShortcuts(
       const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
       const isEditable =
         (e.target as HTMLElement)?.isContentEditable ||
-        (e.target as HTMLElement)?.closest("[contenteditable]") != null;
+        (e.target instanceof HTMLElement &&
+          e.target.closest("[contenteditable]") != null);
       if (tag === "input" || tag === "textarea" || isEditable) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
 

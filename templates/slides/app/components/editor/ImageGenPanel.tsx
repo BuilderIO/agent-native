@@ -66,7 +66,7 @@ export default function ImageGenPanel({
     const contextParts: string[] = [];
 
     contextParts.push(
-      "Generate 3 image variations using our image generation script (`pnpm script generate-image`).",
+      "Generate 3 image variations using our image generation action (`pnpm action generate-image`).",
     );
 
     if (prompt.trim()) {

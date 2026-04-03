@@ -12,15 +12,7 @@ export default function Footer() {
             rel="noreferrer"
             className="text-[var(--fg-secondary)] transition hover:text-[var(--fg)]"
           >
-            GitHub
-          </a>
-          <a
-            href="https://www.npmjs.com/package/@agent-native/core"
-            target="_blank"
-            rel="noreferrer"
-            className="text-[var(--fg-secondary)] transition hover:text-[var(--fg)]"
-          >
-            npm
+            GitHub <span className="text-[10px] opacity-50">↗</span>
           </a>
           <a
             href="https://discord.gg/qm82StQ2NC"
@@ -28,7 +20,15 @@ export default function Footer() {
             rel="noreferrer"
             className="text-[var(--fg-secondary)] transition hover:text-[var(--fg)]"
           >
-            Discord
+            Discord <span className="text-[10px] opacity-50">↗</span>
+          </a>
+          <a
+            href="https://www.npmjs.com/package/@agent-native/core"
+            target="_blank"
+            rel="noreferrer"
+            className="text-[var(--fg-secondary)] transition hover:text-[var(--fg)]"
+          >
+            npm <span className="text-[10px] opacity-50">↗</span>
           </a>
         </div>
       </div>

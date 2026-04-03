@@ -1,9 +1,9 @@
-import { useSyncExternalStore, useCallback } from "react";
+import { useSyncExternalStore } from "react";
 import { toast } from "sonner";
 
-type UndoAction = (() => void) | null;
+type UndoEntry = () => void;
 
-let currentUndo: UndoAction = null;
+const undoStack: UndoEntry[] = [];
 const listeners = new Set<() => void>();
 
 function notify() {
@@ -15,32 +15,33 @@ function subscribe(listener: () => void) {
   return () => listeners.delete(listener);
 }
 
-function getSnapshot(): UndoAction {
-  return currentUndo;
+function getSnapshot(): number {
+  return undoStack.length;
 }
 
-/** Register an undo action (e.g. after archiving). */
-export function setUndoAction(action: UndoAction) {
-  currentUndo = action;
+/** Push an undo action onto the stack (e.g. after archiving). */
+export function setUndoAction(action: UndoEntry) {
+  undoStack.push(action);
   notify();
 }
 
-/** Clear the current undo action. */
+/** Clear the entire undo stack. */
 export function clearUndoAction() {
-  currentUndo = null;
+  undoStack.length = 0;
   notify();
 }
 
-/** Run the current undo action if one exists, then clear it. */
+/** Pop and run the most recent undo action. */
 export function runUndo() {
-  if (currentUndo) {
-    currentUndo();
-    clearUndoAction();
+  const action = undoStack.pop();
+  if (action) {
+    action();
     toast.dismiss();
+    notify();
   }
 }
 
-/** React hook — returns true if an undo action is available. */
+/** React hook — returns true if any undo actions are available. */
 export function useHasUndo(): boolean {
-  return useSyncExternalStore(subscribe, getSnapshot) !== null;
+  return useSyncExternalStore(subscribe, getSnapshot) > 0;
 }

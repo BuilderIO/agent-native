@@ -130,7 +130,35 @@ export default function ContentTemplate() {
               even modify the app itself.
             </p>
 
-            <div className="mb-8 flex flex-col items-start gap-3">
+            <div className="mb-8 flex flex-wrap items-center gap-3">
+              <a
+                href="https://content.agent-native.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
+                onClick={() =>
+                  trackEvent("try_live_demo", {
+                    template: "content",
+                    location: "landing_page",
+                  })
+                }
+              >
+                Try It
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                  <polyline points="15 3 21 3 21 9" />
+                  <line x1="10" y1="14" x2="21" y2="3" />
+                </svg>
+              </a>
               <CliCopy />
             </div>
           </div>
@@ -166,7 +194,8 @@ export default function ContentTemplate() {
             </div>
             <div className="mb-1 text-sm font-semibold">Write</div>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Rich editor with formatting, headings, code blocks, and media.
+              Rich editor with formatting, headings, code blocks with syntax
+              highlighting, and media.
             </p>
           </div>
           <div className="bg-[var(--bg)] p-6 text-center">
@@ -238,17 +267,19 @@ export default function ContentTemplate() {
             </p>
           </div>
           <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">Media Management</h3>
+            <h3 className="mb-1 text-sm font-semibold">Notion Import/Export</h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Browse and manage images, references, and resources alongside your
-              content.
+              Two-way Notion sync. Import pages from Notion, edit locally, and
+              push changes back.
             </p>
           </div>
           <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">Real-Time Sync</h3>
+            <h3 className="mb-1 text-sm font-semibold">
+              Code Block Syntax Highlighting
+            </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Agent edits appear instantly. Files are the source of truth, SSE
-              broadcasts changes.
+              Full syntax highlighting for code blocks. Language detection and
+              formatting built in.
             </p>
           </div>
           <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">

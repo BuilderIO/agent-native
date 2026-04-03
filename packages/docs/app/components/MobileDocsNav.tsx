@@ -1,6 +1,6 @@
 import { Link, useLocation } from "react-router";
 import { useState, useEffect, useRef } from "react";
-import { NAV_ITEMS } from "./docsNavItems";
+import { NAV_ITEMS, NAV_SECTIONS } from "./docsNavItems";
 
 function ChevronIcon({ open }: { open: boolean }) {
   return (
@@ -78,21 +78,30 @@ export default function MobileDocsNav() {
       {open && (
         <nav className="mobile-docs-nav-dropdown">
           <ul className="mobile-docs-nav-list">
-            {NAV_ITEMS.map((item) => {
-              const isActive = item.to === currentItem.to;
-              return (
-                <li key={item.to}>
-                  <Link
-                    prefetch="render"
-                    to={item.to}
-                    className={`mobile-docs-nav-link ${isActive ? "is-active" : ""}`}
-                    onClick={() => setOpen(false)}
-                  >
-                    {item.label}
-                  </Link>
-                </li>
-              );
-            })}
+            {NAV_SECTIONS.map((section) => (
+              <li key={section.title}>
+                <p className="px-3 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-[var(--fg-secondary)] first:pt-1">
+                  {section.title}
+                </p>
+                <ul className="list-none p-0">
+                  {section.items.map((item) => {
+                    const isActive = item.to === currentItem.to;
+                    return (
+                      <li key={item.to}>
+                        <Link
+                          prefetch="render"
+                          to={item.to}
+                          className={`mobile-docs-nav-link ${isActive ? "is-active" : ""}`}
+                          onClick={() => setOpen(false)}
+                        >
+                          {item.label}
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </li>
+            ))}
           </ul>
         </nav>
       )}

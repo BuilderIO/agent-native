@@ -269,7 +269,8 @@ export async function run(args: Record<string, string>): Promise<string> {
     }
   }
 
-  // Fetch sender display name from Gmail send-as settings
+  // Fetch sender display name from Gmail send-as settings,
+  // falling back to Google profile name, then settings.name
   let fromHeader = settings.name
     ? `${settings.name} <${selectedEmail}>`
     : selectedEmail;
@@ -285,7 +286,24 @@ export async function run(args: Record<string, string>): Promise<string> {
       fromHeader = `${match.displayName} <${selectedEmail}>`;
     }
   } catch {
-    // Fall back to settings.name or email-only
+    // Fall back to profile name below
+  }
+  // If still no display name, try Google profile
+  if (
+    fromHeader === selectedEmail ||
+    (!fromHeader.includes("<") && !settings.name)
+  ) {
+    try {
+      const profile = await googleFetch(
+        `https://www.googleapis.com/oauth2/v2/userinfo`,
+        selectedToken,
+      );
+      if (profile?.name) {
+        fromHeader = `${profile.name} <${selectedEmail}>`;
+      }
+    } catch {
+      // Fall back to settings.name or email-only
+    }
   }
 
   const raw = buildRawEmail({

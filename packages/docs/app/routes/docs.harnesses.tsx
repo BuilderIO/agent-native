@@ -3,7 +3,7 @@ import DocsLayout from "../components/DocsLayout";
 const TOC = [
   { id: "embedded-agent", label: "Embedded Agent Panel" },
   { id: "supported-clis", label: "Supported CLIs" },
-  { id: "cloud-harness", label: "Builder.io Cloud Harness" },
+  { id: "cloud-harness", label: "Builder.io Cloud" },
   { id: "how-it-works", label: "How It Works" },
 ];
 
@@ -81,7 +81,7 @@ export default function HarnessesDocs() {
           target="_blank"
           rel="noopener noreferrer"
         >
-          Builder.io Cloud Harness
+          Builder.io Cloud
         </a>
       </h2>
       <ul className="list-disc space-y-1 pl-5">
@@ -115,8 +115,8 @@ export default function HarnessesDocs() {
           the agent modifies files
         </li>
         <li>
-          <strong>Script system</strong> — <code>pnpm script {"<name>"}</code>{" "}
-          dispatches to callable scripts
+          <strong>Action system</strong> — <code>pnpm action {"<name>"}</code>{" "}
+          dispatches to callable actions
         </li>
       </ol>
       <p>Your app code is identical regardless of how the agent is provided.</p>

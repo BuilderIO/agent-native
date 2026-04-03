@@ -1,7 +1,7 @@
-import { Link, NavLink } from "react-router";
+import { Link, NavLink, useLocation } from "react-router";
 import ThemeToggle from "./ThemeToggle";
 import { useSearchModal, SearchModal } from "./SearchModal";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 function SearchTrigger({ onClick }: { onClick: () => void }) {
   return (
@@ -70,12 +70,26 @@ function CloseIcon() {
 export default function Header() {
   const { open, setOpen } = useSearchModal();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const isHome = useLocation().pathname === "/";
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    if (!isHome) return;
+    const onScroll = () => setScrolled(window.scrollY > 10);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [isHome]);
+
+  const showHeaderBg = !isHome || scrolled;
 
   const closeMobileMenu = () => setMobileMenuOpen(false);
 
   return (
     <>
-      <header className="sticky top-0 z-50 border-b border-[var(--border)] bg-[var(--header-bg)] backdrop-blur-lg">
+      <header
+        className={`sticky top-0 z-50 transition-[background-color,border-color,backdrop-filter] duration-300 ${showHeaderBg ? "border-b border-[var(--border)] bg-[var(--header-bg)] backdrop-blur-lg" : "border-b border-transparent bg-transparent"}`}
+      >
         <nav className="mx-auto flex h-16 max-w-[1440px] items-center gap-6 px-6">
           <Link
             prefetch="render"
@@ -123,6 +137,9 @@ export default function Header() {
               className="header-link"
             >
               GitHub
+              <span className="text-[0.6em] align-super ml-0.5 opacity-70">
+                ↗
+              </span>
             </a>
             <a
               href="https://discord.gg/qm82StQ2NC"
@@ -131,6 +148,9 @@ export default function Header() {
               className="header-link"
             >
               Discord
+              <span className="text-[0.6em] align-super ml-0.5 opacity-70">
+                ↗
+              </span>
             </a>
           </div>
 
@@ -190,6 +210,9 @@ export default function Header() {
               className="header-link"
             >
               GitHub
+              <span className="text-[0.6em] align-super ml-0.5 opacity-70">
+                ↗
+              </span>
             </a>
             <a
               href="https://discord.gg/qm82StQ2NC"
@@ -198,6 +221,9 @@ export default function Header() {
               className="header-link"
             >
               Discord
+              <span className="text-[0.6em] align-super ml-0.5 opacity-70">
+                ↗
+              </span>
             </a>
           </div>
         )}
