@@ -424,6 +424,26 @@ export function createProductionAgentHandler(
                 // Try streaming first — shows progressive text in the UI
                 const client = new A2AClient(ref.path);
                 const callerEmail = process.env.AGENT_USER_EMAIL;
+
+                // Build A2A metadata with identity info
+                const a2aMetadata: Record<string, unknown> = {};
+                if (callerEmail) a2aMetadata.userEmail = callerEmail;
+                // In prod, include Google token for verification
+                if (process.env.NODE_ENV === "production" && callerEmail) {
+                  try {
+                    const { listOAuthAccountsByOwner } =
+                      await import("../oauth-tokens/store.js");
+                    const accounts = await listOAuthAccountsByOwner(
+                      "google",
+                      callerEmail,
+                    );
+                    const tokens = accounts[0]?.tokens;
+                    if (tokens?.access_token) {
+                      a2aMetadata.googleToken = tokens.access_token;
+                    }
+                  } catch {}
+                }
+
                 let responseText = "";
                 let lastSentLength = 0;
 
@@ -433,8 +453,8 @@ export function createProductionAgentHandler(
                       role: "user",
                       parts: [{ type: "text", text: message }],
                     },
-                    callerEmail
-                      ? { metadata: { userEmail: callerEmail } }
+                    Object.keys(a2aMetadata).length > 0
+                      ? { metadata: a2aMetadata }
                       : undefined,
                   )) {
                     const newText =
