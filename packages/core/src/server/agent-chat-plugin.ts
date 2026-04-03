@@ -49,15 +49,6 @@ import nodePath from "node:path";
  * Wraps a core CLI script (that writes to console.log) as a ActionEntry
  * by capturing stdout.
  */
-/** Sentinel thrown by our process.exit interceptor */
-class ExitIntercepted extends Error {
-  code: number;
-  constructor(code: number) {
-    super(`process.exit(${code})`);
-    this.code = code;
-  }
-}
-
 function wrapCliScript(
   tool: ActionTool,
   cliDefault: (args: string[]) => Promise<void>,
@@ -73,7 +64,6 @@ function wrapCliScript(
       const origLog = console.log;
       const origError = console.error;
       const origStdoutWrite = process.stdout.write;
-      const origExit = process.exit;
       console.log = (...a: unknown[]) => {
         logs.push(a.map(String).join(" "));
       };
@@ -90,21 +80,14 @@ function wrapCliScript(
         }
         return true;
       }) as any;
-      // Intercept process.exit so scripts don't kill the server
-      process.exit = ((code?: number) => {
-        throw new ExitIntercepted(code ?? 0);
-      }) as never;
       try {
         await cliDefault(cliArgs);
       } catch (err: any) {
-        if (!(err instanceof ExitIntercepted)) {
-          logs.push(`Error: ${err?.message ?? String(err)}`);
-        }
+        logs.push(`Error: ${err?.message ?? String(err)}`);
       } finally {
         console.log = origLog;
         console.error = origError;
         process.stdout.write = origStdoutWrite;
-        process.exit = origExit;
       }
       return logs.join("\n") || "(no output)";
     },
@@ -623,21 +606,10 @@ export function createAgentChatPlugin(
             const script = allScripts[tb.name];
             let result = `Unknown tool: ${tb.name}`;
             if (script) {
-              // Intercept process.exit so scripts don't kill the server
-              const origExit = process.exit;
-              process.exit = ((code?: number) => {
-                throw new ExitIntercepted(code ?? 0);
-              }) as never;
               try {
                 result = await script.run(tb.input as Record<string, string>);
               } catch (err: any) {
-                if (err instanceof ExitIntercepted) {
-                  result = `Script exited with code ${err.code}`;
-                } else {
-                  result = `Error: ${err?.message}`;
-                }
-              } finally {
-                process.exit = origExit;
+                result = `Error: ${err?.message}`;
               }
             }
             toolResults.push({

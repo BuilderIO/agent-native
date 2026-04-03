@@ -1,20 +1,7 @@
 name: Publish @agent-native/core
 
 on:
-  release:
-    types: [published]
   workflow_dispatch:
-    inputs:
-      version_bump:
-        description: "Version bump type"
-        required: true
-        default: "patch"
-        type: choice
-        options:
-          - patch
-          - minor
-          - major
-          - dev
 
 jobs:
   publish:
@@ -26,26 +13,13 @@ jobs:
       id-token: write
 
     steps:
-      - name: Generate app token
-        id: app-token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
-          private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
+      - uses: actions/checkout@v4
 
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ steps.app-token.outputs.token }}
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v4
         with:
           version: 10
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: "pnpm"
@@ -59,35 +33,6 @@ jobs:
       - name: Run tests
         run: pnpm --filter @agent-native/core test
 
-      - name: Bump version (manual dispatch only)
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.version_bump != 'dev'
-        working-directory: packages/core
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          npm version ${{ github.event.inputs.version_bump }} --no-git-tag-version
-          VERSION=$(node -p "require('./package.json').version")
-          git add package.json
-          git commit -m "chore: bump @agent-native/core to v${VERSION}"
-          git tag "v${VERSION}"
-          git push origin HEAD:main --tags
-
-      - name: Set dev version (manual dispatch only)
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.version_bump == 'dev'
-        working-directory: packages/core
-        run: |
-          CURRENT=$(node -p "require('./package.json').version")
-          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          DEV_VERSION="${CURRENT}-dev.${SHORT_SHA}"
-          npm version "$DEV_VERSION" --no-git-tag-version
-          echo "DEV_VERSION=$DEV_VERSION" >> $GITHUB_ENV
-
       - name: Publish to npm
-        if: github.event.inputs.version_bump != 'dev'
         working-directory: packages/core
         run: npm publish --access public --provenance
-
-      - name: Publish dev version to npm
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.version_bump == 'dev'
-        working-directory: packages/core
-        run: npm publish --access public --provenance --tag dev
