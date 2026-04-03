@@ -49,7 +49,9 @@ jobs:
         with:
           node-version: "22"
           cache: "pnpm"
-          registry-url: "https://registry.npmjs.org"
+
+      - name: Install npm with OIDC provenance support
+        run: npm install -g npm@10
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -87,12 +89,8 @@ jobs:
         if: github.event.inputs.version_bump != 'dev'
         working-directory: packages/core
         run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish dev version to npm
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.version_bump == 'dev'
         working-directory: packages/core
         run: npm publish --access public --provenance --tag dev
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
