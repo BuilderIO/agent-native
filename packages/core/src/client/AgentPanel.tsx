@@ -580,13 +580,8 @@ export function AgentPanel({
                       key={tab.id}
                       role="button"
                       tabIndex={0}
-                      onClick={() => {
-                        setActiveTabId(tab.id);
-                        scrollActiveTabIntoView();
-                      }}
-                      {...(tab.id === activeTabId
-                        ? { "data-active-tab": true }
-                        : {})}
+                      ref={tab.id === activeTabId ? activeTabRefCb : undefined}
+                      onClick={() => setActiveTabId(tab.id)}
                       className={cn(
                         "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer max-w-[150px]",
                         tab.id === activeTabId
@@ -628,13 +623,8 @@ export function AgentPanel({
                       key={id}
                       role="button"
                       tabIndex={0}
-                      onClick={() => {
-                        setActiveCliTab(id);
-                        scrollActiveTabIntoView();
-                      }}
-                      {...(id === activeCliTab
-                        ? { "data-active-tab": true }
-                        : {})}
+                      ref={id === activeCliTab ? activeTabRefCb : undefined}
+                      onClick={() => setActiveCliTab(id)}
                       className={cn(
                         "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer",
                         id === activeCliTab
@@ -674,11 +664,8 @@ export function AgentPanel({
                 <>
                   <IconTooltip content="New chat">
                     <button
-                      onClick={() => {
-                        addTab();
-                        scrollActiveTabIntoView();
-                      }}
-                      className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                      onClick={addTab}
+                      className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
                     >
                       <IconPlus size={14} />
                     </button>
@@ -688,7 +675,7 @@ export function AgentPanel({
                       <button
                         onClick={toggleHistory}
                         className={cn(
-                          "flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                          "flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
                           showHistory && "bg-accent text-foreground",
                         )}
                       >
@@ -707,7 +694,7 @@ export function AgentPanel({
                           )
                         }
                         className={cn(
-                          "flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                          "flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
                           tabMenuOpen === "__chat_global" &&
                             "bg-accent text-foreground",
                         )}
@@ -762,11 +749,8 @@ export function AgentPanel({
                 <>
                   <IconTooltip content="New terminal">
                     <button
-                      onClick={() => {
-                        addCliTab();
-                        scrollActiveTabIntoView();
-                      }}
-                      className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                      onClick={addCliTab}
+                      className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
                     >
                       <IconPlus size={14} />
                     </button>
@@ -777,7 +761,7 @@ export function AgentPanel({
                         <button
                           onClick={() => setCliPickerOpen(!cliPickerOpen)}
                           className={cn(
-                            "flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                            "flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
                             cliPickerOpen && "bg-accent text-foreground",
                           )}
                         >
@@ -833,7 +817,7 @@ export function AgentPanel({
                           )
                         }
                         className={cn(
-                          "flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                          "flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
                           tabMenuOpen === "__cli_global" &&
                             "bg-accent text-foreground",
                         )}
@@ -1292,7 +1276,7 @@ export function AgentToggleButton({ className }: { className?: string }) {
     <button
       onClick={() => window.dispatchEvent(new Event("agent-panel:toggle"))}
       className={cn(
-        "flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
+        "flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
         className,
       )}
       title="Toggle agent"

@@ -838,6 +838,8 @@ export interface AssistantChatProps {
   onGenerateTitle?: (message: string) => void;
   /** Optional content rendered just above the composer input */
   composerSlot?: React.ReactNode;
+  /** When true, skip the restore skeleton (used for freshly created threads with no messages) */
+  isNewThread?: boolean;
 }
 
 export const CHAT_STORAGE_PREFIX = "agent-chat:";
@@ -870,6 +872,7 @@ const AssistantChatInner = forwardRef<
     onSaveThread,
     onGenerateTitle,
     composerSlot,
+    isNewThread,
   },
   ref,
 ) {
@@ -890,7 +893,7 @@ const AssistantChatInner = forwardRef<
 
   // ─── Chat persistence ──────────────────────────────────────────────
   const hasRestoredRef = useRef(false);
-  const [isRestoring, setIsRestoring] = useState(!!threadId);
+  const [isRestoring, setIsRestoring] = useState(!!threadId && !isNewThread);
   const onSaveThreadRef = useRef(onSaveThread);
   onSaveThreadRef.current = onSaveThread;
   const onGenerateTitleRef = useRef(onGenerateTitle);

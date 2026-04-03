@@ -235,11 +235,11 @@ export function MultiTabAssistantChat({
 
   const activeThreadIdRef = useRef(activeThreadId);
   activeThreadIdRef.current = activeThreadId;
-  const defaultTabScrollRef = useRef<HTMLDivElement>(null);
   const chatRefs = useRef<Map<string, AssistantChatHandle>>(new Map());
   const pendingSends = useRef<Map<string, string>>(new Map());
   const [runningThreads, setRunningThreads] = useState<Set<string>>(new Set());
   const [showHistory, setShowHistory] = useState(false);
+  const newThreadIds = useRef<Set<string>>(new Set());
 
   // Open tabs — persisted to localStorage so they survive refresh.
   const OPEN_TABS_KEY = "agent-chat-open-tabs";
@@ -302,26 +302,12 @@ export function MultiTabAssistantChat({
     return () => clearTimeout(t);
   }, [activeThreadId]);
 
-  // Scroll active tab into view when it changes or tabs are added
-  useEffect(() => {
-    const container = defaultTabScrollRef.current;
-    if (!container) return;
-    const observer = new MutationObserver(() => {
-      const activeEl = container.querySelector(
-        "[data-active-tab]",
-      ) as HTMLElement | null;
-      if (activeEl) {
-        activeEl.scrollIntoView({ block: "nearest", inline: "nearest" });
-      }
-    });
-    observer.observe(container, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ["data-active-tab"],
-    });
-    return () => observer.disconnect();
-  });
+  // Ref callback: scroll the active tab into view whenever it mounts/changes
+  const activeTabRefCb = useCallback((el: HTMLButtonElement | null) => {
+    if (el) {
+      el.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+  }, []);
 
   const [messageCounts, setMessageCounts] = useState<Record<string, number>>(
     () => Object.fromEntries(threads.map((t) => [t.id, t.messageCount ?? 0])),
@@ -429,6 +415,7 @@ export function MultiTabAssistantChat({
   const addTab = useCallback(async () => {
     const id = await createThread();
     if (id) {
+      newThreadIds.current.add(id);
       setOpenTabIds((prev) => [...prev, id]);
     }
   }, [createThread]);
@@ -470,6 +457,7 @@ export function MultiTabAssistantChat({
   const closeAllTabs = useCallback(async () => {
     const id = await createThread();
     if (id) {
+      newThreadIds.current.add(id);
       setOpenTabIds([id]);
       // Clean up all old refs
       chatRefs.current.clear();
@@ -574,17 +562,12 @@ export function MultiTabAssistantChat({
         renderHeader(headerProps)
       ) : showTabBar ? (
         <div className="flex items-center px-1 py-1 border-b border-border shrink-0 gap-0.5">
-          <div
-            ref={defaultTabScrollRef}
-            className="flex items-center gap-0.5 min-w-0 overflow-x-auto scrollbar-none flex-1"
-          >
+          <div className="flex items-center gap-0.5 min-w-0 overflow-x-auto scrollbar-none flex-1">
             {tabs.map((tab) => (
               <button
                 key={tab.id}
+                ref={tab.id === activeThreadId ? activeTabRefCb : undefined}
                 onClick={() => switchThread(tab.id)}
-                {...(tab.id === activeThreadId
-                  ? { "data-active-tab": true }
-                  : {})}
                 className={cn(
                   "agent-tab relative flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] font-medium shrink-0 max-w-[130px]",
                   tab.id === activeThreadId
@@ -681,6 +664,7 @@ export function MultiTabAssistantChat({
               threadId={tabId}
               tabId={tabId}
               apiUrl={apiUrl}
+              isNewThread={newThreadIds.current.has(tabId)}
               onMessageCountChange={(count) =>
                 setMessageCounts((prev) =>
                   prev[tabId] === count ? prev : { ...prev, [tabId]: count },
