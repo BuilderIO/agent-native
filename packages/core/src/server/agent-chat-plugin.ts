@@ -522,7 +522,20 @@ export function createAgentChatPlugin(
         // Run the agent loop directly in-process using the same scripts + prompt.
         // This avoids HTTP self-calls and port detection issues.
         const Anthropic = (await import("@anthropic-ai/sdk")).default;
-        const apiKey = options?.apiKey || process.env.ANTHROPIC_API_KEY || "";
+        const apiKey = options?.apiKey ?? process.env.ANTHROPIC_API_KEY;
+        if (!apiKey) {
+          return {
+            message: {
+              role: "agent" as const,
+              parts: [
+                {
+                  type: "text" as const,
+                  text: "Anthropic API key is not configured. Set ANTHROPIC_API_KEY in .env or pass apiKey in plugin options.",
+                },
+              ],
+            },
+          };
+        }
         const client = new Anthropic({ apiKey });
         const model = options?.model ?? "claude-sonnet-4-6-20250514";
         const resources = await loadResourcesForPrompt("local@localhost");

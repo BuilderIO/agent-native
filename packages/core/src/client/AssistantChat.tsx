@@ -409,6 +409,42 @@ function ReconnectStreamMessage({ content }: { content: ContentPart[] }) {
 
 // ─── Message Components ─────────────────────────────────────────────────────
 
+const mentionPattern = /((?:^|(?<=\s))@(\w+))/g;
+
+function UserMessageText({ text }: { text: string }) {
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  // Reset regex state
+  mentionPattern.lastIndex = 0;
+
+  while ((match = mentionPattern.exec(text)) !== null) {
+    const matchStart = match.index;
+    // Push any text before this match
+    if (matchStart > lastIndex) {
+      parts.push(text.slice(lastIndex, matchStart));
+    }
+    const mentionName = match[2];
+    parts.push(
+      <span
+        key={matchStart}
+        className="inline-flex items-center gap-1 rounded-md border border-input bg-muted/50 px-1.5 py-0.5 text-xs font-medium text-foreground align-middle mx-0.5 select-none"
+      >
+        @{mentionName}
+      </span>,
+    );
+    lastIndex = matchStart + match[0].length;
+  }
+
+  // Push any remaining text after the last match
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return <>{parts.length > 0 ? parts : text}</>;
+}
+
 function UserMessage() {
   const [expanded, setExpanded] = useState(false);
   const [isExpandable, setIsExpandable] = useState(false);
@@ -441,7 +477,7 @@ function UserMessage() {
           >
             <MessagePrimitive.Parts
               components={{
-                Text: ({ text }) => <>{text}</>,
+                Text: UserMessageText,
               }}
             />
           </div>

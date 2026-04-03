@@ -243,7 +243,32 @@ export function TiptapComposer({
     }
 
     const references: Reference[] = [];
-    const text = ed.getText();
+
+    // Build text that preserves @mentions (getText() strips them).
+    // Walk the document and reconstruct with @name for mention/file/skill nodes.
+    const textParts: string[] = [];
+    ed.state.doc.descendants((node: any) => {
+      if (node.isText) {
+        textParts.push(node.text);
+      } else if (node.type.name === "mentionReference") {
+        textParts.push(`@${node.attrs.label}`);
+      } else if (node.type.name === "fileReference") {
+        textParts.push(
+          `@${node.attrs.path?.split("/").pop() || node.attrs.path}`,
+        );
+      } else if (node.type.name === "skillReference") {
+        textParts.push(`/${node.attrs.name}`);
+      } else if (node.type.name === "hardBreak") {
+        textParts.push("\n");
+      } else if (
+        node.type.name === "paragraph" &&
+        textParts.length > 0 &&
+        textParts[textParts.length - 1] !== "\n"
+      ) {
+        textParts.push("\n");
+      }
+    });
+    const text = textParts.join("").trim();
 
     ed.state.doc.descendants((node: any) => {
       if (node.type.name === "fileReference") {
