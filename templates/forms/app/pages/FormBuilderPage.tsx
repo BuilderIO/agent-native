@@ -327,7 +327,12 @@ export function FormBuilderPage() {
       setShowCloudUpgrade(true);
       return;
     }
-    const url = `${window.location.origin}/f/${form.id}`;
+    const slug = form.title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 60);
+    const url = `${window.location.origin}/f/${slug}/${form.id}`;
     navigator.clipboard.writeText(url);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -381,7 +386,15 @@ export function FormBuilderPage() {
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
-                  <a href={`/f/${form.id}`} target="_blank" rel="noopener">
+                  <a
+                    href={`/f/${form.title
+                      .toLowerCase()
+                      .replace(/[^a-z0-9]+/g, "-")
+                      .replace(/^-|-$/g, "")
+                      .slice(0, 60)}/${form.id}`}
+                    target="_blank"
+                    rel="noopener"
+                  >
                     <IconExternalLink className="h-4 w-4" />
                   </a>
                 </Button>
@@ -1188,7 +1201,12 @@ function IntegrationsEditor({
                   (typeof integrationMeta)[IntegrationType],
                 ][]
               ).map(([type, meta]) => (
-                <div key={type} className="rounded-lg border bg-background p-3">
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => addIntegration(type)}
+                  className="rounded-lg border bg-background p-3 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
                   <div className="flex items-center gap-3">
                     <IntegrationBrandMark type={type} className="h-9 w-9" />
                     <div className="min-w-0">
@@ -1202,7 +1220,7 @@ function IntegrationsEditor({
                       </p>
                     </div>
                   </div>
-                </div>
+                </button>
               ))}
             </div>
 

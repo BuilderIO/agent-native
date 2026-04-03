@@ -258,7 +258,10 @@ export const deleteForm = defineEventHandler(async (event: H3Event) => {
 });
 
 export const getPublicForm = defineEventHandler(async (event: H3Event) => {
-  const formId = getRouterParam(event, "slug") as string;
+  // URL: /api/forms/public/optional-slug/formId — last segment is the ID
+  const raw = getRouterParam(event, "slug") || "";
+  const segments = raw.split("/").filter(Boolean);
+  const formId = segments[segments.length - 1] || "";
 
   // Check cache first
   const cached = getCachedPublicForm(formId);

@@ -1,19 +1,14 @@
-import {
-  defineEventHandler,
-  getRouterParam,
-  setResponseHeader,
-  setResponseStatus,
-} from "h3";
+import { setResponseHeader, setResponseStatus, type H3Event } from "h3";
 import { eq } from "drizzle-orm";
-import { getDb, schema } from "../../db/index.js";
-import type { FormField, FormSettings } from "../../../shared/types.js";
+import { getDb, schema } from "../db/index.js";
+import type { FormField, FormSettings } from "../../shared/types.js";
 
-// In-memory cache (same as getPublicForm handler)
+// In-memory cache
 const cache = new Map<string, { data: any; ts: number }>();
 const TTL = 60_000;
 
-function getCached(slug: string) {
-  const entry = cache.get(slug);
+function getCached(key: string) {
+  const entry = cache.get(key);
   if (entry && Date.now() - entry.ts < TTL) return entry.data;
   return null;
 }
@@ -116,12 +111,19 @@ function renderField(field: FormField): string {
 }
 
 // ---------------------------------------------------------------------------
-// Main handler
+// Main SSR handler — called from [...page].get.ts for /f/* URLs
 // ---------------------------------------------------------------------------
 
-export default defineEventHandler(async (event) => {
-  const slug = getRouterParam(event, "slug") as string;
-  const form = await getFormById(slug);
+export async function renderPublicForm(event: H3Event) {
+  // URL format: /f/formId or /f/optional-slug/formId — last segment is always the ID
+  const url = event.node.req.url ?? "";
+  const segments = url
+    .split("?")[0]
+    .replace(/^\/f\//, "")
+    .split("/")
+    .filter(Boolean);
+  const formId = segments[segments.length - 1] || "";
+  const form = formId ? await getFormById(formId) : null;
 
   setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
 
@@ -376,7 +378,7 @@ ${form.description ? `<meta name="description" content="${escapeHtml(form.descri
 </script>
 </body>
 </html>`;
-});
+}
 
 // ---------------------------------------------------------------------------
 // 404 page
