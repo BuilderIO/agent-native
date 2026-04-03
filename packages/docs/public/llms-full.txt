@@ -525,7 +525,7 @@ Every agent-native app includes an embedded agent panel with chat and optional C
 - Toggle between production mode (app tools only) and development mode (full access)
 - Best for: local development, self-hosted production, OSS
 
-## Builder.io Cloud Harness
+## Builder.io Cloud
 
 - Real-time collaboration — multiple users can watch/interact simultaneously
 - Visual editing, roles and permissions

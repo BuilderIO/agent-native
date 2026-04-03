@@ -173,7 +173,7 @@ export const searchIndex: SearchEntry[] = [
   {
     page: "Harnesses",
     path: "/docs/harnesses",
-    section: "Builder.io Cloud Harness",
+    section: "Builder.io Cloud",
     sectionId: "cloud-harness",
     text: "Provided by Builder.io available at builder.io. Runs in the cloud. Real-time collaboration multiple users can watch interact simultaneously. Visual editing capabilities alongside the AI agent. Parallel agent execution for faster iteration. Best for teams.",
   },

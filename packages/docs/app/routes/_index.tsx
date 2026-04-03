@@ -1,6 +1,7 @@
 import { Link } from "react-router";
 import { useEffect, useRef, useState } from "react";
 import CodeBlock from "../components/CodeBlock";
+import Seascape from "../components/Seascape";
 import {
   templates,
   TemplateCard,
@@ -220,73 +221,96 @@ export default function Home() {
     <>
       <main className="mx-auto max-w-[1200px] px-6">
         {/* Hero */}
-        <section className="hero-section">
-          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-1.5 text-sm text-[var(--fg-secondary)]">
-            <span className="inline-block h-2 w-2 rounded-full bg-[var(--accent)]" />
-            Open source framework
+        <section
+          className="hero-section relative"
+          style={{ clipPath: "inset(-100vh -100vw 0 -100vw)" }}
+        >
+          <div
+            className="pointer-events-none absolute bottom-0"
+            style={{
+              left: "50%",
+              transform: "translateX(-50%)",
+              width: "100vw",
+              top: "-65px",
+            }}
+          >
+            <Seascape className="opacity-70" />
           </div>
+          <div
+            className="pointer-events-none absolute inset-0 z-[5]"
+            style={{
+              background:
+                "radial-gradient(ellipse at center, var(--bg) 0%, transparent 70%)",
+              opacity: 0.5,
+            }}
+          />
+          <div className="relative z-10">
+            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-1.5 text-sm text-[var(--fg-secondary)]">
+              <span className="inline-block h-2 w-2 rounded-full bg-[var(--accent)]" />
+              Open source framework
+            </div>
 
-          <h1 className="mx-auto max-w-3xl">
-            Agentic Applications{" "}
-            <span className="inline-block bg-gradient-to-r from-[var(--accent)] to-[#7928ca] bg-clip-text text-transparent">
-              You Own
-            </span>
-          </h1>
+            <h1 className="mx-auto max-w-3xl">
+              Agentic Applications{" "}
+              <span className="inline-block bg-gradient-to-r from-[var(--accent)] to-[#7928ca] bg-clip-text text-transparent">
+                You Own
+              </span>
+            </h1>
 
-          <p className="mx-auto mb-10 max-w-xl text-lg leading-relaxed text-[var(--fg-secondary)]">
-            SaaS products lock you into rigid software you can't customize.
-            Agent-native gives you full-featured apps you own, powered by an AI
-            agent that can evolve them.
-          </p>
+            <p className="mx-auto mb-10 max-w-xl text-lg leading-relaxed text-[var(--fg-secondary)]">
+              Don't choose between structured user flows and autonomous agents.
+              Every Agent-Native app is both.
+            </p>
 
-          <div className="flex items-center justify-center gap-4">
-            <a
-              href="#templates"
-              className="primary-button"
-              onClick={() =>
-                trackEvent("click_cta", {
-                  label: "launch_a_template",
-                  location: "hero",
-                })
-              }
-            >
-              Launch a Template
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+            <div className="flex items-center justify-center gap-4">
+              <a
+                href="#templates"
+                className="primary-button"
+                onClick={() =>
+                  trackEvent("click_cta", {
+                    label: "launch_a_template",
+                    location: "hero",
+                  })
+                }
               >
-                <line x1="5" y1="12" x2="19" y2="12" />
-                <polyline points="12 5 19 12 12 19" />
-              </svg>
-            </a>
-            <a
-              href="https://github.com/BuilderIO/agent-native"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
-              onClick={() =>
-                trackEvent("click_cta", { label: "github", location: "hero" })
-              }
-            >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="currentColor"
+                Launch a Template
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                  <polyline points="12 5 19 12 12 19" />
+                </svg>
+              </a>
+              <a
+                href="https://github.com/BuilderIO/agent-native"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+                onClick={() =>
+                  trackEvent("click_cta", { label: "github", location: "hero" })
+                }
               >
-                <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
-              </svg>
-              GitHub
-            </a>
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                >
+                  <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
+                </svg>
+                GitHub
+              </a>
+            </div>
+
+            <TerminalCommand />
           </div>
-
-          <TerminalCommand />
         </section>
       </main>
 
@@ -459,85 +483,68 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Harnesses */}
+        {/* Value props */}
         <section className="border-t border-[var(--border)] py-20">
           <div className="mb-12 text-center">
             <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-              Run anywhere
+              How it works
             </h2>
             <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-              Every agent-native app includes an embedded agent panel with chat
-              and optional CLI terminal. Run locally or deploy to the cloud with
-              Builder.io.
+              The agent and the UI are equal partners out of the box. Everything
+              the UI can do, the agent can do — and vice versa.
             </p>
           </div>
 
-          <div className="mx-auto grid max-w-3xl gap-4 sm:grid-cols-2">
+          <div className="mx-auto grid max-w-4xl gap-6 sm:grid-cols-2 lg:grid-cols-3">
             <div className="rounded-xl border border-[var(--border)] p-6">
-              <div className="mb-3 flex items-center gap-2">
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
-                  <line x1="8" y1="21" x2="16" y2="21" />
-                  <line x1="12" y1="17" x2="12" y2="21" />
-                </svg>
-                <h3 className="text-base font-semibold">
-                  Embedded Agent Panel
-                </h3>
-              </div>
-              <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
-                <li>Runs locally on your machine</li>
-                <li>
-                  Use Claude Code, Codex, Gemini CLI, OpenCode, or Builder.io
-                </li>
-                <li>Full permissions, full control</li>
-                <li>Free and open source</li>
-                <li>Great for local use</li>
-              </ul>
+              <h3 className="mb-2 text-base font-semibold">Everything syncs</h3>
+              <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+                Agent and UI share one database and one state. Changes from
+                either side show up instantly on the other.
+              </p>
             </div>
             <div className="rounded-xl border border-[var(--border)] p-6">
-              <div className="mb-3 flex items-center gap-2">
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
-                </svg>
-                <a
-                  href="https://www.builder.io"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-base font-semibold hover:underline"
-                >
-                  Builder.io Cloud Harness
-                </a>
-              </div>
-              <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
-                <li>Runs in the cloud</li>
-                <li>Real-time multiplayer collaboration</li>
-                <li>Visual editing, roles and permissions</li>
-                <li>Great for team use</li>
-              </ul>
+              <h3 className="mb-2 text-base font-semibold">Context-aware</h3>
+              <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+                The agent knows what you're looking at. Select text, hit Cmd+I,
+                and tell it what to do.
+              </p>
+            </div>
+            <div className="rounded-xl border border-[var(--border)] p-6">
+              <h3 className="mb-2 text-base font-semibold">
+                Agents call agents
+              </h3>
+              <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+                Tag another agent from any app. They discover each other over
+                A2A and take action across your stack.
+              </p>
+            </div>
+            <div className="rounded-xl border border-[var(--border)] p-6">
+              <h3 className="mb-2 text-base font-semibold">
+                Any database, any host
+              </h3>
+              <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+                Any SQL database Drizzle supports. Any hosting target Nitro
+                supports. No lock-in.
+              </p>
+            </div>
+            <div className="rounded-xl border border-[var(--border)] p-6">
+              <h3 className="mb-2 text-base font-semibold">Any AI agent</h3>
+              <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+                Claude Code, Codex, Gemini CLI, OpenCode, or Builder.io. Use
+                whichever agent you prefer.
+              </p>
+            </div>
+            <div className="rounded-xl border border-[var(--border)] p-6">
+              <h3 className="mb-2 text-base font-semibold">
+                The agent can evolve the app
+              </h3>
+              <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+                The agent can edit source code directly. Tell it to add a
+                feature and it builds everything together.
+              </p>
             </div>
           </div>
-
-          <p className="mt-6 text-center text-sm text-[var(--fg-secondary)]">
-            Your app code is identical regardless of how the agent is provided.
-          </p>
         </section>
 
         {/* Quick Start */}

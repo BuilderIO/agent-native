@@ -302,7 +302,7 @@ useDbSync({
           </p>
         </div>
         <div className="rounded-xl border border-[var(--border)] p-5">
-          <div className="mb-2 text-sm font-semibold">Cloud Harness</div>
+          <div className="mb-2 text-sm font-semibold">Cloud</div>
           <p className="m-0 text-sm text-[var(--fg-secondary)]">
             Deploy to any cloud with real-time collaboration, visual editing,
             roles and permissions. Best for teams.
