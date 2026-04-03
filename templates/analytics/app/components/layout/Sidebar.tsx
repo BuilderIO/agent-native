@@ -17,7 +17,7 @@ import {
   IconInfoCircle,
   IconTrash,
   IconStar,
-  IconTool,
+  IconSettings,
   IconGripVertical,
   IconHome,
   IconChartBar,
@@ -70,7 +70,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 
 const bottomItems = [
-  { icon: IconTool, label: "Settings", href: "/settings" },
+  { icon: IconSettings, label: "Settings", href: "/settings" },
   { icon: IconInfoCircle, label: "About", href: "/about" },
 ];
 
@@ -622,7 +622,7 @@ export function Sidebar() {
             )}
           >
             <IconHome className="h-4 w-4" />
-            IconHome
+            Home
           </Link>
 
           {/* Data Sources link */}
@@ -714,7 +714,7 @@ export function Sidebar() {
                 : "text-muted-foreground hover:bg-sidebar-accent/50",
             )}
           >
-            <IconTool className="h-4 w-4" />
+            <IconSettings className="h-4 w-4" />
             <span className="flex-1">Tools</span>
             <IconChevronDown
               className={cn(

@@ -19,6 +19,8 @@ import {
   IconCopy,
   IconAlertCircle,
   IconUpload,
+  IconPencil,
+  IconTrash,
 } from "@tabler/icons-react";
 import { getIdToken } from "@/lib/auth";
 import {
@@ -194,13 +196,286 @@ function StepItem({
   );
 }
 
+async function deleteCredentials(keys: string[]): Promise<void> {
+  const token = await getIdToken();
+  const res = await fetch("/api/credentials", {
+    method: "DELETE",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token && { Authorization: `Bearer ${token}` }),
+    },
+    body: JSON.stringify({ keys }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || "Failed to delete");
+  }
+}
+
+function ConnectedView({
+  source,
+  onSaved,
+  envStatus,
+}: {
+  source: DataSource;
+  onSaved: () => void;
+  envStatus: EnvKeyStatus[];
+}) {
+  const [editing, setEditing] = useState(false);
+  const [inputValues, setInputValues] = useState<Record<string, string>>({});
+  const [testResult, setTestResult] = useState<{
+    ok: boolean;
+    error?: string;
+  } | null>(null);
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const vars = Object.entries(inputValues)
+        .filter(([, v]) => v.trim())
+        .map(([key, value]) => ({ key, value: value.trim() }));
+      if (vars.length === 0) return;
+      await saveEnvVars(vars);
+    },
+    onSuccess: () => {
+      setInputValues({});
+      setEditing(false);
+      onSaved();
+    },
+  });
+
+  const disconnectMutation = useMutation({
+    mutationFn: () => deleteCredentials(source.envKeys),
+    onSuccess: () => onSaved(),
+  });
+
+  const testMutation = useMutation({
+    mutationFn: () => testConnection(source.id),
+    onSuccess: (result) => setTestResult(result),
+  });
+
+  const hasInputValues = Object.values(inputValues).some((v) => v.trim());
+
+  // Get credential labels from walkthrough steps
+  const keyLabels: Record<string, string> = {};
+  for (const step of source.walkthroughSteps) {
+    if (step.inputKey) {
+      keyLabels[step.inputKey] = step.inputLabel || step.inputKey;
+    }
+  }
+
+  if (editing) {
+    return (
+      <div className="space-y-3 py-3">
+        {source.walkthroughSteps
+          .filter((step) => step.inputKey)
+          .map((step) => (
+            <div key={step.inputKey} className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium text-muted-foreground">
+                  {step.inputLabel || step.inputKey}
+                </label>
+                {step.inputAcceptFile && (
+                  <label className="inline-flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 cursor-pointer">
+                    <IconUpload className="h-3 w-3" />
+                    Upload file
+                    <input
+                      type="file"
+                      accept={step.inputAcceptFile}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file || !step.inputKey) return;
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                          if (typeof reader.result === "string") {
+                            setInputValues((prev) => ({
+                              ...prev,
+                              [step.inputKey!]: reader.result as string,
+                            }));
+                          }
+                        };
+                        reader.readAsText(file);
+                        e.target.value = "";
+                      }}
+                      className="hidden"
+                    />
+                  </label>
+                )}
+              </div>
+              {step.inputType === "textarea" ? (
+                <textarea
+                  value={inputValues[step.inputKey!] || ""}
+                  onChange={(e) =>
+                    setInputValues((prev) => ({
+                      ...prev,
+                      [step.inputKey!]: e.target.value,
+                    }))
+                  }
+                  placeholder={`Enter new value to update`}
+                  className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 min-h-[80px] resize-y font-mono"
+                />
+              ) : (
+                <input
+                  type={step.inputType || "text"}
+                  value={inputValues[step.inputKey!] || ""}
+                  onChange={(e) =>
+                    setInputValues((prev) => ({
+                      ...prev,
+                      [step.inputKey!]: e.target.value,
+                    }))
+                  }
+                  placeholder={`Enter new value to update`}
+                  className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
+                />
+              )}
+            </div>
+          ))}
+        <div className="flex items-center gap-2 pt-2">
+          <Button
+            size="sm"
+            onClick={() => saveMutation.mutate()}
+            disabled={saveMutation.isPending || !hasInputValues}
+            className="text-xs"
+          >
+            {saveMutation.isPending ? (
+              <>
+                <IconLoader2 className="h-3 w-3 animate-spin mr-1.5" />
+                Saving...
+              </>
+            ) : (
+              "Save Changes"
+            )}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setEditing(false);
+              setInputValues({});
+            }}
+            className="text-xs"
+          >
+            Cancel
+          </Button>
+        </div>
+        {saveMutation.isError && (
+          <div className="flex items-center gap-2 text-xs text-destructive">
+            <IconAlertCircle className="h-3.5 w-3.5" />
+            {(saveMutation.error as Error).message}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3 py-3">
+      {/* Credential summary */}
+      <div className="space-y-2">
+        {source.envKeys.map((key) => {
+          const status = envStatus.find((s) => s.key === key);
+          return (
+            <div
+              key={key}
+              className="flex items-center justify-between text-xs"
+            >
+              <span className="text-muted-foreground">
+                {keyLabels[key] || key}
+              </span>
+              <span className="text-emerald-500 flex items-center gap-1">
+                <IconCheck className="h-3 w-3" />
+                Configured
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Actions */}
+      <div className="flex items-center gap-2 pt-2 border-t border-border/30">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            setTestResult(null);
+            testMutation.mutate();
+          }}
+          disabled={testMutation.isPending}
+          className="text-xs"
+        >
+          {testMutation.isPending ? (
+            <>
+              <IconLoader2 className="h-3 w-3 animate-spin mr-1.5" />
+              Testing...
+            </>
+          ) : (
+            "Test Connection"
+          )}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => setEditing(true)}
+          className="text-xs"
+        >
+          <IconPencil className="h-3 w-3 mr-1.5" />
+          Edit
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => disconnectMutation.mutate()}
+          disabled={disconnectMutation.isPending}
+          className="text-xs text-destructive hover:text-destructive"
+        >
+          {disconnectMutation.isPending ? (
+            <IconLoader2 className="h-3 w-3 animate-spin mr-1.5" />
+          ) : (
+            <IconTrash className="h-3 w-3 mr-1.5" />
+          )}
+          Disconnect
+        </Button>
+        {source.docsUrl && (
+          <a
+            href={source.docsUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 ml-auto"
+          >
+            Docs <IconExternalLink className="h-3 w-3" />
+          </a>
+        )}
+      </div>
+
+      {testResult && (
+        <div
+          className={`flex items-center gap-2 text-xs ${testResult.ok ? "text-emerald-500" : "text-destructive"}`}
+        >
+          {testResult.ok ? (
+            <>
+              <IconCheck className="h-3.5 w-3.5" />
+              Connection successful
+            </>
+          ) : (
+            <>
+              <IconAlertCircle className="h-3.5 w-3.5" />
+              {testResult.error || "Connection failed"}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DataSourceCard({
   source,
   connected,
+  envStatus,
   onSaved,
 }: {
   source: DataSource;
   connected: boolean;
+  envStatus: EnvKeyStatus[];
   onSaved: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -224,11 +499,6 @@ function DataSourceCard({
       setInputValues({});
       onSaved();
     },
-  });
-
-  const testMutation = useMutation({
-    mutationFn: () => testConnection(source.id),
-    onSuccess: (result) => setTestResult(result),
   });
 
   const Icon = source.icon;
@@ -279,160 +549,129 @@ function DataSourceCard({
 
       {expanded && (
         <CardContent className="pt-0 border-t border-border/50">
-          {/* Step progress */}
-          <div className="flex items-center gap-1.5 py-3">
-            {source.walkthroughSteps.map((_, i) => (
-              <button
-                key={i}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setCurrentStep(i);
-                }}
-                className={`h-1.5 flex-1 rounded-full transition-colors ${
-                  i < currentStep
-                    ? "bg-emerald-500/60"
-                    : i === currentStep
-                      ? "bg-primary"
-                      : "bg-muted"
-                }`}
-              />
-            ))}
-          </div>
+          {connected ? (
+            <ConnectedView
+              source={source}
+              onSaved={onSaved}
+              envStatus={envStatus}
+            />
+          ) : (
+            <>
+              {/* Step progress */}
+              <div className="flex items-center gap-1.5 py-3">
+                {source.walkthroughSteps.map((_, i) => (
+                  <button
+                    key={i}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setCurrentStep(i);
+                    }}
+                    className={`h-1.5 flex-1 rounded-full transition-colors ${
+                      i < currentStep
+                        ? "bg-emerald-500/60"
+                        : i === currentStep
+                          ? "bg-primary"
+                          : "bg-muted"
+                    }`}
+                  />
+                ))}
+              </div>
 
-          {/* Current step */}
-          {(() => {
-            const step = source.walkthroughSteps[currentStep];
-            const isComplete =
-              step.inputKey && connected && !inputValues[step.inputKey];
-            return (
-              <StepItem
-                key={currentStep}
-                step={step}
-                index={currentStep}
-                isComplete={!!isComplete}
-                isActive={!isComplete}
-                inputValues={inputValues}
-                onInputChange={(key, value) =>
-                  setInputValues((prev) => ({ ...prev, [key]: value }))
-                }
-              />
-            );
-          })()}
+              {/* Current step */}
+              {(() => {
+                const step = source.walkthroughSteps[currentStep];
+                return (
+                  <StepItem
+                    key={currentStep}
+                    step={step}
+                    index={currentStep}
+                    isComplete={false}
+                    isActive={true}
+                    inputValues={inputValues}
+                    onInputChange={(key, value) =>
+                      setInputValues((prev) => ({ ...prev, [key]: value }))
+                    }
+                  />
+                );
+              })()}
 
-          {/* Step navigation */}
-          <div className="flex items-center gap-2 pt-2 pb-4">
-            {currentStep > 0 && (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setCurrentStep((s) => s - 1);
-                }}
-                className="text-xs"
-              >
-                Back
-              </Button>
-            )}
-            {currentStep < totalSteps - 1 && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setCurrentStep((s) => s + 1);
-                }}
-                className="text-xs"
-              >
-                Continue
-              </Button>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2 pt-4 border-t border-border/30">
-            {hasInputValues && (
-              <Button
-                size="sm"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  saveMutation.mutate();
-                }}
-                disabled={saveMutation.isPending}
-                className="text-xs"
-              >
-                {saveMutation.isPending ? (
-                  <>
-                    <IconLoader2 className="h-3 w-3 animate-spin mr-1.5" />
-                    Saving...
-                  </>
-                ) : (
-                  "Save Credentials"
+              {/* Step navigation */}
+              <div className="flex items-center gap-2 pt-2 pb-4">
+                {currentStep > 0 && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setCurrentStep((s) => s - 1);
+                    }}
+                    className="text-xs"
+                  >
+                    Back
+                  </Button>
                 )}
-              </Button>
-            )}
-            {connected && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setTestResult(null);
-                  testMutation.mutate();
-                }}
-                disabled={testMutation.isPending}
-                className="text-xs"
-              >
-                {testMutation.isPending ? (
-                  <>
-                    <IconLoader2 className="h-3 w-3 animate-spin mr-1.5" />
-                    Testing...
-                  </>
-                ) : (
-                  "Test Connection"
+                {currentStep < totalSteps - 1 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setCurrentStep((s) => s + 1);
+                    }}
+                    className="text-xs"
+                  >
+                    Continue
+                  </Button>
                 )}
-              </Button>
-            )}
-            {source.docsUrl && (
-              <a
-                href={source.docsUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 ml-auto"
-                onClick={(e) => e.stopPropagation()}
-              >
-                Docs <IconExternalLink className="h-3 w-3" />
-              </a>
-            )}
-          </div>
+              </div>
 
-          {saveMutation.isError && (
-            <div className="mt-3 flex items-center gap-2 text-xs text-destructive">
-              <IconAlertCircle className="h-3.5 w-3.5" />
-              {(saveMutation.error as Error).message}
-            </div>
-          )}
-          {saveMutation.isSuccess && (
-            <div className="mt-3 flex items-center gap-2 text-xs text-emerald-500">
-              <IconCheck className="h-3.5 w-3.5" />
-              Credentials saved.
-            </div>
-          )}
-          {testResult && (
-            <div
-              className={`mt-3 flex items-center gap-2 text-xs ${testResult.ok ? "text-emerald-500" : "text-destructive"}`}
-            >
-              {testResult.ok ? (
-                <>
-                  <IconCheck className="h-3.5 w-3.5" />
-                  Connection successful
-                </>
-              ) : (
-                <>
+              <div className="flex items-center gap-2 pt-4 border-t border-border/30">
+                {hasInputValues && (
+                  <Button
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      saveMutation.mutate();
+                    }}
+                    disabled={saveMutation.isPending}
+                    className="text-xs"
+                  >
+                    {saveMutation.isPending ? (
+                      <>
+                        <IconLoader2 className="h-3 w-3 animate-spin mr-1.5" />
+                        Saving...
+                      </>
+                    ) : (
+                      "Save Credentials"
+                    )}
+                  </Button>
+                )}
+                {source.docsUrl && (
+                  <a
+                    href={source.docsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 ml-auto"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    Docs <IconExternalLink className="h-3 w-3" />
+                  </a>
+                )}
+              </div>
+
+              {saveMutation.isError && (
+                <div className="mt-3 flex items-center gap-2 text-xs text-destructive">
                   <IconAlertCircle className="h-3.5 w-3.5" />
-                  {testResult.error || "Connection failed"}
-                </>
+                  {(saveMutation.error as Error).message}
+                </div>
               )}
-            </div>
+              {saveMutation.isSuccess && (
+                <div className="mt-3 flex items-center gap-2 text-xs text-emerald-500">
+                  <IconCheck className="h-3.5 w-3.5" />
+                  Credentials saved.
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       )}
@@ -486,6 +725,7 @@ export default function DataSources() {
                     key={source.id}
                     source={source}
                     connected={isSourceConnected(source, envStatus)}
+                    envStatus={envStatus}
                     onSaved={handleSaved}
                   />
                 ))}
