@@ -505,14 +505,78 @@ export function createAgentChatPlugin(
     // In dev mode, include dev scripts (filesystem-discovered) so the A2A agent
     // has access to the same tools as the interactive agent.
     let devScriptsForA2A: Record<string, ActionEntry> = {};
+    let discoveredActions: Record<string, ActionEntry> = {};
     if (canToggle) {
       try {
         const { createDevScriptRegistry } =
           await import("../scripts/dev/index.js");
         devScriptsForA2A = await createDevScriptRegistry();
       } catch {}
+
+      // Auto-discover template action files and register as shell-based tools.
+      // This ensures templates without a custom agent-chat plugin (e.g., analytics)
+      // still have their domain actions available as tools.
+      try {
+        const fs = await import("fs");
+        const pathMod = await import("path");
+        const cwd = process.cwd();
+        const skipFiles = new Set([
+          "helpers",
+          "run",
+          "registry",
+          "_utils",
+          "db-connect",
+          "db-status",
+        ]);
+
+        for (const dir of ["actions", "scripts"]) {
+          const actionsDir = pathMod.join(cwd, dir);
+          if (!fs.existsSync(actionsDir)) continue;
+          const files = fs
+            .readdirSync(actionsDir)
+            .filter(
+              (f: string) =>
+                f.endsWith(".ts") &&
+                !f.startsWith("_") &&
+                !skipFiles.has(f.replace(/\.ts$/, "")),
+            );
+          for (const file of files) {
+            const name = file.replace(/\.ts$/, "");
+            if (templateScripts[name] || devScriptsForA2A[name]) continue;
+            // Register as shell-based tool
+            discoveredActions[name] = {
+              tool: {
+                description: `Run the ${name} action. Use: pnpm action ${name} --arg=value`,
+                parameters: {
+                  type: "object",
+                  properties: {
+                    args: {
+                      type: "string",
+                      description:
+                        "CLI arguments as a string (e.g., --metrics=sessions --days=7)",
+                    },
+                  },
+                },
+              },
+              run: async (input: Record<string, string>) => {
+                const shellEntry = devScriptsForA2A["shell"];
+                if (!shellEntry) return "Error: shell not available";
+                return shellEntry.run({
+                  command: `pnpm action ${name} ${input.args || ""}`.trim(),
+                });
+              },
+            };
+          }
+        }
+        if (Object.keys(discoveredActions).length > 0) {
+          console.log(
+            `[agent-chat] Auto-discovered ${Object.keys(discoveredActions).length} action(s): ${Object.keys(discoveredActions).join(", ")}`,
+          );
+        }
+      } catch {}
     }
     const allScripts = {
+      ...discoveredActions,
       ...templateScripts,
       ...resourceScripts,
       ...callAgentScript,
