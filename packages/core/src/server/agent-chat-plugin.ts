@@ -236,10 +236,10 @@ async function createResourceScriptEntries(): Promise<
 }
 
 /**
- * Creates the call-agent ScriptEntry for cross-agent A2A communication.
+ * Creates the call-agent ActionEntry for cross-agent A2A communication.
  */
 async function createCallAgentScriptEntry(): Promise<
-  Record<string, ScriptEntry>
+  Record<string, ActionEntry>
 > {
   try {
     const mod = await import("../scripts/call-agent.js");
