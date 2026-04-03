@@ -49,10 +49,6 @@ jobs:
         with:
           node-version: "22"
           cache: "pnpm"
-          registry-url: "https://registry.npmjs.org"
-
-      - name: Upgrade npm for OIDC trusted publisher support
-        run: npm install -g npm@11.3.0
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -89,9 +85,9 @@ jobs:
       - name: Publish to npm
         if: github.event.inputs.version_bump != 'dev'
         working-directory: packages/core
-        run: npm publish --access public --provenance
+        run: npx npm@11 publish --access public --provenance
 
       - name: Publish dev version to npm
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.version_bump == 'dev'
         working-directory: packages/core
-        run: npm publish --access public --provenance --tag dev
+        run: npx npm@11 publish --access public --provenance --tag dev
