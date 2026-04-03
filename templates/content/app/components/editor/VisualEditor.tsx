@@ -1,4 +1,4 @@
-import { useEditor, EditorContent, Extension, Node } from "@tiptap/react";
+import { useEditor, EditorContent, Extension } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
@@ -33,24 +33,23 @@ import {
  * On the parse side, the updateDOM hook strips &nbsp; from paragraphs
  * so TipTap creates truly empty paragraph nodes (no visible space).
  */
-const EmptyLineParagraph = Node.create({
-  name: "paragraph",
+/**
+ * Override the paragraph node's markdown serialization so that empty
+ * paragraphs survive round-trips. Without this, prosemirror-markdown
+ * silently drops empty paragraphs and they disappear from the document.
+ *
+ * On the parse side, the updateDOM hook strips &nbsp; from paragraphs
+ * so TipTap creates truly empty paragraph nodes (no visible space).
+ *
+ * Uses Extension (not Node) to avoid re-registering the paragraph schema
+ * which would cause infinite recursion in ProseMirror's content matching.
+ */
+const EmptyLineParagraph = Extension.create({
+  name: "emptyLineParagraph",
   addStorage() {
     return {
       markdown: {
-        serialize(state: any, node: any, parent: any, index: number) {
-          if (node.childCount === 0) {
-            state.write("&nbsp;");
-            state.closeBlock(node);
-          } else {
-            defaultMarkdownSerializer.nodes.paragraph(
-              state,
-              node,
-              parent,
-              index,
-            );
-          }
-        },
+        serialize: null as any,
         parse: {
           updateDOM(element: HTMLElement) {
             for (const p of element.querySelectorAll("p")) {
@@ -66,6 +65,31 @@ const EmptyLineParagraph = Node.create({
         },
       },
     };
+  },
+  onBeforeCreate() {
+    // Patch the paragraph node's markdown storage after StarterKit registers it
+    const paragraph = this.editor.extensionManager.extensions.find(
+      (ext) => ext.name === "paragraph",
+    );
+    if (paragraph) {
+      const origSerialize =
+        paragraph.storage?.markdown?.serialize ??
+        defaultMarkdownSerializer.nodes.paragraph;
+      (paragraph as any).storage = {
+        ...paragraph.storage,
+        markdown: {
+          ...paragraph.storage?.markdown,
+          serialize(state: any, node: any, parent: any, index: number) {
+            if (node.childCount === 0) {
+              state.write("&nbsp;");
+              state.closeBlock(node);
+            } else {
+              origSerialize(state, node, parent, index);
+            }
+          },
+        },
+      };
+    }
   },
 });
 

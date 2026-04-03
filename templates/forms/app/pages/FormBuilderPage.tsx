@@ -1026,35 +1026,83 @@ const integrationMeta: Record<
   {
     label: string;
     icon: typeof IconWebhook;
+    logoSrc?: string;
     placeholder: string;
+    blurb: string;
     help: string;
   }
 > = {
   slack: {
     label: "Slack",
     icon: IconHash,
+    logoSrc: "/brands/slack.svg",
     placeholder: "https://hooks.slack.com/services/...",
+    blurb: "Drop new submissions straight into a channel.",
     help: "Create an Incoming Webhook in your Slack app settings",
   },
   discord: {
     label: "Discord",
     icon: IconHash,
+    logoSrc: "/brands/discord.svg",
     placeholder: "https://discord.com/api/webhooks/...",
+    blurb: "Send submissions to your community or ops server.",
     help: "Channel Settings > Integrations > Webhooks",
   },
   webhook: {
     label: "Webhook",
     icon: IconWebhook,
     placeholder: "https://...",
+    blurb: "POST JSON to Zapier, Make, n8n, or your own endpoint.",
     help: "Sends a JSON POST with submission data. Works with Zapier, Make, n8n, etc.",
   },
   "google-sheets": {
     label: "Google Sheets",
     icon: IconGlobe,
+    logoSrc: "/brands/google-sheets.svg",
     placeholder: "https://script.google.com/macros/s/.../exec",
+    blurb: "Mirror every response into a spreadsheet your team can share.",
     help: "Deploy an Apps Script web app that receives POST data",
   },
 };
+
+function IntegrationBrandMark({
+  type,
+  className,
+}: {
+  type: IntegrationType;
+  className?: string;
+}) {
+  const meta = integrationMeta[type];
+  const Icon = meta.icon;
+
+  if (meta.logoSrc) {
+    return (
+      <div
+        className={cn(
+          "flex h-10 w-10 items-center justify-center rounded-xl border border-border/70 bg-background shadow-sm",
+          className,
+        )}
+      >
+        <img
+          src={meta.logoSrc}
+          alt={`${meta.label} logo`}
+          className="h-5 w-5 object-contain"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={cn(
+        "flex h-10 w-10 items-center justify-center rounded-xl border border-border/70 bg-foreground text-background shadow-sm",
+        className,
+      )}
+    >
+      <Icon className="h-5 w-5" />
+    </div>
+  );
+}
 
 function IntegrationsEditor({
   form,
@@ -1064,6 +1112,14 @@ function IntegrationsEditor({
   onSave: (settings: FormSettings) => void;
 }) {
   const [settings, setSettings] = useState<FormSettings>({ ...form.settings });
+  const integrations = settings.integrations ?? [];
+  const selectedTypes = new Set(
+    integrations.map((integration) => integration.type),
+  );
+  const hasIntegrations = integrations.length > 0;
+  const configuredCount = integrations.filter((integration) =>
+    integration.url.trim(),
+  ).length;
 
   function update(partial: Partial<FormSettings>) {
     setSettings((prev) => ({ ...prev, ...partial }));
@@ -1097,31 +1153,99 @@ function IntegrationsEditor({
     });
   }
 
+  const saveLabel = hasIntegrations
+    ? `Save ${integrations.length === 1 ? "Integration" : "Integrations"}`
+    : "Choose an Integration First";
+
   return (
     <div className="space-y-4">
-      <p className="text-xs text-muted-foreground">
-        Send form submissions to external services automatically.
-      </p>
+      <div className="space-y-1">
+        <p className="text-xs font-medium uppercase tracking-[0.24em] text-muted-foreground/70">
+          Automations
+        </p>
+        <p className="text-sm text-muted-foreground">
+          Send form submissions to external services automatically.
+        </p>
+      </div>
 
-      {(settings.integrations ?? []).map((integration) => {
+      {!hasIntegrations && (
+        <div className="rounded-xl border border-dashed border-border bg-muted/20 p-5">
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Badge variant="secondary" className="w-fit">
+                Ready to connect
+              </Badge>
+              <div className="space-y-1">
+                <h3 className="text-sm font-medium">
+                  Add your first integration
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  Send new submissions to Slack, Discord, Google Sheets, or any
+                  webhook endpoint.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              {(
+                Object.entries(integrationMeta) as [
+                  IntegrationType,
+                  (typeof integrationMeta)[IntegrationType],
+                ][]
+              ).map(([type, meta]) => (
+                <div key={type} className="rounded-lg border bg-background p-3">
+                  <div className="flex items-center gap-3">
+                    <IntegrationBrandMark type={type} className="h-9 w-9" />
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">
+                        {meta.label}
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {type === "webhook"
+                          ? "Custom endpoint"
+                          : "Built-in option"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              You can add more than one destination and finish setup later.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {integrations.map((integration) => {
         const meta = integrationMeta[integration.type];
-        const Icon = meta.icon;
         return (
           <div
             key={integration.id}
-            className="rounded-lg border border-border p-3 space-y-2.5"
+            className="rounded-xl border bg-card p-4 space-y-3"
           >
-            <div className="flex items-center gap-2">
-              <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
-              <Input
-                value={integration.name}
-                onChange={(e) =>
-                  updateIntegration(integration.id, {
-                    name: e.target.value,
-                  })
-                }
-                className="h-7 text-sm font-medium flex-1"
-              />
+            <div className="flex items-start gap-3">
+              <IntegrationBrandMark type={integration.type} />
+              <div className="min-w-0 flex-1 space-y-1">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-semibold">{meta.label}</p>
+                  <Badge
+                    variant="secondary"
+                    className={cn(
+                      "rounded-full px-2 py-0 text-[10px]",
+                      integration.enabled
+                        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                        : "text-muted-foreground",
+                    )}
+                  >
+                    {integration.enabled ? "Enabled" : "Paused"}
+                  </Badge>
+                </div>
+                <p className="text-xs leading-5 text-muted-foreground">
+                  {meta.blurb}
+                </p>
+              </div>
               <Switch
                 checked={integration.enabled}
                 onCheckedChange={(checked) =>
@@ -1131,20 +1255,42 @@ function IntegrationsEditor({
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
                 onClick={() => removeIntegration(integration.id)}
               >
-                <IconTrash className="h-3.5 w-3.5" />
+                <IconTrash className="h-4 w-4" />
               </Button>
             </div>
-            <Input
-              value={integration.url}
-              onChange={(e) =>
-                updateIntegration(integration.id, { url: e.target.value })
-              }
-              placeholder={meta.placeholder}
-              className="h-8 text-sm font-mono"
-            />
+
+            <div className="space-y-2">
+              <Label className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground/70">
+                Label
+              </Label>
+              <Input
+                value={integration.name}
+                onChange={(e) =>
+                  updateIntegration(integration.id, {
+                    name: e.target.value,
+                  })
+                }
+                className="h-9 text-sm font-medium"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground/70">
+                Destination URL
+              </Label>
+              <Input
+                value={integration.url}
+                onChange={(e) =>
+                  updateIntegration(integration.id, { url: e.target.value })
+                }
+                placeholder={meta.placeholder}
+                className="h-9 text-sm font-mono"
+              />
+            </div>
+
             <p className="text-[11px] text-muted-foreground">{meta.help}</p>
           </div>
         );
@@ -1152,32 +1298,70 @@ function IntegrationsEditor({
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="sm" className="w-full">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-11 w-full rounded-xl"
+          >
             <IconPlus className="h-3.5 w-3.5 mr-1.5" />
-            Add Integration
+            {hasIntegrations ? "Add Another Integration" : "Add Integration"}
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="center" className="w-56">
+        <DropdownMenuContent align="center" className="w-80 p-1.5">
           {(
             Object.entries(integrationMeta) as [
               IntegrationType,
               (typeof integrationMeta)[IntegrationType],
             ][]
           ).map(([type, meta]) => {
-            const Icon = meta.icon;
             return (
-              <DropdownMenuItem key={type} onClick={() => addIntegration(type)}>
-                <Icon className="h-4 w-4 mr-2" />
-                {meta.label}
+              <DropdownMenuItem
+                key={type}
+                onClick={() => addIntegration(type)}
+                disabled={selectedTypes.has(type)}
+                className="rounded-md px-3 py-3"
+              >
+                <div className="flex items-center gap-3">
+                  <IntegrationBrandMark type={type} />
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium">{meta.label}</p>
+                      {selectedTypes.has(type) && (
+                        <Badge
+                          variant="secondary"
+                          className="px-2 py-0 text-[10px]"
+                        >
+                          Added
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+                      {meta.blurb}
+                    </p>
+                  </div>
+                </div>
               </DropdownMenuItem>
             );
           })}
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <Button onClick={() => onSave(settings)} className="w-full" size="sm">
-        Save Integrations
-      </Button>
+      {hasIntegrations && (
+        <div className="space-y-2">
+          <Button
+            onClick={() => onSave(settings)}
+            className="h-10 w-full"
+            size="sm"
+          >
+            {saveLabel}
+          </Button>
+          <p className="text-center text-xs text-muted-foreground">
+            {configuredCount === integrations.length
+              ? "Everything here is ready to receive new form submissions."
+              : "You can save partial setup now and finish the remaining URLs later."}
+          </p>
+        </div>
+      )}
     </div>
   );
 }
