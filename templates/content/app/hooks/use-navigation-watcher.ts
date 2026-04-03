@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 
 /**
- * Polls /api/poll for app-state "navigate" events and calls
+ * Polls /_agent-native/poll for app-state "navigate" events and calls
  * React Router's navigate() when one is received.
  *
  * The agent triggers navigation by calling writeAppState("navigate", { path: "/some-id" })
@@ -18,7 +18,9 @@ export function useNavigationWatcher() {
 
     async function poll() {
       try {
-        const res = await fetch(`/api/poll?since=${versionRef.current}`);
+        const res = await fetch(
+          `/_agent-native/poll?since=${versionRef.current}`,
+        );
         if (!res.ok) return;
         const data = (await res.json()) as {
           version: number;
@@ -65,7 +67,7 @@ export function useNavigationWatcher() {
     }
 
     // Seed the current version so we only react to future events
-    fetch("/api/poll?since=0")
+    fetch("/_agent-native/poll?since=0")
       .then((r) => r.json())
       .then((d: { version: number }) => {
         versionRef.current = d.version;

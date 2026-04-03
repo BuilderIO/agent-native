@@ -14,7 +14,7 @@ See `.agents/skills/` for the framework rules that apply to all agent-native app
 
 - **delegate-to-agent** — UI never calls an LLM directly. All AI goes through the agent chat.
 - **scripts** — Complex operations are scripts in `scripts/`, run via `pnpm script <name>`.
-- **sse-file-watcher** — UI stays in sync with agent changes via polling/SSE.
+- **real-time-sync** — UI stays in sync with agent changes via polling.
 - **frontend-design** — Build distinctive, production-grade UI. Read this skill before creating or restyling any component, page, or layout.
 
 For code editing and development guidance, read `DEVELOPING.md`.

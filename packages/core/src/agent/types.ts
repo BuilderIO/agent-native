@@ -20,7 +20,7 @@ export interface AgentMessage {
 }
 
 export interface AgentChatReference {
-  type: "file" | "skill" | "mention";
+  type: "file" | "skill" | "mention" | "agent";
   path: string;
   name: string;
   source: string;
@@ -66,6 +66,11 @@ export type AgentChatEvent =
   | { type: "text"; text: string }
   | { type: "tool_start"; tool: string; input: Record<string, string> }
   | { type: "tool_done"; tool: string; result: string }
+  | {
+      type: "agent_call";
+      agent: string;
+      status: "start" | "done" | "error";
+    }
   | { type: "done" }
   | { type: "error"; error: string }
   | { type: "missing_api_key" }

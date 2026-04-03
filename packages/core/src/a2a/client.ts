@@ -9,10 +9,25 @@ import type {
 export class A2AClient {
   private baseUrl: string;
   private apiKey?: string;
+  private a2aPath = "/_agent-native/a2a";
 
   constructor(baseUrl: string, apiKey?: string) {
     this.baseUrl = baseUrl.replace(/\/$/, "");
     this.apiKey = apiKey;
+  }
+
+  /**
+   * Detect which A2A path the target agent uses.
+   * Agent-native apps use /_agent-native/a2a, external agents may use /a2a.
+   */
+  async resolveEndpoint(): Promise<void> {
+    try {
+      const res = await fetch(`${this.baseUrl}/_agent-native/a2a`, {
+        method: "OPTIONS",
+      });
+      if (res.status !== 404) return; // /_agent-native/a2a exists
+    } catch {}
+    this.a2aPath = "/a2a"; // Fallback for external A2A servers
   }
 
   private headers(): Record<string, string> {
@@ -34,7 +49,7 @@ export class A2AClient {
       params,
     };
 
-    const res = await fetch(`${this.baseUrl}/a2a`, {
+    const res = await fetch(`${this.baseUrl}${this.a2aPath}`, {
       method: "POST",
       headers: this.headers(),
       body: JSON.stringify(body),
@@ -90,7 +105,7 @@ export class A2AClient {
       },
     };
 
-    const res = await fetch(`${this.baseUrl}/a2a`, {
+    const res = await fetch(`${this.baseUrl}${this.a2aPath}`, {
       method: "POST",
       headers: this.headers(),
       body: JSON.stringify(body),

@@ -1,4 +1,5 @@
 import { cn, formatEmailDate, truncate } from "@/lib/utils";
+import { IconStarFilled } from "@tabler/icons-react";
 import type { EmailMessage } from "@shared/types";
 import type { ThreadSummary } from "@/lib/threads";
 import { useAccountFilter } from "@/hooks/use-account-filter";
@@ -232,9 +233,7 @@ export function EmailListItem({
           )}
           title="Pin"
         >
-          <svg viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
-            <path d="M8 1.75a.75.75 0 0 1 .692.462l1.41 3.393 3.664.293a.75.75 0 0 1 .428 1.317l-2.791 2.39.853 3.575a.75.75 0 0 1-1.12.814L8 12.07l-3.136 1.924a.75.75 0 0 1-1.12-.814l.853-3.574-2.79-2.391a.75.75 0 0 1 .427-1.317l3.664-.293 1.41-3.393A.75.75 0 0 1 8 1.75z" />
-          </svg>
+          <IconStarFilled className="h-3.5 w-3.5" />
         </button>
       </div>
     </div>

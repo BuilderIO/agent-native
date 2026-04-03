@@ -9,7 +9,7 @@ import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { useFileWatcher } from "@agent-native/core";
+import { useDbSync } from "@agent-native/core";
 import { ClientOnly, DefaultSpinner } from "@agent-native/core/client";
 import { TAB_ID } from "@/lib/tab-id";
 import "./global.css";
@@ -102,10 +102,10 @@ function VisibilityRefresh() {
   return null;
 }
 
-function FileWatcherSetup() {
+function DbSyncSetup() {
   const qc = useQueryClient();
 
-  useFileWatcher({
+  useDbSync({
     queryClient: qc,
     queryKeys: [],
     // Skip events this tab caused — our mutations already handle cache updates
@@ -177,7 +177,7 @@ export default function Root() {
             <AutoFocus />
             <AutomationTrigger />
             <VisibilityRefresh />
-            <FileWatcherSetup />
+            <DbSyncSetup />
             <AppLayout>
               <Outlet />
             </AppLayout>

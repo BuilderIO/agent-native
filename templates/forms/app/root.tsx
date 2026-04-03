@@ -8,7 +8,7 @@ import {
 } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
 import {
-  useFileWatcher,
+  useDbSync,
   ClientOnly,
   CommandMenu,
   DefaultSpinner,
@@ -52,9 +52,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
 const TAB_ID = Math.random().toString(36).slice(2, 10);
 
-function FileWatcherSetup() {
+function DbSyncSetup() {
   const qc = useQueryClient();
-  useFileWatcher({
+  useDbSync({
     queryClient: qc,
     queryKeys: ["forms", "responses", "settings"],
     ignoreSource: TAB_ID,
@@ -81,7 +81,7 @@ export default function Root() {
           disableTransitionOnChange
         >
           <TooltipProvider>
-            <FileWatcherSetup />
+            <DbSyncSetup />
             <NavigationStateSync />
             <Toaster position="bottom-left" />
             <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>

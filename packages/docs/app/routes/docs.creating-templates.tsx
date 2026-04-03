@@ -111,7 +111,7 @@ export default function CreatingTemplatesDocs() {
         code={`// app/root.tsx — App shell with providers
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useFileWatcher } from "@agent-native/core";
+import { useDbSync } from "@agent-native/core";
 
 const queryClient = new QueryClient();
 
@@ -134,7 +134,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 export default function Root() {
-  useFileWatcher({ queryClient, queryKeys: ["items", "projects"] });
+  useDbSync({ queryClient, queryKeys: ["items", "projects"] });
   return (
     <QueryClientProvider client={queryClient}>
       <Outlet />
@@ -158,9 +158,10 @@ export default function Settings() {
 }`}
       />
       <p>
-        The <code>useFileWatcher</code> hook connects to{" "}
-        <code>/api/events</code> and invalidates react-query caches when files
-        change. This is how the UI stays in sync when the agent modifies data.
+        The <code>useDbSync</code> hook (formerly <code>useFileWatcher</code>)
+        polls <code>/_agent-native/poll</code> and invalidates react-query
+        caches when data changes. This is how the UI stays in sync when the
+        agent modifies data.
       </p>
 
       <h2 id="add-api-routes">Add API routes</h2>

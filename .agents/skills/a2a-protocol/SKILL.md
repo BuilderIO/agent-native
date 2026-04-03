@@ -18,16 +18,16 @@ Agent-native apps don't exist in isolation. A mail agent might need analytics da
 
 ## How to Enable A2A (Server Side)
 
-Add `enableA2A()` to a server plugin:
+Add `mountA2A()` to a server plugin:
 
 ```ts
 // server/plugins/a2a.ts
-import { enableA2A } from "@agent-native/core/a2a";
+import { mountA2A } from "@agent-native/core/a2a";
 
 export default defineNitroPlugin((nitro) => {
   const app = nitro.h3App;
 
-  enableA2A(app, {
+  mountA2A(app, {
     name: "Analytics Agent",
     description: "Queries analytics data across providers",
     version: "1.0.0",

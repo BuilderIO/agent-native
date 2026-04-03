@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { IconClock } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { useParseDate, useSnoozeEmail } from "@/hooks/use-scheduled-jobs";
 import { toast } from "sonner";
@@ -221,16 +222,7 @@ export function SnoozeModal({
       >
         {/* Header / input row */}
         <div className="flex items-center border-b px-3">
-          <svg
-            viewBox="0 0 20 20"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            className="mr-2 h-4 w-4 shrink-0 opacity-50"
-          >
-            <circle cx="10" cy="10" r="7.5" />
-            <path d="M10 6v4l2.5 2.5" strokeLinecap="round" />
-          </svg>
+          <IconClock className="mr-2 h-4 w-4 shrink-0 opacity-50" />
           <Input
             ref={inputRef}
             type="text"

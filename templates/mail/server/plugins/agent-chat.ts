@@ -1,6 +1,7 @@
 import { createAgentChatPlugin } from "@agent-native/core/server";
 
 export default createAgentChatPlugin({
+  appId: "mail",
   scripts: async () => {
     const { scriptRegistry } = await import("../../scripts/registry.js");
     return scriptRegistry;

@@ -79,6 +79,7 @@ export {
 export {
   createCoreRoutesPlugin,
   defaultCoreRoutesPlugin,
+  FRAMEWORK_ROUTE_PREFIX,
   type CoreRoutesPluginOptions,
 } from "./core-routes-plugin.js";
 export {

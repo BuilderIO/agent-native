@@ -550,7 +550,7 @@ const LOGIN_HTML = `<!DOCTYPE html>
   document.getElementById('form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const token = document.getElementById('token').value;
-    const res = await fetch('/api/auth/login', {
+    const res = await fetch('/_agent-native/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token }),
@@ -694,7 +694,7 @@ const EMAIL_AUTH_HTML = `<!DOCTYPE html>
     e.preventDefault();
     const err = document.getElementById('l-err');
     err.classList.remove('show');
-    const res = await fetch('/api/auth/login', {
+    const res = await fetch('/_agent-native/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -722,7 +722,7 @@ const EMAIL_AUTH_HTML = `<!DOCTYPE html>
       msg.classList.add('show', 'error');
       return;
     }
-    const res = await fetch('/api/auth/register', {
+    const res = await fetch('/_agent-native/auth/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -735,7 +735,7 @@ const EMAIL_AUTH_HTML = `<!DOCTYPE html>
       msg.textContent = 'Account created — signing you in...';
       msg.classList.add('show', 'success');
       // Auto-login after registration
-      const loginRes = await fetch('/api/auth/login', {
+      const loginRes = await fetch('/_agent-native/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -763,9 +763,9 @@ function mountEmailAuthRoutes(app: H3App, publicPaths: string[] = []): void {
   // Also support ACCESS_TOKEN login for backward compat (API callers, scripts)
   const accessTokens = getAccessTokens();
 
-  // POST /api/auth/register
+  // POST /_agent-native/auth/register
   app.use(
-    "/api/auth/register",
+    "/_agent-native/auth/register",
     defineEventHandler(async (event) => {
       if (getMethod(event) !== "POST") {
         setResponseStatus(event, 405);
@@ -800,9 +800,9 @@ function mountEmailAuthRoutes(app: H3App, publicPaths: string[] = []): void {
     }),
   );
 
-  // POST /api/auth/login — email/password or legacy ACCESS_TOKEN
+  // POST /_agent-native/auth/login — email/password or legacy ACCESS_TOKEN
   app.use(
-    "/api/auth/login",
+    "/_agent-native/auth/login",
     defineEventHandler(async (event) => {
       if (getMethod(event) !== "POST") {
         setResponseStatus(event, 405);
@@ -868,9 +868,9 @@ function mountEmailAuthRoutes(app: H3App, publicPaths: string[] = []): void {
     }),
   );
 
-  // POST /api/auth/logout
+  // POST /_agent-native/auth/logout
   app.use(
-    "/api/auth/logout",
+    "/_agent-native/auth/logout",
     defineEventHandler(async (event) => {
       const cookie = getCookie(event, COOKIE_NAME);
       if (cookie) await removeSession(cookie);
@@ -879,9 +879,9 @@ function mountEmailAuthRoutes(app: H3App, publicPaths: string[] = []): void {
     }),
   );
 
-  // GET /api/auth/session
+  // GET /_agent-native/auth/session
   app.use(
-    "/api/auth/session",
+    "/_agent-native/auth/session",
     defineEventHandler(async (event) => {
       if (getMethod(event) !== "GET") {
         setResponseStatus(event, 405);
@@ -900,10 +900,10 @@ function mountEmailAuthRoutes(app: H3App, publicPaths: string[] = []): void {
       const p = url.split("?")[0];
 
       if (
-        p === "/api/auth/login" ||
-        p === "/api/auth/logout" ||
-        p === "/api/auth/session" ||
-        p === "/api/auth/register"
+        p === "/_agent-native/auth/login" ||
+        p === "/_agent-native/auth/logout" ||
+        p === "/_agent-native/auth/session" ||
+        p === "/_agent-native/auth/register"
       ) {
         return;
       }
@@ -912,7 +912,7 @@ function mountEmailAuthRoutes(app: H3App, publicPaths: string[] = []): void {
       const session = await getSession(event);
       if (session) return;
 
-      if (p.startsWith("/api/")) {
+      if (p.startsWith("/api/") || p.startsWith("/_agent-native/")) {
         setResponseStatus(event, 401);
         return { error: "Unauthorized" };
       }
@@ -949,9 +949,9 @@ function mountAuthRoutes(
   accessTokens: string[],
   publicPaths: string[] = [],
 ): void {
-  // POST /api/auth/login
+  // POST /_agent-native/auth/login
   app.use(
-    "/api/auth/login",
+    "/_agent-native/auth/login",
     defineEventHandler(async (event) => {
       if (getMethod(event) !== "POST") {
         setResponseStatus(event, 405);
@@ -986,9 +986,9 @@ function mountAuthRoutes(
     }),
   );
 
-  // POST /api/auth/logout
+  // POST /_agent-native/auth/logout
   app.use(
-    "/api/auth/logout",
+    "/_agent-native/auth/logout",
     defineEventHandler(async (event) => {
       const cookie = getCookie(event, COOKIE_NAME);
       if (cookie) await removeSession(cookie);
@@ -997,9 +997,9 @@ function mountAuthRoutes(
     }),
   );
 
-  // GET /api/auth/session — client session check
+  // GET /_agent-native/auth/session — client session check
   app.use(
-    "/api/auth/session",
+    "/_agent-native/auth/session",
     defineEventHandler(async (event) => {
       if (getMethod(event) !== "GET") {
         setResponseStatus(event, 405);
@@ -1018,9 +1018,9 @@ function mountAuthRoutes(
 
       // Skip auth routes
       if (
-        p === "/api/auth/login" ||
-        p === "/api/auth/logout" ||
-        p === "/api/auth/session"
+        p === "/_agent-native/auth/login" ||
+        p === "/_agent-native/auth/logout" ||
+        p === "/_agent-native/auth/session"
       ) {
         return;
       }
@@ -1037,7 +1037,7 @@ function mountAuthRoutes(
       }
 
       // Unauthenticated
-      if (p.startsWith("/api/")) {
+      if (p.startsWith("/api/") || p.startsWith("/_agent-native/")) {
         setResponseStatus(event, 401);
         return { error: "Unauthorized" };
       }
@@ -1099,7 +1099,7 @@ export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
   if (isDevMode()) {
     // Mount a session endpoint that checks for a real session first
     app.use(
-      "/api/auth/session",
+      "/_agent-native/auth/session",
       defineEventHandler(async (event) => {
         if (getMethod(event) !== "GET") {
           setResponseStatus(event, 405);
@@ -1111,11 +1111,11 @@ export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
 
     // Mount no-op login/logout so client code doesn't break
     app.use(
-      "/api/auth/login",
+      "/_agent-native/auth/login",
       defineEventHandler(() => ({ ok: true })),
     );
     app.use(
-      "/api/auth/logout",
+      "/_agent-native/auth/logout",
       defineEventHandler(() => ({ ok: true })),
     );
 
@@ -1126,7 +1126,7 @@ export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
   if (customGetSession) {
     // Mount session endpoint
     app.use(
-      "/api/auth/session",
+      "/_agent-native/auth/session",
       defineEventHandler(async (event) => {
         if (getMethod(event) !== "GET") {
           setResponseStatus(event, 405);
@@ -1137,11 +1137,11 @@ export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
       }),
     );
     app.use(
-      "/api/auth/login",
+      "/_agent-native/auth/login",
       defineEventHandler(() => ({ ok: true })),
     );
     app.use(
-      "/api/auth/logout",
+      "/_agent-native/auth/logout",
       defineEventHandler(async (event) => {
         const cookie = getCookie(event, COOKIE_NAME);
         if (cookie) await removeSession(cookie);
@@ -1158,9 +1158,9 @@ export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
         const url = event.node?.req?.url ?? event.path ?? "/";
         const p = url.split("?")[0];
         if (
-          p === "/api/auth/login" ||
-          p === "/api/auth/logout" ||
-          p === "/api/auth/session"
+          p === "/_agent-native/auth/login" ||
+          p === "/_agent-native/auth/logout" ||
+          p === "/_agent-native/auth/session"
         ) {
           return;
         }
@@ -1170,7 +1170,7 @@ export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
         }
         const session = await getSession(event);
         if (session) return;
-        if (p.startsWith("/api/")) {
+        if (p.startsWith("/api/") || p.startsWith("/_agent-native/")) {
           setResponseStatus(event, 401);
           return { error: "Unauthorized" };
         }
@@ -1198,7 +1198,7 @@ export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
 
       // Mount session endpoint
       app.use(
-        "/api/auth/session",
+        "/_agent-native/auth/session",
         defineEventHandler(async (event) => {
           if (getMethod(event) !== "GET") {
             setResponseStatus(event, 405);
@@ -1208,11 +1208,11 @@ export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
         }),
       );
       app.use(
-        "/api/auth/login",
+        "/_agent-native/auth/login",
         defineEventHandler(() => ({ ok: true })),
       );
       app.use(
-        "/api/auth/logout",
+        "/_agent-native/auth/logout",
         defineEventHandler(() => ({ ok: true })),
       );
 

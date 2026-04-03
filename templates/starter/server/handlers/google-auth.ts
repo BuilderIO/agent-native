@@ -31,7 +31,7 @@ export const getGoogleAuthUrl = defineEventHandler((event: H3Event) => {
   }
   const redirectUri =
     (getQuery(event).redirect_uri as string) ||
-    `${getOrigin(event)}/api/google/callback`;
+    `${getOrigin(event)}/_agent-native/google/callback`;
   const desktop = isElectron(event);
   const state = encodeOAuthState(redirectUri, undefined, desktop);
   const params = new URLSearchParams({
@@ -58,7 +58,7 @@ export const handleGoogleCallback = defineEventHandler(
 
       const { redirectUri, desktop } = decodeOAuthState(
         query.state as string | undefined,
-        `${getOrigin(event)}/api/google/callback`,
+        `${getOrigin(event)}/_agent-native/google/callback`,
       );
 
       // Exchange code for tokens

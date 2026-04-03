@@ -15,20 +15,20 @@ type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
  * Creates a Nitro plugin that mounts all resource CRUD routes.
  *
  * Routes:
- *   GET    /api/resources          — list resources
- *   POST   /api/resources          — create resource
- *   GET    /api/resources/tree     — get resource tree
- *   POST   /api/resources/upload   — upload file
- *   GET    /api/resources/:id      — get resource by ID
- *   PUT    /api/resources/:id      — update resource
- *   DELETE /api/resources/:id      — delete resource
+ *   GET    /_agent-native/resources          — list resources
+ *   POST   /_agent-native/resources          — create resource
+ *   GET    /_agent-native/resources/tree     — get resource tree
+ *   POST   /_agent-native/resources/upload   — upload file
+ *   GET    /_agent-native/resources/:id      — get resource by ID
+ *   PUT    /_agent-native/resources/:id      — update resource
+ *   DELETE /_agent-native/resources/:id      — delete resource
  */
 export function createResourcesPlugin(): NitroPluginDef {
   return async (nitroApp: any) => {
     // Mount specific sub-routes BEFORE the catch-all
 
     nitroApp.h3App.use(
-      "/api/resources/tree",
+      "/_agent-native/resources/tree",
       defineEventHandler(async (event) => {
         if (getMethod(event) !== "GET") {
           setResponseStatus(event, 405);
@@ -39,7 +39,7 @@ export function createResourcesPlugin(): NitroPluginDef {
     );
 
     nitroApp.h3App.use(
-      "/api/resources/upload",
+      "/_agent-native/resources/upload",
       defineEventHandler(async (event) => {
         if (getMethod(event) !== "POST") {
           setResponseStatus(event, 405);
@@ -49,16 +49,16 @@ export function createResourcesPlugin(): NitroPluginDef {
       }),
     );
 
-    // Catch-all for /api/resources and /api/resources/:id
+    // Catch-all for /_agent-native/resources and /_agent-native/resources/:id
     nitroApp.h3App.use(
-      "/api/resources",
+      "/_agent-native/resources",
       defineEventHandler(async (event) => {
         const method = getMethod(event);
         // h3 strips the mount prefix, so event.path is "/" or "/:id"
         const raw = (event.path || "/").split("?")[0];
         const subPath = raw.replace(/^\//, "");
 
-        // No sub-path: /api/resources — list or create
+        // No sub-path: /_agent-native/resources — list or create
         if (!subPath || subPath === "") {
           if (method === "GET") return handleListResources(event);
           if (method === "POST") return handleCreateResource(event);
@@ -69,7 +69,7 @@ export function createResourcesPlugin(): NitroPluginDef {
         // Already handled by dedicated routes above
         if (subPath === "tree" || subPath === "upload") return;
 
-        // /api/resources/:id — get, update, delete
+        // /_agent-native/resources/:id — get, update, delete
         event.context.params = { ...event.context.params, id: subPath };
 
         if (method === "GET") return handleGetResource(event);

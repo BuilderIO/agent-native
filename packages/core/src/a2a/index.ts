@@ -1,5 +1,5 @@
-// Server
-export { enableA2A } from "./server.js";
+// Server (H3/Nitro)
+export { mountA2A } from "./server.js";
 
 // Client
 export { A2AClient, callAgent } from "./client.js";

@@ -52,4 +52,4 @@ export default async function main(): Promise<void> {
 ## Related Skills
 
 - **delegate-to-agent** — The agent invokes scripts via `pnpm script <name>`
-- **sse-file-watcher** — Database writes from scripts trigger SSE events to update the UI
+- **real-time-sync** — Database writes from scripts trigger poll events to update the UI

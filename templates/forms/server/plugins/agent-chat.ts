@@ -1,6 +1,7 @@
 import { createAgentChatPlugin } from "@agent-native/core/server";
 
 export default createAgentChatPlugin({
+  appId: "forms",
   mentionProviders: async () => {
     const { getDb } = await import("../db/index.js");
     const { forms } = await import("../db/schema.js");

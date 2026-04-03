@@ -21,10 +21,11 @@ export interface MentionItem {
   refType: string;
   refPath?: string;
   refId?: string;
+  section?: string;
 }
 
 export interface Reference {
-  type: "file" | "skill" | "mention";
+  type: "file" | "skill" | "mention" | "agent";
   path: string;
   name: string;
   source: string;

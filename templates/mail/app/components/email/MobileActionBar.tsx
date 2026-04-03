@@ -1,5 +1,17 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import {
+  IconCheck,
+  IconTrash,
+  IconStarFilled,
+  IconStar,
+  IconArrowBackUp,
+  IconArrowForwardUp,
+  IconMail,
+  IconChevronUp,
+  IconChevronDown,
+  IconAdjustments,
+} from "@tabler/icons-react";
 import type { MobileActionId } from "@shared/types";
 import {
   Drawer,
@@ -44,128 +56,44 @@ const ACTION_META: Record<
 > = {
   archive: {
     label: "Done",
-    icon: () => (
-      <svg viewBox="0 0 16 16" fill="currentColor" className="h-5 w-5">
-        <path
-          fillRule="evenodd"
-          d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.353 2.353 4.493-6.74a.75.75 0 0 1 1.04-.207z"
-          clipRule="evenodd"
-        />
-      </svg>
-    ),
+    icon: () => <IconCheck className="h-5 w-5" />,
   },
   trash: {
     label: "Trash",
-    icon: () => (
-      <svg viewBox="0 0 16 16" fill="currentColor" className="h-5 w-5">
-        <path
-          fillRule="evenodd"
-          d="M5 3.25V4H2.75a.75.75 0 0 0 0 1.5h.3l.815 8.15A1.5 1.5 0 0 0 5.357 15h5.285a1.5 1.5 0 0 0 1.493-1.35l.815-8.15h.3a.75.75 0 0 0 0-1.5H11v-.75A2.25 2.25 0 0 0 8.75 1h-1.5A2.25 2.25 0 0 0 5 3.25zm2.25-.75a.75.75 0 0 0-.75.75V4h3v-.75a.75.75 0 0 0-.75-.75h-1.5zM6.05 6a.75.75 0 0 1 .787.713l.275 5.5a.75.75 0 0 1-1.498.075l-.275-5.5A.75.75 0 0 1 6.05 6zm3.9 0a.75.75 0 0 1 .712.787l-.275 5.5a.75.75 0 0 1-1.498-.075l.275-5.5A.75.75 0 0 1 9.95 6z"
-          clipRule="evenodd"
-        />
-      </svg>
-    ),
+    icon: () => <IconTrash className="h-5 w-5" />,
   },
   star: {
     label: "Star",
     icon: (active) =>
       active ? (
-        <svg
-          viewBox="0 0 16 16"
-          fill="currentColor"
-          className="h-5 w-5 text-yellow-500"
-        >
-          <path
-            fillRule="evenodd"
-            d="M8 1.75a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.75.75 0 0 1-1.088.791L8 13.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 7.874a.75.75 0 0 1 .416-1.28l4.21-.611L7.327 2.17A.75.75 0 0 1 8 1.75z"
-            clipRule="evenodd"
-          />
-        </svg>
+        <IconStarFilled className="h-5 w-5 text-yellow-500" />
       ) : (
-        <svg
-          viewBox="0 0 16 16"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.2"
-          className="h-5 w-5"
-        >
-          <path d="M8 1.75l1.882 3.815 4.21.612-3.046 2.97.719 4.192L8 11.36l-3.766 1.98.72-4.194L1.907 6.177l4.21-.611z" />
-        </svg>
+        <IconStar className="h-5 w-5" />
       ),
   },
   reply: {
     label: "Reply",
-    icon: () => (
-      <svg viewBox="0 0 16 16" fill="currentColor" className="h-5 w-5">
-        <path
-          fillRule="evenodd"
-          d="M7.28 1.22a.75.75 0 0 1 0 1.06L4.56 5H8.5a5.5 5.5 0 0 1 0 11H6a.75.75 0 0 1 0-1.5h2.5a4 4 0 0 0 0-8H4.56l2.72 2.72a.75.75 0 1 1-1.06 1.06l-4-4a.75.75 0 0 1 0-1.06l4-4a.75.75 0 0 1 1.06 0z"
-          clipRule="evenodd"
-        />
-      </svg>
-    ),
+    icon: () => <IconArrowBackUp className="h-5 w-5" />,
   },
   replyAll: {
     label: "Reply All",
-    icon: () => (
-      <svg viewBox="0 0 16 16" fill="currentColor" className="h-5 w-5">
-        <path d="M3.28 1.22a.75.75 0 0 0-1.06 0l-2 2a.75.75 0 0 0 0 1.06l2 2a.75.75 0 0 0 1.06-1.06L2.06 4l1.22-1.22a.75.75 0 0 0 0-1.06z" />
-        <path
-          fillRule="evenodd"
-          d="M9.28 1.22a.75.75 0 0 1 0 1.06L6.56 5H10.5a5.5 5.5 0 0 1 0 11H8a.75.75 0 0 1 0-1.5h2.5a4 4 0 0 0 0-8H6.56l2.72 2.72a.75.75 0 1 1-1.06 1.06l-4-4a.75.75 0 0 1 0-1.06l4-4a.75.75 0 0 1 1.06 0z"
-          clipRule="evenodd"
-        />
-      </svg>
-    ),
+    icon: () => <IconArrowBackUp className="h-5 w-5" />,
   },
   forward: {
     label: "Forward",
-    icon: () => (
-      <svg
-        viewBox="0 0 16 16"
-        fill="currentColor"
-        className="h-5 w-5 scale-x-[-1]"
-      >
-        <path
-          fillRule="evenodd"
-          d="M7.28 1.22a.75.75 0 0 1 0 1.06L4.56 5H8.5a5.5 5.5 0 0 1 0 11H6a.75.75 0 0 1 0-1.5h2.5a4 4 0 0 0 0-8H4.56l2.72 2.72a.75.75 0 1 1-1.06 1.06l-4-4a.75.75 0 0 1 0-1.06l4-4a.75.75 0 0 1 1.06 0z"
-          clipRule="evenodd"
-        />
-      </svg>
-    ),
+    icon: () => <IconArrowForwardUp className="h-5 w-5" />,
   },
   markUnread: {
     label: "Unread",
-    icon: () => (
-      <svg viewBox="0 0 16 16" fill="currentColor" className="h-5 w-5">
-        <path d="M2.5 3A1.5 1.5 0 0 0 1 4.5v.793c.026.009.051.02.076.032L7.674 8.51c.206.1.446.1.652 0l6.598-3.185A.755.755 0 0 1 15 5.293V4.5A1.5 1.5 0 0 0 13.5 3h-11z" />
-        <path d="M15 6.954 8.978 9.86a2.25 2.25 0 0 1-1.956 0L1 6.954V11.5A1.5 1.5 0 0 0 2.5 13h11a1.5 1.5 0 0 0 1.5-1.5V6.954z" />
-      </svg>
-    ),
+    icon: () => <IconMail className="h-5 w-5" />,
   },
   prev: {
     label: "Prev",
-    icon: () => (
-      <svg viewBox="0 0 16 16" fill="currentColor" className="h-5 w-5">
-        <path
-          fillRule="evenodd"
-          d="M11.78 9.78a.75.75 0 0 1-1.06 0L8 7.06 5.28 9.78a.75.75 0 0 1-1.06-1.06l3.25-3.25a.75.75 0 0 1 1.06 0l3.25 3.25a.75.75 0 0 1 0 1.06z"
-          clipRule="evenodd"
-        />
-      </svg>
-    ),
+    icon: () => <IconChevronUp className="h-5 w-5" />,
   },
   next: {
     label: "Next",
-    icon: () => (
-      <svg viewBox="0 0 16 16" fill="currentColor" className="h-5 w-5">
-        <path
-          fillRule="evenodd"
-          d="M4.22 6.22a.75.75 0 0 1 1.06 0L8 8.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 7.28a.75.75 0 0 1 0-1.06z"
-          clipRule="evenodd"
-        />
-      </svg>
-    ),
+    icon: () => <IconChevronDown className="h-5 w-5" />,
   },
 };
 
@@ -215,9 +143,7 @@ export function MobileActionBar({
               )}
               title="Customize"
             >
-              <svg viewBox="0 0 16 16" fill="currentColor" className="h-5 w-5">
-                <path d="M6.5 2.25a.75.75 0 0 0-1.5 0v3a.75.75 0 0 0 1.5 0V4.5h7.75a.75.75 0 0 0 0-1.5H6.5V2.25zM1.75 3a.75.75 0 0 0 0 1.5h1.5a.75.75 0 0 0 0-1.5h-1.5zM4.75 7.25a.75.75 0 0 0-.75.75v.5H1.75a.75.75 0 0 0 0 1.5H4v.5a.75.75 0 0 0 1.5 0v-3a.75.75 0 0 0-.75-.75zm2.5 1.5a.75.75 0 0 0 0 1.5h7a.75.75 0 0 0 0-1.5h-7zm-5.5 4a.75.75 0 0 0 0 1.5h7.5a.75.75 0 0 0 0-1.5h-7.5zm10.25-.75a.75.75 0 0 0-.75.75v3a.75.75 0 0 0 1.5 0v-.5h1.5a.75.75 0 0 0 0-1.5h-1.5V12a.75.75 0 0 0-.75-.75z" />
-              </svg>
+              <IconAdjustments className="h-5 w-5" />
               <span className="text-[10px] leading-tight">More</span>
             </button>
           )}

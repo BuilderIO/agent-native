@@ -38,7 +38,7 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
   try {
     const redirectUri =
       (getQuery(event).redirect_uri as string) ||
-      `${getOrigin(event)}/api/google/callback`;
+      `${getOrigin(event)}/_agent-native/google/callback`;
     const session = await getSession(event);
     const owner =
       session?.email && session.email !== "local@localhost"
@@ -71,7 +71,7 @@ export const handleGoogleCallback = defineEventHandler(
         addAccount,
       } = decodeOAuthState(
         query.state as string | undefined,
-        `${getOrigin(event)}/api/google/callback`,
+        `${getOrigin(event)}/_agent-native/google/callback`,
       );
 
       // 1. Resolve owner (needs session context, before exchangeCode)
@@ -155,7 +155,7 @@ export const getGoogleAddAccountUrl = defineEventHandler(
     try {
       const redirectUri =
         (getQuery(event).redirect_uri as string) ||
-        `${getOrigin(event)}/api/google/callback`;
+        `${getOrigin(event)}/_agent-native/google/callback`;
       const desktop = isElectron(event);
       const state = encodeOAuthState(redirectUri, session.email, desktop, true);
       const url = getAuthUrl(undefined, redirectUri, state);
@@ -178,7 +178,7 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
         desktop,
       } = decodeOAuthState(
         query.state as string | undefined,
-        `${getOrigin(event)}/api/google/add-account/callback`,
+        `${getOrigin(event)}/_agent-native/google/add-account/callback`,
       );
 
       const ownerEmail = session?.email || stateOwner;

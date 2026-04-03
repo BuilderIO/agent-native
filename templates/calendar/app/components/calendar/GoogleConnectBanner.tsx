@@ -83,11 +83,11 @@ export function GoogleConnectBanner({
   const [envStatus, setEnvStatus] = useState<EnvKeyStatus[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const redirectUri = `${getCallbackOrigin()}/api/google/callback`;
+  const redirectUri = `${getCallbackOrigin()}/_agent-native/google/callback`;
 
   const fetchStatus = useCallback(async () => {
     try {
-      const res = await fetch("/api/env-status");
+      const res = await fetch("/_agent-native/env-status");
       if (res.ok) {
         const data: EnvKeyStatus[] = await res.json();
         setEnvStatus(data);
@@ -114,7 +114,9 @@ export function GoogleConnectBanner({
       setWantAuthUrl(false);
 
       const interval = setInterval(async () => {
-        const res = await fetch("/api/google/status").catch(() => null);
+        const res = await fetch("/_agent-native/google/status").catch(
+          () => null,
+        );
         if (res?.ok) {
           const data = await res.json();
           if (data.connected) {
@@ -149,7 +151,7 @@ export function GoogleConnectBanner({
 
     const prevCount = accounts.length;
     const interval = setInterval(async () => {
-      const res = await fetch("/api/google/status").catch(() => null);
+      const res = await fetch("/_agent-native/google/status").catch(() => null);
       if (res?.ok) {
         const data = await res.json();
         if (data.accounts?.length > prevCount) {
@@ -186,7 +188,7 @@ export function GoogleConnectBanner({
         throw new Error("Could not find client_id and client_secret in JSON");
       }
 
-      const res = await fetch("/api/env-vars", {
+      const res = await fetch("/_agent-native/env-vars", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

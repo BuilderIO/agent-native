@@ -64,15 +64,15 @@ export default function A2AProtocolDocs() {
 
       <h2 id="server-setup">Server setup</h2>
       <p>
-        Call <code>enableA2A()</code> in a server plugin to expose the A2A
+        Call <code>mountA2A()</code> in a server plugin to expose the A2A
         endpoints:
       </p>
       <CodeBlock
         code={`// server/plugins/a2a.ts
-import { enableA2A } from "@agent-native/core/a2a";
+import { mountA2A } from "@agent-native/core/a2a";
 
 export default defineNitroPlugin((nitro) => {
-  enableA2A(nitro.h3App, {
+  mountA2A(nitro.h3App, {
     name: "Analytics Agent",
     description: "Runs analytics queries and returns chart data",
     skills: [
@@ -280,7 +280,7 @@ console.log(response); // "There were 1,247 signups last week..."`}
       </p>
       <CodeBlock
         code={`// Config
-enableA2A(app, {
+mountA2A(app, {
   // ...
   apiKeyEnv: "A2A_API_KEY",  // reads process.env.A2A_API_KEY
 });

@@ -88,6 +88,7 @@
     "tiptap-markdown": "^0.8.10"
   },
   "peerDependencies": {
+    "@tabler/icons-react": ">=3",
     "@assistant-ui/react": ">=0.12",
     "@assistant-ui/react-markdown": ">=0.12",
     "@supabase/supabase-js": ">=2",
@@ -111,6 +112,9 @@
     "ws": ">=8"
   },
   "peerDependenciesMeta": {
+    "@tabler/icons-react": {
+      "optional": true
+    },
     "@tanstack/react-query": {
       "optional": true
     },
@@ -165,6 +169,7 @@
     "@assistant-ui/react-markdown": "^0.12.6",
     "@react-router/dev": "^7.13.1",
     "@react-router/fs-routes": "^7.13.1",
+    "@tabler/icons-react": "^3.40.0",
     "@supabase/supabase-js": "^2.49.0",
     "@tanstack/react-query": "^5.84.2",
     "@types/better-sqlite3": "^7.6.13",

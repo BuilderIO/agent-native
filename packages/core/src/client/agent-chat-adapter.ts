@@ -8,14 +8,14 @@ import { type ContentPart, readSSEStream } from "./sse-event-processor.js";
 
 /**
  * Creates a ChatModelAdapter that connects to the agent-native
- * `/api/agent-chat` SSE endpoint. Supports reconnection via run-manager.
+ * `/_agent-native/agent-chat` SSE endpoint. Supports reconnection via run-manager.
  */
 export function createAgentChatAdapter(options?: {
   apiUrl?: string;
   tabId?: string;
   threadId?: string;
 }): ChatModelAdapter {
-  const apiUrl = options?.apiUrl ?? "/api/agent-chat";
+  const apiUrl = options?.apiUrl ?? "/_agent-native/agent-chat";
   const tabId = options?.tabId;
   const threadId = options?.threadId;
 

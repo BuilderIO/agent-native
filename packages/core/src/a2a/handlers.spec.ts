@@ -1,6 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { handleJsonRpc } from "./handlers.js";
+import { handleJsonRpcH3 as handleJsonRpc } from "./handlers.js";
 import type { A2AConfig, Message } from "./types.js";
+
+// Mock h3's setResponseStatus and setResponseHeader
+vi.mock("h3", () => ({
+  setResponseStatus: (event: any, code: number) => {
+    event._status = code;
+  },
+  setResponseHeader: (event: any, key: string, val: string) => {
+    event._headers[key] = val;
+  },
+}));
 
 // Mock task-store (now async/SQL-backed)
 vi.mock("./task-store.js", () => {
@@ -54,35 +64,24 @@ vi.mock("../shared/agent-chat.js", () => ({
   },
 }));
 
-function mockReq(body: any): any {
-  return { body };
-}
-
-function mockRes(): any {
-  const res: any = {
+/** Create a mock H3 event for testing handleJsonRpcH3 */
+function mockEvent(): any {
+  return {
     _status: 200,
-    _json: null,
     _headers: {} as Record<string, string>,
-    _writes: [] as string[],
-    _ended: false,
-    status(code: number) {
-      res._status = code;
-      return res;
-    },
-    json(data: any) {
-      res._json = data;
-    },
-    setHeader(key: string, val: string) {
-      res._headers[key] = val;
-    },
-    write(data: string) {
-      res._writes.push(data);
-    },
-    end() {
-      res._ended = true;
+    node: {
+      res: {
+        _writes: [] as string[],
+        _ended: false,
+        write(data: string) {
+          this._writes.push(data);
+        },
+        end() {
+          this._ended = true;
+        },
+      },
     },
   };
-  return res;
 }
 
 describe("handleJsonRpc", () => {
@@ -99,27 +98,27 @@ describe("handleJsonRpc", () => {
   };
 
   it("rejects invalid JSON-RPC requests", async () => {
-    const res = mockRes();
-    await handleJsonRpc(mockReq({}), res, customHandler);
-    expect(res._status).toBe(400);
-    expect(res._json.error.code).toBe(-32600);
+    const event = mockEvent();
+    const result = await handleJsonRpc({}, event, customHandler);
+    expect(event._status).toBe(400);
+    expect(result.error.code).toBe(-32600);
   });
 
   it("rejects unknown methods", async () => {
-    const res = mockRes();
-    await handleJsonRpc(
-      mockReq({ jsonrpc: "2.0", id: 1, method: "unknown/method" }),
-      res,
+    const event = mockEvent();
+    const result = await handleJsonRpc(
+      { jsonrpc: "2.0", id: 1, method: "unknown/method" },
+      event,
       customHandler,
     );
-    expect(res._json.error.code).toBe(-32601);
-    expect(res._json.error.message).toContain("unknown/method");
+    expect(result.error.code).toBe(-32601);
+    expect(result.error.message).toContain("unknown/method");
   });
 
   it("handles message/send with custom handler", async () => {
-    const res = mockRes();
-    await handleJsonRpc(
-      mockReq({
+    const event = mockEvent();
+    const result = await handleJsonRpc(
+      {
         jsonrpc: "2.0",
         id: 1,
         method: "message/send",
@@ -129,31 +128,31 @@ describe("handleJsonRpc", () => {
             parts: [{ type: "text", text: "hello" }],
           },
         },
-      }),
-      res,
+      },
+      event,
       customHandler,
     );
-    expect(res._json.error).toBeUndefined();
-    expect(res._json.id).toBe(1);
-    const task = res._json.result;
+    expect(result.error).toBeUndefined();
+    expect(result.id).toBe(1);
+    const task = result.result;
     expect(task.status.state).toBe("completed");
     expect(task.status.message.parts[0].text).toBe("custom response");
   });
 
   it("handles message/send with invalid message", async () => {
-    const res = mockRes();
-    await handleJsonRpc(
-      mockReq({
+    const event = mockEvent();
+    const result = await handleJsonRpc(
+      {
         jsonrpc: "2.0",
         id: 1,
         method: "message/send",
         params: { message: {} },
-      }),
-      res,
+      },
+      event,
       customHandler,
     );
-    expect(res._json.error).toBeDefined();
-    expect(res._json.error.code).toBe(-32602);
+    expect(result.error).toBeDefined();
+    expect(result.error.code).toBe(-32602);
   });
 
   it("handles handler errors gracefully", async () => {
@@ -163,9 +162,9 @@ describe("handleJsonRpc", () => {
         throw new Error("handler exploded");
       },
     };
-    const res = mockRes();
-    await handleJsonRpc(
-      mockReq({
+    const event = mockEvent();
+    const result = await handleJsonRpc(
+      {
         jsonrpc: "2.0",
         id: 1,
         method: "message/send",
@@ -175,18 +174,18 @@ describe("handleJsonRpc", () => {
             parts: [{ type: "text", text: "hi" }],
           },
         },
-      }),
-      res,
+      },
+      event,
       failConfig,
     );
-    expect(res._json.error.code).toBe(-32000);
-    expect(res._json.error.message).toBe("handler exploded");
+    expect(result.error.code).toBe(-32000);
+    expect(result.error.message).toBe("handler exploded");
   });
 
   it("rejects streaming when not enabled", async () => {
-    const res = mockRes();
-    await handleJsonRpc(
-      mockReq({
+    const event = mockEvent();
+    const result = await handleJsonRpc(
+      {
         jsonrpc: "2.0",
         id: 1,
         method: "message/stream",
@@ -196,56 +195,56 @@ describe("handleJsonRpc", () => {
             parts: [{ type: "text", text: "hi" }],
           },
         },
-      }),
-      res,
+      },
+      event,
       { ...customHandler, streaming: false },
     );
-    expect(res._json.error.code).toBe(-32601);
+    expect(result.error.code).toBe(-32601);
   });
 
   it("handles tasks/get for unknown task", async () => {
-    const res = mockRes();
-    await handleJsonRpc(
-      mockReq({
+    const event = mockEvent();
+    const result = await handleJsonRpc(
+      {
         jsonrpc: "2.0",
         id: 1,
         method: "tasks/get",
         params: { id: "nonexistent" },
-      }),
-      res,
+      },
+      event,
       customHandler,
     );
-    expect(res._json.error.code).toBe(-32001);
+    expect(result.error.code).toBe(-32001);
   });
 
   it("handles tasks/get without id", async () => {
-    const res = mockRes();
-    await handleJsonRpc(
-      mockReq({
+    const event = mockEvent();
+    const result = await handleJsonRpc(
+      {
         jsonrpc: "2.0",
         id: 1,
         method: "tasks/get",
         params: {},
-      }),
-      res,
+      },
+      event,
       customHandler,
     );
-    expect(res._json.error.code).toBe(-32602);
+    expect(result.error.code).toBe(-32602);
   });
 
   it("handles tasks/cancel without id", async () => {
-    const res = mockRes();
-    await handleJsonRpc(
-      mockReq({
+    const event = mockEvent();
+    const result = await handleJsonRpc(
+      {
         jsonrpc: "2.0",
         id: 1,
         method: "tasks/cancel",
         params: {},
-      }),
-      res,
+      },
+      event,
       customHandler,
     );
-    expect(res._json.error.code).toBe(-32602);
+    expect(result.error.code).toBe(-32602);
   });
 });
 
@@ -254,15 +253,14 @@ describe("default handler (no custom handler)", () => {
     name: "Default Agent",
     description: "Uses default handler",
     skills: [{ id: "s1", name: "Skill", description: "A skill" }],
-    // No handler — should use defaultHandler
   };
 
   it("delegates to agentChat.call when no handler provided", async () => {
     const { agentChat } = await import("../shared/agent-chat.js");
 
-    const res = mockRes();
-    await handleJsonRpc(
-      mockReq({
+    const event = mockEvent();
+    const result = await handleJsonRpc(
+      {
         jsonrpc: "2.0",
         id: 1,
         method: "message/send",
@@ -272,26 +270,25 @@ describe("default handler (no custom handler)", () => {
             parts: [{ type: "text", text: "what events today?" }],
           },
         },
-      }),
-      res,
+      },
+      event,
       defaultConfig,
     );
 
     expect(agentChat.call).toHaveBeenCalledWith("what events today?");
-    expect(res._json.error).toBeUndefined();
-    const task = res._json.result;
+    expect(result.error).toBeUndefined();
+    const task = result.result;
     expect(task.status.state).toBe("completed");
     expect(task.status.message.parts[0].text).toBe("Agent says hello");
-    // Should have files-changed artifact
     expect(task.artifacts).toHaveLength(1);
     expect(task.artifacts[0].name).toBe("files-changed");
     expect(task.artifacts[0].parts[0].data.files).toEqual(["events.json"]);
   });
 
   it("handles empty text message gracefully", async () => {
-    const res = mockRes();
-    await handleJsonRpc(
-      mockReq({
+    const event = mockEvent();
+    const result = await handleJsonRpc(
+      {
         jsonrpc: "2.0",
         id: 1,
         method: "message/send",
@@ -301,12 +298,12 @@ describe("default handler (no custom handler)", () => {
             parts: [{ type: "data", data: { key: "val" } }],
           },
         },
-      }),
-      res,
+      },
+      event,
       defaultConfig,
     );
 
-    const task = res._json.result;
+    const task = result.result;
     expect(task.status.state).toBe("completed");
     expect(task.status.message.parts[0].text).toBe(
       "No text content in message",

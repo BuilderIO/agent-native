@@ -63,7 +63,7 @@ This is the canonical approach for new apps. Script names must be lowercase with
 - **Use `parseArgs()`** for structured argument parsing. It converts `--key value` pairs to a `Record<string, string>`.
 - **Use `loadEnv()`** if the script needs environment variables (API keys, etc.).
 - **Use `fail()`** for user-friendly error messages (exits with message, no stack trace).
-- **Write results to files.** The agent and UI will pick them up via the file watcher.
+- **Write results to the database.** The agent and UI will pick them up via db sync polling.
 - **Use `agentChat.submit()`** to report results or errors back to the agent chat.
 - **Import from `@agent-native/core`** — Don't redefine `parseArgs()` or other utilities locally.
 
@@ -109,10 +109,10 @@ export default async function transform(args: string[]) {
 
 - **Script not found** — Check that the filename matches the command name exactly. `pnpm script foo-bar` looks for `scripts/foo-bar.ts`.
 - **Args not parsing** — Ensure args use `--key value` or `--key=value` format. Boolean flags use `--flag` (sets value to `"true"`).
-- **Script runs but UI doesn't update** — Make sure results are written to a path under `data/` that the file watcher monitors.
+- **Script runs but UI doesn't update** — Make sure results are written to the database so db sync polling picks them up.
 
 ## Related Skills
 
 - **files-as-database** — Scripts read/write data files in `data/`
 - **delegate-to-agent** — The agent invokes scripts via `pnpm script <name>`
-- **sse-file-watcher** — File writes from scripts trigger SSE events to update the UI
+- **real-time-sync** — Database writes from scripts trigger poll events to update the UI

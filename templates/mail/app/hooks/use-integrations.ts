@@ -8,7 +8,7 @@ function useIntegrationStatus(provider: Provider) {
   const { data } = useQuery<{ apiKey?: string } | null>({
     queryKey: ["integration-status", provider],
     queryFn: async () => {
-      const res = await fetch(`/api/application-state/${provider}`);
+      const res = await fetch(`/_agent-native/application-state/${provider}`);
       if (res.status === 404) return null;
       if (!res.ok) throw new Error(`${res.status}`);
       return res.json();
@@ -22,7 +22,7 @@ function useIntegrationConnect(provider: Provider) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (apiKey: string) => {
-      const res = await fetch(`/api/application-state/${provider}`, {
+      const res = await fetch(`/_agent-native/application-state/${provider}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ apiKey }),
@@ -40,7 +40,9 @@ function useIntegrationDisconnect(provider: Provider) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async () => {
-      await fetch(`/api/application-state/${provider}`, { method: "DELETE" });
+      await fetch(`/_agent-native/application-state/${provider}`, {
+        method: "DELETE",
+      });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["integration-status", provider] });

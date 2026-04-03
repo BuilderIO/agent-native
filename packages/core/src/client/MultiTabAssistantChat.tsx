@@ -1,10 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import {
-  IconX,
-  IconPlus,
-  IconClockHour3,
-  IconSearch,
-} from "@tabler/icons-react";
+import { IconX, IconPlus, IconHistory, IconSearch } from "@tabler/icons-react";
 import {
   AssistantChat,
   type AssistantChatProps,
@@ -219,7 +214,7 @@ export function MultiTabAssistantChat({
   renderHeader,
   renderOverlay,
   contentHidden = false,
-  apiUrl = "/api/agent-chat",
+  apiUrl = "/_agent-native/agent-chat",
   ...props
 }: MultiTabAssistantChatProps) {
   const {
@@ -581,7 +576,7 @@ export function MultiTabAssistantChat({
               )}
               title="Chat history"
             >
-              <IconClockHour3 size={12} />
+              <IconHistory size={12} />
             </button>
           </div>
         </div>

@@ -15,6 +15,7 @@ import {
   IconLoader2,
   IconX,
   IconTrash,
+  IconExternalLink,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -301,14 +302,7 @@ export const InlineReplyComposer = forwardRef<
               className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
               title="Pop out to compose window"
             >
-              <svg
-                viewBox="0 0 16 16"
-                fill="currentColor"
-                className="h-3.5 w-3.5"
-              >
-                <path d="M4.5 2A2.5 2.5 0 0 0 2 4.5v7A2.5 2.5 0 0 0 4.5 14h7a2.5 2.5 0 0 0 2.5-2.5V9a.75.75 0 0 0-1.5 0v2.5a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1H7a.75.75 0 0 0 0-1.5H4.5z" />
-                <path d="M10 1.75a.75.75 0 0 1 .75-.75h3.5a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0V3.56l-4.22 4.22a.75.75 0 0 1-1.06-1.06L12.44 2.5h-1.69a.75.75 0 0 1-.75-.75z" />
-              </svg>
+              <IconExternalLink className="h-3.5 w-3.5" />
             </button>
           </div>
           <div className="flex items-center border-b border-border/30 px-4 pb-2">
@@ -337,14 +331,7 @@ export const InlineReplyComposer = forwardRef<
             className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors shrink-0"
             title="Pop out to compose window"
           >
-            <svg
-              viewBox="0 0 16 16"
-              fill="currentColor"
-              className="h-3.5 w-3.5"
-            >
-              <path d="M4.5 2A2.5 2.5 0 0 0 2 4.5v7A2.5 2.5 0 0 0 4.5 14h7a2.5 2.5 0 0 0 2.5-2.5V9a.75.75 0 0 0-1.5 0v2.5a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1H7a.75.75 0 0 0 0-1.5H4.5z" />
-              <path d="M10 1.75a.75.75 0 0 1 .75-.75h3.5a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0V3.56l-4.22 4.22a.75.75 0 0 1-1.06-1.06L12.44 2.5h-1.69a.75.75 0 0 1-.75-.75z" />
-            </svg>
+            <IconExternalLink className="h-3.5 w-3.5" />
           </button>
         </div>
       )}

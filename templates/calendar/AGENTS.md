@@ -144,7 +144,7 @@ The `--to` bound is exclusive, so use tomorrow's date for today's events.
 
 1. User configures `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in Settings
 2. User clicks "Connect Google Calendar" — redirected to Google consent screen
-3. Google redirects back to `/api/google/callback` with auth code
+3. Google redirects back to `/_agent-native/google/callback` with auth code
 4. Server exchanges code for tokens, saves to the `oauth_tokens` SQL table
 5. User can now sync events and create events on Google Calendar
 

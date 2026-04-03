@@ -198,7 +198,7 @@ const watcher = createFileWatcher("./data");
         Events:
       </p>
       <CodeBlock
-        code={`// server/routes/api/events.get.ts
+        code={`// server/routes/_agent-native/events.get.ts
 import { createSSEHandler } from "@agent-native/core";
 import { watcher, sseExtraEmitters } from "../../lib/watcher.js";
 
@@ -270,9 +270,10 @@ mountAuthMiddleware(app, process.env.ACCESS_TOKEN!);`}
         createProductionAgentHandler(options)
       </h2>
       <p>
-        Creates an H3 SSE handler at <code>POST /api/agent-chat</code> that runs
-        an agentic tool loop using Claude. Each script's <code>run()</code>{" "}
-        function is registered as a tool the agent can invoke.
+        Creates an H3 SSE handler at <code>POST /_agent-native/agent-chat</code>{" "}
+        that runs an agentic tool loop using Claude. Each script's{" "}
+        <code>run()</code> function is registered as a tool the agent can
+        invoke.
       </p>
       <CodeBlock
         code={`import { createProductionAgentHandler } from "@agent-native/core";

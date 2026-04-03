@@ -5,7 +5,7 @@ const TOC = [
   { id: "sendtoagentchat", label: "sendToAgentChat()" },
   { id: "agentchatmessage", label: "AgentChatMessage", indent: true },
   { id: "useagentchatgenerating", label: "useAgentChatGenerating()" },
-  { id: "usefilewatcher", label: "useFileWatcher()" },
+  { id: "usedbsync", label: "useDbSync()" },
   { id: "cn", label: "cn()" },
 ];
 
@@ -111,23 +111,23 @@ function GenerateButton() {
         and automatically resets to false when the agent finishes generating.
       </p>
 
-      <h2 id="usefilewatcher">useFileWatcher(options?)</h2>
+      <h2 id="usedbsync">useDbSync(options?)</h2>
       <p>
-        React hook that connects to the SSE endpoint and invalidates react-query
-        caches on file changes:
+        React hook (formerly <code>useFileWatcher</code>) that polls for
+        database changes and invalidates react-query caches:
       </p>
       <CodeBlock
-        code={`import { useFileWatcher } from "@agent-native/core";
+        code={`import { useDbSync } from "@agent-native/core";
 import { useQueryClient } from "@tanstack/react-query";
 
 function App() {
   const queryClient = useQueryClient();
 
-  useFileWatcher({
+  useDbSync({
     queryClient,
     queryKeys: ["files", "projects", "versionHistory"],
-    eventsUrl: "/api/events",
-    onEvent: (data) => console.log("File changed:", data),
+    pollUrl: "/_agent-native/poll",
+    onEvent: (data) => console.log("Data changed:", data),
   });
 
   return <div>...</div>;
@@ -156,9 +156,9 @@ function App() {
               'Query key prefixes to invalidate. Default: ["file", "fileTree"]',
             ],
             [
-              "eventsUrl",
+              "pollUrl",
               "string?",
-              'SSE endpoint URL. Default: "/api/events"',
+              'Poll endpoint URL. Default: "/_agent-native/poll"',
             ],
             [
               "onEvent",

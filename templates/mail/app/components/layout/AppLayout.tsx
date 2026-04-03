@@ -29,6 +29,14 @@ import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { SnoozeModal } from "@/components/email/SnoozeModal";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import {
+  IconMenu2,
+  IconSettings,
+  IconSearch,
+  IconPencil,
+  IconCheck,
+  IconPlus,
+} from "@tabler/icons-react";
+import {
   getCallbackOrigin,
   AgentSidebar,
   AgentToggleButton,
@@ -297,7 +305,7 @@ export function AppLayout({ children }: AppLayoutProps) {
     if (threadId) return; // thread view has its own context
     const fetchNav = async () => {
       try {
-        const res = await fetch("/api/application-state/navigation");
+        const res = await fetch("/_agent-native/application-state/navigation");
         if (res.ok) {
           const nav = await res.json();
           if (nav?.focusedEmailId) setFocusedListId(nav.focusedEmailId);
@@ -495,17 +503,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                 className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/50 transition-colors shrink-0"
                 title="Menu"
               >
-                <svg
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                  className="h-4 w-4"
-                >
-                  <path
-                    fillRule="evenodd"
-                    d="M2 4.75A.75.75 0 0 1 2.75 4h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 4.75Zm0 5A.75.75 0 0 1 2.75 9h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 9.75Zm0 5a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1-.75-.75Z"
-                    clipRule="evenodd"
-                  />
-                </svg>
+                <IconMenu2 className="h-4 w-4" />
               </button>
 
               {/* Visible tabs */}
@@ -581,17 +579,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                   )}
                   title="Configure tabs"
                 >
-                  <svg
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                    className="h-3.5 w-3.5"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M7.84 1.804A1 1 0 0 1 8.82 1h2.36a1 1 0 0 1 .98.804l.331 1.652a6.993 6.993 0 0 1 1.929 1.115l1.598-.54a1 1 0 0 1 1.186.447l1.18 2.044a1 1 0 0 1-.205 1.251l-1.267 1.113a7.047 7.047 0 0 1 0 2.228l1.267 1.113a1 1 0 0 1 .206 1.25l-1.18 2.045a1 1 0 0 1-1.187.447l-1.598-.54a6.993 6.993 0 0 1-1.929 1.115l-.33 1.652a1 1 0 0 1-.98.804H8.82a1 1 0 0 1-.98-.804l-.331-1.652a6.993 6.993 0 0 1-1.929-1.115l-1.598.54a1 1 0 0 1-1.186-.447l-1.18-2.044a1 1 0 0 1 .205-1.251l1.267-1.114a7.05 7.05 0 0 1 0-2.227L1.821 7.773a1 1 0 0 1-.206-1.25l1.18-2.045a1 1 0 0 1 1.187-.447l1.598.54A6.992 6.992 0 0 1 7.51 3.456l.33-1.652ZM10 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
+                  <IconSettings className="h-3.5 w-3.5" />
                 </button>
 
                 {tabSettingsOpen && (
@@ -643,17 +631,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                   className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
                   title="Search (/)"
                 >
-                  <svg
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                    className="h-4 w-4"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11zM2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
+                  <IconSearch className="h-4 w-4" />
                 </button>
               )}
 
@@ -676,13 +654,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                 className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
                 title="Compose (C)"
               >
-                <svg
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                  className="h-4 w-4"
-                >
-                  <path d="M2.695 14.763l-1.262 3.154a.5.5 0 0 0 .65.65l3.155-1.262a4 4 0 0 0 1.343-.885L17.5 5.5a2.121 2.121 0 0 0-3-3L3.58 13.42a4 4 0 0 0-.885 1.343z" />
-                </svg>
+                <IconPencil className="h-4 w-4" />
               </button>
 
               {/* Account avatars — overlapping stack like Figma */}
@@ -1089,17 +1061,7 @@ function CheckboxRow({
         )}
       >
         {checked && (
-          <svg
-            viewBox="0 0 16 16"
-            fill="currentColor"
-            className="h-2.5 w-2.5 text-primary-foreground"
-          >
-            <path
-              fillRule="evenodd"
-              d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.353 2.353 4.493-6.74a.75.75 0 0 1 1.04-.207Z"
-              clipRule="evenodd"
-            />
-          </svg>
+          <IconCheck className="h-2.5 w-2.5 text-primary-foreground" />
         )}
       </span>
       <span className="flex items-center gap-1.5 text-[13px] text-foreground/80">
@@ -1297,7 +1259,9 @@ function AccountPopover({
       setWantAuthUrl(false);
 
       const interval = setInterval(async () => {
-        const res = await fetch("/api/google/status").catch(() => null);
+        const res = await fetch("/_agent-native/google/status").catch(
+          () => null,
+        );
         if (res?.ok) {
           const data = await res.json();
           if (data.accounts?.length > accounts.length) {
@@ -1344,17 +1308,7 @@ function AccountPopover({
                   )}
                 >
                   {isChecked && (
-                    <svg
-                      viewBox="0 0 16 16"
-                      fill="currentColor"
-                      className="h-2.5 w-2.5 text-primary-foreground"
-                    >
-                      <path
-                        fillRule="evenodd"
-                        d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.353 2.353 4.493-6.74a.75.75 0 0 1 1.04-.207Z"
-                        clipRule="evenodd"
-                      />
-                    </svg>
+                    <IconCheck className="h-2.5 w-2.5 text-primary-foreground" />
                   )}
                 </span>
               </button>
@@ -1393,9 +1347,7 @@ function AccountPopover({
           disabled={authUrl.isLoading || authUrl.isFetching}
           className="flex items-center gap-2 w-full text-[13px] text-muted-foreground hover:text-foreground transition-colors py-1"
         >
-          <svg viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
-            <path d="M8 2a.75.75 0 0 1 .75.75v4.5h4.5a.75.75 0 0 1 0 1.5h-4.5v4.5a.75.75 0 0 1-1.5 0v-4.5h-4.5a.75.75 0 0 1 0-1.5h4.5v-4.5A.75.75 0 0 1 8 2z" />
-          </svg>
+          <IconPlus className="h-3.5 w-3.5" />
           {authUrl.isFetching ? "Connecting..." : "Add account"}
         </button>
       </div>

@@ -76,4 +76,4 @@ el.dataset.selectedId = selectedItem?.id || "";
 - **files-as-database** — Tier 1 modifications (data files) are the safest and most common
 - **scripts** — The agent can create or modify scripts to add new capabilities
 - **delegate-to-agent** — Self-modification requests come through the agent chat
-- **sse-file-watcher** — Source and data file edits trigger SSE events to update the UI
+- **real-time-sync** — Database writes trigger poll events to update the UI

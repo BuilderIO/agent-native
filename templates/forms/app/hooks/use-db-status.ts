@@ -11,7 +11,7 @@ export function useDbStatus() {
   const { data, isLoading } = useQuery<EnvStatusEntry[]>({
     queryKey: ["env-status"],
     queryFn: async () => {
-      const res = await fetch("/api/env-status");
+      const res = await fetch("/_agent-native/env-status");
       if (!res.ok) return [];
       return res.json();
     },

@@ -33,7 +33,7 @@ export function useNavigationState() {
   // Write-only: UI syncs its current state so the agent can read it
   const putMutation = useMutation({
     mutationFn: (state: NavigationState) =>
-      apiFetch("/api/application-state/navigation", {
+      apiFetch("/_agent-native/application-state/navigation", {
         method: "PUT",
         body: JSON.stringify(state),
       }),
@@ -54,7 +54,7 @@ export function useNavigationState() {
     queryKey: ["navigate-command"],
     queryFn: async () => {
       const result = await apiFetch<NavigationState | undefined>(
-        "/api/application-state/navigate",
+        "/_agent-native/application-state/navigate",
       );
       return result ?? null;
     },
@@ -63,7 +63,9 @@ export function useNavigationState() {
 
   const deleteMutation = useMutation({
     mutationFn: () =>
-      apiFetch("/api/application-state/navigate", { method: "DELETE" }),
+      apiFetch("/_agent-native/application-state/navigate", {
+        method: "DELETE",
+      }),
     onSuccess: () => {
       qc.setQueryData(["navigate-command"], undefined);
     },

@@ -148,7 +148,7 @@ description: >-
 
 - **Inline LLM calls** — Skills must not call LLMs directly (violates Rule 2)
 - **Database patterns** — Skills must not introduce databases (violates Rule 1)
-- **Ignoring SSE** — If a skill creates data files, mention wiring up `useFileWatcher`
+- **Ignoring db sync** — If a skill creates data, mention wiring up `useDbSync`
 - **Vague descriptions** — "Helps with development" won't trigger. Be specific about _when_.
 - **Pure documentation** — Skills should guide action, not just explain concepts
 

@@ -9,6 +9,7 @@ import {
   IconChevronDown,
   IconLoader2,
   IconTrash,
+  IconPlus,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -465,9 +466,7 @@ export function ComposeModal({
             className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/30 transition-colors"
             title="New draft"
           >
-            <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
-              <path d="M8 2a.75.75 0 0 1 .75.75v4.5h4.5a.75.75 0 0 1 0 1.5h-4.5v4.5a.75.75 0 0 1-1.5 0v-4.5h-4.5a.75.75 0 0 1 0-1.5h4.5v-4.5A.75.75 0 0 1 8 2z" />
-            </svg>
+            <IconPlus className="h-3 w-3" />
           </button>
         </div>
 

@@ -31,6 +31,20 @@ import { toast } from "sonner";
 import type { EmailMessage, MobileActionId } from "@shared/types";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  IconArrowLeft,
+  IconCheck,
+  IconChevronUp,
+  IconChevronDown,
+  IconExternalLink,
+  IconX,
+  IconArrowBackUp,
+  IconArrowForwardUp,
+  IconPaperclip,
+  IconDownload,
+  IconPhoto,
+  IconSearch,
+} from "@tabler/icons-react";
+import {
   InlineReplyComposer,
   type InlineReplyHandle,
 } from "./InlineReplyComposer";
@@ -761,17 +775,7 @@ export function EmailThread({
             className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
             title="Back (Esc)"
           >
-            <svg
-              viewBox="0 0 20 20"
-              fill="currentColor"
-              className="h-[14px] w-[14px]"
-            >
-              <path
-                fillRule="evenodd"
-                d="M17 10a.75.75 0 0 1-.75.75H5.612l4.158 3.96a.75.75 0 1 1-1.04 1.08l-5.5-5.25a.75.75 0 0 1 0-1.08l5.5-5.25a.75.75 0 1 1 1.04 1.08L5.612 9.25H16.25A.75.75 0 0 1 17 10z"
-                clipRule="evenodd"
-              />
-            </svg>
+            <IconArrowLeft className="h-[14px] w-[14px]" />
           </button>
 
           <div className="flex-1 min-w-0">
@@ -797,49 +801,19 @@ export function EmailThread({
                   className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
                   title="Done (E)"
                 >
-                  <svg
-                    viewBox="0 0 16 16"
-                    fill="currentColor"
-                    className="h-4 w-4"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.353 2.353 4.493-6.74a.75.75 0 0 1 1.04-.207z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
+                  <IconCheck className="h-4 w-4" />
                 </button>
                 <button
                   onClick={() => goToSibling(-1)}
                   className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ml-1"
                 >
-                  <svg
-                    viewBox="0 0 16 16"
-                    fill="currentColor"
-                    className="h-3.5 w-3.5"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M11.78 9.78a.75.75 0 0 1-1.06 0L8 7.06 5.28 9.78a.75.75 0 0 1-1.06-1.06l3.25-3.25a.75.75 0 0 1 1.06 0l3.25 3.25a.75.75 0 0 1 0 1.06z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
+                  <IconChevronUp className="h-3.5 w-3.5" />
                 </button>
                 <button
                   onClick={() => goToSibling(1)}
                   className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
                 >
-                  <svg
-                    viewBox="0 0 16 16"
-                    fill="currentColor"
-                    className="h-3.5 w-3.5"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M4.22 6.22a.75.75 0 0 1 1.06 0L8 8.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 7.28a.75.75 0 0 1 0-1.06z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
+                  <IconChevronDown className="h-3.5 w-3.5" />
                 </button>
               </div>
             </div>
@@ -852,17 +826,7 @@ export function EmailThread({
                   className="group relative inline-flex items-center gap-1.5 text-[12px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
                   title="View Pull Request (⌘O)"
                 >
-                  <svg
-                    viewBox="0 0 16 16"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className="h-3 w-3"
-                  >
-                    <path d="M6 3H3v10h10v-3M9 3h4m0 0v4m0-4L7 11" />
-                  </svg>
+                  <IconExternalLink className="h-3 w-3" />
                   View Pull Request
                   <span className="pointer-events-none absolute left-0 top-full mt-1 z-50 hidden group-hover:flex items-center gap-1.5 rounded-md border border-border/50 bg-popover px-2.5 py-1.5 text-[12px] font-medium text-foreground shadow-lg whitespace-nowrap">
                     View Pull Request
@@ -1056,17 +1020,7 @@ function ThreadLoadingState({ onBack }: { onBack: () => void }) {
             className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
             title="Back (Esc)"
           >
-            <svg
-              viewBox="0 0 20 20"
-              fill="currentColor"
-              className="h-[14px] w-[14px]"
-            >
-              <path
-                fillRule="evenodd"
-                d="M17 10a.75.75 0 0 1-.75.75H5.612l4.158 3.96a.75.75 0 1 1-1.04 1.08l-5.5-5.25a.75.75 0 0 1 0-1.08l5.5-5.25a.75.75 0 1 1 1.04 1.08L5.612 9.25H16.25A.75.75 0 0 1 17 10z"
-                clipRule="evenodd"
-              />
-            </svg>
+            <IconArrowLeft className="h-[14px] w-[14px]" />
           </button>
 
           <div className="flex-1 min-w-0 space-y-3 pt-1">
@@ -1279,13 +1233,7 @@ const ExpandedMessageCard = forwardRef<
                 onClick={() => setShowDetails(false)}
                 className="text-muted-foreground/50 hover:text-foreground transition-colors"
               >
-                <svg
-                  viewBox="0 0 16 16"
-                  fill="currentColor"
-                  className="h-3.5 w-3.5"
-                >
-                  <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L9.06 8l3.22 3.22a.75.75 0 1 1-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 0 1-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06z" />
-                </svg>
+                <IconX className="h-3.5 w-3.5" />
               </button>
             </div>
           </div>
@@ -1327,18 +1275,7 @@ const ExpandedMessageCard = forwardRef<
               className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
               title="Reply"
             >
-              <svg
-                viewBox="0 0 20 20"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="h-[14px] w-[14px]"
-              >
-                <path d="M7.5 4.5L2.5 9l5 4.5" />
-                <path d="M2.5 9h10a4.5 4.5 0 0 1 0 9H14" />
-              </svg>
+              <IconArrowBackUp className="h-[14px] w-[14px]" />
             </button>
             <button
               onClick={(e) => {
@@ -1348,19 +1285,7 @@ const ExpandedMessageCard = forwardRef<
               className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
               title="Reply All"
             >
-              <svg
-                viewBox="0 0 20 20"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="h-[14px] w-[14px]"
-              >
-                <path d="M10 4.5L5 9l5 4.5" />
-                <path d="M5 9h8a4.5 4.5 0 0 1 0 9h-1" />
-                <path d="M6.5 4.5L1.5 9l5 4.5" />
-              </svg>
+              <IconArrowBackUp className="h-[14px] w-[14px]" />
             </button>
             <button
               onClick={(e) => {
@@ -1370,18 +1295,7 @@ const ExpandedMessageCard = forwardRef<
               className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
               title="Forward"
             >
-              <svg
-                viewBox="0 0 20 20"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="h-[14px] w-[14px]"
-              >
-                <path d="M12.5 4.5L17.5 9l-5 4.5" />
-                <path d="M17.5 9h-10a4.5 4.5 0 0 0 0 9H6" />
-              </svg>
+              <IconArrowForwardUp className="h-[14px] w-[14px]" />
             </button>
           </div>
 
@@ -1450,13 +1364,7 @@ const ExpandedMessageCard = forwardRef<
                   download={att.filename}
                   className="flex items-center gap-2 rounded-lg bg-accent/60 px-3 py-2 text-xs hover:bg-accent cursor-pointer"
                 >
-                  <svg
-                    viewBox="0 0 16 16"
-                    fill="currentColor"
-                    className="h-3 w-3 text-muted-foreground shrink-0"
-                  >
-                    <path d="M11.28 1.47a.75.75 0 0 1 0 1.06L5.56 8.25a2.5 2.5 0 0 0 3.536 3.536l5.72-5.72a.75.75 0 0 1 1.06 1.06l-5.72 5.72a4 4 0 0 1-5.656-5.656l5.72-5.72a.75.75 0 0 1 1.06 0z" />
-                  </svg>
+                  <IconPaperclip className="h-3 w-3 text-muted-foreground shrink-0" />
                   <span className="text-foreground/80 truncate max-w-[180px]">
                     {att.filename}
                   </span>
@@ -1477,14 +1385,7 @@ const ExpandedMessageCard = forwardRef<
                 }}
                 className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
               >
-                <svg
-                  viewBox="0 0 16 16"
-                  fill="currentColor"
-                  className="h-3 w-3"
-                >
-                  <path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14H2.75z" />
-                  <path d="M7.25 7.689V2a.75.75 0 0 1 1.5 0v5.689l1.97-1.969a.749.749 0 1 1 1.06 1.06l-3.25 3.25a.749.749 0 0 1-1.06 0L4.22 6.78a.749.749 0 1 1 1.06-1.06l1.97 1.969z" />
-                </svg>
+                <IconDownload className="h-3 w-3" />
                 Download all
               </button>
             )}
@@ -2382,13 +2283,7 @@ function HtmlEmailBody({
     <div>
       {showBanner && (
         <div className="flex items-center gap-2 px-3 py-1.5 mb-2 rounded-md bg-accent/60 text-[12px] text-muted-foreground">
-          <svg
-            viewBox="0 0 16 16"
-            fill="currentColor"
-            className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60"
-          >
-            <path d="M2.5 4A1.5 1.5 0 0 0 1 5.5v5A1.5 1.5 0 0 0 2.5 12h11a1.5 1.5 0 0 0 1.5-1.5v-5A1.5 1.5 0 0 0 13.5 4h-11ZM4 7.5a1 1 0 1 1 2 0 1 1 0 0 1-2 0Zm4.5-.5a.5.5 0 0 0 0 1h3a.5.5 0 0 0 0-1h-3ZM8 9.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 0 1h-3a.5.5 0 0 1-.5-.5Z" />
-          </svg>
+          <IconPhoto className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
           <span>Images blocked.</span>
           <button
             onClick={() => setShowImagesForThread(true)}
@@ -2457,13 +2352,7 @@ function ThreadSearchBar({
 
   return (
     <div className="shrink-0 flex items-center gap-2 px-4 py-2 border-b border-border/50 bg-background/80 backdrop-blur-sm">
-      <svg
-        viewBox="0 0 16 16"
-        fill="currentColor"
-        className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0"
-      >
-        <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001q.044.06.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1 1 0 0 0-.115-.099zm-5.242 1.156a5.5 5.5 0 1 1 0-11 5.5 5.5 0 0 1 0 11" />
-      </svg>
+      <IconSearch className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
       <input
         ref={inputRef}
         type="text"
@@ -2489,13 +2378,7 @@ function ThreadSearchBar({
           className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           title="Previous match (Shift+Enter)"
         >
-          <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
-            <path
-              fillRule="evenodd"
-              d="M11.78 9.78a.75.75 0 0 1-1.06 0L8 7.06 5.28 9.78a.75.75 0 0 1-1.06-1.06l3.25-3.25a.75.75 0 0 1 1.06 0l3.25 3.25a.75.75 0 0 1 0 1.06z"
-              clipRule="evenodd"
-            />
-          </svg>
+          <IconChevronUp className="h-3 w-3" />
         </button>
         <button
           onClick={onNext}
@@ -2503,22 +2386,14 @@ function ThreadSearchBar({
           className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           title="Next match (Enter)"
         >
-          <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
-            <path
-              fillRule="evenodd"
-              d="M4.22 6.22a.75.75 0 0 1 1.06 0L8 8.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 7.28a.75.75 0 0 1 0-1.06z"
-              clipRule="evenodd"
-            />
-          </svg>
+          <IconChevronDown className="h-3 w-3" />
         </button>
         <button
           onClick={onClose}
           className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ml-1"
           title="Close (Esc)"
         >
-          <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
-            <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L9.06 8l3.22 3.22a.75.75 0 1 1-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 0 1-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06z" />
-          </svg>
+          <IconX className="h-3 w-3" />
         </button>
       </div>
     </div>

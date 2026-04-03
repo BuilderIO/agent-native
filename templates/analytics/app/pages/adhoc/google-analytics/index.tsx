@@ -36,7 +36,7 @@ function useEnvStatus() {
     queryKey: ["env-status"],
     queryFn: async () => {
       const token = await getIdToken();
-      const res = await fetch("/api/env-status", {
+      const res = await fetch("/_agent-native/env-status", {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (!res.ok) return [];

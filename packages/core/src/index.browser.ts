@@ -7,6 +7,7 @@ export {
   useDevMode,
   useSendToAgentChat,
   CodeRequiredDialog,
+  useDbSync,
   useFileWatcher,
   useSession,
   cn,

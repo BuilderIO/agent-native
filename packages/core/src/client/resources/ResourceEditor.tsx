@@ -874,7 +874,7 @@ export function ResourceEditor({ resource, onSave }: ResourceEditorProps) {
       <div className="flex h-full flex-col">
         <div className="flex flex-1 items-center justify-center overflow-auto p-4">
           <img
-            src={`/api/resources/${resource.id}?raw`}
+            src={`/_agent-native/resources/${resource.id}?raw`}
             alt={resource.path}
             className="max-h-full max-w-full object-contain"
           />

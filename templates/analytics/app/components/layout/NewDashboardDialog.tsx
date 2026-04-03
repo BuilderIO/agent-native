@@ -26,7 +26,7 @@ export function NewDashboardDialog() {
         "Each panel needs: id (unique string), title, sql (the query), source ('bigquery' or 'app-db'), " +
         "chartType ('line' | 'area' | 'bar' | 'metric' | 'table' | 'pie'), width (1 or 2). " +
         "Optional config: { xKey, yKey, yKeys, color, colors, yFormatter ('number'|'currency'|'percent'), description }. " +
-        "First check /api/env-status to see which data sources are connected. " +
+        "First check /_agent-native/env-status to see which data sources are connected. " +
         "Refer to .builder/skills/<provider>/SKILL.md for SQL patterns and table names. " +
         "NO code files need to be created — only the dashboard config JSON via the API. " +
         "After saving, the dashboard will be accessible at /adhoc/{id}.",

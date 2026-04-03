@@ -6,7 +6,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
-import { useFileWatcher } from "@agent-native/core/client";
+import { useDbSync } from "@agent-native/core/client";
 import { ClientOnly, DefaultSpinner } from "@agent-native/core/client";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -46,9 +46,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
 const TAB_ID = Math.random().toString(36).slice(2, 10);
 
-function FileWatcherSetup() {
+function DbSyncSetup() {
   const qc = useQueryClient();
-  useFileWatcher({
+  useDbSync({
     queryClient: qc,
     queryKeys: [
       "events",
@@ -75,7 +75,7 @@ export default function Root() {
           disableTransitionOnChange
         >
           <TooltipProvider>
-            <FileWatcherSetup />
+            <DbSyncSetup />
             <Toaster position="bottom-left" />
             <Outlet />
           </TooltipProvider>

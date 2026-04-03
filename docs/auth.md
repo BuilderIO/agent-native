@@ -73,7 +73,7 @@ function MyComponent() {
 }
 ```
 
-### API Endpoint: `GET /api/auth/session`
+### API Endpoint: `GET /_agent-native/auth/session`
 
 Returns the current session as JSON, or `{ error: "Not authenticated" }`.
 
@@ -150,11 +150,11 @@ autoMountAuth(app, {
 
 ### Routes
 
-| Route               | Method | Description                        |
-| ------------------- | ------ | ---------------------------------- |
-| `/api/auth/login`   | POST   | Validate token, set session cookie |
-| `/api/auth/logout`  | POST   | Clear session cookie               |
-| `/api/auth/session` | GET    | Get current session                |
+| Route                         | Method | Description                        |
+| ----------------------------- | ------ | ---------------------------------- |
+| `/_agent-native/auth/login`   | POST   | Validate token, set session cookie |
+| `/_agent-native/auth/logout`  | POST   | Clear session cookie               |
+| `/_agent-native/auth/session` | GET    | Get current session                |
 
 ## Security
 

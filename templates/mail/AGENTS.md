@@ -76,7 +76,7 @@ To check the current state:
 - Use `pnpm script view-screen` to see the navigation state and fetch the matching email list
 - Use `pnpm script list-emails --view=inbox` to list emails (automatically uses Gmail when connected, falls back to local data)
 - Use `pnpm script search-emails --q=term` to search across all emails
-- Check Google connection status via `GET /api/google/status`
+- Check Google connection status via `GET /_agent-native/google/status`
 
 **IMPORTANT — Drafts vs Emails:**
 

@@ -90,37 +90,44 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-export default function Root() {
-  useExitSelectionOnOutsideClick();
+function AppContent() {
   useNavigationState();
-  const [queryClient] = useState(() => new QueryClient());
   const [cmdkOpen, setCmdkOpen] = useState(false);
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
 
   return (
+    <>
+      <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
+        <CommandMenu.Group heading="Presentations">
+          <CommandMenu.Item onSelect={() => {}}>Search decks</CommandMenu.Item>
+        </CommandMenu.Group>
+      </CommandMenu>
+      <DeckProvider key={DECK_KEY}>
+        <AgentSidebar
+          position="right"
+          defaultOpen
+          emptyStateText="Ask me anything about your presentations"
+          suggestions={[
+            "Create a new deck",
+            "Generate slides about AI",
+            "Add an image to this slide",
+          ]}
+        >
+          <Outlet />
+        </AgentSidebar>
+      </DeckProvider>
+    </>
+  );
+}
+
+export default function Root() {
+  useExitSelectionOnOutsideClick();
+  const [queryClient] = useState(() => new QueryClient());
+
+  return (
     <ClientOnly fallback={<DefaultSpinner />}>
       <QueryClientProvider client={queryClient}>
-        <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
-          <CommandMenu.Group heading="Presentations">
-            <CommandMenu.Item onSelect={() => {}}>
-              Search decks
-            </CommandMenu.Item>
-          </CommandMenu.Group>
-        </CommandMenu>
-        <DeckProvider key={DECK_KEY}>
-          <AgentSidebar
-            position="right"
-            defaultOpen
-            emptyStateText="Ask me anything about your presentations"
-            suggestions={[
-              "Create a new deck",
-              "Generate slides about AI",
-              "Add an image to this slide",
-            ]}
-          >
-            <Outlet />
-          </AgentSidebar>
-        </DeckProvider>
+        <AppContent />
       </QueryClientProvider>
     </ClientOnly>
   );

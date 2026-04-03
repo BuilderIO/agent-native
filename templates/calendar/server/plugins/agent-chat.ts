@@ -1,6 +1,7 @@
 import { createAgentChatPlugin } from "@agent-native/core/server";
 
 export default createAgentChatPlugin({
+  appId: "calendar",
   mentionProviders: async () => {
     const { getDb } = await import("../db/index.js");
     const { bookings, bookingLinks } = await import("../db/schema.js");
