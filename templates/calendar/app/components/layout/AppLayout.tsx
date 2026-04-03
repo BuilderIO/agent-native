@@ -3,6 +3,7 @@ import { IconMenu } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { AgentSidebar } from "@agent-native/core/client";
 import { Sidebar } from "./Sidebar";
+import { useNavigationState } from "@/hooks/use-navigation-state";
 import type { CalendarEvent } from "@shared/api";
 
 const EVENT_DETAIL_MODE_KEY = "calendar-event-detail-mode";
@@ -33,6 +34,11 @@ const CalendarContext = createContext<CalendarContextValue>({
 
 export function useCalendarContext() {
   return useContext(CalendarContext);
+}
+
+function NavigationSync() {
+  useNavigationState();
+  return null;
 }
 
 interface AppLayoutProps {
@@ -77,6 +83,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         setSidebarEvent,
       }}
     >
+      <NavigationSync />
       <div className="flex h-screen overflow-hidden bg-background">
         <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
         <AgentSidebar

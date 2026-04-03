@@ -89,9 +89,14 @@ describe("application-state script-helpers", () => {
       mockAppStatePut.mockResolvedValue(undefined);
 
       await writeAppState("key", { foo: "bar" });
-      expect(mockAppStatePut).toHaveBeenCalledWith("local", "key", {
-        foo: "bar",
-      });
+      expect(mockAppStatePut).toHaveBeenCalledWith(
+        "local",
+        "key",
+        {
+          foo: "bar",
+        },
+        { requestSource: "agent" },
+      );
     });
   });
 
@@ -103,7 +108,9 @@ describe("application-state script-helpers", () => {
 
       const result = await deleteAppState("key");
       expect(result).toBe(true);
-      expect(mockAppStateDelete).toHaveBeenCalledWith("local", "key");
+      expect(mockAppStateDelete).toHaveBeenCalledWith("local", "key", {
+        requestSource: "agent",
+      });
     });
   });
 
@@ -131,6 +138,7 @@ describe("application-state script-helpers", () => {
       expect(mockAppStateDeleteByPrefix).toHaveBeenCalledWith(
         "local",
         "compose-",
+        { requestSource: "agent" },
       );
     });
   });

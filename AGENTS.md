@@ -1,60 +1,65 @@
 # Agent-Native Framework
 
-## What This Is
+## Core Philosophy
 
-Agent-native is a framework for building apps where an AI agent is a first-class citizen alongside the UI. Think Next.js, but the AI agent can read data, write data, run scripts, and even modify the app's own code.
+Agent-native is a framework for building apps where the AI agent and the UI are equal partners. Everything the UI can do, the agent can do. Everything the agent can do, the UI can do. They share the same database, the same state, and they always stay in sync.
 
-## Portability: Database & Hosting Agnostic
+You don't think about "the agent" and "the app" separately — you think about them together. A feature isn't complete until both the UI and the agent can use it. A compose email flow has a UI for the user AND scripts the agent calls. A calendar event can be created from the UI OR by the agent, and either way the other side sees it immediately.
 
-**This is a hard requirement that applies to ALL code — framework core, templates, scripts, migrations, and raw SQL.**
+The agent can also see what the user is looking at. If an email is open, the agent knows which email. If a slide is selected, the agent knows which slide. If the user selects text and hits Cmd+I to focus the agent, the agent knows what text is selected and can act on just that.
 
-### Database
+## When Adding a Feature
 
-The framework supports **multiple SQL databases** via Drizzle ORM and `@agent-native/core/db/client`. Users choose their database by setting `DATABASE_URL`:
+Every new feature or integration MUST update all four areas. Skipping any one breaks the agent-native contract:
 
-- **SQLite** — local dev default when `DATABASE_URL` is unset (fallback to `data/app.db`)
-- **Neon Postgres** — common in both dev and production
-- **Turso** (libSQL) — edge-friendly SQLite-compatible
-- **Supabase Postgres**
-- **Cloudflare D1**
-- **Plain Postgres**
+1. **UI** — The user-facing interface (component, route, page)
+2. **Scripts** — Agent-callable operations in `scripts/` so the agent can do the same thing
+3. **Skills / Instructions** — Update AGENTS.md and/or create skills if the feature introduces new patterns the agent needs to know
+4. **Application State** — Expose navigation and selection state so the agent knows what the user is looking at
 
-**Never assume SQLite.** Never write SQLite-only syntax (`INSERT OR REPLACE`, `AUTOINCREMENT`, `datetime('now')`, etc.) without a Postgres equivalent. Use the framework helpers:
+This applies to every feature: a new form builder, a new chart type, a new email filter. If the UI has it, there's a script for it. If the agent needs context, app-state provides it. If there's a non-obvious pattern, a skill documents it.
 
-- `getDbExec()` — auto-converts `?` params to `$1` for Postgres
-- `isPostgres()` — runtime dialect check for branching
-- `intType()` — returns correct integer type for the dialect
-- Drizzle ORM — generates dialect-correct SQL automatically
+## Context Awareness
 
-When writing AGENTS.md or other docs for templates, say **"SQL"** or **"SQL database"** — not "SQLite". If you must mention SQLite, always qualify it: "SQLite (or Postgres/Turso/etc. via `DATABASE_URL`)".
+The agent must always know what the user is currently viewing. This is achieved through two mechanisms:
 
-### Hosting
+### Navigation State
 
-The server runs on **Nitro**, which compiles to any deployment target:
+The UI writes a `navigation` key to application-state on every route change:
 
-- **Node.js** — local dev, traditional servers
-- **Cloudflare Workers/Pages**
-- **Netlify Functions/Edge**
-- **Vercel Serverless/Edge**
-- **Deno Deploy**
-- **AWS Lambda**
-- **Bun**
+```json
+{ "view": "thread", "threadId": "abc123", "subject": "Re: Q3 Planning" }
+```
 
-**Never write code that only works in Node.js.** Avoid Node-specific APIs (`fs`, `child_process`, `path`) in server routes and plugins — these don't exist in Workers/edge environments. Use Nitro's built-in abstractions and h3 utilities instead. Scripts (in `scripts/`) run in Node.js and can use Node APIs freely.
+The agent reads this before taking action: `readAppState("navigation")`.
 
-**Never assume a persistent server process.** Serverless and edge environments are stateless — no in-memory caches that survive between requests, no long-lived connections, no background intervals. Use the SQL database for all state. The polling/SSE sync system is designed to work in stateless environments.
+### The view-screen Script
+
+Every template should have a `view-screen` script that reads navigation state, fetches the relevant data, and returns a snapshot of what the user sees. This is the agent's eyes.
+
+### The navigate Script
+
+Every template should have a `navigate` script that writes a one-shot command to application-state, letting the agent switch views, open items, or focus elements. The UI processes the command and clears it.
+
+### Jitter Prevention
+
+When the agent writes to application-state, the UI updates via polling. But polling must NOT override the user's active edits. Only explicit agent writes should push changes to the UI. Templates use the `ignoreSource` option on `useFileWatcher()` with a per-tab ID so the UI ignores its own writes while still picking up agent and other-tab changes.
 
 ## The Six Rules
 
-Every agent-native app follows these rules. Violating them breaks the architecture.
+### 1. Data Lives in SQL
 
-### 1. Data lives in SQL
+All app state lives in SQL via Drizzle ORM. Users choose their database by setting `DATABASE_URL`:
 
-All app state lives in SQL via Drizzle ORM or the core SQL stores. **The database is NOT always SQLite.** Users configure `DATABASE_URL` to any supported provider — Neon Postgres, Turso, Supabase, Cloudflare D1, plain Postgres, or SQLite. In local dev without `DATABASE_URL`, SQLite (`data/app.db`) is used as a fallback, but **never assume SQLite**. Many users (including the project maintainer) use Neon Postgres in both dev and production.
+- **SQLite** — local dev default when `DATABASE_URL` is unset (fallback to `data/app.db`)
+- **Neon Postgres**, **Turso** (libSQL), **Supabase Postgres**, **Cloudflare D1**, **plain Postgres**
 
-**All SQL must be dialect-agnostic.** Use the `getDbExec()` abstraction from `@agent-native/core/db/client` which handles parameter conversion (`?` → `$1`) and dialect differences automatically. For syntax that differs between SQLite and Postgres (e.g., `INSERT OR REPLACE` vs `ON CONFLICT DO UPDATE`, `INTEGER` vs `BIGINT`), use the helpers: `isPostgres()`, `intType()`. Never write raw SQLite-only syntax.
+**Never assume SQLite.** All SQL must be dialect-agnostic. Use the framework helpers:
 
-The framework is multi-tenant — multiple users share the same database, with data isolation handled by user-scoped keys and `AGENT_USER_EMAIL`.
+- `getDbExec()` — auto-converts `?` params to `$1` for Postgres
+- `isPostgres()` — runtime dialect check
+- `intType()` — returns correct integer type for the dialect
+- Drizzle ORM — generates dialect-correct SQL automatically
 
 **Core SQL stores** (auto-created, available in all templates):
 
@@ -63,128 +68,176 @@ The framework is multi-tenant — multiple users share the same database, with d
 - `oauth_tokens` — OAuth credentials (via `@agent-native/core/oauth-tokens`)
 - `sessions` — auth sessions
 
-**Do:** Use Drizzle for structured domain data (forms, bookings, compositions). Use the `settings` store for app config. Use `application-state` for ephemeral UI state. Use `oauth-tokens` for credentials. Use `isPostgres()` to branch SQL when dialects differ.
-**Don't:** Use JSON files for data storage. Don't use localStorage for app state. Don't store state only in memory. **Don't assume SQLite** — always write SQL that works on both SQLite and Postgres.
+### 2. All AI Goes Through the Agent Chat
 
-### 2. All AI goes through the agent chat
+The UI never calls an LLM directly. When the user wants AI to do something, the UI sends a message via `sendToAgentChat()`. The agent does the work and writes results to the database.
 
-The UI never calls an LLM directly. When the user wants AI to do something, the UI sends a message to the agent via the chat bridge (`sendToAgentChat()`). The agent does the work and writes results to the database.
+### 3. Scripts for Agent Operations
 
-**Do:** Use `sendToAgentChat()` from the client, `agentChat.submit()` from scripts.
-**Don't:** Import an AI SDK in client or server code. No `openai.chat()`, no `anthropic.messages()`, no inline LLM calls anywhere.
+When the agent needs to do something — query data, call APIs, process information — it runs a script via `pnpm script <name>`. Scripts live in `scripts/` and export a default async function. **Everything the UI can do, the agent can do via scripts.**
 
-### 3. Scripts for agent operations
+### 4. Polling Keeps the UI in Sync
 
-When the agent needs to do something — query data, call APIs, process information — it runs a script via `pnpm script <name>`. Scripts live in `scripts/` and export a default async function. **Everything the UI can do, the agent can do via scripts and the shared database.**
+Database changes sync to the UI via polling. The client `useFileWatcher()` hook polls `/api/poll` every 2 seconds and invalidates React Query caches when changes are detected. This works in all deployment environments including serverless and edge.
 
-**Do:** Create focused scripts for discrete operations. Parse args with `parseArgs()`. Use scripts to list, search, create, and manage data — not just for background tasks.
-**Don't:** Put complex logic inline in agent chat. Keep scripts small and composable. Don't say "I don't have access" — check the scripts and database first.
-
-### 4. Polling keeps the UI in sync
-
-Database changes are synced to the UI via lightweight polling. When the agent writes to the database (application state, settings, or domain data), a version counter increments. The client `useFileWatcher()` hook polls `/api/poll` every 2 seconds and invalidates React Query caches when changes are detected. Events have a `source` field: `"app-state"`, `"settings"`, or `"resources"`. This works in all deployment environments including serverless and edge.
-
-### 5. The agent can modify code
+### 5. The Agent Can Modify Code
 
 The agent can edit the app's own source code — components, routes, styles, scripts. This is a feature. Design your app expecting this.
 
-### 6. Application state in SQL
+### 6. Application State in SQL
 
-Ephemeral UI state lives in the `application_state` SQL table, keyed by session ID and key. Both the agent and the UI can read and write application state. When the agent writes state (e.g., a compose draft), the UI reacts via polling and updates accordingly. When the user interacts with the UI, changes are written back so the agent can read them.
-
-**Do:** Use `writeAppState(key, value)` from scripts, `appStatePut(sessionId, key, value)` from server code. Use `readAppState(key)` to read state.
-**Don't:** Use application-state for persistent data — use the `settings` store instead. Don't store secrets here.
+Ephemeral UI state lives in the `application_state` table. Both agent and UI read and write it. When the agent writes state (e.g., a draft), the UI reacts via polling. When the user interacts with the UI, changes are written back so the agent can read them.
 
 **Script helpers** (from `@agent-native/core/application-state`):
 
 - `readAppState(key)` — read state for current session
 - `writeAppState(key, value)` — write state (triggers UI sync)
-- `deleteAppState(key)` — delete state (triggers UI sync)
+- `deleteAppState(key)` — delete state
 - `listAppState(prefix)` — list state by key prefix
+
+## Portability
+
+**This is a hard requirement. Never write code that only works on one database or one hosting platform.**
+
+### Database Agnostic
+
+The framework supports all SQL databases via Drizzle ORM. Never write SQLite-only syntax (`INSERT OR REPLACE`, `AUTOINCREMENT`, `datetime('now')`). When writing docs, say "SQL database" — not "SQLite".
+
+### Hosting Agnostic
+
+The server runs on **Nitro**, which compiles to any deployment target: Node.js, Cloudflare Workers/Pages, Netlify, Vercel, Deno Deploy, AWS Lambda, Bun.
+
+Never use Node-specific APIs (`fs`, `child_process`, `path`) in server routes and plugins. Use Nitro abstractions. Scripts in `scripts/` run in Node.js and can use Node APIs freely.
+
+Never assume a persistent server process. Use the SQL database for all state.
+
+## Single-Tenant Model
+
+Agent-native apps are single-tenant. Each deployment serves one organization. You fork the app, customize it, and deploy it for your team. Builder.io provides hosting and services that make this easy.
+
+Per-user data isolation exists for multi-user organizations (via `owner_email` column convention and `AGENT_USER_EMAIL`), but large-scale multi-tenancy across organizations is not the architecture.
+
+## A2A Protocol (Agent-to-Agent)
+
+Agents can call other agents using the A2A protocol. From the mail app, you can tag the analytics agent to query data and include results in a draft. An agent discovers what other agents are available, calls them over the protocol, and shows results in the UI.
+
+### Enabling A2A
+
+```ts
+import { enableA2A } from "@agent-native/core/a2a";
+
+enableA2A(app, {
+  name: "Analytics Agent",
+  description: "Queries analytics data across providers",
+  skills: [
+    {
+      id: "query-data",
+      name: "Query Data",
+      description: "Run analytics queries",
+    },
+  ],
+  apiKeyEnv: "A2A_API_KEY",
+});
+```
+
+This mounts:
+
+- `GET /.well-known/agent-card.json` — public agent discovery (no auth)
+- `POST /a2a` — JSON-RPC endpoint (bearer token auth)
+
+### Calling Another Agent
+
+```ts
+import { callAgent, A2AClient } from "@agent-native/core/a2a";
+
+// Simple: send text, get text back
+const answer = await callAgent(
+  "https://analytics.example.com",
+  "What were last week's signups?",
+  {
+    apiKey: process.env.ANALYTICS_A2A_KEY,
+  },
+);
+
+// Advanced: full client with streaming
+const client = new A2AClient("https://analytics.example.com", apiKey);
+const task = await client.send({
+  role: "user",
+  parts: [{ type: "text", text: "..." }],
+});
+```
+
+## All-Agent Support
+
+AGENTS.md is the universal standard for agent instructions. It works with any AI coding tool. The framework auto-creates symlinks so all tools read the same instructions:
+
+- `CLAUDE.md` → `AGENTS.md` (Claude Code)
+- `.cursorrules` → `AGENTS.md` (Cursor)
+- `.windsurfrules` → `AGENTS.md` (Windsurf)
+- `.claude/skills/` → `.agents/skills/` (Claude Code skills)
+
+Run `agent-native setup-agents` to create all symlinks, or they're created automatically by `agent-native create`.
 
 ## Authentication
 
-Auth is automatic and environment-driven. Templates include a `server/plugins/auth.ts` Nitro plugin that calls `autoMountAuth(app)` at startup.
+Auth is automatic and environment-driven via `autoMountAuth(app)`.
 
-- **Dev mode** (`NODE_ENV !== "production"`): Auth is bypassed. `getSession()` returns `{ email: "local@localhost" }`. No login page.
-- **Production** (`ACCESS_TOKEN` set): Auth middleware mounts automatically. Login page for unauthenticated visitors. Cookie-based sessions stored in SQL.
-- **Production** (no token, no `AUTH_DISABLED=true`): Server refuses to start with a clear error.
+- **Dev mode**: Auth bypassed. `getSession()` returns `{ email: "local@localhost" }`.
+- **Production** (`ACCESS_TOKEN` set): Auth middleware auto-mounts. Cookie-based sessions in SQL.
+- **Bring your own auth**: Pass a custom `getSession` to `autoMountAuth(app, { getSession })`.
 
-**Key APIs:**
+## Server Plugins
 
-- Server: `getSession(event)` from `@agent-native/core/server` — returns `AuthSession | null`
-- Client: `useSession()` from `@agent-native/core` — returns `{ session, isLoading }`
-- Routes: `GET /api/auth/session`, `POST /api/auth/login`, `POST /api/auth/logout`
+6 default plugins auto-mount when your app doesn't have a custom version in `server/plugins/`:
 
-**Bring your own auth**: Pass a custom `getSession` function to `autoMountAuth(app, { getSession: ... })` to plug in Auth.js, Clerk, or any auth system. Templates don't change.
+| Plugin        | Default behavior              | Customize when                              |
+| ------------- | ----------------------------- | ------------------------------------------- |
+| `agent-chat`  | Agent chat endpoints          | Custom `mentionProviders` or `systemPrompt` |
+| `auth`        | Auth middleware               | Custom `publicPaths` or Google OAuth config |
+| `core-routes` | `/api/poll`, `/api/ping`, etc | Custom `envKeys` or `sseRoute`              |
+| `file-sync`   | File watcher sync             | Custom sync config                          |
+| `resources`   | Resource CRUD                 | Rarely                                      |
+| `terminal`    | Terminal emulator             | Rarely                                      |
 
-See [docs/auth.md](docs/auth.md) for the full guide.
-
-## Server Plugins (Auto-Mounted Defaults)
-
-The framework provides 6 default plugins that auto-mount when your app doesn't have a custom version in `server/plugins/`. You only need plugin files for plugins you customize:
-
-| Plugin        | Default behavior                              | Customize when                              |
-| ------------- | --------------------------------------------- | ------------------------------------------- |
-| `agent-chat`  | Agent chat endpoints                          | Custom `mentionProviders` or `systemPrompt` |
-| `auth`        | Auth middleware                               | Custom `publicPaths` or Google OAuth config |
-| `core-routes` | `/api/poll`, `/api/events`, `/api/ping`, etc. | Custom `envKeys` or `sseRoute`              |
-| `file-sync`   | File watcher sync                             | Custom sync config                          |
-| `resources`   | Resource CRUD                                 | Rarely                                      |
-| `terminal`    | Terminal emulator                             | Rarely                                      |
-
-A minimal app needs **zero** plugin files. To customize, create `server/plugins/<name>.ts` — your file takes precedence over the default.
-
-**Do:** Only create plugin files for plugins you need to customize. Let defaults auto-mount.
-**Don't:** Create boilerplate one-liner re-exports of defaults — the framework handles this automatically.
+Only create plugin files for plugins you need to customize. Let defaults auto-mount.
 
 ## Project Structure
 
 ```
 app/                   # React frontend
   root.tsx             # HTML shell + global providers
-  entry.client.tsx     # Client hydration entry
-  routes.ts            # Route config — flatRoutes()
-  routes/              # File-based page routes (auto-discovered)
+  routes/              # File-based page routes
   components/          # UI components
-  hooks/               # React hooks
-  lib/                 # Utilities
+  hooks/               # React hooks (including use-navigation-state.ts)
 server/                # Nitro API server
-  routes/
-    api/               # File-based API routes (auto-discovered)
-    [...page].get.ts   # SSR catch-all (delegates to React Router)
-  plugins/             # Server plugins (startup logic, DB migrations)
-  db/                  # Drizzle schema + DB connection (getDb singleton)
-  lib/                 # Shared server modules
-  handlers/            # Route handler modules (for larger apps)
-shared/                # Isomorphic code (client + server)
-scripts/               # Agent-callable scripts
-data/                  # App data (local SQLite fallback at data/app.db)
-react-router.config.ts # React Router framework config
+  routes/api/          # File-based API routes
+  plugins/             # Server plugins (startup logic)
+  db/                  # Drizzle schema + DB connection
+scripts/               # Agent-callable scripts (view-screen, navigate, domain ops)
+.agents/skills/        # Agent skills — detailed guidance for patterns
 ```
 
-## Client-Side-First Rendering
+## Skills
 
-All app content renders **client-side only**. The server renders only the HTML shell (`<html>`, `<head>` with meta tags, `<body>` with scripts) plus a loading spinner. This is enforced by the `ClientOnly` wrapper in every template's `root.tsx`:
+Agent skills in `.agents/skills/` provide detailed guidance. Read the relevant skill before making changes.
 
-```tsx
-import { ClientOnly, DefaultSpinner } from "@agent-native/core/client";
+| Skill                 | When to use                                                   |
+| --------------------- | ------------------------------------------------------------- |
+| `storing-data`        | Adding data models, reading/writing config or state           |
+| `real-time-sync`      | Wiring polling sync, debugging UI not updating, jitter issues |
+| `delegate-to-agent`   | Delegating AI work from UI or scripts to the agent            |
+| `scripts`             | Creating or running agent scripts                             |
+| `self-modifying-code` | Editing app source, components, or styles                     |
+| `create-skill`        | Adding new skills for the agent                               |
+| `capture-learnings`   | Recording corrections and patterns                            |
+| `frontend-design`     | Building or styling any web UI, components, or pages          |
+| `adding-a-feature`    | Adding any new feature (the four-area checklist)              |
+| `context-awareness`   | Exposing UI state to the agent, view-screen pattern           |
+| `a2a-protocol`        | Enabling inter-agent communication                            |
 
-export default function Root() {
-  return (
-    <ClientOnly fallback={<DefaultSpinner />}>
-      {/* All providers and <Outlet /> go inside ClientOnly */}
-    </ClientOnly>
-  );
-}
-```
+**Always use shadcn/ui components** for standard UI patterns. Check `app/components/ui/` before building custom UI elements.
 
-**Why:** This prevents hydration mismatches. The server never renders app components, so `window`, `localStorage`, `new Date()`, `next-themes`, and any browser API are safe to use anywhere in app code.
-
-**Do:** Keep the `ClientOnly` wrapper in `root.tsx`. Use `window`, `localStorage`, browser APIs freely in components.
-**Don't:** Remove `ClientOnly` from `root.tsx`. Don't add server-side data fetching in route loaders (use React Query client-side instead).
-
-Route `meta()` functions still work for SEO — they're resolved at the `Layout` level which is server-rendered.
+**Always use Tabler Icons** (`@tabler/icons-react`) for all icons. Never use other icon libraries.
 
 ## Scripts
 
@@ -194,15 +247,13 @@ Create `scripts/my-script.ts`:
 import { parseArgs } from "@agent-native/core";
 export default async function (args: string[]) {
   const { name } = parseArgs(args);
-  // do work — query DB, call APIs
+  // do work
 }
 ```
 
 Run with: `pnpm script my-script --name foo`
 
-## Database Scripts (Core)
-
-These core scripts are available automatically — no local script files needed:
+### Core Scripts (available automatically)
 
 | Script      | Purpose                         | Example                                            |
 | ----------- | ------------------------------- | -------------------------------------------------- |
@@ -210,65 +261,12 @@ These core scripts are available automatically — no local script files needed:
 | `db-query`  | Run a SELECT query              | `pnpm script db-query --sql "SELECT * FROM forms"` |
 | `db-exec`   | Run INSERT/UPDATE/DELETE        | `pnpm script db-exec --sql "UPDATE forms SET ..."` |
 
-Use `db-schema` first to understand the data model, then `db-query` and `db-exec` to read and write data. Scripts read `DATABASE_URL` from env (Postgres, Turso, or SQLite — falls back to `file:./data/app.db` only when unset). Use `--db <path>` to override, and `--format json` for structured output.
+Per-user data scoping is automatic in production mode via `AGENT_USER_EMAIL`.
 
-### Multi-tenant data scoping
+## Conventions
 
-In production mode, `db-query` and `db-exec` automatically scope data to the current user (`AGENT_USER_EMAIL`). This is transparent — the agent's SQL runs unmodified, but only sees/affects the current user's rows.
-
-**How it works:** Before running the agent's SQL, temporary views are created that shadow real tables with a `WHERE` filter on the user's identity. Temp views take precedence over real tables in both SQLite and Postgres, so the SQL runs against filtered data.
-
-**Convention for template tables:** Add an `owner_email TEXT` column to any table that stores per-user data. The scoping system will automatically detect it and filter.
-
-**Core tables** are handled automatically with their existing scoping patterns:
-
-- `settings` — filtered by key prefix (`u:<email>:`)
-- `application_state` — filtered by `session_id`
-- `oauth_tokens` — filtered by `owner`
-- `sessions` — filtered by `email`
-
-For `db-exec` INSERTs, `owner_email` is auto-injected if the target table uses the convention and the column isn't already in the statement.
-
-In dev mode, no scoping is applied — all data is visible.
-
-Local scripts in `scripts/` always take priority over core scripts. Run `pnpm script --help` to see all available scripts.
-
-## TypeScript Everywhere
-
-All code in this project — including standalone scripts in `scripts/` — must be TypeScript (`.ts`). Never use `.js` or `.mjs` files. Node 22+ runs `.ts` files natively via type stripping (`node scripts/foo.ts`), so no compilation step or `tsx` is needed for scripts.
-
-## Prettier After Writing Files
-
-After writing or modifying any source file (`.ts`, `.tsx`, `.js`, `.jsx`, `.json`, `.css`, `.md`, `.yaml`, `.yml`, `.html`), always run Prettier on those specific files before committing:
-
-```bash
-npx prettier --write path/to/file1.ts path/to/file2.tsx
-```
-
-This keeps CI green — the `fmt:check` step in CI will reject unformatted code. Run Prettier on the specific files you changed, not the entire repo.
-
-## Image Output
-
-Never save screenshots, images, or other binary artifacts to the repository root or directly inside package directories. Save them to a temporary directory or use an ephemeral path.
-
-## Skills
-
-Agent skills in `.agents/skills/` provide detailed guidance for architectural rules and design patterns. Read the relevant skill before making changes.
-
-| Skill                 | When to use                                          |
-| --------------------- | ---------------------------------------------------- |
-| `storing-data`        | Adding data models, reading/writing config or state  |
-| `real-time-sync`      | Wiring polling sync, debugging UI not updating       |
-| `delegate-to-agent`   | Delegating AI work from UI or scripts to the agent   |
-| `scripts`             | Creating or running agent scripts                    |
-| `self-modifying-code` | Editing app source, components, or styles            |
-| `create-skill`        | Adding new skills for the agent                      |
-| `capture-learnings`   | Recording corrections and patterns                   |
-| `frontend-design`     | Building or styling any web UI, components, or pages |
-| `ship`                | Commit, prep, push, check CI, fix PR feedback        |
-
-The **`frontend-design`** skill (sourced from [Anthropic's skills library](https://github.com/anthropics/skills/blob/main/skills/frontend-design/SKILL.md)) applies whenever the agent generates or modifies UI. It enforces distinctive, production-grade aesthetics — avoiding generic AI-generated design patterns like purple gradients, overused fonts, and cookie-cutter layouts.
-
-**Always use shadcn/ui components** for standard UI patterns — Tabs, Dialog, Button, DropdownMenu, Select, Popover, Input, Textarea, Badge, Card, etc. Every template includes shadcn components in `app/components/ui/`. Never create custom one-off implementations when a shadcn component exists. Check `app/components/ui/` before building custom UI elements.
-
-**Always use Tabler Icons** (`@tabler/icons-react`) for all icons. Import like `import { IconName } from "@tabler/icons-react"`. Never generate inline SVGs or use other icon libraries (Lucide, Heroicons, Font Awesome, etc.). Tabler has 5,800+ icons — search for what you need at https://tabler.io/icons. Every template already has `@tabler/icons-react` installed.
+- **TypeScript everywhere** — all code must be `.ts`/`.tsx`. Never `.js` or `.mjs`.
+- **Prettier** — run `npx prettier --write <files>` after modifying source files.
+- **Client-side rendering** — all app content renders client-side via the `ClientOnly` wrapper in `root.tsx`.
+- **No inline SVGs** — use Tabler Icons from `@tabler/icons-react`.
+- **No browser dialogs** — use shadcn AlertDialog instead of `window.confirm/alert/prompt`.

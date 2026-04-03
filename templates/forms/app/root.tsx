@@ -1,5 +1,6 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import { useCallback, useState } from "react";
+import { useNavigationState } from "@/hooks/use-navigation-state";
 import {
   QueryClient,
   QueryClientProvider,
@@ -61,6 +62,11 @@ function FileWatcherSetup() {
   return null;
 }
 
+function NavigationStateSync() {
+  useNavigationState();
+  return null;
+}
+
 export default function Root() {
   const [queryClient] = useState(() => new QueryClient());
   const [cmdkOpen, setCmdkOpen] = useState(false);
@@ -76,6 +82,7 @@ export default function Root() {
         >
           <TooltipProvider>
             <FileWatcherSetup />
+            <NavigationStateSync />
             <Toaster position="bottom-left" />
             <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
               <CommandMenu.Group heading="Forms">

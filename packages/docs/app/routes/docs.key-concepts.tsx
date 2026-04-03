@@ -1,17 +1,28 @@
+import { Link } from "react-router";
 import DocsLayout from "../components/DocsLayout";
 import CodeBlock from "../components/CodeBlock";
 
 const TOC = [
   { id: "why-agent-native", label: "Why Agent-Native" },
   { id: "the-architecture", label: "The Architecture" },
-  { id: "files-as-database", label: "Files as Database" },
+  { id: "data-in-sql", label: "Data in SQL" },
   { id: "agent-chat-bridge", label: "Agent Chat Bridge" },
   { id: "scripts-system", label: "Scripts System" },
-  { id: "sse-sync", label: "Real-time SSE Sync" },
+  { id: "polling-sync", label: "Polling Sync" },
   { id: "harnesses", label: "Harnesses" },
-  { id: "file-sync", label: "File Sync" },
+  { id: "context-awareness", label: "Context Awareness" },
   { id: "apis-and-clis", label: "APIs & CLIs, Not MCPs" },
   { id: "agent-modifies-code", label: "Agent Modifies Code" },
+  { id: "deep-dives", label: "Deep Dives" },
+];
+
+export const meta = () => [
+  { title: "Key Concepts — Agent-Native" },
+  {
+    name: "description",
+    content:
+      "How agent-native apps work: SQL database, agent chat bridge, polling sync, scripts, and context awareness.",
+  },
 ];
 
 export default function KeyConceptsDocs() {
@@ -60,11 +71,11 @@ export default function KeyConceptsDocs() {
         (via buttons).
       </p>
       <p>
-        This is the same shift we saw with mobile-native. Instagram didn't
-        shrink a desktop app — they built mobile-first with extreme discipline.
-        Agent-native means every feature is tested against one question:{" "}
-        <em>will AI be able to work with this reliably?</em> If yes, ship it. If
-        not, don't.
+        See{" "}
+        <Link to="/docs/core-philosophy" className="text-[var(--accent)]">
+          Core Philosophy
+        </Link>{" "}
+        for the foundational principles and hard requirements.
       </p>
 
       <h2 id="the-architecture">The architecture</h2>
@@ -74,8 +85,8 @@ export default function KeyConceptsDocs() {
           <div className="p-5 text-center">
             <div className="mb-2 text-sm font-semibold">Agent</div>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Autonomous AI that reads, writes, and executes code. Customizable
-              with skills and instructions.
+              Autonomous AI that reads data, writes data, runs scripts, and
+              modifies code. Customizable with skills and instructions.
             </p>
           </div>
           <div className="p-5 text-center">
@@ -88,8 +99,8 @@ export default function KeyConceptsDocs() {
           <div className="p-5 text-center">
             <div className="mb-2 text-sm font-semibold">Computer</div>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              File system, browser, code execution. Agents work directly with
-              files and tools — no MCPs needed.
+              Database, browser, code execution. Agents work directly with SQL
+              and tools — no MCPs needed.
             </p>
           </div>
         </div>
@@ -100,11 +111,11 @@ export default function KeyConceptsDocs() {
         there. In the cloud, Builder.io provides a managed harness with
         collaboration, visual editing, and managed infrastructure for teams.
       </p>
-      <p>Five rules govern the architecture:</p>
+      <p>Six rules govern the architecture:</p>
       <ol className="list-decimal space-y-2 pl-5">
         <li>
-          <strong>Files are the source of truth</strong> — all app state lives
-          in files, which the agent can read and write directly
+          <strong>Data lives in SQL</strong> — all app state lives in the
+          database via Drizzle ORM
         </li>
         <li>
           <strong>All AI goes through the agent</strong> — no inline LLM calls
@@ -114,60 +125,60 @@ export default function KeyConceptsDocs() {
           scripts
         </li>
         <li>
-          <strong>SSE keeps the UI in sync</strong> — file changes stream to the
-          browser in real-time
+          <strong>Polling keeps the UI in sync</strong> — database changes sync
+          via lightweight polling
         </li>
         <li>
           <strong>The agent can modify code</strong> — the app evolves as you
           use it
         </li>
+        <li>
+          <strong>Application state in SQL</strong> — ephemeral UI state lives
+          in the database, readable by both agent and UI
+        </li>
       </ol>
 
-      <h2 id="files-as-database">Files as database</h2>
-      <div className="my-6 overflow-hidden rounded-xl border border-[var(--border)]">
-        <img
-          src="https://cdn.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/5f9484f006fe4e7594840b7f6546af20?format=webp&width=800"
-          alt="Agent-native architecture diagram showing how files serve as the shared state between the agent, UI, and database adapters"
-          className="w-full"
-        />
-      </div>
+      <h2 id="data-in-sql">Data in SQL</h2>
       <p>
-        This is the core insight that makes the architecture work. All
-        application state — content, data, configuration — lives in files (JSON,
-        Markdown, YAML) in the <code>data/</code> directory. There is no
-        traditional database.
+        All application state lives in a SQL database via Drizzle ORM. The
+        framework supports multiple databases — SQLite, Postgres (Neon,
+        Supabase), Turso, Cloudflare D1. Users configure{" "}
+        <code>DATABASE_URL</code> to choose their database.
       </p>
-      <p>
-        Why files? Because agents are excellent at reading, writing, grepping,
-        and navigating file trees. When state is files:
-      </p>
+      <p>Core SQL stores are auto-created and available in every template:</p>
       <ul className="list-disc space-y-1 pl-5">
         <li>
-          The agent can read and modify any state directly — no API wrappers
-          needed
+          <code>application_state</code> — ephemeral UI state (navigation,
+          drafts, selections)
         </li>
-        <li>The UI reads state via API routes that serve files</li>
-        <li>Both sides operate on the same source of truth</li>
-        <li>State is versionable with git</li>
         <li>
-          State is inspectable — <code>cat data/projects/my-project.json</code>
+          <code>settings</code> — persistent key-value config
+        </li>
+        <li>
+          <code>oauth_tokens</code> — OAuth credentials
+        </li>
+        <li>
+          <code>sessions</code> — auth sessions
         </li>
       </ul>
       <CodeBlock
-        code={`# The agent reads files directly
-cat data/dashboards/main.json
+        code={`// Drizzle schema for domain data
+import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
 
-# The UI reads via API routes that serve the same files
-GET /api/dashboards/main → reads data/dashboards/main.json
+export const forms = sqliteTable("forms", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  schema: text("schema").notNull(), // JSON
+  ownerEmail: text("owner_email"),
+  createdAt: integer("created_at").notNull(),
+});
 
-# Both sides see the same state`}
+// Core scripts for quick database access
+pnpm script db-schema           # show all tables
+pnpm script db-query --sql "SELECT * FROM forms"
+pnpm script db-exec --sql "INSERT INTO forms ..."`}
         lang="bash"
       />
-      <p>
-        Your app becomes a function of files — like React is a function of
-        state, an agent-native app is a function of files. When the agent writes
-        a file, the UI updates. When the UI saves data, the agent can see it.
-      </p>
 
       <h2 id="agent-chat-bridge">Agent chat bridge</h2>
       <p>
@@ -182,7 +193,7 @@ import { sendToAgentChat } from "@agent-native/core";
 
 sendToAgentChat({
   message: "Generate a chart showing signups by source",
-  context: "Data source: data/analytics/signups.json",
+  context: "Dashboard ID: main, date range: last 30 days",
   submit: true,
 });`}
       />
@@ -203,20 +214,19 @@ sendToAgentChat({
         <li>
           <strong>Headless execution.</strong> Because everything goes through
           the agent, any app can be driven entirely from Slack, Telegram, or
-          another agent.
+          another agent via{" "}
+          <Link to="/docs/a2a-protocol" className="text-[var(--accent)]">
+            A2A
+          </Link>
+          .
         </li>
       </ul>
-      <p>
-        The transport is simple: the embedded agent panel receives the message
-        directly. From scripts, the same bridge works via stdout (
-        <code>BUILDER_PARENT_MESSAGE:</code> prefix).
-      </p>
 
       <h2 id="scripts-system">Scripts system</h2>
       <p>
         When the agent needs to do something complex — call an API, process
-        data, generate images — it runs a script. Scripts are TypeScript files
-        in <code>scripts/</code> that export a default async function:
+        data, query the database — it runs a script. Scripts are TypeScript
+        files in <code>scripts/</code> that export a default async function:
       </p>
       <CodeBlock
         code={`// scripts/fetch-data.ts
@@ -226,11 +236,7 @@ export default async function fetchData(args: string[]) {
   const { source } = parseArgs(args);
   const res = await fetch(\`https://api.example.com/\${source}\`);
   const data = await res.json();
-
-  // Write results to data/ — the UI will see the change via SSE
-  const fs = await import("node:fs/promises");
-  await fs.writeFile(\`data/\${source}.json\`, JSON.stringify(data, null, 2));
-  console.log(\`Fetched \${data.length} records\`);
+  console.log(JSON.stringify(data, null, 2));
 }`}
       />
       <CodeBlock
@@ -241,64 +247,49 @@ pnpm script fetch-data --source=signups`}
       <p>
         This means anything the UI can do, the agent can do — and vice versa.
         The UI calls <code>POST /api/fetch-data</code>, the agent calls{" "}
-        <code>pnpm script fetch-data</code>. Same code, same results, different
+        <code>pnpm script fetch-data</code>. Same logic, same results, different
         entry points.
       </p>
 
-      <h2 id="sse-sync">Real-time SSE sync</h2>
+      <h2 id="polling-sync">Polling sync</h2>
       <p>
-        When the agent writes a file, the UI needs to know immediately. A{" "}
-        <a
-          href="https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-[var(--accent)]"
-        >
-          chokidar
-        </a>{" "}
-        file watcher monitors <code>data/</code> and streams changes to the
-        browser via Server-Sent Events:
+        Database changes are synced to the UI via lightweight polling. When the
+        agent writes to the database (application state, settings, or domain
+        data), a version counter increments. The client{" "}
+        <code>useFileWatcher()</code> hook polls <code>/api/poll</code> every 2
+        seconds and invalidates React Query caches when changes are detected.
       </p>
       <CodeBlock
-        code={`// Server: set up file watching and SSE
-import { createFileWatcher, createSSEHandler } from "@agent-native/core";
-
-const watcher = createFileWatcher("./data");
-app.get("/api/events", createSSEHandler(watcher));
-
-// Client: invalidate react-query caches on file changes
+        code={`// Client: invalidate caches on database changes
 import { useFileWatcher } from "@agent-native/core";
 
-useFileWatcher({ queryClient, queryKeys: ["dashboards", "projects"] });`}
+useFileWatcher({
+  queryClient,
+  queryKeys: ["app-state", "settings", "forms"],
+});`}
       />
       <p>The flow is:</p>
       <ol className="list-decimal space-y-1 pl-5">
+        <li>Agent runs a script that writes to the database</li>
+        <li>Version counter increments</li>
         <li>
-          Agent writes to <code>data/dashboards/main.json</code>
+          <code>useFileWatcher</code> detects the new version on next poll
         </li>
-        <li>Chokidar detects the change</li>
-        <li>
-          SSE pushes{" "}
-          <code>
-            {'{ "type": "change", "path": "data/dashboards/main.json" }'}
-          </code>{" "}
-          to the browser
-        </li>
-        <li>
-          <code>useFileWatcher</code> invalidates matching react-query caches
-        </li>
+        <li>React Query caches are invalidated</li>
         <li>Components re-fetch and render the new data</li>
       </ol>
       <p>
-        No polling, no refresh — the UI updates instantly when the agent acts.
+        This works in all deployment environments — including serverless and
+        edge — because it uses the database, not in-memory state or file system
+        watchers.
       </p>
 
       <h2 id="harnesses">Harnesses</h2>
       <p>
         Agent-native apps include an embedded agent panel that provides the AI
         agent alongside the app UI. This is what makes the architecture work:
-        the agent needs a computer (file system, browser, code execution), and
-        the app needs the agent for AI work.
+        the agent needs a computer (database, browser, code execution), and the
+        app needs the agent for AI work.
       </p>
       <div className="my-4 grid gap-4 sm:grid-cols-2">
         <div className="rounded-xl border border-[var(--border)] p-5">
@@ -317,84 +308,21 @@ useFileWatcher({ queryClient, queryKeys: ["dashboards", "projects"] });`}
           </p>
         </div>
       </div>
-      <p>
-        Both approaches support the same protocol: agent chat bridge, polling
-        sync, and the script system. Your app code is identical regardless of
-        how the agent is provided.
-      </p>
 
-      <h2 id="file-sync">File Sync</h2>
+      <h2 id="context-awareness">Context awareness</h2>
       <p>
-        Files are great for single-user and local development. But when multiple
-        people need to collaborate in real-time across different agent
-        instances, you need a sync layer.
+        The agent always knows what the user is looking at. The UI writes a{" "}
+        <code>navigation</code> key to application-state on every route change.
+        The agent reads it via the <code>view-screen</code> script before
+        acting.
       </p>
       <p>
-        Agent-native provides a <strong>pluggable adapter system</strong> that
-        syncs files to a database in real-time. Three adapters ship out of the
-        box:
-      </p>
-      <div className="my-4 grid gap-4 sm:grid-cols-2">
-        <div className="rounded-xl border border-[var(--border)] p-5">
-          <div className="mb-2 text-sm font-semibold">
-            Google Cloud Firestore
-          </div>
-          <p className="m-0 text-sm text-[var(--fg-secondary)]">
-            Real-time listener via <code>onSnapshot</code>. Best for apps
-            already on Google Cloud or Firebase.
-          </p>
-        </div>
-        <div className="rounded-xl border border-[var(--border)] p-5">
-          <div className="mb-2 text-sm font-semibold">Supabase (Postgres)</div>
-          <p className="m-0 text-sm text-[var(--fg-secondary)]">
-            Real-time via Supabase Realtime channels. Best for teams using
-            Supabase for auth, storage, or edge functions.
-          </p>
-        </div>
-        <div className="rounded-xl border border-[var(--border)] p-5">
-          <div className="mb-2 text-sm font-semibold">Convex</div>
-          <p className="m-0 text-sm text-[var(--fg-secondary)]">
-            Real-time via reactive queries. Best for teams wanting zero-config
-            real-time with automatic reconnection.
-          </p>
-        </div>
-      </div>
-      <p>All adapters work the same way under the hood:</p>
-      <ul className="list-disc space-y-1 pl-5">
-        <li>
-          A chokidar file watcher detects local changes and pushes them to the
-          database
-        </li>
-        <li>
-          A remote listener (real-time or polling) detects remote changes and
-          writes them to disk
-        </li>
-        <li>
-          Three-way merge with LCS-based conflict resolution handles concurrent
-          edits
-        </li>
-        <li>
-          Unresolvable conflicts create <code>.conflict</code> sidecar files for
-          manual or LLM-assisted resolution
-        </li>
-      </ul>
-      <p>
-        The app doesn't know about the database — it just reads and writes
-        files. The sync adapter handles everything behind the scenes. You
-        configure which files sync via glob patterns:
-      </p>
-      <CodeBlock
-        code={`// data/sync-config.json
-{
-  "syncFilePatterns": ["data/projects/**/*.json", "data/**/*.md"],
-  "privateSyncFilePatterns": ["data/users/**/*.json"]
-}`}
-      />
-      <p>
-        This is important: the database is never the source of truth. Files are.
-        The database is just a sync mechanism for collaboration. Git-ignore the
-        synced files, and pull requests update the application code — not the
-        data files.
+        See{" "}
+        <Link to="/docs/context-awareness" className="text-[var(--accent)]">
+          Context Awareness
+        </Link>{" "}
+        for the full pattern: navigation state, view-screen, navigate commands,
+        and jitter prevention.
       </p>
 
       <h2 id="apis-and-clis">APIs & CLIs, not MCPs</h2>
@@ -402,40 +330,8 @@ useFileWatcher({ queryClient, queryKeys: ["dashboards", "projects"] });`}
         Agent-native apps can work with MCP servers, but the architecture leans
         heavily on something more standard:{" "}
         <strong>regular APIs and CLIs accessed through code execution</strong>.
-      </p>
-      <p>
-        Why? Because APIs and CLIs are universal. Every service already has
-        them. They're documented, versioned, and battle-tested. Agents are great
-        at writing code that calls <code>fetch()</code> or runs a CLI command —
-        no special protocol needed.
-      </p>
-      <CodeBlock
-        code={`// scripts/sync-stripe.ts — agent calls Stripe's REST API directly
-import { parseArgs } from "@agent-native/core";
-
-export const meta = () => [
-      { title: "Key Concepts — Agent-Native" },
-      {
-        name: "description",
-        content:
-          "How agent-native apps work: files as database, agent chat bridge, SSE sync, scripts, and embedded agent panel.",
-      },
-    ];
-
-export default async function(args: string[]) {
-  const { customerId } = parseArgs(args);
-  const res = await fetch(\`https://api.stripe.com/v1/customers/\${customerId}\`, {
-    headers: { Authorization: \`Bearer \${process.env.STRIPE_SECRET_KEY}\` },
-  });
-  const customer = await res.json();
-  const fs = await import("node:fs/promises");
-  await fs.writeFile("data/customer.json", JSON.stringify(customer, null, 2));
-}`}
-      />
-      <p>
-        The scripts system is the key enabler. When the agent needs to interact
-        with an external service, it writes (or runs) a script that uses the
-        service's standard API or CLI. This means:
+        Agents are great at writing code that calls <code>fetch()</code> or runs
+        a CLI command — no special protocol needed.
       </p>
       <ul className="list-disc space-y-1 pl-5">
         <li>
@@ -449,12 +345,11 @@ export default async function(args: string[]) {
         </li>
         <li>
           <strong>Code is the protocol.</strong> TypeScript scripts are more
-          expressive than any tool schema. The agent can chain calls, handle
-          errors, transform data — all in regular code.
+          expressive than any tool schema.
         </li>
         <li>
-          <strong>MCP is additive.</strong> If you want to use MCP servers too,
-          they work fine alongside scripts. But they're not required.
+          <strong>MCP is additive.</strong> Use MCP servers alongside scripts if
+          you want, but they're not required.
         </li>
       </ul>
 
@@ -475,12 +370,35 @@ export default async function(args: string[]) {
         </li>
         <li>Your app gets better over time without manual development</li>
       </ol>
-      <p>
-        This works because the agent has your full codebase. It can read your
-        components, understand your patterns, and make changes that fit.
-        Combined with git-based workflows, roles, and ACLs, you get the power of
-        custom development with the safety of code review.
-      </p>
+
+      <h2 id="deep-dives">Deep dives</h2>
+      <p>For detailed guidance on specific patterns:</p>
+      <ul className="list-disc space-y-1 pl-5">
+        <li>
+          <Link to="/docs/core-philosophy" className="text-[var(--accent)]">
+            Core Philosophy
+          </Link>{" "}
+          — foundational principles and hard requirements
+        </li>
+        <li>
+          <Link to="/docs/context-awareness" className="text-[var(--accent)]">
+            Context Awareness
+          </Link>{" "}
+          — navigation state, view-screen, navigate commands
+        </li>
+        <li>
+          <Link to="/docs/skills-guide" className="text-[var(--accent)]">
+            Skills Guide
+          </Link>{" "}
+          — framework skills, domain skills, creating custom skills
+        </li>
+        <li>
+          <Link to="/docs/a2a-protocol" className="text-[var(--accent)]">
+            A2A Protocol
+          </Link>{" "}
+          — agent-to-agent communication
+        </li>
+      </ul>
     </DocsLayout>
   );
 }

@@ -331,4 +331,124 @@ export const searchIndex: SearchEntry[] = [
     sectionId: "resource-api",
     text: "REST endpoints for resources. resource-list resource-read resource-write resource-delete. Server API and script API. /api/resources endpoints.",
   },
+
+  // Core Philosophy
+  {
+    page: "Core Philosophy",
+    path: "/docs/core-philosophy",
+    section: "Agent + UI Parity",
+    sectionId: "agent-ui-parity",
+    text: "Everything the UI can do the agent can do. Everything the agent can do the UI can do. If a user can create a form from the UI the agent must have a script to create it too. No feature is complete until both sides can use it.",
+  },
+  {
+    page: "Core Philosophy",
+    path: "/docs/core-philosophy",
+    section: "The Four-Area Checklist",
+    sectionId: "four-area-checklist",
+    text: "Every new feature must update all four areas: UI component, script, skills/instructions, and application state sync. Skipping any one breaks the agent-native contract.",
+  },
+  {
+    page: "Core Philosophy",
+    path: "/docs/core-philosophy",
+    section: "Database Agnostic",
+    sectionId: "database-agnostic",
+    text: "All data lives in SQL via Drizzle ORM. Supports SQLite Neon Postgres Turso Supabase Cloudflare D1. Never write SQLite-only syntax. Use getDbExec isPostgres intType helpers for dialect-agnostic SQL.",
+  },
+  {
+    page: "Core Philosophy",
+    path: "/docs/core-philosophy",
+    section: "Hosting Agnostic",
+    sectionId: "hosting-agnostic",
+    text: "Server runs on Nitro compiles to any deployment target. Node.js Cloudflare Workers Netlify Vercel Deno Deploy AWS Lambda Bun. Never use Node-specific APIs in server routes. Never assume a persistent server process.",
+  },
+
+  // A2A Protocol
+  {
+    page: "A2A Protocol",
+    path: "/docs/a2a-protocol",
+    section: "Overview",
+    sectionId: "overview",
+    text: "Agent-to-agent communication via JSON-RPC protocol. Agents discover each other via agent cards send messages and receive structured results. enableA2A server setup. A2AClient for calling other agents. callAgent convenience helper.",
+  },
+  {
+    page: "A2A Protocol",
+    path: "/docs/a2a-protocol",
+    section: "Agent Card",
+    sectionId: "agent-card",
+    text: "Auto-generated at /.well-known/agent-card.json. Describes agent name description skills capabilities security. Protocol version 0.3. Other agents fetch this to discover capabilities.",
+  },
+  {
+    page: "A2A Protocol",
+    path: "/docs/a2a-protocol",
+    section: "JSON-RPC Methods",
+    sectionId: "json-rpc-methods",
+    text: "message/send send message get completed task. message/stream send message receive SSE task updates. tasks/get fetch task by ID. tasks/cancel cancel running task. Messages contain typed parts: text data file.",
+  },
+  {
+    page: "A2A Protocol",
+    path: "/docs/a2a-protocol",
+    section: "Task Lifecycle",
+    sectionId: "task-lifecycle",
+    text: "Each message creates a task: submitted working completed failed canceled input-required. Tasks persist in a2a_tasks SQL table. Retrieved via tasks/get.",
+  },
+
+  // Context Awareness
+  {
+    page: "Context Awareness",
+    path: "/docs/context-awareness",
+    section: "Navigation State",
+    sectionId: "navigation-state",
+    text: "UI writes navigation key to application-state on every route change. Includes view item IDs filter state selections. Agent reads readAppState navigation before acting.",
+  },
+  {
+    page: "Context Awareness",
+    path: "/docs/context-awareness",
+    section: "The view-screen Script",
+    sectionId: "view-screen-script",
+    text: "Every template should have a view-screen script. Reads navigation state fetches contextual data returns snapshot of what user sees. The agent should always call view-screen before acting. Hard convention across all templates.",
+  },
+  {
+    page: "Context Awareness",
+    path: "/docs/context-awareness",
+    section: "The navigate Script",
+    sectionId: "navigate-script",
+    text: "Agent writes one-shot navigate command to application-state. UI reads it performs navigation deletes entry. writeAppState navigate view threadId. Agent never writes to navigation key directly.",
+  },
+  {
+    page: "Context Awareness",
+    path: "/docs/context-awareness",
+    section: "Jitter Prevention",
+    sectionId: "jitter-prevention",
+    text: "Source tagging prevents UI from refetching data it just wrote. Agent writes tagged requestSource agent. UI writes include tab ID via X-Request-Source header. ignoreSource in useFileWatcher filters own writes.",
+  },
+
+  // Skills Guide
+  {
+    page: "Skills Guide",
+    path: "/docs/skills-guide",
+    section: "What Are Skills",
+    sectionId: "what-are-skills",
+    text: "Skills are Markdown files at .agents/skills/name/SKILL.md with detailed guidance for the agent. Each skill focuses on one concern. Referenced in AGENTS.md and triggered by agent tool system.",
+  },
+  {
+    page: "Skills Guide",
+    path: "/docs/skills-guide",
+    section: "Framework Skills",
+    sectionId: "framework-skills",
+    text: "Built-in skills: storing-data real-time-sync delegate-to-agent scripts self-modifying-code create-skill capture-learnings frontend-design adding-a-feature context-awareness a2a-protocol.",
+  },
+  {
+    page: "Skills Guide",
+    path: "/docs/skills-guide",
+    section: "Creating Custom Skills",
+    sectionId: "creating-skills",
+    text: "Create a skill when pattern should be followed repeatedly workflow needs guidance scaffolding from template. YAML frontmatter with name and description plus markdown body with Rule Why How Do Don't sections.",
+  },
+  {
+    page: "Skills Guide",
+    path: "/docs/skills-guide",
+    section: "Skills vs AGENTS.md",
+    sectionId: "skills-vs-agents-md",
+    text: "AGENTS.md is the overview tells agent what app does. Skills are deep dives tell agent how to do specific things correctly. Both needed: AGENTS.md for orientation skills for execution.",
+  },
 ];

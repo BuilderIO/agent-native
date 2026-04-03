@@ -1,45 +1,99 @@
-# Videos — Agent-Native App
+# Videos — Agent Guide
 
-This is an **agent-native** app built with `@agent-native/core`. See `.agents/skills/` for the framework rules:
+This app follows the agent-native core philosophy: the agent and UI are equal partners. Everything the UI can do, the agent can do via scripts. The agent always knows what you're looking at via application state. See the root AGENTS.md for full framework documentation.
 
-- **storing-data** — All state is in SQL. No JSON files for data, no localStorage.
-- **delegate-to-agent** — UI never calls an LLM directly. All AI goes through the agent chat.
-- **scripts** — Complex operations are scripts in `scripts/`, run via `pnpm script <name>`.
-- **real-time-sync** — UI stays in sync with agent changes via SSE (DB change events).
-- **frontend-design** — Build distinctive, production-grade UI. Read this skill before creating or restyling any component, page, or layout.
+This is an **agent-native** Remotion animation studio built with `@agent-native/core`.
 
-**Always use shadcn/ui components** (from `@/components/ui/`) for standard UI patterns — tabs, dialogs, buttons, dropdowns, popovers, selects, inputs, etc. Never create custom one-off implementations when a shadcn component exists. Check `app/components/ui/` for available components before building custom UI.
+**Always use shadcn/ui components** (from `@/components/ui/`) for standard UI patterns. Check `app/components/ui/` before building custom UI.
 
 For code editing and development guidance, read `DEVELOPING.md`.
 
----
-
 ## Resources
 
-Resources are SQL-backed persistent files for notes, learnings, and context. They replace the old `LEARNINGS.md` file approach.
+Resources are SQL-backed persistent files for storing notes, learnings, and context.
 
 **At the start of every conversation, read these resources (both personal and shared scopes):**
 
-1. **`AGENTS.md`** — contains user-specific context like contacts, nicknames, and preferences that help you act on vague requests. Read both `--scope personal` and `--scope shared`.
-2. **`LEARNINGS.md`** — user preferences, corrections, and patterns from past interactions. Read both `--scope personal` and `--scope shared`.
+1. **`AGENTS.md`** — user-specific context. Read both `--scope personal` and `--scope shared`.
+2. **`LEARNINGS.md`** — app memory with user preferences and corrections. Read both scopes.
 
-**Update the `LEARNINGS.md` resource when you learn something important:**
+**Update `LEARNINGS.md` when you learn something important.**
 
-- User corrects your tone, style, or approach
-- User shares personal info relevant to the app
-- You discover a non-obvious pattern or gotcha
-- User gives feedback that should apply to future conversations
+### Resource scripts
 
-Resources can be **personal** (per-user, default) or **shared** (team-wide).
+| Script            | Args                                           | Purpose                 |
+| ----------------- | ---------------------------------------------- | ----------------------- |
+| `resource-read`   | `--name <name> [--scope personal\|shared]`     | Read a resource         |
+| `resource-write`  | `--name <name> --content <text> [--scope ...]` | Write/update a resource |
+| `resource-list`   | `[--scope personal\|shared]`                   | List all resources      |
+| `resource-delete` | `--name <name> [--scope personal\|shared]`     | Delete a resource       |
 
-| Script            | Args                                                        | Purpose                 |
-| ----------------- | ----------------------------------------------------------- | ----------------------- |
-| `resource-read`   | `--path <path> [--scope personal\|shared]`                  | Read a resource         |
-| `resource-write`  | `--path <path> --content <text> [--scope personal\|shared]` | Write/update a resource |
-| `resource-list`   | `[--prefix <path>] [--scope personal\|shared\|all]`         | List resources          |
-| `resource-delete` | `--path <path> [--scope personal\|shared]`                  | Delete a resource       |
+## Application State
 
-Resources are stored in SQL, not files. They persist across sessions and are not in git.
+Ephemeral UI state is stored in the SQL `application_state` table, accessed via `readAppState(key)` and `writeAppState(key, value)` from `@agent-native/core/application-state`.
+
+| State Key    | Purpose                                   | Direction                  |
+| ------------ | ----------------------------------------- | -------------------------- |
+| `navigation` | Current view, composition ID              | UI -> Agent (read-only)    |
+| `navigate`   | Navigate command (one-shot, auto-deleted) | Agent -> UI (auto-deleted) |
+
+### Navigation state
+
+The UI writes `navigation` whenever the user navigates:
+
+```json
+{
+  "view": "composition",
+  "compositionId": "logo-reveal"
+}
+```
+
+Views: `"home"` (studio home), `"composition"` (editing a composition), `"components"` (component library).
+
+### Navigate command
+
+```json
+{ "compositionId": "logo-reveal" }
+{ "view": "home" }
+```
+
+## Agent Operations
+
+**Always run `pnpm script view-screen` first** before taking any action.
+
+**Always use `pnpm script <name>` for operations** -- never curl or raw HTTP.
+
+### Scripts
+
+| Script                        | Args                                    | Purpose                        |
+| ----------------------------- | --------------------------------------- | ------------------------------ |
+| `view-screen`                 |                                         | See current UI state + context |
+| `navigate`                    | `--compositionId <id>` or `--view home` | Navigate the UI                |
+| `create-composition`          | `--id <id> --title "..."`               | Create a new composition       |
+| `generate-animated-component` | `--name <name> --description "..."`     | Generate an animated component |
+| `validate-compositions`       |                                         | Validate all compositions      |
+
+### Common Tasks
+
+| User request                     | What to do                                                             |
+| -------------------------------- | ---------------------------------------------------------------------- |
+| "What am I looking at?"          | `pnpm script view-screen`                                              |
+| "Create a new composition"       | `pnpm script create-composition --id my-comp --title "..."`            |
+| "Open the logo reveal"           | `pnpm script navigate --compositionId=logo-reveal`                     |
+| "Go back to the studio"          | `pnpm script navigate --view=home`                                     |
+| "Generate an animated component" | `pnpm script generate-animated-component --name X --description "..."` |
+
+## Skills
+
+| Skill                    | When to read                                  |
+| ------------------------ | --------------------------------------------- |
+| `composition-management` | Before creating or modifying compositions     |
+| `animation-tracks`       | Before editing animation tracks or properties |
+| `storing-data`           | Before storing or reading any app state       |
+| `delegate-to-agent`      | Before adding LLM calls or AI delegation      |
+| `scripts`                | Before creating or modifying scripts          |
+| `self-modifying-code`    | Before editing source, components, or styles  |
+| `frontend-design`        | Before building or restyling any UI           |
 
 ---
 

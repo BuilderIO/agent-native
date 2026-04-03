@@ -1,5 +1,6 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import { useCallback, useState } from "react";
+import { useNavigationState } from "@/hooks/use-navigation-state";
 import {
   QueryClient,
   QueryClientProvider,
@@ -57,6 +58,7 @@ function FileWatcherSetup() {
 }
 
 export default function Root() {
+  useNavigationState();
   const [queryClient] = useState(() => new QueryClient());
   const [cmdkOpen, setCmdkOpen] = useState(false);
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));

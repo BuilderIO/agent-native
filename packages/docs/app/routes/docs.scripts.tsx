@@ -1,9 +1,11 @@
+import { Link } from "react-router";
 import DocsLayout from "../components/DocsLayout";
 import CodeBlock from "../components/CodeBlock";
 
 const TOC = [
   { id: "script-dispatcher", label: "Script Dispatcher" },
   { id: "parseargs", label: "parseArgs()" },
+  { id: "standard-scripts", label: "Standard Scripts" },
   { id: "shared-agent-chat", label: "Shared Agent Chat" },
   { id: "utility-functions", label: "Utility Functions" },
 ];
@@ -53,6 +55,58 @@ pnpm script hello --name Steve`}
 
 const args = parseArgs(["--name", "Steve", "--verbose", "--count=3"]);
 // { name: "Steve", verbose: "true", count: "3" }`}
+      />
+
+      <h2 id="standard-scripts">Standard scripts</h2>
+      <p>
+        Every template should include these two scripts for{" "}
+        <Link to="/docs/context-awareness" className="text-[var(--accent)]">
+          context awareness
+        </Link>
+        :
+      </p>
+      <h3>view-screen</h3>
+      <p>
+        Reads the current navigation state, fetches contextual data, and returns
+        a snapshot of what the user sees. The agent should always call this
+        before acting.
+      </p>
+      <CodeBlock
+        code={`// scripts/view-screen.ts
+import { readAppState } from "@agent-native/core/application-state";
+
+export default async function main() {
+  const navigation = await readAppState("navigation");
+  const screen: Record<string, unknown> = { navigation };
+
+  if (navigation?.view === "inbox") {
+    const res = await fetch("http://localhost:3000/api/emails?label=" + navigation.label);
+    screen.emailList = await res.json();
+  }
+
+  console.log(JSON.stringify(screen, null, 2));
+}`}
+      />
+      <CodeBlock code={`pnpm script view-screen`} lang="bash" />
+      <h3>navigate</h3>
+      <p>
+        Writes a one-shot navigation command to application-state. The UI reads
+        it, navigates, and deletes the entry.
+      </p>
+      <CodeBlock
+        code={`// scripts/navigate.ts
+import { parseArgs } from "@agent-native/core";
+import { writeAppState } from "@agent-native/core/application-state";
+
+export default async function main(args: string[]) {
+  const parsed = parseArgs(args);
+  await writeAppState("navigate", parsed);
+  console.log("Navigate command written:", parsed);
+}`}
+      />
+      <CodeBlock
+        code={`pnpm script navigate --view inbox --threadId thread-123`}
+        lang="bash"
       />
 
       <h2 id="shared-agent-chat">Shared Agent Chat</h2>
