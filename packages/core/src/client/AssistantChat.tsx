@@ -210,6 +210,7 @@ function ComposerAttachmentPreviewStrip() {
 function ToolCallFallback({
   toolName,
   args,
+  argsText,
   result,
 }: ToolCallMessagePartProps) {
   const [expanded, setExpanded] = useState(false);
@@ -218,6 +219,9 @@ function ToolCallFallback({
   const isAgentCall = toolName.startsWith("agent:");
   const agentName = isAgentCall ? toolName.slice(6) : null;
   const isAgentError = isAgentCall && result === "Error calling agent";
+  // For agent calls, argsText holds the streaming response text
+  const agentStreamText = isAgentCall ? (argsText ?? "") : "";
+  const hasStreamText = agentStreamText.length > 0;
   const argsStr = isAgentCall
     ? ""
     : Object.entries(args as Record<string, unknown>)
@@ -234,16 +238,22 @@ function ToolCallFallback({
         : `Asked ${agentName}`
     : toolName;
 
+  // Agent calls with streaming text auto-expand while running, and are toggleable when done
+  const canExpand = isAgentCall ? hasStreamText : result !== undefined;
+  const isExpanded = isAgentCall
+    ? hasStreamText && (isRunning || expanded)
+    : expanded;
+
   return (
     <div className="my-1 overflow-hidden">
       <button
-        onClick={() => !isAgentCall && setExpanded(!expanded)}
+        onClick={() => canExpand && setExpanded(!isExpanded)}
         className={cn(
           "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-mono w-full text-left overflow-hidden",
           isRunning
             ? "bg-muted text-muted-foreground"
             : isAgentCall
-              ? "bg-muted text-muted-foreground"
+              ? "bg-muted text-muted-foreground hover:bg-accent"
               : "bg-muted text-muted-foreground hover:bg-accent",
         )}
       >
@@ -262,16 +272,21 @@ function ToolCallFallback({
           <span className="font-medium">{displayName}</span>
           {argsStr && <span className="opacity-60 ml-1">({argsStr})</span>}
         </span>
-        {!isAgentCall && !isRunning && result !== undefined && (
+        {canExpand && !isRunning && (
           <IconChevronDown
             className={cn(
               "ml-auto h-3 w-3 shrink-0 opacity-40",
-              expanded && "rotate-180",
+              isExpanded && "rotate-180",
             )}
           />
         )}
       </button>
-      {!isAgentCall && expanded && result !== undefined && (
+      {isExpanded && isAgentCall && hasStreamText && (
+        <div className="mt-1 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
+          {agentStreamText}
+        </div>
+      )}
+      {isExpanded && !isAgentCall && result !== undefined && (
         <div className="mt-1 rounded-md bg-muted/50 px-3 py-2 text-xs font-mono text-muted-foreground whitespace-pre-wrap break-all max-h-48 overflow-y-auto">
           {typeof result === "string"
             ? result
@@ -288,10 +303,12 @@ function ToolCallFallback({
 
 function ReconnectStreamToolCall({
   toolName,
+  argsText,
   args,
   result,
 }: {
   toolName: string;
+  argsText?: string;
   args: Record<string, string>;
   result?: string;
 }) {
@@ -300,6 +317,8 @@ function ReconnectStreamToolCall({
   const isAgentCall = toolName.startsWith("agent:");
   const agentName = isAgentCall ? toolName.slice(6) : null;
   const isAgentError = isAgentCall && result === "Error calling agent";
+  const agentStreamText = isAgentCall ? (argsText ?? "") : "";
+  const hasStreamText = agentStreamText.length > 0;
   const argsStr = isAgentCall
     ? ""
     : Object.entries(args)
@@ -316,16 +335,21 @@ function ReconnectStreamToolCall({
         : `Asked ${agentName}`
     : toolName;
 
+  const canExpand = isAgentCall ? hasStreamText : result !== undefined;
+  const isExpanded = isAgentCall
+    ? hasStreamText && (isRunning || expanded)
+    : expanded;
+
   return (
     <div className="my-1 overflow-hidden">
       <button
-        onClick={() => !isAgentCall && setExpanded(!expanded)}
+        onClick={() => canExpand && setExpanded(!isExpanded)}
         className={cn(
           "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-mono w-full text-left overflow-hidden",
           isRunning
             ? "bg-muted text-muted-foreground"
             : isAgentCall
-              ? "bg-muted text-muted-foreground"
+              ? "bg-muted text-muted-foreground hover:bg-accent"
               : "bg-muted text-muted-foreground hover:bg-accent",
         )}
       >
@@ -342,16 +366,21 @@ function ReconnectStreamToolCall({
           <span className="font-medium">{displayName}</span>
           {argsStr && <span className="opacity-60 ml-1">({argsStr})</span>}
         </span>
-        {!isAgentCall && !isRunning && result !== undefined && (
+        {canExpand && !isRunning && (
           <IconChevronDown
             className={cn(
               "ml-auto h-3 w-3 shrink-0 opacity-40",
-              expanded && "rotate-180",
+              isExpanded && "rotate-180",
             )}
           />
         )}
       </button>
-      {!isAgentCall && expanded && result !== undefined && (
+      {isExpanded && isAgentCall && hasStreamText && (
+        <div className="mt-1 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
+          {agentStreamText}
+        </div>
+      )}
+      {isExpanded && !isAgentCall && result !== undefined && (
         <div className="mt-1 rounded-md bg-muted/50 px-3 py-2 text-xs font-mono text-muted-foreground whitespace-pre-wrap break-all max-h-48 overflow-y-auto">
           {typeof result === "string"
             ? result
@@ -394,6 +423,7 @@ function ReconnectStreamMessage({ content }: { content: ContentPart[] }) {
               <ReconnectStreamToolCall
                 key={`reconnect-tool-${i}`}
                 toolName={part.toolName}
+                argsText={part.argsText}
                 args={part.args}
                 result={part.result}
               />

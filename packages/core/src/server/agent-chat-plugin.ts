@@ -536,19 +536,21 @@ export function createAgentChatPlugin(
         name,
         description: entry.tool.description,
       })),
-      handler: async (message) => {
+      streaming: true,
+      handler: async function* (message) {
         const text = message.parts
           .filter((p): p is { type: "text"; text: string } => p.type === "text")
           .map((p) => p.text)
           .join("\n");
 
         if (!text) {
-          return {
-            message: {
-              role: "agent",
-              parts: [{ type: "text", text: "No text content in message" }],
-            },
+          yield {
+            role: "agent" as const,
+            parts: [
+              { type: "text" as const, text: "No text content in message" },
+            ],
           };
+          return;
         }
 
         // Run the agent loop directly in-process using the same scripts + prompt.
@@ -556,17 +558,16 @@ export function createAgentChatPlugin(
         const Anthropic = (await import("@anthropic-ai/sdk")).default;
         const apiKey = options?.apiKey ?? process.env.ANTHROPIC_API_KEY;
         if (!apiKey) {
-          return {
-            message: {
-              role: "agent" as const,
-              parts: [
-                {
-                  type: "text" as const,
-                  text: "Anthropic API key is not configured. Set ANTHROPIC_API_KEY in .env or pass apiKey in plugin options.",
-                },
-              ],
-            },
+          yield {
+            role: "agent" as const,
+            parts: [
+              {
+                type: "text" as const,
+                text: "Anthropic API key is not configured. Set ANTHROPIC_API_KEY in .env or pass apiKey in plugin options.",
+              },
+            ],
           };
+          return;
         }
         const client = new Anthropic({ apiKey });
         const model = options?.model ?? "claude-sonnet-4-6";
@@ -585,10 +586,10 @@ export function createAgentChatPlugin(
         );
 
         const msgs: any[] = [{ role: "user", content: text }];
-        const textParts: string[] = [];
+        let accumulatedText = "";
 
         for (let i = 0; i < 10; i++) {
-          const response = await client.messages.create({
+          const apiStream = client.messages.stream({
             model,
             max_tokens: 4096,
             system: systemPrompt,
@@ -596,20 +597,33 @@ export function createAgentChatPlugin(
             messages: msgs,
           });
 
-          const toolUseBlocks: any[] = [];
-          for (const block of response.content) {
-            if (block.type === "text") textParts.push(block.text);
-            if (block.type === "tool_use") toolUseBlocks.push(block);
+          for await (const chunk of apiStream) {
+            if (
+              chunk.type === "content_block_delta" &&
+              chunk.delta.type === "text_delta"
+            ) {
+              accumulatedText += chunk.delta.text;
+              // Yield intermediate message with text so far
+              yield {
+                role: "agent" as const,
+                parts: [{ type: "text" as const, text: accumulatedText }],
+              };
+            }
           }
+
+          const finalMessage = await apiStream.finalMessage();
+          const toolUseBlocks: any[] = finalMessage.content.filter(
+            (b: any) => b.type === "tool_use",
+          );
 
           if (
             toolUseBlocks.length === 0 ||
-            response.stop_reason !== "tool_use"
+            finalMessage.stop_reason !== "tool_use"
           ) {
             break;
           }
 
-          msgs.push({ role: "assistant", content: response.content });
+          msgs.push({ role: "assistant", content: finalMessage.content });
           const toolResults = [];
           for (const tb of toolUseBlocks) {
             const script = allScripts[tb.name];
@@ -630,14 +644,13 @@ export function createAgentChatPlugin(
           msgs.push({ role: "user", content: toolResults });
         }
 
-        return {
-          message: {
-            role: "agent",
-            parts: [
-              { type: "text", text: textParts.join("") || "(no response)" },
-            ],
-          },
-        };
+        // Final yield with complete text
+        if (!accumulatedText) {
+          yield {
+            role: "agent" as const,
+            parts: [{ type: "text" as const, text: "(no response)" }],
+          };
+        }
       },
     });
 

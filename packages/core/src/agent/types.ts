@@ -74,6 +74,7 @@ export type AgentChatEvent =
       agent: string;
       status: "start" | "done" | "error";
     }
+  | { type: "agent_call_text"; agent: string; text: string }
   | { type: "done" }
   | { type: "error"; error: string }
   | { type: "missing_api_key" }

@@ -397,8 +397,10 @@ export function createProductionAgentHandler(
       threadId ?? runId,
       async (send, signal) => {
         // Resolve agent @-mentions via A2A calls (inside run so we can emit SSE events)
+        // Uses streaming when available so the user sees the target agent's
+        // response being generated progressively.
         if (agentRefs.length > 0) {
-          const { callAgent } = await import("../a2a/client.js");
+          const { A2AClient } = await import("../a2a/client.js");
           const agentResponses: string[] = [];
 
           const results = await Promise.allSettled(
@@ -409,13 +411,61 @@ export function createProductionAgentHandler(
                 status: "start",
               });
               try {
-                const response = await callAgent(ref.path, message);
+                const client = new A2AClient(ref.path);
+                let responseText = "";
+
+                // Try streaming first — falls back to non-streaming send
+                try {
+                  let lastSentLength = 0;
+                  for await (const task of client.stream({
+                    role: "user",
+                    parts: [{ type: "text", text: message }],
+                  })) {
+                    const newText =
+                      task.status?.message?.parts
+                        ?.filter(
+                          (p): p is { type: "text"; text: string } =>
+                            p.type === "text",
+                        )
+                        ?.map((p) => p.text)
+                        ?.join("") ?? "";
+
+                    if (newText.length > lastSentLength) {
+                      send({
+                        type: "agent_call_text",
+                        agent: ref.name,
+                        text: newText.slice(lastSentLength),
+                      });
+                      lastSentLength = newText.length;
+                    }
+                    responseText = newText;
+                  }
+                } catch (streamErr: any) {
+                  // If streaming fails (not supported, network error), fall back to send
+                  if (!responseText) {
+                    const task = await client.send({
+                      role: "user",
+                      parts: [{ type: "text", text: message }],
+                    });
+                    const msg = task.status?.message;
+                    if (msg) {
+                      responseText = msg.parts
+                        .filter(
+                          (p): p is { type: "text"; text: string } =>
+                            p.type === "text",
+                        )
+                        .map((p) => p.text)
+                        .join("\n");
+                    }
+                  }
+                }
+
                 send({
                   type: "agent_call",
                   agent: ref.name,
                   status: "done",
                 });
-                return `<agent-response name="${ref.name}" id="${ref.refId}">\n${response}\n</agent-response>`;
+                return `<agent-response name="${ref.name}" id="${ref.refId}">\n${responseText}\n</agent-response>`;
               } catch (err: any) {
                 send({
                   type: "agent_call",
