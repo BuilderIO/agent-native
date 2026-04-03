@@ -26,6 +26,7 @@ import {
   CompositeAttachmentAdapter,
 } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
+import ReactMarkdown from "react-markdown";
 import { createAgentChatAdapter } from "./agent-chat-adapter.js";
 import { type ContentPart, readSSEStreamRaw } from "./sse-event-processor.js";
 import { cn } from "./utils.js";
@@ -248,13 +249,9 @@ function ToolCallFallback({
         : `Asked ${agentName}`
     : toolName;
 
-  // Agent calls always expand while running (even before first text arrives), toggleable when done
-  const canExpand = isAgentCall
-    ? isRunning || hasStreamText
-    : result !== undefined;
-  const isExpanded = isAgentCall
-    ? (isRunning || hasStreamText) && expanded
-    : expanded;
+  // Agent calls expand only when there's text to show, toggleable when done
+  const canExpand = isAgentCall ? hasStreamText : result !== undefined;
+  const isExpanded = isAgentCall ? hasStreamText && expanded : expanded;
 
   // Auto-scroll streaming text to bottom as new content arrives
   useEffect(() => {
@@ -298,16 +295,12 @@ function ToolCallFallback({
           />
         )}
       </button>
-      {isExpanded && isAgentCall && (
+      {isExpanded && isAgentCall && hasStreamText && (
         <div
           ref={streamRef}
-          className="mt-1 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground whitespace-pre-wrap break-words max-h-48 overflow-y-auto"
+          className="mt-1 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground break-words max-h-48 overflow-y-auto agent-markdown prose prose-sm prose-invert max-w-none"
         >
-          {hasStreamText ? (
-            agentStreamText
-          ) : (
-            <span className="italic opacity-50">Waiting for response...</span>
-          )}
+          <ReactMarkdown>{agentStreamText}</ReactMarkdown>
         </div>
       )}
       {isExpanded && !isAgentCall && result !== undefined && (
@@ -360,12 +353,8 @@ function ReconnectStreamToolCall({
         : `Asked ${agentName}`
     : toolName;
 
-  const canExpand = isAgentCall
-    ? isRunning || hasStreamText
-    : result !== undefined;
-  const isExpanded = isAgentCall
-    ? (isRunning || hasStreamText) && expanded
-    : expanded;
+  const canExpand = isAgentCall ? hasStreamText : result !== undefined;
+  const isExpanded = isAgentCall ? hasStreamText && expanded : expanded;
 
   useEffect(() => {
     if (isAgentCall && isRunning && streamRef.current) {
@@ -406,16 +395,12 @@ function ReconnectStreamToolCall({
           />
         )}
       </button>
-      {isExpanded && isAgentCall && (
+      {isExpanded && isAgentCall && hasStreamText && (
         <div
           ref={streamRef}
-          className="mt-1 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground whitespace-pre-wrap break-words max-h-48 overflow-y-auto"
+          className="mt-1 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground break-words max-h-48 overflow-y-auto agent-markdown prose prose-sm prose-invert max-w-none"
         >
-          {hasStreamText ? (
-            agentStreamText
-          ) : (
-            <span className="italic opacity-50">Waiting for response...</span>
-          )}
+          <ReactMarkdown>{agentStreamText}</ReactMarkdown>
         </div>
       )}
       {isExpanded && !isAgentCall && result !== undefined && (
