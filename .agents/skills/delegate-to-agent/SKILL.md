@@ -82,9 +82,27 @@ sendToAgentChat({
 
 Scripts may call external APIs (image generation, search, etc.) — but the AI reasoning and orchestration still goes through the agent. A script is a tool the agent uses, not a replacement for the agent.
 
+## When to Use A2A Instead
+
+`sendToAgentChat()` delegates work to the **local** agent — the one running alongside your app. When the work should go to a **different** agent entirely (e.g., asking an analytics agent for data, or a calendar agent for availability), use the A2A (agent-to-agent) protocol instead.
+
+```ts
+import { callAgent } from "@agent-native/core/a2a";
+
+// Call a different agent — not the local agent chat
+const stats = await callAgent(
+  "https://analytics.example.com",
+  "What were last week's signups?",
+  { apiKey: process.env.ANALYTICS_A2A_KEY },
+);
+```
+
+See the **a2a-protocol** skill for the full pattern.
+
 ## Related Skills
 
+- **a2a-protocol** — When the work goes to a different agent, not the local one
 - **scripts** — The agent invokes scripts via `pnpm script <name>` to perform complex operations
 - **self-modifying-code** — The agent operates through the chat bridge to make code changes
-- **files-as-database** — The agent writes results to data files after processing requests
-- **sse-file-watcher** — The UI updates automatically when the agent writes files
+- **storing-data** — The agent writes results to the database after processing requests
+- **real-time-sync** — The UI updates automatically when the agent writes data

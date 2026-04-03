@@ -2,12 +2,14 @@ import { Sidebar } from "./Sidebar";
 import { MobileNav } from "./MobileNav";
 import { HeaderActionsProvider } from "./HeaderActions";
 import { AgentSidebar } from "@agent-native/core/client";
+import { useNavigationState } from "@/hooks/use-navigation-state";
 
 interface LayoutProps {
   children: React.ReactNode;
 }
 
 export function Layout({ children }: LayoutProps) {
+  useNavigationState();
   return (
     <HeaderActionsProvider>
       <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">

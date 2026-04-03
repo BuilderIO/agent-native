@@ -1,12 +1,14 @@
 ---
-name: sse-file-watcher
+name: real-time-sync
 description: >-
-  How to keep the UI in sync with agent changes via Server-Sent Events. Use
-  when setting up real-time file sync, adding SSE to a new data directory,
-  wiring query invalidation for new data models, or debugging UI not updating.
+  How to keep the UI in sync with agent changes via polling. Use when wiring
+  query invalidation for new data models, debugging UI not updating, or
+  understanding jitter prevention.
 ---
 
-# SSE File Watcher
+> **Also known as:** `real-time-sync`. The skill table in AGENTS.md references this skill as `real-time-sync`.
+
+# Real-Time Sync (Polling)
 
 ## Rule
 
@@ -95,8 +97,41 @@ Mitigations:
 | Constant reconnections             | Check for server crashes in terminal output.                                                                    |
 | High CPU / event storms            | The agent is writing many files rapidly. Add `staleTime` to queries and use path-based filtering.               |
 
+## Jitter Prevention
+
+When the agent writes to application-state via script helpers (`writeAppState`, `deleteAppState`), the write is automatically tagged with `requestSource: "agent"`. This prevents the UI from overwriting active user edits when it receives the change event.
+
+### How it works
+
+1. **Agent writes** are tagged: the script helpers in `@agent-native/core/application-state` pass `{ requestSource: "agent" }` to the store.
+2. **UI writes** are tagged: templates send a per-tab ID via the `X-Request-Source` header on PUT/DELETE requests to application-state endpoints.
+3. **Polling filters**: `useFileWatcher()` accepts an `ignoreSource` option. The UI passes its own tab ID so it ignores events from its own writes — but still picks up events from agents, other tabs, and scripts.
+
+### Template setup
+
+```ts
+// app/lib/tab-id.ts
+export const TAB_ID = `tab-${Math.random().toString(36).slice(2, 8)}`;
+
+// app/root.tsx
+import { TAB_ID } from "@/lib/tab-id";
+
+useFileWatcher({
+  queryClient,
+  queryKeys: ["app-state", "settings"],
+  ignoreSource: TAB_ID,
+});
+```
+
+The `use-navigation-state.ts` hook sends the same `TAB_ID` in the `X-Request-Source` header when writing navigation state, so the tab that wrote the state does not refetch it.
+
+### Why this matters
+
+Without jitter prevention, a cycle occurs: the UI writes state, polling detects the change, the UI refetches and re-renders, potentially overwriting what the user is actively editing. With `ignoreSource`, the UI only reacts to changes from other sources (agent scripts, other browser tabs, other users).
+
 ## Related Skills
 
-- **files-as-database** — SSE watches the data files that store application state
-- **scripts** — Script outputs written to `data/` trigger SSE events
-- **self-modifying-code** — Agent code edits trigger SSE events; rapid edits can cause event storms
+- **storing-data** — Application-state and settings are the data stores that sync via polling
+- **context-awareness** — Navigation state writes use jitter prevention to avoid overwriting active edits
+- **scripts** — Script outputs written to the database trigger poll events
+- **self-modifying-code** — Agent code edits trigger poll events; rapid edits can cause event storms

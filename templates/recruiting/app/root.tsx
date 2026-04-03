@@ -1,5 +1,6 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import { useEffect, useState } from "react";
+import { useNavigationState } from "@/hooks/use-navigation-state";
 import {
   QueryClient,
   QueryClientProvider,
@@ -61,6 +62,11 @@ function AutoFocus() {
   return null;
 }
 
+function NavigationStateSync() {
+  useNavigationState();
+  return null;
+}
+
 function FileWatcherSetup() {
   const qc = useQueryClient();
 
@@ -117,6 +123,7 @@ export default function Root() {
           <Toaster richColors position="bottom-left" />
           <AutoFocus />
           <FileWatcherSetup />
+          <NavigationStateSync />
           <AppLayout>
             <Outlet />
           </AppLayout>
