@@ -10,7 +10,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const GITHUB_REPO = "BuilderIO/agent-native";
-const KNOWN_TEMPLATES = [
+
+// Static fallback used only when the GitHub Contents API is unreachable.
+const FALLBACK_TEMPLATES = [
   "analytics",
   "calendar",
   "content",
@@ -22,6 +24,27 @@ const KNOWN_TEMPLATES = [
   "starter",
   "videos",
 ];
+
+/**
+ * Fetch the list of available templates from the GitHub Contents API.
+ * Tries the versioned tag first, then falls back to main.
+ * Returns FALLBACK_TEMPLATES if the API is unreachable.
+ */
+async function fetchAvailableTemplates(version: string): Promise<string[]> {
+  const refs = [`v${version}`, "main"];
+  for (const ref of refs) {
+    try {
+      const data = (await fetchJson(
+        `https://api.github.com/repos/${GITHUB_REPO}/contents/templates?ref=${ref}`,
+      )) as Array<{ type: string; name: string }>;
+      const templates = data.filter((e) => e.type === "dir").map((e) => e.name);
+      if (templates.length > 0) return templates;
+    } catch {
+      // try next ref
+    }
+  }
+  return FALLBACK_TEMPLATES;
+}
 
 /**
  * Scaffold a new agent-native app from a template.
@@ -81,15 +104,21 @@ export async function createApp(
     copyDir(templateDir, targetDir);
   } else {
     // Download the requested template from GitHub
-    if (!KNOWN_TEMPLATES.includes(template)) {
+    const availableTemplates = await fetchAvailableTemplates(version);
+    if (!availableTemplates.includes(template)) {
       console.error(
-        `Unknown template "${template}". Available templates: ${KNOWN_TEMPLATES.join(", ")}`,
+        `Unknown template "${template}". Available templates: ${availableTemplates.join(", ")}`,
       );
       process.exit(1);
     }
 
     console.log(`Creating ${name} from "${template}" template...`);
-    await downloadAndExtractTemplate(template, version, targetDir);
+    await downloadAndExtractTemplate(
+      template,
+      version,
+      targetDir,
+      availableTemplates,
+    );
   }
 
   // Rewrite workspace:* protocol references so the project installs outside the monorepo
@@ -150,6 +179,7 @@ async function downloadAndExtractTemplate(
   template: string,
   version: string,
   targetDir: string,
+  availableTemplates: string[],
 ): Promise<void> {
   const urls = [
     `https://codeload.github.com/${GITHUB_REPO}/tar.gz/refs/tags/v${version}`,
@@ -195,7 +225,7 @@ async function downloadAndExtractTemplate(
     const templateSrc = path.join(extractDir, repoDir, "templates", template);
     if (!fs.existsSync(templateSrc)) {
       console.error(
-        `Template "${template}" was not found in the repository. Available templates: ${KNOWN_TEMPLATES.join(", ")}`,
+        `Template "${template}" was not found in the repository. Available templates: ${availableTemplates.join(", ")}`,
       );
       process.exit(1);
     }
@@ -204,6 +234,36 @@ async function downloadAndExtractTemplate(
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
+}
+
+/**
+ * Fetch a URL and parse the response body as JSON.
+ */
+function fetchJson(url: string): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    https
+      .get(
+        url,
+        {
+          headers: {
+            "User-Agent": "agent-native-cli",
+            Accept: "application/vnd.github+json",
+          },
+        },
+        (res) => {
+          let data = "";
+          res.on("data", (chunk) => (data += chunk));
+          res.on("end", () => {
+            try {
+              resolve(JSON.parse(data));
+            } catch {
+              reject(new Error(`Invalid JSON from ${url}`));
+            }
+          });
+        },
+      )
+      .on("error", reject);
+  });
 }
 
 /**
@@ -315,8 +375,14 @@ function fetchLatestNpmVersion(pkgName: string): Promise<string | null> {
               if (!versions.length) return resolve(null);
               // Pick the version with the highest major.minor.patch
               versions.sort((a, b) => {
-                const [aMaj, aMin, aPat] = a.split("-")[0].split(".").map(Number);
-                const [bMaj, bMin, bPat] = b.split("-")[0].split(".").map(Number);
+                const [aMaj, aMin, aPat] = a
+                  .split("-")[0]
+                  .split(".")
+                  .map(Number);
+                const [bMaj, bMin, bPat] = b
+                  .split("-")[0]
+                  .split(".")
+                  .map(Number);
                 return bMaj - aMaj || bMin - aMin || bPat - aPat;
               });
               resolve(versions[0]);
