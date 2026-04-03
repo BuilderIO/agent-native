@@ -145,7 +145,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   }
 
   // Gray instead of rainbow
-  vec3 baseCol = vec3(0.35) * uDark + vec3(0.25) * (1.0 - uDark);
+  vec3 baseCol = vec3(0.35) * uDark + vec3(0.12) * (1.0 - uDark);
   vec3 col = baseCol * m;
 
   // Vignette from original
@@ -159,7 +159,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   vec3 bg = mix(vec3(1.0), vec3(0.0), uDark);
 
   if (uDark < 0.5) {
-    col = bg - col * 2.5;
+    col = bg - col * 1.2;
   } else {
     col = bg + col;
   }
