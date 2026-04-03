@@ -1,6 +1,8 @@
 // PostHog API helper
 // Queries events, insights, and trends
 
+import { resolveCredential } from "./credentials";
+
 const DEFAULT_HOST = "https://app.posthog.com";
 
 // In-memory cache
@@ -8,10 +10,14 @@ const cache = new Map<string, { data: unknown; ts: number }>();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_CACHE = 100;
 
-function getConfig(): { apiKey: string; projectId: string; host: string } {
-  const apiKey = process.env.POSTHOG_API_KEY;
-  const projectId = process.env.POSTHOG_PROJECT_ID;
-  const host = process.env.POSTHOG_HOST ?? DEFAULT_HOST;
+async function getConfig(): Promise<{
+  apiKey: string;
+  projectId: string;
+  host: string;
+}> {
+  const apiKey = await resolveCredential("POSTHOG_API_KEY");
+  const projectId = await resolveCredential("POSTHOG_PROJECT_ID");
+  const host = (await resolveCredential("POSTHOG_HOST")) ?? DEFAULT_HOST;
   if (!apiKey) throw new Error("POSTHOG_API_KEY env var required");
   if (!projectId) throw new Error("POSTHOG_PROJECT_ID env var required");
   return { apiKey, projectId, host: host.replace(/\/$/, "") };
@@ -32,7 +38,7 @@ async function apiGet<T>(path: string, cacheKey?: string): Promise<T> {
     return cached.data as T;
   }
 
-  const { apiKey, host } = getConfig();
+  const { apiKey, host } = await getConfig();
   const res = await fetch(`${host}${path}`, {
     headers: { Authorization: `Bearer ${apiKey}` },
   });
@@ -60,7 +66,7 @@ async function apiPost<T>(
     }
   }
 
-  const { apiKey, host } = getConfig();
+  const { apiKey, host } = await getConfig();
   const res = await fetch(`${host}${path}`, {
     method: "POST",
     headers: {
@@ -116,8 +122,8 @@ export interface PostHogTrendResult {
 
 // -- API functions --
 
-export function getPostHogClient() {
-  const config = getConfig();
+export async function getPostHogClient() {
+  const config = await getConfig();
   return { projectId: config.projectId, host: config.host, apiGet, apiPost };
 }
 
@@ -126,7 +132,7 @@ export async function queryEvents(
   limit = 100,
   after?: string,
 ): Promise<PostHogEventResponse> {
-  const { projectId } = getConfig();
+  const { projectId } = await getConfig();
   const params = new URLSearchParams({ limit: String(limit) });
   if (eventName) params.set("event", eventName);
   if (after) params.set("after", after);
@@ -138,7 +144,7 @@ export async function queryEvents(
 export async function getInsights(
   limit = 20,
 ): Promise<{ results: PostHogInsight[] }> {
-  const { projectId } = getConfig();
+  const { projectId } = await getConfig();
   return apiGet<{ results: PostHogInsight[] }>(
     `/api/projects/${projectId}/insights/?limit=${limit}`,
   );
@@ -149,7 +155,7 @@ export async function getTrends(
   dateFrom?: string,
   dateTo?: string,
 ): Promise<PostHogTrendResult> {
-  const { projectId } = getConfig();
+  const { projectId } = await getConfig();
   const body = {
     insight: "TRENDS",
     events: events.map((e) => ({
@@ -172,7 +178,7 @@ export async function testConnection(): Promise<{
   error?: string;
 }> {
   try {
-    const { projectId } = getConfig();
+    const { projectId } = await getConfig();
     await apiGet(`/api/projects/${projectId}/`);
     return { ok: true };
   } catch (e) {

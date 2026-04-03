@@ -4,7 +4,7 @@ You are the AI assistant for this calendar app. You can view, create, update, an
 
 This is an **agent-native** app built with `@agent-native/core`. See `.agents/skills/` for the framework rules that apply to all agent-native apps:
 
-- **storing-data** — Settings and configuration in SQL via `@agent-native/core/settings`. Structured data (bookings) in SQLite via Drizzle ORM + @libsql/client.
+- **storing-data** — Settings and configuration in SQL via `@agent-native/core/settings`. Structured data (bookings) in SQL via Drizzle ORM.
 - **delegate-to-agent** — UI never calls an LLM directly. All AI goes through the agent chat.
 - **scripts** — Complex operations are scripts in `scripts/`, run via `pnpm script <name>`.
 - **real-time-sync** — UI stays in sync with agent changes via SSE (streams DB change events).
@@ -43,12 +43,12 @@ Resources are stored in SQL, not files. They persist across sessions and are not
 
 ## Architecture
 
-This is an agent-native calendar app with Google Calendar integration and a public booking page. Events come from Google Calendar API directly (not synced to local files). Bookings are stored in SQLite via Drizzle ORM + @libsql/client. Settings and availability are stored in SQL via the settings API.
+This is an agent-native calendar app with Google Calendar integration and a public booking page. Events come from Google Calendar API directly (not synced to local files). Bookings are stored in SQL via Drizzle ORM (SQLite, Postgres, Turso, etc. via `DATABASE_URL`). Settings and availability are stored in SQL via the settings API.
 
 ### How it works
 
 1. **Frontend** (React + Vite) reads state via API routes
-2. **Server** (Nitro) reads events from Google Calendar API, reads/writes bookings in SQLite, reads/writes settings via settings API
+2. **Server** (Nitro) reads events from Google Calendar API, reads/writes bookings in SQL, reads/writes settings via settings API
 3. **Agent** reads/writes settings via scripts, uses scripts for DB operations — changes propagate to UI via SSE
 4. **Google Calendar** queried via pull-based approach (no webhooks)
 
@@ -146,7 +146,7 @@ agentChat.submit("Google Calendar sync complete — 42 events synced.");
 
 ## Key Conventions
 
-1. **SQL-backed data model** — events come from Google Calendar API, bookings live in SQLite via Drizzle, settings/config live in SQL via the settings API. SSE pushes DB change events to the UI in real-time.
+1. **SQL-backed data model** — events come from Google Calendar API, bookings live in SQL via Drizzle, settings/config live in SQL via the settings API. SSE pushes DB change events to the UI in real-time.
 2. **Scripts for backend logic** — anything the agent needs to execute goes through `pnpm script`. Create reusable scripts for common operations, generate throwaway scripts for one-offs.
 3. **Agent chat for complex flows** — use `agentChat.submit()` from scripts and `agentChat.submit()` / `agentChat.prefill()` from the client to delegate multi-step operations, especially when follow-up conversation is valuable.
 4. **Keep the UI thin** — the UI should be for direct manipulation. Anything that benefits from AI reasoning or iteration should route through the agent chat.

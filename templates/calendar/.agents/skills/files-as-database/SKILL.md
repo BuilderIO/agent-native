@@ -63,9 +63,9 @@ SSE: writes automatically notify the UI via `{ source: "app-state", type: "chang
 For data with schemas, relationships, and queries: forms, bookings, emails, compositions. Define tables in `server/db/schema.ts` using Drizzle ORM.
 
 ```ts
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { table, text, integer } from "@agent-native/core/db/schema";
 
-export const bookings = sqliteTable("bookings", {
+export const bookings = table("bookings", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   email: text("email").notNull(),

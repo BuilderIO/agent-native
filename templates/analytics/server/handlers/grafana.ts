@@ -1,5 +1,5 @@
 import { defineEventHandler, getQuery, readBody, setResponseStatus } from "h3";
-import { requireEnvKey } from "@agent-native/core/server";
+import { requireCredential } from "../lib/credentials";
 import {
   listDashboards,
   getDashboard,
@@ -10,7 +10,7 @@ import {
 } from "../lib/grafana";
 
 export const handleGrafanaDashboards = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "GRAFANA_URL", "Grafana");
+  const missing = await requireCredential(event, "GRAFANA_URL", "Grafana");
   if (missing) return missing;
   try {
     const { query } = getQuery(event);
@@ -24,7 +24,7 @@ export const handleGrafanaDashboards = defineEventHandler(async (event) => {
 });
 
 export const handleGrafanaDashboard = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "GRAFANA_URL", "Grafana");
+  const missing = await requireCredential(event, "GRAFANA_URL", "Grafana");
   if (missing) return missing;
   try {
     const { uid } = getQuery(event);
@@ -42,7 +42,7 @@ export const handleGrafanaDashboard = defineEventHandler(async (event) => {
 });
 
 export const handleGrafanaDatasources = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "GRAFANA_URL", "Grafana");
+  const missing = await requireCredential(event, "GRAFANA_URL", "Grafana");
   if (missing) return missing;
   try {
     const datasources = await getDatasources();
@@ -55,7 +55,7 @@ export const handleGrafanaDatasources = defineEventHandler(async (event) => {
 });
 
 export const handleGrafanaAlerts = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "GRAFANA_URL", "Grafana");
+  const missing = await requireCredential(event, "GRAFANA_URL", "Grafana");
   if (missing) return missing;
   try {
     const [rules, instances] = await Promise.all([
@@ -76,7 +76,7 @@ export const handleGrafanaAlerts = defineEventHandler(async (event) => {
 });
 
 export const handleGrafanaQuery = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "GRAFANA_URL", "Grafana");
+  const missing = await requireCredential(event, "GRAFANA_URL", "Grafana");
   if (missing) return missing;
   try {
     const { datasourceUid, queries, from, to } = await readBody(event);

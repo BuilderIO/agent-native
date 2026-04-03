@@ -59,8 +59,8 @@ Resources support **personal** scope (per-user) and **shared** scope (visible to
                     │
                     ▼
             ┌───────────────┐
-            │  SQLite DB    │
-            │  (data/app.db)│
+            │  SQL Database │
+            │  (via DB_URL) │
             └───────────────┘
 ```
 
@@ -85,7 +85,7 @@ To check the current state:
 
 ## Data Model
 
-All data is stored in SQL (SQLite via Drizzle ORM, upgradeable to Turso/Neon/Supabase via `DATABASE_URL`). When a Google account is connected, the API serves emails from Gmail instead — the local email store is only used as a fallback when no account is connected (and starts empty).
+All data is stored in SQL via Drizzle ORM (SQLite, Postgres, Turso, etc. via `DATABASE_URL`). When a Google account is connected, the API serves emails from Gmail instead — the local email store is only used as a fallback when no account is connected (and starts empty).
 
 | SQL Store                     | Contents                                                       |
 | ----------------------------- | -------------------------------------------------------------- |

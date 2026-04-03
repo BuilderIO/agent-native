@@ -1,6 +1,8 @@
 // Mixpanel Data Export API helper
 // Queries events, top events, and funnels
 
+import { resolveCredential } from "./credentials";
+
 const API_BASE = "https://data.mixpanel.com/api/2.0";
 const QUERY_BASE = "https://mixpanel.com/api/query";
 
@@ -9,9 +11,9 @@ const cache = new Map<string, { data: unknown; ts: number }>();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_CACHE = 100;
 
-function getCredentials(): { projectId: string; auth: string } {
-  const projectId = process.env.MIXPANEL_PROJECT_ID;
-  const serviceAccount = process.env.MIXPANEL_SERVICE_ACCOUNT;
+async function getCredentials(): Promise<{ projectId: string; auth: string }> {
+  const projectId = await resolveCredential("MIXPANEL_PROJECT_ID");
+  const serviceAccount = await resolveCredential("MIXPANEL_SERVICE_ACCOUNT");
   if (!projectId) throw new Error("MIXPANEL_PROJECT_ID env var required");
   if (!serviceAccount)
     throw new Error(
@@ -40,7 +42,7 @@ async function apiGet<T>(
     return cached.data as T;
   }
 
-  const { projectId, auth } = getCredentials();
+  const { projectId, auth } = await getCredentials();
   const separator = path.includes("?") ? "&" : "?";
   const url = `${base}${path}${separator}project_id=${projectId}`;
 
@@ -80,8 +82,8 @@ export interface MixpanelFunnel {
 
 // -- API functions --
 
-export function getMixpanelClient() {
-  const creds = getCredentials();
+export async function getMixpanelClient() {
+  const creds = await getCredentials();
   return { projectId: creds.projectId, apiGet };
 }
 

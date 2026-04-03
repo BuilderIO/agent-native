@@ -1,9 +1,13 @@
 import { defineEventHandler, getQuery, setResponseStatus } from "h3";
-import { requireEnvKey } from "@agent-native/core/server";
+import { requireCredential } from "../lib/credentials";
 import { getMemberByEmail, getMembers } from "../lib/commonroom";
 
 export const handleCommonRoomMembers = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "COMMONROOM_API_KEY", "Common Room");
+  const missing = await requireCredential(
+    event,
+    "COMMONROOM_API_KEY",
+    "Common Room",
+  );
   if (missing) return missing;
   try {
     const { email, query, limit: limitParam } = getQuery(event);

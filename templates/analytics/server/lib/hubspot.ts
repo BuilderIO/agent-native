@@ -1,6 +1,8 @@
 // HubSpot CRM API helper
 // Fetches deals, pipelines/stages, and computes sales metrics
 
+import { resolveCredential } from "./credentials";
+
 const API_BASE = "https://api.hubapi.com";
 
 // In-memory cache
@@ -8,8 +10,8 @@ const cache = new Map<string, { data: unknown; ts: number }>();
 const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const MAX_CACHE = 120;
 
-function getToken(): string {
-  const token = process.env.HUBSPOT_ACCESS_TOKEN;
+async function getToken(): Promise<string> {
+  const token = await resolveCredential("HUBSPOT_ACCESS_TOKEN");
   if (!token) throw new Error("HUBSPOT_ACCESS_TOKEN env var required");
   return token;
 }
@@ -22,7 +24,7 @@ async function apiGet<T>(path: string, cacheKey?: string): Promise<T> {
   }
 
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { Authorization: `Bearer ${getToken()}` },
+    headers: { Authorization: `Bearer ${await getToken()}` },
   });
 
   if (!res.ok) {
@@ -173,7 +175,7 @@ export async function getAllDeals(): Promise<Deal[]> {
   for (let i = 0; i < 100; i++) {
     const url = `/crm/v3/objects/deals?limit=100&properties=${props}${after ? `&after=${after}` : ""}`;
     const res = await fetch(`${API_BASE}${url}`, {
-      headers: { Authorization: `Bearer ${getToken()}` },
+      headers: { Authorization: `Bearer ${await getToken()}` },
     });
     if (!res.ok) {
       const text = await res.text();

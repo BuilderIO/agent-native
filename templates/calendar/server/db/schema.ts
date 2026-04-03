@@ -1,6 +1,6 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { table, text, integer } from "@agent-native/core/db/schema";
 
-export const bookings = sqliteTable("bookings", {
+export const bookings = table("bookings", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   email: text("email").notNull(),
@@ -21,7 +21,7 @@ export const bookings = sqliteTable("bookings", {
   createdAt: text("created_at").notNull(),
 });
 
-export const bookingLinks = sqliteTable("booking_links", {
+export const bookingLinks = table("booking_links", {
   id: text("id").primaryKey(),
   slug: text("slug").notNull().unique(),
   title: text("title").notNull(),
@@ -39,7 +39,7 @@ export const bookingLinks = sqliteTable("booking_links", {
   updatedAt: text("updated_at").notNull(),
 });
 
-export const bookingSlugRedirects = sqliteTable("booking_slug_redirects", {
+export const bookingSlugRedirects = table("booking_slug_redirects", {
   oldSlug: text("old_slug").primaryKey(),
   newSlug: text("new_slug").notNull(),
   createdAt: text("created_at").notNull(),

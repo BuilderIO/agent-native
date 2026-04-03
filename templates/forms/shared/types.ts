@@ -42,17 +42,29 @@ export interface FormField {
 }
 
 // ---------------------------------------------------------------------------
+// Integrations
+// ---------------------------------------------------------------------------
+
+export type IntegrationType = "webhook" | "slack" | "discord" | "google-sheets";
+
+export interface FormIntegration {
+  id: string;
+  type: IntegrationType;
+  name: string;
+  enabled: boolean;
+  url: string;
+}
+
+// ---------------------------------------------------------------------------
 // Form settings
 // ---------------------------------------------------------------------------
 
 export interface FormSettings {
-  primaryColor?: string;
-  backgroundColor?: string;
-  fontFamily?: string;
   submitText?: string;
   successMessage?: string;
   redirectUrl?: string;
   showProgressBar?: boolean;
+  integrations?: FormIntegration[];
 }
 
 // ---------------------------------------------------------------------------

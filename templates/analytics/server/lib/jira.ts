@@ -1,6 +1,8 @@
 // Jira Cloud REST API client
 // Uses Basic auth (email + API token)
 
+import { resolveCredential } from "./credentials";
+
 const API_V3 = "/rest/api/3";
 const API_AGILE = "/rest/agile/1.0";
 
@@ -9,10 +11,13 @@ const cache = new Map<string, { data: unknown; ts: number }>();
 const CACHE_TTL_MS = 10 * 60 * 1000;
 const MAX_CACHE = 100;
 
-function getAuth(): { baseUrl: string; headers: Record<string, string> } {
-  const baseUrl = process.env.JIRA_BASE_URL;
-  const email = process.env.JIRA_USER_EMAIL;
-  const token = process.env.JIRA_API_TOKEN;
+async function getAuth(): Promise<{
+  baseUrl: string;
+  headers: Record<string, string>;
+}> {
+  const baseUrl = await resolveCredential("JIRA_BASE_URL");
+  const email = await resolveCredential("JIRA_USER_EMAIL");
+  const token = await resolveCredential("JIRA_API_TOKEN");
   if (!baseUrl || !email || !token) {
     throw new Error(
       "JIRA_BASE_URL, JIRA_USER_EMAIL, and JIRA_API_TOKEN env vars are required",
@@ -41,7 +46,7 @@ async function jiraGet<T>(
     return cached.data as T;
   }
 
-  const { baseUrl, headers } = getAuth();
+  const { baseUrl, headers } = await getAuth();
   const url = new URL(path, baseUrl);
   if (params) {
     for (const [k, v] of Object.entries(params)) {

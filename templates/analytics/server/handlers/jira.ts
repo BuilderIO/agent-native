@@ -1,5 +1,5 @@
 import { defineEventHandler, getQuery, setResponseStatus } from "h3";
-import { requireEnvKey } from "@agent-native/core/server";
+import { requireCredential } from "../lib/credentials";
 import {
   searchIssues,
   getIssue,
@@ -11,7 +11,7 @@ import {
 } from "../lib/jira";
 
 export const handleJiraSearch = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "JIRA_EMAIL", "Jira");
+  const missing = await requireCredential(event, "JIRA_EMAIL", "Jira");
   if (missing) return missing;
   try {
     const { jql, maxResults: maxResultsParam } = getQuery(event);
@@ -30,7 +30,7 @@ export const handleJiraSearch = defineEventHandler(async (event) => {
 });
 
 export const handleJiraIssue = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "JIRA_EMAIL", "Jira");
+  const missing = await requireCredential(event, "JIRA_EMAIL", "Jira");
   if (missing) return missing;
   try {
     const { key } = getQuery(event);
@@ -48,7 +48,7 @@ export const handleJiraIssue = defineEventHandler(async (event) => {
 });
 
 export const handleJiraProjects = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "JIRA_EMAIL", "Jira");
+  const missing = await requireCredential(event, "JIRA_EMAIL", "Jira");
   if (missing) return missing;
   try {
     const projects = await getProjects();
@@ -61,7 +61,7 @@ export const handleJiraProjects = defineEventHandler(async (event) => {
 });
 
 export const handleJiraStatuses = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "JIRA_EMAIL", "Jira");
+  const missing = await requireCredential(event, "JIRA_EMAIL", "Jira");
   if (missing) return missing;
   try {
     const { project } = getQuery(event);
@@ -75,7 +75,7 @@ export const handleJiraStatuses = defineEventHandler(async (event) => {
 });
 
 export const handleJiraBoards = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "JIRA_EMAIL", "Jira");
+  const missing = await requireCredential(event, "JIRA_EMAIL", "Jira");
   if (missing) return missing;
   try {
     const boards = await getBoards();
@@ -88,7 +88,7 @@ export const handleJiraBoards = defineEventHandler(async (event) => {
 });
 
 export const handleJiraSprints = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "JIRA_EMAIL", "Jira");
+  const missing = await requireCredential(event, "JIRA_EMAIL", "Jira");
   if (missing) return missing;
   try {
     const { boardId: boardIdParam } = getQuery(event);
@@ -107,7 +107,7 @@ export const handleJiraSprints = defineEventHandler(async (event) => {
 });
 
 export const handleJiraAnalytics = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "JIRA_EMAIL", "Jira");
+  const missing = await requireCredential(event, "JIRA_EMAIL", "Jira");
   if (missing) return missing;
   try {
     const { projects: projectsParam, days: daysParam } = getQuery(event);

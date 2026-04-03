@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import {
   APP_REGISTRY,
+  DEFAULT_APPS,
   type AppDefinition,
   type AppConfig,
   toAppDefinition,
@@ -55,15 +56,8 @@ export default function App() {
         const loaded = await window.electronAPI.appConfig.load();
         setApps(loaded);
       } else {
-        // Fallback for dev without electron
-        setApps(
-          APP_REGISTRY.map((a) => ({
-            ...a,
-            url: `http://localhost:${a.devPort}`,
-            isBuiltIn: true,
-            enabled: true,
-          })),
-        );
+        // Fallback for dev without electron — use full config with production URLs
+        setApps(DEFAULT_APPS);
       }
       setLoading(false);
     }

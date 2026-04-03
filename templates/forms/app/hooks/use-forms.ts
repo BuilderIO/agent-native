@@ -95,15 +95,15 @@ export function useDeleteForm() {
 // Public hooks (unauthenticated)
 // ---------------------------------------------------------------------------
 
-export function usePublicForm(slug: string) {
+export function usePublicForm(formId: string) {
   return useQuery({
-    queryKey: ["public-form", slug],
+    queryKey: ["public-form", formId],
     queryFn: () =>
-      fetch(`/api/forms/public/${slug}`).then((r) => {
+      fetch(`/api/forms/public/${formId}`).then((r) => {
         if (!r.ok) throw new Error("Form not found");
         return r.json();
       }),
-    enabled: !!slug,
+    enabled: !!formId,
     retry: false,
   });
 }

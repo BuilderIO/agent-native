@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { parseNfmForEditor, normalizeNfmForStorage } from "./notion-markdown";
+import {
+  parseNfmForEditor,
+  normalizeNfmForStorage,
+  serializeEditorToNfm,
+} from "./notion-markdown";
 
 describe("parseNfmForEditor", () => {
   describe("empty-block handling", () => {
@@ -242,6 +246,72 @@ describe("parseNfmForEditor", () => {
       // NFM constructs should be gone
       expect(result).not.toContain("<empty-block");
       expect(result).not.toMatch(/^\t/m);
+    });
+  });
+});
+
+describe("serializeEditorToNfm", () => {
+  describe("blockquote → tab-indented round-trip", () => {
+    it("converts single blockquote back to tab indent", () => {
+      const result = serializeEditorToNfm("> child text");
+      expect(result).toContain("\tchild text");
+      expect(result).not.toContain("> child text");
+    });
+
+    it("converts nested blockquotes back to nested tabs", () => {
+      const result = serializeEditorToNfm("> > grandchild");
+      expect(result).toContain("\t\tgrandchild");
+    });
+
+    it("does not modify code blocks", () => {
+      const result = serializeEditorToNfm("```\n> not a quote\n```");
+      expect(result).toContain("> not a quote");
+    });
+
+    it("preserves list items (not blockquotes)", () => {
+      const result = serializeEditorToNfm("- bullet\n    - nested");
+      expect(result).toContain("- bullet");
+      expect(result).toContain("nested");
+    });
+
+    it("round-trips indented text correctly", () => {
+      const nfm = "parent\n\tchild\n\t\tgrandchild";
+      const editorMd = parseNfmForEditor(nfm);
+      const stored = serializeEditorToNfm(editorMd);
+      expect(stored).toContain("\tchild");
+      expect(stored).toContain("\t\tgrandchild");
+    });
+  });
+
+  describe("empty line preservation", () => {
+    it("converts consecutive blank lines to <empty-block/>", () => {
+      const result = serializeEditorToNfm("above\n\n\nbelow");
+      expect(result).toContain("<empty-block/>");
+      expect(result).toContain("above");
+      expect(result).toContain("below");
+    });
+
+    it("converts &nbsp; to <empty-block/>", () => {
+      const result = serializeEditorToNfm("above\n\n&nbsp;\n\nbelow");
+      expect(result).toContain("<empty-block/>");
+    });
+
+    it("preserves single blank lines as normal paragraph breaks", () => {
+      const result = serializeEditorToNfm("above\n\nbelow");
+      expect(result).not.toContain("<empty-block/>");
+    });
+
+    it("does not modify blank lines inside code blocks", () => {
+      const result = serializeEditorToNfm("```\n\n\n\n```");
+      expect(result).not.toContain("<empty-block/>");
+    });
+
+    it("round-trips empty blocks through editor", () => {
+      const nfm = "above\n<empty-block/>\nbelow";
+      const editorMd = parseNfmForEditor(nfm);
+      expect(editorMd).toContain("&nbsp;");
+      const stored = serializeEditorToNfm(editorMd);
+      expect(stored).toContain("<empty-block/>");
     });
   });
 });

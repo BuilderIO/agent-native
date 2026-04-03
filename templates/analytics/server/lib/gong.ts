@@ -1,15 +1,17 @@
 // Gong sales call intelligence API helper
 // Fetches calls, transcripts, and users
 
+import { resolveCredential } from "./credentials";
+
 const API_BASE = "https://us-65885.api.gong.io/v2";
 
 const cache = new Map<string, { data: unknown; ts: number }>();
 const CACHE_TTL_MS = 10 * 60 * 1000;
 const MAX_CACHE = 120;
 
-function getAuthHeader(): string {
-  const accessKey = process.env.GONG_ACCESS_KEY;
-  const secret = process.env.GONG_ACCESS_SECRET;
+async function getAuthHeader(): Promise<string> {
+  const accessKey = await resolveCredential("GONG_ACCESS_KEY");
+  const secret = await resolveCredential("GONG_ACCESS_SECRET");
   if (!accessKey || !secret)
     throw new Error("GONG_ACCESS_KEY and GONG_ACCESS_SECRET env vars required");
   return `Basic ${Buffer.from(`${accessKey}:${secret}`).toString("base64")}`;
@@ -24,7 +26,7 @@ async function apiGet<T>(path: string, cacheKey?: string): Promise<T> {
 
   const res = await fetch(`${API_BASE}${path}`, {
     headers: {
-      Authorization: getAuthHeader(),
+      Authorization: await getAuthHeader(),
       "Content-Type": "application/json",
     },
   });
@@ -59,7 +61,7 @@ async function apiPost<T>(
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
     headers: {
-      Authorization: getAuthHeader(),
+      Authorization: await getAuthHeader(),
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),

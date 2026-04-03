@@ -1,9 +1,9 @@
 import { defineEventHandler, getQuery, setResponseStatus } from "h3";
-import { requireEnvKey } from "@agent-native/core/server";
+import { requireCredential } from "../lib/credentials";
 import { getCalls, searchCalls, getUsers } from "../lib/gong";
 
 export const handleGongCalls = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "GONG_API_KEY", "Gong");
+  const missing = await requireCredential(event, "GONG_API_KEY", "Gong");
   if (missing) return missing;
   try {
     const { company, days: daysParam } = getQuery(event);
@@ -27,7 +27,7 @@ export const handleGongCalls = defineEventHandler(async (event) => {
 });
 
 export const handleGongUsers = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "GONG_API_KEY", "Gong");
+  const missing = await requireCredential(event, "GONG_API_KEY", "Gong");
   if (missing) return missing;
   try {
     const users = await getUsers();

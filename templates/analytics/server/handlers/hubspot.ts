@@ -1,5 +1,5 @@
 import { defineEventHandler, setResponseStatus } from "h3";
-import { requireEnvKey } from "@agent-native/core/server";
+import { requireCredential } from "../lib/credentials";
 import {
   getAllDeals,
   getDealPipelines,
@@ -10,7 +10,11 @@ import {
 
 // GET /api/hubspot/deals — deals filtered to visible pipelines
 export const handleHubspotDeals = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "HUBSPOT_ACCESS_TOKEN", "HubSpot");
+  const missing = await requireCredential(
+    event,
+    "HUBSPOT_ACCESS_TOKEN",
+    "HubSpot",
+  );
   if (missing) return missing;
   try {
     const [allDeals, allPipelines] = await Promise.all([
@@ -40,7 +44,11 @@ export const handleHubspotDeals = defineEventHandler(async (event) => {
 
 // GET /api/hubspot/pipelines — visible pipeline stages only
 export const handleHubspotPipelines = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "HUBSPOT_ACCESS_TOKEN", "HubSpot");
+  const missing = await requireCredential(
+    event,
+    "HUBSPOT_ACCESS_TOKEN",
+    "HubSpot",
+  );
   if (missing) return missing;
   try {
     const allPipelines = await getDealPipelines();
@@ -55,7 +63,11 @@ export const handleHubspotPipelines = defineEventHandler(async (event) => {
 
 // GET /api/hubspot/metrics — computed sales metrics (enterprise only)
 export const handleHubspotMetrics = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "HUBSPOT_ACCESS_TOKEN", "HubSpot");
+  const missing = await requireCredential(
+    event,
+    "HUBSPOT_ACCESS_TOKEN",
+    "HubSpot",
+  );
   if (missing) return missing;
   try {
     const [deals, pipelines] = await Promise.all([

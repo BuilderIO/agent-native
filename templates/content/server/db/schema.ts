@@ -1,7 +1,6 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
-import { sql } from "drizzle-orm";
+import { table, text, integer, now } from "@agent-native/core/db/schema";
 
-export const documents = sqliteTable("documents", {
+export const documents = table("documents", {
   id: text("id").primaryKey(),
   parentId: text("parent_id"),
   title: text("title").notNull().default("Untitled"),
@@ -9,25 +8,19 @@ export const documents = sqliteTable("documents", {
   icon: text("icon"),
   position: integer("position").notNull().default(0),
   isFavorite: integer("is_favorite").notNull().default(0),
-  createdAt: text("created_at")
-    .notNull()
-    .default(sql`(datetime('now'))`),
-  updatedAt: text("updated_at")
-    .notNull()
-    .default(sql`(datetime('now'))`),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
 });
 
-export const documentVersions = sqliteTable("document_versions", {
+export const documentVersions = table("document_versions", {
   id: text("id").primaryKey(),
   documentId: text("document_id").notNull(),
   title: text("title").notNull(),
   content: text("content").notNull(),
-  createdAt: text("created_at")
-    .notNull()
-    .default(sql`(datetime('now'))`),
+  createdAt: text("created_at").notNull().default(now()),
 });
 
-export const documentSyncLinks = sqliteTable("document_sync_links", {
+export const documentSyncLinks = table("document_sync_links", {
   documentId: text("document_id").primaryKey(),
   provider: text("provider").notNull().default("notion"),
   remotePageId: text("remote_page_id").notNull(),
@@ -39,10 +32,6 @@ export const documentSyncLinks = sqliteTable("document_sync_links", {
   lastError: text("last_error"),
   warningsJson: text("warnings_json"),
   hasConflict: integer("has_conflict").notNull().default(0),
-  createdAt: text("created_at")
-    .notNull()
-    .default(sql`(datetime('now'))`),
-  updatedAt: text("updated_at")
-    .notNull()
-    .default(sql`(datetime('now'))`),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
 });

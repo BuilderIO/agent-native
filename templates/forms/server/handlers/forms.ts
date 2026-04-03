@@ -6,7 +6,12 @@ import {
   type H3Event,
 } from "h3";
 import { eq, sql } from "drizzle-orm";
-import { nanoid } from "nanoid";
+import { customAlphabet } from "nanoid";
+
+const nanoid = customAlphabet(
+  "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
+);
+
 import { getDb, schema } from "../db/index.js";
 import type { Form, FormField, FormSettings } from "../../shared/types.js";
 
@@ -125,14 +130,11 @@ export const createForm = defineEventHandler(async (event: H3Event) => {
   const db = getDb();
   const body = await readBody(event);
   const now = new Date().toISOString();
-  const id = nanoid();
+  const id = nanoid(10);
   const slug =
-    body.slug || slugify(body.title || "untitled") + "-" + id.slice(0, 6);
+    body.slug || slugify(body.title || "untitled") + "/" + id.slice(0, 6);
 
   const defaultSettings: FormSettings = {
-    primaryColor: "#2563eb",
-    backgroundColor: "#ffffff",
-    fontFamily: "Inter",
     submitText: "Submit",
     successMessage: "Thank you! Your response has been recorded.",
     showProgressBar: false,
@@ -186,7 +188,14 @@ export const updateForm = defineEventHandler(async (event: H3Event) => {
   }
 
   const updates: Record<string, unknown> = { updatedAt: now };
-  if (body.title !== undefined) updates.title = body.title;
+  if (body.title !== undefined) {
+    updates.title = body.title;
+    // Auto-update slug when title changes (unless slug is explicitly provided)
+    if (body.slug === undefined) {
+      const idSuffix = id.slice(0, 6);
+      updates.slug = slugify(body.title || "untitled") + "/" + idSuffix;
+    }
+  }
   if (body.description !== undefined) updates.description = body.description;
   if (body.slug !== undefined) updates.slug = body.slug;
   if (body.fields !== undefined) updates.fields = JSON.stringify(body.fields);
@@ -204,11 +213,8 @@ export const updateForm = defineEventHandler(async (event: H3Event) => {
     throw err;
   }
 
-  // Invalidate cache for old and new slugs
-  invalidatePublicFormCache(existing.slug);
-  if (body.slug && body.slug !== existing.slug) {
-    invalidatePublicFormCache(body.slug);
-  }
+  // Invalidate cache (keyed by formId)
+  invalidatePublicFormCache(existing.id);
 
   const row = await db
     .select()
@@ -239,25 +245,28 @@ export const deleteForm = defineEventHandler(async (event: H3Event) => {
   await db.delete(schema.responses).where(eq(schema.responses.formId, id));
   await db.delete(schema.forms).where(eq(schema.forms.id, id));
 
-  // Invalidate cache
-  invalidatePublicFormCache(existing.slug);
+  // Invalidate cache (keyed by formId)
+  invalidatePublicFormCache(existing.id);
 
   return { success: true };
 });
 
 export const getPublicForm = defineEventHandler(async (event: H3Event) => {
-  const slug = getRouterParam(event, "slug") as string;
+  // URL: /api/forms/public/{formId} — extract last path segment as the ID
+  const url = event.node.req.url ?? "";
+  const afterPublic = url.split("/api/forms/public/")[1] || "";
+  const segments = afterPublic.split("?")[0].split("/").filter(Boolean);
+  const formId = segments[segments.length - 1] || "";
 
   // Check cache first
-  const cached = getCachedPublicForm(slug);
+  const cached = getCachedPublicForm(formId);
   if (cached) return cached;
 
   const db = getDb();
   const row = await db
     .select()
     .from(schema.forms)
-    .where(eq(schema.forms.slug, slug))
-
+    .where(eq(schema.forms.id, formId))
     .then((rows) => rows[0]);
 
   if (!row || row.status !== "published") {
@@ -274,6 +283,6 @@ export const getPublicForm = defineEventHandler(async (event: H3Event) => {
     settings: JSON.parse(row.settings),
   };
 
-  setCachedPublicForm(slug, result);
+  setCachedPublicForm(formId, result);
   return result;
 });

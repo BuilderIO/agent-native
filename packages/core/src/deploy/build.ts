@@ -21,6 +21,8 @@ import { createRequire } from "module";
 import {
   discoverApiRoutes,
   discoverPlugins,
+  getMissingDefaultPlugins,
+  DEFAULT_PLUGIN_REGISTRY,
   type DiscoveredRoute,
 } from "./route-discovery.js";
 
@@ -44,6 +46,7 @@ function isNodeOnlyPlugin(filePath: string): boolean {
 function generateWorkerEntry(
   routes: DiscoveredRoute[],
   pluginPaths: string[],
+  defaultPluginStems: string[] = [],
 ): string {
   const routeImports: string[] = [];
   const routeRegistrations: string[] = [];
@@ -67,6 +70,23 @@ function generateWorkerEntry(
     const varName = `plugin_${i}`;
     pluginImports.push(
       `import ${varName} from ${JSON.stringify(edgePlugins[i])};`,
+    );
+    pluginCalls.push(`  if (typeof ${varName} === "function") {
+    await ${varName}({ h3App: app });
+  }`);
+  }
+
+  // Auto-mounted default plugins (from core, for missing plugin files)
+  const edgeDefaultStems = defaultPluginStems.filter(
+    (stem) => !NODE_ONLY_PLUGINS.has(stem),
+  );
+  for (let i = 0; i < edgeDefaultStems.length; i++) {
+    const stem = edgeDefaultStems[i];
+    const exportName = DEFAULT_PLUGIN_REGISTRY[stem];
+    if (!exportName) continue;
+    const varName = `defaultPlugin_${i}`;
+    pluginImports.push(
+      `import { ${exportName} as ${varName} } from "@agent-native/core/server";`,
     );
     pluginCalls.push(`  if (typeof ${varName} === "function") {
     await ${varName}({ h3App: app });
@@ -206,13 +226,14 @@ async function buildCloudflarePages() {
   // Discover routes and plugins
   const routes = discoverApiRoutes(cwd);
   const plugins = discoverPlugins(cwd);
+  const missingDefaults = getMissingDefaultPlugins(cwd);
 
   console.log(
-    `[deploy] ${routes.length} API routes, ${plugins.length} plugins (${plugins.filter((p) => isNodeOnlyPlugin(p)).length} skipped as Node-only)`,
+    `[deploy] ${routes.length} API routes, ${plugins.length} plugins (${plugins.filter((p) => isNodeOnlyPlugin(p)).length} skipped as Node-only), ${missingDefaults.length} auto-mounted defaults`,
   );
 
   // Generate the worker entry
-  const entrySource = generateWorkerEntry(routes, plugins);
+  const entrySource = generateWorkerEntry(routes, plugins, missingDefaults);
 
   // Create _worker.js output directory
   const workerOutDir = path.join(distDir, "_worker.js");

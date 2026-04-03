@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import {
   eachHourOfInterval,
   format,
@@ -7,17 +7,20 @@ import {
   startOfDay,
   set,
   isToday,
+  addMinutes,
 } from "date-fns";
 import { cn } from "@/lib/utils";
 import { getEventAutoColor } from "@/lib/event-colors";
 import { EventDetailPopover } from "./EventDetailPopover";
 import type { CalendarEvent } from "@shared/api";
+import { useEventDrag } from "@/hooks/use-event-drag";
 
 interface DayViewProps {
   events: CalendarEvent[];
   date: Date;
   onEditEvent: (event: CalendarEvent) => void;
   onDeleteEvent: (eventId: string) => void;
+  onEventTimeChange?: (eventId: string, newStart: Date, newEnd: Date) => void;
   isLoading?: boolean;
 }
 
@@ -90,6 +93,7 @@ export function DayView({
   date,
   onEditEvent,
   onDeleteEvent,
+  onEventTimeChange,
   isLoading = false,
 }: DayViewProps) {
   const [now, setNow] = useState(new Date());
@@ -143,6 +147,28 @@ export function DayView({
   const nowTop = (nowMinutes / 60) * HOUR_HEIGHT;
   const showNowIndicator =
     today && nowMinutes >= 0 && nowMinutes <= (END_HOUR - START_HOUR) * 60;
+
+  // Drag-to-move and drag-to-resize
+  const handleEventTimeChange = useCallback(
+    (eventId: string, newStart: Date, newEnd: Date) => {
+      onEventTimeChange?.(eventId, newStart, newEnd);
+    },
+    [onEventTimeChange],
+  );
+
+  const {
+    startDrag,
+    getDragOverrides,
+    isDragging,
+    dragEventId,
+    shouldSuppressClick,
+  } = useEventDrag({
+    hourHeight: HOUR_HEIGHT,
+    startHour: START_HOUR,
+    scrollContainerRef,
+    onEventTimeChange: handleEventTimeChange,
+    events,
+  });
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -201,7 +227,13 @@ export function DayView({
       )}
 
       {/* Scrollable time grid */}
-      <div ref={scrollContainerRef} className="relative flex-1 overflow-y-auto">
+      <div
+        ref={scrollContainerRef}
+        className={cn(
+          "relative flex-1 overflow-y-auto",
+          isDragging && "select-none",
+        )}
+      >
         <div className="grid grid-cols-[56px_1fr]">
           {/* Hour labels + grid lines */}
           {hours.map((hour) => (
@@ -262,20 +294,192 @@ export function DayView({
           {/* Timed events */}
           {!isLoading &&
             timedEvents.map((event) => {
-              const posStyle = getEventStyle(event);
               const li = layout.get(event.id) ?? {
                 left: 0,
                 width: 100,
                 col: 0,
                 totalCols: 1,
               };
+              const overrides = getDragOverrides(event.id);
+              const isBeingDragged = dragEventId === event.id;
+              const posStyle = overrides
+                ? {
+                    top: `${overrides.top}px`,
+                    height: `${overrides.height}px`,
+                  }
+                : getEventStyle(event);
               const color = getEventColor(event);
-              const durationMin = differenceInMinutes(
-                parseISO(event.end),
-                parseISO(event.start),
-              );
+              const durationMin = overrides
+                ? (overrides.height / HOUR_HEIGHT) * 60
+                : differenceInMinutes(
+                    parseISO(event.end),
+                    parseISO(event.start),
+                  );
+              // Compute display times (use drag overrides if active)
+              const displayStart = overrides
+                ? addMinutes(
+                    set(startOfDay(date), {
+                      hours: START_HOUR,
+                      minutes: 0,
+                      seconds: 0,
+                    }),
+                    (overrides.top / HOUR_HEIGHT) * 60,
+                  )
+                : parseISO(event.start);
+              const displayEnd = overrides
+                ? addMinutes(displayStart, durationMin)
+                : parseISO(event.end);
               const isPast = parseISO(event.end) < now;
               const isDeclined = event.responseStatus === "declined";
+              const canDrag = !!onEventTimeChange;
+
+              const eventButton = (
+                <button
+                  onPointerDown={(e) => {
+                    setFocusedEventId(event.id);
+                    if (
+                      canDrag &&
+                      !(e.target as HTMLElement).dataset.resizeHandle
+                    ) {
+                      startDrag(e, event.id, "move", 0);
+                    }
+                  }}
+                  onClick={(e) => {
+                    if (shouldSuppressClick()) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }
+                  }}
+                  className={cn(
+                    "absolute overflow-hidden rounded-lg px-2 py-0.5 text-left text-xs flex flex-col hover:brightness-110 hover:shadow-lg group",
+                    durationMin <= 30 ? "justify-center" : "justify-start",
+                    isDeclined && "saturate-[0.3]",
+                    isBeingDragged && isDragging && "shadow-lg z-[100]",
+                    isBeingDragged && isDragging && "ring-2 ring-primary/40",
+                    canDrag && "cursor-grab",
+                    isBeingDragged && isDragging && "cursor-grabbing",
+                  )}
+                  style={{
+                    ...posStyle,
+                    left: `${li.left}px`,
+                    width: `calc(100% - ${li.left + 2}px)`,
+                    zIndex:
+                      isBeingDragged && isDragging
+                        ? 100
+                        : focusedEventId === event.id
+                          ? 50
+                          : li.col + 1,
+                    backgroundColor: color
+                      ? `color-mix(in srgb, ${color} ${isPast || isDeclined ? 8 : 18}%, hsl(var(--background)))`
+                      : `color-mix(in srgb, hsl(var(--primary)) ${isPast || isDeclined ? 5 : 12}%, hsl(var(--background)))`,
+                    borderLeft: `3px solid ${
+                      isPast || isDeclined
+                        ? `color-mix(in srgb, ${color ?? "hsl(var(--primary))"} 30%, transparent)`
+                        : (color ?? "hsl(var(--primary))")
+                    }`,
+                    opacity: isBeingDragged && isDragging ? 0.9 : undefined,
+                  }}
+                >
+                  {durationMin <= 30 ? (
+                    <div className="flex items-baseline gap-1.5 truncate">
+                      <span
+                        className={cn(
+                          "truncate leading-tight",
+                          isPast || isDeclined
+                            ? "text-muted-foreground"
+                            : "text-foreground",
+                          isDeclined && "line-through",
+                          !isPast && !isDeclined && "font-semibold",
+                        )}
+                      >
+                        {event.title}
+                      </span>
+                      <span
+                        className={cn(
+                          "shrink-0 text-[11px] leading-tight",
+                          isPast || isDeclined
+                            ? "text-muted-foreground/50"
+                            : "text-foreground/60",
+                        )}
+                      >
+                        {format(
+                          displayStart,
+                          displayStart.getMinutes() === 0 ? "h a" : "h:mm a",
+                        )}
+                      </span>
+                    </div>
+                  ) : (
+                    <>
+                      <div
+                        className={cn(
+                          "mt-0.5 truncate leading-tight",
+                          isPast || isDeclined
+                            ? "text-muted-foreground"
+                            : "text-foreground",
+                          isDeclined && "line-through",
+                          !isPast && !isDeclined && "font-semibold",
+                        )}
+                      >
+                        {event.title}
+                      </div>
+                      <div
+                        className={cn(
+                          "mt-0.5 truncate text-[10px] leading-tight",
+                          isPast || isDeclined
+                            ? "text-muted-foreground/50"
+                            : "text-foreground/60",
+                        )}
+                      >
+                        {format(displayStart, "h:mm a")} –{" "}
+                        {format(displayEnd, "h:mm a")}
+                      </div>
+                      {durationMin >= 45 && event.location && (
+                        <div className="truncate text-[11px] leading-tight text-foreground/50">
+                          {event.location}
+                        </div>
+                      )}
+                    </>
+                  )}
+                  {/* Top resize handle */}
+                  {canDrag && (
+                    <div
+                      data-resize-handle="true"
+                      onPointerDown={(e) => {
+                        e.stopPropagation();
+                        startDrag(e, event.id, "resize-top", 0);
+                      }}
+                      className="absolute left-0 right-0 top-0 h-2.5 cursor-n-resize opacity-0 group-hover:opacity-100"
+                      style={{ touchAction: "none" }}
+                    >
+                      <div className="mx-auto mb-1 mt-0.5 h-1 w-10 rounded-full bg-foreground/20" />
+                    </div>
+                  )}
+                  {/* Bottom resize handle */}
+                  {canDrag && (
+                    <div
+                      data-resize-handle="true"
+                      onPointerDown={(e) => {
+                        e.stopPropagation();
+                        startDrag(e, event.id, "resize", 0);
+                      }}
+                      className="absolute bottom-0 left-0 right-0 h-2.5 cursor-s-resize opacity-0 group-hover:opacity-100"
+                      style={{ touchAction: "none" }}
+                    >
+                      <div className="mx-auto mt-1 h-1 w-10 rounded-full bg-foreground/20" />
+                    </div>
+                  )}
+                </button>
+              );
+
+              // Don't wrap in popover while dragging
+              if (isBeingDragged && isDragging) {
+                return (
+                  <div key={event.id} className="contents">
+                    {eventButton}
+                  </div>
+                );
+              }
+
               return (
                 <EventDetailPopover
                   key={event.id}
@@ -283,91 +487,7 @@ export function DayView({
                   onEdit={onEditEvent}
                   onDelete={onDeleteEvent}
                 >
-                  <button
-                    onPointerDown={() => setFocusedEventId(event.id)}
-                    className={cn(
-                      "absolute overflow-hidden rounded-lg px-2 py-0.5 text-left text-xs flex flex-col hover:brightness-110 hover:shadow-lg",
-                      durationMin <= 30 ? "justify-center" : "justify-start",
-                      isDeclined && "saturate-[0.3]",
-                    )}
-                    style={{
-                      ...posStyle,
-                      left: `${li.left}px`,
-                      width: `calc(100% - ${li.left + 2}px)`,
-                      zIndex: focusedEventId === event.id ? 50 : li.col + 1,
-                      backgroundColor: color
-                        ? `color-mix(in srgb, ${color} ${isPast || isDeclined ? 8 : 18}%, hsl(var(--background)))`
-                        : `color-mix(in srgb, hsl(var(--primary)) ${isPast || isDeclined ? 5 : 12}%, hsl(var(--background)))`,
-                      borderLeft: `3px solid ${
-                        isPast || isDeclined
-                          ? `color-mix(in srgb, ${color ?? "hsl(var(--primary))"} 30%, transparent)`
-                          : (color ?? "hsl(var(--primary))")
-                      }`,
-                    }}
-                  >
-                    {durationMin <= 30 ? (
-                      <div className="flex items-baseline gap-1.5 truncate">
-                        <span
-                          className={cn(
-                            "truncate leading-tight",
-                            isPast || isDeclined
-                              ? "text-muted-foreground"
-                              : "text-foreground",
-                            isDeclined && "line-through",
-                            !isPast && !isDeclined && "font-semibold",
-                          )}
-                        >
-                          {event.title}
-                        </span>
-                        <span
-                          className={cn(
-                            "shrink-0 text-[11px] leading-tight",
-                            isPast || isDeclined
-                              ? "text-muted-foreground/50"
-                              : "text-foreground/60",
-                          )}
-                        >
-                          {format(
-                            parseISO(event.start),
-                            parseISO(event.start).getMinutes() === 0
-                              ? "h a"
-                              : "h:mm a",
-                          )}
-                        </span>
-                      </div>
-                    ) : (
-                      <>
-                        <div
-                          className={cn(
-                            "mt-0.5 truncate leading-tight",
-                            isPast || isDeclined
-                              ? "text-muted-foreground"
-                              : "text-foreground",
-                            isDeclined && "line-through",
-                            !isPast && !isDeclined && "font-semibold",
-                          )}
-                        >
-                          {event.title}
-                        </div>
-                        <div
-                          className={cn(
-                            "mt-0.5 truncate text-[10px] leading-tight",
-                            isPast || isDeclined
-                              ? "text-muted-foreground/50"
-                              : "text-foreground/60",
-                          )}
-                        >
-                          {format(parseISO(event.start), "h:mm a")} –{" "}
-                          {format(parseISO(event.end), "h:mm a")}
-                        </div>
-                        {durationMin >= 45 && event.location && (
-                          <div className="truncate text-[11px] leading-tight text-foreground/50">
-                            {event.location}
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </button>
+                  {eventButton}
                 </EventDetailPopover>
               );
             })}

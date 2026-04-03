@@ -39,7 +39,7 @@ interface EnvKeyStatus {
 
 async function fetchEnvStatus(): Promise<EnvKeyStatus[]> {
   const token = await getIdToken();
-  const res = await fetch("/api/env-status", {
+  const res = await fetch("/api/credential-status", {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) return [];
@@ -50,7 +50,7 @@ async function saveEnvVars(
   vars: Array<{ key: string; value: string }>,
 ): Promise<void> {
   const token = await getIdToken();
-  const res = await fetch("/api/env-vars", {
+  const res = await fetch("/api/credentials", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -414,7 +414,7 @@ function DataSourceCard({
           {saveMutation.isSuccess && (
             <div className="mt-3 flex items-center gap-2 text-xs text-emerald-500">
               <IconCheck className="h-3.5 w-3.5" />
-              Credentials saved. Restart the app for changes to take effect.
+              Credentials saved.
             </div>
           )}
           {testResult && (

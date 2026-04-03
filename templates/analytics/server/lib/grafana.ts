@@ -1,15 +1,21 @@
 // Grafana Cloud API helper
 // Fetches dashboards, datasources, alerts, and proxies queries
 
-const API_BASE = process.env.GRAFANA_URL || "https://your-org.grafana.net";
+import { resolveCredential } from "./credentials";
+
+async function getApiBase(): Promise<string> {
+  return (
+    (await resolveCredential("GRAFANA_URL")) || "https://your-org.grafana.net"
+  );
+}
 
 // In-memory cache
 const cache = new Map<string, { data: unknown; ts: number }>();
 const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const MAX_CACHE = 120;
 
-function getToken(): string {
-  const token = process.env.GRAFANA_API_TOKEN;
+async function getToken(): Promise<string> {
+  const token = await resolveCredential("GRAFANA_API_TOKEN");
   if (!token) throw new Error("GRAFANA_API_TOKEN env var required");
   return token;
 }
@@ -29,9 +35,10 @@ async function apiGet<T>(path: string, cacheKey?: string): Promise<T> {
     return cached.data as T;
   }
 
-  const res = await fetch(`${API_BASE}${path}`, {
+  const apiBase = await getApiBase();
+  const res = await fetch(`${apiBase}${path}`, {
     headers: {
-      Authorization: `Bearer ${getToken()}`,
+      Authorization: `Bearer ${await getToken()}`,
       "Content-Type": "application/json",
     },
   });
@@ -57,10 +64,11 @@ async function apiPost<T>(
     return cached.data as T;
   }
 
-  const res = await fetch(`${API_BASE}${path}`, {
+  const apiBase = await getApiBase();
+  const res = await fetch(`${apiBase}${path}`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${getToken()}`,
+      Authorization: `Bearer ${await getToken()}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
@@ -206,10 +214,11 @@ export async function queryDatasource(
     to: to ?? String(now),
   };
   // Don't cache query results by default — they're time-sensitive
-  const res = await fetch(`${API_BASE}/api/ds/query`, {
+  const apiBase = await getApiBase();
+  const res = await fetch(`${apiBase}/api/ds/query`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${getToken()}`,
+      Authorization: `Bearer ${await getToken()}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),

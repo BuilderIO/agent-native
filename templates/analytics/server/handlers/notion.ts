@@ -1,5 +1,5 @@
 import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
-import { requireEnvKey } from "@agent-native/core/server";
+import { requireCredential } from "../lib/credentials";
 import {
   getContentCalendar,
   getContentCalendarSchema,
@@ -8,7 +8,7 @@ import {
 
 // GET /api/notion/content-calendar — returns all content calendar entries
 export const handleContentCalendar = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "NOTION_API_KEY", "Notion");
+  const missing = await requireCredential(event, "NOTION_API_KEY", "Notion");
   if (missing) return missing;
   try {
     const entries = await getContentCalendar();
@@ -22,7 +22,7 @@ export const handleContentCalendar = defineEventHandler(async (event) => {
 
 // GET /api/notion/content-calendar/schema — returns the database schema
 export const handleContentCalendarSchema = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "NOTION_API_KEY", "Notion");
+  const missing = await requireCredential(event, "NOTION_API_KEY", "Notion");
   if (missing) return missing;
   try {
     const schema = await getContentCalendarSchema();
@@ -36,7 +36,7 @@ export const handleContentCalendarSchema = defineEventHandler(async (event) => {
 
 // GET /api/notion/page/:pageId — returns page title and blocks for rendering
 export const handleNotionPage = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "NOTION_API_KEY", "Notion");
+  const missing = await requireCredential(event, "NOTION_API_KEY", "Notion");
   if (missing) return missing;
   try {
     const pageId = getRouterParam(event, "pageId");

@@ -1,11 +1,10 @@
-import { sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { sql } from "drizzle-orm";
+import { table, text, now } from "@agent-native/core/db/schema";
 
-export const compositions = sqliteTable("compositions", {
+export const compositions = table("compositions", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
   type: text("type").notNull(),
   data: text("data").notNull(), // Full composition JSON
-  createdAt: text("created_at").default(sql`(datetime('now'))`),
-  updatedAt: text("updated_at").default(sql`(datetime('now'))`),
+  createdAt: text("created_at").default(now()),
+  updatedAt: text("updated_at").default(now()),
 });

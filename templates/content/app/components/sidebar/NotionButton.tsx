@@ -295,7 +295,7 @@ export function NotionButton() {
                   className="mt-0.5 shrink-0 text-foreground"
                 />
                 <div>
-                  <p className="text-xs font-medium">API IconKey</p>
+                  <p className="text-xs font-medium">API Key</p>
                   <p className="text-[11px] text-muted-foreground leading-relaxed mt-0.5">
                     Paste a token from a Notion internal integration. Simplest
                     setup — takes 2 minutes.

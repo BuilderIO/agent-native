@@ -16,6 +16,7 @@ import {
   IconTable as TableIcon,
   IconSparkles,
   IconArrowUp,
+  IconInfoCircle,
 } from "@tabler/icons-react";
 import { useSendToAgentChat } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
@@ -106,6 +107,21 @@ const commands: CommandItem[] = [
     action: (editor) => editor.chain().focus().toggleBlockquote().run(),
   },
   {
+    title: "Callout",
+    description: "Highlighted info block",
+    icon: IconInfoCircle,
+    action: (editor) =>
+      editor
+        .chain()
+        .focus()
+        .insertContent({
+          type: "notionCallout",
+          attrs: { icon: "💡" },
+          content: [{ type: "paragraph" }],
+        })
+        .run(),
+  },
+  {
     title: "Divider",
     description: "Horizontal rule",
     icon: IconMinus,
@@ -124,6 +140,112 @@ const commands: CommandItem[] = [
   },
 ];
 
+// "Turn into" commands — convert existing block, use set instead of toggle for headings
+const turnIntoCommands: CommandItem[] = [
+  {
+    title: "Text",
+    description: "Plain text block",
+    icon: IconTypography,
+    action: (editor) => editor.chain().focus().setParagraph().run(),
+  },
+  {
+    title: "Heading 1",
+    description: "Large heading",
+    icon: IconH1,
+    action: (editor) => editor.chain().focus().setHeading({ level: 1 }).run(),
+  },
+  {
+    title: "Heading 2",
+    description: "Medium heading",
+    icon: IconH2,
+    action: (editor) => editor.chain().focus().setHeading({ level: 2 }).run(),
+  },
+  {
+    title: "Heading 3",
+    description: "Small heading",
+    icon: IconH3,
+    action: (editor) => editor.chain().focus().setHeading({ level: 3 }).run(),
+  },
+  {
+    title: "Bullet List",
+    description: "Unordered list",
+    icon: IconList,
+    action: (editor) => editor.chain().focus().toggleBulletList().run(),
+  },
+  {
+    title: "Numbered List",
+    description: "Ordered list",
+    icon: IconListNumbers,
+    action: (editor) => editor.chain().focus().toggleOrderedList().run(),
+  },
+  {
+    title: "To-do List",
+    description: "Checklist items",
+    icon: IconSquareCheck,
+    action: (editor) => editor.chain().focus().toggleTaskList().run(),
+  },
+  {
+    title: "Toggle",
+    description: "Collapsible block",
+    icon: IconChevronRight,
+    action: (editor) => {
+      // Grab remaining text (slash already deleted by executeCommand)
+      const { state } = editor;
+      const { $from } = state.selection;
+      const text = $from.parent.textContent;
+      // Select the entire current block, then replace with toggle
+      const blockStart = $from.start();
+      const blockEnd = $from.end();
+      editor
+        .chain()
+        .focus()
+        .deleteRange({ from: blockStart, to: blockEnd })
+        .insertContent({
+          type: "notionToggle",
+          attrs: { summary: text },
+          content: [{ type: "paragraph" }],
+        })
+        .run();
+    },
+  },
+  {
+    title: "Code Block",
+    description: "Code snippet",
+    icon: IconCode,
+    action: (editor) => editor.chain().focus().toggleCodeBlock().run(),
+  },
+  {
+    title: "Quote",
+    description: "Block quote",
+    icon: IconQuote,
+    action: (editor) => editor.chain().focus().toggleBlockquote().run(),
+  },
+  {
+    title: "Callout",
+    description: "Highlighted info block",
+    icon: IconInfoCircle,
+    action: (editor) => {
+      const { state } = editor;
+      const { $from } = state.selection;
+      const text = $from.parent.textContent;
+      const blockStart = $from.start();
+      const blockEnd = $from.end();
+      editor
+        .chain()
+        .focus()
+        .deleteRange({ from: blockStart, to: blockEnd })
+        .insertContent({
+          type: "notionCallout",
+          attrs: { icon: "💡" },
+          content: text
+            ? [{ type: "paragraph", content: [{ type: "text", text }] }]
+            : [{ type: "paragraph" }],
+        })
+        .run();
+    },
+  },
+];
+
 export function SlashCommandMenu({
   editor,
   documentId,
@@ -131,6 +253,7 @@ export function SlashCommandMenu({
   const { send } = useSendToAgentChat();
 
   const [isOpen, setIsOpen] = useState(false);
+  const [isTurnInto, setIsTurnInto] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [position, setPosition] = useState<{
@@ -162,7 +285,9 @@ export function SlashCommandMenu({
     },
   };
 
-  const allCommands = [generateCommand, ...commands];
+  const allCommands = isTurnInto
+    ? turnIntoCommands
+    : [generateCommand, ...commands];
 
   const filteredCommands = allCommands.filter(
     (cmd) =>
@@ -196,6 +321,7 @@ export function SlashCommandMenu({
       }
       cmd.action(editor);
       setIsOpen(false);
+      setIsTurnInto(false);
       setQuery("");
       slashPosRef.current = null;
     },
@@ -223,6 +349,7 @@ export function SlashCommandMenu({
         }
       } else if (e.key === "Escape") {
         setIsOpen(false);
+        setIsTurnInto(false);
         setQuery("");
         slashPosRef.current = null;
       }
@@ -252,6 +379,15 @@ export function SlashCommandMenu({
         setQuery(slashMatch[1]);
         setSelectedIndex(0);
 
+        // Detect "turn into" mode: "/" is at start of a non-empty block
+        const resolved = state.doc.resolve(slashStart);
+        const parentNode = resolved.parent;
+        const offsetInParent = resolved.parentOffset;
+        const blockHasOtherContent =
+          parentNode.textContent.length > slashMatch[0].length;
+        const slashAtBlockStart = offsetInParent === 0;
+        setIsTurnInto(slashAtBlockStart && blockHasOtherContent);
+
         const coords = editor.view.coordsAtPos(from);
         const editorRect = editor.view.dom
           .closest(".visual-editor-wrapper")
@@ -266,6 +402,7 @@ export function SlashCommandMenu({
       } else {
         if (isOpen) {
           setIsOpen(false);
+          setIsTurnInto(false);
           setQuery("");
           slashPosRef.current = null;
         }
@@ -294,7 +431,7 @@ export function SlashCommandMenu({
         >
           <div className="py-1.5">
             <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Blocks
+              {isTurnInto ? "Turn into" : "Blocks"}
             </div>
             {filteredCommands.map((cmd) => {
               const globalIndex = filteredCommands.indexOf(cmd);

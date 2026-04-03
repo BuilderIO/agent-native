@@ -54,7 +54,14 @@ export function AppLayout({ children }: AppLayoutProps) {
   // Global keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      // Ignore if in input
+      // Cmd+K always works, even in inputs
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+        return;
+      }
+
+      // Ignore other shortcuts if in input
       const target = e.target as HTMLElement;
       if (
         target.tagName === "INPUT" ||
@@ -63,10 +70,6 @@ export function AppLayout({ children }: AppLayoutProps) {
       )
         return;
 
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault();
-        setPaletteOpen(true);
-      }
       if (e.key === "/") {
         e.preventDefault();
         setPaletteOpen(true);

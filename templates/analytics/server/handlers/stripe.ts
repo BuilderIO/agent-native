@@ -4,7 +4,7 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
-import { requireEnvKey } from "@agent-native/core/server";
+import { requireCredential } from "../lib/credentials";
 import {
   getCustomersByEmail,
   getCustomerById,
@@ -58,7 +58,7 @@ async function resolveCustomer(event: H3Event) {
 
 // GET /api/stripe/billing?email=...&months=6
 export const handleStripeBilling = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "STRIPE_SECRET_KEY", "Stripe");
+  const missing = await requireCredential(event, "STRIPE_SECRET_KEY", "Stripe");
   if (missing) return missing;
   try {
     const { months: monthsParam } = getQuery(event);
@@ -92,7 +92,7 @@ export const handleStripeBilling = defineEventHandler(async (event) => {
 
 // GET /api/stripe/payment-status?email=...
 export const handleStripePaymentStatus = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "STRIPE_SECRET_KEY", "Stripe");
+  const missing = await requireCredential(event, "STRIPE_SECRET_KEY", "Stripe");
   if (missing) return missing;
   try {
     const customers = await resolveCustomer(event);
@@ -130,7 +130,7 @@ export const handleStripePaymentStatus = defineEventHandler(async (event) => {
 
 // GET /api/stripe/refunds?email=...
 export const handleStripeRefunds = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "STRIPE_SECRET_KEY", "Stripe");
+  const missing = await requireCredential(event, "STRIPE_SECRET_KEY", "Stripe");
   if (missing) return missing;
   try {
     const customers = await resolveCustomer(event);
@@ -162,7 +162,7 @@ export const handleStripeRefunds = defineEventHandler(async (event) => {
 
 // GET /api/stripe/subscriptions?email=...
 export const handleStripeSubscriptions = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "STRIPE_SECRET_KEY", "Stripe");
+  const missing = await requireCredential(event, "STRIPE_SECRET_KEY", "Stripe");
   if (missing) return missing;
   try {
     const customers = await resolveCustomer(event);
@@ -195,7 +195,11 @@ export const handleStripeSubscriptions = defineEventHandler(async (event) => {
 // GET /api/stripe/billing-by-product?email=...&months=6
 export const handleStripeBillingByProduct = defineEventHandler(
   async (event) => {
-    const missing = requireEnvKey(event, "STRIPE_SECRET_KEY", "Stripe");
+    const missing = await requireCredential(
+      event,
+      "STRIPE_SECRET_KEY",
+      "Stripe",
+    );
     if (missing) return missing;
     try {
       const { months: monthsParam } = getQuery(event);

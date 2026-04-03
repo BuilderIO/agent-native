@@ -1,15 +1,17 @@
 // Slack API client for fetching channel messages and searching across workspaces
 
+import { resolveCredential } from "./credentials";
+
 export type Workspace = "primary" | "secondary";
 
 const cache = new Map<string, { data: unknown; ts: number }>();
 const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes
 const MAX_CACHE = 200;
 
-function getToken(workspace: Workspace): string {
+async function getToken(workspace: Workspace): Promise<string> {
   const envKey =
     workspace === "secondary" ? "SLACK_BOT_TOKEN_2" : "SLACK_BOT_TOKEN";
-  const token = process.env[envKey];
+  const token = await resolveCredential(envKey);
   if (!token) {
     throw new Error(`${envKey} env var is required`);
   }
@@ -42,7 +44,7 @@ async function slackApi<T>(
     if (cached) return cached;
   }
 
-  const token = getToken(workspace);
+  const token = await getToken(workspace);
   const url = new URL(`https://slack.com/api/${method}`);
   if (params) {
     for (const [k, v] of Object.entries(params)) {
@@ -212,7 +214,7 @@ export async function getChannelHistory(
     if (err.message?.includes("not_in_channel")) {
       // Try to auto-join the channel (requires channels:join scope)
       try {
-        const token = getToken(workspace);
+        const token = await getToken(workspace);
         const joinRes = await fetch(
           "https://slack.com/api/conversations.join",
           {
@@ -424,7 +426,7 @@ export async function sendDirectMessage(
     const userId = userLookup.user.id;
 
     // Step 2: Open/get DM channel
-    const token = getToken(workspace);
+    const token = await getToken(workspace);
     const openRes = await fetch("https://slack.com/api/conversations.open", {
       method: "POST",
       headers: {

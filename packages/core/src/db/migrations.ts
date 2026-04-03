@@ -13,6 +13,14 @@ function adaptSqlForPostgres(sql: string): string {
     .replace(/\bINTEGER\b/gi, "BIGINT");
 }
 
+/**
+ * Strip Postgres-only syntax that SQLite doesn't support.
+ * Handles: ALTER TABLE ... ADD COLUMN IF NOT EXISTS → ADD COLUMN
+ */
+function adaptSqlForSqlite(sql: string): string {
+  return sql.replace(/ADD\s+COLUMN\s+IF\s+NOT\s+EXISTS/gi, "ADD COLUMN");
+}
+
 export function runMigrations(
   migrations: Array<{ version: number; sql: string }>,
 ): NitroPluginDef {
@@ -61,7 +69,7 @@ export function runMigrations(
         : `INSERT OR IGNORE INTO _migrations VALUES (?)`;
 
       for (const m of migrations.filter((m) => m.version > current)) {
-        const sql = pg ? adaptSqlForPostgres(m.sql) : m.sql;
+        const sql = pg ? adaptSqlForPostgres(m.sql) : adaptSqlForSqlite(m.sql);
         await exec.execute(sql);
         await exec.execute({ sql: insertSql, args: [m.version] });
       }

@@ -1,4 +1,8 @@
-import { nanoid } from "nanoid";
+import { customAlphabet } from "nanoid";
+
+const nanoid = customAlphabet(
+  "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
+);
 import { getDb, schema } from "../server/db/index.js";
 import type { FormField, FormSettings } from "../shared/types.js";
 
@@ -43,7 +47,7 @@ export default async function main(args: string[]) {
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-|-$/g, "")
       .slice(0, 60) +
-    "-" +
+    "/" +
     id.slice(0, 6);
 
   let fields: FormField[] = [];

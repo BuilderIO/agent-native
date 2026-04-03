@@ -57,7 +57,7 @@ Resources are SQL-backed persistent files for storing notes, learnings, and cont
 
 ## Data Sources
 
-All recruiting data comes from the **Greenhouse Harvest API**. The app proxies all requests through local API routes. Agent notes are stored locally in SQLite.
+All recruiting data comes from the **Greenhouse Harvest API**. The app proxies all requests through local API routes. Agent notes are stored in SQL (SQLite, Postgres, Turso, etc. via `DATABASE_URL`).
 
 To check the current state:
 

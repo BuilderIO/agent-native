@@ -1,4 +1,5 @@
 import { defineEventHandler, readBody } from "h3";
+import { resolveCredential } from "../../lib/credentials";
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event);
@@ -11,8 +12,10 @@ export default defineEventHandler(async (event) => {
   try {
     switch (source) {
       case "bigquery": {
-        const creds = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
-        const project = process.env.BIGQUERY_PROJECT_ID;
+        const creds = await resolveCredential(
+          "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+        );
+        const project = await resolveCredential("BIGQUERY_PROJECT_ID");
         if (!creds || !project)
           return { ok: false, error: "Missing credentials" };
         const { runQuery } = await import("../../lib/bigquery");
@@ -21,8 +24,10 @@ export default defineEventHandler(async (event) => {
       }
 
       case "google-analytics": {
-        const creds = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
-        const propertyId = process.env.GA4_PROPERTY_ID;
+        const creds = await resolveCredential(
+          "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+        );
+        const propertyId = await resolveCredential("GA4_PROPERTY_ID");
         if (!creds || !propertyId)
           return { ok: false, error: "Missing credentials" };
         const { testConnection } = await import("../../lib/google-analytics");
@@ -30,8 +35,8 @@ export default defineEventHandler(async (event) => {
       }
 
       case "amplitude": {
-        const apiKey = process.env.AMPLITUDE_API_KEY;
-        const secretKey = process.env.AMPLITUDE_SECRET_KEY;
+        const apiKey = await resolveCredential("AMPLITUDE_API_KEY");
+        const secretKey = await resolveCredential("AMPLITUDE_SECRET_KEY");
         if (!apiKey || !secretKey)
           return { ok: false, error: "Missing credentials" };
         const { testConnection } = await import("../../lib/amplitude");
@@ -39,8 +44,8 @@ export default defineEventHandler(async (event) => {
       }
 
       case "mixpanel": {
-        const projectId = process.env.MIXPANEL_PROJECT_ID;
-        const sa = process.env.MIXPANEL_SERVICE_ACCOUNT;
+        const projectId = await resolveCredential("MIXPANEL_PROJECT_ID");
+        const sa = await resolveCredential("MIXPANEL_SERVICE_ACCOUNT");
         if (!projectId || !sa)
           return { ok: false, error: "Missing credentials" };
         const { testConnection } = await import("../../lib/mixpanel");
@@ -48,8 +53,8 @@ export default defineEventHandler(async (event) => {
       }
 
       case "posthog": {
-        const apiKey = process.env.POSTHOG_API_KEY;
-        const projectId = process.env.POSTHOG_PROJECT_ID;
+        const apiKey = await resolveCredential("POSTHOG_API_KEY");
+        const projectId = await resolveCredential("POSTHOG_PROJECT_ID");
         if (!apiKey || !projectId)
           return { ok: false, error: "Missing credentials" };
         const { testConnection } = await import("../../lib/posthog");
@@ -57,14 +62,14 @@ export default defineEventHandler(async (event) => {
       }
 
       case "postgresql": {
-        const url = process.env.POSTGRES_URL;
+        const url = await resolveCredential("POSTGRES_URL");
         if (!url) return { ok: false, error: "Missing connection URL" };
         const { testConnection } = await import("../../lib/postgres");
         return await testConnection();
       }
 
       case "stripe": {
-        const key = process.env.STRIPE_SECRET_KEY;
+        const key = await resolveCredential("STRIPE_SECRET_KEY");
         if (!key) return { ok: false, error: "Missing secret key" };
         const res = await fetch("https://api.stripe.com/v1/balance", {
           headers: { Authorization: `Bearer ${key}` },
@@ -74,7 +79,7 @@ export default defineEventHandler(async (event) => {
       }
 
       case "hubspot": {
-        const token = process.env.HUBSPOT_ACCESS_TOKEN;
+        const token = await resolveCredential("HUBSPOT_ACCESS_TOKEN");
         if (!token) return { ok: false, error: "Missing access token" };
         const res = await fetch(
           "https://api.hubapi.com/crm/v3/objects/contacts?limit=1",
@@ -87,7 +92,7 @@ export default defineEventHandler(async (event) => {
       }
 
       case "github": {
-        const token = process.env.GITHUB_TOKEN;
+        const token = await resolveCredential("GITHUB_TOKEN");
         if (!token) return { ok: false, error: "Missing token" };
         const res = await fetch("https://api.github.com/user", {
           headers: { Authorization: `Bearer ${token}` },
@@ -97,15 +102,15 @@ export default defineEventHandler(async (event) => {
       }
 
       case "jira": {
-        const email = process.env.JIRA_EMAIL;
-        const token = process.env.JIRA_TOKEN;
+        const email = await resolveCredential("JIRA_EMAIL");
+        const token = await resolveCredential("JIRA_TOKEN");
         if (!email || !token)
           return { ok: false, error: "Missing credentials" };
         return { ok: true };
       }
 
       case "sentry": {
-        const token = process.env.SENTRY_AUTH_TOKEN;
+        const token = await resolveCredential("SENTRY_AUTH_TOKEN");
         if (!token) return { ok: false, error: "Missing auth token" };
         const res = await fetch("https://sentry.io/api/0/organizations/", {
           headers: { Authorization: `Bearer ${token}` },
@@ -115,8 +120,8 @@ export default defineEventHandler(async (event) => {
       }
 
       case "grafana": {
-        const url = process.env.GRAFANA_URL;
-        const token = process.env.GRAFANA_TOKEN;
+        const url = await resolveCredential("GRAFANA_URL");
+        const token = await resolveCredential("GRAFANA_TOKEN");
         if (!url || !token) return { ok: false, error: "Missing credentials" };
         const res = await fetch(`${url}/api/org`, {
           headers: { Authorization: `Bearer ${token}` },
@@ -126,13 +131,15 @@ export default defineEventHandler(async (event) => {
       }
 
       case "gcloud": {
-        const creds = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+        const creds = await resolveCredential(
+          "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+        );
         if (!creds) return { ok: false, error: "Missing credentials" };
         return { ok: true };
       }
 
       case "slack": {
-        const token = process.env.SLACK_TOKEN;
+        const token = await resolveCredential("SLACK_TOKEN");
         if (!token) return { ok: false, error: "Missing token" };
         const res = await fetch("https://slack.com/api/auth.test", {
           headers: { Authorization: `Bearer ${token}` },
@@ -144,7 +151,7 @@ export default defineEventHandler(async (event) => {
       }
 
       case "notion": {
-        const key = process.env.NOTION_API_KEY;
+        const key = await resolveCredential("NOTION_API_KEY");
         if (!key) return { ok: false, error: "Missing API key" };
         const res = await fetch("https://api.notion.com/v1/users/me", {
           headers: {
@@ -157,26 +164,26 @@ export default defineEventHandler(async (event) => {
       }
 
       case "twitter": {
-        const token = process.env.TWITTER_BEARER_TOKEN;
+        const token = await resolveCredential("TWITTER_BEARER_TOKEN");
         if (!token) return { ok: false, error: "Missing bearer token" };
         return { ok: true };
       }
 
       case "pylon": {
-        const key = process.env.PYLON_API_KEY;
+        const key = await resolveCredential("PYLON_API_KEY");
         if (!key) return { ok: false, error: "Missing API key" };
         return { ok: true };
       }
 
       case "commonroom": {
-        const key = process.env.COMMONROOM_API_KEY;
+        const key = await resolveCredential("COMMONROOM_API_KEY");
         if (!key) return { ok: false, error: "Missing API key" };
         return { ok: true };
       }
 
       case "dataforseo": {
-        const login = process.env.DATAFORSEO_LOGIN;
-        const password = process.env.DATAFORSEO_PASSWORD;
+        const login = await resolveCredential("DATAFORSEO_LOGIN");
+        const password = await resolveCredential("DATAFORSEO_PASSWORD");
         if (!login || !password)
           return { ok: false, error: "Missing credentials" };
         return { ok: true };

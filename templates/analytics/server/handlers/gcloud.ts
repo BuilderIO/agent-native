@@ -1,5 +1,5 @@
 import { defineEventHandler, getQuery, setResponseStatus } from "h3";
-import { requireEnvKey } from "@agent-native/core/server";
+import { requireCredential, resolveCredential } from "../lib/credentials";
 import {
   listCloudRunServices,
   listCloudFunctions,
@@ -12,7 +12,11 @@ import {
 const KNOWN_CLOUD_RUN_SERVICES = ["api-service", "web-app", "worker"];
 
 export const handleGCloudServices = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "BIGQUERY_PROJECT_ID", "Google Cloud");
+  const missing = await requireCredential(
+    event,
+    "BIGQUERY_PROJECT_ID",
+    "Google Cloud",
+  );
   if (missing) return missing;
   try {
     const [cloudRun, cloudFunctions] = await Promise.all([
@@ -33,8 +37,11 @@ export const handleGCloudServices = defineEventHandler(async (event) => {
 
     if (isPermissionDenied) {
       // Return known services as fallback
+      const projectId =
+        (await resolveCredential("BIGQUERY_PROJECT_ID")) ||
+        "your-gcp-project-id";
       const knownCloudRun = KNOWN_CLOUD_RUN_SERVICES.map((name) => ({
-        name: `projects/${process.env.BIGQUERY_PROJECT_ID || "your-gcp-project-id"}/locations/us-central1/services/${name}`,
+        name: `projects/${projectId}/locations/us-central1/services/${name}`,
         uid: "",
         displayName: name,
         uri: "",
@@ -60,7 +67,11 @@ export const handleGCloudServices = defineEventHandler(async (event) => {
 });
 
 export const handleGCloudMetrics = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "BIGQUERY_PROJECT_ID", "Google Cloud");
+  const missing = await requireCredential(
+    event,
+    "BIGQUERY_PROJECT_ID",
+    "Google Cloud",
+  );
   if (missing) return missing;
   try {
     const {
@@ -111,7 +122,11 @@ export const handleGCloudMetrics = defineEventHandler(async (event) => {
 });
 
 export const handleGCloudLogs = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "BIGQUERY_PROJECT_ID", "Google Cloud");
+  const missing = await requireCredential(
+    event,
+    "BIGQUERY_PROJECT_ID",
+    "Google Cloud",
+  );
   if (missing) return missing;
   try {
     const {

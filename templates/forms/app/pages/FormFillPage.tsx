@@ -10,8 +10,9 @@ import { CheckCircle2, RefreshCw } from "lucide-react";
 import type { FormField, FormSettings } from "@shared/types";
 
 export function FormFillPage() {
-  const { slug } = useParams<{ slug: string }>();
-  const { data: form, isLoading, error } = usePublicForm(slug!);
+  const params = useParams();
+  const slug = params["*"] || "";
+  const { data: form, isLoading, error } = usePublicForm(slug);
   const submitForm = useSubmitForm();
 
   const [values, setValues] = useState<Record<string, unknown>>({});
@@ -162,8 +163,6 @@ export function FormFillPage() {
     );
   }
 
-  const primaryColor = settings.primaryColor || "#334155";
-
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4 py-12 relative">
       <div className="absolute top-4 right-4">
@@ -180,7 +179,7 @@ export function FormFillPage() {
 
         {/* Form */}
         <form onSubmit={handleSubmit}>
-          <div className="space-y-6 rounded-xl border border-border bg-card p-6">
+          <div className="space-y-6">
             {visibleFields.map((field) => (
               <FieldRenderer
                 key={field.id}
@@ -203,10 +202,9 @@ export function FormFillPage() {
 
           <Button
             type="submit"
-            className="w-full mt-4"
+            className="mt-4"
             size="lg"
             disabled={submitForm.isPending}
-            style={{ backgroundColor: primaryColor }}
           >
             {submitForm.isPending
               ? "Submitting..."

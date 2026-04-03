@@ -106,13 +106,18 @@ export function useJobPipeline(jobId: number | undefined) {
 
 // --- Candidates ---
 
-export function useCandidates(params?: { search?: string; jobId?: number }) {
+export function useCandidates(params?: {
+  search?: string;
+  jobId?: number;
+  limit?: number;
+}) {
   return useQuery<GreenhouseCandidate[]>({
     queryKey: ["candidates", params],
     queryFn: () => {
       const qs = new URLSearchParams();
       if (params?.search) qs.set("search", params.search);
       if (params?.jobId) qs.set("job_id", String(params.jobId));
+      if (params?.limit) qs.set("limit", String(params.limit));
       return apiFetch(`/api/candidates?${qs}`);
     },
     staleTime: 30_000,

@@ -2,10 +2,12 @@
 // Runs queries against an external Postgres database
 // Requires the `postgres` package: pnpm add postgres
 
+import { resolveCredential } from "./credentials";
+
 let _sql: any = null;
 
-function getConnectionUrl(): string {
-  const url = process.env.POSTGRES_URL;
+async function getConnectionUrl(): Promise<string> {
+  const url = await resolveCredential("POSTGRES_URL");
   if (!url) throw new Error("POSTGRES_URL env var required");
   return url;
 }
@@ -16,7 +18,7 @@ export async function getPostgresClient(): Promise<any> {
       // @ts-expect-error -- postgres is an optional dependency, installed by user
       const pg = await import("postgres");
       const postgres = pg.default;
-      _sql = postgres(getConnectionUrl(), {
+      _sql = postgres(await getConnectionUrl(), {
         max: 5,
         idle_timeout: 30,
         connect_timeout: 10,

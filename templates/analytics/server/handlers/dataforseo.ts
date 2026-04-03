@@ -1,5 +1,5 @@
 import { defineEventHandler, getQuery, setResponseStatus } from "h3";
-import { requireEnvKey } from "@agent-native/core/server";
+import { requireCredential } from "../lib/credentials";
 import {
   getAllBlogPagesSeo,
   getRankedKeywordsForPage,
@@ -8,7 +8,11 @@ import {
 
 // GET /api/seo/blog-pages — returns SEO data for all blog pages
 export const handleBlogPagesSeo = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "DATAFORSEO_LOGIN", "DataForSEO");
+  const missing = await requireCredential(
+    event,
+    "DATAFORSEO_LOGIN",
+    "DataForSEO",
+  );
   if (missing) return missing;
   try {
     const pages = await getAllBlogPagesSeo();
@@ -22,7 +26,11 @@ export const handleBlogPagesSeo = defineEventHandler(async (event) => {
 
 // GET /api/seo/top-keywords?limit=500 — returns top ranked blog keywords with rank changes
 export const handleTopKeywords = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "DATAFORSEO_LOGIN", "DataForSEO");
+  const missing = await requireCredential(
+    event,
+    "DATAFORSEO_LOGIN",
+    "DataForSEO",
+  );
   if (missing) return missing;
   try {
     const { limit: limitParam } = getQuery(event);
@@ -38,7 +46,11 @@ export const handleTopKeywords = defineEventHandler(async (event) => {
 
 // GET /api/seo/keywords?slug=some-slug — returns top keywords for a blog page
 export const handlePageKeywords = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "DATAFORSEO_LOGIN", "DataForSEO");
+  const missing = await requireCredential(
+    event,
+    "DATAFORSEO_LOGIN",
+    "DataForSEO",
+  );
   if (missing) return missing;
   const { slug } = getQuery(event);
   if (!slug) {

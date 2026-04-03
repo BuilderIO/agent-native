@@ -1,5 +1,5 @@
 import { defineEventHandler, getQuery, setResponseStatus } from "h3";
-import { requireEnvKey } from "@agent-native/core/server";
+import { requireCredential } from "../lib/credentials";
 import {
   searchPeople,
   enrichPerson,
@@ -8,7 +8,7 @@ import {
 } from "../lib/apollo";
 
 export const handleApolloSearch = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "APOLLO_API_KEY", "Apollo");
+  const missing = await requireCredential(event, "APOLLO_API_KEY", "Apollo");
   if (missing) return missing;
   try {
     const { email, domain, company, name, title } = getQuery(event);

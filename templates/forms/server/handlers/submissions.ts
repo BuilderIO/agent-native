@@ -12,7 +12,13 @@ import { nanoid } from "nanoid";
 
 import { verifyCaptcha } from "@agent-native/core/server";
 import { getDb, schema } from "../db/index.js";
-import type { FormField, FormResponse } from "../../shared/types.js";
+import type {
+  FormField,
+  FormIntegration,
+  FormResponse,
+  FormSettings,
+} from "../../shared/types.js";
+import { fireIntegrations } from "../lib/integrations.js";
 
 // ---------------------------------------------------------------------------
 // Field value size limits by type
@@ -155,6 +161,27 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
     });
   } catch {
     // Non-critical — don't fail the submission
+  }
+
+  // Fire integrations (non-blocking, never fails the submission)
+  try {
+    const settings: FormSettings = form.settings
+      ? JSON.parse(form.settings)
+      : {};
+    const integrations: FormIntegration[] = settings.integrations ?? [];
+    if (integrations.length > 0) {
+      // Fire-and-forget — don't await to keep response fast
+      fireIntegrations(integrations, {
+        formId: id,
+        formTitle: form.title,
+        responseId,
+        fields,
+        data,
+        submittedAt: now,
+      }).catch(() => {});
+    }
+  } catch {
+    // Non-critical
   }
 
   return { success: true, id: responseId };

@@ -1,14 +1,16 @@
 // Stripe API helper
 // Fetches customers, invoices, charges, subscriptions, refunds
 
+import { resolveCredential } from "./credentials";
+
 const API_BASE = "https://api.stripe.com";
 
 const cache = new Map<string, { data: unknown; ts: number }>();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_CACHE = 120;
 
-function getToken(): string {
-  const token = process.env.STRIPE_SECRET_KEY;
+async function getToken(): Promise<string> {
+  const token = await resolveCredential("STRIPE_SECRET_KEY");
   if (!token)
     throw new Error(
       "STRIPE_SECRET_KEY env var not configured. Add your Stripe secret key to continue.",
@@ -44,7 +46,7 @@ async function apiGet<T>(
 
   const res = await fetch(url, {
     headers: {
-      Authorization: `Bearer ${getToken()}`,
+      Authorization: `Bearer ${await getToken()}`,
       "Stripe-Version": "2023-10-16",
     },
   });

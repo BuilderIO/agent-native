@@ -1,6 +1,8 @@
 // Amplitude Export/Dashboard REST API helper
 // Queries events, active users, and user segmentation
 
+import { resolveCredential } from "./credentials";
+
 const API_BASE = "https://amplitude.com/api/2";
 
 // In-memory cache
@@ -8,9 +10,12 @@ const cache = new Map<string, { data: unknown; ts: number }>();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_CACHE = 100;
 
-function getCredentials(): { apiKey: string; secretKey: string } {
-  const apiKey = process.env.AMPLITUDE_API_KEY;
-  const secretKey = process.env.AMPLITUDE_SECRET_KEY;
+async function getCredentials(): Promise<{
+  apiKey: string;
+  secretKey: string;
+}> {
+  const apiKey = await resolveCredential("AMPLITUDE_API_KEY");
+  const secretKey = await resolveCredential("AMPLITUDE_SECRET_KEY");
   if (!apiKey) throw new Error("AMPLITUDE_API_KEY env var required");
   if (!secretKey) throw new Error("AMPLITUDE_SECRET_KEY env var required");
   return { apiKey, secretKey };
@@ -31,7 +36,7 @@ async function apiGet<T>(path: string, cacheKey?: string): Promise<T> {
     return cached.data as T;
   }
 
-  const { apiKey, secretKey } = getCredentials();
+  const { apiKey, secretKey } = await getCredentials();
   const auth = Buffer.from(`${apiKey}:${secretKey}`).toString("base64");
 
   const res = await fetch(`${API_BASE}${path}`, {
@@ -79,8 +84,8 @@ export interface AmplitudeSegmentationResponse {
 
 // -- API functions --
 
-export function getAmplitudeClient() {
-  const creds = getCredentials();
+export async function getAmplitudeClient() {
+  const creds = await getCredentials();
   return { apiKey: creds.apiKey, apiGet };
 }
 

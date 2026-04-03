@@ -1,14 +1,16 @@
 // Pylon support platform API helper
 // Fetches accounts, issues, and contacts
 
+import { resolveCredential } from "./credentials";
+
 const API_BASE = "https://api.usepylon.com";
 
 const cache = new Map<string, { data: unknown; ts: number }>();
 const CACHE_TTL_MS = 10 * 60 * 1000;
 const MAX_CACHE = 120;
 
-function getToken(): string {
-  const token = process.env.PYLON_API_KEY;
+async function getToken(): Promise<string> {
+  const token = await resolveCredential("PYLON_API_KEY");
   if (!token) throw new Error("PYLON_API_KEY env var required");
   return token;
 }
@@ -22,7 +24,7 @@ async function apiGet<T>(path: string, cacheKey?: string): Promise<T> {
 
   const res = await fetch(`${API_BASE}${path}`, {
     headers: {
-      Authorization: `Bearer ${getToken()}`,
+      Authorization: `Bearer ${await getToken()}`,
       "Content-Type": "application/json",
     },
   });
@@ -57,7 +59,7 @@ async function apiPost<T>(
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${getToken()}`,
+      Authorization: `Bearer ${await getToken()}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),

@@ -2,6 +2,8 @@
 // Uses relevant_pages endpoint for per-page SEO metrics
 // and ranked_keywords for keyword-level data
 
+import { resolveCredential } from "./credentials";
+
 const API_BASE = "https://api.dataforseo.com/v3";
 
 // In-memory cache (same pattern as bigquery.ts)
@@ -9,9 +11,9 @@ const cache = new Map<string, { data: unknown; ts: number }>();
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 const MAX_CACHE = 50;
 
-function getAuth(): string {
-  const login = process.env.DATAFORSEO_LOGIN;
-  const password = process.env.DATAFORSEO_PASSWORD;
+async function getAuth(): Promise<string> {
+  const login = await resolveCredential("DATAFORSEO_LOGIN");
+  const password = await resolveCredential("DATAFORSEO_PASSWORD");
   if (!login || !password) {
     throw new Error(
       "DATAFORSEO_LOGIN and DATAFORSEO_PASSWORD env vars required",
@@ -30,7 +32,7 @@ async function apiPost<T>(path: string, body: unknown[]): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
     headers: {
-      Authorization: `Basic ${getAuth()}`,
+      Authorization: `Basic ${await getAuth()}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),

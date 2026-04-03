@@ -1,5 +1,5 @@
 import { defineEventHandler, getQuery, setResponseStatus } from "h3";
-import { requireEnvKey } from "@agent-native/core/server";
+import { requireCredential } from "../lib/credentials";
 import {
   listChannels,
   getChannelHistory,
@@ -15,7 +15,7 @@ function parseWorkspace(raw?: string): Workspace {
 }
 
 export const handleSlackTeam = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "SLACK_TOKEN", "Slack");
+  const missing = await requireCredential(event, "SLACK_TOKEN", "Slack");
   if (missing) return missing;
   try {
     const { workspace: workspaceParam } = getQuery(event);
@@ -30,7 +30,7 @@ export const handleSlackTeam = defineEventHandler(async (event) => {
 });
 
 export const handleSlackChannels = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "SLACK_TOKEN", "Slack");
+  const missing = await requireCredential(event, "SLACK_TOKEN", "Slack");
   if (missing) return missing;
   try {
     const { workspace: workspaceParam } = getQuery(event);
@@ -65,7 +65,7 @@ function enrichMessages(messages: SlackMessage[]): SlackMessage[] {
 }
 
 export const handleSlackHistory = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "SLACK_TOKEN", "Slack");
+  const missing = await requireCredential(event, "SLACK_TOKEN", "Slack");
   if (missing) return missing;
   try {
     const {
@@ -116,7 +116,7 @@ export const handleSlackHistory = defineEventHandler(async (event) => {
  * Returns per-channel cursors for next page.
  */
 export const handleSlackMultiHistory = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "SLACK_TOKEN", "Slack");
+  const missing = await requireCredential(event, "SLACK_TOKEN", "Slack");
   if (missing) return missing;
   try {
     const {
@@ -202,7 +202,7 @@ export const handleSlackMultiHistory = defineEventHandler(async (event) => {
 });
 
 export const handleSlackSearch = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "SLACK_TOKEN", "Slack");
+  const missing = await requireCredential(event, "SLACK_TOKEN", "Slack");
   if (missing) return missing;
   try {
     const { workspace: workspaceParam, query } = getQuery(event);

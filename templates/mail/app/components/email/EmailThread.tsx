@@ -2034,6 +2034,7 @@ function HtmlEmailBody({
       margin: 0;
       padding: 0;
       background: ${IFRAME_BG};
+      color: #1a1a1a;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       font-size: 14px;
       line-height: 1.6;
@@ -2150,18 +2151,30 @@ function HtmlEmailBody({
 
           // Style the button for inline RSVP
           const el = a as HTMLElement;
-          el.style.cssText = `
+          el.style.cssText = useDarkIframeCss
+            ? `
             display: inline-block !important;
             padding: 6px 16px !important;
             border-radius: 6px !important;
             font-size: 13px !important;
             font-weight: 500 !important;
             cursor: pointer !important;
-            transition: all 0.15s !important;
             text-decoration: none !important;
             border: 1px solid rgba(255,255,255,0.15) !important;
             color: #e4e4e7 !important;
             background: rgba(255,255,255,0.05) !important;
+          `
+            : `
+            display: inline-block !important;
+            padding: 6px 16px !important;
+            border-radius: 6px !important;
+            font-size: 13px !important;
+            font-weight: 500 !important;
+            cursor: pointer !important;
+            text-decoration: none !important;
+            border: 1px solid rgba(0,0,0,0.15) !important;
+            color: #374151 !important;
+            background: rgba(0,0,0,0.04) !important;
           `;
         } catch {}
       });
@@ -2183,10 +2196,9 @@ function HtmlEmailBody({
           e.stopPropagation();
 
           // Highlight the clicked button
-          anchor.style.background = "rgba(74, 222, 128, 0.15) !important";
-          anchor.style.borderColor = "rgba(74, 222, 128, 0.4) !important";
-          anchor.style.color = "#4ade80 !important";
-          anchor.textContent = `${info.label} ✓`;
+          anchor.style.background = "#22c55e !important";
+          anchor.style.borderColor = "#22c55e !important";
+          anchor.style.color = "#fff !important";
 
           // Dim the others
           rsvpLinks.forEach((other) => {

@@ -1,6 +1,8 @@
 // Google Analytics 4 Data API (v1beta) helper
 // Runs reports for active users, top pages, sessions by source
 
+import { resolveCredential } from "./credentials";
+
 const API_BASE = "https://analyticsdata.googleapis.com/v1beta";
 
 // In-memory cache
@@ -8,14 +10,16 @@ const cache = new Map<string, { data: unknown; ts: number }>();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_CACHE = 100;
 
-function getConfig(): { propertyId: string } {
-  const propertyId = process.env.GA4_PROPERTY_ID;
+async function getConfig(): Promise<{ propertyId: string }> {
+  const propertyId = await resolveCredential("GA4_PROPERTY_ID");
   if (!propertyId) throw new Error("GA4_PROPERTY_ID env var required");
   return { propertyId };
 }
 
 async function getAccessToken(): Promise<string> {
-  const credsJson = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+  const credsJson = await resolveCredential(
+    "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+  );
   if (!credsJson) {
     throw new Error("GOOGLE_APPLICATION_CREDENTIALS_JSON env var required");
   }
@@ -104,8 +108,8 @@ export interface GA4ReportResponse {
 
 // -- API functions --
 
-export function getGA4Client() {
-  const config = getConfig();
+export async function getGA4Client() {
+  const config = await getConfig();
   return { propertyId: config.propertyId };
 }
 
@@ -114,7 +118,7 @@ export async function runReport(
   metrics: string[],
   dateRange?: GA4DateRange,
 ): Promise<GA4ReportResponse> {
-  const { propertyId } = getConfig();
+  const { propertyId } = await getConfig();
   const range = dateRange ?? { startDate: "7daysAgo", endDate: "today" };
 
   const cacheKey = `report-${dimensions.join(",")}-${metrics.join(",")}-${range.startDate}-${range.endDate}`;

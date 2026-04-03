@@ -2,6 +2,8 @@
 // Auth: GITHUB_TOKEN (personal access token or GitHub App token)
 // Mirrors patterns from server/lib/gong.ts
 
+import { resolveCredential } from "./credentials";
+
 const REST_BASE = "https://api.github.com";
 const GRAPHQL_URL = "https://api.github.com/graphql";
 
@@ -9,15 +11,15 @@ const cache = new Map<string, { data: unknown; ts: number }>();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_CACHE = 200;
 
-function getToken(): string {
-  const token = process.env.GITHUB_TOKEN;
+async function getToken(): Promise<string> {
+  const token = await resolveCredential("GITHUB_TOKEN");
   if (!token) throw new Error("GITHUB_TOKEN env var is required");
   return token;
 }
 
-function getHeaders(): Record<string, string> {
+async function getHeaders(): Promise<Record<string, string>> {
   return {
-    Authorization: `Bearer ${getToken()}`,
+    Authorization: `Bearer ${await getToken()}`,
     Accept: "application/vnd.github+json",
     "X-GitHub-Api-Version": "2022-11-28",
     "Content-Type": "application/json",
@@ -37,7 +39,9 @@ async function restGet<T>(path: string, cacheKey?: string): Promise<T> {
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) return cached.data as T;
 
-  const res = await fetch(`${REST_BASE}${path}`, { headers: getHeaders() });
+  const res = await fetch(`${REST_BASE}${path}`, {
+    headers: await getHeaders(),
+  });
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`GitHub REST error ${res.status}: ${text}`);
@@ -53,7 +57,7 @@ async function restGetPaginated<T>(path: string, maxPages = 10): Promise<T[]> {
     `${REST_BASE}${path}${path.includes("?") ? "&" : "?"}per_page=100`;
 
   for (let page = 0; page < maxPages && url; page++) {
-    const res = await fetch(url, { headers: getHeaders() });
+    const res = await fetch(url, { headers: await getHeaders() });
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`GitHub REST error ${res.status}: ${text}`);
@@ -80,7 +84,7 @@ async function graphql<T>(
 
   const res = await fetch(GRAPHQL_URL, {
     method: "POST",
-    headers: getHeaders(),
+    headers: await getHeaders(),
     body,
   });
   if (!res.ok) {
