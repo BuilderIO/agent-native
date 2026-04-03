@@ -24,6 +24,7 @@ import React, {
   useState,
   type ReactNode,
 } from "react";
+import { IconSearch, IconMessage } from "@tabler/icons-react";
 import { sendToAgentChat } from "./agent-chat.js";
 import { cn } from "./utils.js";
 
@@ -42,41 +43,6 @@ function useCommandMenuContext() {
   const ctx = useContext(CommandMenuContext);
   if (!ctx) throw new Error("CommandMenu.* must be used inside <CommandMenu>");
   return ctx;
-}
-
-// ─── Icons ──────────────────────────────────────────────────────────────────
-
-function SearchIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <circle cx="11" cy="11" r="8" />
-      <path d="m21 21-4.3-4.3" />
-    </svg>
-  );
-}
-
-function MessageIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-    </svg>
-  );
 }
 
 // ─── Hooks ──────────────────────────────────────────────────────────────────
@@ -367,7 +333,7 @@ export function CommandMenu({
         >
           {/* Search input */}
           <div className="flex items-center border-b px-3">
-            <SearchIcon className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+            <IconSearch className="mr-2 h-4 w-4 shrink-0 opacity-50" />
             <input
               ref={inputRef}
               value={search}
@@ -401,7 +367,7 @@ export function CommandMenu({
                     }}
                     role="option"
                   >
-                    <MessageIcon className="h-4 w-4 text-muted-foreground" />
+                    <IconMessage className="h-4 w-4 text-muted-foreground" />
                     <span>
                       {search.trim() ? (
                         <>

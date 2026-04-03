@@ -92,7 +92,7 @@ export function NotionButton() {
 
   const fetchEnvStatus = useCallback(async () => {
     try {
-      const res = await fetch("/api/env-status");
+      const res = await fetch("/_agent-native/env-status");
       if (res.ok) setEnvStatus(await res.json());
     } catch {}
   }, []);
@@ -177,7 +177,7 @@ export function NotionButton() {
     }
     setSaving(true);
     try {
-      const res = await fetch("/api/env-vars", {
+      const res = await fetch("/_agent-native/env-vars", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -207,7 +207,7 @@ export function NotionButton() {
       if (!clientId || !clientSecret) {
         throw new Error("Could not find client_id and client_secret in JSON");
       }
-      const res = await fetch("/api/env-vars", {
+      const res = await fetch("/_agent-native/env-vars", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

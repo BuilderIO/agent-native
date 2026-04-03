@@ -22,5 +22,5 @@ All persistent data lives in SQL. Issue data comes from the Jira Cloud API — t
 
 ## Related Skills
 
-- **sse-file-watcher** — Database writes trigger SSE events to update the UI
+- **real-time-sync** — Database writes trigger poll events to update the UI
 - **scripts** — Scripts read/write data via core SQL stores

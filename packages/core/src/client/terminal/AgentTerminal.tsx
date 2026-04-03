@@ -213,7 +213,7 @@ export function AgentTerminal({
       let wsUrl = wsUrlProp;
       if (!wsUrl) {
         try {
-          const res = await fetch("/api/agent-terminal-info");
+          const res = await fetch("/_agent-native/agent-terminal-info");
           const info: TerminalInfo = await res.json();
           if (!info.available) {
             setError(info.error || "Agent terminal not available");

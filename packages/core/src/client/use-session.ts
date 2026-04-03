@@ -13,7 +13,7 @@ interface UseSessionResult {
  * Client-side hook to get the current auth session.
  *
  * - In dev mode: immediately returns { email: "local@localhost" }
- * - In production: fetches /api/auth/session and returns the result
+ * - In production: fetches /_agent-native/auth/session and returns the result
  *
  * Templates should use this instead of building their own auth context.
  */
@@ -28,7 +28,7 @@ export function useSession(): UseSessionResult {
     async function fetchSession() {
       let signedIn = false;
       try {
-        const res = await fetch("/api/auth/session");
+        const res = await fetch("/_agent-native/auth/session");
         if (!res.ok) {
           setSession(null);
           return;

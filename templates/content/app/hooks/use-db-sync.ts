@@ -1,11 +1,11 @@
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-export function useFileWatcher() {
+export function useDbSync() {
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    const eventSource = new EventSource("/api/events");
+    const eventSource = new EventSource("/_agent-native/events");
 
     eventSource.onmessage = () => {
       queryClient.invalidateQueries({ queryKey: ["documents"] });
@@ -13,7 +13,7 @@ export function useFileWatcher() {
     };
 
     eventSource.onerror = (err) => {
-      console.error("[FileWatcher] SSE connection error", err);
+      console.error("[DbSync] SSE connection error", err);
     };
 
     return () => {

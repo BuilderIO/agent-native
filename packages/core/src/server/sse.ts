@@ -50,7 +50,7 @@ export interface SSEHandlerOptions {
  * and optionally from a file watcher.
  *
  * Usage:
- *   router.get("/api/events", createSSEHandler({ extraEmitters }));
+ *   router.get("/_agent-native/events", createSSEHandler({ extraEmitters }));
  */
 export function createSSEHandler(options: SSEHandlerOptions = {}) {
   const projectRoot = options.contentRoot

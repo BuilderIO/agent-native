@@ -9,7 +9,7 @@ import {
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "sonner";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { useFileWatcher } from "@agent-native/core";
+import { useDbSync } from "@agent-native/core";
 import { ClientOnly, DefaultSpinner } from "@agent-native/core/client";
 import { TAB_ID } from "@/lib/tab-id";
 import "./global.css";
@@ -67,10 +67,10 @@ function NavigationStateSync() {
   return null;
 }
 
-function FileWatcherSetup() {
+function DbSyncSetup() {
   const qc = useQueryClient();
 
-  useFileWatcher({
+  useDbSync({
     queryClient: qc,
     queryKeys: [],
     ignoreSource: TAB_ID,
@@ -122,7 +122,7 @@ export default function Root() {
         >
           <Toaster richColors position="bottom-left" />
           <AutoFocus />
-          <FileWatcherSetup />
+          <DbSyncSetup />
           <NavigationStateSync />
           <AppLayout>
             <Outlet />

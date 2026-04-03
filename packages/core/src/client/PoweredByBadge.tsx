@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { IconStack2 } from "@tabler/icons-react";
 
 export interface PoweredByBadgeProps {
   position?: "bottom-right" | "bottom-left";
@@ -79,20 +80,7 @@ export function PoweredByBadge({
         className="an-powered-badge"
         style={containerStyle(position)}
       >
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M12 2L2 7l10 5 10-5-10-5z" />
-          <path d="M2 17l10 5 10-5" />
-          <path d="M2 12l10 5 10-5" />
-        </svg>
+        <IconStack2 size={14} />
         Built with Agent Native
       </a>
     </>

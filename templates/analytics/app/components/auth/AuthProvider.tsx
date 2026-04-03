@@ -16,7 +16,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     auth: session,
     isLoading,
     logout: () =>
-      fetch("/api/auth/logout", { method: "POST" }).then(() =>
+      fetch("/_agent-native/auth/logout", { method: "POST" }).then(() =>
         location.reload(),
       ),
   };

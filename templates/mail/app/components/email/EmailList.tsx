@@ -1,3 +1,4 @@
+import { IconAlertCircle } from "@tabler/icons-react";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { cn } from "@/lib/utils";
@@ -555,18 +556,23 @@ export function EmailList({
     return (
       <div className="flex h-full flex-col" ref={containerRef}>
         <div className="flex flex-1 flex-col items-center justify-center px-8">
-          <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-6 py-4 max-w-md text-center">
-            <p className="text-sm font-medium text-red-400">
-              Failed to load emails
-            </p>
-            <p className="mt-1 text-xs text-red-400/70">
-              {emailsError.message}
-            </p>
+          <div className="flex flex-col items-center gap-3 max-w-xs text-center">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-destructive/10">
+              <IconAlertCircle className="h-5 w-5 text-destructive" />
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-foreground">
+                Unable to load emails
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {emailsError.message}
+              </p>
+            </div>
             <button
               onClick={() => window.location.reload()}
-              className="mt-3 text-xs text-foreground/60 hover:text-foreground underline underline-offset-2"
+              className="mt-1 inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-xs font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
             >
-              Reload page
+              Try again
             </button>
           </div>
         </div>

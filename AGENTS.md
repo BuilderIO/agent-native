@@ -43,7 +43,7 @@ Every template should have a `navigate` script that writes a one-shot command to
 
 ### Jitter Prevention
 
-When the agent writes to application-state, the UI updates via polling. But polling must NOT override the user's active edits. Only explicit agent writes should push changes to the UI. Templates use the `ignoreSource` option on `useFileWatcher()` with a per-tab ID so the UI ignores its own writes while still picking up agent and other-tab changes.
+When the agent writes to application-state, the UI updates via polling. But polling must NOT override the user's active edits. Only explicit agent writes should push changes to the UI. Templates use the `ignoreSource` option on `useDbSync()` with a per-tab ID so the UI ignores its own writes while still picking up agent and other-tab changes.
 
 ## The Six Rules
 
@@ -78,7 +78,7 @@ When the agent needs to do something — query data, call APIs, process informat
 
 ### 4. Polling Keeps the UI in Sync
 
-Database changes sync to the UI via polling. The client `useFileWatcher()` hook polls `/api/poll` every 2 seconds and invalidates React Query caches when changes are detected. This works in all deployment environments including serverless and edge.
+Database changes sync to the UI via polling. The client `useDbSync()` hook polls `/_agent-native/poll` every 2 seconds and invalidates React Query caches when changes are detected. This works in all deployment environments including serverless and edge.
 
 ### 5. The Agent Can Modify Code
 
@@ -105,7 +105,9 @@ The framework supports all SQL databases via Drizzle ORM. Never write SQLite-onl
 
 ### Hosting Agnostic
 
-The server runs on **Nitro**, which compiles to any deployment target: Node.js, Cloudflare Workers/Pages, Netlify, Vercel, Deno Deploy, AWS Lambda, Bun.
+The server runs on **Nitro** with **H3** as the HTTP framework. It compiles to any deployment target: Node.js, Cloudflare Workers/Pages, Netlify, Vercel, Deno Deploy, AWS Lambda, Bun.
+
+**Never use Express.** All server code uses H3/Nitro — `defineEventHandler`, `readBody`, `getMethod`, `setResponseHeader`, etc. Express is not a dependency. If you see Express types or patterns anywhere, replace them with H3 equivalents.
 
 Never use Node-specific APIs (`fs`, `child_process`, `path`) in server routes and plugins. Use Nitro abstractions. Scripts in `scripts/` run in Node.js and can use Node APIs freely.
 
@@ -121,29 +123,14 @@ Per-user data isolation exists for multi-user organizations (via `owner_email` c
 
 Agents can call other agents using the A2A protocol. From the mail app, you can tag the analytics agent to query data and include results in a draft. An agent discovers what other agents are available, calls them over the protocol, and shows results in the UI.
 
-### Enabling A2A
+### Auto-Mounted A2A
 
-```ts
-import { enableA2A } from "@agent-native/core/a2a";
+A2A is **auto-mounted** by the agent-chat plugin. Every app automatically gets:
 
-enableA2A(app, {
-  name: "Analytics Agent",
-  description: "Queries analytics data across providers",
-  skills: [
-    {
-      id: "query-data",
-      name: "Query Data",
-      description: "Run analytics queries",
-    },
-  ],
-  apiKeyEnv: "A2A_API_KEY",
-});
-```
+- `GET /.well-known/agent-card.json` — public agent card with skills derived from registered scripts
+- `POST /_agent-native/a2a` — JSON-RPC endpoint
 
-This mounts:
-
-- `GET /.well-known/agent-card.json` — public agent discovery (no auth)
-- `POST /a2a` — JSON-RPC endpoint (bearer token auth)
+No setup needed. The agent card is auto-generated from your template's scripts. For custom configuration, use `mountA2A()` from `@agent-native/core/a2a` in a server plugin.
 
 ### Calling Another Agent
 
@@ -190,16 +177,43 @@ Auth is automatic and environment-driven via `autoMountAuth(app)`.
 
 6 default plugins auto-mount when your app doesn't have a custom version in `server/plugins/`:
 
-| Plugin        | Default behavior              | Customize when                              |
-| ------------- | ----------------------------- | ------------------------------------------- |
-| `agent-chat`  | Agent chat endpoints          | Custom `mentionProviders` or `systemPrompt` |
-| `auth`        | Auth middleware               | Custom `publicPaths` or Google OAuth config |
-| `core-routes` | `/api/poll`, `/api/ping`, etc | Custom `envKeys` or `sseRoute`              |
-| `file-sync`   | File watcher sync             | Custom sync config                          |
-| `resources`   | Resource CRUD                 | Rarely                                      |
-| `terminal`    | Terminal emulator             | Rarely                                      |
+| Plugin        | Default behavior                                  | Customize when                              |
+| ------------- | ------------------------------------------------- | ------------------------------------------- |
+| `agent-chat`  | Agent chat endpoints                              | Custom `mentionProviders` or `systemPrompt` |
+| `auth`        | Auth middleware                                   | Custom `publicPaths` or Google OAuth config |
+| `core-routes` | `/_agent-native/poll`, `/_agent-native/ping`, etc | Custom `envKeys` or `sseRoute`              |
+| `file-sync`   | DB sync polling                                   | Custom sync config                          |
+| `resources`   | Resource CRUD                                     | Rarely                                      |
+| `terminal`    | Terminal emulator                                 | Rarely                                      |
 
 Only create plugin files for plugins you need to customize. Let defaults auto-mount.
+
+### Framework Route Namespace: `/_agent-native/`
+
+All framework-level routes live under the `/_agent-native/` prefix to avoid collisions with template-specific `/api/*` routes. Templates should NEVER create routes under `/_agent-native/` — that namespace is reserved for the framework.
+
+**Auto-mounted framework routes** (no template boilerplate needed):
+
+| Route                                                         | Purpose                                  |
+| ------------------------------------------------------------- | ---------------------------------------- |
+| `GET /_agent-native/poll`                                     | Polling endpoint for DB change detection |
+| `GET /_agent-native/events`                                   | SSE endpoint for real-time sync          |
+| `GET /_agent-native/ping`                                     | Health check                             |
+| `GET/PUT/DELETE /_agent-native/application-state/:key`        | Application state CRUD                   |
+| `GET/PUT/DELETE /_agent-native/application-state/compose/:id` | Compose draft CRUD                       |
+| `POST /_agent-native/agent-chat`                              | Agent chat SSE endpoint                  |
+| `GET /_agent-native/agent-chat/mentions`                      | Mention search for @-tagging             |
+| `GET /_agent-native/env-status`                               | Env key configuration status             |
+| `POST /_agent-native/env-vars`                                | Save env vars                            |
+| `/_agent-native/auth/*`                                       | Authentication (login, session, logout)  |
+| `/_agent-native/google/*`                                     | Google OAuth (callback, auth-url, etc.)  |
+| `/_agent-native/resources/*`                                  | Resource CRUD                            |
+| `/_agent-native/available-clis`                               | Available CLI tools                      |
+| `/_agent-native/agent-terminal-info`                          | Terminal connection info                 |
+
+**Hard rule: ALL framework routes go under `/_agent-native/`.** Templates own `/api/*` for their domain routes (e.g., `/api/emails`, `/api/forms`, `/api/events`). When adding new framework functionality — whether in core plugins, the auth system, resources, terminal, or any other framework feature — always use the `/_agent-native/` prefix. Never put framework routes under `/api/`. Never put template routes under `/_agent-native/`.
+
+The Vite dev middleware intercepts both `/api/` and `/_agent-native/` prefixes before react-router's SSR handler (see `dev-api-server.ts`). If you add a new framework route prefix, update that middleware too.
 
 ## Project Structure
 

@@ -6,7 +6,7 @@ export function useGoogleAuthStatus() {
   return useQuery<GoogleAuthStatus>({
     queryKey: ["google-status"],
     queryFn: async () => {
-      const res = await fetch("/api/google/status");
+      const res = await fetch("/_agent-native/google/status");
       if (!res.ok) throw new Error("Failed to fetch Google auth status");
       return res.json();
     },
@@ -20,7 +20,7 @@ export function useGoogleAuthUrl(enabled = false) {
     queryFn: async () => {
       const { getCallbackOrigin } = await import("@agent-native/core/client");
       const res = await fetch(
-        `/api/google/auth-url?redirect_uri=${encodeURIComponent(getCallbackOrigin() + "/api/google/callback")}`,
+        `/_agent-native/google/auth-url?redirect_uri=${encodeURIComponent(getCallbackOrigin() + "/_agent-native/google/callback")}`,
       );
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -50,7 +50,7 @@ export function useGoogleAddAccountUrl(enabled = false) {
     queryFn: async () => {
       const { getCallbackOrigin } = await import("@agent-native/core/client");
       const res = await fetch(
-        `/api/google/add-account/auth-url?redirect_uri=${encodeURIComponent(getCallbackOrigin() + "/api/google/callback")}`,
+        `/_agent-native/google/add-account/auth-url?redirect_uri=${encodeURIComponent(getCallbackOrigin() + "/_agent-native/google/callback")}`,
       );
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -75,7 +75,7 @@ export function useDisconnectGoogle() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (email: string) => {
-      const res = await fetch("/api/google/disconnect", {
+      const res = await fetch("/_agent-native/google/disconnect", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
@@ -93,7 +93,7 @@ export function useSyncGoogle() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async () => {
-      const res = await fetch("/api/google/sync", { method: "POST" });
+      const res = await fetch("/_agent-native/google/sync", { method: "POST" });
       if (!res.ok) throw new Error("Failed to sync Google Calendar");
       return res.json();
     },

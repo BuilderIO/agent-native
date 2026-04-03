@@ -2,7 +2,7 @@
  * Polling-based change notification.
  *
  * Replaces SSE with a simple version counter. Each DB mutation (app-state,
- * settings, resources) increments the version. Clients poll `/api/poll?since=N`
+ * settings, resources) increments the version. Clients poll `/_agent-native/poll?since=N`
  * and receive any events that occurred after version N.
  *
  * Works in all deployment environments (serverless, edge, long-lived).
@@ -59,7 +59,7 @@ export function getChangesSince(since: number): {
 /**
  * Create an H3 handler for the poll endpoint.
  *
- * GET /api/poll?since=N → { version, events[] }
+ * GET /_agent-native/poll?since=N → { version, events[] }
  */
 export function createPollHandler() {
   return defineEventHandler((event) => {

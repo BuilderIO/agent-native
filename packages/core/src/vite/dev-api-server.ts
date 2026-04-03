@@ -210,7 +210,7 @@ async function buildApiListener(
  *
  * This replaces the disabled Nitro Vite plugin for dev-mode API route serving.
  * It scans the file-based routes, imports them, and mounts them on an H3 app
- * that handles /api/* requests before React Router's SSR handler.
+ * that handles /api/* and /_agent-native/* requests before React Router's SSR handler.
  */
 export function devApiServer(): Plugin {
   return {
@@ -232,27 +232,35 @@ export function devApiServer(): Plugin {
 
       // Watch server/ directory for changes and invalidate the listener
       // so it rebuilds on the next API request (no full restart needed).
-      if (fs.existsSync(serverDir)) {
-        const watcher = fs.watch(
-          serverDir,
-          { recursive: true },
-          (_, filename) => {
-            if (filename && filename.endsWith(".ts")) {
-              listenerPromise = null;
-              console.log(
-                `[dev-api-server] Server file changed: ${filename} — will reload on next request`,
-              );
-            }
-          },
-        );
+      const watchDirs = [serverDir];
+
+      // In monorepo: also watch core server source for plugin changes
+      const coreSrc = path.resolve(cwd, "../../packages/core/src/server");
+      if (fs.existsSync(coreSrc)) watchDirs.push(coreSrc);
+
+      for (const dir of watchDirs) {
+        if (!fs.existsSync(dir)) continue;
+        const watcher = fs.watch(dir, { recursive: true }, (_, filename) => {
+          if (filename && filename.endsWith(".ts")) {
+            listenerPromise = null;
+            console.log(
+              `[dev-api-server] Server file changed: ${filename} — will reload on next request`,
+            );
+          }
+        });
         server.httpServer?.on("close", () => watcher.close());
       }
 
       // Add middleware DIRECTLY (not via return) so it runs BEFORE
       // Vite's internal middleware and React Router's SSR handler.
-      // Reject /.well-known/ requests (Chrome DevTools probes, etc.)
+      // Route /.well-known/agent-card.json to the API listener (A2A discovery).
+      // Reject other /.well-known/ requests (Chrome DevTools probes, etc.)
       // before React Router's SSR handler sees them and throws.
       server.middlewares.use((req, res, next) => {
+        if (req.url?.startsWith("/.well-known/agent-card.json")) {
+          // Let it through to the API listener below
+          return next();
+        }
         if (req.url?.startsWith("/.well-known/")) {
           res.statusCode = 404;
           res.end();
@@ -262,7 +270,11 @@ export function devApiServer(): Plugin {
       });
 
       server.middlewares.use((req, res, next) => {
-        if (!req.url?.startsWith("/api/")) {
+        if (
+          !req.url?.startsWith("/api/") &&
+          !req.url?.startsWith("/_agent-native/") &&
+          !req.url?.startsWith("/.well-known/agent-card.json")
+        ) {
           return next();
         }
 

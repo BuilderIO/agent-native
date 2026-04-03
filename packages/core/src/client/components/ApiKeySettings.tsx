@@ -14,8 +14,8 @@ interface ApiKeySettingsProps {
 
 /**
  * Reusable component that shows the status of configured API keys
- * and lets users enter missing ones. Fetches from /api/env-status
- * and saves via POST /api/env-vars.
+ * and lets users enter missing ones. Fetches from /_agent-native/env-status
+ * and saves via POST /_agent-native/env-vars.
  */
 export function ApiKeySettings({
   settingsPath: _settingsPath = "/settings",
@@ -34,7 +34,7 @@ export function ApiKeySettings({
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch("/api/env-status");
+      const res = await fetch("/_agent-native/env-status");
       if (!res.ok) {
         throw new Error(`Failed to fetch env status: ${res.status}`);
       }
@@ -69,7 +69,7 @@ export function ApiKeySettings({
     setSaveResult(null);
 
     try {
-      const res = await fetch("/api/env-vars", {
+      const res = await fetch("/_agent-native/env-vars", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ vars }),

@@ -1,4 +1,4 @@
-import type { Request, Response } from "express";
+import { setResponseHeader, setResponseStatus } from "h3";
 import type {
   A2AConfig,
   A2AHandler,
@@ -188,7 +188,7 @@ async function handleSend(
 async function handleStream(
   params: Record<string, unknown>,
   config: A2AConfig,
-  res: Response,
+  res: { write: (chunk: string) => void; end: () => void },
 ): Promise<void> {
   const message = params.message as Message;
   if (!message || !message.role || !Array.isArray(message.parts)) {
@@ -280,52 +280,53 @@ async function handleCancel(
   return jsonRpcResult(0, task);
 }
 
-export async function handleJsonRpc(
-  req: Request,
-  res: Response,
+/**
+ * H3-compatible JSON-RPC handler. Returns JSON directly (H3 serializes it).
+ * Streaming is handled via H3's node response when needed.
+ */
+export async function handleJsonRpcH3(
+  body: any,
+  event: any,
   config: A2AConfig,
-): Promise<void> {
-  const body = req.body as JsonRpcRequest;
-
+): Promise<JsonRpcResponse> {
   if (!body || body.jsonrpc !== "2.0" || !body.method) {
-    res
-      .status(400)
-      .json(jsonRpcError(body?.id ?? null, -32600, "Invalid JSON-RPC request"));
-    return;
+    setResponseStatus(event, 400);
+    return jsonRpcError(body?.id ?? null, -32600, "Invalid JSON-RPC request");
   }
 
-  const params = body.params ?? {};
+  const params = (body.params as Record<string, unknown>) ?? {};
   const id = body.id;
 
   switch (body.method) {
     case "message/send": {
       const result = await handleSend(params, config);
       const { _id, ...response } = result;
-      res.json({ ...response, id });
-      return;
+      return { ...response, id } as JsonRpcResponse;
     }
     case "message/stream": {
       if (!config.streaming) {
-        res.json(jsonRpcError(id, -32601, "Streaming not supported"));
-        return;
+        return jsonRpcError(id, -32601, "Streaming not supported");
       }
-      res.setHeader("Content-Type", "text/event-stream");
-      res.setHeader("Cache-Control", "no-cache");
-      res.setHeader("Connection", "keep-alive");
+      // Use the raw node response for SSE streaming
+      const res = event.node?.res;
+      if (!res) {
+        return jsonRpcError(id, -32000, "Streaming not available");
+      }
+      setResponseHeader(event, "Content-Type", "text/event-stream");
+      setResponseHeader(event, "Cache-Control", "no-cache");
+      setResponseHeader(event, "Connection", "keep-alive");
       await handleStream(params, config, res);
-      return;
+      return undefined as any; // Response already sent via SSE
     }
     case "tasks/get": {
       const result = await handleGet(params);
-      res.json({ ...result, id });
-      return;
+      return { ...result, id } as JsonRpcResponse;
     }
     case "tasks/cancel": {
       const result = await handleCancel(params);
-      res.json({ ...result, id });
-      return;
+      return { ...result, id } as JsonRpcResponse;
     }
     default:
-      res.json(jsonRpcError(id, -32601, `Method not found: ${body.method}`));
+      return jsonRpcError(id, -32601, `Method not found: ${body.method}`);
   }
 }

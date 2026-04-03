@@ -40,6 +40,7 @@ export {
   useDevMode,
   useSendToAgentChat,
   CodeRequiredDialog,
+  useDbSync,
   useFileWatcher,
   cn,
   ApiKeySettings,
