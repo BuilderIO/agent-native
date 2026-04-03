@@ -10,7 +10,7 @@ import {
   IconUser,
   IconPresentation,
   IconStack2,
-  IconRobot,
+  IconMessageChatbot,
 } from "@tabler/icons-react";
 
 const iconProps = { size: 14, className: "shrink-0 text-muted-foreground" };
@@ -30,7 +30,7 @@ function MentionIcon({ icon }: { icon?: string }) {
     case "deck":
       return <IconPresentation {...iconProps} />;
     case "agent":
-      return <IconRobot {...iconProps} />;
+      return <IconMessageChatbot {...iconProps} />;
     case "file":
       return <IconFile {...iconProps} />;
     default:

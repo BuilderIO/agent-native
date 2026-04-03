@@ -187,6 +187,8 @@ export interface MultiTabAssistantChatHeaderProps {
   setActiveTabId: (tabId: string) => void;
   addTab: () => void;
   closeTab: (tabId: string) => void;
+  closeOtherTabs: (tabId: string) => void;
+  closeAllTabs: () => void;
   clearActiveTab: () => void;
   /** Open the history popover */
   showHistory?: boolean;
@@ -424,6 +426,33 @@ export function MultiTabAssistantChat({
     [switchThread],
   );
 
+  const closeOtherTabs = useCallback(
+    (tabId: string) => {
+      setOpenTabIds([tabId]);
+      if (activeThreadIdRef.current !== tabId) {
+        switchThread(tabId);
+      }
+      // Clean up refs for closed tabs
+      for (const key of chatRefs.current.keys()) {
+        if (key !== tabId) {
+          chatRefs.current.delete(key);
+          pendingSends.current.delete(key);
+        }
+      }
+    },
+    [switchThread],
+  );
+
+  const closeAllTabs = useCallback(async () => {
+    const id = await createThread();
+    if (id) {
+      setOpenTabIds([id]);
+      // Clean up all old refs
+      chatRefs.current.clear();
+      pendingSends.current.clear();
+    }
+  }, [createThread]);
+
   const clearActiveTab = useCallback(() => {
     addTab();
   }, [addTab]);
@@ -496,6 +525,8 @@ export function MultiTabAssistantChat({
     setActiveTabId: switchThread,
     addTab,
     closeTab,
+    closeOtherTabs,
+    closeAllTabs,
     clearActiveTab,
     showHistory,
     toggleHistory: () => setShowHistory((v) => !v),

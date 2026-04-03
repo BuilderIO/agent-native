@@ -15,7 +15,7 @@ import {
   IconMail,
   IconUser,
   IconPresentation,
-  IconRobot,
+  IconMessageChatbot,
 } from "@tabler/icons-react";
 import type { MentionItem, SkillResult } from "./types.js";
 
@@ -56,7 +56,7 @@ function MentionItemIcon({ icon }: { icon?: string }) {
     case "deck":
       return <IconPresentation {...iconProps} />;
     case "agent":
-      return <IconRobot {...iconProps} />;
+      return <IconMessageChatbot {...iconProps} />;
     case "file":
       return <IconFile {...iconProps} />;
     default:
