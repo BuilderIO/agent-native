@@ -1,10 +1,16 @@
 import { useState, useRef, useEffect } from "react";
-import { IconArrowRight } from "@tabler/icons-react";
+import {
+  IconArrowRight,
+  IconDatabase,
+  IconBolt,
+  IconRefresh,
+} from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import {
   AgentSidebar,
   AgentToggleButton,
   sendToAgentChat,
+  openAgentSidebar,
 } from "@agent-native/core/client";
 
 export function meta() {
@@ -19,21 +25,103 @@ export function HydrateFallback() {
   );
 }
 
+const FIRST_VISIT_KEY = "agent-native-first-visit";
+
+const FIRST_VISIT_SUGGESTIONS = [
+  "Walk me through the project structure",
+  "Show me how actions work",
+  "What makes Agent Native unique?",
+  "Add a new page and route",
+];
+
+const RETURNING_SUGGESTIONS = [
+  "What makes Agent Native special?",
+  "How do the agent and UI stay in sync?",
+  "Show me what you can build",
+];
+
+const CONCEPT_PILLS = [
+  {
+    icon: IconDatabase,
+    label: "Shared State",
+    message:
+      "Explain how agent-UI state sync works in Agent Native and show me the relevant code.",
+  },
+  {
+    icon: IconBolt,
+    label: "Actions",
+    message:
+      "Show me the actions/ directory and explain how to add new agent capabilities.",
+  },
+  {
+    icon: IconRefresh,
+    label: "Live Sync",
+    message:
+      "How does useDbSync polling work? Show me the hook and explain jitter prevention.",
+  },
+];
+
 export default function IndexPage() {
   const { theme, setTheme } = useTheme();
   const [prompt, setPrompt] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [isFirstVisit, setIsFirstVisit] = useState(() => {
+    try {
+      return !localStorage.getItem(FIRST_VISIT_KEY);
+    } catch {
+      return false;
+    }
+  });
 
   useEffect(() => {
     textareaRef.current?.focus();
   }, []);
 
+  // Prefill agent chat with an orientation prompt on first visit
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(FIRST_VISIT_KEY)) return;
+    } catch {
+      return;
+    }
+    sendToAgentChat({
+      message:
+        "I just opened a fresh Agent Native project. Can you give me a quick orientation — how does the agent-UI state sync work, and what's the best first thing to build to see it in action?",
+      submit: false,
+    });
+  }, []);
+
+  function markVisited() {
+    if (!isFirstVisit) return;
+    try {
+      localStorage.setItem(FIRST_VISIT_KEY, "true");
+    } catch {}
+    setIsFirstVisit(false);
+  }
+
   function submit() {
     const text = prompt.trim();
     if (!text) return;
+    markVisited();
     sendToAgentChat({ message: text });
     setPrompt("");
   }
+
+  const suggestions = isFirstVisit
+    ? FIRST_VISIT_SUGGESTIONS
+    : RETURNING_SUGGESTIONS;
+
+  const sidebarSuggestions = isFirstVisit
+    ? [
+        "How does state sync work between agent and UI?",
+        "Show me the actions/ directory",
+        "Walk me through this project's structure",
+      ]
+    : [
+        "What can you do?",
+        "Show me the database schema",
+        "Create something cool",
+      ];
 
   return (
     <div className="flex flex-col h-screen">
@@ -41,11 +129,7 @@ export default function IndexPage() {
         position="right"
         defaultOpen
         emptyStateText="How can I help?"
-        suggestions={[
-          "What can you do?",
-          "Show me the database schema",
-          "Create something cool",
-        ]}
+        suggestions={sidebarSuggestions}
       >
         <div className="flex h-full flex-col">
           <header className="flex items-center justify-between px-4 py-2 border-b border-border">
@@ -90,16 +174,13 @@ export default function IndexPage() {
                 </div>
               </div>
 
+              {/* Adaptive suggestion buttons */}
               <div className="flex flex-wrap items-center justify-center gap-2">
-                {[
-                  "A dashboard with charts",
-                  "A todo app",
-                  "A blog with markdown",
-                  "A chat interface",
-                ].map((suggestion) => (
+                {suggestions.map((suggestion) => (
                   <button
                     key={suggestion}
                     onClick={() => {
+                      markVisited();
                       sendToAgentChat({ message: suggestion });
                     }}
                     className="rounded-full border border-border/60 px-3.5 py-1.5 text-xs text-muted-foreground hover:bg-accent/50 hover:text-foreground"
@@ -136,6 +217,23 @@ export default function IndexPage() {
                     Toggle dark / light
                   </p>
                 </button>
+              </div>
+
+              {/* Concept pills */}
+              <div className="flex items-center justify-center gap-2">
+                {CONCEPT_PILLS.map(({ icon: Icon, label, message }) => (
+                  <button
+                    key={label}
+                    onClick={() => {
+                      openAgentSidebar();
+                      sendToAgentChat({ message, submit: true });
+                    }}
+                    className="flex items-center gap-1.5 rounded-full border border-border/40 px-3 py-1.5 text-xs text-muted-foreground/50 hover:bg-accent/50 hover:text-foreground hover:border-border transition-colors"
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    {label}
+                  </button>
+                ))}
               </div>
             </div>
           </div>
