@@ -234,7 +234,7 @@ export default function Home() {
               top: "-65px",
             }}
           >
-            <Seascape className="opacity-70" />
+            <Seascape className="opacity-30 dark:opacity-70" />
           </div>
           <div
             className="pointer-events-none absolute inset-0 z-[5]"
@@ -251,9 +251,9 @@ export default function Home() {
             </div>
 
             <h1 className="mx-auto max-w-3xl">
-              Agentic Applications{" "}
+              Agentic Apps That{" "}
               <span className="inline-block bg-gradient-to-r from-[var(--accent)] to-[#7928ca] bg-clip-text text-transparent">
-                You Own
+                Self Improve
               </span>
             </h1>
 
@@ -537,11 +537,11 @@ export default function Home() {
             </div>
             <div className="rounded-xl border border-[var(--border)] p-6">
               <h3 className="mb-2 text-base font-semibold">
-                The agent can evolve the app
+                Apps that improve themselves
               </h3>
               <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                The agent can edit source code directly. Tell it to add a
-                feature and it builds everything together.
+                Your apps get better on their own. The agent can add features,
+                fix bugs, and refine the UI over time.
               </p>
             </div>
           </div>

@@ -4,10 +4,11 @@ import CodeBlock from "../components/CodeBlock";
 const TOC = [
   { id: "agent-ui-parity", label: "Agent + UI Parity" },
   { id: "four-area-checklist", label: "The Four-Area Checklist" },
+  { id: "built-by-agents", label: "Built by Agents" },
   { id: "single-tenant-model", label: "Single-Tenant Model" },
   { id: "database-agnostic", label: "Database Agnostic" },
   { id: "hosting-agnostic", label: "Hosting Agnostic" },
-  { id: "hard-requirements", label: "Hard Requirements" },
+  { id: "core-principles", label: "Core Principles" },
 ];
 
 export const meta = () => [
@@ -26,8 +27,7 @@ export default function CorePhilosophyDocs() {
         Core Philosophy
       </h1>
       <p className="mb-4 text-base text-[var(--fg-secondary)]">
-        The foundational principles that govern every agent-native app. These
-        are hard requirements, not suggestions.
+        The foundational principles that govern every agent-native app.
       </p>
 
       <h2 id="agent-ui-parity">Agent + UI parity</h2>
@@ -99,11 +99,33 @@ export default function CorePhilosophyDocs() {
         agent is blind to what the user is doing.
       </p>
 
+      <h2 id="built-by-agents">Built by agents</h2>
+      <p>
+        Agent-native apps are designed to be built and extended by AI agents
+        themselves. The framework ships with rules, skills, and instructions
+        that teach any agent — Claude Code, Codex, Gemini, or others — how to
+        implement features the agent-native way from natural language alone.
+      </p>
+      <p>
+        When you ask an agent to add a feature, it doesn't need to explore the
+        codebase from scratch. The framework's AGENTS.md, skills, and
+        conventions tell it exactly what to do: create the UI, add the action,
+        update the skills, and wire up application state so both the agent and
+        the user flow can do everything and always stay in sync.
+      </p>
+      <p>
+        This means agent-native apps continuously improve. The agent adds
+        integrations, builds new views, fixes issues, and refines the UI — all
+        following the same patterns that keep agent and UI in lockstep
+        automatically.
+      </p>
+
       <h2 id="single-tenant-model">Single-tenant model</h2>
       <p>
         Agent-native apps follow a fork-and-customize model. Each organization
-        gets their own instance of the app, which they can modify freely via the
-        agent.
+        gets their own instance of the app, which they can modify freely.
+        Because it's your app — not shared infrastructure — the agent can safely
+        evolve the code over time.
       </p>
       <ul className="list-disc space-y-1 pl-5">
         <li>Fork a template (e.g. analytics, mail, forms)</li>
@@ -191,8 +213,8 @@ const upsert = isPostgres()
         connections. Use the SQL database for all state.
       </p>
 
-      <h2 id="hard-requirements">Hard requirements</h2>
-      <p>These rules are never optional:</p>
+      <h2 id="core-principles">Core principles</h2>
+      <p>These principles hold across every agent-native app:</p>
       <ol className="list-decimal space-y-2 pl-5">
         <li>
           <strong>Agent + UI parity</strong> — every feature works from both

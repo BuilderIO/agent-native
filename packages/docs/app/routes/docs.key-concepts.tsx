@@ -75,7 +75,7 @@ export default function KeyConceptsDocs() {
         <Link to="/docs/core-philosophy" className="text-[var(--accent)]">
           Core Philosophy
         </Link>{" "}
-        for the foundational principles and hard requirements.
+        for the foundational principles.
       </p>
 
       <h2 id="the-architecture">The architecture</h2>
@@ -356,20 +356,24 @@ useDbSync({
 
       <h2 id="agent-modifies-code">Agent modifies code</h2>
       <p>
-        This is a feature, not a bug. The agent can edit the app's own source
-        code — components, routes, styles, actions. This enables a "fork and
-        evolve" pattern:
+        This is a feature, not a bug. Because every agent-native app is
+        single-tenant — your team's own fork — the agent can safely edit the
+        app's source code: components, routes, styles, actions.
+      </p>
+      <p>
+        There's no shared codebase to break. You own the app, and the agent
+        evolves it for you over time:
       </p>
       <ol className="list-decimal space-y-1 pl-5">
         <li>Fork a template (e.g. the analytics template)</li>
-        <li>Customize it to your needs by asking the agent</li>
+        <li>Customize it by asking the agent</li>
         <li>
           "Add a new chart type for cohort analysis" — the agent builds it
         </li>
         <li>
           "Connect to our Stripe account" — the agent writes the integration
         </li>
-        <li>Your app gets better over time without manual development</li>
+        <li>Your app keeps improving without manual development</li>
       </ol>
 
       <h2 id="deep-dives">Deep dives</h2>
@@ -379,7 +383,7 @@ useDbSync({
           <Link to="/docs/core-philosophy" className="text-[var(--accent)]">
             Core Philosophy
           </Link>{" "}
-          — foundational principles and hard requirements
+          — foundational principles
         </li>
         <li>
           <Link to="/docs/context-awareness" className="text-[var(--accent)]">
