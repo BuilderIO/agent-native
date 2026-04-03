@@ -49,7 +49,7 @@ export default async function main(args: string[]): Promise<void> {
   const parsed = parseArgs(args);
   if (!parsed.path || parsed.content === undefined) {
     console.error("Usage: write-file --path <file> --content <text>");
-    process.exit(1);
+    throw new Error("Script failed");
   }
   console.log(await run(parsed));
 }

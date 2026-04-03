@@ -1,0 +1,154 @@
+name: Auto-publish on version bump
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/core/package.json"
+      - "packages/desktop-app/package.json"
+
+jobs:
+  detect-changes:
+    name: Detect version changes
+    runs-on: ubuntu-latest
+    outputs:
+      core-changed: ${{ steps.check.outputs.core-changed }}
+      desktop-changed: ${{ steps.check.outputs.desktop-changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check for version bumps
+        id: check
+        run: |
+          core_old=$(git show HEAD~1:packages/core/package.json 2>/dev/null | node -p "JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')).version" 2>/dev/null || echo "")
+          core_new=$(node -p "require('./packages/core/package.json').version")
+          if [ -n "$core_old" ] && [ "$core_old" != "$core_new" ]; then
+            echo "core-changed=true" >> "$GITHUB_OUTPUT"
+            echo "Core version changed: $core_old -> $core_new"
+          else
+            echo "core-changed=false" >> "$GITHUB_OUTPUT"
+            echo "Core version unchanged: $core_new"
+          fi
+
+          desktop_old=$(git show HEAD~1:packages/desktop-app/package.json 2>/dev/null | node -p "JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')).version" 2>/dev/null || echo "")
+          desktop_new=$(node -p "require('./packages/desktop-app/package.json').version")
+          if [ -n "$desktop_old" ] && [ "$desktop_old" != "$desktop_new" ]; then
+            echo "desktop-changed=true" >> "$GITHUB_OUTPUT"
+            echo "Desktop version changed: $desktop_old -> $desktop_new"
+          else
+            echo "desktop-changed=false" >> "$GITHUB_OUTPUT"
+            echo "Desktop version unchanged: $desktop_new"
+          fi
+
+  publish-core:
+    name: Publish @agent-native/core
+    needs: detect-changes
+    if: needs.detect-changes.outputs.core-changed == 'true'
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
+          private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build core package
+        run: pnpm --filter @agent-native/core build
+
+      - name: Run tests
+        run: pnpm --filter @agent-native/core test
+
+      - name: Publish to npm
+        working-directory: packages/core
+        run: npm publish --access public --provenance
+
+  publish-desktop:
+    name: Publish desktop app
+    needs: detect-changes
+    if: needs.detect-changes.outputs.desktop-changed == 'true'
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            platform: mac
+          - os: windows-latest
+            platform: win
+          - os: ubuntu-latest
+            platform: linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Import signing certificate
+        if: matrix.platform == 'mac'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          security create-keychain -p "" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "" build.keychain
+          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" build.keychain
+          rm certificate.p12
+
+      - name: Build and publish
+        working-directory: packages/desktop-app
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: W3PMF2T3MW
+        run: pnpm build && npx electron-builder --${{ matrix.platform }} --config --publish always
+
+  publish-desktop-release:
+    name: Publish desktop release
+    needs: [detect-changes, publish-desktop]
+    if: needs.detect-changes.outputs.desktop-changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version
+        id: version
+        run: echo "version=$(node -p "require('./packages/desktop-app/package.json').version")" >> $GITHUB_OUTPUT
+
+      - name: Publish draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "v${{ steps.version.outputs.version }}" --draft=false --latest

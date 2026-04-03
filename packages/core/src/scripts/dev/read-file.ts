@@ -70,7 +70,7 @@ export default async function main(args: string[]): Promise<void> {
   const parsed = parseArgs(args);
   if (!parsed.path) {
     console.error("Usage: read-file --path <file>");
-    process.exit(1);
+    throw new Error("Script failed");
   }
   console.log(await run(parsed));
 }

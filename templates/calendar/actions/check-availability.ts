@@ -37,7 +37,7 @@ export default async function main(args: string[]) {
 
   if (!opts["date"]) {
     console.error("Error: --date is required (YYYY-MM-DD format)");
-    process.exit(1);
+    throw new Error("Script failed");
   }
 
   const dateStr = opts["date"];
@@ -49,12 +49,12 @@ export default async function main(args: string[]) {
     const stored = await readSetting("calendar-availability");
     if (!stored) {
       console.error("Error: No availability configuration found");
-      process.exit(1);
+      throw new Error("Script failed");
     }
     availability = stored as unknown as AvailabilitySchedule;
   } catch {
     console.error("Error: Could not read availability settings");
-    process.exit(1);
+    throw new Error("Script failed");
   }
 
   // Determine day of week

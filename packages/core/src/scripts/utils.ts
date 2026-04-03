@@ -86,9 +86,11 @@ export function ensureDir(dir: string): void {
 }
 
 /**
- * Print error to stderr and exit with code 1.
+ * Throw an error to abort a script. When running as a CLI (`pnpm script`),
+ * the runner catches this and exits with code 1. When running in-server
+ * (agent tools, A2A handlers), the error is caught by the wrapper and
+ * returned as a tool result — no process.exit needed.
  */
 export function fail(message: string): never {
-  console.error(`Error: ${message}`);
-  process.exit(1);
+  throw new Error(message);
 }

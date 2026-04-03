@@ -221,7 +221,7 @@ export default async function main(): Promise<void> {
       console.error(
         `Gmail error: ${errors.map((e) => `${e.email}: ${e.error}`).join("; ")}`,
       );
-      process.exit(1);
+      throw new Error("Script failed");
     }
 
     const emails = messages

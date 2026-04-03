@@ -42,7 +42,7 @@ export default async function main(args: string[]) {
 
   if (!opts["url"]) {
     console.error("Error: --url is required (e.g., libsql://your-db.turso.io)");
-    process.exit(1);
+    throw new Error("Script failed");
   }
 
   const url = opts["url"];
@@ -61,7 +61,7 @@ export default async function main(args: string[]) {
     agentChat.submit(
       `Failed to connect to database at ${maskedUrl}: ${err.message}`,
     );
-    process.exit(1);
+    throw new Error("Script failed");
   }
 
   // Write to .env

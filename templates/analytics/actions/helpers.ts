@@ -52,8 +52,7 @@ export function output(data: unknown): void {
 
 /** Print an error and exit */
 export function fatal(message: string): never {
-  console.error(`Error: ${message}`);
-  process.exit(1);
+  throw new Error(message);
 }
 
 function matchesGrep(obj: unknown, term: string): boolean {

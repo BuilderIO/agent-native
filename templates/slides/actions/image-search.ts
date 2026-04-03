@@ -64,7 +64,7 @@ Requires GOOGLE_API_KEY and GOOGLE_SEARCH_CX environment variables.
   if (!query) {
     console.error("Error: --query is required");
     console.error('Usage: pnpm action image-search --query "search terms"');
-    process.exit(1);
+    throw new Error("Script failed");
   }
 
   const apiKey = process.env.GOOGLE_API_KEY;
@@ -86,7 +86,7 @@ Requires GOOGLE_API_KEY and GOOGLE_SEARCH_CX environment variables.
     );
     console.error("5. Enable 'Search the entire web' and 'Image search'");
     console.error("6. Set GOOGLE_API_KEY and GOOGLE_SEARCH_CX env vars");
-    process.exit(1);
+    throw new Error("Script failed");
   }
 
   const count = Math.min(parseInt(parsed.count || "10"), 10);
@@ -108,7 +108,7 @@ Requires GOOGLE_API_KEY and GOOGLE_SEARCH_CX environment variables.
   if (!response.ok) {
     const text = await response.text();
     console.error("Google API error:", text);
-    process.exit(1);
+    throw new Error("Script failed");
   }
 
   const data = await response.json();

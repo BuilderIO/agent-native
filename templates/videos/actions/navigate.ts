@@ -51,7 +51,7 @@ export default async function main(): Promise<void> {
     console.error(
       "Error: At least --view or --compositionId is required. Usage: pnpm action navigate --compositionId=logo-reveal",
     );
-    process.exit(1);
+    throw new Error("Script failed");
   }
   const result = await run(args);
   console.error(result);

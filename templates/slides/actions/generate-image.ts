@@ -117,12 +117,12 @@ Options:
   const prompt = opts["prompt"];
   if (!prompt) {
     console.error("Error: --prompt is required");
-    process.exit(1);
+    throw new Error("Script failed");
   }
 
   if (!process.env.GEMINI_API_KEY) {
     console.error("Error: GEMINI_API_KEY environment variable not set");
-    process.exit(1);
+    throw new Error("Script failed");
   }
 
   const count = parseInt(opts["count"] || "1", 10);

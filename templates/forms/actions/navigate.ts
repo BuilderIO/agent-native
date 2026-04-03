@@ -46,7 +46,7 @@ export default async function main(args: string[]) {
     console.error(
       "Error: At least --view or --formId is required. Usage: pnpm action navigate --view=forms",
     );
-    process.exit(1);
+    throw new Error("Script failed");
   }
 
   const nav: Record<string, string> = {};

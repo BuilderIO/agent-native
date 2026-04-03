@@ -36,7 +36,7 @@ interface EnvKeyStatus {
 
 async function fetchEnvStatus(): Promise<EnvKeyStatus[]> {
   const token = await getIdToken();
-  const res = await fetch("/_agent-native/env-status", {
+  const res = await fetch("/api/credential-status", {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) return [];

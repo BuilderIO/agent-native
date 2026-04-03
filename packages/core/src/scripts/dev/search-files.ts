@@ -144,7 +144,7 @@ export default async function main(args: string[]): Promise<void> {
     console.error(
       "Usage: search-files --pattern <text> [--path <dir>] [--glob ts]",
     );
-    process.exit(1);
+    throw new Error("Script failed");
   }
   console.log(await run(parsed));
 }

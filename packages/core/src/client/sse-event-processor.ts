@@ -119,6 +119,26 @@ export function processEvent(
     };
   }
 
+  if (ev.type === "agent_call_text") {
+    const agentName = ev.agent ?? "agent";
+    // Find the in-progress agent tool-call and append streaming text to argsText
+    for (let i = content.length - 1; i >= 0; i--) {
+      const part = content[i];
+      if (
+        part.type === "tool-call" &&
+        part.toolName === `agent:${agentName}` &&
+        part.result === undefined
+      ) {
+        part.argsText += ev.text ?? "";
+        break;
+      }
+    }
+    return {
+      action: "yield",
+      result: { content: [...content] } as ChatModelRunResult,
+    };
+  }
+
   if (ev.type === "missing_api_key") {
     if (typeof window !== "undefined") {
       window.dispatchEvent(new Event("agent-chat:missing-api-key"));

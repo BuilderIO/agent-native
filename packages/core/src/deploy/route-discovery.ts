@@ -74,7 +74,11 @@ export interface DiscoveredRoute {
  */
 export function discoverApiRoutes(cwd: string): DiscoveredRoute[] {
   const apiDir = path.join(cwd, "server/routes/api");
-  const routeFiles = discoverFiles(apiDir, "api");
+  const agentNativeDir = path.join(cwd, "server/routes/_agent-native");
+  const routeFiles = [
+    ...discoverFiles(apiDir, "api"),
+    ...discoverFiles(agentNativeDir, "_agent-native"),
+  ];
   const routes: DiscoveredRoute[] = [];
 
   for (const relFile of routeFiles) {

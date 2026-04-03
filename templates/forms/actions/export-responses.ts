@@ -32,7 +32,7 @@ export default async function main(args: string[]) {
 
   if (!formId) {
     console.error("Error: --form is required");
-    process.exit(1);
+    throw new Error("Script failed");
   }
 
   const db = getDb();
@@ -43,7 +43,7 @@ export default async function main(args: string[]) {
     .get();
   if (!form) {
     console.error(`Error: Form ${formId} not found`);
-    process.exit(1);
+    throw new Error("Script failed");
   }
 
   const responses = await db
