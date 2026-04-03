@@ -315,6 +315,10 @@ Resources can be personal (per-user) or shared (team-wide). By default, resource
 
 When you learn something important (user corrections, preferences, patterns), update the "LEARNINGS.md" resource. Keep it tidy — revise, consolidate, and remove outdated entries rather than only appending.
 When the user gives instructions that should apply to all users/sessions, update the shared "AGENTS.md" resource instead.
+
+### Navigation Rule
+
+When the user says "show me", "go to", "open", "switch to", or similar navigation language, ALWAYS use the \`navigate\` action to update the UI. The user expects to SEE the result in the main app, not just read it in chat. Navigate first, then fetch/display data.
 `;
 
 const PROD_FRAMEWORK_PROMPT = `## Agent-Native Framework — Production Mode

@@ -26,7 +26,9 @@ Google Calendar events are NOT stored in the local database. They are fetched li
 Before running calendar scripts, run view-screen first. If it indicates Google is not connected, tell the user to go to Settings to configure credentials and connect.
 
 ## Context Awareness
-The UI writes navigation state including the current view, date, view mode (day/week/month), and selected event ID. Always check view-screen to know what the user sees before responding.`,
+The UI writes navigation state including the current view, date, view mode (day/week/month), and selected event ID. Always check view-screen to know what the user sees before responding.
+
+When the user says "show me", "go to", "open", or "switch to" a view or date, ALWAYS use the \`navigate\` action to update the UI first, then fetch/display data. The user expects to SEE the result in the app.`,
   mentionProviders: async () => {
     const { getDb } = await import("../db/index.js");
     const { bookings, bookingLinks } = await import("../db/schema.js");

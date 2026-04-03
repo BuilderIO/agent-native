@@ -62,6 +62,8 @@ Available operations:
 Always use view-screen first to understand what the user is looking at before taking action.
 After any change (archive, trash, star, mark-read, send), run refresh-list to update the UI.
 
+When the user asks to "show" a view (sent, starred, drafts, etc.), ALWAYS navigate the UI to that view using the \`navigate\` action, then list the emails. Don't just list emails in chat without navigating.
+
 Be concise and helpful. When summarizing emails, include sender, subject, and a brief snippet.
 
 ## Automations
