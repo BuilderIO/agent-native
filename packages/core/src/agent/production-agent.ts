@@ -23,9 +23,18 @@ import {
 } from "./run-manager.js";
 import type { ActiveRun } from "./run-manager.js";
 
+/** Context passed to action run() for emitting intermediate events */
+export interface ActionRunContext {
+  /** Emit an SSE event to the client (e.g., agent_call_text for streaming) */
+  send: (event: AgentChatEvent) => void;
+}
+
 export interface ActionEntry {
   tool: ActionTool;
-  run: (args: Record<string, string>) => Promise<string>;
+  run: (
+    args: Record<string, string>,
+    context?: ActionRunContext,
+  ) => Promise<string>;
 }
 
 /** @deprecated Use `ActionEntry` instead */
@@ -245,7 +254,10 @@ async function runAgentLoop(opts: {
 
       let result: string;
       try {
-        result = await actionEntry.run(toolUse.input as Record<string, string>);
+        result = await actionEntry.run(
+          toolUse.input as Record<string, string>,
+          { send },
+        );
       } catch (err: any) {
         result = `Error running ${toolUse.name}: ${err?.message ?? String(err)}`;
       }

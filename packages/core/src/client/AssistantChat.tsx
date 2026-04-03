@@ -221,11 +221,12 @@ function ToolCallFallback({
   argsText,
   result,
 }: ToolCallMessagePartProps) {
-  const [expanded, setExpanded] = useState(false);
   const streamRef = useRef<HTMLDivElement>(null);
   const thread = useThread();
   const isRunning = result === undefined && thread.isRunning;
   const isAgentCall = toolName.startsWith("agent:");
+  // Agent calls default to expanded; regular tools default to collapsed
+  const [expanded, setExpanded] = useState(isAgentCall);
   const agentName = isAgentCall ? toolName.slice(6) : null;
   const isAgentError = isAgentCall && result === "Error calling agent";
   // For agent calls, argsText holds the streaming response text
@@ -252,7 +253,7 @@ function ToolCallFallback({
     ? isRunning || hasStreamText
     : result !== undefined;
   const isExpanded = isAgentCall
-    ? isRunning || (hasStreamText && expanded)
+    ? (isRunning || hasStreamText) && expanded
     : expanded;
 
   // Auto-scroll streaming text to bottom as new content arrives
@@ -335,10 +336,10 @@ function ReconnectStreamToolCall({
   args: Record<string, string>;
   result?: string;
 }) {
-  const [expanded, setExpanded] = useState(false);
   const streamRef = useRef<HTMLDivElement>(null);
   const isRunning = result === undefined;
   const isAgentCall = toolName.startsWith("agent:");
+  const [expanded, setExpanded] = useState(isAgentCall);
   const agentName = isAgentCall ? toolName.slice(6) : null;
   const isAgentError = isAgentCall && result === "Error calling agent";
   const agentStreamText = isAgentCall ? (argsText ?? "") : "";
@@ -363,7 +364,7 @@ function ReconnectStreamToolCall({
     ? isRunning || hasStreamText
     : result !== undefined;
   const isExpanded = isAgentCall
-    ? isRunning || (hasStreamText && expanded)
+    ? (isRunning || hasStreamText) && expanded
     : expanded;
 
   useEffect(() => {
