@@ -26,7 +26,7 @@ export interface ResourceMeta {
   updatedAt: number;
 }
 
-let _initialized = false;
+let _initPromise: Promise<void> | undefined;
 
 const DEFAULT_LEARNINGS_SHARED_MD = `# Learnings
 
@@ -178,7 +178,13 @@ Add people you frequently interact with so the agent can resolve names like "ema
 `;
 
 async function ensureTable(): Promise<void> {
-  if (_initialized) return;
+  if (!_initPromise) {
+    _initPromise = _doEnsureTable();
+  }
+  return _initPromise;
+}
+
+async function _doEnsureTable(): Promise<void> {
   const client = getDbExec();
   await client.execute(`
     CREATE TABLE IF NOT EXISTS resources (
@@ -250,8 +256,6 @@ async function ensureTable(): Promise<void> {
       now,
     ],
   });
-
-  _initialized = true;
 }
 
 const _personalSeeded = new Set<string>();

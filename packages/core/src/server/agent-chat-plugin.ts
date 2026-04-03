@@ -520,7 +520,13 @@ export function createAgentChatPlugin(
         description: entry.tool.description,
       })),
       streaming: true,
-      handler: async function* (message) {
+      handler: async function* (message, context) {
+        // Forward caller's identity so scripts can access user-scoped data
+        const userEmail = (context.metadata?.userEmail as string) || undefined;
+        if (userEmail) {
+          process.env.AGENT_USER_EMAIL = userEmail;
+        }
+
         const text = message.parts
           .filter((p): p is { type: "text"; text: string } => p.type === "text")
           .map((p) => p.text)

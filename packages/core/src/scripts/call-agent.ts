@@ -44,6 +44,7 @@ export async function run(
     // If we have a send context, use streaming so the UI shows progressive text
     if (context?.send) {
       const client = new A2AClient(agent.url);
+      const callerEmail = process.env.AGENT_USER_EMAIL;
       let responseText = "";
       let lastSentLength = 0;
 
@@ -54,10 +55,13 @@ export async function run(
       });
 
       try {
-        for await (const task of client.stream({
-          role: "user",
-          parts: [{ type: "text", text: message }],
-        })) {
+        for await (const task of client.stream(
+          {
+            role: "user",
+            parts: [{ type: "text", text: message }],
+          },
+          callerEmail ? { metadata: { userEmail: callerEmail } } : undefined,
+        )) {
           const newText =
             task.status?.message?.parts
               ?.filter(
@@ -79,7 +83,9 @@ export async function run(
       } catch {
         // Streaming failed — fall back to blocking call
         if (!responseText) {
-          responseText = await callAgent(agent.url, message);
+          responseText = await callAgent(agent.url, message, {
+            userEmail: callerEmail,
+          });
         }
       }
 
@@ -93,7 +99,9 @@ export async function run(
     }
 
     // No context — use simple blocking call
-    const response = await callAgent(agent.url, message);
+    const response = await callAgent(agent.url, message, {
+      userEmail: process.env.AGENT_USER_EMAIL,
+    });
     return response || "(empty response)";
   } catch (err: any) {
     return `Error calling ${agent.name}: ${err?.message}`;

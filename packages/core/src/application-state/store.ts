@@ -2,21 +2,24 @@ import { getDbExec, isPostgres, intType, type DbExec } from "../db/client.js";
 import { emitAppStateChange, emitAppStateDelete } from "./emitter.js";
 import type { StoreWriteOptions } from "../settings/store.js";
 
-let _initialized = false;
+let _initPromise: Promise<void> | undefined;
 
 async function ensureTable(): Promise<void> {
-  if (_initialized) return;
-  const client = getDbExec();
-  await client.execute(`
-    CREATE TABLE IF NOT EXISTS application_state (
-      session_id TEXT NOT NULL,
-      key TEXT NOT NULL,
-      value TEXT NOT NULL,
-      updated_at ${intType()} NOT NULL,
-      PRIMARY KEY (session_id, key)
-    )
-  `);
-  _initialized = true;
+  if (!_initPromise) {
+    _initPromise = (async () => {
+      const client = getDbExec();
+      await client.execute(`
+        CREATE TABLE IF NOT EXISTS application_state (
+          session_id TEXT NOT NULL,
+          key TEXT NOT NULL,
+          value TEXT NOT NULL,
+          updated_at ${intType()} NOT NULL,
+          PRIMARY KEY (session_id, key)
+        )
+      `);
+    })();
+  }
+  return _initPromise;
 }
 
 export async function appStateGet(
