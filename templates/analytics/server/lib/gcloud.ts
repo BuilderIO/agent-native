@@ -5,12 +5,10 @@
 import { createPrivateKey } from "crypto";
 import { resolveCredential } from "./credentials";
 
-let _projectId: string | null = null;
 async function getProjectId(): Promise<string> {
-  if (_projectId) return _projectId;
-  _projectId =
-    (await resolveCredential("BIGQUERY_PROJECT_ID")) || "your-gcp-project-id";
-  return _projectId;
+  return (
+    (await resolveCredential("BIGQUERY_PROJECT_ID")) || "your-gcp-project-id"
+  );
 }
 
 // In-memory cache

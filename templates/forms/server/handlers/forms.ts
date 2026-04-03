@@ -213,11 +213,8 @@ export const updateForm = defineEventHandler(async (event: H3Event) => {
     throw err;
   }
 
-  // Invalidate cache for old and new slugs
-  invalidatePublicFormCache(existing.slug);
-  if (updates.slug && updates.slug !== existing.slug) {
-    invalidatePublicFormCache(updates.slug as string);
-  }
+  // Invalidate cache (keyed by formId)
+  invalidatePublicFormCache(existing.id);
 
   const row = await db
     .select()
@@ -248,8 +245,8 @@ export const deleteForm = defineEventHandler(async (event: H3Event) => {
   await db.delete(schema.responses).where(eq(schema.responses.formId, id));
   await db.delete(schema.forms).where(eq(schema.forms.id, id));
 
-  // Invalidate cache
-  invalidatePublicFormCache(existing.slug);
+  // Invalidate cache (keyed by formId)
+  invalidatePublicFormCache(existing.id);
 
   return { success: true };
 });

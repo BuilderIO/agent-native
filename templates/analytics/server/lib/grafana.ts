@@ -3,12 +3,10 @@
 
 import { resolveCredential } from "./credentials";
 
-let _apiBase: string | null = null;
 async function getApiBase(): Promise<string> {
-  if (_apiBase) return _apiBase;
-  _apiBase =
-    (await resolveCredential("GRAFANA_URL")) || "https://your-org.grafana.net";
-  return _apiBase;
+  return (
+    (await resolveCredential("GRAFANA_URL")) || "https://your-org.grafana.net"
+  );
 }
 
 // In-memory cache
