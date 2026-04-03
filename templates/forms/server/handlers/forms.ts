@@ -258,18 +258,17 @@ export const deleteForm = defineEventHandler(async (event: H3Event) => {
 });
 
 export const getPublicForm = defineEventHandler(async (event: H3Event) => {
-  const slug = getRouterParam(event, "slug") as string;
+  const formId = getRouterParam(event, "slug") as string;
 
   // Check cache first
-  const cached = getCachedPublicForm(slug);
+  const cached = getCachedPublicForm(formId);
   if (cached) return cached;
 
   const db = getDb();
   const row = await db
     .select()
     .from(schema.forms)
-    .where(eq(schema.forms.slug, slug))
-
+    .where(eq(schema.forms.id, formId))
     .then((rows) => rows[0]);
 
   if (!row || row.status !== "published") {
@@ -286,6 +285,6 @@ export const getPublicForm = defineEventHandler(async (event: H3Event) => {
     settings: JSON.parse(row.settings),
   };
 
-  setCachedPublicForm(slug, result);
+  setCachedPublicForm(formId, result);
   return result;
 });

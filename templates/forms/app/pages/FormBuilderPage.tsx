@@ -327,7 +327,7 @@ export function FormBuilderPage() {
       setShowCloudUpgrade(true);
       return;
     }
-    const url = `${window.location.origin}/f/${form.slug}`;
+    const url = `${window.location.origin}/f/${form.id}`;
     navigator.clipboard.writeText(url);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -381,7 +381,7 @@ export function FormBuilderPage() {
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
-                  <a href={`/f/${form.slug}`} target="_blank" rel="noopener">
+                  <a href={`/f/${form.id}`} target="_blank" rel="noopener">
                     <IconExternalLink className="h-4 w-4" />
                   </a>
                 </Button>
@@ -1172,18 +1172,13 @@ function IntegrationsEditor({
         <div className="rounded-xl border border-dashed border-border bg-muted/20 p-5">
           <div className="space-y-4">
             <div className="space-y-2">
-              <Badge variant="secondary" className="w-fit">
-                Ready to connect
-              </Badge>
-              <div className="space-y-1">
-                <h3 className="text-sm font-medium">
-                  Add your first integration
-                </h3>
-                <p className="text-sm text-muted-foreground">
-                  Send new submissions to Slack, Discord, Google Sheets, or any
-                  webhook endpoint.
-                </p>
-              </div>
+              <h3 className="text-sm font-medium">
+                Add your first integration
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Send new submissions to Slack, Discord, Google Sheets, or any
+                webhook endpoint.
+              </p>
             </div>
 
             <div className="grid grid-cols-2 gap-2">

@@ -1,9 +1,3 @@
-<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <path d="M18 8C18 5.79086 19.7909 4 22 4H37L50 17V56C50 58.2091 48.2091 60 46 60H22C19.7909 60 18 58.2091 18 56V8Z" fill="#34A853"/>
-  <path d="M37 4V13C37 15.2091 38.7909 17 41 17H50L37 4Z" fill="#8FD39F"/>
-  <rect x="24" y="24" width="20" height="16" rx="2" fill="white"/>
-  <path d="M24 30H44" stroke="#34A853" stroke-width="2"/>
-  <path d="M24 35H44" stroke="#34A853" stroke-width="2"/>
-  <path d="M30 24V40" stroke="#34A853" stroke-width="2"/>
-  <path d="M37 24V40" stroke="#34A853" stroke-width="2"/>
+<svg role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <path d="M11.318 12.545H7.91v-1.909h3.41v1.91zM14.728 0v6h6l-6-6zm1.363 10.636h-3.41v1.91h3.41v-1.91zm0 3.273h-3.41v1.91h3.41v-1.91zM20.727 6.5v15.864c0 .904-.732 1.636-1.636 1.636H4.909a1.636 1.636 0 0 1-1.636-1.636V1.636C3.273.732 4.005 0 4.909 0h9.318v6.5h6.5zm-3.273 2.773H6.545v7.909h10.91v-7.91zm-6.136 4.636H7.91v1.91h3.41v-1.91z" fill="#34A853"/>
 </svg>

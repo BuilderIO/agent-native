@@ -18,15 +18,15 @@ function getCached(slug: string) {
   return null;
 }
 
-async function getFormBySlug(slug: string) {
-  const cached = getCached(slug);
+async function getFormById(formId: string) {
+  const cached = getCached(formId);
   if (cached) return cached;
 
   const db = getDb();
   const row = await db
     .select()
     .from(schema.forms)
-    .where(eq(schema.forms.slug, slug))
+    .where(eq(schema.forms.id, formId))
     .then((rows) => rows[0]);
 
   if (!row || row.status !== "published") return null;
@@ -39,7 +39,7 @@ async function getFormBySlug(slug: string) {
     settings: JSON.parse(row.settings) as FormSettings,
   };
 
-  cache.set(slug, { data: result, ts: Date.now() });
+  cache.set(formId, { data: result, ts: Date.now() });
   return result;
 }
 
@@ -121,7 +121,7 @@ function renderField(field: FormField): string {
 
 export default defineEventHandler(async (event) => {
   const slug = getRouterParam(event, "slug") as string;
-  const form = await getFormBySlug(slug);
+  const form = await getFormById(slug);
 
   setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
 
