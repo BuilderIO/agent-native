@@ -45,24 +45,37 @@ export default function DocsIndex() {
       <h2 id="choose-a-template">Choose a Template</h2>
       <p>
         Each template is a complete app with UI, agent actions, database schema,
-        and AI instructions ready to go:
+        and AI instructions ready to go. Replace <code>mail</code> in the
+        command above with any template name:
       </p>
-      <div className="my-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-        {templates.map((t) => (
-          <div
-            key={t.slug}
-            className="rounded-lg border border-[var(--border)] p-4"
-          >
-            <div className="mb-1 font-semibold">{t.name}</div>
-            <p className="m-0 mb-2 text-xs text-[var(--accent)]">
-              {t.replaces}
-            </p>
-            <p className="m-0 mb-3 text-sm text-[var(--fg-secondary)]">
-              {t.description}
-            </p>
-            <CodeBlock code={t.cliCommand} lang="bash" />
-          </div>
-        ))}
+      <div className="overflow-x-auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Template</th>
+              <th>Replaces</th>
+              <th>Flag</th>
+            </tr>
+          </thead>
+          <tbody>
+            {templates.map((t) => (
+              <tr key={t.slug}>
+                <td>
+                  <a
+                    href={`/templates/${t.slug}`}
+                    className="font-medium text-[var(--accent)]"
+                  >
+                    {t.name}
+                  </a>
+                </td>
+                <td>{t.replaces.replace(/^Replaces or augments /, "")}</td>
+                <td>
+                  <code>--template {t.slug}</code>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
       <p>
         Browse the{" "}
