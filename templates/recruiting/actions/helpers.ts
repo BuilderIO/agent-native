@@ -39,8 +39,7 @@ export function output(data: unknown): void {
 
 /** Print error and exit with code 1 */
 export function fatal(message: string): never {
-  console.error(`Error: ${message}`);
-  throw new Error("Script failed");
+  throw new Error(message);
 }
 
 function matchesGrep(obj: unknown, term: string): boolean {
