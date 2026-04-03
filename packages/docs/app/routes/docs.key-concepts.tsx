@@ -7,7 +7,7 @@ const TOC = [
   { id: "the-architecture", label: "The Architecture" },
   { id: "data-in-sql", label: "Data in SQL" },
   { id: "agent-chat-bridge", label: "Agent Chat Bridge" },
-  { id: "scripts-system", label: "Scripts System" },
+  { id: "actions-system", label: "Actions System" },
   { id: "polling-sync", label: "Polling Sync" },
   { id: "harnesses", label: "Harnesses" },
   { id: "context-awareness", label: "Context Awareness" },
@@ -21,7 +21,7 @@ export const meta = () => [
   {
     name: "description",
     content:
-      "How agent-native apps work: SQL database, agent chat bridge, polling sync, scripts, and context awareness.",
+      "How agent-native apps work: SQL database, agent chat bridge, polling sync, actions, and context awareness.",
   },
 ];
 
@@ -75,7 +75,7 @@ export default function KeyConceptsDocs() {
         <Link to="/docs/core-philosophy" className="text-[var(--accent)]">
           Core Philosophy
         </Link>{" "}
-        for the foundational principles and hard requirements.
+        for the foundational principles.
       </p>
 
       <h2 id="the-architecture">The architecture</h2>
@@ -85,7 +85,7 @@ export default function KeyConceptsDocs() {
           <div className="p-5 text-center">
             <div className="mb-2 text-sm font-semibold">Agent</div>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Autonomous AI that reads data, writes data, runs scripts, and
+              Autonomous AI that reads data, writes data, runs actions, and
               modifies code. Customizable with skills and instructions.
             </p>
           </div>
@@ -121,8 +121,8 @@ export default function KeyConceptsDocs() {
           <strong>All AI goes through the agent</strong> — no inline LLM calls
         </li>
         <li>
-          <strong>Scripts for agent operations</strong> — complex work runs as
-          scripts
+          <strong>Actions for agent operations</strong> — complex work runs as
+          actions
         </li>
         <li>
           <strong>Polling keeps the UI in sync</strong> — database changes sync
@@ -173,10 +173,10 @@ export const forms = sqliteTable("forms", {
   createdAt: integer("created_at").notNull(),
 });
 
-// Core scripts for quick database access
-pnpm script db-schema           # show all tables
-pnpm script db-query --sql "SELECT * FROM forms"
-pnpm script db-exec --sql "INSERT INTO forms ..."`}
+// Core actions for quick database access
+pnpm action db-schema           # show all tables
+pnpm action db-query --sql "SELECT * FROM forms"
+pnpm action db-exec --sql "INSERT INTO forms ..."`}
         lang="bash"
       />
 
@@ -208,7 +208,7 @@ sendToAgentChat({
           instructions, skills, and history. An inline call has none of that.
         </li>
         <li>
-          <strong>The agent can do more.</strong> It can run scripts, browse the
+          <strong>The agent can do more.</strong> It can run actions, browse the
           web, modify code, and chain multiple steps together.
         </li>
         <li>
@@ -222,14 +222,14 @@ sendToAgentChat({
         </li>
       </ul>
 
-      <h2 id="scripts-system">Scripts system</h2>
+      <h2 id="actions-system">Actions system</h2>
       <p>
         When the agent needs to do something complex — call an API, process
-        data, query the database — it runs a script. Scripts are TypeScript
-        files in <code>scripts/</code> that export a default async function:
+        data, query the database — it runs an action. Actions are TypeScript
+        files in <code>actions/</code> that export a default async function:
       </p>
       <CodeBlock
-        code={`// scripts/fetch-data.ts
+        code={`// actions/fetch-data.ts
 import { parseArgs } from "@agent-native/core";
 
 export default async function fetchData(args: string[]) {
@@ -240,14 +240,14 @@ export default async function fetchData(args: string[]) {
 }`}
       />
       <CodeBlock
-        code={`# Agent runs scripts via CLI
-pnpm script fetch-data --source=signups`}
+        code={`# Agent runs actions via CLI
+pnpm action fetch-data --source=signups`}
         lang="bash"
       />
       <p>
         This means anything the UI can do, the agent can do — and vice versa.
         The UI calls <code>POST /api/fetch-data</code>, the agent calls{" "}
-        <code>pnpm script fetch-data</code>. Same logic, same results, different
+        <code>pnpm action fetch-data</code>. Same logic, same results, different
         entry points.
       </p>
 
@@ -271,7 +271,7 @@ useDbSync({
       />
       <p>The flow is:</p>
       <ol className="list-decimal space-y-1 pl-5">
-        <li>Agent runs a script that writes to the database</li>
+        <li>Agent runs an action that writes to the database</li>
         <li>Version counter increments</li>
         <li>
           <code>useDbSync</code> detects the new version on next poll
@@ -302,7 +302,7 @@ useDbSync({
           </p>
         </div>
         <div className="rounded-xl border border-[var(--border)] p-5">
-          <div className="mb-2 text-sm font-semibold">Cloud Harness</div>
+          <div className="mb-2 text-sm font-semibold">Cloud</div>
           <p className="m-0 text-sm text-[var(--fg-secondary)]">
             Deploy to any cloud with real-time collaboration, visual editing,
             roles and permissions. Best for teams.
@@ -314,7 +314,7 @@ useDbSync({
       <p>
         The agent always knows what the user is looking at. The UI writes a{" "}
         <code>navigation</code> key to application-state on every route change.
-        The agent reads it via the <code>view-screen</code> script before
+        The agent reads it via the <code>view-screen</code> action before
         acting.
       </p>
       <p>
@@ -345,31 +345,35 @@ useDbSync({
           agent can use it.
         </li>
         <li>
-          <strong>Code is the protocol.</strong> TypeScript scripts are more
+          <strong>Code is the protocol.</strong> TypeScript actions are more
           expressive than any tool schema.
         </li>
         <li>
-          <strong>MCP is additive.</strong> Use MCP servers alongside scripts if
+          <strong>MCP is additive.</strong> Use MCP servers alongside actions if
           you want, but they're not required.
         </li>
       </ul>
 
       <h2 id="agent-modifies-code">Agent modifies code</h2>
       <p>
-        This is a feature, not a bug. The agent can edit the app's own source
-        code — components, routes, styles, scripts. This enables a "fork and
-        evolve" pattern:
+        This is a feature, not a bug. Because every agent-native app is
+        single-tenant — your team's own fork — the agent can safely edit the
+        app's source code: components, routes, styles, actions.
+      </p>
+      <p>
+        There's no shared codebase to break. You own the app, and the agent
+        evolves it for you over time:
       </p>
       <ol className="list-decimal space-y-1 pl-5">
         <li>Fork a template (e.g. the analytics template)</li>
-        <li>Customize it to your needs by asking the agent</li>
+        <li>Customize it by asking the agent</li>
         <li>
           "Add a new chart type for cohort analysis" — the agent builds it
         </li>
         <li>
           "Connect to our Stripe account" — the agent writes the integration
         </li>
-        <li>Your app gets better over time without manual development</li>
+        <li>Your app keeps improving without manual development</li>
       </ol>
 
       <h2 id="deep-dives">Deep dives</h2>
@@ -379,7 +383,7 @@ useDbSync({
           <Link to="/docs/core-philosophy" className="text-[var(--accent)]">
             Core Philosophy
           </Link>{" "}
-          — foundational principles and hard requirements
+          — foundational principles
         </li>
         <li>
           <Link to="/docs/context-awareness" className="text-[var(--accent)]">

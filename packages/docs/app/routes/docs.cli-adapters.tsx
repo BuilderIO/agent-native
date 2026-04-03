@@ -239,7 +239,7 @@ export class DockerAdapter implements CliAdapter {
 
       <h2 id="server-route">Server route</h2>
       <p>
-        Expose the registry to the UI via an API route so scripts and components
+        Expose the registry to the UI via an API route so actions and components
         can discover and invoke CLIs:
       </p>
       <CodeBlock
@@ -272,10 +272,10 @@ app.post("/api/cli/:name", async (req, res) => {
 });`}
       />
 
-      <h2 id="from-scripts">Using from scripts</h2>
-      <p>Scripts can use CLI adapters directly for structured access:</p>
+      <h2 id="from-actions">Using from actions</h2>
+      <p>Actions can use CLI adapters directly for structured access:</p>
       <CodeBlock
-        code={`// scripts/list-prs.ts
+        code={`// actions/list-prs.ts
 import { ShellCliAdapter } from "@agent-native/core/adapters/cli";
 
 export const meta = () => [

@@ -10,7 +10,7 @@ import {
   IconMail,
   IconChevronUp,
   IconChevronDown,
-  IconAdjustments,
+  IconSettings,
 } from "@tabler/icons-react";
 import type { MobileActionId } from "@shared/types";
 import {
@@ -115,7 +115,20 @@ export function MobileActionBar({
   return (
     <>
       <div className="shrink-0 border-t border-border bg-background px-1 pb-[env(safe-area-inset-bottom)]">
-        <div className="flex items-center justify-around">
+        <div className="flex items-center overflow-x-auto">
+          {onUpdateActions && (
+            <button
+              onClick={() => setCustomizeOpen(true)}
+              className={cn(
+                "flex shrink-0 flex-col items-center justify-center gap-0.5 py-2 px-3 min-w-[44px] min-h-[44px]",
+                "text-muted-foreground active:text-foreground active:bg-accent/50 rounded-lg",
+              )}
+              title="Customize"
+            >
+              <IconSettings className="h-5 w-5" />
+              <span className="text-[10px] leading-tight">Settings</span>
+            </button>
+          )}
           {actions.map((id) => {
             const meta = ACTION_META[id];
             if (!meta) return null;
@@ -124,7 +137,7 @@ export function MobileActionBar({
                 key={id}
                 onClick={() => onAction(id)}
                 className={cn(
-                  "flex flex-col items-center justify-center gap-0.5 py-2 px-3 min-w-[44px] min-h-[44px]",
+                  "flex shrink-0 flex-col items-center justify-center gap-0.5 py-2 px-3 min-w-[44px] min-h-[44px]",
                   "text-muted-foreground active:text-foreground active:bg-accent/50 rounded-lg",
                 )}
                 title={meta.label}
@@ -134,19 +147,6 @@ export function MobileActionBar({
               </button>
             );
           })}
-          {onUpdateActions && (
-            <button
-              onClick={() => setCustomizeOpen(true)}
-              className={cn(
-                "flex flex-col items-center justify-center gap-0.5 py-2 px-3 min-w-[44px] min-h-[44px]",
-                "text-muted-foreground active:text-foreground active:bg-accent/50 rounded-lg",
-              )}
-              title="Customize"
-            >
-              <IconAdjustments className="h-5 w-5" />
-              <span className="text-[10px] leading-tight">More</span>
-            </button>
-          )}
         </div>
       </div>
 

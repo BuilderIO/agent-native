@@ -1,12 +1,13 @@
 import DocsLayout from "../components/DocsLayout";
 import CodeBlock from "../components/CodeBlock";
+import { templates } from "../components/TemplateCard";
 
 const TOC = [
-  { id: "installation", label: "Installation" },
+  { id: "start-from-a-template", label: "Start from a Template" },
+  { id: "choose-a-template", label: "Choose a Template" },
+  { id: "start-from-scratch", label: "Start from Scratch" },
   { id: "project-structure", label: "Project Structure" },
-  { id: "vite-configuration", label: "Vite Configuration" },
-  { id: "typescript-tailwind", label: "TypeScript & Tailwind" },
-  { id: "subpath-exports", label: "Subpath Exports" },
+  { id: "configuration", label: "Configuration" },
   { id: "architecture-principles", label: "Architecture Principles" },
 ];
 
@@ -17,59 +18,118 @@ export default function DocsIndex() {
         Getting Started
       </h1>
       <p className="mb-4 text-base text-[var(--fg-secondary)]">
-        Welcome to the Agent-Native documentation!
+        The fastest way to get started is to pick a template and customize it.
+        Templates are complete, production-ready apps — not starter kits. You
+        get a working app in under a minute and start making it yours.
       </p>
 
-      <h2 id="installation">Installation</h2>
-      <p>Create a new project:</p>
+      <h2 id="start-from-a-template">Start from a Template</h2>
+      <p>Pick a template and create your app:</p>
+      <CodeBlock
+        code="npx @agent-native/core create my-app --template mail"
+        lang="bash"
+      />
+      <p>Then run it:</p>
+      <CodeBlock code={`cd my-app\npnpm install\npnpm dev`} lang="bash" />
+      <p>
+        That's it — you have a full email client running locally with an AI
+        agent built in. Open the agent panel, ask it to do something, and watch
+        it work.
+      </p>
+      <p>
+        From here, use your AI coding tool (Claude Code, Cursor, Windsurf, etc.)
+        to customize it. The agent instructions in <code>AGENTS.md</code> are
+        already set up so any tool understands the codebase.
+      </p>
+
+      <h2 id="choose-a-template">Choose a Template</h2>
+      <p>
+        Each template is a complete app with UI, agent actions, database schema,
+        and AI instructions ready to go. Replace <code>mail</code> in the
+        command above with any template name:
+      </p>
+      <div className="overflow-x-auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Template</th>
+              <th>Replaces</th>
+              <th>Flag</th>
+            </tr>
+          </thead>
+          <tbody>
+            {templates.map((t) => (
+              <tr key={t.slug}>
+                <td>
+                  <a
+                    href={`/templates/${t.slug}`}
+                    className="font-medium text-[var(--accent)]"
+                  >
+                    {t.name}
+                  </a>
+                </td>
+                <td>{t.replaces.replace(/^Replaces or augments /, "")}</td>
+                <td>
+                  <code>--template {t.slug}</code>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Browse the{" "}
+        <a href="/templates" className="text-[var(--accent)]">
+          template gallery
+        </a>{" "}
+        for live demos and detailed feature lists.
+      </p>
+
+      <h2 id="start-from-scratch">Start from Scratch</h2>
+      <p>
+        If you want a blank canvas instead of a template, create a project
+        without the <code>--template</code> flag:
+      </p>
       <CodeBlock code="npx @agent-native/core create my-app" lang="bash" />
+      <p>
+        This gives you the framework scaffolding — React frontend, Nitro
+        backend, agent panel, and database — but no domain-specific code. Good
+        for building something entirely new.
+      </p>
 
       <h2 id="project-structure">Project Structure</h2>
-      <p>Every agent-native app follows the same convention:</p>
+      <p>
+        Every agent-native app — whether from a template or from scratch —
+        follows the same structure:
+      </p>
       <CodeBlock
         code={`my-app/
-  app/             # React frontend (Vite SPA)
-    App.tsx        # Entry point
-    components/    # UI components
-    lib/utils.ts   # cn() utility
-  server/          # Nitro API server
-    routes/        # File-based API routes (auto-discovered)
-    plugins/       # Server plugins (startup logic)
-    lib/           # Shared server modules
-  shared/          # Isomorphic code (client & server)
-  scripts/         # Agent-callable scripts
-    run.ts         # Script dispatcher
-  data/            # App data files (watched by SSE)`}
+  app/             # React frontend (routes, components, hooks)
+  server/          # Nitro API server (routes, plugins)
+  actions/         # Agent-callable actions
+  .agents/         # Agent instructions and skills`}
         lang="text"
       />
+      <p>
+        Templates add domain-specific code on top of this: database schemas in{" "}
+        <code>server/db/</code>, API routes in <code>server/routes/api/</code>,
+        and actions in <code>actions/</code>.
+      </p>
 
-      <h2 id="vite-configuration">Vite Configuration</h2>
-      <p>A single config file handles both client SPA and server build:</p>
+      <h2 id="configuration">Configuration</h2>
+      <p>
+        Templates come pre-configured. If you're starting from scratch, here are
+        the config files:
+      </p>
       <CodeBlock
         code={`// vite.config.ts
 import { defineConfig } from "@agent-native/core/vite";
 export default defineConfig();`}
       />
-      <p>
-        <code>defineConfig()</code> sets up React SWC, path aliases (
-        <code>@/</code> {"->"} <code>app/</code>, <code>@shared/</code> {"->"}{" "}
-        <code>shared/</code>), fs restrictions, and the Nitro server plugin
-        (file-based API routing, server plugins, deploy-anywhere presets).
-      </p>
-
-      <h3>Nitro options</h3>
-      <CodeBlock
-        code={`export default defineConfig({
-  nitro: {
-    preset: "vercel", // Deploy target (default: "node")
-  },
-});`}
-      />
-
-      <h2 id="typescript-tailwind">TypeScript & Tailwind</h2>
       <CodeBlock
         code={`// tsconfig.json
 { "extends": "@agent-native/core/tsconfig.base.json" }`}
+        lang="json"
       />
       <CodeBlock
         code={`// tailwind.config.ts
@@ -82,66 +142,43 @@ export default {
 } satisfies Config;`}
       />
 
-      <h2 id="subpath-exports">Subpath Exports</h2>
-      <div className="overflow-x-auto">
-        <table>
-          <thead>
-            <tr>
-              <th>Import</th>
-              <th>Exports</th>
-            </tr>
-          </thead>
-          <tbody>
-            {[
-              [
-                "@agent-native/core",
-                "Server, client, scripts: createServer, createFileWatcher, createSSEHandler, runScript, parseArgs, loadEnv, fail, agentChat, sendToAgentChat, useAgentChatGenerating, useDbSync, cn",
-              ],
-              ["@agent-native/core/vite", "defineConfig()"],
-              [
-                "@agent-native/core/tailwind",
-                "Tailwind preset (HSL colors, shadcn/ui tokens, animations)",
-              ],
-              [
-                "@agent-native/core/adapters/sync",
-                "createFileSync, FileSync, FileSyncAdapter, FileRecord, FileChange",
-              ],
-            ].map(([imp, desc]) => (
-              <tr key={imp}>
-                <td>{imp}</td>
-                <td>{desc}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
       <h2 id="architecture-principles">Architecture Principles</h2>
+      <p>
+        These principles apply to all agent-native apps. Understanding them
+        helps you customize templates or build from scratch:
+      </p>
       <ol className="list-decimal space-y-3 pl-5">
         <li>
-          <strong>Files as database</strong> — All app state lives in files.
-          Both UI and agent read/write the same files.
+          <strong>Agent + UI are equal partners</strong> — Everything the UI can
+          do, the agent can do, and vice versa. They share the same database and
+          always stay in sync. You don't think about "the agent" and "the app"
+          separately — you think about them together.
         </li>
         <li>
-          <strong>All AI through agent chat</strong> — No inline LLM calls. UI
-          delegates to the AI via <code>sendToAgentChat()</code>.
+          <strong>Context-aware</strong> — The agent always knows what you're
+          looking at. If an email is open, it knows which one. If you select
+          text and hit Cmd+I, it can act on just that selection.
         </li>
         <li>
-          <strong>Scripts for agent ops</strong> —{" "}
-          <code>pnpm script &lt;name&gt;</code> dispatches to callable script
-          files.
+          <strong>Skills-driven</strong> — Core functionalities have
+          instructions so the agent doesn't explore from scratch every time.
+          When you add a feature, you update all four areas: UI, actions,
+          skills/instructions, and application state.
         </li>
         <li>
-          <strong>Bidirectional SSE events</strong> — File watcher keeps UI in
-          sync with agent changes in real-time.
+          <strong>Inter-agent communication</strong> — Agents can discover and
+          call each other via the A2A protocol. Tag your analytics agent from
+          the mail app to pull data into a draft.
         </li>
         <li>
-          <strong>Agent can update code</strong> — The agent modifies the app
-          itself.
+          <strong>Fully portable</strong> — Any SQL database Drizzle supports,
+          any hosting backend Nitro supports, any AI coding tool. These are
+          non-negotiable.
         </li>
         <li>
-          <strong>Deploy anywhere</strong> — Nitro presets let you deploy to
-          Node.js, Vercel, Netlify, Cloudflare, AWS Lambda, Deno, and more.
+          <strong>Fork and customize</strong> — Single-tenant apps you clone and
+          evolve. The agent can modify the app's own code — components, routes,
+          styles, actions — so it gets better over time.
         </li>
       </ol>
     </DocsLayout>

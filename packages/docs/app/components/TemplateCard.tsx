@@ -18,8 +18,9 @@ export const templates = [
     slug: "mail",
     replaces: "Replaces or augments Superhuman, Gmail",
     cliCommand: "npx @agent-native/core create my-app --template mail",
+    demoUrl: "https://mail.agent-native.com",
     description:
-      "Superhuman-style email client with keyboard shortcuts, AI triage, and a fully customizable interface. Own your inbox workflow.",
+      "Superhuman-style email client with keyboard shortcuts, AI triage, multi-account support, and email automations. Own your inbox workflow.",
     color: "#0ea5e9",
     screenshot:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6f49a81c404d4242b33317491eac7575?format=webp&width=800",
@@ -29,8 +30,9 @@ export const templates = [
     slug: "calendar",
     replaces: "Replaces or augments Google Calendar, Calendly",
     cliCommand: "npx @agent-native/core create my-app --template calendar",
+    demoUrl: "https://calendar.agent-native.com",
     description:
-      "Manage events, sync with Google Calendar, and share a public booking page — all with an AI agent that handles scheduling.",
+      "Full calendar with Google sync, availability management, and a public booking page. The agent finds open slots, creates events, and manages your schedule.",
     color: "#10b981",
     screenshot:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ffb6c3b483ca24ab3b6c3a758aeceef4c?format=webp&width=800",
@@ -40,8 +42,9 @@ export const templates = [
     slug: "content",
     replaces: "Replaces or augments Notion, Google Docs",
     cliCommand: "npx @agent-native/core create my-app --template content",
+    demoUrl: "https://content.agent-native.com",
     description:
-      "Write and organize content with an agent that knows your brand, connects to your CMS, and follows your publishing workflow.",
+      "Write and organize documents with a rich editor, Notion import/export, and an AI agent that drafts, rewrites, and publishes to any CMS.",
     color: "#7928ca",
     screenshot:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F89bcfc6106304bfbaf8ec8a7ccd721eb?format=webp&width=800",
@@ -51,8 +54,9 @@ export const templates = [
     slug: "slides",
     replaces: "Replaces or augments Google Slides, Pitch",
     cliCommand: "npx @agent-native/core create my-app --template slides",
+    demoUrl: "https://slides.agent-native.com",
     description:
-      "Generate and edit React-based presentations via prompt or point-and-click. Describe what you want, refine as you go.",
+      "Generate full presentations from a prompt. Edit visually or conversationally. AI image generation, 8 layouts, and presentation mode built in.",
     color: "#f59e0b",
     screenshot:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2c09b451d40c4a74a89a38d69170c2d8?format=webp&width=800",
@@ -62,8 +66,9 @@ export const templates = [
     slug: "video",
     replaces: "Replaces or augments video editing",
     cliCommand: "npx @agent-native/core create my-app --template video",
+    demoUrl: "https://video.agent-native.com",
     description:
-      "Create and edit Remotion video compositions with agent assistance — from storyboard to render, all in code you own.",
+      "Build React-based video compositions with Remotion. Keyframe animation, 30+ easing curves, camera controls, and agent-assisted editing.",
     color: "#ec4899",
     screenshot:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6b8bfcc18a1d4c47a491da3b2d4148a4?format=webp&width=800",
@@ -71,10 +76,11 @@ export const templates = [
   {
     name: "Analytics",
     slug: "analytics",
-    replaces: "Replaces or augments Amplitude, Mixpanel",
+    replaces: "Replaces or augments Amplitude, Mixpanel, Looker",
     cliCommand: "npx @agent-native/core create my-app --template analytics",
+    demoUrl: "https://analytics.agent-native.com",
     description:
-      "Connect any data source, prompt for any chart. Build reusable dashboards — not throwaway Q&A. No SQL required.",
+      "Connect any data source, prompt for any chart, build reusable dashboards. The agent writes SQL, generates visualizations, and evolves the app.",
     color: "var(--accent)",
     screenshot:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4933a80cc3134d7e874631f688be828a?format=webp&width=800",
@@ -196,9 +202,40 @@ function CliPopover({
 function TemplateLaunchButton({ template }: { template: Template }) {
   const [showCli, setShowCli] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const hasDemoUrl = "demoUrl" in template && template.demoUrl;
 
   return (
     <div className="mt-auto flex flex-col gap-2 pt-3">
+      {hasDemoUrl && (
+        <a
+          href={template.demoUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={() =>
+            trackEvent("click_try_demo", {
+              template: template.slug,
+              location: "card",
+            })
+          }
+          className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-black px-4 py-2 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+            <polyline points="15 3 21 3 21 9" />
+            <line x1="10" y1="14" x2="21" y2="3" />
+          </svg>
+          Try It
+        </a>
+      )}
       <button
         ref={buttonRef}
         onClick={() => {
@@ -209,7 +246,11 @@ function TemplateLaunchButton({ template }: { template: Template }) {
             });
           setShowCli(!showCli);
         }}
-        className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-black px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800 dark:bg-white dark:text-black dark:hover:bg-gray-200"
+        className={
+          hasDemoUrl
+            ? "inline-flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium text-[var(--fg)] transition hover:border-[var(--fg-secondary)]"
+            : "inline-flex w-full items-center justify-center gap-2 rounded-lg bg-black px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800 dark:bg-white dark:text-black dark:hover:bg-gray-200"
+        }
       >
         <svg
           width="14"
@@ -224,7 +265,7 @@ function TemplateLaunchButton({ template }: { template: Template }) {
           <polyline points="4 17 10 11 4 5" />
           <line x1="12" y1="19" x2="20" y2="19" />
         </svg>
-        Get Started
+        Run Locally
       </button>
       {showCli && (
         <CliPopover

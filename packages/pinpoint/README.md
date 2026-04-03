@@ -14,13 +14,13 @@ Instructions for an AI agent (Builder.io, Claude Code, Codex, Cursor, etc.) to a
 pnpm add @agent-native/pinpoint
 ```
 
-### Step 2: Initialize agent scripts and skill
+### Step 2: Initialize agent actions and skill
 
 ```sh
 npx @agent-native/pinpoint init
 ```
 
-This copies agent scripts to `scripts/` and the Pinpoint skill to `.agents/skills/pinpoint/`. No manual file copying needed.
+This copies agent actions to `actions/` and the Pinpoint skill to `.agents/skills/pinpoint/`. No manual file copying needed.
 
 ### Step 3: Mount the client overlay
 
@@ -93,18 +93,18 @@ Pins are stored as individual JSON files in `data/pins/{uuid}.json`:
 
 **Agent commands** (available after `npx @agent-native/pinpoint init`):
 
-- `pnpm script get-pins --status open` — list unresolved pins
-- `pnpm script resolve-pin --id <uuid>` — mark as resolved after fixing
-- `pnpm script create-pin --pageUrl / --selector ".btn" --comment "Fix this"`
-- `pnpm script update-pin --id <uuid> --comment "Updated feedback"`
-- `pnpm script delete-pin --id <uuid>` — remove a pin
+- `pnpm action get-pins --status open` — list unresolved pins
+- `pnpm action resolve-pin --id <uuid>` — mark as resolved after fixing
+- `pnpm action create-pin --pageUrl / --selector ".btn" --comment "Fix this"`
+- `pnpm action update-pin --id <uuid> --comment "Updated feedback"`
+- `pnpm action delete-pin --id <uuid>` — remove a pin
 
 **Workflow:**
 
 1. User creates annotations in the browser
-2. Read with `pnpm script get-pins --status open`
+2. Read with `pnpm action get-pins --status open`
 3. Use `sourceFile` to locate and edit the relevant code
-4. After fixing, mark resolved: `pnpm script resolve-pin --id <uuid>`
+4. After fixing, mark resolved: `pnpm action resolve-pin --id <uuid>`
 
 ### Troubleshooting
 
@@ -177,7 +177,7 @@ pnpm add @agent-native/pinpoint
 npx @agent-native/pinpoint init
 ```
 
-Copies agent scripts to `scripts/` and the Pinpoint skill to `.agents/skills/pinpoint/`.
+Copies agent actions to `actions/` and the Pinpoint skill to `.agents/skills/pinpoint/`.
 
 ### 3. Client — Mount the overlay
 
@@ -248,7 +248,7 @@ All options can be passed as props to `<Pinpoint />` or as the config object to 
 ## CLI
 
 ```sh
-npx @agent-native/pinpoint init   # Copy scripts and skill to your project
+npx @agent-native/pinpoint init   # Copy actions and skill to your project
 npx @agent-native/pinpoint        # Show help
 ```
 
@@ -291,11 +291,11 @@ app.use("/api/pins", pagePinRoutes({ dataDir: "data/pins" }));
 | DELETE | `/api/pins/:id` | Delete a pin                           |
 | DELETE | `/api/pins`     | Clear pins (query: `pageUrl`)          |
 
-## Agent Scripts
+## Agent Actions
 
 Available after running `npx @agent-native/pinpoint init`:
 
-| Script          | Purpose              | Args                                   |
+| Action          | Purpose              | Args                                   |
 | --------------- | -------------------- | -------------------------------------- |
 | `get-pins`      | List pins            | `--pageUrl`, `--status`                |
 | `create-pin`    | Create a pin         | `--pageUrl`, `--selector`, `--comment` |

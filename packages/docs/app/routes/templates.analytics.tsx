@@ -10,7 +10,7 @@ export const meta = () => [
   {
     name: "description",
     content:
-      "Build AI-powered analytics dashboards you own. Open source alternative to Amplitude, Mixpanel, and Looker. 20+ data connectors, SQL query explorer, reusable dashboards, data dictionary, 50+ scripts, and natural language chart generation.",
+      "Build AI-powered analytics dashboards you own. Open source alternative to Amplitude, Mixpanel, and Looker. Multiple data connectors, SQL query explorer, reusable dashboards, data dictionary, and natural language chart generation.",
   },
   {
     property: "og:title",
@@ -20,7 +20,7 @@ export const meta = () => [
   {
     property: "og:description",
     content:
-      "Build AI-powered analytics dashboards you own. 20+ data connectors, SQL query explorer, and natural language chart generation.",
+      "Build AI-powered analytics dashboards you own. Multiple data connectors, SQL query explorer, and natural language chart generation.",
   },
   {
     name: "keywords",
@@ -130,7 +130,35 @@ export default function AnalyticsTemplate() {
               writes queries and evolves the app.
             </p>
 
-            <div className="mb-8 flex flex-col items-start gap-3">
+            <div className="mb-8 flex flex-wrap items-center gap-3">
+              <a
+                href="https://analytics.agent-native.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
+                onClick={() =>
+                  trackEvent("try_live_demo", {
+                    template: "analytics",
+                    location: "landing_page",
+                  })
+                }
+              >
+                Try It
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                  <polyline points="15 3 21 3 21 9" />
+                  <line x1="10" y1="14" x2="21" y2="3" />
+                </svg>
+              </a>
               <CliCopy />
             </div>
           </div>
@@ -149,10 +177,10 @@ export default function AnalyticsTemplate() {
       <section className="border-t border-[var(--border)] py-16">
         <div className="mx-auto grid max-w-3xl gap-px overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--border)] sm:grid-cols-4">
           {[
-            { number: "20+", label: "Data connectors" },
-            { number: "550+", label: "Metric definitions" },
-            { number: "50+", label: "Pre-built scripts" },
+            { number: "10+", label: "Data connectors" },
             { number: "7", label: "Chart types" },
+            { number: "SQL", label: "Query explorer" },
+            { number: "AI", label: "Natural language" },
           ].map((stat) => (
             <div key={stat.label} className="bg-[var(--bg)] p-6 text-center">
               <div className="mb-1 text-2xl font-bold text-[var(--accent)]">
@@ -274,7 +302,8 @@ export default function AnalyticsTemplate() {
           Connect everything
         </h2>
         <p className="mb-8 max-w-2xl text-base text-[var(--fg-secondary)]">
-          20+ built-in connectors. The agent writes new ones on demand.
+          Multiple built-in connectors for popular services. The agent writes
+          new ones on demand.
         </p>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div className="rounded-xl border border-[var(--border)] p-5">
@@ -327,7 +356,7 @@ export default function AnalyticsTemplate() {
               Living data dictionary
             </h2>
             <p className="mb-6 text-base text-[var(--fg-secondary)]">
-              550+ metric definitions with query templates, join patterns, known
+              Metric definitions with query templates, join patterns, known
               gotchas, and update frequency. Synced from Notion with
               community-driven validation.
             </p>
@@ -485,7 +514,7 @@ export default function AnalyticsTemplate() {
                 <td className="px-5 py-3">Built-in SDKs</td>
                 <td className="px-5 py-3">Manual upload</td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  20+ sources + custom
+                  Multiple sources + custom
                 </td>
               </tr>
               <tr className="border-b border-[var(--border)]">
@@ -495,7 +524,7 @@ export default function AnalyticsTemplate() {
                 <td className="px-5 py-3">Basic</td>
                 <td className="px-5 py-3">None</td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  550+ metrics with context
+                  Full metrics with context
                 </td>
               </tr>
               <tr className="border-b border-[var(--border)]">

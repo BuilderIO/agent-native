@@ -66,9 +66,9 @@ export default function SkillsGuideDocs() {
             ],
             [
               "delegate-to-agent",
-              "Delegating AI work from UI or scripts to the agent",
+              "Delegating AI work from UI or actions to the agent",
             ],
-            ["scripts", "Creating or running agent scripts"],
+            ["actions", "Creating or running agent actions"],
             [
               "self-modifying-code",
               "Editing app source, components, or styles",
