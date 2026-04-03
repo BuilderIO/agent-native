@@ -270,7 +270,9 @@ export default function CalendarTemplate() {
                 <line x1="23" y1="11" x2="17" y2="11" />
               </svg>
             </div>
-            <h3 className="mb-1 text-sm font-semibold">Customizable Booking Links</h3>
+            <h3 className="mb-1 text-sm font-semibold">
+              Customizable Booking Links
+            </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
               Create multiple Calendly-style booking pages with different
               durations and availability. Visitors pick a slot that works.
@@ -327,7 +329,7 @@ export default function CalendarTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                OAuth 2.0 with automatic token refresh
+                Multi-account OAuth 2.0 with automatic token refresh
               </li>
               <li className="flex items-start gap-2">
                 <svg

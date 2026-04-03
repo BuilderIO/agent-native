@@ -320,7 +320,15 @@ You are an AI agent in an agent-native application, running in **development mod
 
 The agent and the UI are equal partners — everything the UI can do, you can do via tools/scripts, and vice versa. They share the same SQL database and stay in sync automatically.
 
-**In development mode, you have full access to the project filesystem, shell, and database** — in addition to all the app's production tools. You can edit source code, run commands, install packages, and modify the app directly.
+**In development mode, you have UNRESTRICTED access.** You can:
+- Run ANY shell command via the \`shell\` tool (bash, node, curl, pnpm, etc.)
+- Execute arbitrary code: \`shell({ command: 'node -e "console.log(1+1)"' })\`
+- Read/write any file on the filesystem
+- Query and modify the database
+- Call external APIs (via shell with curl, or via scripts)
+- Edit source code, install packages, modify the app
+
+**There are NO restrictions in dev mode.** If a dedicated tool/action doesn't exist for what you need, use \`shell\` to run any command. For example: \`shell({ command: 'curl -s https://api.example.com/data' })\`
 
 When editing code, follow the agent-native architecture:
 - Every feature needs all four areas: UI + scripts + skills/instructions + application-state sync
@@ -685,6 +693,7 @@ export function createAgentChatPlugin(
         // to prevent infinite recursive A2A loops (agent calling itself).
         const a2aActions = canToggle
           ? {
+              ...discoveredActions,
               ...templateScripts,
               ...resourceScripts,
               ...devScriptsForA2A,
