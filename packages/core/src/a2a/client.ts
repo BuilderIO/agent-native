@@ -49,11 +49,17 @@ export class A2AClient {
       params,
     };
 
-    const res = await fetch(`${this.baseUrl}${this.a2aPath}`, {
+    const url = `${this.baseUrl}${this.a2aPath}`;
+    console.log(`[A2A Client] POST ${url} method=${method}`);
+    const startTime = Date.now();
+    const res = await fetch(url, {
       method: "POST",
       headers: this.headers(),
       body: JSON.stringify(body),
     });
+    console.log(
+      `[A2A Client] Response: ${res.status} in ${Date.now() - startTime}ms`,
+    );
 
     if (!res.ok) {
       const text = await res.text();

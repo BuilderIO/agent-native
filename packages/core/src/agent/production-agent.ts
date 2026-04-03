@@ -397,10 +397,8 @@ export function createProductionAgentHandler(
       threadId ?? runId,
       async (send, signal) => {
         // Resolve agent @-mentions via A2A calls (inside run so we can emit SSE events)
-        // Uses streaming when available so the user sees the target agent's
-        // response being generated progressively.
         if (agentRefs.length > 0) {
-          const { A2AClient } = await import("../a2a/client.js");
+          const { callAgent } = await import("../a2a/client.js");
           const agentResponses: string[] = [];
 
           const results = await Promise.allSettled(
@@ -411,78 +409,26 @@ export function createProductionAgentHandler(
                 status: "start",
               });
               try {
-                const client = new A2AClient(ref.path);
-                let responseText = "";
-
-                // Try streaming first — falls back to non-streaming send
-                try {
-                  let lastSentLength = 0;
-                  for await (const task of client.stream({
-                    role: "user",
-                    parts: [{ type: "text", text: message }],
-                  })) {
-                    const newText =
-                      task.status?.message?.parts
-                        ?.filter(
-                          (p): p is { type: "text"; text: string } =>
-                            p.type === "text",
-                        )
-                        ?.map((p) => p.text)
-                        ?.join("") ?? "";
-
-                    if (newText.length > lastSentLength) {
-                      send({
-                        type: "agent_call_text",
-                        agent: ref.name,
-                        text: newText.slice(lastSentLength),
-                      });
-                      lastSentLength = newText.length;
-                    }
-                    responseText = newText;
-                  }
-                } catch (streamErr: any) {
-                  // If streaming threw after partial text, keep what we have
-                  // but don't silently swallow the error
-                  if (responseText) {
-                    responseText += "\n[Stream interrupted]";
-                  }
-                }
-
-                // If streaming yielded nothing (0 chunks, silent 200, or threw before any data),
-                // fall back to synchronous send
-                if (!responseText) {
-                  try {
-                    const task = await client.send({
-                      role: "user",
-                      parts: [{ type: "text", text: message }],
-                    });
-                    const msg = task.status?.message;
-                    if (msg) {
-                      responseText = msg.parts
-                        .filter(
-                          (p): p is { type: "text"; text: string } =>
-                            p.type === "text",
-                        )
-                        .map((p) => p.text)
-                        .join("\n");
-                    }
-                  } catch {
-                    responseText = "Agent did not return a response.";
-                  }
-                }
-
+                console.log(
+                  `[A2A] Calling ${ref.name} at ${ref.path} with message: "${message.slice(0, 100)}..."`,
+                );
+                const response = await callAgent(ref.path, message);
+                console.log(
+                  `[A2A] ${ref.name} responded: "${(response || "").slice(0, 100)}..."`,
+                );
                 send({
                   type: "agent_call",
                   agent: ref.name,
                   status: "done",
                 });
-                return `<agent-response name="${ref.name}" id="${ref.refId}">\n${responseText}\n</agent-response>`;
+                return `<agent-response name="${ref.name}" id="${ref.refId}">\n${response}\n</agent-response>`;
               } catch (err: any) {
                 send({
                   type: "agent_call",
                   agent: ref.name,
                   status: "error",
                 });
+                console.error(`[A2A] Error calling ${ref.name}:`, err?.message);
                 return `<agent-response name="${ref.name}" id="${ref.refId}" error="true">\nFailed to reach ${ref.name}: ${err?.message}\n</agent-response>`;
               }
             }),

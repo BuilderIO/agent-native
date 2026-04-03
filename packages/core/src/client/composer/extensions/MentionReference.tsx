@@ -81,6 +81,10 @@ export const MentionReference = Node.create({
     ];
   },
 
+  renderText({ node }) {
+    return `@${node.attrs.label}`;
+  },
+
   addNodeView() {
     return ReactNodeViewRenderer(MentionReferenceComponent);
   },
