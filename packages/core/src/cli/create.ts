@@ -1,17 +1,45 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { execSync } from "child_process";
 import { setupAgentSymlinks } from "./setup-agents.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const REPO = "BuilderIO/agent-native";
+const TEMPLATES_DIR = "templates";
+
 /**
- * Scaffold a new agent-native app from the default template.
+ * Known first-party templates hosted in the agent-native monorepo.
  */
-export function createApp(name?: string): void {
+const KNOWN_TEMPLATES = [
+  "analytics",
+  "calendar",
+  "content",
+  "forms",
+  "issues",
+  "mail",
+  "recruiting",
+  "slides",
+  "starter",
+  "video",
+  "videos",
+];
+
+/**
+ * Scaffold a new agent-native app.
+ *
+ * Without --template: uses the bundled default template.
+ * With --template <name>: downloads the template from GitHub.
+ * With --template github:user/repo: downloads from a custom GitHub repo.
+ */
+export async function createApp(
+  name?: string,
+  opts?: { template?: string },
+): Promise<void> {
   if (!name) {
-    console.error("Usage: agent-native create <app-name>");
+    console.error("Usage: agent-native create <app-name> [--template <name>]");
     process.exit(1);
   }
 
@@ -30,9 +58,19 @@ export function createApp(name?: string): void {
     process.exit(1);
   }
 
-  // Locate the template directory
-  // In dist: dist/cli/create.js -> ../../src/templates/default
-  // Resolve relative to the package root
+  const template = opts?.template;
+
+  if (template) {
+    await createFromTemplate(name, targetDir, template);
+  } else {
+    createFromDefault(name, targetDir);
+  }
+}
+
+/**
+ * Create from the bundled default template (no --template flag).
+ */
+function createFromDefault(name: string, targetDir: string): void {
   const packageRoot = path.resolve(__dirname, "../..");
   const templateDir = path.join(packageRoot, "src/templates/default");
 
@@ -44,22 +82,133 @@ export function createApp(name?: string): void {
   }
 
   console.log(`Creating ${name}...`);
-
-  // Copy template
   copyDir(templateDir, targetDir);
+  postProcess(name, targetDir);
+}
 
-  // Replace {{APP_NAME}} and {{APP_TITLE}} placeholders in all text files.
-  // Previously this was done per-file (package.json, index.html, AGENTS.md),
-  // but index.html no longer exists in the React Router framework template and
-  // route files like app/routes/_index.tsx also contain {{APP_TITLE}}.
-  // A single recursive pass is simpler and future-proof.
+/**
+ * Create from a named template or GitHub repo.
+ *
+ * Supports:
+ *   --template mail           (first-party template from BuilderIO/agent-native)
+ *   --template github:user/repo  (community template from a GitHub repo)
+ */
+async function createFromTemplate(
+  name: string,
+  targetDir: string,
+  template: string,
+): Promise<void> {
+  // Normalize "video" → "videos" (docs use singular, dir is plural)
+  let resolvedTemplate = template;
+  if (resolvedTemplate === "video") resolvedTemplate = "videos";
+
+  if (resolvedTemplate.startsWith("github:")) {
+    // Community template: github:user/repo
+    const repo = resolvedTemplate.slice("github:".length);
+    console.log(`Creating ${name} from ${repo}...`);
+    await downloadGitHubRepo(repo, targetDir);
+  } else if (KNOWN_TEMPLATES.includes(resolvedTemplate)) {
+    // First-party template from monorepo
+    console.log(`Creating ${name} from template "${resolvedTemplate}"...`);
+    await downloadGitHubSubdir(
+      REPO,
+      `${TEMPLATES_DIR}/${resolvedTemplate}`,
+      targetDir,
+    );
+  } else {
+    console.error(
+      `Unknown template "${template}". Available templates: ${KNOWN_TEMPLATES.filter((t) => t !== "videos").join(", ")}`,
+    );
+    console.error(`For community templates, use: --template github:user/repo`);
+    process.exit(1);
+  }
+
+  postProcess(name, targetDir);
+}
+
+/**
+ * Download a subdirectory from a GitHub repo using the tarball API.
+ */
+async function downloadGitHubSubdir(
+  repo: string,
+  subdir: string,
+  targetDir: string,
+): Promise<void> {
+  const tarUrl = `https://api.github.com/repos/${repo}/tarball/main`;
+
+  // Download and extract into a temp dir, then copy the subdir
+  const tmpDir = path.join(targetDir, "..", `.agent-native-tmp-${Date.now()}`);
+  fs.mkdirSync(tmpDir, { recursive: true });
+
+  try {
+    // Download tarball
+    execSync(
+      `curl -sL "${tarUrl}" | tar xz --strip-components=1 -C "${tmpDir}"`,
+      { stdio: "pipe" },
+    );
+
+    const srcDir = path.join(tmpDir, subdir);
+    if (!fs.existsSync(srcDir)) {
+      console.error(
+        `Template directory "${subdir}" not found in ${repo}. Check the template name.`,
+      );
+      process.exit(1);
+    }
+
+    // Copy template to target
+    copyDir(srcDir, targetDir);
+  } finally {
+    // Clean up temp dir
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Download an entire GitHub repo (for community templates).
+ */
+async function downloadGitHubRepo(
+  repo: string,
+  targetDir: string,
+): Promise<void> {
+  const tarUrl = `https://api.github.com/repos/${repo}/tarball/main`;
+
+  fs.mkdirSync(targetDir, { recursive: true });
+
+  try {
+    execSync(
+      `curl -sL "${tarUrl}" | tar xz --strip-components=1 -C "${targetDir}"`,
+      { stdio: "pipe" },
+    );
+  } catch {
+    console.error(
+      `Failed to download template from ${repo}. Check the repo name and that it's public.`,
+    );
+    process.exit(1);
+  }
+}
+
+/**
+ * Post-process a scaffolded template: replace placeholders, set up symlinks, etc.
+ */
+function postProcess(name: string, targetDir: string): void {
+  // Replace {{APP_NAME}} and {{APP_TITLE}} placeholders in all text files
   const appTitle = name
     .split("-")
     .map((w) => w[0].toUpperCase() + w.slice(1))
     .join(" ");
   replacePlaceholders(targetDir, name, appTitle);
 
-  // Copy defaults files (gitignored files that get seeded from .defaults on first create)
+  // Update package.json name field (templates have their own name)
+  const pkgPath = path.join(targetDir, "package.json");
+  if (fs.existsSync(pkgPath)) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+      pkg.name = name;
+      fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+    } catch {}
+  }
+
+  // Copy defaults files
   for (const base of ["learnings"]) {
     const defaultsFile = path.join(targetDir, `${base}.defaults.md`);
     const targetFile = path.join(targetDir, `${base}.md`);
@@ -73,6 +222,34 @@ export function createApp(name?: string): void {
   const gitignoreDst = path.join(targetDir, ".gitignore");
   if (fs.existsSync(gitignoreSrc)) {
     fs.renameSync(gitignoreSrc, gitignoreDst);
+  }
+
+  // Remove monorepo-specific files that don't belong in standalone apps
+  for (const f of ["DEVELOPING.md"]) {
+    const p = path.join(targetDir, f);
+    if (fs.existsSync(p)) fs.unlinkSync(p);
+  }
+
+  // Fix package.json: remove workspace: references
+  if (fs.existsSync(pkgPath)) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+      for (const depType of [
+        "dependencies",
+        "devDependencies",
+        "peerDependencies",
+      ] as const) {
+        const deps = pkg[depType];
+        if (!deps) continue;
+        for (const [key, val] of Object.entries(deps)) {
+          if (typeof val === "string" && val.startsWith("workspace:")) {
+            // Replace workspace:* with "latest"
+            deps[key] = "latest";
+          }
+        }
+      }
+      fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+    } catch {}
   }
 
   // Create symlinks for all agent tools (Claude, Cursor, Windsurf, etc.)
