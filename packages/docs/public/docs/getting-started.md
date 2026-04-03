@@ -1,71 +1,75 @@
 # Getting Started
 
-Welcome to the Agent-Native documentation!
+The fastest way to get started is to pick a template and customize it. Templates are complete, production-ready apps — not starter kits. You get a working app in under a minute and start making it yours.
 
-## Installation
+## Start from a Template
 
-Create a new project:
+Pick a template and create your app:
+
+```bash
+npx @agent-native/core create my-app --template mail
+```
+
+Then run it:
+
+```bash
+cd my-app
+pnpm install
+pnpm dev
+```
+
+That's it — you have a full email client running locally with an AI agent built in. Open the agent panel, ask it to do something, and watch it work.
+
+From here, use your AI coding tool (Claude Code, Cursor, Windsurf, etc.) to customize it. The agent instructions in `AGENTS.md` are already set up so any tool understands the codebase.
+
+## Choose a Template
+
+Each template is a complete app with UI, agent actions, database schema, and AI instructions ready to go:
+
+| Template      | Replaces                    | Command                                                     |
+| ------------- | --------------------------- | ----------------------------------------------------------- |
+| **Mail**      | Superhuman, Gmail           | `npx @agent-native/core create my-app --template mail`      |
+| **Calendar**  | Google Calendar, Calendly   | `npx @agent-native/core create my-app --template calendar`  |
+| **Content**   | Notion, Google Docs         | `npx @agent-native/core create my-app --template content`   |
+| **Slides**    | Google Slides, Pitch        | `npx @agent-native/core create my-app --template slides`    |
+| **Video**     | Video editing tools         | `npx @agent-native/core create my-app --template video`     |
+| **Analytics** | Amplitude, Mixpanel, Looker | `npx @agent-native/core create my-app --template analytics` |
+
+Browse the [template gallery](https://agent-native.com/templates) for live demos and detailed feature lists.
+
+## Start from Scratch
+
+If you want a blank canvas instead of a template, create a project without the `--template` flag:
 
 ```bash
 npx @agent-native/core create my-app
 ```
 
+This gives you the framework scaffolding — React frontend, Nitro backend, agent panel, and database — but no domain-specific code. Good for building something entirely new.
+
 ## Project Structure
 
-Every agent-native app follows the same convention:
+Every agent-native app — whether from a template or from scratch — follows the same structure:
 
 ```
 my-app/
-  app/                   # React frontend
-    root.tsx             # HTML shell + global providers
-    entry.client.tsx     # Client hydration entry
-    routes.ts            # Route config — flatRoutes()
-    routes/              # File-based page routes (auto-discovered)
-      _index.tsx         # / (home page)
-      settings.tsx       # /settings
-    components/          # UI components
-    lib/utils.ts         # cn() utility
-  server/                # Nitro API server
-    routes/
-      api/               # File-based API routes (auto-discovered)
-      [...page].get.ts   # SSR catch-all (delegates to React Router)
-    plugins/             # Server plugins (startup logic)
-    lib/                 # Shared server modules
-  shared/                # Isomorphic code (client & server)
-  scripts/               # Agent-callable scripts
-    run.ts               # Script dispatcher
-  data/                  # App data files (watched by SSE)
-  react-router.config.ts # React Router framework config
+  app/             # React frontend (routes, components, hooks)
+  server/          # Nitro API server (routes, plugins)
+  actions/         # Agent-callable actions
+  .agents/         # Agent instructions and skills
 ```
 
-## Vite Configuration
+Templates add domain-specific code on top of this: database schemas in `server/db/`, API routes in `server/routes/api/`, and actions in `actions/`.
 
-A single config file handles both client SPA and server build:
+## Configuration
+
+Templates come pre-configured. If you're starting from scratch, here are the config files:
 
 ```ts
 // vite.config.ts
 import { defineConfig } from "@agent-native/core/vite";
-
-export default defineConfig({
-  reactRouter: true,
-});
+export default defineConfig();
 ```
-
-`defineConfig()` sets up React Router framework mode (SSR + file-based routing), path aliases (`@/` → `app/`, `@shared/` → `shared/`), fs restrictions, and the Nitro server plugin (file-based API routing, server plugins, deploy-anywhere presets). See the [Routing docs](./routing.md) for full details on adding pages.
-
-### Nitro options
-
-Pass Nitro configuration via the `nitro` option:
-
-```ts
-export default defineConfig({
-  nitro: {
-    preset: "vercel", // Deploy target (default: "node")
-  },
-});
-```
-
-## TypeScript & Tailwind
 
 ```json
 // tsconfig.json
@@ -99,10 +103,11 @@ export default {
 
 ## Architecture Principles
 
-1. **Files as database** — All app state lives in files. Both UI and agent read/write the same files.
+These principles apply to all agent-native apps. Understanding them helps you customize templates or build from scratch:
+
+1. **Data lives in SQL** — All app state lives in a SQL database via Drizzle ORM. The agent and UI read/write the same tables.
 2. **All AI through agent chat** — No inline LLM calls. UI delegates to the AI via `sendToAgentChat()`.
-3. **Scripts for agent ops** — `pnpm script <name>` dispatches to callable script files.
-4. **Bidirectional SSE events** — File watcher keeps UI in sync with agent changes in real-time.
-5. **Agent can update code** — The agent modifies the app itself.
-6. **Application state as files** — Ephemeral UI state lives in `application-state/` as JSON. Both agent and UI can read and write these files; the SSE watcher covers this directory too.
-7. **Deploy anywhere** — Nitro presets let you deploy to Node.js, Vercel, Netlify, Cloudflare, AWS Lambda, Deno, and more with a single config change.
+3. **Actions for agent ops** — Agent-callable actions in `actions/` let the agent do anything the UI can do.
+4. **Real-time sync** — Database changes sync to the UI via polling. When the agent writes data, the UI updates automatically.
+5. **Agent can update code** — The agent modifies the app itself — components, routes, styles, actions.
+6. **Deploy anywhere** — Nitro presets let you deploy to Node.js, Vercel, Netlify, Cloudflare, AWS Lambda, Deno, and more with a single config change.

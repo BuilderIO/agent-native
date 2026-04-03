@@ -220,6 +220,66 @@ async function createResourceScriptEntries(): Promise<
 }
 
 /**
+ * Creates chat management ActionEntries (search-chats, open-chat).
+ */
+async function createChatScriptEntries(): Promise<Record<string, ActionEntry>> {
+  try {
+    const [searchMod, openMod] = await Promise.all([
+      import("../scripts/chat/search-chats.js"),
+      import("../scripts/chat/open-chat.js"),
+    ]);
+
+    return {
+      "search-chats": wrapCliScript(
+        {
+          description:
+            "Search or list past agent chat threads. Use this to find previous conversations by keyword.",
+          parameters: {
+            type: "object",
+            properties: {
+              query: {
+                type: "string",
+                description:
+                  "Search term to find chats by title, preview, or content",
+              },
+              limit: {
+                type: "string",
+                description: "Max number of results (default: 20)",
+              },
+              format: {
+                type: "string",
+                description: "Output format",
+                enum: ["json", "text"],
+              },
+            },
+          },
+        },
+        searchMod.default,
+      ),
+      "open-chat": wrapCliScript(
+        {
+          description:
+            "Open a chat thread in the UI as a new tab and focus it. Use search-chats first to find the thread ID.",
+          parameters: {
+            type: "object",
+            properties: {
+              id: {
+                type: "string",
+                description: "The chat thread ID to open",
+              },
+            },
+            required: ["id"],
+          },
+        },
+        openMod.default,
+      ),
+    };
+  } catch {
+    return {};
+  }
+}
+
+/**
  * Creates the call-agent ActionEntry for cross-agent A2A communication.
  */
 async function createCallAgentScriptEntry(): Promise<
@@ -303,6 +363,14 @@ When the user gives instructions that should apply to all users/sessions, update
 ### Navigation Rule
 
 When the user says "show me", "go to", "open", "switch to", or similar navigation language, ALWAYS use the \`navigate\` action to update the UI. The user expects to SEE the result in the main app, not just read it in chat. Navigate first, then fetch/display data.
+
+### Chat History
+
+You can search and restore previous chat conversations:
+- \`search-chats\` — Search or list past chat threads by keyword
+- \`open-chat\` — Open a chat thread in the UI as a new tab and focus it
+
+When the user asks to find a previous conversation, use \`search-chats\` first to find matching threads, then \`open-chat\` to restore the one they want.
 `;
 
 const PROD_FRAMEWORK_PROMPT = `## Agent-Native Framework — Production Mode
@@ -504,8 +572,9 @@ export function createAgentChatPlugin(
         ? await rawActions()
         : (rawActions ?? {});
 
-    // Resource and cross-agent scripts are available in both prod and dev modes
+    // Resource, chat, and cross-agent scripts are available in both prod and dev modes
     const resourceScripts = await createResourceScriptEntries();
+    const chatScripts = await createChatScriptEntries();
     const callAgentScript = await createCallAgentScriptEntry();
 
     // Auto-mount A2A protocol endpoints so every app is discoverable
@@ -587,6 +656,7 @@ export function createAgentChatPlugin(
       ...discoveredActions,
       ...templateScripts,
       ...resourceScripts,
+      ...chatScripts,
       ...callAgentScript,
       ...devScriptsForA2A,
     };
@@ -696,9 +766,10 @@ export function createAgentChatPlugin(
               ...discoveredActions,
               ...templateScripts,
               ...resourceScripts,
+              ...chatScripts,
               ...devScriptsForA2A,
             }
-          : { ...templateScripts, ...resourceScripts };
+          : { ...templateScripts, ...resourceScripts, ...chatScripts };
 
         const tools: any[] = Object.entries(a2aActions).map(
           ([name, entry]) => ({
@@ -851,7 +922,12 @@ export function createAgentChatPlugin(
 
     // Always build the production handler (includes resource tools + call-agent)
     const prodHandler = createProductionAgentHandler({
-      actions: { ...templateScripts, ...resourceScripts, ...callAgentScript },
+      actions: {
+        ...templateScripts,
+        ...resourceScripts,
+        ...chatScripts,
+        ...callAgentScript,
+      },
       systemPrompt: async (event: any) => {
         const owner = await getOwnerFromEvent(event);
         const resources = await loadResourcesForPrompt(owner);
@@ -872,6 +948,7 @@ export function createAgentChatPlugin(
         ...discoveredActions,
         ...templateScripts,
         ...resourceScripts,
+        ...chatScripts,
         ...callAgentScript,
         ...(await createDevScriptRegistry()),
       };

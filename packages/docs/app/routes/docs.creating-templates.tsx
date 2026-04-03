@@ -42,8 +42,8 @@ export default function CreatingTemplatesDocs() {
         </li>
         <li>Includes actions for key operations the agent can call</li>
         <li>
-          Follows the five rules: files as database, all AI through agent chat,
-          actions for operations, SSE sync, agent can modify code
+          Follows the core rules: data in SQL, all AI through agent chat,
+          actions for operations, real-time sync, agent can modify code
         </li>
       </ul>
 
@@ -276,10 +276,10 @@ This is an **@agent-native/core** application.
 
 ### Core Principles
 
-1. **Files as database** — All state in \`data/\`. No traditional DB.
+1. **Data lives in SQL** — All state in SQL via Drizzle ORM.
 2. **All AI through agent chat** — No inline LLM calls.
 3. **Actions for operations** — \`pnpm action <name>\` for complex work.
-4. **SSE sync** — File watcher keeps UI in sync.
+4. **Real-time sync** — Polling keeps UI in sync with agent changes.
 5. **Agent can update code** — Edit components, routes, actions.
 
 ### Directory Structure

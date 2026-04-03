@@ -8,18 +8,23 @@ Agent-Native is an open source framework for building full-featured applications
 
 # Getting Started
 
-## Installation
+## Start from a Template
 
-Create a new project:
-
-```bash
-npx @agent-native/core create my-app
-```
-
-Or fork a specific template:
+The fastest way to get started is to pick a template. Templates are complete, production-ready apps — not starter kits. Pick one and customize it:
 
 ```bash
 npx @agent-native/core create my-app --template mail
+cd my-app
+pnpm install
+pnpm dev
+```
+
+Available templates: `mail`, `calendar`, `content`, `slides`, `video`, `analytics`. Replace `mail` above with any template name.
+
+To start from a blank canvas instead, omit `--template`:
+
+```bash
+npx @agent-native/core create my-app
 ```
 
 ## Project Structure
@@ -110,12 +115,12 @@ export default {
 
 ## Architecture Principles
 
-1. **Files as database** — All app state lives in files. Both UI and agent read/write the same files.
+1. **Data lives in SQL** — All app state lives in a SQL database via Drizzle ORM. The agent and UI read/write the same tables.
 2. **All AI through agent chat** — No inline LLM calls. UI delegates to the AI via `sendToAgentChat()`.
-3. **Actions for agent ops** — `pnpm action <name>` dispatches to callable action files.
-4. **Bidirectional SSE events** — File watcher keeps UI in sync with agent changes in real-time.
-5. **Agent can update code** — The agent modifies the app itself.
-6. **Application state as files** — Ephemeral UI state lives in `application-state/` as JSON. Both agent and UI can read and write these files; the SSE watcher covers this directory too.
+3. **Actions for agent ops** — Agent-callable actions in `actions/` let the agent do anything the UI can do.
+4. **Real-time sync** — Database changes sync to the UI via polling. When the agent writes data, the UI updates automatically.
+5. **Agent can update code** — The agent modifies the app itself — components, routes, styles, actions.
+6. **Application state in SQL** — Ephemeral UI state lives in the `application_state` table. Both agent and UI read and write it.
 7. **Deploy anywhere** — Nitro presets let you deploy to Node.js, Vercel, Netlify, Cloudflare, AWS Lambda, Deno, and more with a single config change.
 
 ---

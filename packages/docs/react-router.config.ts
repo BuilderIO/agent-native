@@ -9,7 +9,7 @@ export default {
     "/docs",
     "/docs/server",
     "/docs/client",
-    "/docs/scripts",
+    "/docs/actions",
     "/docs/deployment",
     "/docs/file-sync",
     "/docs/key-concepts",
