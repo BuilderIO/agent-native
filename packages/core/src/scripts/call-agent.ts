@@ -45,6 +45,25 @@ export async function run(
     if (context?.send) {
       const client = new A2AClient(agent.url);
       const callerEmail = process.env.AGENT_USER_EMAIL;
+
+      // Build metadata with identity
+      const a2aMetadata: Record<string, unknown> = {};
+      if (callerEmail) a2aMetadata.userEmail = callerEmail;
+      if (process.env.NODE_ENV === "production" && callerEmail) {
+        try {
+          const { listOAuthAccountsByOwner } =
+            await import("../oauth-tokens/store.js");
+          const accounts = await listOAuthAccountsByOwner(
+            "google",
+            callerEmail,
+          );
+          const tokens = accounts[0]?.tokens;
+          if (tokens?.access_token) {
+            a2aMetadata.googleToken = tokens.access_token;
+          }
+        } catch {}
+      }
+
       let responseText = "";
       let lastSentLength = 0;
 
@@ -60,7 +79,9 @@ export async function run(
             role: "user",
             parts: [{ type: "text", text: message }],
           },
-          callerEmail ? { metadata: { userEmail: callerEmail } } : undefined,
+          Object.keys(a2aMetadata).length > 0
+            ? { metadata: a2aMetadata }
+            : undefined,
         )) {
           const newText =
             task.status?.message?.parts
