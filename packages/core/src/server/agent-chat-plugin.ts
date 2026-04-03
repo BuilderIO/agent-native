@@ -623,10 +623,21 @@ export function createAgentChatPlugin(
             const script = allScripts[tb.name];
             let result = `Unknown tool: ${tb.name}`;
             if (script) {
+              // Intercept process.exit so scripts don't kill the server
+              const origExit = process.exit;
+              process.exit = ((code?: number) => {
+                throw new ExitIntercepted(code ?? 0);
+              }) as never;
               try {
                 result = await script.run(tb.input as Record<string, string>);
               } catch (err: any) {
-                result = `Error: ${err?.message}`;
+                if (err instanceof ExitIntercepted) {
+                  result = `Script exited with code ${err.code}`;
+                } else {
+                  result = `Error: ${err?.message}`;
+                }
+              } finally {
+                process.exit = origExit;
               }
             }
             toolResults.push({
