@@ -59,15 +59,28 @@ export async function run(args: Record<string, string>): Promise<string> {
       to.toISOString(),
     );
 
-    const compact = events.slice(0, 50).map((e: any) => ({
-      id: e.id,
-      title: e.title,
-      start: e.start,
-      end: e.end,
-      location: e.location || undefined,
-      allDay: e.allDay || undefined,
-      attendees: e.attendees?.length ?? 0,
-    }));
+    const compact = events.slice(0, 50).map((e: any) => {
+      const videoLink =
+        e.hangoutLink ||
+        e.conferenceData?.entryPoints?.find(
+          (ep: any) => ep.entryPointType === "video",
+        )?.uri;
+      return {
+        id: e.id,
+        title: e.title,
+        start: e.start,
+        end: e.end,
+        location: e.location || undefined,
+        allDay: e.allDay || undefined,
+        attendeeCount: e.attendees?.length ?? 0,
+        attendeeNames: e.attendees
+          ?.filter((a: any) => !a.self)
+          .slice(0, 8)
+          .map((a: any) => a.displayName || a.email),
+        videoLink: videoLink || undefined,
+        responseStatus: e.responseStatus || undefined,
+      };
+    });
 
     screen.events = {
       from: from.toISOString(),

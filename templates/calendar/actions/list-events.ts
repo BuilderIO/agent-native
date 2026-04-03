@@ -122,6 +122,50 @@ export default async function main(args: string[]) {
       console.log(
         `${title.padEnd(40)} ${dateRange.padEnd(40)} ${(event.source || "google").padEnd(8)} ${loc}`,
       );
+
+      // Show attendee summary
+      if (event.attendees && event.attendees.length > 0) {
+        const names = event.attendees
+          .filter((a: any) => !a.self)
+          .slice(0, 5)
+          .map(
+            (a: any) =>
+              `${a.displayName || a.email}${a.responseStatus ? ` (${a.responseStatus})` : ""}`,
+          );
+        const extra =
+          event.attendees.filter((a: any) => !a.self).length > 5
+            ? ` +${event.attendees.filter((a: any) => !a.self).length - 5} more`
+            : "";
+        console.log(
+          `${"".padEnd(4)}👥 ${event.attendees.length} attendee(s): ${names.join(", ")}${extra}`,
+        );
+      }
+
+      // Show video/conference link
+      const videoLink =
+        event.hangoutLink ||
+        event.conferenceData?.entryPoints?.find(
+          (ep: any) => ep.entryPointType === "video",
+        )?.uri;
+      if (videoLink) {
+        const solution = event.conferenceData?.conferenceSolution?.name || "";
+        console.log(
+          `${"".padEnd(4)}📹 ${solution ? solution + ": " : ""}${videoLink}`,
+        );
+      }
+
+      // Show description (truncated)
+      if (event.description) {
+        const desc =
+          event.description.length > 120
+            ? event.description.slice(0, 117) + "..."
+            : event.description;
+        // Strip HTML tags for cleaner output
+        const cleanDesc = desc.replace(/<[^>]*>/g, "").trim();
+        if (cleanDesc) {
+          console.log(`${"".padEnd(4)}📝 ${cleanDesc}`);
+        }
+      }
     }
   }
 
