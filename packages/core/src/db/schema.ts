@@ -30,11 +30,11 @@ import {
 } from "drizzle-orm/pg-core";
 import { getDialect } from "./client.js";
 
-// Cache the dialect check so we only read the env once.
-let _pg: boolean | undefined;
+// No caching — getDialect() handles its own caching once env is available.
+// On CF Workers, this runs at import time before env bindings are set, so
+// caching here would lock in the wrong dialect.
 function pg(): boolean {
-  if (_pg === undefined) _pg = getDialect() === "postgres";
-  return _pg;
+  return getDialect() === "postgres";
 }
 
 /**
