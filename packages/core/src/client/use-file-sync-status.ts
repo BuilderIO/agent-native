@@ -15,7 +15,7 @@ interface FileSyncEvent {
 
 /**
  * React hook for tracking file sync status via SSE events.
- * Fetches initial state from GET /api/file-sync/status on mount,
+ * Fetches initial state from GET /_agent-native/file-sync/status on mount,
  * then accumulates updates from SSE sync events.
  */
 export function useFileSyncStatus(options?: {
@@ -33,7 +33,7 @@ export function useFileSyncStatus(options?: {
   // Fetch initial state on mount
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/file-sync/status")
+    fetch("/_agent-native/file-sync/status")
       .then((r) => r.json())
       .then((data) => {
         if (!cancelled) {
@@ -52,7 +52,7 @@ export function useFileSyncStatus(options?: {
 
   // Subscribe to SSE sync events
   useEffect(() => {
-    const es = new EventSource("/api/events");
+    const es = new EventSource("/_agent-native/events");
     const handler = (event: MessageEvent) => {
       try {
         const data = JSON.parse(event.data);

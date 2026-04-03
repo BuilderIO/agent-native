@@ -149,6 +149,11 @@ switch (command) {
     break;
   }
 
+  case "setup-agents": {
+    import("./setup-agents.js").then((m) => m.runSetupAgents());
+    break;
+  }
+
   case "--version":
   case "-v": {
     console.log(_version);
@@ -167,6 +172,7 @@ Usage:
   agent-native script <name>    Run a script from scripts/
   agent-native typecheck        Run TypeScript type checking
   agent-native create <name>    Scaffold a new agent-native app
+  agent-native setup-agents     Create symlinks for all agent tools
 
 Options:
   -h, --help                    Show this help message

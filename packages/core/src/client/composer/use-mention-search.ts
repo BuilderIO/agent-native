@@ -20,7 +20,7 @@ export function useMentionSearch(query: string, enabled: boolean) {
       async () => {
         try {
           const res = await fetch(
-            `/api/agent-chat/mentions?q=${encodeURIComponent(query)}`,
+            `/_agent-native/agent-chat/mentions?q=${encodeURIComponent(query)}`,
           );
           if (!res.ok) throw new Error();
           const data = await res.json();

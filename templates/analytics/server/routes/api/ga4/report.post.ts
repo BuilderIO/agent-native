@@ -1,4 +1,5 @@
 import { defineEventHandler, readBody, createError } from "h3";
+import { resolveCredential } from "../../../lib/credentials";
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event);
@@ -13,14 +14,16 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: "metrics required" });
   }
 
-  const propertyId = process.env.GA4_PROPERTY_ID;
-  const credsJson = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+  const propertyId = await resolveCredential("GA4_PROPERTY_ID");
+  const credsJson = await resolveCredential(
+    "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+  );
 
   if (!propertyId || !credsJson) {
     throw createError({
       statusCode: 400,
       statusMessage:
-        "GA4 not configured. Set GA4_PROPERTY_ID and GOOGLE_APPLICATION_CREDENTIALS_JSON.",
+        "GA4 not configured. Set GA4_PROPERTY_ID and GOOGLE_APPLICATION_CREDENTIALS_JSON in Data Sources.",
     });
   }
 

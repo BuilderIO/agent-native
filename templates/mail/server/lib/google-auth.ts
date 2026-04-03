@@ -73,7 +73,7 @@ async function getValidAccessToken(
   }
 
   const { clientId, clientSecret } = getOAuth2Credentials();
-  const redirectUri = "http://localhost:8080/api/google/callback";
+  const redirectUri = "http://localhost:8080/_agent-native/google/callback";
   const oauth2 = createOAuth2Client(clientId, clientSecret, redirectUri);
   const refreshed = await oauth2.refreshToken(tokens.refresh_token);
 
@@ -104,8 +104,8 @@ export function getAuthUrl(
   const uri =
     redirectUri ||
     (origin
-      ? `${origin}/api/google/callback`
-      : "http://localhost:8080/api/google/callback");
+      ? `${origin}/_agent-native/google/callback`
+      : "http://localhost:8080/_agent-native/google/callback");
   const oauth2 = createOAuth2Client(clientId, clientSecret, uri);
   return oauth2.generateAuthUrl({
     access_type: "offline",
@@ -125,8 +125,8 @@ export async function exchangeCode(
   const uri =
     redirectUri ||
     (origin
-      ? `${origin}/api/google/callback`
-      : "http://localhost:8080/api/google/callback");
+      ? `${origin}/_agent-native/google/callback`
+      : "http://localhost:8080/_agent-native/google/callback");
   const oauth2 = createOAuth2Client(clientId, clientSecret, uri);
   const tokenResponse = await oauth2.getToken(code);
 

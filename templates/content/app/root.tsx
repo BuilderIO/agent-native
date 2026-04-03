@@ -11,8 +11,8 @@ import {
   CommandMenu,
   useCommandMenuShortcut,
 } from "@agent-native/core/client";
-import { useFileWatcher } from "./hooks/use-file-watcher";
-import { useNavigationWatcher } from "./hooks/use-navigation-watcher";
+import { useDbSync } from "./hooks/use-db-sync";
+import { useNavigationState } from "./hooks/use-navigation-state";
 import "./global.css";
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -43,8 +43,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 function AppSetup() {
-  useFileWatcher();
-  useNavigationWatcher();
+  useDbSync();
+  useNavigationState();
   return null;
 }
 

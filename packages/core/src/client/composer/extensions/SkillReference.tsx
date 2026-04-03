@@ -1,26 +1,7 @@
 import { mergeAttributes, Node } from "@tiptap/core";
 import { NodeViewWrapper, ReactNodeViewRenderer } from "@tiptap/react";
 import React from "react";
-
-function SkillIcon() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="shrink-0 text-muted-foreground"
-    >
-      <path d="M12 2L2 7l10 5 10-5-10-5z" />
-      <path d="M2 17l10 5 10-5" />
-      <path d="M2 12l10 5 10-5" />
-    </svg>
-  );
-}
+import { IconStack2 } from "@tabler/icons-react";
 
 const SkillReferenceComponent = ({ node }: { node: any }) => {
   const displayName =
@@ -37,7 +18,7 @@ const SkillReferenceComponent = ({ node }: { node: any }) => {
         className="inline-flex items-center gap-1 rounded-md border border-input bg-muted/50 px-1.5 py-0.5 text-xs font-medium text-foreground align-middle mx-0.5 max-w-[160px] select-none"
         title={node.attrs.path}
       >
-        <SkillIcon />
+        <IconStack2 size={14} className="shrink-0 text-muted-foreground" />
         <span className="truncate">{displayName}</span>
       </span>
     </NodeViewWrapper>

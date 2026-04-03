@@ -25,6 +25,7 @@
     "@radix-ui/react-popover": "^1.1.15",
     "@tabler/icons-react": "^3.40.0",
     "@tiptap/extension-bubble-menu": "^3.19.0",
+    "@tiptap/extension-code-block-lowlight": "^3.20.1",
     "@tiptap/extension-horizontal-rule": "^3.19.0",
     "@tiptap/extension-image": "^3.19.0",
     "@tiptap/extension-link": "^3.19.0",
@@ -40,7 +41,9 @@
     "@tiptap/starter-kit": "^3.19.0",
     "drizzle-orm": "^0.44.0",
     "h3": "^1.14.0",
+    "highlight.js": "^11.11.1",
     "isbot": "^5",
+    "lowlight": "^3.3.0",
     "tiptap-markdown": "^0.9.0",
     "zod": "^3.25.76"
   },

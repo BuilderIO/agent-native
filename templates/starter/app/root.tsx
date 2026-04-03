@@ -1,12 +1,13 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import { useCallback, useState } from "react";
+import { useNavigationState } from "@/hooks/use-navigation-state";
 import {
   QueryClient,
   QueryClientProvider,
   useQueryClient,
 } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
-import { useFileWatcher } from "@agent-native/core";
+import { useDbSync } from "@agent-native/core";
 import {
   ClientOnly,
   CommandMenu,
@@ -46,9 +47,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
 const TAB_ID = Math.random().toString(36).slice(2, 10);
 
-function FileWatcherSetup() {
+function DbSyncSetup() {
   const qc = useQueryClient();
-  useFileWatcher({
+  useDbSync({
     queryClient: qc,
     queryKeys: ["files", "data"],
     ignoreSource: TAB_ID,
@@ -57,6 +58,7 @@ function FileWatcherSetup() {
 }
 
 export default function Root() {
+  useNavigationState();
   const [queryClient] = useState(() => new QueryClient());
   const [cmdkOpen, setCmdkOpen] = useState(false);
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
@@ -70,7 +72,7 @@ export default function Root() {
       >
         <QueryClientProvider client={queryClient}>
           <TooltipProvider>
-            <FileWatcherSetup />
+            <DbSyncSetup />
             <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
               <CommandMenu.Group heading="Actions">
                 <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>

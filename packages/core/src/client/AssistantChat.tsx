@@ -34,146 +34,20 @@ import {
   type TiptapComposerHandle,
 } from "./composer/TiptapComposer.js";
 import type { Reference } from "./composer/types.js";
-
-// ─── Icons ──────────────────────────────────────────────────────────────────
-
-function SparklesIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M12 3l1.912 5.813a2 2 0 0 0 1.275 1.275L21 12l-5.813 1.912a2 2 0 0 0-1.275 1.275L12 21l-1.912-5.813a2 2 0 0 0-1.275-1.275L3 12l5.813-1.912a2 2 0 0 0 1.275-1.275L12 3z" />
-    </svg>
-  );
-}
-
-function SendIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M5 12h14M12 5l7 7-7 7" />
-    </svg>
-  );
-}
-
-function PaperclipIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-    </svg>
-  );
-}
-
-function XIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M18 6 6 18M6 6l12 12" />
-    </svg>
-  );
-}
-
-function StopIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="currentColor" className={className}>
-      <rect x="6" y="6" width="12" height="12" rx="2" />
-    </svg>
-  );
-}
-
-function CheckIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M20 6L9 17l-5-5" />
-    </svg>
-  );
-}
-
-function ChevronDownIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      style={{ width: 24, height: 24 }}
-      className={className}
-    >
-      <path d="m6 9 6 6 6-6" />
-    </svg>
-  );
-}
-
-function ArrowDownIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M12 5v14M19 12l-7 7-7-7" />
-    </svg>
-  );
-}
-
-function CopyIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-    </svg>
-  );
-}
+import {
+  IconSparkles,
+  IconPaperclip,
+  IconX,
+  IconPlayerStop,
+  IconCheck,
+  IconChevronDown,
+  IconCopy,
+  IconTerminal,
+  IconLoader2,
+  IconCircleX,
+  IconSquareFilled,
+  IconClock,
+} from "@tabler/icons-react";
 
 // ─── Markdown Text ──────────────────────────────────────────────────────────
 
@@ -299,7 +173,7 @@ function ComposerAttachmentPreviewCard({
         )}
         aria-label={`Remove ${attachment.name}`}
       >
-        <XIcon className="h-3 w-3" />
+        <IconX className="h-3 w-3" />
       </button>
     </div>
   );
@@ -341,62 +215,55 @@ function ToolCallFallback({
   const [expanded, setExpanded] = useState(false);
   const thread = useThread();
   const isRunning = result === undefined && thread.isRunning;
-  const argsStr = Object.entries(args as Record<string, unknown>)
-    .map(([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`)
-    .join(", ");
+  const isAgentCall = toolName.startsWith("agent:");
+  const agentName = isAgentCall ? toolName.slice(6) : null;
+  const isAgentError = isAgentCall && result === "Error calling agent";
+  const argsStr = isAgentCall
+    ? ""
+    : Object.entries(args as Record<string, unknown>)
+        .map(
+          ([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`,
+        )
+        .join(", ");
+
+  const displayName = isAgentCall
+    ? isRunning
+      ? `Asking ${agentName}...`
+      : isAgentError
+        ? `Error asking ${agentName}`
+        : `Asked ${agentName}`
+    : toolName;
 
   return (
     <div className="my-1 overflow-hidden">
       <button
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => !isAgentCall && setExpanded(!expanded)}
         className={cn(
           "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-mono w-full text-left overflow-hidden",
           isRunning
             ? "bg-muted text-muted-foreground"
-            : "bg-muted text-muted-foreground hover:bg-accent",
+            : isAgentCall
+              ? "bg-muted text-muted-foreground"
+              : "bg-muted text-muted-foreground hover:bg-accent",
         )}
       >
         <span className="shrink-0">
           {isRunning ? (
-            <svg
-              className="h-3 w-3 animate-spin"
-              viewBox="0 0 24 24"
-              fill="none"
-            >
-              <circle
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth="3"
-                strokeDasharray="31 62"
-              />
-            </svg>
+            <IconLoader2 className="h-3 w-3 animate-spin" />
+          ) : isAgentError ? (
+            <IconCircleX className="h-3 w-3 text-destructive" />
           ) : result !== undefined ? (
-            <CheckIcon className="h-3 w-3 text-emerald-500" />
+            <IconCheck className="h-3 w-3 text-emerald-500" />
           ) : (
-            <svg
-              className="h-3 w-3 text-muted-foreground"
-              viewBox="0 0 24 24"
-              fill="none"
-            >
-              <rect
-                x="6"
-                y="6"
-                width="12"
-                height="12"
-                rx="2"
-                fill="currentColor"
-              />
-            </svg>
+            <IconSquareFilled className="h-3 w-3 text-muted-foreground" />
           )}
         </span>
         <span className="truncate min-w-0">
-          <span className="font-medium">{toolName}</span>
+          <span className="font-medium">{displayName}</span>
           {argsStr && <span className="opacity-60 ml-1">({argsStr})</span>}
         </span>
-        {!isRunning && result !== undefined && (
-          <ChevronDownIcon
+        {!isAgentCall && !isRunning && result !== undefined && (
+          <IconChevronDown
             className={cn(
               "ml-auto h-3 w-3 shrink-0 opacity-40",
               expanded && "rotate-180",
@@ -404,7 +271,7 @@ function ToolCallFallback({
           />
         )}
       </button>
-      {expanded && result !== undefined && (
+      {!isAgentCall && expanded && result !== undefined && (
         <div className="mt-1 rounded-md bg-muted/50 px-3 py-2 text-xs font-mono text-muted-foreground whitespace-pre-wrap break-all max-h-48 overflow-y-auto">
           {typeof result === "string"
             ? result
@@ -430,47 +297,53 @@ function ReconnectStreamToolCall({
 }) {
   const [expanded, setExpanded] = useState(false);
   const isRunning = result === undefined;
-  const argsStr = Object.entries(args)
-    .map(([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`)
-    .join(", ");
+  const isAgentCall = toolName.startsWith("agent:");
+  const agentName = isAgentCall ? toolName.slice(6) : null;
+  const isAgentError = isAgentCall && result === "Error calling agent";
+  const argsStr = isAgentCall
+    ? ""
+    : Object.entries(args)
+        .map(
+          ([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`,
+        )
+        .join(", ");
+
+  const displayName = isAgentCall
+    ? isRunning
+      ? `Asking ${agentName}...`
+      : isAgentError
+        ? `Error asking ${agentName}`
+        : `Asked ${agentName}`
+    : toolName;
 
   return (
     <div className="my-1 overflow-hidden">
       <button
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => !isAgentCall && setExpanded(!expanded)}
         className={cn(
           "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-mono w-full text-left overflow-hidden",
           isRunning
             ? "bg-muted text-muted-foreground"
-            : "bg-muted text-muted-foreground hover:bg-accent",
+            : isAgentCall
+              ? "bg-muted text-muted-foreground"
+              : "bg-muted text-muted-foreground hover:bg-accent",
         )}
       >
         <span className="shrink-0">
           {isRunning ? (
-            <svg
-              className="h-3 w-3 animate-spin"
-              viewBox="0 0 24 24"
-              fill="none"
-            >
-              <circle
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth="3"
-                strokeDasharray="31 62"
-              />
-            </svg>
+            <IconLoader2 className="h-3 w-3 animate-spin" />
+          ) : isAgentError ? (
+            <IconCircleX className="h-3 w-3 text-destructive" />
           ) : (
-            <CheckIcon className="h-3 w-3 text-emerald-500" />
+            <IconCheck className="h-3 w-3 text-emerald-500" />
           )}
         </span>
         <span className="truncate min-w-0">
-          <span className="font-medium">{toolName}</span>
+          <span className="font-medium">{displayName}</span>
           {argsStr && <span className="opacity-60 ml-1">({argsStr})</span>}
         </span>
-        {!isRunning && result !== undefined && (
-          <ChevronDownIcon
+        {!isAgentCall && !isRunning && result !== undefined && (
+          <IconChevronDown
             className={cn(
               "ml-auto h-3 w-3 shrink-0 opacity-40",
               expanded && "rotate-180",
@@ -478,7 +351,7 @@ function ReconnectStreamToolCall({
           />
         )}
       </button>
-      {expanded && result !== undefined && (
+      {!isAgentCall && expanded && result !== undefined && (
         <div className="mt-1 rounded-md bg-muted/50 px-3 py-2 text-xs font-mono text-muted-foreground whitespace-pre-wrap break-all max-h-48 overflow-y-auto">
           {typeof result === "string"
             ? result
@@ -500,7 +373,7 @@ function ReconnectStreamMessage({ content }: { content: ContentPart[] }) {
     <div className="flex justify-start px-4 py-2">
       <div className="max-w-[85%] space-y-1">
         <div className="flex items-center gap-1.5 mb-1">
-          <SparklesIcon className="h-3.5 w-3.5 text-muted-foreground" />
+          <IconSparkles className="h-3.5 w-3.5 text-muted-foreground" />
           <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">
             Agent
           </span>
@@ -536,6 +409,42 @@ function ReconnectStreamMessage({ content }: { content: ContentPart[] }) {
 
 // ─── Message Components ─────────────────────────────────────────────────────
 
+const mentionPattern = /((?:^|(?<=\s))@(\w+))/g;
+
+function UserMessageText({ text }: { text: string }) {
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  // Reset regex state
+  mentionPattern.lastIndex = 0;
+
+  while ((match = mentionPattern.exec(text)) !== null) {
+    const matchStart = match.index;
+    // Push any text before this match
+    if (matchStart > lastIndex) {
+      parts.push(text.slice(lastIndex, matchStart));
+    }
+    const mentionName = match[2];
+    parts.push(
+      <span
+        key={matchStart}
+        className="inline-flex items-center gap-1 rounded-md border border-input bg-muted/50 px-1.5 py-0.5 text-xs font-medium text-foreground align-middle mx-0.5 select-none"
+      >
+        @{mentionName}
+      </span>,
+    );
+    lastIndex = matchStart + match[0].length;
+  }
+
+  // Push any remaining text after the last match
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return <>{parts.length > 0 ? parts : text}</>;
+}
+
 function UserMessage() {
   const [expanded, setExpanded] = useState(false);
   const [isExpandable, setIsExpandable] = useState(false);
@@ -568,7 +477,7 @@ function UserMessage() {
           >
             <MessagePrimitive.Parts
               components={{
-                Text: ({ text }) => <>{text}</>,
+                Text: UserMessageText,
               }}
             />
           </div>
@@ -582,7 +491,7 @@ function UserMessage() {
             onClick={() => setExpanded((prev) => !prev)}
             className="mt-1 inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground"
           >
-            <ChevronDownIcon
+            <IconChevronDown
               className={cn(
                 "h-3.5 w-3.5 transition-transform",
                 expanded && "rotate-180",
@@ -640,9 +549,9 @@ function AssistantMessage() {
             className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
           >
             {copied ? (
-              <CheckIcon className="h-3 w-3" />
+              <IconCheck className="h-3 w-3" />
             ) : (
-              <CopyIcon className="h-3 w-3" />
+              <IconCopy className="h-3 w-3" />
             )}
           </button>
         </div>
@@ -703,7 +612,7 @@ function ApiKeySetupCard({ apiUrl }: { apiUrl: string }) {
     return (
       <div className="mx-4 my-6 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4">
         <div className="flex items-center gap-2 text-sm text-emerald-400">
-          <CheckIcon className="h-4 w-4" />
+          <IconCheck className="h-4 w-4" />
           API key saved. Reloading...
         </div>
       </div>
@@ -714,7 +623,7 @@ function ApiKeySetupCard({ apiUrl }: { apiUrl: string }) {
     <div className="mx-4 my-6 rounded-lg border border-border bg-card p-5">
       <div className="flex items-center gap-3 mb-3">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted">
-          <SparklesIcon className="h-4.5 w-4.5 text-muted-foreground" />
+          <IconSparkles className="h-4.5 w-4.5 text-muted-foreground" />
         </div>
         <div>
           <h3 className="text-sm font-medium text-foreground">
@@ -773,25 +682,6 @@ function ApiKeySetupCard({ apiUrl }: { apiUrl: string }) {
 
 // ─── Main Component ─────────────────────────────────────────────────────────
 
-// ─── Terminal Icon ──────────────────────────────────────────────────────────
-
-function TerminalIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <polyline points="4 17 10 11 4 5" />
-      <line x1="12" y1="19" x2="20" y2="19" />
-    </svg>
-  );
-}
-
 // ─── Main Component ─────────────────────────────────────────────────────────
 
 export interface AssistantChatHandle {
@@ -806,7 +696,7 @@ export interface AssistantChatHandle {
 }
 
 export interface AssistantChatProps {
-  /** API endpoint URL. Default: "/api/agent-chat" */
+  /** API endpoint URL. Default: "/_agent-native/agent-chat" */
   apiUrl?: string;
   /** Stable tab identifier passed to the adapter for event correlation */
   tabId?: string;
@@ -833,6 +723,8 @@ export interface AssistantChatProps {
   }) => void;
   /** Callback to generate a title from the first user message */
   onGenerateTitle?: (message: string) => void;
+  /** Optional content rendered just above the composer input */
+  composerSlot?: React.ReactNode;
 }
 
 // ─── Queue Composer ──────────────────────────────────────────────────────────
@@ -914,7 +806,7 @@ function QueueComposer({
                 }
                 className="absolute right-0.5 top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-background/90 text-muted-foreground hover:text-foreground"
               >
-                <XIcon className="h-3 w-3" />
+                <IconX className="h-3 w-3" />
               </button>
             </div>
           ))}
@@ -938,7 +830,7 @@ function QueueComposer({
           className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
           title="Attach images"
         >
-          <PaperclipIcon className="h-4 w-4" />
+          <IconPaperclip className="h-4 w-4" />
         </button>
         <textarea
           ref={composerRef}
@@ -972,7 +864,7 @@ function QueueComposer({
           className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90"
           title="Stop generating"
         >
-          <StopIcon className="h-3.5 w-3.5" />
+          <IconPlayerStop className="h-3.5 w-3.5" />
         </button>
       </div>
     </div>
@@ -1008,6 +900,7 @@ const AssistantChatInner = forwardRef<
     onMessageCountChange,
     onSaveThread,
     onGenerateTitle,
+    composerSlot,
   },
   ref,
 ) {
@@ -1402,7 +1295,7 @@ const AssistantChatInner = forwardRef<
                 className="flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground px-2 py-1 rounded-md hover:bg-accent"
                 title="Switch to CLI"
               >
-                <TerminalIcon className="h-3.5 w-3.5" />
+                <IconTerminal className="h-3.5 w-3.5" />
                 CLI
               </button>
             )}
@@ -1433,7 +1326,7 @@ const AssistantChatInner = forwardRef<
         ) : messages.length === 0 && !isReconnecting ? (
           <div className="flex flex-col items-center justify-center gap-4 py-16 px-4 h-full">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
-              <SparklesIcon className="h-5 w-5 text-muted-foreground" />
+              <IconSparkles className="h-5 w-5 text-muted-foreground" />
             </div>
             <p className="text-sm text-muted-foreground text-center max-w-[240px]">
               {emptyStateText ?? "How can I help you?"}
@@ -1490,18 +1383,7 @@ const AssistantChatInner = forwardRef<
               <div key={`queued-${i}`} className="flex justify-end">
                 <div className="max-w-[85%] rounded-lg bg-accent/50 text-foreground/60 px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words">
                   <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground mb-1 font-medium uppercase tracking-wide">
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      className="h-3 w-3"
-                    >
-                      <circle cx="12" cy="12" r="10" />
-                      <polyline points="12 6 12 12 16 14" />
-                    </svg>
+                    <IconClock className="h-3 w-3" />
                     Queued
                   </div>
                   {msg.text}
@@ -1533,21 +1415,12 @@ const AssistantChatInner = forwardRef<
             className="flex h-7 w-7 items-center justify-center rounded-full border border-border bg-background shadow-sm hover:bg-accent"
             aria-label="Scroll to bottom"
           >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="h-3.5 w-3.5 text-muted-foreground"
-            >
-              <polyline points="6 9 12 15 18 9" />
-            </svg>
+            <IconChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
           </button>
         </div>
       )}
 
+      {composerSlot}
       {/* Input area */}
       <div className="shrink-0 px-3 py-2">
         {isRunning ? (
@@ -1572,7 +1445,7 @@ export const AssistantChat = forwardRef<
   AssistantChatHandle,
   AssistantChatProps
 >(function AssistantChat(
-  { apiUrl = "/api/agent-chat", tabId, threadId, ...props },
+  { apiUrl = "/_agent-native/agent-chat", tabId, threadId, ...props },
   ref,
 ) {
   const adapter = useMemo(

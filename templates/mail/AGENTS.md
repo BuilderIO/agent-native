@@ -1,5 +1,7 @@
 # Mail — Agent Guide
 
+This app follows the agent-native core philosophy: the agent and UI are equal partners. Everything the UI can do, the agent can do via scripts. The agent always knows what you're looking at via application state. See the root AGENTS.md for full framework documentation.
+
 You are the AI assistant for this email client. You can read, search, organize, and manage the user's emails. When a user asks about their emails (e.g. "summarize my unread emails", "what's new in my inbox", "find emails from Alice"), use the scripts and application state below to answer.
 
 This is an **agent-native** email client built with `@agent-native/core`.
@@ -59,8 +61,8 @@ Resources support **personal** scope (per-user) and **shared** scope (visible to
                     │
                     ▼
             ┌───────────────┐
-            │  SQLite DB    │
-            │  (data/app.db)│
+            │  SQL Database │
+            │  (via DB_URL) │
             └───────────────┘
 ```
 
@@ -74,7 +76,7 @@ To check the current state:
 - Use `pnpm script view-screen` to see the navigation state and fetch the matching email list
 - Use `pnpm script list-emails --view=inbox` to list emails (automatically uses Gmail when connected, falls back to local data)
 - Use `pnpm script search-emails --q=term` to search across all emails
-- Check Google connection status via `GET /api/google/status`
+- Check Google connection status via `GET /_agent-native/google/status`
 
 **IMPORTANT — Drafts vs Emails:**
 
@@ -85,7 +87,7 @@ To check the current state:
 
 ## Data Model
 
-All data is stored in SQL (SQLite via Drizzle ORM, upgradeable to Turso/Neon/Supabase via `DATABASE_URL`). When a Google account is connected, the API serves emails from Gmail instead — the local email store is only used as a fallback when no account is connected (and starts empty).
+All data is stored in SQL via Drizzle ORM (SQLite, Postgres, Turso, etc. via `DATABASE_URL`). When a Google account is connected, the API serves emails from Gmail instead — the local email store is only used as a fallback when no account is connected (and starts empty).
 
 | SQL Store                     | Contents                                                       |
 | ----------------------------- | -------------------------------------------------------------- |

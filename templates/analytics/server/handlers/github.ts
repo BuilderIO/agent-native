@@ -1,5 +1,5 @@
 import { defineEventHandler, getQuery, readBody, setResponseStatus } from "h3";
-import { requireEnvKey } from "@agent-native/core/server";
+import { requireCredential } from "../lib/credentials";
 import {
   searchPRs,
   searchIssues,
@@ -12,7 +12,7 @@ import {
 
 /** GET /api/github/search?q=...&type=pr|issue&limit=30 */
 export const handleGitHubSearch = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "GITHUB_TOKEN", "GitHub");
+  const missing = await requireCredential(event, "GITHUB_TOKEN", "GitHub");
   if (missing) return missing;
   try {
     const { q, type: typeParam, limit: limitParam } = getQuery(event);
@@ -40,7 +40,7 @@ export const handleGitHubSearch = defineEventHandler(async (event) => {
 
 /** GET /api/github/pr?owner=...&repo=...&number=... */
 export const handleGitHubPR = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "GITHUB_TOKEN", "GitHub");
+  const missing = await requireCredential(event, "GITHUB_TOKEN", "GitHub");
   if (missing) return missing;
   try {
     const { owner, repo, number: numberParam } = getQuery(event);
@@ -62,7 +62,7 @@ export const handleGitHubPR = defineEventHandler(async (event) => {
 
 /** GET /api/github/issue?owner=...&repo=...&number=... */
 export const handleGitHubIssue = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "GITHUB_TOKEN", "GitHub");
+  const missing = await requireCredential(event, "GITHUB_TOKEN", "GitHub");
   if (missing) return missing;
   try {
     const { owner, repo, number: numberParam } = getQuery(event);
@@ -84,7 +84,7 @@ export const handleGitHubIssue = defineEventHandler(async (event) => {
 
 /** GET /api/github/prs?owner=...&repo=...&state=open|closed|all&limit=30 */
 export const handleGitHubPRList = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "GITHUB_TOKEN", "GitHub");
+  const missing = await requireCredential(event, "GITHUB_TOKEN", "GitHub");
   if (missing) return missing;
   try {
     const {
@@ -116,7 +116,7 @@ export const handleGitHubPRList = defineEventHandler(async (event) => {
 
 /** GET /api/github/org-prs?org=...&q=...&state=OPEN|CLOSED|MERGED&limit=30 */
 export const handleGitHubOrgPRs = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "GITHUB_TOKEN", "GitHub");
+  const missing = await requireCredential(event, "GITHUB_TOKEN", "GitHub");
   if (missing) return missing;
   try {
     const {
@@ -141,7 +141,7 @@ export const handleGitHubOrgPRs = defineEventHandler(async (event) => {
 
 /** POST /api/github/graphql  body: { query, variables? } */
 export const handleGitHubGraphQL = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "GITHUB_TOKEN", "GitHub");
+  const missing = await requireCredential(event, "GITHUB_TOKEN", "GitHub");
   if (missing) return missing;
   try {
     const { query, variables } = await readBody(event);

@@ -13,7 +13,6 @@ import {
   calendarListEvents,
   calendarGetEvent,
   calendarInsertEvent,
-  calendarUpdateEvent,
   calendarDeleteEvent,
   calendarPatchEvent,
 } from "./google-api.js";
@@ -86,7 +85,8 @@ export function getAuthUrl(
 ): string {
   const { clientId, clientSecret } = getOAuth2Credentials();
   const uri =
-    redirectUri || (origin ? `${origin}/api/google/callback` : undefined);
+    redirectUri ||
+    (origin ? `${origin}/_agent-native/google/callback` : undefined);
   const oauth2 = createOAuth2Client(clientId, clientSecret, uri ?? "");
   return oauth2.generateAuthUrl({
     access_type: "offline",
@@ -104,7 +104,8 @@ export async function exchangeCode(
 ): Promise<string> {
   const { clientId, clientSecret } = getOAuth2Credentials();
   const uri =
-    redirectUri || (origin ? `${origin}/api/google/callback` : undefined);
+    redirectUri ||
+    (origin ? `${origin}/_agent-native/google/callback` : undefined);
   const oauth2 = createOAuth2Client(clientId, clientSecret, uri ?? "");
   const tokens = await oauth2.getToken(code);
 
@@ -131,7 +132,9 @@ export async function getClient(
 
   let account: (typeof accounts)[number] | undefined;
   if (email) {
-    account = accounts.find((a) => a.accountId === email);
+    account =
+      accounts.find((a) => a.accountId === email) ??
+      accounts.find((a) => a.owner === email);
     if (!account) return null;
   } else {
     account = accounts[0];
@@ -442,7 +445,7 @@ export async function updateEvent(
       : { dateTime: event.end };
   }
 
-  await calendarUpdateEvent(
+  await calendarPatchEvent(
     client.accessToken,
     "primary",
     googleEventId,

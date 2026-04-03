@@ -102,3 +102,34 @@ export function discoverPlugins(cwd: string): string[] {
     .sort()
     .map((f) => path.join(pluginsDir, f));
 }
+
+/**
+ * Default plugins that auto-mount when not provided by the template.
+ * Key = filename stem, value = export name from @agent-native/core/server.
+ */
+export const DEFAULT_PLUGIN_REGISTRY: Record<string, string> = {
+  "agent-chat": "defaultAgentChatPlugin",
+  auth: "defaultAuthPlugin",
+  "core-routes": "defaultCoreRoutesPlugin",
+  "file-sync": "defaultFileSyncPlugin",
+  resources: "defaultResourcesPlugin",
+  terminal: "defaultTerminalPlugin",
+};
+
+/**
+ * Returns the stems of default plugins that are missing from the project.
+ */
+export function getMissingDefaultPlugins(cwd: string): string[] {
+  const pluginsDir = path.join(cwd, "server/plugins");
+  const existingStems = new Set(
+    fs.existsSync(pluginsDir)
+      ? fs
+          .readdirSync(pluginsDir)
+          .filter((f) => f.endsWith(".ts") || f.endsWith(".js"))
+          .map((f) => path.basename(f, path.extname(f)))
+      : [],
+  );
+  return Object.keys(DEFAULT_PLUGIN_REGISTRY).filter(
+    (stem) => !existingStems.has(stem),
+  );
+}

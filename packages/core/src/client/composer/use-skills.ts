@@ -15,7 +15,7 @@ export function useSkills(enabled: boolean) {
     setIsLoading(true);
     const id = ++requestIdRef.current;
 
-    fetch("/api/agent-chat/skills")
+    fetch("/_agent-native/agent-chat/skills")
       .then((res) => {
         if (!res.ok) throw new Error();
         return res.json();

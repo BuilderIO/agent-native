@@ -77,6 +77,12 @@ export {
   defaultResourcesPlugin,
 } from "./resources-plugin.js";
 export {
+  createCoreRoutesPlugin,
+  defaultCoreRoutesPlugin,
+  FRAMEWORK_ROUTE_PREFIX,
+  type CoreRoutesPluginOptions,
+} from "./core-routes-plugin.js";
+export {
   createTerminalPlugin,
   defaultTerminalPlugin,
   type TerminalPluginOptions,

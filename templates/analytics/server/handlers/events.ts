@@ -1,7 +1,6 @@
 import { defineEventHandler, readBody, setResponseStatus } from "h3";
 import { getAccessToken } from "../lib/gcloud";
-
-const PROJECT_ID = process.env.BIGQUERY_PROJECT_ID || "your-gcp-project-id";
+import { resolveCredential } from "../lib/credentials";
 
 /**
  * POST /api/events/track
@@ -43,10 +42,10 @@ export const handleTrackEvent = defineEventHandler(async (event) => {
     };
 
     // Insert into BigQuery via REST API (fire and forget - don't await)
-    getAccessToken()
-      .then((token) =>
+    Promise.all([getAccessToken(), resolveCredential("BIGQUERY_PROJECT_ID")])
+      .then(([token, projectId]) =>
         fetch(
-          `https://bigquery.googleapis.com/bigquery/v2/projects/${PROJECT_ID}/datasets/analytics/tables/events_partitioned/insertAll`,
+          `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId || "your-gcp-project-id"}/datasets/analytics/tables/events_partitioned/insertAll`,
           {
             method: "POST",
             headers: {

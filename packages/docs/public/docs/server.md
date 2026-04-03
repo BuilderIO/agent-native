@@ -71,20 +71,131 @@ export default defineEventHandler(async (event) => {
 
 ## Server Plugins
 
-Cross-cutting concerns — file watchers, file sync, scheduled jobs, auth — go in `server/plugins/`. Nitro runs these at startup before serving requests:
+Cross-cutting concerns — auth, agent chat, polling, file sync — go in `server/plugins/`. The framework auto-discovers `.ts` files in this directory, sorts them alphabetically, and runs each one at startup.
+
+### Default plugins (auto-mounted)
+
+The framework provides 6 default plugins that auto-mount when your app doesn't provide a custom version. You only need to create a plugin file if you want to customize it:
+
+| Plugin        | What it does                                                                | When to customize                           |
+| ------------- | --------------------------------------------------------------------------- | ------------------------------------------- |
+| `agent-chat`  | Agent chat endpoints                                                        | Custom `mentionProviders` or `systemPrompt` |
+| `auth`        | Authentication middleware                                                   | Custom `publicPaths` or Google OAuth config |
+| `core-routes` | `/_agent-native/poll`, `/_agent-native/events`, `/_agent-native/ping`, etc. | Custom `envKeys` or `sseRoute`              |
+| `file-sync`   | File watcher for sync events                                                | Custom sync configuration                   |
+| `resources`   | Resource CRUD endpoints                                                     | Rarely customized                           |
+| `terminal`    | Terminal emulator endpoints                                                 | Rarely customized                           |
+
+A minimal app needs **zero** plugin files — all defaults mount automatically. Only create plugin files for plugins you need to customize.
+
+### Customizing a plugin
+
+To customize a default plugin, create a file in `server/plugins/` with the same name. Your file takes precedence over the default:
 
 ```ts
-// server/plugins/file-sync.ts
-import { defineNitroPlugin } from "@agent-native/core";
-import { createFileSync } from "@agent-native/core/adapters/sync";
+// server/plugins/auth.ts — custom auth with public paths
+import { createGoogleAuthPlugin } from "@agent-native/core/server";
 
-export default defineNitroPlugin(async () => {
-  const result = await createFileSync({ contentRoot: "./data" });
-  if (result.status === "error") {
-    console.warn(`[app] File sync failed: ${result.reason}`);
-  }
+export default createGoogleAuthPlugin({
+  publicPaths: ["/api/public", "/api/forms"],
 });
 ```
+
+### Core Routes Plugin
+
+The `createCoreRoutesPlugin()` mounts all standard framework API routes. It auto-mounts with no configuration, but you can customize it by creating a `server/plugins/core-routes.ts` file.
+
+**Simplest usage** — no configuration needed:
+
+```ts
+// server/plugins/core-routes.ts
+export { defaultCoreRoutesPlugin as default } from "@agent-native/core/server";
+```
+
+**With env key management** — enables the settings UI to save API keys and credentials:
+
+```ts
+// server/plugins/core-routes.ts
+import { createCoreRoutesPlugin } from "@agent-native/core/server";
+import { envKeys } from "../lib/env-config.js";
+
+export default createCoreRoutesPlugin({ envKeys });
+```
+
+Where `env-config.ts` defines the allowed keys:
+
+```ts
+// server/lib/env-config.ts
+import type { EnvKeyConfig } from "@agent-native/core/server";
+
+export const envKeys: EnvKeyConfig[] = [
+  { key: "STRIPE_SECRET_KEY", label: "Stripe", required: false },
+  { key: "GITHUB_TOKEN", label: "GitHub", required: false },
+];
+```
+
+**With custom SSE route** — if you need to change the SSE endpoint path:
+
+```ts
+// server/plugins/core-routes.ts
+import { createCoreRoutesPlugin } from "@agent-native/core/server";
+
+export default createCoreRoutesPlugin({ sseRoute: "/_agent-native/sse" });
+```
+
+#### Routes provided
+
+| Method | Path                              | Purpose                                           |
+| ------ | --------------------------------- | ------------------------------------------------- |
+| GET    | `/_agent-native/poll`             | Polling endpoint for change detection             |
+| GET    | `/_agent-native/events`           | SSE endpoint for real-time sync (configurable)    |
+| GET    | `/_agent-native/file-sync/status` | File sync status (deprecated, backward compat)    |
+| GET    | `/_agent-native/ping`             | Health check                                      |
+| GET    | `/_agent-native/env-status`       | Env key configuration status (requires `envKeys`) |
+| POST   | `/_agent-native/env-vars`         | Save env vars to `.env` file (requires `envKeys`) |
+
+#### Options
+
+| Option            | Type             | Default                   | Description                            |
+| ----------------- | ---------------- | ------------------------- | -------------------------------------- |
+| `sseRoute`        | `string`         | `"/_agent-native/events"` | Path for the SSE endpoint              |
+| `disableSSE`      | `boolean`        | `false`                   | Disable the SSE endpoint entirely      |
+| `disableFileSync` | `boolean`        | `false`                   | Disable the file-sync status endpoint  |
+| `disablePing`     | `boolean`        | `false`                   | Disable the ping health check          |
+| `envKeys`         | `EnvKeyConfig[]` | —                         | Enables env-status and env-vars routes |
+
+When new framework routes are added to `createCoreRoutesPlugin()`, all templates pick them up automatically on the next dependency update — no per-template file changes needed.
+
+## Credentials (SQL-Backed Secrets)
+
+For per-user or per-account credentials (API keys, tokens, service account files), use `@agent-native/core/credentials` instead of environment variables. Credentials are stored in the SQL `settings` table and work in all deployment environments including serverless.
+
+```ts
+import {
+  resolveCredential,
+  saveCredential,
+  hasCredential,
+} from "@agent-native/core/credentials";
+
+// Read — checks process.env first (backward compat), then SQL
+const token = await resolveCredential("STRIPE_SECRET_KEY");
+
+// Write — saves to SQL settings store
+await saveCredential("STRIPE_SECRET_KEY", "sk_live_...");
+
+// Check existence
+const configured = await hasCredential("STRIPE_SECRET_KEY");
+```
+
+### When to use credentials vs env vars
+
+| Type                 | Storage                          | Examples                                               |
+| -------------------- | -------------------------------- | ------------------------------------------------------ |
+| **Infrastructure**   | Env vars (`.env`, deploy config) | `DATABASE_URL`, `DATABASE_AUTH_TOKEN`                  |
+| **App-level shared** | Env vars                         | `GOOGLE_CLIENT_ID`, `ANTHROPIC_API_KEY`                |
+| **Per-user/account** | `@agent-native/core/credentials` | `STRIPE_SECRET_KEY`, `GA4_PROPERTY_ID`, `GITHUB_TOKEN` |
+
+The `envKeys` option on `createCoreRoutesPlugin` is for infrastructure keys that should be env vars. Use the credentials API for everything else.
 
 ## Shared State Between Plugins and Routes
 
@@ -133,7 +244,7 @@ const watcher = createFileWatcher("./data");
 Creates an H3 event handler that streams file changes as Server-Sent Events:
 
 ```ts
-// server/routes/api/events.get.ts
+// server/routes/_agent-native/events.get.ts
 import { createSSEHandler } from "@agent-native/core";
 import { watcher, sseExtraEmitters } from "../../lib/watcher.js";
 
@@ -165,12 +276,12 @@ router.get("/api/items", defineEventHandler(listItems));
 
 ### Options
 
-| Option        | Type                               | Description                                                    |
-| ------------- | ---------------------------------- | -------------------------------------------------------------- |
-| `cors`        | `Record<string, unknown> \| false` | CORS config. Pass `false` to disable.                          |
-| `pingMessage` | `string`                           | Health check response. Default: env `PING_MESSAGE` or `"pong"` |
-| `disablePing` | `boolean`                          | Disable `/api/ping` endpoint.                                  |
-| `envKeys`     | `EnvKeyConfig[]`                   | Enables `/api/env-status` and `/api/env-vars` settings routes. |
+| Option        | Type                               | Description                                                                        |
+| ------------- | ---------------------------------- | ---------------------------------------------------------------------------------- |
+| `cors`        | `Record<string, unknown> \| false` | CORS config. Pass `false` to disable.                                              |
+| `pingMessage` | `string`                           | Health check response. Default: env `PING_MESSAGE` or `"pong"`                     |
+| `disablePing` | `boolean`                          | Disable `/_agent-native/ping` endpoint.                                            |
+| `envKeys`     | `EnvKeyConfig[]`                   | Enables `/_agent-native/env-status` and `/_agent-native/env-vars` settings routes. |
 
 ## mountAuthMiddleware(app, accessToken)
 
@@ -182,11 +293,11 @@ import { mountAuthMiddleware } from "@agent-native/core";
 mountAuthMiddleware(app, process.env.ACCESS_TOKEN!);
 ```
 
-Adds two routes automatically: `POST /api/auth/login` and `POST /api/auth/logout`.
+Adds two routes automatically: `POST /_agent-native/auth/login` and `POST /_agent-native/auth/logout`.
 
 ## createProductionAgentHandler(options)
 
-Creates an H3 SSE handler at `POST /api/agent-chat` that runs an agentic tool loop using Claude. Each script's `run()` function is registered as a tool the agent can invoke.
+Creates an H3 SSE handler at `POST /_agent-native/agent-chat` that runs an agentic tool loop using Claude. Each script's `run()` function is registered as a tool the agent can invoke.
 
 ```ts
 import { createProductionAgentHandler } from "@agent-native/core";

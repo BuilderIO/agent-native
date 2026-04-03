@@ -235,6 +235,25 @@ async function createResourceScriptEntries(): Promise<
   }
 }
 
+/**
+ * Creates the call-agent ScriptEntry for cross-agent A2A communication.
+ */
+async function createCallAgentScriptEntry(): Promise<
+  Record<string, ScriptEntry>
+> {
+  try {
+    const mod = await import("../scripts/call-agent.js");
+    return {
+      "call-agent": {
+        tool: mod.tool,
+        run: mod.run,
+      },
+    };
+  } catch {
+    return {};
+  }
+}
+
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
 export interface AgentChatPluginOptions {
@@ -252,7 +271,7 @@ export interface AgentChatPluginOptions {
   model?: string;
   /** Anthropic API key. Falls back to ANTHROPIC_API_KEY env var */
   apiKey?: string;
-  /** Route path. Default: /api/agent-chat */
+  /** Route path. Default: /_agent-native/agent-chat */
   path?: string;
   /** Custom mention providers for @-tagging template entities */
   mentionProviders?:
@@ -260,18 +279,63 @@ export interface AgentChatPluginOptions {
     | (() =>
         | Record<string, MentionProvider>
         | Promise<Record<string, MentionProvider>>);
+  /** App ID used to exclude self from agent discovery (e.g., "mail", "calendar") */
+  appId?: string;
 }
 
-const DEFAULT_SYSTEM_PROMPT = `You are an AI assistant for this application. You can help users by running available tools and answering questions.
+/**
+ * Framework-level instructions injected into every agent's system prompt.
+ * This is the single source of truth for the core philosophy, rules, and patterns.
+ * Template AGENTS.md resources only need template-specific content.
+ */
+/**
+ * Framework instructions shared across both modes. The mode-specific
+ * preamble is prepended by the prompt composition below.
+ */
+const FRAMEWORK_CORE = `
+### Core Rules
 
-Be concise and helpful. Use the available tools to read data, make changes, and assist the user.
+1. **Data lives in SQL** — All app state is in a SQL database (could be SQLite, Postgres, Turso, or Cloudflare D1 — never assume which). Use the available database tools.
+2. **Context awareness** — Before taking action, understand what the user is looking at. Use the \`view-screen\` tool if available — it returns the current UI state (which page, which item is focused, what's selected).
+3. **Navigate the UI** — Use the \`navigate\` tool to switch views, open items, or focus elements for the user.
+4. **Application state** — Ephemeral UI state (drafts, selections, navigation) lives in \`application_state\`. Use \`readAppState\`/\`writeAppState\` to read and write it. When you write state, the UI updates automatically.
+5. **Resources for memory** — Use the Resources system for persistent notes and context. Update LEARNINGS.md when you learn user preferences or corrections. Update the shared AGENTS.md for instructions that should apply to all users.
+
+### Resources
 
 You have access to a Resources system for persistent notes, learnings, and context files.
 Use resource-list, resource-read, resource-write, and resource-delete to manage resources.
 Resources can be personal (per-user) or shared (team-wide). By default, resources are personal.
 
-When you learn something important (user corrections, preferences, patterns), update the "LEARNINGS.md" resource. Keep it tidy — revise, consolidate, and remove outdated entries rather than only appending. The file should stay concise and scannable.
-When the user gives instructions that should apply to all users/sessions, update the shared "AGENTS.md" resource instead.`;
+When you learn something important (user corrections, preferences, patterns), update the "LEARNINGS.md" resource. Keep it tidy — revise, consolidate, and remove outdated entries rather than only appending.
+When the user gives instructions that should apply to all users/sessions, update the shared "AGENTS.md" resource instead.
+`;
+
+const PROD_FRAMEWORK_PROMPT = `## Agent-Native Framework — Production Mode
+
+You are an AI agent in an agent-native application, running in **production mode**.
+
+The agent and the UI are equal partners — everything the UI can do, you can do via your tools, and vice versa. They share the same SQL database and stay in sync automatically.
+
+**In production mode, you operate through registered scripts exposed as tools.** These are your capabilities — use them to read data, take actions, and help the user. You cannot edit source code or access the filesystem directly. Your tools are the app's API.
+${FRAMEWORK_CORE}`;
+
+const DEV_FRAMEWORK_PROMPT = `## Agent-Native Framework — Development Mode
+
+You are an AI agent in an agent-native application, running in **development mode**.
+
+The agent and the UI are equal partners — everything the UI can do, you can do via tools/scripts, and vice versa. They share the same SQL database and stay in sync automatically.
+
+**In development mode, you have full access to the project filesystem, shell, and database** — in addition to all the app's production tools. You can edit source code, run commands, install packages, and modify the app directly.
+
+When editing code, follow the agent-native architecture:
+- Every feature needs all four areas: UI + scripts + skills/instructions + application-state sync
+- All SQL must be dialect-agnostic (works on SQLite and Postgres)
+- No Node.js-specific APIs in server routes (must work on Cloudflare Workers, etc.)
+- Use shadcn/ui components and Tabler Icons for all UI work
+${FRAMEWORK_CORE}`;
+
+const DEFAULT_SYSTEM_PROMPT = PROD_FRAMEWORK_PROMPT;
 
 /**
  * Pre-load AGENTS.md and LEARNINGS.md (personal + shared) and append to the system prompt.
@@ -309,23 +373,13 @@ async function loadResourcesForPrompt(owner: string): Promise<string> {
 
   if (sections.length === 0) return "";
   return (
-    "\n\nThe following resources were pre-loaded for context. Use the information in them to help the user (e.g., contacts, preferences, instructions). You can update them with resource-write if needed.\n\n" +
+    "\n\nThe following resources contain template-specific instructions and user context. Use the information in them to help the user.\n\n" +
     sections.join("\n\n")
   );
 }
 
-const DEFAULT_DEV_PROMPT = `You are a development assistant with full access to the project filesystem, shell, and database.
-
-You can:
-- Read, write, and edit any file in the project (read-file, write-file)
-- List and search files (list-files, search-files)
-- Run shell commands (shell) — use for git, build, install, etc.
-- Query and modify the database (db-schema, db-query, db-exec)
-- Plus all application-specific tools
-
-When editing code, maintain existing patterns and conventions. After writing files, mention what you changed. Use read-file before write-file to understand existing content.
-
-`;
+/** @deprecated Kept for backward compat — dev prompt is now part of DEV_FRAMEWORK_PROMPT */
+const DEFAULT_DEV_PROMPT = "";
 
 /**
  * Creates a Nitro plugin that mounts the agent chat endpoint.
@@ -417,7 +471,7 @@ export function createAgentChatPlugin(
     const canToggle =
       (env === "development" || env === "test") &&
       process.env.AGENT_MODE !== "production";
-    const routePath = options?.path ?? "/api/agent-chat";
+    const routePath = options?.path ?? "/_agent-native/agent-chat";
 
     // Resolve scripts — supports lazy loading to avoid import issues with Vite SSR
     const rawScripts = options?.scripts;
@@ -426,11 +480,145 @@ export function createAgentChatPlugin(
         ? await rawScripts()
         : (rawScripts ?? {});
 
-    // Resource scripts are available in both prod and dev modes
+    // Resource and cross-agent scripts are available in both prod and dev modes
     const resourceScripts = await createResourceScriptEntries();
+    const callAgentScript = await createCallAgentScriptEntry();
 
-    // Build system prompts — dynamic functions that pre-load resources per-request
-    const basePrompt = options?.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
+    // Auto-mount A2A protocol endpoints so every app is discoverable
+    // and callable by other agents via the standard protocol.
+    // The custom handler calls the local agent-chat endpoint to process
+    // A2A messages using the same production agent pipeline.
+    const allScripts = {
+      ...templateScripts,
+      ...resourceScripts,
+      ...callAgentScript,
+    };
+    const { mountA2A } = await import("../a2a/server.js");
+    mountA2A(nitroApp, {
+      name: options?.appId
+        ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
+        : "Agent",
+      description: `Agent-native ${options?.appId ?? "app"} agent`,
+      skills: Object.entries(allScripts).map(([name, entry]) => ({
+        id: name,
+        name,
+        description: entry.tool.description,
+      })),
+      handler: async (message) => {
+        const text = message.parts
+          .filter((p): p is { type: "text"; text: string } => p.type === "text")
+          .map((p) => p.text)
+          .join("\n");
+
+        if (!text) {
+          return {
+            message: {
+              role: "agent",
+              parts: [{ type: "text", text: "No text content in message" }],
+            },
+          };
+        }
+
+        // Run the agent loop directly in-process using the same scripts + prompt.
+        // This avoids HTTP self-calls and port detection issues.
+        const Anthropic = (await import("@anthropic-ai/sdk")).default;
+        const apiKey = options?.apiKey ?? process.env.ANTHROPIC_API_KEY;
+        if (!apiKey) {
+          return {
+            message: {
+              role: "agent" as const,
+              parts: [
+                {
+                  type: "text" as const,
+                  text: "Anthropic API key is not configured. Set ANTHROPIC_API_KEY in .env or pass apiKey in plugin options.",
+                },
+              ],
+            },
+          };
+        }
+        const client = new Anthropic({ apiKey });
+        const model = options?.model ?? "claude-sonnet-4-6-20250514";
+        const resources = await loadResourcesForPrompt("local@localhost");
+        const systemPrompt = basePrompt + resources;
+
+        const tools: any[] = Object.entries(allScripts).map(
+          ([name, entry]) => ({
+            name,
+            description: entry.tool.description,
+            input_schema: entry.tool.parameters ?? {
+              type: "object" as const,
+              properties: {},
+            },
+          }),
+        );
+
+        const msgs: any[] = [{ role: "user", content: text }];
+        const textParts: string[] = [];
+
+        for (let i = 0; i < 10; i++) {
+          const response = await client.messages.create({
+            model,
+            max_tokens: 4096,
+            system: systemPrompt,
+            tools,
+            messages: msgs,
+          });
+
+          const toolUseBlocks: any[] = [];
+          for (const block of response.content) {
+            if (block.type === "text") textParts.push(block.text);
+            if (block.type === "tool_use") toolUseBlocks.push(block);
+          }
+
+          if (
+            toolUseBlocks.length === 0 ||
+            response.stop_reason !== "tool_use"
+          ) {
+            break;
+          }
+
+          msgs.push({ role: "assistant", content: response.content });
+          const toolResults = [];
+          for (const tb of toolUseBlocks) {
+            const script = allScripts[tb.name];
+            let result = `Unknown tool: ${tb.name}`;
+            if (script) {
+              try {
+                result = await script.run(tb.input as Record<string, string>);
+              } catch (err: any) {
+                result = `Error: ${err?.message}`;
+              }
+            }
+            toolResults.push({
+              type: "tool_result" as const,
+              tool_use_id: tb.id,
+              content: result,
+            });
+          }
+          msgs.push({ role: "user", content: toolResults });
+        }
+
+        return {
+          message: {
+            role: "agent",
+            parts: [
+              { type: "text", text: textParts.join("") || "(no response)" },
+            ],
+          },
+        };
+      },
+    });
+
+    // Build system prompts — dynamic functions that pre-load resources per-request.
+    // Production gets PROD_FRAMEWORK_PROMPT, dev gets DEV_FRAMEWORK_PROMPT.
+    // Custom systemPrompt from options overrides the framework default entirely.
+    const prodPrompt = options?.systemPrompt ?? PROD_FRAMEWORK_PROMPT;
+    const devPrompt = options?.devSystemPrompt
+      ? options.devSystemPrompt +
+        (options?.systemPrompt ?? PROD_FRAMEWORK_PROMPT)
+      : DEV_FRAMEWORK_PROMPT;
+    // Keep legacy names for the composition below
+    const basePrompt = prodPrompt;
     const devPrefix = options?.devSystemPrompt ?? DEFAULT_DEV_PROMPT;
 
     // Resolve owner from the H3 event's session — matches how resources are created
@@ -503,9 +691,9 @@ export function createAgentChatPlugin(
       }
     };
 
-    // Always build the production handler (includes resource tools)
+    // Always build the production handler (includes resource tools + call-agent)
     const prodHandler = createProductionAgentHandler({
-      scripts: { ...templateScripts, ...resourceScripts },
+      scripts: { ...templateScripts, ...resourceScripts, ...callAgentScript },
       systemPrompt: async (event: any) => {
         const owner = await getOwnerFromEvent(event);
         const resources = await loadResourcesForPrompt(owner);
@@ -525,6 +713,7 @@ export function createAgentChatPlugin(
       const devScripts = {
         ...templateScripts,
         ...resourceScripts,
+        ...callAgentScript,
         ...(await createDevScriptRegistry()),
       };
       devHandler = createProductionAgentHandler({
@@ -532,7 +721,7 @@ export function createAgentChatPlugin(
         systemPrompt: async (event: any) => {
           const owner = await getOwnerFromEvent(event);
           const resources = await loadResourcesForPrompt(owner);
-          return devPrefix + basePrompt + resources;
+          return devPrompt + resources;
         },
         model: options?.model,
         apiKey: options?.apiKey,
@@ -825,6 +1014,7 @@ export function createAgentChatPlugin(
           refType: string;
           refPath?: string;
           refId?: string;
+          section?: string;
         }
 
         const items: MentionItemResponse[] = [];
@@ -848,6 +1038,7 @@ export function createAgentChatPlugin(
               source: "codebase",
               refType: "file",
               refPath: f.path,
+              section: "Files",
             });
           }
         }
@@ -867,6 +1058,7 @@ export function createAgentChatPlugin(
               source: isShared ? "resource:shared" : "resource:private",
               refType: "file",
               refPath: r.path,
+              section: "Files",
             });
           }
         } catch {}
@@ -885,6 +1077,7 @@ export function createAgentChatPlugin(
                 refType: item.refType,
                 refPath: item.refPath,
                 refId: item.refId,
+                section: provider.label,
               }));
             } catch {
               return [];
@@ -893,6 +1086,27 @@ export function createAgentChatPlugin(
         );
         for (const batch of providerResults) {
           items.push(...batch);
+        }
+
+        // 4. Discovered peer agents
+        try {
+          const { discoverAgents } = await import("./agent-discovery.js");
+          const agents = discoverAgents(options?.appId);
+          for (const agent of agents) {
+            items.push({
+              id: `agent:${agent.id}`,
+              label: agent.name,
+              description: agent.description,
+              icon: "agent",
+              source: "agent",
+              refType: "agent",
+              refPath: agent.url,
+              refId: agent.id,
+              section: "Agents",
+            });
+          }
+        } catch {
+          // Agent discovery not available — skip
         }
 
         // Filter by query and limit
@@ -1124,8 +1338,8 @@ export function createAgentChatPlugin(
     );
 
     // Mount the main chat handler — delegates to dev or prod handler based on current mode.
-    // This is mounted last because h3's use() is prefix-based, meaning /api/agent-chat
-    // also matches /api/agent-chat/threads/... — we skip sub-path requests here so the
+    // This is mounted last because h3's use() is prefix-based, meaning /_agent-native/agent-chat
+    // also matches /_agent-native/agent-chat/threads/... — we skip sub-path requests here so the
     // earlier-mounted handlers (mode, save-key, files, skills, mentions, threads) handle them.
     nitroApp.h3App.use(
       routePath,

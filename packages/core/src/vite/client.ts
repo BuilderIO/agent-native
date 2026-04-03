@@ -22,6 +22,88 @@ function hasDep(pkg: string, cwd: string): boolean {
   }
 }
 
+/**
+ * In monorepo dev mode, resolve @agent-native/core imports to source (src/)
+ * instead of dist/ so that Vite HMR picks up changes without rebuilding.
+ *
+ * Returns Vite array-style aliases with exact matching (regex anchored with $)
+ * to prevent `@agent-native/core` from prefix-matching and swallowing
+ * sub-path imports like `@agent-native/core/client`.
+ */
+function getCoreSourceAliases(
+  cwd: string,
+): Array<{ find: RegExp; replacement: string }> {
+  // Detect monorepo: walk up to find packages/core/src/
+  const candidates = [
+    path.resolve(cwd, "../../packages/core"), // templates/<name>/
+    path.resolve(cwd, "../core"), // packages/<name>/
+  ];
+
+  let coreSrc = "";
+  for (const candidate of candidates) {
+    if (fs.existsSync(path.join(candidate, "src/index.ts"))) {
+      coreSrc = path.join(candidate, "src");
+      break;
+    }
+  }
+
+  if (!coreSrc) return []; // Not in monorepo — use dist as normal
+
+  // Map every @agent-native/core/* export to its src/ equivalent.
+  // Each entry uses a regex with $ anchor for exact matching.
+  const entries: Record<string, string> = {
+    "@agent-native/core": path.join(coreSrc, "index.browser.ts"),
+    "@agent-native/core/server": path.join(coreSrc, "server/index.ts"),
+    "@agent-native/core/client": path.join(coreSrc, "client/index.ts"),
+    "@agent-native/core/db": path.join(coreSrc, "db/index.ts"),
+    "@agent-native/core/db/schema": path.join(coreSrc, "db/schema.ts"),
+    "@agent-native/core/shared": path.join(coreSrc, "shared/index.ts"),
+    "@agent-native/core/scripts": path.join(coreSrc, "scripts/index.ts"),
+    "@agent-native/core/application-state": path.join(
+      coreSrc,
+      "application-state/index.ts",
+    ),
+    "@agent-native/core/settings": path.join(coreSrc, "settings/index.ts"),
+    "@agent-native/core/credentials": path.join(
+      coreSrc,
+      "credentials/index.ts",
+    ),
+    "@agent-native/core/resources": path.join(coreSrc, "resources/index.ts"),
+    "@agent-native/core/oauth-tokens": path.join(
+      coreSrc,
+      "oauth-tokens/index.ts",
+    ),
+    "@agent-native/core/a2a": path.join(coreSrc, "a2a/index.ts"),
+    "@agent-native/core/router": path.join(coreSrc, "router/index.ts"),
+    "@agent-native/core/terminal": path.join(
+      coreSrc,
+      "client/terminal/index.ts",
+    ),
+    "@agent-native/core/terminal/server": path.join(
+      coreSrc,
+      "terminal/index.ts",
+    ),
+    "@agent-native/core/adapters/sync": path.join(
+      coreSrc,
+      "adapters/sync/index.ts",
+    ),
+    "@agent-native/core/adapters/drizzle": path.join(
+      coreSrc,
+      "adapters/drizzle/index.ts",
+    ),
+    "@agent-native/core/adapters/cli": path.join(
+      coreSrc,
+      "adapters/cli/index.ts",
+    ),
+  };
+
+  // Escape special regex chars in the key and anchor with $
+  return Object.entries(entries).map(([find, replacement]) => ({
+    find: new RegExp(`^${find.replace(/[/]/g, "\\/")}$`),
+    replacement,
+  }));
+}
+
 export interface NitroOptions {
   /** Nitro deployment preset (e.g. "node", "vercel", "netlify", "cloudflare_pages"). Default: "node" */
   preset?: string;
@@ -214,11 +296,19 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
       ],
     },
     resolve: {
-      alias: {
-        "@": path.resolve(cwd, "./app"),
-        "@shared": path.resolve(cwd, "./shared"),
-        ...options.aliases,
-      },
+      alias: [
+        // In monorepo dev: resolve @agent-native/core to source for HMR.
+        // Uses regex with $ anchor for exact matching to prevent
+        // @agent-native/core from prefix-matching @agent-native/core/client.
+        ...getCoreSourceAliases(cwd),
+        // Standard path aliases (prefix matching is fine here)
+        { find: "@", replacement: path.resolve(cwd, "./app") },
+        { find: "@shared", replacement: path.resolve(cwd, "./shared") },
+        ...Object.entries(options.aliases ?? {}).map(([find, replacement]) => ({
+          find,
+          replacement,
+        })),
+      ],
     },
   };
 }

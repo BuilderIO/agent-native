@@ -35,9 +35,9 @@ function fetchDevMode(apiBase: string): Promise<DevModeState> {
 
 /**
  * Returns whether the app is running in dev mode and whether mode can be toggled.
- * Fetches /api/agent-chat/mode on first call, then stays in sync via setDevMode.
+ * Fetches /_agent-native/agent-chat/mode on first call, then stays in sync via setDevMode.
  */
-export function useDevMode(apiBase = "/api/agent-chat"): {
+export function useDevMode(apiBase = "/_agent-native/agent-chat"): {
   isDevMode: boolean;
   canToggle: boolean;
   isLoading: boolean;

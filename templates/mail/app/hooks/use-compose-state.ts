@@ -58,7 +58,7 @@ export function useComposeState() {
     queryKey: ["compose-drafts"],
     queryFn: async () => {
       const result = await apiFetch<ComposeState[]>(
-        "/api/application-state/compose",
+        "/_agent-native/application-state/compose",
       );
       return result ?? [];
     },
@@ -80,7 +80,7 @@ export function useComposeState() {
 
   const putMutation = useMutation({
     mutationFn: (state: ComposeState) =>
-      apiFetch(`/api/application-state/compose/${state.id}`, {
+      apiFetch(`/_agent-native/application-state/compose/${state.id}`, {
         method: "PUT",
         body: JSON.stringify(state),
       }),
@@ -88,12 +88,16 @@ export function useComposeState() {
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) =>
-      apiFetch(`/api/application-state/compose/${id}`, { method: "DELETE" }),
+      apiFetch(`/_agent-native/application-state/compose/${id}`, {
+        method: "DELETE",
+      }),
   });
 
   const deleteAllMutation = useMutation({
     mutationFn: () =>
-      apiFetch("/api/application-state/compose", { method: "DELETE" }),
+      apiFetch("/_agent-native/application-state/compose", {
+        method: "DELETE",
+      }),
   });
 
   /** Open a new draft tab. Returns the new draft's id. */

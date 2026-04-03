@@ -41,7 +41,7 @@ export const searchIndex: SearchEntry[] = [
     path: "/docs",
     section: "Subpath Exports",
     sectionId: "subpath-exports",
-    text: "@agent-native/core exports createServer createFileWatcher createSSEHandler createProductionServer runScript parseArgs loadEnv fail agentChat sendToAgentChat useAgentChatGenerating useFileWatcher cn. @agent-native/core/vite exports defineConfig defineServerConfig. @agent-native/core/tailwind Tailwind preset HSL colors shadcn/ui tokens animations. @agent-native/core/adapters/sync FileSyncAdapter interface FileRecord FileChange types. @agent-native/core/adapters/firestore FirestoreFileSyncAdapter FileSync threeWayMerge loadSyncConfig. @agent-native/core/adapters/supabase SupabaseFileSyncAdapter FileSync.",
+    text: "@agent-native/core exports createServer createFileWatcher createSSEHandler createProductionServer runScript parseArgs loadEnv fail agentChat sendToAgentChat useAgentChatGenerating useDbSync cn. @agent-native/core/vite exports defineConfig defineServerConfig. @agent-native/core/tailwind Tailwind preset HSL colors shadcn/ui tokens animations. @agent-native/core/adapters/sync FileSyncAdapter interface FileRecord FileChange types. @agent-native/core/adapters/firestore FirestoreFileSyncAdapter FileSync threeWayMerge loadSyncConfig. @agent-native/core/adapters/supabase SupabaseFileSyncAdapter FileSync.",
   },
   {
     page: "Getting Started",
@@ -57,7 +57,7 @@ export const searchIndex: SearchEntry[] = [
     path: "/docs/server",
     section: "createServer()",
     sectionId: "createserver",
-    text: "Creates a pre-configured Express app with standard middleware. Includes cors json limit 50mb urlencoded /api/ping. Options: cors CorsOptions or false CORS config pass false to disable. jsonLimit string JSON body parser limit default 50mb. pingMessage string health check response default env PING_MESSAGE or pong. disablePing boolean disable /api/ping endpoint.",
+    text: "Creates a pre-configured Express app with standard middleware. Includes cors json limit 50mb urlencoded /_agent-native/ping. Options: cors CorsOptions or false CORS config pass false to disable. jsonLimit string JSON body parser limit default 50mb. pingMessage string health check response default env PING_MESSAGE or pong. disablePing boolean disable /_agent-native/ping endpoint.",
   },
   {
     page: "Server",
@@ -71,7 +71,7 @@ export const searchIndex: SearchEntry[] = [
     path: "/docs/server",
     section: "createSSEHandler()",
     sectionId: "createssehandler",
-    text: 'Creates an Express route handler that streams file changes as Server-Sent Events. Each SSE message is JSON type change path data/file.json. Options: extraEmitters additional EventEmitters to stream. app.get("/api/events", createSSEHandler(watcher))',
+    text: 'Creates an Express route handler that streams file changes as Server-Sent Events. Each SSE message is JSON type change path data/file.json. Options: extraEmitters additional EventEmitters to stream. app.get("/_agent-native/events", createSSEHandler(watcher))',
   },
   {
     page: "Server",
@@ -106,9 +106,9 @@ export const searchIndex: SearchEntry[] = [
   {
     page: "Client",
     path: "/docs/client",
-    section: "useFileWatcher()",
-    sectionId: "usefilewatcher",
-    text: "React hook that connects to the SSE endpoint and invalidates react-query caches on file changes. Options: queryClient React-query client for cache invalidation. queryKeys string array query key prefixes to invalidate default file fileTree. eventsUrl string SSE endpoint URL default /api/events. onEvent callback for each SSE event.",
+    section: "useDbSync()",
+    sectionId: "usedbsync",
+    text: "React hook (formerly useFileWatcher) that polls for database changes and invalidates react-query caches. Options: queryClient React-query client for cache invalidation. queryKeys string array query key prefixes to invalidate default file fileTree. pollUrl string poll endpoint URL default /_agent-native/poll. onEvent callback for each poll event.",
   },
   {
     page: "Client",
@@ -182,7 +182,7 @@ export const searchIndex: SearchEntry[] = [
     path: "/docs/harnesses",
     section: "How It Works",
     sectionId: "how-it-works",
-    text: "Agent chat use sendToAgentChat() to send messages to the agent. Generation state use useAgentChatGenerating() to track when the agent is running. File watching SSE endpoint keeps UI in sync when the agent modifies files. Script system pnpm script dispatches to callable scripts. Your app code is identical regardless of how the agent is provided.",
+    text: "Agent chat use sendToAgentChat() to send messages to the agent. Generation state use useAgentChatGenerating() to track when the agent is running. Database sync useDbSync polls for changes and keeps UI in sync when the agent modifies data. Script system pnpm script dispatches to callable scripts. Your app code is identical regardless of how the agent is provided.",
   },
 
   // Key Concepts
@@ -212,7 +212,7 @@ export const searchIndex: SearchEntry[] = [
     path: "/docs/key-concepts",
     section: "Real-time SSE Sync",
     sectionId: "sse-sync",
-    text: "Chokidar file watcher monitors data directory streams changes to browser via Server-Sent Events. useFileWatcher hook invalidates react-query caches. No polling no refresh UI updates instantly when agent acts. createFileWatcher createSSEHandler.",
+    text: "Database changes sync to UI via polling. useDbSync hook (formerly useFileWatcher) invalidates react-query caches when data updates. createFileWatcher createSSEHandler.",
   },
   {
     page: "Key Concepts",
@@ -330,5 +330,125 @@ export const searchIndex: SearchEntry[] = [
     section: "Resource API",
     sectionId: "resource-api",
     text: "REST endpoints for resources. resource-list resource-read resource-write resource-delete. Server API and script API. /api/resources endpoints.",
+  },
+
+  // Core Philosophy
+  {
+    page: "Core Philosophy",
+    path: "/docs/core-philosophy",
+    section: "Agent + UI Parity",
+    sectionId: "agent-ui-parity",
+    text: "Everything the UI can do the agent can do. Everything the agent can do the UI can do. If a user can create a form from the UI the agent must have a script to create it too. No feature is complete until both sides can use it.",
+  },
+  {
+    page: "Core Philosophy",
+    path: "/docs/core-philosophy",
+    section: "The Four-Area Checklist",
+    sectionId: "four-area-checklist",
+    text: "Every new feature must update all four areas: UI component, script, skills/instructions, and application state sync. Skipping any one breaks the agent-native contract.",
+  },
+  {
+    page: "Core Philosophy",
+    path: "/docs/core-philosophy",
+    section: "Database Agnostic",
+    sectionId: "database-agnostic",
+    text: "All data lives in SQL via Drizzle ORM. Supports SQLite Neon Postgres Turso Supabase Cloudflare D1. Never write SQLite-only syntax. Use getDbExec isPostgres intType helpers for dialect-agnostic SQL.",
+  },
+  {
+    page: "Core Philosophy",
+    path: "/docs/core-philosophy",
+    section: "Hosting Agnostic",
+    sectionId: "hosting-agnostic",
+    text: "Server runs on Nitro compiles to any deployment target. Node.js Cloudflare Workers Netlify Vercel Deno Deploy AWS Lambda Bun. Never use Node-specific APIs in server routes. Never assume a persistent server process.",
+  },
+
+  // A2A Protocol
+  {
+    page: "A2A Protocol",
+    path: "/docs/a2a-protocol",
+    section: "Overview",
+    sectionId: "overview",
+    text: "Agent-to-agent communication via JSON-RPC protocol. Agents discover each other via agent cards send messages and receive structured results. mountA2A server setup. A2AClient for calling other agents. callAgent convenience helper.",
+  },
+  {
+    page: "A2A Protocol",
+    path: "/docs/a2a-protocol",
+    section: "Agent Card",
+    sectionId: "agent-card",
+    text: "Auto-generated at /.well-known/agent-card.json. Describes agent name description skills capabilities security. Protocol version 0.3. Other agents fetch this to discover capabilities.",
+  },
+  {
+    page: "A2A Protocol",
+    path: "/docs/a2a-protocol",
+    section: "JSON-RPC Methods",
+    sectionId: "json-rpc-methods",
+    text: "message/send send message get completed task. message/stream send message receive SSE task updates. tasks/get fetch task by ID. tasks/cancel cancel running task. Messages contain typed parts: text data file.",
+  },
+  {
+    page: "A2A Protocol",
+    path: "/docs/a2a-protocol",
+    section: "Task Lifecycle",
+    sectionId: "task-lifecycle",
+    text: "Each message creates a task: submitted working completed failed canceled input-required. Tasks persist in a2a_tasks SQL table. Retrieved via tasks/get.",
+  },
+
+  // Context Awareness
+  {
+    page: "Context Awareness",
+    path: "/docs/context-awareness",
+    section: "Navigation State",
+    sectionId: "navigation-state",
+    text: "UI writes navigation key to application-state on every route change. Includes view item IDs filter state selections. Agent reads readAppState navigation before acting.",
+  },
+  {
+    page: "Context Awareness",
+    path: "/docs/context-awareness",
+    section: "The view-screen Script",
+    sectionId: "view-screen-script",
+    text: "Every template should have a view-screen script. Reads navigation state fetches contextual data returns snapshot of what user sees. The agent should always call view-screen before acting. Hard convention across all templates.",
+  },
+  {
+    page: "Context Awareness",
+    path: "/docs/context-awareness",
+    section: "The navigate Script",
+    sectionId: "navigate-script",
+    text: "Agent writes one-shot navigate command to application-state. UI reads it performs navigation deletes entry. writeAppState navigate view threadId. Agent never writes to navigation key directly.",
+  },
+  {
+    page: "Context Awareness",
+    path: "/docs/context-awareness",
+    section: "Jitter Prevention",
+    sectionId: "jitter-prevention",
+    text: "Source tagging prevents UI from refetching data it just wrote. Agent writes tagged requestSource agent. UI writes include tab ID via X-Request-Source header. ignoreSource in useDbSync (formerly useFileWatcher) filters own writes.",
+  },
+
+  // Skills Guide
+  {
+    page: "Skills Guide",
+    path: "/docs/skills-guide",
+    section: "What Are Skills",
+    sectionId: "what-are-skills",
+    text: "Skills are Markdown files at .agents/skills/name/SKILL.md with detailed guidance for the agent. Each skill focuses on one concern. Referenced in AGENTS.md and triggered by agent tool system.",
+  },
+  {
+    page: "Skills Guide",
+    path: "/docs/skills-guide",
+    section: "Framework Skills",
+    sectionId: "framework-skills",
+    text: "Built-in skills: storing-data real-time-sync delegate-to-agent scripts self-modifying-code create-skill capture-learnings frontend-design adding-a-feature context-awareness a2a-protocol.",
+  },
+  {
+    page: "Skills Guide",
+    path: "/docs/skills-guide",
+    section: "Creating Custom Skills",
+    sectionId: "creating-skills",
+    text: "Create a skill when pattern should be followed repeatedly workflow needs guidance scaffolding from template. YAML frontmatter with name and description plus markdown body with Rule Why How Do Don't sections.",
+  },
+  {
+    page: "Skills Guide",
+    path: "/docs/skills-guide",
+    section: "Skills vs AGENTS.md",
+    sectionId: "skills-vs-agents-md",
+    text: "AGENTS.md is the overview tells agent what app does. Skills are deep dives tell agent how to do specific things correctly. Both needed: AGENTS.md for orientation skills for execution.",
   },
 ];

@@ -114,7 +114,7 @@ export default defineNitroPlugin(async () => {
 });
 ```
 
-The watcher and SSE emitters are shared via `server/lib/watcher.ts`, and the SSE endpoint is a file-based route at `server/routes/api/events.get.ts`. See [Server](./server.md) for the full pattern.
+The watcher and SSE emitters are shared via `server/lib/watcher.ts`, and the SSE endpoint is mounted by the core-routes plugin at `/_agent-native/events`. See [Server](./server.md) for the full pattern.
 
 ### sync-config.json
 

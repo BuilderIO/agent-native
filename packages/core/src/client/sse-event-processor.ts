@@ -19,6 +19,8 @@ export interface SSEEvent {
   result?: string;
   error?: string;
   seq?: number;
+  agent?: string;
+  status?: string;
 }
 
 /**
@@ -79,6 +81,36 @@ export function processEvent(
       ) {
         part.result = ev.result ?? "";
         break;
+      }
+    }
+    return {
+      action: "yield",
+      result: { content: [...content] } as ChatModelRunResult,
+    };
+  }
+
+  if (ev.type === "agent_call") {
+    const agentName = ev.agent ?? "agent";
+    if (ev.status === "start") {
+      const toolCallId = `tc_${++toolCallCounter.value}`;
+      content.push({
+        type: "tool-call",
+        toolCallId,
+        toolName: `agent:${agentName}`,
+        argsText: "",
+        args: {},
+      });
+    } else if (ev.status === "done" || ev.status === "error") {
+      for (let i = content.length - 1; i >= 0; i--) {
+        const part = content[i];
+        if (
+          part.type === "tool-call" &&
+          part.toolName === `agent:${agentName}` &&
+          part.result === undefined
+        ) {
+          part.result = ev.status === "error" ? "Error calling agent" : "Done";
+          break;
+        }
       }
     }
     return {

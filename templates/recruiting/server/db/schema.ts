@@ -1,6 +1,6 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { table, text, integer } from "@agent-native/core/db/schema";
 
-export const agentNotes = sqliteTable("agent_notes", {
+export const agentNotes = table("agent_notes", {
   id: text("id").primaryKey(),
   candidateId: integer("candidate_id").notNull(),
   content: text("content").notNull(),

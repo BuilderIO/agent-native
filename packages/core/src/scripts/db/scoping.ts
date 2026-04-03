@@ -1,5 +1,5 @@
 /**
- * Multi-tenant data scoping for db-query / db-exec.
+ * Per-user data scoping for db-query / db-exec.
  *
  * In production mode, creates temporary views that shadow real tables so
  * that raw SQL only sees the current user's data.

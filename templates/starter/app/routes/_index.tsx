@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { IconArrowRight } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import {
   AgentSidebar,
@@ -84,17 +85,7 @@ export default function IndexPage() {
                     disabled={!prompt.trim()}
                     className="flex h-7 w-7 items-center justify-center rounded-md bg-foreground text-background disabled:opacity-20"
                   >
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      className="h-3.5 w-3.5"
-                    >
-                      <path d="M5 12h14M12 5l7 7-7 7" />
-                    </svg>
+                    <IconArrowRight className="h-3.5 w-3.5" />
                   </button>
                 </div>
               </div>

@@ -77,7 +77,7 @@ export default function Sidebar({
         ))}
       </nav>
 
-      {/* IconSettings button at bottom */}
+      {/* Settings button at bottom */}
       {onSettingsClick && (
         <div className="sidebar-footer">
           <button

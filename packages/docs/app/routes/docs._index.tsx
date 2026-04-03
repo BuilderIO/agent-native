@@ -95,7 +95,7 @@ export default {
             {[
               [
                 "@agent-native/core",
-                "Server, client, scripts: createServer, createFileWatcher, createSSEHandler, runScript, parseArgs, loadEnv, fail, agentChat, sendToAgentChat, useAgentChatGenerating, useFileWatcher, cn",
+                "Server, client, scripts: createServer, createFileWatcher, createSSEHandler, runScript, parseArgs, loadEnv, fail, agentChat, sendToAgentChat, useAgentChatGenerating, useDbSync, cn",
               ],
               ["@agent-native/core/vite", "defineConfig()"],
               [

@@ -6,6 +6,8 @@ description: >-
   application data.
 ---
 
+> **Also known as:** `storing-data`. The skill table in AGENTS.md references this skill as `storing-data`.
+
 # Storing Data — SQL is the Source of Truth
 
 ## Rule
@@ -57,7 +59,7 @@ Local SQLite works out of the box. To deploy to production with a cloud database
 
 ### Real-time Sync
 
-SSE streams database changes to the UI. When the agent writes to the database via scripts, the UI updates instantly via `useFileWatcher()` which invalidates React Query caches.
+Polling streams database changes to the UI. When the agent writes to the database via scripts, the UI updates automatically via `useDbSync()` which invalidates React Query caches.
 
 ## Do
 
@@ -80,8 +82,19 @@ SSE streams database changes to the UI. When the agent writes to the database vi
 - **SQL injection** — Use Drizzle ORM's query builder, never raw string interpolation for SQL queries
 - **Validate before writing** — Check data shape before writing, especially for user-submitted data
 
+## Application State and Context Awareness
+
+When storing app-state, include **navigation state** — the agent needs to know what the user is looking at. The `application_state` table holds ephemeral UI state that both the agent and UI share. Key patterns:
+
+- **`navigation` key** — the UI writes current view and selection on every route change. The agent reads this before acting.
+- **`navigate` key** — the agent writes one-shot commands to navigate the UI. The UI processes and deletes them.
+- **Domain-specific keys** (e.g., `compose-{id}`) — bidirectional state for features like email drafts.
+
+When adding a new data model or feature, also consider what navigation and selection state needs to be exposed via application-state. See the **context-awareness** skill for the full pattern.
+
 ## Related Skills
 
-- **real-time-sync** — Set up SSE so the UI updates when the database changes
+- **context-awareness** — How to expose navigation and selection state via application-state
+- **real-time-sync** — Set up polling so the UI updates when the database changes
 - **scripts** — Create scripts that query the database
 - **self-modifying-code** — The agent can also modify the app's source code

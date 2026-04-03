@@ -94,7 +94,7 @@ function buildTree(resources: ResourceMeta[]): TreeNode[] {
 // Handlers
 // ---------------------------------------------------------------------------
 
-/** GET /api/resources — list resources */
+/** GET /_agent-native/resources — list resources */
 export async function handleListResources(event: any) {
   const query = getQuery(event);
   const prefix = (query.prefix as string) || undefined;
@@ -118,7 +118,7 @@ export async function handleListResources(event: any) {
   return { resources };
 }
 
-/** GET /api/resources/tree — build nested tree */
+/** GET /_agent-native/resources/tree — build nested tree */
 export async function handleGetResourceTree(event: any) {
   const query = getQuery(event);
   const scope = (query.scope as string) || "all";
@@ -141,7 +141,7 @@ export async function handleGetResourceTree(event: any) {
   return { tree };
 }
 
-/** GET /api/resources/:id — get single resource with content.
+/** GET /_agent-native/resources/:id — get single resource with content.
  *  If the request comes from an <img>/<video>/etc tag (Accept includes the
  *  resource's mime type, or query param `?raw` is set), return the raw binary
  *  with the correct Content-Type so the browser can render it inline. */
@@ -193,7 +193,7 @@ export async function handleGetResource(event: any) {
   return resource;
 }
 
-/** POST /api/resources — create a resource */
+/** POST /_agent-native/resources — create a resource */
 export async function handleCreateResource(event: any) {
   const body = await readBody(event);
 
@@ -223,7 +223,7 @@ export async function handleCreateResource(event: any) {
   return resource;
 }
 
-/** PUT /api/resources/:id — update an existing resource */
+/** PUT /_agent-native/resources/:id — update an existing resource */
 export async function handleUpdateResource(event: any) {
   const id = getRouterParam(event, "id") || event.context.params?.id;
   if (!id) {
@@ -262,7 +262,7 @@ export async function handleUpdateResource(event: any) {
   return resource;
 }
 
-/** DELETE /api/resources/:id — delete a resource */
+/** DELETE /_agent-native/resources/:id — delete a resource */
 export async function handleDeleteResource(event: any) {
   const id = getRouterParam(event, "id") || event.context.params?.id;
   if (!id) {
@@ -287,7 +287,7 @@ export async function handleDeleteResource(event: any) {
   return { ok: true };
 }
 
-/** POST /api/resources/upload — upload a file as a resource */
+/** POST /_agent-native/resources/upload — upload a file as a resource */
 export async function handleUploadResource(event: any) {
   const parts = await readMultipartFormData(event);
 

@@ -27,10 +27,11 @@ Don't create a skill when:
 Before writing the skill, answer these:
 
 1. **What should this skill enable?** — The core purpose in one sentence.
-2. **Which agent-native rule does it serve?** — Rule 1 (files), Rule 2 (delegate), Rule 3 (scripts), Rule 4 (SSE), Rule 5 (self-modify), or "utility."
+2. **Which agent-native rule does it serve?** — Rule 1 (data in SQL), Rule 2 (delegate to agent), Rule 3 (scripts), Rule 4 (polling sync), Rule 5 (self-modify), Rule 6 (app-state in SQL), or "utility."
 3. **When should it trigger?** — Describe the situations in natural language. Be slightly pushy — over-triggering is better than under-triggering.
-4. **What type of skill?** — Pattern, Workflow, or Generator (see templates below).
-5. **Does it need supporting files?** — References (read-only context) or none. Keep it minimal.
+4. **Does it involve context awareness?** — Does the agent need to know what the user is looking at to use this skill? If yes, the skill should reference the `navigation` app-state key and the `view-screen` script pattern. See the **context-awareness** skill.
+5. **What type of skill?** — Pattern, Workflow, or Generator (see templates below).
+6. **Does it need supporting files?** — References (read-only context) or none. Keep it minimal.
 
 ## Skill Types and Templates
 
@@ -148,7 +149,7 @@ description: >-
 
 - **Inline LLM calls** — Skills must not call LLMs directly (violates Rule 2)
 - **Database patterns** — Skills must not introduce databases (violates Rule 1)
-- **Ignoring SSE** — If a skill creates data files, mention wiring up `useFileWatcher`
+- **Ignoring db sync** — If a skill creates data, mention wiring up `useDbSync`
 - **Vague descriptions** — "Helps with development" won't trigger. Be specific about _when_.
 - **Pure documentation** — Skills should guide action, not just explain concepts
 

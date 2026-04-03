@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "type": "module",
   "description": "Framework for agent-native application development — where AI agents and UI share state via files",
   "license": "MIT",
@@ -20,11 +20,13 @@
     "./vite": "./dist/vite/index.js",
     "./server": "./dist/server/index.js",
     "./db": "./dist/db/index.js",
+    "./db/schema": "./dist/db/schema.js",
     "./client": "./dist/client/index.js",
     "./shared": "./dist/shared/index.js",
     "./scripts": "./dist/scripts/index.js",
     "./application-state": "./dist/application-state/index.js",
     "./settings": "./dist/settings/index.js",
+    "./credentials": "./dist/credentials/index.js",
     "./resources": "./dist/resources/index.js",
     "./oauth-tokens": "./dist/oauth-tokens/index.js",
     "./adapters/sync": "./dist/adapters/sync/index.js",
@@ -61,6 +63,7 @@
     "@radix-ui/react-tooltip": "^1.2.8",
     "@react-router/dev": "^7.13.1",
     "@react-router/fs-routes": "^7.13.1",
+    "@tabler/icons-react": "^3",
     "@tailwindcss/typography": "^0.5.19",
     "@tiptap/core": "^2.12.0",
     "@tiptap/extension-link": "^2.12.0",
@@ -85,6 +88,7 @@
     "tiptap-markdown": "^0.8.10"
   },
   "peerDependencies": {
+    "@tabler/icons-react": ">=3",
     "@assistant-ui/react": ">=0.12",
     "@assistant-ui/react-markdown": ">=0.12",
     "@supabase/supabase-js": ">=2",
@@ -108,6 +112,9 @@
     "ws": ">=8"
   },
   "peerDependenciesMeta": {
+    "@tabler/icons-react": {
+      "optional": true
+    },
     "@tanstack/react-query": {
       "optional": true
     },
@@ -162,6 +169,7 @@
     "@assistant-ui/react-markdown": "^0.12.6",
     "@react-router/dev": "^7.13.1",
     "@react-router/fs-routes": "^7.13.1",
+    "@tabler/icons-react": "^3.40.0",
     "@supabase/supabase-js": "^2.49.0",
     "@tanstack/react-query": "^5.84.2",
     "@types/better-sqlite3": "^7.6.13",

@@ -125,7 +125,7 @@ export function CloudUpgrade({
         vars.push({ key: "DATABASE_AUTH_TOKEN", value: authToken.trim() });
       }
 
-      const saveRes = await fetch("/api/env-vars", {
+      const saveRes = await fetch("/_agent-native/env-vars", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ vars }),

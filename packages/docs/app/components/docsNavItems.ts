@@ -1,6 +1,10 @@
 export const NAV_ITEMS = [
   { label: "Getting Started", to: "/docs" as const },
+  { label: "Core Philosophy", to: "/docs/core-philosophy" as const },
   { label: "Key Concepts", to: "/docs/key-concepts" as const },
+  { label: "Context Awareness", to: "/docs/context-awareness" as const },
+  { label: "Skills Guide", to: "/docs/skills-guide" as const },
+  { label: "A2A Protocol", to: "/docs/a2a-protocol" as const },
   { label: "Server", to: "/docs/server" as const },
   { label: "Client", to: "/docs/client" as const },
   { label: "Resources & Skills", to: "/docs/resources" as const },

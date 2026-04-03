@@ -56,7 +56,16 @@ export default async function main(args: string[]) {
   const updates: Record<string, unknown> = {
     updatedAt: new Date().toISOString(),
   };
-  if (title) updates.title = title;
+  if (title) {
+    updates.title = title;
+    // Auto-update slug to match new title
+    const slugified = title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 60);
+    updates.slug = slugified + "/" + id.slice(0, 6);
+  }
   if (description) updates.description = description;
   if (status) updates.status = status;
   if (fieldsJson) {

@@ -13,7 +13,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
-import { useFileWatcher } from "@agent-native/core";
+import { useDbSync } from "@agent-native/core";
 import { ClientOnly, DefaultSpinner } from "@agent-native/core/client";
 import { Toaster } from "sonner";
 import "./global.css";
@@ -45,9 +45,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-function FileWatcherSetup() {
+function DbSyncSetup() {
   const qc = useQueryClient();
-  useFileWatcher({ queryClient: qc, queryKeys: ["files", "data"] });
+  useDbSync({ queryClient: qc, queryKeys: ["files", "data"] });
   return null;
 }
 
@@ -62,7 +62,7 @@ export default function Root() {
         disableTransitionOnChange
       >
         <QueryClientProvider client={queryClient}>
-          <FileWatcherSetup />
+          <DbSyncSetup />
           <Outlet />
           <Toaster />
         </QueryClientProvider>
