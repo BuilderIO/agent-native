@@ -448,10 +448,10 @@ function CSS() {
   --radius:0.5rem;
 }
 .dark{
-  --bg:220 6% 10%;--fg:0 0% 90%;
-  --card:220 5% 12%;--card-fg:0 0% 90%;
-  --muted:220 4% 10%;--muted-fg:220 4% 55%;
-  --border:220 4% 18%;--input:220 4% 18%;
+  --bg:220 6% 4%;--fg:0 0% 90%;
+  --card:220 5% 6%;--card-fg:0 0% 90%;
+  --muted:220 4% 8%;--muted-fg:220 4% 55%;
+  --border:220 4% 12%;--input:220 4% 12%;
   --ring:0 0% 60%;
 }
 
