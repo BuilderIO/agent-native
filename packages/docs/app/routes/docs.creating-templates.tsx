@@ -7,7 +7,7 @@ const TOC = [
   { id: "project-structure", label: "Project Structure" },
   { id: "build-your-client", label: "Build Your Client" },
   { id: "add-api-routes", label: "Add API Routes" },
-  { id: "add-scripts", label: "Add Scripts" },
+  { id: "add-actions", label: "Add Actions" },
   { id: "add-data-models", label: "Add Data Models" },
   { id: "write-agents-md", label: "Write AGENTS.md" },
   { id: "add-skills", label: "Add Skills" },
@@ -40,10 +40,10 @@ export default function CreatingTemplatesDocs() {
           Has a comprehensive <code>AGENTS.md</code> so the AI agent understands
           the architecture
         </li>
-        <li>Includes scripts for key operations the agent can call</li>
+        <li>Includes actions for key operations the agent can call</li>
         <li>
           Follows the five rules: files as database, all AI through agent chat,
-          scripts for operations, SSE sync, agent can modify code
+          actions for operations, SSE sync, agent can modify code
         </li>
       </ul>
 
@@ -56,7 +56,7 @@ export default function CreatingTemplatesDocs() {
       <p>
         This scaffolds a minimal agent-native app with the standard directory
         structure, a working dev server, file watching, SSE, and an example
-        script. Build your template on top of this.
+        action. Build your template on top of this.
       </p>
 
       <h2 id="project-structure">Project structure</h2>
@@ -84,9 +84,9 @@ export default function CreatingTemplatesDocs() {
   shared/             # Isomorphic types (imported by client & server)
     api.ts            # Shared interfaces
 
-  scripts/            # Agent-callable scripts
-    run.ts            # Script dispatcher (don't modify)
-    *.ts              # Your scripts — one per operation
+  actions/            # Agent-callable actions
+    run.ts            # Action dispatcher (don't modify)
+    *.ts              # Your actions — one per operation
 
   data/               # File-based state (watched by SSE)
     .gitkeep          # Or seed data for the template
@@ -95,7 +95,7 @@ export default function CreatingTemplatesDocs() {
 
   AGENTS.md           # Master agent instructions
   react-router.config.ts # React Router config (ssr, appDirectory)
-  package.json        # Scripts: dev, build, start, script, typecheck
+  package.json        # Scripts: dev, build, start, action, typecheck
   vite.config.ts      # Vite config (React Router + Nitro)
   tsconfig.json       # TypeScript config`}
         lang="text"
@@ -195,13 +195,13 @@ export default defineEventHandler(async () => {
         updates.
       </p>
 
-      <h2 id="add-scripts">Add scripts</h2>
+      <h2 id="add-actions">Add actions</h2>
       <p>
-        Scripts are the agent's toolbox. Each script handles one operation —
+        Actions are the agent's toolbox. Each action handles one operation —
         fetching data from an API, generating content, processing files, etc:
       </p>
       <CodeBlock
-        code={`// scripts/import-data.ts
+        code={`// actions/import-data.ts
 import { parseArgs } from "@agent-native/core";
 import { writeFile, mkdir } from "node:fs/promises";
 
@@ -230,7 +230,7 @@ export default async function importData(args: string[]) {
       />
       <CodeBlock
         code={`# The agent can run this
-pnpm script import-data --url https://api.example.com/data --name users`}
+pnpm action import-data --url https://api.example.com/data --name users`}
         lang="bash"
       />
       <p>
@@ -278,23 +278,23 @@ This is an **@agent-native/core** application.
 
 1. **Files as database** — All state in \`data/\`. No traditional DB.
 2. **All AI through agent chat** — No inline LLM calls.
-3. **Scripts for operations** — \`pnpm script <name>\` for complex work.
+3. **Actions for operations** — \`pnpm action <name>\` for complex work.
 4. **SSE sync** — File watcher keeps UI in sync.
-5. **Agent can update code** — Edit components, routes, scripts.
+5. **Agent can update code** — Edit components, routes, actions.
 
 ### Directory Structure
 
 \\\`\\\`\\\`
 app/             # React frontend (file-based routing in app/routes/)
 server/          # Nitro API server
-scripts/         # Agent-callable scripts
+actions/         # Agent-callable actions
 data/            # File-based state
 \\\`\\\`\\\`
 
-### Available Scripts
+### Available Actions
 
-- \`pnpm script import-data --url <url>\` — Import data from API
-- \`pnpm script generate-report --id <id>\` — Generate a report
+- \`pnpm action import-data --url <url>\` — Import data from API
+- \`pnpm action generate-report --id <id>\` — Generate a report
 
 ### Data Model
 
@@ -307,11 +307,11 @@ Items are stored as \`data/items/<id>.json\`:
 
 - API routes in \`server/routes/\` serve files from \`data/\`
 - UI delegates AI work via \`sendToAgentChat()\`
-- Scripts write results to \`data/\` — SSE updates the UI`}
+- Actions write results to \`data/\` — SSE updates the UI`}
         lang="markdown"
       />
       <p>
-        Be specific about your data models, available scripts, and key patterns.
+        Be specific about your data models, available actions, and key patterns.
         The better your <code>AGENTS.md</code>, the better the agent will work
         with your template.
       </p>

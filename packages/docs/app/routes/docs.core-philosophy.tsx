@@ -36,9 +36,10 @@ export default function CorePhilosophyDocs() {
         the UI can do. This is the defining principle of agent-native.
       </p>
       <p>
-        If a user can create a form from the UI, the agent must have a script to
-        create it too. If the agent can run an analytics query, the UI must have
-        a way to trigger it. No feature is complete until both sides can use it.
+        If a user can create a form from the UI, the agent must have an action
+        to create it too. If the agent can run an analytics query, the UI must
+        have a way to trigger it. No feature is complete until both sides can
+        use it.
       </p>
       <div className="my-6 overflow-hidden rounded-xl border border-[var(--border)]">
         <div className="grid grid-cols-2 divide-x divide-[var(--border)]">
@@ -53,10 +54,10 @@ export default function CorePhilosophyDocs() {
           </div>
           <div className="p-5">
             <div className="mb-2 text-sm font-semibold">
-              Agent runs a script
+              Agent runs an action
             </div>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Script writes to the database. The UI picks up the change via
+              Action writes to the database. The UI picks up the change via
               polling and re-renders.
             </p>
           </div>
@@ -73,8 +74,8 @@ export default function CorePhilosophyDocs() {
           {[
             ["1. UI", "Page, component, or dialog the user interacts with"],
             [
-              "2. Script",
-              "Agent-callable script in scripts/ for the same operation",
+              "2. Action",
+              "Agent-callable action in actions/ for the same operation",
             ],
             [
               "3. Skills",
@@ -94,7 +95,7 @@ export default function CorePhilosophyDocs() {
       </div>
       <p>
         A feature with only UI is invisible to the agent. A feature with only
-        scripts is invisible to the user. A feature without app-state means the
+        actions is invisible to the user. A feature without app-state means the
         agent is blind to what the user is doing.
       </p>
 
@@ -181,7 +182,8 @@ const upsert = isPostgres()
         Never use Node-specific APIs (<code>fs</code>,{" "}
         <code>child_process</code>, <code>path</code>) in server routes or
         plugins. These don't exist in Workers/edge environments. Scripts in{" "}
-        <code>scripts/</code> run in Node.js and can use Node APIs freely.
+        Actions in <code>actions/</code> run in Node.js and can use Node APIs
+        freely.
       </p>
       <p>
         Never assume a persistent server process. Serverless and edge
@@ -197,7 +199,7 @@ const upsert = isPostgres()
           sides
         </li>
         <li>
-          <strong>Four-area checklist</strong> — UI, script, skills, app-state
+          <strong>Four-area checklist</strong> — UI, action, skills, app-state
           for every feature
         </li>
         <li>

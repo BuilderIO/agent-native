@@ -132,9 +132,8 @@ agentChat.send({
       />
       <p>
         In the browser, messages are sent via <code>window.postMessage()</code>.
-        In Node.js (actions), they use the{" "}
-        <code>BUILDER_PARENT_MESSAGE:</code> stdout format that the Electron
-        host translates to postMessage.
+        In Node.js (actions), they use the <code>BUILDER_PARENT_MESSAGE:</code>{" "}
+        stdout format that the Electron host translates to postMessage.
       </p>
 
       <h2 id="utility-functions">Utility Functions</h2>

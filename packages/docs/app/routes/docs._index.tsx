@@ -37,8 +37,8 @@ export default function DocsIndex() {
     plugins/       # Server plugins (startup logic)
     lib/           # Shared server modules
   shared/          # Isomorphic code (client & server)
-  scripts/         # Agent-callable scripts
-    run.ts         # Script dispatcher
+  actions/         # Agent-callable actions
+    run.ts         # Action dispatcher
   data/            # App data files (watched by SSE)`}
         lang="text"
       />
@@ -127,8 +127,8 @@ export default {
           delegates to the AI via <code>sendToAgentChat()</code>.
         </li>
         <li>
-          <strong>Scripts for agent ops</strong> —{" "}
-          <code>pnpm script &lt;name&gt;</code> dispatches to callable script
+          <strong>Actions for agent ops</strong> —{" "}
+          <code>pnpm action &lt;name&gt;</code> dispatches to callable action
           files.
         </li>
         <li>

@@ -123,6 +123,9 @@ export default function Header() {
               className="header-link"
             >
               GitHub
+              <span className="text-[0.6em] align-super ml-0.5 opacity-70">
+                ↗
+              </span>
             </a>
             <a
               href="https://discord.gg/qm82StQ2NC"
@@ -131,6 +134,9 @@ export default function Header() {
               className="header-link"
             >
               Discord
+              <span className="text-[0.6em] align-super ml-0.5 opacity-70">
+                ↗
+              </span>
             </a>
           </div>
 
@@ -190,6 +196,9 @@ export default function Header() {
               className="header-link"
             >
               GitHub
+              <span className="text-[0.6em] align-super ml-0.5 opacity-70">
+                ↗
+              </span>
             </a>
             <a
               href="https://discord.gg/qm82StQ2NC"
@@ -198,6 +207,9 @@ export default function Header() {
               className="header-link"
             >
               Discord
+              <span className="text-[0.6em] align-super ml-0.5 opacity-70">
+                ↗
+              </span>
             </a>
           </div>
         )}

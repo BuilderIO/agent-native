@@ -44,8 +44,8 @@ my-app/
     plugins/             # Server plugins (startup logic)
     lib/                 # Shared server modules
   shared/                # Isomorphic code (client & server)
-  scripts/               # Agent-callable scripts
-    run.ts               # Script dispatcher
+  actions/               # Agent-callable actions
+    run.ts               # Action dispatcher
   data/                  # App data files (watched by SSE)
   react-router.config.ts # React Router framework config
 ```
@@ -112,7 +112,7 @@ export default {
 
 1. **Files as database** — All app state lives in files. Both UI and agent read/write the same files.
 2. **All AI through agent chat** — No inline LLM calls. UI delegates to the AI via `sendToAgentChat()`.
-3. **Scripts for agent ops** — `pnpm script <name>` dispatches to callable script files.
+3. **Actions for agent ops** — `pnpm action <name>` dispatches to callable action files.
 4. **Bidirectional SSE events** — File watcher keeps UI in sync with agent changes in real-time.
 5. **Agent can update code** — The agent modifies the app itself.
 6. **Application state as files** — Ephemeral UI state lives in `application-state/` as JSON. Both agent and UI can read and write these files; the SSE watcher covers this directory too.
@@ -353,18 +353,18 @@ Utility for merging class names (clsx + tailwind-merge).
 
 ---
 
-# Scripts
+# Actions
 
-## Script Dispatcher
+## Action Dispatcher
 
 ```ts
-// scripts/run.ts
+// actions/run.ts
 import { runScript } from "@agent-native/core";
 runScript();
 ```
 
 ```ts
-// scripts/hello.ts
+// actions/hello.ts
 import { parseArgs } from "@agent-native/core";
 
 export default async function hello(args: string[]) {
@@ -374,7 +374,7 @@ export default async function hello(args: string[]) {
 ```
 
 ```bash
-pnpm script hello --name Steve
+pnpm action hello --name Steve
 ```
 
 ## parseArgs(args)
@@ -392,7 +392,7 @@ agentChat.submit("Generate a report for Q4");
 agentChat.prefill("Draft an email to...", contextData);
 ```
 
-In the browser, messages are sent via `window.postMessage()`. In Node.js (scripts), they use the `BUILDER_PARENT_MESSAGE:` stdout format.
+In the browser, messages are sent via `window.postMessage()`. In Node.js (actions), they use the `BUILDER_PARENT_MESSAGE:` stdout format.
 
 ## Utility Functions
 
@@ -403,9 +403,9 @@ In the browser, messages are sent via `window.postMessage()`. In Node.js (script
 - `ensureDir(dir)` — mkdir -p helper
 - `fail(message)` — Print error and exit(1)
 
-## Production Scripts (run() export)
+## Production Actions (run() export)
 
-Scripts used by the embedded production agent must export a `tool` definition and a `run()` function:
+Actions used by the embedded production agent must export a `tool` definition and a `run()` function:
 
 ```ts
 import type { ScriptTool } from "@agent-native/core";
@@ -432,10 +432,10 @@ export default async function main(args: string[]) {
 }
 ```
 
-Register all production scripts in a registry:
+Register all production actions in a registry:
 
 ```ts
-// scripts/registry.ts
+// actions/registry.ts
 import type { ScriptEntry } from "@agent-native/core";
 import * as archiveEmail from "./archive-email.js";
 
@@ -533,7 +533,7 @@ Every agent-native app includes an embedded agent panel with chat and optional C
 1. **Agent chat** — use `sendToAgentChat()` to send messages to the agent
 2. **Generation state** — use `useAgentChatGenerating()` to track when the agent is running
 3. **File watching** — SSE keeps UI in sync
-4. **Script system** — `pnpm script <name>` dispatches to scripts
+4. **Action system** — `pnpm action <name>` dispatches to actions
 
 App code is identical regardless of how the agent is provided.
 
@@ -556,14 +556,14 @@ npx @agent-native/core create my-app --template calendar
 ```
 
 ## Analytics
-BI platform with 20+ data connectors (BigQuery, HubSpot, Stripe, Jira, Sentry, GitHub, Slack, Grafana, etc.), SQL query explorer, reusable dashboards, 550+ metric data dictionary, 50+ pre-built scripts, and natural language chart generation.
+BI platform with 20+ data connectors (BigQuery, HubSpot, Stripe, Jira, Sentry, GitHub, Slack, Grafana, etc.), SQL query explorer, reusable dashboards, 550+ metric data dictionary, 50+ pre-built actions, and natural language chart generation.
 
 ```bash
 npx @agent-native/core create my-app --template analytics
 ```
 
 ## Content
-Content workspace with project/document organization, rich text editor, brand-aware AI writing, media management, CMS publishing (WordPress, Contentful, Builder), real-time sync via SSE, and script automation for batch operations.
+Content workspace with project/document organization, rich text editor, brand-aware AI writing, media management, CMS publishing (WordPress, Contentful, Builder), real-time sync via SSE, and action automation for batch operations.
 
 ```bash
 npx @agent-native/core create my-app --template content

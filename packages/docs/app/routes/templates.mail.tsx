@@ -417,7 +417,7 @@ export default function MailTemplate() {
         </div>
       </section>
 
-      {/* Agent scripts */}
+      {/* Agent actions */}
       <section className="border-t border-[var(--border)] py-16">
         <div className="grid gap-8 lg:grid-cols-2 lg:items-center">
           <div>
@@ -498,30 +498,30 @@ export default function MailTemplate() {
           <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-6">
             <div className="space-y-3 font-mono text-sm">
               <div className="text-[var(--fg-secondary)]">
-                {"// Available agent scripts"}
+                {"// Available agent actions"}
               </div>
               <div>
                 <span className="text-[var(--accent)]">$</span>{" "}
                 <span className="text-[var(--fg)]">
-                  pnpm script sync-inbox --since 7d
+                  pnpm action sync-inbox --since 7d
                 </span>
               </div>
               <div>
                 <span className="text-[var(--accent)]">$</span>{" "}
                 <span className="text-[var(--fg)]">
-                  pnpm script triage --label priority
+                  pnpm action triage --label priority
                 </span>
               </div>
               <div>
                 <span className="text-[var(--accent)]">$</span>{" "}
                 <span className="text-[var(--fg)]">
-                  pnpm script draft-reply --thread "RE: Q2 update"
+                  pnpm action draft-reply --thread "RE: Q2 update"
                 </span>
               </div>
               <div>
                 <span className="text-[var(--accent)]">$</span>{" "}
                 <span className="text-[var(--fg)]">
-                  pnpm script summarize --unread
+                  pnpm action summarize --unread
                 </span>
               </div>
             </div>

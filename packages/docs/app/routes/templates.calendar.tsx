@@ -179,7 +179,7 @@ export default function CalendarTemplate() {
         <div className="mx-auto grid max-w-3xl gap-px overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--border)] sm:grid-cols-4">
           {[
             { number: "3", label: "Calendar views" },
-            { number: "4", label: "Agent scripts" },
+            { number: "4", label: "Agent actions" },
             { number: "N", label: "Booking link types" },
             { number: "2-way", label: "Google sync" },
           ].map((stat) => (
@@ -427,7 +427,7 @@ export default function CalendarTemplate() {
         </div>
       </section>
 
-      {/* Agent scripts */}
+      {/* Agent actions */}
       <section className="border-t border-[var(--border)] py-16">
         <div className="grid gap-8 lg:grid-cols-2 lg:items-center">
           <div>
@@ -508,33 +508,33 @@ export default function CalendarTemplate() {
           <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-6">
             <div className="space-y-3 font-mono text-sm">
               <div className="text-[var(--fg-secondary)]">
-                {"// Available agent scripts"}
+                {"// Available agent actions"}
               </div>
               <div>
                 <span className="text-[var(--accent)]">$</span>{" "}
                 <span className="text-[var(--fg)]">
-                  pnpm script sync-google-calendar --from 2026-01-01 --to
+                  pnpm action sync-google-calendar --from 2026-01-01 --to
                   2026-06-01
                 </span>
               </div>
               <div>
                 <span className="text-[var(--accent)]">$</span>{" "}
                 <span className="text-[var(--fg)]">
-                  pnpm script create-event --title "Team Standup" --start
+                  pnpm action create-event --title "Team Standup" --start
                   "2026-03-15T09:00"
                 </span>
               </div>
               <div>
                 <span className="text-[var(--accent)]">$</span>{" "}
                 <span className="text-[var(--fg)]">
-                  pnpm script check-availability --date "2026-03-18" --duration
+                  pnpm action check-availability --date "2026-03-18" --duration
                   30
                 </span>
               </div>
               <div>
                 <span className="text-[var(--accent)]">$</span>{" "}
                 <span className="text-[var(--fg)]">
-                  pnpm script list-events --from "2026-03-14" --to "2026-03-21"
+                  pnpm action list-events --from "2026-03-14" --to "2026-03-21"
                 </span>
               </div>
             </div>

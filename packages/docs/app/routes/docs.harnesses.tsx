@@ -115,8 +115,8 @@ export default function HarnessesDocs() {
           the agent modifies files
         </li>
         <li>
-          <strong>Script system</strong> — <code>pnpm script {"<name>"}</code>{" "}
-          dispatches to callable scripts
+          <strong>Action system</strong> — <code>pnpm action {"<name>"}</code>{" "}
+          dispatches to callable actions
         </li>
       </ol>
       <p>Your app code is identical regardless of how the agent is provided.</p>

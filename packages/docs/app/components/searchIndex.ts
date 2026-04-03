@@ -20,7 +20,7 @@ export const searchIndex: SearchEntry[] = [
     path: "/docs",
     section: "Project Structure",
     sectionId: "project-structure",
-    text: "Every agent-native app follows the same convention: client/ React frontend Vite SPA App.tsx entry point components UI components lib/utils.ts cn() utility server/ Express backend index.ts createAppServer() node-build.ts production entry point shared/ isomorphic code client and server scripts/ agent-callable scripts run.ts script dispatcher data/ app data files watched by SSE",
+    text: "Every agent-native app follows the same convention: client/ React frontend Vite SPA App.tsx entry point components UI components lib/utils.ts cn() utility server/ Express backend index.ts createAppServer() node-build.ts production entry point shared/ isomorphic code client and server actions/ agent-callable actions run.ts action dispatcher data/ app data files watched by SSE",
   },
   {
     page: "Getting Started",
@@ -48,7 +48,7 @@ export const searchIndex: SearchEntry[] = [
     path: "/docs",
     section: "Architecture Principles",
     sectionId: "architecture-principles",
-    text: "Files as database all app state lives in files. Both UI and agent read/write the same files. All AI through agent chat no inline LLM calls. UI delegates to the AI via sendToAgentChat(). Scripts for agent ops pnpm script dispatches to callable script files. Bidirectional SSE events file watcher keeps UI in sync with agent changes in real-time. Agent can update code the agent modifies the app itself.",
+    text: "Files as database all app state lives in files. Both UI and agent read/write the same files. All AI through agent chat no inline LLM calls. UI delegates to the AI via sendToAgentChat(). Actions for agent ops pnpm action dispatches to callable action files. Bidirectional SSE events file watcher keeps UI in sync with agent changes in real-time. Agent can update code the agent modifies the app itself.",
   },
 
   // Server
@@ -118,38 +118,38 @@ export const searchIndex: SearchEntry[] = [
     text: 'Utility for merging class names clsx plus tailwind-merge. cn("px-4 py-2 rounded", isActive && "bg-primary text-primary-foreground", className)',
   },
 
-  // Scripts
+  // Actions
   {
-    page: "Scripts",
-    path: "/docs/scripts",
-    section: "Script Dispatcher",
-    sectionId: "script-dispatcher",
-    text: "The script system lets you create scripts that agents can invoke via pnpm script name. Each script is a TypeScript file that exports a default async function. scripts/run.ts dispatcher one-time setup runScript(). scripts/hello.ts example script.",
+    page: "Actions",
+    path: "/docs/actions",
+    section: "Action Dispatcher",
+    sectionId: "action-dispatcher",
+    text: "The action system lets you create actions that agents can invoke via pnpm action name. Each action is a TypeScript file that exports a default async function. actions/run.ts dispatcher one-time setup runScript(). actions/hello.ts example action.",
   },
   {
-    page: "Scripts",
-    path: "/docs/scripts",
+    page: "Actions",
+    path: "/docs/actions",
     section: "parseArgs()",
     sectionId: "parseargs",
     text: 'Parse CLI arguments in --key value or --key=value format. parseArgs(["--name", "Steve", "--verbose", "--count=3"]) returns { name: "Steve", verbose: "true", count: "3" }',
   },
   {
-    page: "Scripts",
-    path: "/docs/scripts",
+    page: "Actions",
+    path: "/docs/actions",
     section: "Shared Agent Chat",
     sectionId: "shared-agent-chat",
-    text: 'Isomorphic chat bridge that works in both browser and Node.js. agentChat.submit("Generate a report"). agentChat.prefill("Draft an email", contextData). agentChat.send({ message, context, submit }). In the browser messages are sent via window.postMessage(). In Node.js scripts they use the BUILDER_PARENT_MESSAGE stdout format.',
+    text: 'Isomorphic chat bridge that works in both browser and Node.js. agentChat.submit("Generate a report"). agentChat.prefill("Draft an email", contextData). agentChat.send({ message, context, submit }). In the browser messages are sent via window.postMessage(). In Node.js actions they use the BUILDER_PARENT_MESSAGE stdout format.',
   },
   {
-    page: "Scripts",
-    path: "/docs/scripts",
+    page: "Actions",
+    path: "/docs/actions",
     section: "Utility Functions",
     sectionId: "utility-functions",
     text: "loadEnv(path?) load .env from project root or custom path. camelCaseArgs(args) convert kebab-case keys to camelCase. isValidPath(p) validate relative path no traversal no absolute. isValidProjectPath(p) validate project slug. ensureDir(dir) mkdir -p helper. fail(message) print error to stderr and exit(1).",
   },
   {
-    page: "Scripts",
-    path: "/docs/scripts",
+    page: "Actions",
+    path: "/docs/actions",
     section: "File Sync Adapters",
     sectionId: "file-sync-adapters",
     text: "Bidirectional file sync across instances with pluggable adapters. Supports Google Cloud Firestore, Supabase Postgres, and Convex. All adapters implement FileSyncAdapter interface. FirestoreFileSyncAdapter real-time via onSnapshot. SupabaseFileSyncAdapter real-time via Supabase Realtime channels. ConvexFileSyncAdapter real-time via reactive queries. Features startup sync remote change listeners chokidar file watchers three-way merge with LCS-based conflict resolution and .conflict sidecar files. Custom adapters via @agent-native/core/adapters/sync.",
@@ -182,7 +182,7 @@ export const searchIndex: SearchEntry[] = [
     path: "/docs/harnesses",
     section: "How It Works",
     sectionId: "how-it-works",
-    text: "Agent chat use sendToAgentChat() to send messages to the agent. Generation state use useAgentChatGenerating() to track when the agent is running. Database sync useDbSync polls for changes and keeps UI in sync when the agent modifies data. Script system pnpm script dispatches to callable scripts. Your app code is identical regardless of how the agent is provided.",
+    text: "Agent chat use sendToAgentChat() to send messages to the agent. Generation state use useAgentChatGenerating() to track when the agent is running. Database sync useDbSync polls for changes and keeps UI in sync when the agent modifies data. Action system pnpm action dispatches to callable actions. Your app code is identical regardless of how the agent is provided.",
   },
 
   // Key Concepts
@@ -205,7 +205,7 @@ export const searchIndex: SearchEntry[] = [
     path: "/docs/key-concepts",
     section: "Agent Chat Bridge",
     sectionId: "agent-chat-bridge",
-    text: "UI never calls an LLM directly. Sends message to agent via postMessage. Agent has full conversation history skills instructions. Transport is window.parent.postMessage in browser. BUILDER_PARENT_MESSAGE stdout format in Node scripts. sendToAgentChat submit prefill. Everything goes through the agent so any app can be driven from Slack Telegram or another agent.",
+    text: "UI never calls an LLM directly. Sends message to agent via postMessage. Agent has full conversation history skills instructions. Transport is window.parent.postMessage in browser. BUILDER_PARENT_MESSAGE stdout format in Node actions. sendToAgentChat submit prefill. Everything goes through the agent so any app can be driven from Slack Telegram or another agent.",
   },
   {
     page: "Key Concepts",
@@ -226,7 +226,7 @@ export const searchIndex: SearchEntry[] = [
     path: "/docs/key-concepts",
     section: "Agent Modifies Code",
     sectionId: "agent-modifies-code",
-    text: "Agent can edit apps own source code components routes styles scripts. Fork and evolve pattern. Fork a template customize by asking the agent. Add new chart types connect to Stripe write integrations. Combined with git-based workflows roles ACLs for safety.",
+    text: "Agent can edit apps own source code components routes styles actions. Fork and evolve pattern. Fork a template customize by asking the agent. Add new chart types connect to Stripe write integrations. Combined with git-based workflows roles ACLs for safety.",
   },
 
   // Creating Templates
@@ -235,21 +235,21 @@ export const searchIndex: SearchEntry[] = [
     path: "/docs/creating-templates",
     section: "Overview",
     sectionId: "overview",
-    text: "Templates are complete forkable agent-native apps that solve a specific use case. Anyone can create a template and share with the community. Good templates solve a real workflow have comprehensive AGENTS.md include scripts follow five rules.",
+    text: "Templates are complete forkable agent-native apps that solve a specific use case. Anyone can create a template and share with the community. Good templates solve a real workflow have comprehensive AGENTS.md include actions follow five rules.",
   },
   {
     page: "Creating Templates",
     path: "/docs/creating-templates",
     section: "Start from the Starter",
     sectionId: "start-from-starter",
-    text: "npx @agent-native/core create my-template scaffolds a minimal agent-native app with standard directory structure working dev server file watching SSE example script.",
+    text: "npx @agent-native/core create my-template scaffolds a minimal agent-native app with standard directory structure working dev server file watching SSE example action.",
   },
   {
     page: "Creating Templates",
     path: "/docs/creating-templates",
     section: "Write AGENTS.md",
     sectionId: "write-agents-md",
-    text: "Most important file in your template. Tells AI agent how app works what it can and cant do. Include architecture principles directory structure available scripts data model key patterns.",
+    text: "Most important file in your template. Tells AI agent how app works what it can and cant do. Include architecture principles directory structure available actions data model key patterns.",
   },
   {
     page: "Creating Templates",
@@ -272,7 +272,7 @@ export const searchIndex: SearchEntry[] = [
     path: "/templates/analytics",
     section: "Features",
     sectionId: "",
-    text: "20+ data connectors BigQuery HubSpot Stripe Jira Sentry GitHub Slack Grafana Google Cloud Apollo Gong Notion. SQL query explorer with history row count tracking shareable URLs export. Reusable dashboards multi-view subviews date range controls. Data dictionary 550+ metrics query templates join patterns. Rich visualizations area charts time series leaderboards kanban boards. 50+ pre-built scripts. Ad-hoc analysis system. Data quality trust scoring.",
+    text: "20+ data connectors BigQuery HubSpot Stripe Jira Sentry GitHub Slack Grafana Google Cloud Apollo Gong Notion. SQL query explorer with history row count tracking shareable URLs export. Reusable dashboards multi-view subviews date range controls. Data dictionary 550+ metrics query templates join patterns. Rich visualizations area charts time series leaderboards kanban boards. 50+ pre-built actions. Ad-hoc analysis system. Data quality trust scoring.",
   },
   {
     page: "Content Template",
@@ -329,7 +329,7 @@ export const searchIndex: SearchEntry[] = [
     path: "/docs/resources",
     section: "Resource API",
     sectionId: "resource-api",
-    text: "REST endpoints for resources. resource-list resource-read resource-write resource-delete. Server API and script API. /api/resources endpoints.",
+    text: "REST endpoints for resources. resource-list resource-read resource-write resource-delete. Server API and action API. /api/resources endpoints.",
   },
 
   // Core Philosophy
@@ -338,14 +338,14 @@ export const searchIndex: SearchEntry[] = [
     path: "/docs/core-philosophy",
     section: "Agent + UI Parity",
     sectionId: "agent-ui-parity",
-    text: "Everything the UI can do the agent can do. Everything the agent can do the UI can do. If a user can create a form from the UI the agent must have a script to create it too. No feature is complete until both sides can use it.",
+    text: "Everything the UI can do the agent can do. Everything the agent can do the UI can do. If a user can create a form from the UI the agent must have an action to create it too. No feature is complete until both sides can use it.",
   },
   {
     page: "Core Philosophy",
     path: "/docs/core-philosophy",
     section: "The Four-Area Checklist",
     sectionId: "four-area-checklist",
-    text: "Every new feature must update all four areas: UI component, script, skills/instructions, and application state sync. Skipping any one breaks the agent-native contract.",
+    text: "Every new feature must update all four areas: UI component, action, skills/instructions, and application state sync. Skipping any one breaks the agent-native contract.",
   },
   {
     page: "Core Philosophy",
@@ -403,15 +403,15 @@ export const searchIndex: SearchEntry[] = [
   {
     page: "Context Awareness",
     path: "/docs/context-awareness",
-    section: "The view-screen Script",
-    sectionId: "view-screen-script",
-    text: "Every template should have a view-screen script. Reads navigation state fetches contextual data returns snapshot of what user sees. The agent should always call view-screen before acting. Hard convention across all templates.",
+    section: "The view-screen Action",
+    sectionId: "view-screen-action",
+    text: "Every template should have a view-screen action. Reads navigation state fetches contextual data returns snapshot of what user sees. The agent should always call view-screen before acting. Hard convention across all templates.",
   },
   {
     page: "Context Awareness",
     path: "/docs/context-awareness",
-    section: "The navigate Script",
-    sectionId: "navigate-script",
+    section: "The navigate Action",
+    sectionId: "navigate-action",
     text: "Agent writes one-shot navigate command to application-state. UI reads it performs navigation deletes entry. writeAppState navigate view threadId. Agent never writes to navigation key directly.",
   },
   {
@@ -435,7 +435,7 @@ export const searchIndex: SearchEntry[] = [
     path: "/docs/skills-guide",
     section: "Framework Skills",
     sectionId: "framework-skills",
-    text: "Built-in skills: storing-data real-time-sync delegate-to-agent scripts self-modifying-code create-skill capture-learnings frontend-design adding-a-feature context-awareness a2a-protocol.",
+    text: "Built-in skills: storing-data real-time-sync delegate-to-agent actions self-modifying-code create-skill capture-learnings frontend-design adding-a-feature context-awareness a2a-protocol.",
   },
   {
     page: "Skills Guide",
