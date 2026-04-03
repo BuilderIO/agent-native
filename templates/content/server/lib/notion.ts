@@ -334,6 +334,44 @@ export async function readNotionPageAsDocument(
   };
 }
 
+async function fetchChildPageIds(
+  accessToken: string,
+  pageId: string,
+): Promise<string[]> {
+  const ids: string[] = [];
+  let cursor: string | undefined;
+
+  do {
+    const query = cursor
+      ? `?start_cursor=${cursor}&page_size=100`
+      : "?page_size=100";
+    const response = await notionFetch<{
+      results: Array<{ type: string; id: string }>;
+      has_more: boolean;
+      next_cursor: string | null;
+    }>(`/blocks/${pageId}/children${query}`, accessToken);
+
+    for (const block of response.results) {
+      if (block.type === "child_page" || block.type === "child_database") {
+        ids.push(block.id);
+      }
+    }
+
+    cursor =
+      response.has_more && response.next_cursor
+        ? response.next_cursor
+        : undefined;
+  } while (cursor);
+
+  return ids;
+}
+
+function appendChildPageTags(markdown: string, childPageIds: string[]): string {
+  if (childPageIds.length === 0) return markdown;
+  const tags = childPageIds.map((id) => `<page id="${id}" />`).join("\n");
+  return `${markdown}\n${tags}`;
+}
+
 export async function pushDocumentToNotionPage(args: {
   accessToken: string;
   pageId: string;
@@ -341,7 +379,15 @@ export async function pushDocumentToNotionPage(args: {
   content: string;
   icon?: string | null;
 }): Promise<NotionPageContent> {
-  const page = await fetchNotionPage(args.accessToken, args.pageId);
+  const [page, childPageIds] = await Promise.all([
+    fetchNotionPage(args.accessToken, args.pageId),
+    fetchChildPageIds(args.accessToken, args.pageId),
+  ]);
+
+  const markdown = appendChildPageTags(
+    normalizeNfmForStorage(args.content),
+    childPageIds,
+  );
 
   try {
     await notionFetch(`/pages/${args.pageId}/markdown`, args.accessToken, {
@@ -349,7 +395,7 @@ export async function pushDocumentToNotionPage(args: {
       body: JSON.stringify({
         type: "replace_content",
         replace_content: {
-          new_str: normalizeNfmForStorage(args.content),
+          new_str: markdown,
           allow_deleting_content: false,
         },
       }),
