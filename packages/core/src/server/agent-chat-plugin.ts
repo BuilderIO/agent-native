@@ -597,7 +597,13 @@ export function createAgentChatPlugin(
         }
         const client = new Anthropic({ apiKey });
         const model = options?.model ?? "claude-sonnet-4-6";
-        const a2aSystemPrompt = `You are the ${options?.appId ?? "app"} agent responding to a request from another agent. Be concise and helpful. Use your tools to look up data or take actions as needed.`;
+
+        // Load shared AGENTS.md resource so the agent knows how to use its tools
+        const owner = userEmail || "local@localhost";
+        const resources = await loadResourcesForPrompt(owner);
+        const a2aSystemPrompt =
+          `You are the ${options?.appId ?? "app"} agent responding to a request from another agent. Be concise and helpful. Use your tools to look up data or take actions as needed. Do not ask for clarification — use your tools to find the answer.` +
+          resources;
 
         const tools: any[] = Object.entries(templateScripts).map(
           ([name, entry]) => ({
