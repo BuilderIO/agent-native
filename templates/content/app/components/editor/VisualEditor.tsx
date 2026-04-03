@@ -19,6 +19,7 @@ import { TableHoverControls } from "./TableHoverControls";
 import { ImageNode } from "./extensions/ImageNode";
 import { notionEditorExtensions } from "./extensions/NotionExtensions";
 import { DragHandle } from "./extensions/DragHandle";
+import { CodeBlock } from "./extensions/CodeBlockNode";
 import { toast } from "sonner";
 import {
   parseNfmForEditor,
@@ -217,12 +218,11 @@ export function VisualEditor({
     extensions: [
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
-        codeBlock: {
-          HTMLAttributes: { class: "notion-code-block" },
-        },
+        codeBlock: false,
         horizontalRule: {},
         dropcursor: { color: "hsl(243 75% 59%)", width: 2 },
       }),
+      CodeBlock,
       Placeholder.configure({
         placeholder: ({ node }) => {
           if (node.type.name === "heading") {
