@@ -210,7 +210,7 @@ async function buildApiListener(
  *
  * This replaces the disabled Nitro Vite plugin for dev-mode API route serving.
  * It scans the file-based routes, imports them, and mounts them on an H3 app
- * that handles /api/* requests before React Router's SSR handler.
+ * that handles /api/* and /_agent-native/* requests before React Router's SSR handler.
  */
 export function devApiServer(): Plugin {
   return {
@@ -262,7 +262,10 @@ export function devApiServer(): Plugin {
       });
 
       server.middlewares.use((req, res, next) => {
-        if (!req.url?.startsWith("/api/")) {
+        if (
+          !req.url?.startsWith("/api/") &&
+          !req.url?.startsWith("/_agent-native/")
+        ) {
           return next();
         }
 
