@@ -553,7 +553,8 @@ export function createAgentChatPlugin(
           };
         }
 
-        // Run the agent loop directly in-process using the same scripts + prompt.
+        // Run a lean agent loop for A2A — minimal prompt, only template scripts.
+        // Full resources/framework prompt would blow up the payload and hit rate limits.
         const Anthropic = (await import("@anthropic-ai/sdk")).default;
         const apiKey = options?.apiKey ?? process.env.ANTHROPIC_API_KEY;
         if (!apiKey) {
@@ -571,10 +572,10 @@ export function createAgentChatPlugin(
         }
         const client = new Anthropic({ apiKey });
         const model = options?.model ?? "claude-sonnet-4-6";
-        const resources = await loadResourcesForPrompt("local@localhost");
-        const systemPrompt = basePrompt + resources;
+        const a2aSystemPrompt = `You are the ${options?.appId ?? "app"} agent responding to a request from another agent. Be concise and helpful. Use your tools to look up data or take actions as needed.`;
 
-        const tools: any[] = Object.entries(allScripts).map(
+        // Only include template scripts (not resource/call-agent meta-scripts) to keep payload small
+        const tools: any[] = Object.entries(templateScripts).map(
           ([name, entry]) => ({
             name,
             description: entry.tool.description,
@@ -585,6 +586,10 @@ export function createAgentChatPlugin(
           }),
         );
 
+        console.log(
+          `[A2A Handler] System prompt: ${a2aSystemPrompt.length} chars, ${tools.length} tools`,
+        );
+
         const msgs: any[] = [{ role: "user", content: text }];
         const textParts: string[] = [];
 
@@ -592,8 +597,8 @@ export function createAgentChatPlugin(
           const response = await client.messages.create({
             model,
             max_tokens: 4096,
-            system: systemPrompt,
-            tools,
+            system: a2aSystemPrompt,
+            tools: tools.length > 0 ? tools : undefined,
             messages: msgs,
           });
 

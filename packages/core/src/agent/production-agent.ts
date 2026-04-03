@@ -409,13 +409,17 @@ export function createProductionAgentHandler(
                 status: "start",
               });
               try {
-                console.log(
-                  `[A2A] Calling ${ref.name} at ${ref.path} with message: "${message.slice(0, 100)}..."`,
-                );
+                if (process.env.DEBUG_A2A) {
+                  console.log(
+                    `[A2A] Calling ${ref.name} at ${ref.path} with message: "${message.slice(0, 100)}..."`,
+                  );
+                }
                 const response = await callAgent(ref.path, message);
-                console.log(
-                  `[A2A] ${ref.name} responded: "${(response || "").slice(0, 100)}..."`,
-                );
+                if (process.env.DEBUG_A2A) {
+                  console.log(
+                    `[A2A] ${ref.name} responded: "${(response || "").slice(0, 100)}..."`,
+                  );
+                }
                 send({
                   type: "agent_call",
                   agent: ref.name,
