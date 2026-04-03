@@ -1,17 +1,39 @@
 import fs from "fs";
+import https from "https";
+import os from "os";
 import path from "path";
+import { execSync } from "child_process";
 import { fileURLToPath } from "url";
 import { setupAgentSymlinks } from "./setup-agents.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const GITHUB_REPO = "BuilderIO/agent-native";
+const KNOWN_TEMPLATES = [
+  "analytics",
+  "calendar",
+  "content",
+  "forms",
+  "issues",
+  "mail",
+  "recruiting",
+  "slides",
+  "starter",
+  "videos",
+];
+
 /**
- * Scaffold a new agent-native app from the default template.
+ * Scaffold a new agent-native app from a template.
+ * Defaults to the bundled "default" template; other templates are downloaded
+ * from the GitHub repository tarball on demand.
  */
-export function createApp(name?: string): void {
+export async function createApp(
+  name?: string,
+  template = "default",
+): Promise<void> {
   if (!name) {
-    console.error("Usage: agent-native create <app-name>");
+    console.error("Usage: agent-native create <app-name> [--template <name>]");
     process.exit(1);
   }
 
@@ -30,29 +52,50 @@ export function createApp(name?: string): void {
     process.exit(1);
   }
 
-  // Locate the template directory
-  // In dist: dist/cli/create.js -> ../../src/templates/default
-  // Resolve relative to the package root
+  // Resolve package root (dist/cli/create.js -> ../../)
   const packageRoot = path.resolve(__dirname, "../..");
-  const templateDir = path.join(packageRoot, "src/templates/default");
 
-  if (!fs.existsSync(templateDir)) {
-    console.error(
-      `Template directory not found at ${templateDir}. Is the package installed correctly?`,
+  // Read the installed version — used for the GitHub tarball URL and workspace dep rewriting
+  let version = "unknown";
+  try {
+    const pkg = JSON.parse(
+      fs.readFileSync(path.resolve(packageRoot, "package.json"), "utf-8"),
     );
-    process.exit(1);
+    version = pkg.version;
+  } catch {
+    // proceed with fallback to main
   }
 
-  console.log(`Creating ${name}...`);
+  if (template === "default") {
+    // Use the bundled default template
+    const templateDir = path.join(packageRoot, "src/templates/default");
 
-  // Copy template
-  copyDir(templateDir, targetDir);
+    if (!fs.existsSync(templateDir)) {
+      console.error(
+        `Template directory not found at ${templateDir}. Is the package installed correctly?`,
+      );
+      process.exit(1);
+    }
 
-  // Replace {{APP_NAME}} and {{APP_TITLE}} placeholders in all text files.
-  // Previously this was done per-file (package.json, index.html, AGENTS.md),
-  // but index.html no longer exists in the React Router framework template and
-  // route files like app/routes/_index.tsx also contain {{APP_TITLE}}.
-  // A single recursive pass is simpler and future-proof.
+    console.log(`Creating ${name}...`);
+    copyDir(templateDir, targetDir);
+  } else {
+    // Download the requested template from GitHub
+    if (!KNOWN_TEMPLATES.includes(template)) {
+      console.error(
+        `Unknown template "${template}". Available templates: ${KNOWN_TEMPLATES.join(", ")}`,
+      );
+      process.exit(1);
+    }
+
+    console.log(`Creating ${name} from "${template}" template...`);
+    await downloadAndExtractTemplate(template, version, targetDir);
+  }
+
+  // Rewrite workspace:* protocol references so the project installs outside the monorepo
+  await rewriteWorkspaceDeps(targetDir);
+
+  // Replace {{APP_NAME}} and {{APP_TITLE}} placeholders in all text files
   const appTitle = name
     .split("-")
     .map((w) => w[0].toUpperCase() + w.slice(1))
@@ -96,6 +139,195 @@ export function createApp(name?: string): void {
   console.log(
     `Need multi-user collaboration? See: https://agent-native.com/docs/file-sync`,
   );
+}
+
+/**
+ * Download the GitHub source tarball for the given version (falling back to
+ * main), extract it to a temp directory, and copy the template subdirectory
+ * into targetDir.
+ */
+async function downloadAndExtractTemplate(
+  template: string,
+  version: string,
+  targetDir: string,
+): Promise<void> {
+  const urls = [
+    `https://codeload.github.com/${GITHUB_REPO}/tar.gz/refs/tags/v${version}`,
+    `https://codeload.github.com/${GITHUB_REPO}/tar.gz/refs/heads/main`,
+  ];
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-"));
+  const tarPath = path.join(tmpDir, "repo.tar.gz");
+  const extractDir = path.join(tmpDir, "extract");
+  fs.mkdirSync(extractDir);
+
+  try {
+    // Attempt download — try versioned tag first, then main
+    let downloaded = false;
+    for (const url of urls) {
+      try {
+        console.log(`Downloading from ${url}...`);
+        await downloadFile(url, tarPath);
+        downloaded = true;
+        break;
+      } catch {
+        // try next URL
+      }
+    }
+
+    if (!downloaded) {
+      console.error(
+        "Failed to download template tarball from GitHub. Check your internet connection.",
+      );
+      process.exit(1);
+    }
+
+    // Extract the full tarball
+    execSync(`tar -xzf "${tarPath}" -C "${extractDir}"`, { stdio: "pipe" });
+
+    // The tarball root is BuilderIO-agent-native-<sha>/ — find it
+    const [repoDir] = fs.readdirSync(extractDir);
+    if (!repoDir) {
+      console.error("Tarball appears empty.");
+      process.exit(1);
+    }
+
+    const templateSrc = path.join(extractDir, repoDir, "templates", template);
+    if (!fs.existsSync(templateSrc)) {
+      console.error(
+        `Template "${template}" was not found in the repository. Available templates: ${KNOWN_TEMPLATES.join(", ")}`,
+      );
+      process.exit(1);
+    }
+
+    copyDir(templateSrc, targetDir);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Download a URL to a local file path, following redirects.
+ */
+function downloadFile(url: string, dest: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const file = fs.createWriteStream(dest);
+
+    function get(u: string): void {
+      https
+        .get(u, (res) => {
+          if (res.statusCode === 301 || res.statusCode === 302) {
+            const location = res.headers.location;
+            if (!location) {
+              reject(new Error("Redirect with no Location header"));
+              return;
+            }
+            get(location);
+            return;
+          }
+          if (res.statusCode !== 200) {
+            reject(new Error(`HTTP ${res.statusCode} for ${u}`));
+            return;
+          }
+          res.pipe(file);
+          file.on("finish", () => file.close(() => resolve()));
+        })
+        .on("error", reject);
+    }
+
+    get(url);
+  });
+}
+
+/**
+ * Rewrite workspace:* protocol references in package.json to real semver ranges
+ * so the scaffolded project can be installed outside the monorepo.
+ * Queries the npm registry for the actual latest published version of each package.
+ */
+async function rewriteWorkspaceDeps(dir: string): Promise<void> {
+  const pkgPath = path.join(dir, "package.json");
+  if (!fs.existsSync(pkgPath)) return;
+
+  let pkg: Record<string, unknown>;
+  try {
+    pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+  } catch {
+    return;
+  }
+
+  // Collect unique package names that need resolving
+  const workspacePkgs = new Set<string>();
+  for (const field of ["dependencies", "devDependencies", "peerDependencies"]) {
+    const section = pkg[field] as Record<string, string> | undefined;
+    if (!section) continue;
+    for (const [name, val] of Object.entries(section)) {
+      if (val === "workspace:*") workspacePkgs.add(name);
+    }
+  }
+  if (workspacePkgs.size === 0) return;
+
+  // Resolve each package's latest published version from npm
+  const resolved = new Map<string, string>();
+  await Promise.all(
+    [...workspacePkgs].map(async (name) => {
+      const ver = await fetchLatestNpmVersion(name);
+      resolved.set(name, ver ? `^${ver}` : "*");
+    }),
+  );
+
+  let changed = false;
+  for (const field of ["dependencies", "devDependencies", "peerDependencies"]) {
+    const section = pkg[field] as Record<string, string> | undefined;
+    if (!section) continue;
+    for (const [name, val] of Object.entries(section)) {
+      if (val === "workspace:*") {
+        section[name] = resolved.get(name)!;
+        changed = true;
+      }
+    }
+  }
+
+  if (changed) {
+    fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+  }
+}
+
+/**
+ * Fetch all dist-tags for a package and return the version with the highest
+ * major.minor.patch, regardless of prerelease suffix. This ensures dev/next
+ * tags are preferred over an older stable release when they represent newer work.
+ * Returns null on any failure.
+ */
+function fetchLatestNpmVersion(pkgName: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const encoded = pkgName.replace(/\//g, "%2F");
+    https
+      .get(
+        `https://registry.npmjs.org/-/package/${encoded}/dist-tags`,
+        { headers: { Accept: "application/json" } },
+        (res) => {
+          let data = "";
+          res.on("data", (chunk) => (data += chunk));
+          res.on("end", () => {
+            try {
+              const tags: Record<string, string> = JSON.parse(data);
+              const versions = Object.values(tags);
+              if (!versions.length) return resolve(null);
+              // Pick the version with the highest major.minor.patch
+              versions.sort((a, b) => {
+                const [aMaj, aMin, aPat] = a.split("-")[0].split(".").map(Number);
+                const [bMaj, bMin, bPat] = b.split("-")[0].split(".").map(Number);
+                return bMaj - aMaj || bMin - aMin || bPat - aPat;
+              });
+              resolve(versions[0]);
+            } catch {
+              resolve(null);
+            }
+          });
+        },
+      )
+      .on("error", () => resolve(null));
+  });
 }
 
 /**

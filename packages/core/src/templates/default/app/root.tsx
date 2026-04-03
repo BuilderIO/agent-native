@@ -13,8 +13,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
-import { useDbSync } from "@agent-native/core";
-import { ClientOnly, DefaultSpinner } from "@agent-native/core/client";
+import { useDbSync, ClientOnly, DefaultSpinner } from "@agent-native/core/client";
 import { Toaster } from "sonner";
 import "./global.css";
 

@@ -167,7 +167,10 @@ switch (command) {
   }
 
   case "create": {
-    import("./create.js").then((m) => m.createApp(args[0]));
+    const nameArg = args.find((a) => !a.startsWith("--"));
+    const templateIdx = args.indexOf("--template");
+    const template = templateIdx !== -1 ? args[templateIdx + 1] : "default";
+    import("./create.js").then((m) => m.createApp(nameArg, template));
     break;
   }
 
@@ -194,7 +197,7 @@ Usage:
   agent-native action <name>    Run an action from actions/
   agent-native script <name>    Run an action (deprecated alias for 'action')
   agent-native typecheck        Run TypeScript type checking
-  agent-native create <name>    Scaffold a new agent-native app
+  agent-native create <name> [--template <name>]    Scaffold a new agent-native app
   agent-native setup-agents     Create symlinks for all agent tools
 
 Options:
