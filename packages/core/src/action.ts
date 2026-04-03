@@ -2,7 +2,11 @@ import type { ActionTool } from "./agent/types.js";
 
 interface DefineActionOptions {
   description: string;
-  parameters?: ActionTool["parameters"];
+  /** Flat map of parameter names to their schema. Automatically wrapped in `{ type: "object", properties: ... }`. */
+  parameters?: Record<
+    string,
+    { type: string; description?: string; enum?: string[] }
+  >;
   run: (args: Record<string, string>) => Promise<string> | string;
 }
 

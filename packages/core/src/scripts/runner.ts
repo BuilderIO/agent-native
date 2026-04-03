@@ -90,17 +90,26 @@ export async function runScript(): Promise<void> {
         typeof handler === "object" &&
         typeof handler.run === "function"
       ) {
-        const result = await handler.run(
-          Object.fromEntries(
-            args
-              .join(" ")
-              .match(/--(\S+)\s+([^-]\S*)/g)
-              ?.map((m: string) => {
-                const parts = m.match(/--(\S+)\s+(.+)/);
-                return parts ? [parts[1], parts[2]] : [];
-              }) ?? [],
-          ),
-        );
+        // Parse --key=value and --key value pairs into a Record
+        const parsed: Record<string, string> = {};
+        for (let i = 0; i < args.length; i++) {
+          const arg = args[i];
+          if (!arg.startsWith("--")) continue;
+          const eqIdx = arg.indexOf("=");
+          if (eqIdx > 0) {
+            parsed[arg.slice(2, eqIdx)] = arg.slice(eqIdx + 1);
+          } else {
+            const key = arg.slice(2);
+            const next = args[i + 1];
+            if (next && !next.startsWith("--")) {
+              parsed[key] = next;
+              i++;
+            } else {
+              parsed[key] = "true";
+            }
+          }
+        }
+        const result = await handler.run(parsed);
         if (result) console.log(result);
       } else if (typeof handler === "function") {
         await handler(args);
