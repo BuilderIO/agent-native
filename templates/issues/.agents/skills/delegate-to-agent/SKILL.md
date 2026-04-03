@@ -46,5 +46,5 @@ agentChat.submit("Process the uploaded data and update the dashboard");
 
 ## Related Skills
 
-- **scripts** — The agent invokes scripts via `pnpm script <name>` to perform complex operations
+- **scripts** — The agent invokes scripts via `pnpm action <name>` to perform complex operations
 - **self-modifying-code** — The agent operates through the chat bridge to make code changes

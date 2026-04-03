@@ -1,82 +1,23 @@
 import { defineEventHandler } from "h3";
-import { getSetting } from "@agent-native/core/settings";
-import type {
-  DashboardStats,
-  GreenhouseJob,
-  GreenhouseApplication,
-  GreenhouseScheduledInterview,
-  GreenhouseCandidate,
-} from "@shared/types";
-
-const BASE_URL = "https://harvest.greenhouse.io/v1";
-
-function authHeaders(encoded: string) {
-  return {
-    Authorization: `Basic ${encoded}`,
-    "Content-Type": "application/json",
-  };
-}
-
-async function dashboardFetch<T>(
-  encoded: string,
-  path: string,
-  params: Record<string, string> = {},
-  perPage = 100,
-): Promise<T[]> {
-  const qs = new URLSearchParams({
-    ...params,
-    per_page: String(perPage),
-    page: "1",
-  });
-  const res = await fetch(`${BASE_URL}${path}?${qs}`, {
-    headers: authHeaders(encoded),
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`Greenhouse API error ${res.status}: ${body}`);
-  }
-  return res.json();
-}
-
-async function fetchCandidate(
-  encoded: string,
-  id: number,
-): Promise<GreenhouseCandidate> {
-  const res = await fetch(`${BASE_URL}/candidates/${id}`, {
-    headers: authHeaders(encoded),
-  });
-  if (!res.ok) throw new Error(`Failed to fetch candidate ${id}`);
-  return res.json();
-}
+import type { DashboardStats } from "@shared/types";
+import * as gh from "../lib/greenhouse-api.js";
 
 export const getDashboardHandler = defineEventHandler(
   async (): Promise<DashboardStats> => {
-    const setting = await getSetting("greenhouse-api-key");
-    if (!setting || typeof setting !== "object" || !("apiKey" in setting)) {
-      throw new Error("Greenhouse API key not configured");
-    }
-    const encoded = Buffer.from(
-      `${(setting as { apiKey: string }).apiKey}:`,
-    ).toString("base64");
-
     const now = new Date();
     const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const oneYearAgo = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
 
     const [jobs, recentApps, interviews] = await Promise.all([
-      dashboardFetch<GreenhouseJob>(encoded, "/jobs", { status: "open" }),
-      dashboardFetch<GreenhouseApplication>(
-        encoded,
-        "/applications",
-        { created_after: weekAgo.toISOString() },
-        100,
-      ),
-      dashboardFetch<GreenhouseScheduledInterview>(
-        encoded,
-        "/scheduled_interviews",
-        { created_after: oneYearAgo.toISOString() },
-        500,
-      ),
+      gh.listJobs({ status: "open" }),
+      gh.listApplications({
+        created_after: weekAgo.toISOString(),
+        per_page: 100,
+      }),
+      gh.listScheduledInterviews({
+        created_after: new Date(
+          now.getTime() - 365 * 24 * 60 * 60 * 1000,
+        ).toISOString(),
+      }),
     ]);
 
     const upcomingInterviews = interviews.filter(
@@ -94,7 +35,7 @@ export const getDashboardHandler = defineEventHandler(
       ...new Set(recentApplications.map((a) => a.candidate_id)),
     ];
     const candidateResults = await Promise.allSettled(
-      uniqueCandidateIds.map((id) => fetchCandidate(encoded, id)),
+      uniqueCandidateIds.map((id) => gh.getCandidate(id)),
     );
     const candidateNames = new Map<number, string>();
     candidateResults.forEach((result) => {

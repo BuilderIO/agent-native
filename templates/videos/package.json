@@ -17,8 +17,8 @@
     "test": "vitest --run",
     "format.fix": "prettier --write .",
     "typecheck": "echo 'skipping typecheck (pre-existing errors)'",
-    "generate:component": "tsx scripts/generate-animated-component.ts",
-    "validate:compositions": "tsx scripts/validate-compositions.ts"
+    "generate:component": "tsx actions/generate-animated-component.ts",
+    "validate:compositions": "tsx actions/validate-compositions.ts"
   },
   "dependencies": {
     "@agent-native/core": "workspace:*",

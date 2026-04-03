@@ -132,7 +132,7 @@ export const createForm = defineEventHandler(async (event: H3Event) => {
   const now = new Date().toISOString();
   const id = nanoid(10);
   const slug =
-    body.slug || slugify(body.title || "untitled") + "/" + id.slice(0, 6);
+    body.slug || slugify(body.title || "untitled") + "-" + id.slice(0, 6);
 
   const defaultSettings: FormSettings = {
     submitText: "Submit",
@@ -193,7 +193,7 @@ export const updateForm = defineEventHandler(async (event: H3Event) => {
     // Auto-update slug when title changes (unless slug is explicitly provided)
     if (body.slug === undefined) {
       const idSuffix = id.slice(0, 6);
-      updates.slug = slugify(body.title || "untitled") + "/" + idSuffix;
+      updates.slug = slugify(body.title || "untitled") + "-" + idSuffix;
     }
   }
   if (body.description !== undefined) updates.description = body.description;
@@ -252,22 +252,36 @@ export const deleteForm = defineEventHandler(async (event: H3Event) => {
 });
 
 export const getPublicForm = defineEventHandler(async (event: H3Event) => {
-  // URL: /api/forms/public/{formId} — extract last path segment as the ID
+  // URL: /api/forms/public/{slug} — extract full slug (may contain slashes)
   const url = event.node.req.url ?? "";
   const afterPublic = url.split("/api/forms/public/")[1] || "";
-  const segments = afterPublic.split("?")[0].split("/").filter(Boolean);
-  const formId = segments[segments.length - 1] || "";
+  const slug = decodeURIComponent(afterPublic.split("?")[0]);
+
+  if (!slug) {
+    setResponseStatus(event, 404);
+    return { error: "Form not found" };
+  }
 
   // Check cache first
-  const cached = getCachedPublicForm(formId);
+  const cached = getCachedPublicForm(slug);
   if (cached) return cached;
 
   const db = getDb();
-  const row = await db
+  // Try matching by slug first, then fall back to matching by ID
+  let row = await db
     .select()
     .from(schema.forms)
-    .where(eq(schema.forms.id, formId))
+    .where(eq(schema.forms.slug, slug))
     .then((rows) => rows[0]);
+
+  if (!row) {
+    // Fall back to ID-based lookup (for legacy URLs or direct ID access)
+    row = await db
+      .select()
+      .from(schema.forms)
+      .where(eq(schema.forms.id, slug))
+      .then((rows) => rows[0]);
+  }
 
   if (!row || row.status !== "published") {
     setResponseStatus(event, 404);
@@ -283,6 +297,6 @@ export const getPublicForm = defineEventHandler(async (event: H3Event) => {
     settings: JSON.parse(row.settings),
   };
 
-  setCachedPublicForm(formId, result);
+  setCachedPublicForm(slug, result);
   return result;
 });

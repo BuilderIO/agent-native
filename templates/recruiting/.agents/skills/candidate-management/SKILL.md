@@ -10,7 +10,7 @@ description: >-
 ## Searching Candidates
 
 ```bash
-pnpm script list-candidates --search "John" --jobId 123
+pnpm action list-candidates --search "John" --jobId 123
 ```
 
 | Arg        | Description                      |
@@ -21,7 +21,7 @@ pnpm script list-candidates --search "John" --jobId 123
 ## Viewing a Candidate
 
 ```bash
-pnpm script get-candidate --id 456
+pnpm action get-candidate --id 456
 ```
 
 Returns full profile: name, emails, phone, company, title, tags, applications (with stages), social links, recruiter, coordinator.
@@ -29,7 +29,7 @@ Returns full profile: name, emails, phone, company, title, tags, applications (w
 ## Creating a Candidate
 
 ```bash
-pnpm script create-candidate --firstName John --lastName Doe --email john@example.com --jobId 123
+pnpm action create-candidate --firstName John --lastName Doe --email john@example.com --jobId 123
 ```
 
 | Arg           | Required | Description                |

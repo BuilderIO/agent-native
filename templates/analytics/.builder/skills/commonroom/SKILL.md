@@ -38,13 +38,13 @@ description: >
 
 ```bash
 # Search by email
-pnpm script commonroom-members --email=user@example.com
+pnpm action commonroom-members --email=user@example.com
 
 # Search by query
-pnpm script commonroom-members --query=search_term
+pnpm action commonroom-members --query=search_term
 
 # List segments
-pnpm script commonroom-members --segments
+pnpm action commonroom-members --segments
 ```
 
 ## Key Patterns & Gotchas

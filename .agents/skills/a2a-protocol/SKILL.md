@@ -190,7 +190,7 @@ Messages contain typed parts:
 A mail agent calls an analytics agent to include data in an email draft:
 
 ```ts
-// scripts/draft-with-analytics.ts
+// actions/draft-with-analytics.ts
 import { callAgent } from "@agent-native/core/a2a";
 import { writeAppState } from "@agent-native/core/application-state";
 

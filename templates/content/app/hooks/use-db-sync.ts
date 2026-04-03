@@ -12,11 +12,20 @@ export function useDbSync() {
       queryClient.invalidateQueries({ queryKey: ["document"] });
     };
 
-    eventSource.onerror = (err) => {
-      console.error("[DbSync] SSE connection error", err);
+    eventSource.onerror = () => {
+      // SSE may fail in serverless/edge — polling below covers it
     };
 
+    // Polling fallback: periodically invalidate queries so React Query
+    // refetches from the API. If the data hasn't changed, React Query's
+    // structural sharing means no re-render occurs.
+    const interval = setInterval(() => {
+      queryClient.invalidateQueries({ queryKey: ["documents"] });
+      queryClient.invalidateQueries({ queryKey: ["document"] });
+    }, 2000);
+
     return () => {
+      clearInterval(interval);
       eventSource.close();
     };
   }, [queryClient]);

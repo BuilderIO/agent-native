@@ -186,19 +186,27 @@ export function TiptapComposer({
           return true;
         }
 
-        // Detect @ trigger
+        // Detect @ trigger — only when preceded by start-of-text, space, or newline
+        // (not after alphanumeric chars, which would indicate an email address)
         if (event.key === "@") {
-          const coords = view.coordsAtPos(view.state.selection.from);
-          setTimeout(() => {
-            const state: PopoverState = {
-              type: "@",
-              position: { top: coords.top, left: coords.left },
-              startPos: view.state.selection.from,
-              query: "",
-            };
-            popoverStateRef.current = state;
-            setPopover(state);
-          }, 0);
+          const { from } = view.state.selection;
+          const textBefore = view.state.doc.textBetween(
+            Math.max(0, from - 1),
+            from,
+          );
+          if (from === 1 || textBefore === "" || /\s/.test(textBefore)) {
+            const coords = view.coordsAtPos(from);
+            setTimeout(() => {
+              const state: PopoverState = {
+                type: "@",
+                position: { top: coords.top, left: coords.left },
+                startPos: view.state.selection.from,
+                query: "",
+              };
+              popoverStateRef.current = state;
+              setPopover(state);
+            }, 0);
+          }
           return false;
         }
 

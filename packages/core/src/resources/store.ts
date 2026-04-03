@@ -80,10 +80,10 @@ Review the current conversation and update your personal \`LEARNINGS.md\` resour
 
 ## Steps
 
-1. Read your personal learnings: \`pnpm script resource-read --path LEARNINGS.md\`
+1. Read your personal learnings: \`pnpm action resource-read --path LEARNINGS.md\`
 2. Review the conversation for new insights
 3. Merge new learnings with existing ones — don't duplicate, refine existing entries
-4. Write back: \`pnpm script resource-write --path LEARNINGS.md --content "..."\`
+4. Write back: \`pnpm action resource-write --path LEARNINGS.md --content "..."\`
 
 Keep entries concise — one line per learning, grouped by category (Preferences, Corrections, Patterns).
 `;
@@ -115,10 +115,10 @@ Review the current conversation and update the shared \`LEARNINGS.md\` resource 
 
 ## Steps
 
-1. Read shared learnings: \`pnpm script resource-read --path LEARNINGS.md --scope shared\`
+1. Read shared learnings: \`pnpm action resource-read --path LEARNINGS.md --scope shared\`
 2. Review the conversation for team-relevant insights
 3. Merge new learnings with existing ones — don't duplicate, refine existing entries
-4. Write back: \`pnpm script resource-write --path LEARNINGS.md --scope shared --content "..."\`
+4. Write back: \`pnpm action resource-write --path LEARNINGS.md --scope shared --content "..."\`
 
 Keep entries concise — one line per learning, grouped by category (Conventions, Technical, Patterns).
 `;

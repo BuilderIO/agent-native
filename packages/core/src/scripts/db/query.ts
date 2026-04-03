@@ -9,7 +9,7 @@
  * filtered so queries only return the current user's data.
  *
  * Usage:
- *   pnpm script db-query --sql "SELECT * FROM forms" [--db path] [--format json] [--limit N]
+ *   pnpm action db-query --sql "SELECT * FROM forms" [--db path] [--format json] [--limit N]
  */
 
 import path from "path";
@@ -69,7 +69,7 @@ export default async function dbQuery(args: string[]): Promise<void> {
   const parsed = parseArgs(args);
 
   if (parsed.help === "true") {
-    console.log(`Usage: pnpm script db-query --sql "<query>" [options]
+    console.log(`Usage: pnpm action db-query --sql "<query>" [options]
 
 Options:
   --sql <query>   SQL SELECT query to run (required)

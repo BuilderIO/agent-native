@@ -15,13 +15,13 @@ This is background knowledge, not a slash command. **Read the `learnings.md` res
 
 Learnings are stored as **resources** in the SQL database, not as files on disk.
 
-- **Read:** `pnpm script resource-read --path learnings.md`
-- **Write:** `pnpm script resource-write --path learnings.md --content "..."`
-- **List all resources:** `pnpm script resource-list`
+- **Read:** `pnpm action resource-read --path learnings.md`
+- **Write:** `pnpm action resource-write --path learnings.md --content "..."`
+- **List all resources:** `pnpm action resource-list`
 
 Resources can be **personal** (per-user, default) or **shared** (team-wide):
-- `pnpm script resource-write --path learnings.md --scope personal --content "..."`
-- `pnpm script resource-write --path team-guidelines.md --scope shared --content "..."`
+- `pnpm action resource-write --path learnings.md --scope personal --content "..."`
+- `pnpm action resource-write --path team-guidelines.md --scope shared --content "..."`
 
 ## When to Capture
 
@@ -93,7 +93,7 @@ When a learning is referenced repeatedly, it may belong in AGENTS.md or a skill:
 
 If a `learnings.md` file exists at the project root (from before the Resources system), run:
 ```
-pnpm script migrate-learnings
+pnpm action migrate-learnings
 ```
 This imports the file contents into the `learnings.md` resource.
 

@@ -12,8 +12,8 @@ import { getDb, schema } from "../db";
 type SSEPush = (data: string) => void;
 const sseClients = new Set<SSEPush>();
 
-function notifyClients(deckId: string) {
-  const message = JSON.stringify({ type: "deck-changed", deckId });
+function notifyClients(deckId: string, type = "deck-changed") {
+  const message = JSON.stringify({ type, deckId });
   for (const push of sseClients) {
     try {
       push(message);
@@ -119,6 +119,7 @@ export const updateDeck = defineEventHandler(async (event) => {
       },
     });
 
+  notifyClients(id);
   return deck;
 });
 
@@ -146,6 +147,7 @@ export const createDeck = defineEventHandler(async (event) => {
   });
 
   setResponseStatus(event, 201);
+  notifyClients(deck.id);
   return deck;
 });
 
@@ -164,6 +166,7 @@ export const deleteDeck = defineEventHandler(async (event) => {
     .returning();
 
   if (result.length > 0) {
+    notifyClients(id, "deck-deleted");
     return { success: true };
   } else {
     setResponseStatus(event, 404);

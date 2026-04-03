@@ -12,6 +12,7 @@ import {
   listOAuthAccountsByOwner,
   hasOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
+import { isOAuthConnected, getOAuthAccounts } from "@agent-native/core/server";
 
 interface AtlassianTokens {
   access_token: string;
@@ -158,7 +159,7 @@ export async function getClient(email?: string): Promise<{
   if (accounts.length === 0) return null;
 
   let account: (typeof accounts)[0] | undefined;
-  if (email) {
+  if (email && email !== "local@localhost") {
     account = accounts.find((a) => a.accountId === email);
     if (!account) return null;
   } else {
@@ -231,11 +232,7 @@ export async function getClients(forEmail?: string): Promise<
 }
 
 export async function isConnected(forEmail?: string): Promise<boolean> {
-  if (forEmail) {
-    const accounts = await listOAuthAccountsByOwner("atlassian", forEmail);
-    return accounts.length > 0;
-  }
-  return hasOAuthTokens("atlassian");
+  return isOAuthConnected("atlassian", forEmail);
 }
 
 export interface AtlassianAuthStatus {
@@ -251,15 +248,7 @@ export interface AtlassianAuthStatus {
 export async function getAuthStatus(
   forEmail?: string,
 ): Promise<AtlassianAuthStatus> {
-  let oauthAccounts: Array<{
-    accountId: string;
-    tokens: Record<string, unknown>;
-  }>;
-  if (forEmail) {
-    oauthAccounts = await listOAuthAccountsByOwner("atlassian", forEmail);
-  } else {
-    oauthAccounts = await listOAuthAccounts("atlassian");
-  }
+  const oauthAccounts = await getOAuthAccounts("atlassian", forEmail);
 
   if (oauthAccounts.length === 0) {
     return { connected: false, accounts: [] };

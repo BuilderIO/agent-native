@@ -115,15 +115,37 @@ switch (command) {
     break;
   }
 
+  case "action": {
+    // Run an action from actions/ (or scripts/ for backwards compat)
+    const actionName = args[0];
+    if (!actionName) {
+      console.error("Usage: agent-native action <name> [--args]");
+      process.exit(1);
+    }
+    const tsxAction = findTsxBin();
+    // Try actions/run.ts first, fall back to scripts/run.ts
+    const actionsRun = path.resolve("actions/run.ts");
+    const scriptsRun = path.resolve("scripts/run.ts");
+    const runFile = fs.existsSync(actionsRun) ? actionsRun : scriptsRun;
+    run(tsxAction, [runFile, ...args]);
+    break;
+  }
+
   case "script": {
-    // Run a script from scripts/ — `agent-native script generate-image --prompt "hello"`
+    // @deprecated — use `agent-native action` instead
     const scriptName = args[0];
     if (!scriptName) {
       console.error("Usage: agent-native script <name> [--args]");
       process.exit(1);
     }
     const tsx = findTsxBin();
-    run(tsx, ["scripts/run.ts", ...args]);
+    // Try actions/run.ts first, fall back to scripts/run.ts
+    const actionsRunScript = path.resolve("actions/run.ts");
+    const scriptsRunScript = path.resolve("scripts/run.ts");
+    const runFileScript = fs.existsSync(actionsRunScript)
+      ? actionsRunScript
+      : scriptsRunScript;
+    run(tsx, [runFileScript, ...args]);
     break;
   }
 
@@ -169,7 +191,8 @@ Usage:
   agent-native dev              Start development server
   agent-native build            Build for production (client + server)
   agent-native start            Start production server
-  agent-native script <name>    Run a script from scripts/
+  agent-native action <name>    Run an action from actions/
+  agent-native script <name>    Run an action (deprecated alias for 'action')
   agent-native typecheck        Run TypeScript type checking
   agent-native create <name>    Scaffold a new agent-native app
   agent-native setup-agents     Create symlinks for all agent tools

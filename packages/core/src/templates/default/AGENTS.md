@@ -1,6 +1,6 @@
 # {{APP_NAME}} — Agent Guide
 
-This app follows the agent-native core philosophy: the agent and UI are equal partners. Everything the UI can do, the agent can do via scripts. The agent always knows what you're looking at via application state. See the root AGENTS.md for full framework documentation.
+This app follows the agent-native core philosophy: the agent and UI are equal partners. Everything the UI can do, the agent can do via actions. The agent always knows what you're looking at via application state. See the root AGENTS.md for full framework documentation.
 
 This is an **@agent-native/core** application -- the AI agent and UI share state through a SQL database, with polling for real-time sync.
 
@@ -8,7 +8,7 @@ This is an **@agent-native/core** application -- the AI agent and UI share state
 
 1. **Shared SQL database** -- All app state lives in SQL (SQLite locally, cloud DB via `DATABASE_URL` in production). Core stores: `application_state`, `settings`, `oauth_tokens`, `sessions`, `resources`.
 2. **All AI through agent chat** -- No inline LLM calls. UI delegates to the AI via `sendToAgentChat()` / `agentChat.submit()`.
-3. **Scripts for agent operations** -- `pnpm script <name>` dispatches to callable script files in `scripts/`.
+3. **Actions for agent operations** -- `pnpm action <name>` dispatches to callable action files in `actions/`.
 4. **Polling for real-time sync** -- Database writes trigger version counter increments that the UI polls to stay in sync.
 5. **Agent can update code** -- The agent can modify this app's source code directly.
 
@@ -32,7 +32,7 @@ Resources are SQL-backed persistent files for notes, learnings, and context.
 
 **Update `LEARNINGS.md` when you learn something important.**
 
-| Script            | Args                                                        | Purpose                 |
+| Action            | Args                                                        | Purpose                 |
 | ----------------- | ----------------------------------------------------------- | ----------------------- |
 | `resource-read`   | `--path <path> [--scope personal\|shared]`                  | Read a resource         |
 | `resource-write`  | `--path <path> --content <text> [--scope personal\|shared]` | Write/update a resource |
@@ -52,11 +52,11 @@ The `navigation` key is written by the UI whenever the route changes. The `navig
 
 ## Agent Operations
 
-**Always run `pnpm script view-screen` first** before taking any action. This tells you what the user is looking at.
+**Always run `pnpm action view-screen` first** before taking any action. This tells you what the user is looking at.
 
-### Scripts
+### Actions
 
-| Script        | Args                              | Purpose                         |
+| Action        | Args                              | Purpose                         |
 | ------------- | --------------------------------- | ------------------------------- |
 | `view-screen` |                                   | See current UI state            |
 | `navigate`    | `--view <name>` or `--path <url>` | Navigate the UI                 |
@@ -73,7 +73,7 @@ Skills in `.agents/skills/` provide detailed guidance for each architectural rul
 | --------------------- | -------------------------------------------------------------- |
 | `storing-data`        | Before storing or reading any app state                        |
 | `delegate-to-agent`   | Before adding LLM calls or AI delegation                       |
-| `scripts`             | Before creating or modifying scripts                           |
+| `actions`             | Before creating or modifying actions                           |
 | `real-time-sync`      | Before wiring up real-time UI sync                             |
 | `self-modifying-code` | Before editing source, components, or styles                   |
 | `capture-learnings`   | Before recording user preferences or corrections               |
@@ -85,9 +85,9 @@ As you build out this app, follow this checklist for each new feature:
 
 1. **Add navigation state entries** -- create or extend `app/hooks/use-navigation-state.ts` to track new routes
 2. **Enhance view-screen** -- make the view-screen script return relevant context for the new view
-3. **Create domain scripts** -- add scripts for CRUD operations on new data models
+3. **Create domain actions** -- add scripts for CRUD operations on new data models
 4. **Create domain skills** -- add `.agents/skills/<feature>/SKILL.md` documenting the data model, storage patterns, and agent operations
-5. **Update this AGENTS.md** -- add the new scripts, state keys, and common tasks
+5. **Update this AGENTS.md** -- add the new actions, state keys, and common tasks
 
 ---
 

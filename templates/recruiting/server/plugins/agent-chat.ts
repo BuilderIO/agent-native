@@ -2,9 +2,9 @@ import { createAgentChatPlugin } from "@agent-native/core/server";
 
 export default createAgentChatPlugin({
   appId: "recruiting",
-  scripts: async () => {
-    const { scriptRegistry } = await import("../../scripts/registry.js");
-    return scriptRegistry;
+  actions: async () => {
+    const { actionRegistry } = await import("../../actions/registry.js");
+    return actionRegistry;
   },
   mentionProviders: async () => {
     const {

@@ -218,6 +218,16 @@ export function devApiServer(): Plugin {
     apply: "serve",
 
     configureServer(server) {
+      // Expose the resolved port as process.env.PORT so that in-process
+      // scripts (which use localFetch → http://localhost:${PORT}/api/...)
+      // hit the right address even when Vite auto-increments the port.
+      server.httpServer?.once("listening", () => {
+        const addr = server.httpServer?.address();
+        if (addr && typeof addr === "object" && addr.port) {
+          process.env.PORT = String(addr.port);
+        }
+      });
+
       const cwd = server.config.root || process.cwd();
       const apiDir = path.join(cwd, "server/routes/api");
       const serverDir = path.join(cwd, "server");

@@ -40,10 +40,10 @@ The `check-availability` script finds open time slots for a given date by:
 
 ```bash
 # Find 30-minute slots on a date
-pnpm script check-availability --date 2026-04-05
+pnpm action check-availability --date 2026-04-05
 
 # Find 60-minute slots
-pnpm script check-availability --date 2026-04-05 --duration 60
+pnpm action check-availability --date 2026-04-05 --duration 60
 ```
 
 Required: `--date` (YYYY-MM-DD format).

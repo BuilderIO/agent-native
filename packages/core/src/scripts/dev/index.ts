@@ -6,8 +6,8 @@
  * registered in production.
  */
 
-import type { ScriptTool } from "../../agent/types.js";
-import type { ScriptEntry } from "../../agent/production-agent.js";
+import type { ActionTool } from "../../agent/types.js";
+import type { ActionEntry } from "../../agent/production-agent.js";
 import { tool as readFileTool, run as readFileRun } from "./read-file.js";
 import { tool as writeFileTool, run as writeFileRun } from "./write-file.js";
 import { tool as listFilesTool, run as listFilesRun } from "./list-files.js";
@@ -18,13 +18,13 @@ import {
 import { tool as shellTool, run as shellRun } from "./shell.js";
 
 /**
- * Wraps a core CLI script (that writes to console.log) as a ScriptEntry
+ * Wraps a core CLI script (that writes to console.log) as a ActionEntry
  * by capturing stdout.
  */
 function wrapCliScript(
-  tool: ScriptTool,
+  tool: ActionTool,
   cliDefault: (args: string[]) => Promise<void>,
-): ScriptEntry {
+): ActionEntry {
   return {
     tool,
     run: async (args: Record<string, string>): Promise<string> => {
@@ -59,10 +59,10 @@ function wrapCliScript(
  * when NODE_ENV !== "production".
  */
 export async function createDevScriptRegistry(): Promise<
-  Record<string, ScriptEntry>
+  Record<string, ActionEntry>
 > {
   // Lazy-import DB scripts to avoid requiring libsql in non-DB apps
-  let dbEntries: Record<string, ScriptEntry> = {};
+  let dbEntries: Record<string, ActionEntry> = {};
   try {
     // Dynamic imports — these are part of @agent-native/core
     const [dbSchema, dbQuery, dbExec] = await Promise.all([

@@ -31,5 +31,5 @@ sendToAgentChat({
 
 ## Related Skills
 
-- **scripts** — The agent invokes scripts via `pnpm script <name>`
+- **scripts** — The agent invokes scripts via `pnpm action <name>`
 - **self-modifying-code** — The agent operates through the chat bridge

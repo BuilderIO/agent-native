@@ -10,6 +10,7 @@ export function useGoogleAuthStatus() {
       if (!res.ok) throw new Error("Failed to fetch Google auth status");
       return res.json();
     },
+    staleTime: 30_000,
   });
 }
 

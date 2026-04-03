@@ -32,10 +32,10 @@ description: >
 
 ```bash
 # Top keywords
-pnpm script seo-top-keywords --fields=keyword,rank_absolute,etv
+pnpm action seo-top-keywords --fields=keyword,rank_absolute,etv
 
 # Search for specific keywords
-pnpm script seo-top-keywords --grep=remix --fields=keyword,rank_absolute,etv
+pnpm action seo-top-keywords --grep=remix --fields=keyword,rank_absolute,etv
 ```
 
 ## Key Patterns & Gotchas

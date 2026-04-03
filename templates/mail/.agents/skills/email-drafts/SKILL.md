@@ -49,7 +49,7 @@ The compose panel opens automatically when any compose draft exists. When the la
 Use the manage-draft script or write directly:
 
 ```bash
-pnpm script manage-draft --action=create --to=jane@example.com --subject="Quick question" --body="Hi Jane,\n\nJust wanted to follow up on..."
+pnpm action manage-draft --action=create --to=jane@example.com --subject="Quick question" --body="Hi Jane,\n\nJust wanted to follow up on..."
 ```
 
 Or from code:
@@ -78,7 +78,7 @@ await writeAppState("compose-draft1", draft);
 ## Listing All Drafts
 
 ```bash
-pnpm script view-composer
+pnpm action view-composer
 ```
 
 Or from code:

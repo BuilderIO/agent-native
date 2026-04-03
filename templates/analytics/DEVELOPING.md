@@ -28,7 +28,7 @@ server/                   # Nitro API server
 ├── db/                   # Drizzle schema + DB connection
 └── lib/                  # Shared server libraries
 
-scripts/                  # CLI scripts for backend automation
+actions/                  # CLI scripts for backend automation
 ├── run.ts                # Universal script runner
 ├── helpers.ts            # Shared arg parsing & output utilities
 └── *.ts                  # Individual scripts (auto-discovered by filename)

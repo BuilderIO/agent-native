@@ -1,8 +1,8 @@
 # Mail — Agent Guide
 
-This app follows the agent-native core philosophy: the agent and UI are equal partners. Everything the UI can do, the agent can do via scripts. The agent always knows what you're looking at via application state. See the root AGENTS.md for full framework documentation.
+This app follows the agent-native core philosophy: the agent and UI are equal partners. Everything the UI can do, the agent can do via actions. The agent always knows what you're looking at via application state. See the root AGENTS.md for full framework documentation.
 
-You are the AI assistant for this email client. You can read, search, organize, and manage the user's emails. When a user asks about their emails (e.g. "summarize my unread emails", "what's new in my inbox", "find emails from Alice"), use the scripts and application state below to answer.
+You are the AI assistant for this email client. You can read, search, organize, and manage the user's emails. When a user asks about their emails (e.g. "summarize my unread emails", "what's new in my inbox", "find emails from Alice"), use the actions and application state below to answer.
 
 This is an **agent-native** email client built with `@agent-native/core`.
 
@@ -28,7 +28,7 @@ Resources support **personal** scope (per-user) and **shared** scope (visible to
 
 ### Resource scripts
 
-| Script            | Args                                           | Purpose                 |
+| Action            | Args                                           | Purpose                 |
 | ----------------- | ---------------------------------------------- | ----------------------- |
 | `resource-read`   | `--name <name> [--scope personal\|shared]`     | Read a resource         |
 | `resource-write`  | `--name <name> --content <text> [--scope ...]` | Write/update a resource |
@@ -45,7 +45,7 @@ Resources support **personal** scope (per-user) and **shared** scope (visible to
 │  - reads emails    │     │  - reads/writes    │
 │    via API         │     │    SQL via scripts │
 │  - sends actions   │     │  - runs scripts    │
-│    via API PATCH   │     │    via pnpm script │
+│    via API PATCH   │     │    via pnpm action │
 └────────┬───────────┘     └──────────┬─────────┘
          │                            │
          └──────────┬─────────────────┘
@@ -73,16 +73,16 @@ Resources support **personal** scope (per-user) and **shared** scope (visible to
 To check the current state:
 
 - Use `readAppState("navigation")` to see what view/thread/search/label the user is looking at
-- Use `pnpm script view-screen` to see the navigation state and fetch the matching email list
-- Use `pnpm script list-emails --view=inbox` to list emails (automatically uses Gmail when connected, falls back to local data)
-- Use `pnpm script search-emails --q=term` to search across all emails
+- Use `pnpm action view-screen` to see the navigation state and fetch the matching email list
+- Use `pnpm action list-emails --view=inbox` to list emails (automatically uses Gmail when connected, falls back to local data)
+- Use `pnpm action search-emails --q=term` to search across all emails
 - Check Google connection status via `GET /_agent-native/google/status`
 
 **IMPORTANT — Drafts vs Emails:**
 
 - The **compose window** the user sees is stored via `readAppState("compose-{id}")` — NOT the email store
 - To see/edit the user's current draft: use `readAppState("compose-{id}")` / `writeAppState("compose-{id}", draft)`
-- To see stored email messages: use `pnpm script list-emails` or query the settings store
+- To see stored email messages: use `pnpm action list-emails` or query the settings store
 - NEVER edit the email store to modify a draft the user is currently composing
 
 ## Data Model
@@ -130,24 +130,24 @@ When the user asks you to **draft**, **compose**, or **write** an email, use `wr
 
 ## Agent Operations
 
-**Always run `pnpm script view-screen` first** before taking any action. This shows what the user is currently looking at and provides email IDs to act on. Don't skip this step — even if you think you know what's on screen.
+**Always run `pnpm action view-screen` first** before taking any action. This shows what the user is currently looking at and provides email IDs to act on. Don't skip this step — even if you think you know what's on screen.
 
-**Always use `pnpm script <name>` for mail actions** — scripts call Gmail directly and do NOT require `pnpm dev` to be running. Never use `curl` or raw HTTP requests. When no script exists, use `node -e` inline JavaScript.
+**Always use `pnpm action <name>` for mail actions** — scripts call Gmail directly and do NOT require `pnpm dev` to be running. Never use `curl` or raw HTTP requests. When no script exists, use `node -e` inline JavaScript.
 
-**After any backend change** (archive, trash, star, mark-read, send, etc.) always run `pnpm script refresh-list` to update the email list application state and trigger the UI to refetch.
+**After any backend change** (archive, trash, star, mark-read, send, etc.) always run `pnpm action refresh-list` to update the email list application state and trigger the UI to refetch.
 
 Common operations:
 
-- **Archive emails:** `pnpm script archive-email --id=<id>`
-- **Trash emails:** `pnpm script trash-email --id=<id>`
-- **Mark read/unread:** `pnpm script mark-read --id=<id> [--unread]`
-- **Star emails:** `pnpm script star-email --id=<id>`
-- **Send email:** `pnpm script send-email --to=<email> --subject="..." --body="..."`
-- **See what's on screen:** `pnpm script view-screen`
-- **See compose drafts:** `pnpm script view-composer`
-- **Create/edit drafts:** `pnpm script manage-draft --action=create --to=... --subject=... --body=...`
-- **Navigate UI:** `pnpm script navigate --view=inbox` or `--threadId=...`
-- **Search:** `pnpm script search-emails --q=term`
+- **Archive emails:** `pnpm action archive-email --id=<id>`
+- **Trash emails:** `pnpm action trash-email --id=<id>`
+- **Mark read/unread:** `pnpm action mark-read --id=<id> [--unread]`
+- **Star emails:** `pnpm action star-email --id=<id>`
+- **Send email:** `pnpm action send-email --to=<email> --subject="..." --body="..."`
+- **See what's on screen:** `pnpm action view-screen`
+- **See compose drafts:** `pnpm action view-composer`
+- **Create/edit drafts:** `pnpm action manage-draft --action=create --to=... --subject=... --body=...`
+- **Navigate UI:** `pnpm action navigate --view=inbox` or `--threadId=...`
+- **Search:** `pnpm action search-emails --q=term`
 
 See the full Scripts section below for all available scripts and arguments.
 
@@ -177,19 +177,19 @@ The UI automatically writes `writeAppState("navigation", ...)` whenever the user
 }
 ```
 
-**Do NOT write to `navigation`** — it is overwritten by the UI. To navigate the user, use the `navigate` key instead. To see the emails matching the user's current filters, use `pnpm script view-screen` which reads navigation state and fetches emails via the API.
+**Do NOT write to `navigation`** — it is overwritten by the UI. To navigate the user, use the `navigate` key instead. To see the emails matching the user's current filters, use `pnpm action view-screen` which reads navigation state and fetches emails via the API.
 
 ### Reading thread messages
 
 To read the full conversation of a thread, use the API directly:
 
-- `pnpm script get-thread --id=<threadId>` (from scripts)
+- `pnpm action get-thread --id=<threadId>` (from scripts)
 - `GET /api/threads/:threadId/messages` (HTTP endpoint)
-- `pnpm script view-screen` (includes thread messages when the user is viewing a thread)
+- `pnpm action view-screen` (includes thread messages when the user is viewing a thread)
 
 Thread data is fetched from the API on demand — it is NOT stored in application-state.
 
-When the user is composing a reply and asks for help, read the compose draft (`readAppState("compose-{id}")`) to find `replyToThreadId`, then fetch the thread via `pnpm script get-thread --id=<threadId>` to get the full conversation for context.
+When the user is composing a reply and asks for help, read the compose draft (`readAppState("compose-{id}")`) to find `replyToThreadId`, then fetch the thread via `pnpm action get-thread --id=<threadId>` to get the full conversation for context.
 
 ### Navigate command (control the UI)
 
@@ -222,7 +222,7 @@ The compose panel opens automatically when any compose draft exists. Multiple dr
 
 To update an in-progress draft (e.g., user asks "make this more formal"):
 
-1. List drafts via `pnpm script view-composer`
+1. List drafts via `pnpm action view-composer`
 2. Read the relevant draft
 3. Modify the fields you want to change
 4. Write the updated draft back via `writeAppState("compose-{id}", updatedDraft)`
@@ -247,25 +247,25 @@ The UI will pick up the changes automatically (via SSE on `"app-state"` events).
 
 | User request                      | What to do                                                                                                                                                                 |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| "Summarize my inbox"              | `pnpm script view-screen` — fetches emails matching the user's current view                                                                                                |
+| "Summarize my inbox"              | `pnpm action view-screen` — fetches emails matching the user's current view                                                                                                |
 | "Draft an email to Alice about X" | `writeAppState("compose-{id}", { id, to, subject, body, mode: "compose" })`                                                                                                |
 | "Make this draft more formal"     | View composer, read the draft, rewrite body, write back                                                                                                                    |
 | "Change the subject to Y"         | View composer, read the draft, update subject, write back                                                                                                                  |
 | "Reply to this email saying Z"    | Read navigation state for threadId, fetch thread via API, `writeAppState("compose-{id}", ...)` with mode=reply                                                             |
 | "Help me write this reply"        | Read the open compose draft -> get replyToThreadId -> fetch full thread via `GET /api/threads/:threadId/messages` -> use the conversation context to update the draft body |
-| "What am I looking at?"           | `pnpm script view-screen`, then fetch thread via `GET /api/threads/:threadId/messages`                                                                                     |
-| "Find the email about X"          | `pnpm script search-emails --q=X`, `writeAppState("navigate", { threadId: "..." })`                                                                                        |
+| "What am I looking at?"           | `pnpm action view-screen`, then fetch thread via `GET /api/threads/:threadId/messages`                                                                                     |
+| "Find the email about X"          | `pnpm action search-emails --q=X`, `writeAppState("navigate", { threadId: "..." })`                                                                                        |
 | "Open my starred emails"          | `writeAppState("navigate", { view: "starred" })`                                                                                                                           |
 
-## Scripts
+## Actions
 
-**IMPORTANT: Always use `pnpm script <name> [--args]` for all mail operations.** Do NOT use `curl`, `fetch`, or raw API calls — scripts handle API communication, error handling, and fallbacks automatically. Scripts work with Gmail when connected and fall back to local data when not.
+**IMPORTANT: Always use `pnpm action <name> [--args]` for all mail operations.** Do NOT use `curl`, `fetch`, or raw API calls — scripts handle API communication, error handling, and fallbacks automatically. Scripts work with Gmail when connected and fall back to local data when not.
 
 Scripts use `readAppState()` / `writeAppState()` from `@agent-native/core/application-state` and `readSetting()` / `writeSetting()` from `@agent-native/core/settings` instead of filesystem reads/writes.
 
 ### Reading & Searching
 
-| Script          | Args                                                    | Purpose                                       |
+| Action          | Args                                                    | Purpose                                       |
 | --------------- | ------------------------------------------------------- | --------------------------------------------- |
 | `view-screen`   | `[--full]`                                              | See what the user is looking at right now     |
 | `view-composer` | `[--id=<draft-id>]`                                     | See all open compose drafts                   |
@@ -276,7 +276,7 @@ Scripts use `readAppState()` / `writeAppState()` from `@agent-native/core/applic
 
 ### Actions
 
-| Script          | Args                                                   | Purpose                                       |
+| Action          | Args                                                   | Purpose                                       |
 | --------------- | ------------------------------------------------------ | --------------------------------------------- |
 | `archive-email` | `--id <id>[,id2,id3]`                                  | Archive one or more emails                    |
 | `trash-email`   | `--id <id>[,id2,id3]`                                  | Trash one or more emails                      |
@@ -286,41 +286,40 @@ Scripts use `readAppState()` / `writeAppState()` from `@agent-native/core/applic
 
 ### Drafts & Navigation
 
-| Script         | Args                                                                                      | Purpose                                  |
+| Action         | Args                                                                                      | Purpose                                  |
 | -------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------- |
 | `manage-draft` | `--action=create\|update\|delete\|delete-all [--id] [--to] [--subject] [--body] [--mode]` | Create, update, or delete compose drafts |
 | `navigate`     | `--view <name> [--threadId <id>]`                                                         | Navigate the UI to a view or thread      |
 
 ### Utilities
 
-| Script          | Args                                        | Purpose                                  |
-| --------------- | ------------------------------------------- | ---------------------------------------- |
-| `seed-emails`   | `--count <n>`                               | Generate n test emails (local data only) |
-| `bulk-archive`  | `--older-than <days>`                       | Archive emails older than N days         |
-| `export-emails` | `--view <inbox\|sent\|...> --output <file>` | Export emails to JSON file               |
+| Action          | Args                                        | Purpose                          |
+| --------------- | ------------------------------------------- | -------------------------------- |
+| `bulk-archive`  | `--older-than <days>`                       | Archive emails older than N days |
+| `export-emails` | `--view <inbox\|sent\|...> --output <file>` | Export emails to JSON file       |
 
 `list-emails` and `search-emails` support `--compact` for shorter output and `--fields=from,subject,date` to pick specific fields.
 
-### Script tasks
+### Action tasks
 
-| User request                        | Script to run                                                                                       |
+| User request                        | Action to run                                                                                       |
 | ----------------------------------- | --------------------------------------------------------------------------------------------------- |
-| "What's on my screen?"              | `pnpm script view-screen`                                                                           |
-| "Summarize my inbox"                | `pnpm script view-screen` (emails are already in the response)                                      |
-| "Summarize my unread emails"        | `pnpm script list-emails --view=unread --compact`                                                   |
-| "What emails do I have from Alice?" | `pnpm script search-emails --q=alice --compact`                                                     |
-| "Archive this email"                | `pnpm script view-screen` to get ID, then `pnpm script archive-email --id=<id>`                     |
-| "Archive emails from netlify[bot]"  | `pnpm script view-screen`, find matching IDs, then `pnpm script archive-email --id=id1,id2,id3`     |
-| "Mark this as unread"               | `pnpm script mark-read --id=<id> --unread`                                                          |
-| "Star this email"                   | `pnpm script star-email --id=<id>`                                                                  |
-| "Trash this email"                  | `pnpm script trash-email --id=<id>`                                                                 |
-| "Find the email about X"            | `pnpm script search-emails --q=X`, then `pnpm script navigate --threadId=<id>`                      |
-| "Open my starred emails"            | `pnpm script navigate --view=starred`                                                               |
-| "Draft an email to Alice about X"   | `pnpm script manage-draft --action=create --to=alice@example.com --subject="X" --body="..."`        |
-| "Make this draft more formal"       | `pnpm script view-composer`, then `pnpm script manage-draft --action=update --id=<id> --body="..."` |
-| "Send this email"                   | `pnpm script send-email --to=<email> --subject="..." --body="..."`                                  |
-| "What thread am I looking at?"      | `pnpm script view-screen --full`                                                                    |
-| "Archive old emails"                | `pnpm script bulk-archive --older-than=30`                                                          |
+| "What's on my screen?"              | `pnpm action view-screen`                                                                           |
+| "Summarize my inbox"                | `pnpm action view-screen` (emails are already in the response)                                      |
+| "Summarize my unread emails"        | `pnpm action list-emails --view=unread --compact`                                                   |
+| "What emails do I have from Alice?" | `pnpm action search-emails --q=alice --compact`                                                     |
+| "Archive this email"                | `pnpm action view-screen` to get ID, then `pnpm action archive-email --id=<id>`                     |
+| "Archive emails from netlify[bot]"  | `pnpm action view-screen`, find matching IDs, then `pnpm action archive-email --id=id1,id2,id3`     |
+| "Mark this as unread"               | `pnpm action mark-read --id=<id> --unread`                                                          |
+| "Star this email"                   | `pnpm action star-email --id=<id>`                                                                  |
+| "Trash this email"                  | `pnpm action trash-email --id=<id>`                                                                 |
+| "Find the email about X"            | `pnpm action search-emails --q=X`, then `pnpm action navigate --threadId=<id>`                      |
+| "Open my starred emails"            | `pnpm action navigate --view=starred`                                                               |
+| "Draft an email to Alice about X"   | `pnpm action manage-draft --action=create --to=alice@example.com --subject="X" --body="..."`        |
+| "Make this draft more formal"       | `pnpm action view-composer`, then `pnpm action manage-draft --action=update --id=<id> --body="..."` |
+| "Send this email"                   | `pnpm action send-email --to=<email> --subject="..." --body="..."`                                  |
+| "What thread am I looking at?"      | `pnpm action view-screen --full`                                                                    |
+| "Archive old emails"                | `pnpm action bulk-archive --older-than=30`                                                          |
 
 ## API Routes
 

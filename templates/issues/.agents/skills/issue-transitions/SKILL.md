@@ -14,7 +14,7 @@ Jira issues move through workflow states via transitions. You can't set a status
 ## Transitioning an Issue
 
 ```bash
-pnpm script transition-issue --key PROJ-123 --status "In Progress"
+pnpm action transition-issue --key PROJ-123 --status "In Progress"
 ```
 
 The script:
@@ -44,7 +44,7 @@ The API endpoint `GET /api/issues/:key/transitions` returns all valid transition
 
 ## After Transitioning
 
-Always run `pnpm script refresh-list` after transitions to update the UI.
+Always run `pnpm action refresh-list` after transitions to update the UI.
 
 ## Related Skills
 

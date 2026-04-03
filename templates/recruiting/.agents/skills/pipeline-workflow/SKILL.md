@@ -19,7 +19,7 @@ To find the applicationId:
 ## Viewing the Pipeline
 
 ```bash
-pnpm script get-pipeline --jobId 123 [--compact]
+pnpm action get-pipeline --jobId 123 [--compact]
 ```
 
 Returns candidates grouped by stage for a specific job. Each stage shows its applications with candidate names.
@@ -27,7 +27,7 @@ Returns candidates grouped by stage for a specific job. Each stage shows its app
 ## Advancing a Candidate
 
 ```bash
-pnpm script advance-candidate --applicationId 789 --fromStageId 100
+pnpm action advance-candidate --applicationId 789 --fromStageId 100
 ```
 
 Advances the application to the **next** stage in the pipeline. Requires the current `fromStageId` to prevent race conditions.
@@ -35,7 +35,7 @@ Advances the application to the **next** stage in the pipeline. Requires the cur
 ## Moving to a Specific Stage
 
 ```bash
-pnpm script move-candidate --applicationId 789 --fromStageId 100 --toStageId 200
+pnpm action move-candidate --applicationId 789 --fromStageId 100 --toStageId 200
 ```
 
 Moves the application to a specific stage (can skip stages or move backward).
@@ -43,7 +43,7 @@ Moves the application to a specific stage (can skip stages or move backward).
 ## Rejecting a Candidate
 
 ```bash
-pnpm script reject-candidate --applicationId 789 [--notes "Not a fit for this role"]
+pnpm action reject-candidate --applicationId 789 [--notes "Not a fit for this role"]
 ```
 
 ## Finding Stage IDs
@@ -63,7 +63,7 @@ pnpm script reject-candidate --applicationId 789 [--notes "Not a fit for this ro
 
 ## After Mutations
 
-Always run `pnpm script refresh-data` after advancing, moving, or rejecting candidates.
+Always run `pnpm action refresh-data` after advancing, moving, or rejecting candidates.
 
 ## Related Skills
 

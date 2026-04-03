@@ -1,9 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { ScriptTool } from "../../agent/types.js";
+import type { ActionTool } from "../../agent/types.js";
 import { parseArgs } from "../utils.js";
 
-export const tool: ScriptTool = {
+export const tool: ActionTool = {
   description:
     "Write content to a file. Creates the file if it doesn't exist, or overwrites it. Creates parent directories automatically.",
   parameters: {

@@ -46,27 +46,27 @@ description: >
 
 ```bash
 # Search open PRs in YourOrg org
-pnpm script github-prs
-pnpm script github-prs --org=YourOrg --query="is:open label:bug"
+pnpm action github-prs
+pnpm action github-prs --org=YourOrg --query="is:open label:bug"
 
 # List PRs for a specific repo
-pnpm script github-prs --repo=YourOrg/qwik --state=open
+pnpm action github-prs --repo=YourOrg/qwik --state=open
 
 # Get full PR detail (commits, reviews, files)
-pnpm script github-prs --pr=YourOrg/qwik/1234
+pnpm action github-prs --pr=YourOrg/qwik/1234
 
 # Get issue detail
-pnpm script github-prs --issue=YourOrg/qwik/567
+pnpm action github-prs --issue=YourOrg/qwik/567
 
 # Full GitHub search syntax (works across all orgs/repos)
-pnpm script github-prs --search="fix authentication is:pr is:merged"
-pnpm script github-prs --search="memory leak" --type=issue
+pnpm action github-prs --search="fix authentication is:pr is:merged"
+pnpm action github-prs --search="memory leak" --type=issue
 
 # Raw GraphQL
-pnpm script github-prs --graphql='{ viewer { login } }'
+pnpm action github-prs --graphql='{ viewer { login } }'
 
 # Filtering with built-in helpers
-pnpm script github-prs --org=YourOrg --grep="auth" --fields=number,title,state,url
+pnpm action github-prs --org=YourOrg --grep="auth" --fields=number,title,state,url
 ```
 
 ## Key Patterns & Gotchas

@@ -64,7 +64,7 @@ The typical flow when the user asks for a new dashboard:
 
 1. Determine what data to show (ask clarifying questions if needed)
 2. Write the dashboard config to settings: `writeSetting("dashboard-{id}", config)`
-3. Navigate the user to it: `pnpm script navigate --view=adhoc --dashboardId={id}`
+3. Navigate the user to it: `pnpm action navigate --view=adhoc --dashboardId={id}`
 
 The UI picks up the new dashboard via SSE events on settings changes.
 

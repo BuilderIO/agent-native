@@ -49,31 +49,31 @@ export function useNavigationState() {
     [putMutation],
   );
 
-  // One-shot command: agent writes navigate.json, UI reads and deletes it
+  // One-shot command: agent writes navigate, UI reads and deletes it
   const command = useQuery<NavigationState | null>({
     queryKey: ["navigate-command"],
     queryFn: async () => {
       const result = await apiFetch<NavigationState | undefined>(
         "/_agent-native/application-state/navigate",
       );
-      return result ?? null;
+      if (result) {
+        // Return with a timestamp to ensure uniqueness
+        return { ...result, _ts: Date.now() } as NavigationState;
+      }
+      return null;
     },
-    staleTime: 2_000,
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: () =>
-      apiFetch("/_agent-native/application-state/navigate", {
-        method: "DELETE",
-      }),
-    onSuccess: () => {
-      qc.setQueryData(["navigate-command"], undefined);
-    },
+    refetchInterval: 2_000,
+    refetchIntervalInBackground: true,
+    structuralSharing: false,
   });
 
   const clearCommand = useCallback(() => {
-    deleteMutation.mutate();
-  }, [deleteMutation]);
+    // Delete the one-shot command AFTER reading it
+    apiFetch("/_agent-native/application-state/navigate", {
+      method: "DELETE",
+    }).catch(() => {});
+    qc.setQueryData(["navigate-command"], null);
+  }, [qc]);
 
   return {
     sync,

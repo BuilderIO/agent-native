@@ -196,7 +196,7 @@ WHERE ps.user_create_d IS NOT NULL
    const result = await runQuery(sql);
    console.log(result.rows);
    ```
-4. Run: `pnpm script test-<feature>`
+4. Run: `pnpm action test-<feature>`
 5. Iterate until results are correct
 6. Convert to dbt syntax (replace table names with `{{ ref("table") }}`)
 7. Save final SQL to `code/.builder/dbt-models/<model_name>.sql`

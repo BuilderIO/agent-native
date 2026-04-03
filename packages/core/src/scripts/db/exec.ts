@@ -9,7 +9,7 @@
  * is auto-injected if the target table uses the ownership convention.
  *
  * Usage:
- *   pnpm script db-exec --sql "UPDATE forms SET status='published' WHERE id='abc'" [--db path]
+ *   pnpm action db-exec --sql "UPDATE forms SET status='published' WHERE id='abc'" [--db path]
  */
 
 import path from "path";
@@ -122,7 +122,7 @@ export default async function dbExec(args: string[]): Promise<void> {
   const parsed = parseArgs(args);
 
   if (parsed.help === "true") {
-    console.log(`Usage: pnpm script db-exec --sql "<statement>" [options]
+    console.log(`Usage: pnpm action db-exec --sql "<statement>" [options]
 
 Options:
   --sql <stmt>    SQL statement to execute (required)

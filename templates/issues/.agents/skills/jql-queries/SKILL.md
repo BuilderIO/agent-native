@@ -11,7 +11,7 @@ description: >-
 JQL (Jira Query Language) is how you search for issues in Jira. Use it with the `search-issues` script:
 
 ```bash
-pnpm script search-issues --jql "issuetype = Bug AND status != Done"
+pnpm action search-issues --jql "issuetype = Bug AND status != Done"
 ```
 
 ## Common Patterns

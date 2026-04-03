@@ -3,6 +3,19 @@ import { useLocation, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { NavigationState } from "@shared/types";
 
+function resolveNavPath(cmd: NavigationState): string {
+  if (cmd.view === "jobs") {
+    return cmd.jobId ? `/jobs/${cmd.jobId}` : "/jobs";
+  } else if (cmd.view === "candidates") {
+    return cmd.candidateId ? `/candidates/${cmd.candidateId}` : "/candidates";
+  } else if (cmd.view === "interviews") {
+    return "/interviews";
+  } else if (cmd.view === "settings") {
+    return "/settings";
+  }
+  return "/dashboard";
+}
+
 export function useNavigationState() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -36,41 +49,34 @@ export function useNavigationState() {
     }).catch(() => {});
   }, [location.pathname]);
 
-  // Listen for navigate commands from agent
+  // Listen for navigate commands from agent.
+  // We use a unique queryKey with a counter to ensure each found command
+  // produces a unique data value, preventing React Query from deduplicating.
   const { data: navCommand } = useQuery({
     queryKey: ["navigate-command"],
     queryFn: async () => {
       const res = await fetch("/_agent-native/application-state/navigate");
       if (!res.ok) return null;
       const data = await res.json();
-      if (data) {
-        // Delete the one-shot command
+      if (data && data.view) {
+        // Delete the one-shot command immediately
         fetch("/_agent-native/application-state/navigate", {
           method: "DELETE",
         }).catch(() => {});
-        return data;
+        // Return with a timestamp to ensure uniqueness
+        return { ...data, _ts: Date.now() };
       }
       return null;
     },
-    refetchInterval: 5_000,
+    refetchInterval: 2_000,
+    refetchIntervalInBackground: true,
+    structuralSharing: false,
   });
 
   useEffect(() => {
     if (!navCommand) return;
     const cmd = navCommand as NavigationState;
-    let path = "/dashboard";
-
-    if (cmd.view === "dashboard") {
-      path = "/dashboard";
-    } else if (cmd.view === "jobs") {
-      path = cmd.jobId ? `/jobs/${cmd.jobId}` : "/jobs";
-    } else if (cmd.view === "candidates") {
-      path = cmd.candidateId ? `/candidates/${cmd.candidateId}` : "/candidates";
-    } else if (cmd.view === "interviews") {
-      path = "/interviews";
-    } else if (cmd.view === "settings") {
-      path = "/settings";
-    }
+    const path = resolveNavPath(cmd);
 
     navigate(path);
     qc.setQueryData(["navigate-command"], null);

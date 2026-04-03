@@ -4,9 +4,9 @@ You are the AI assistant for this Notion-like document editor. You can create, r
 
 This is an **agent-native** app built with `@agent-native/core`.
 
-**Core philosophy:** The agent and UI have full parity. Everything the user can see, the agent can see via `view-screen`. Everything the user can do, the agent can do via scripts. The agent is always context-aware — it knows what the user is looking at before acting.
+**Core philosophy:** The agent and UI have full parity. Everything the user can see, the agent can see via `view-screen`. Everything the user can do, the agent can do via actions. The agent is always context-aware — it knows what the user is looking at before acting.
 
-**Always run `pnpm script view-screen` first** before taking any action. This shows what the user is currently looking at — the document tree and the open document (if any).
+**Always run `pnpm action view-screen` first** before taking any action. This shows what the user is currently looking at — the document tree and the open document (if any).
 
 ## Resources
 
@@ -19,7 +19,7 @@ Resources are SQL-backed persistent files for notes, learnings, and context.
 
 **Update the `LEARNINGS.md` resource when you learn something important.**
 
-| Script            | Args                                                        | Purpose                 |
+| Action            | Args                                                        | Purpose                 |
 | ----------------- | ----------------------------------------------------------- | ----------------------- |
 | `resource-read`   | `--path <path> [--scope personal\|shared]`                  | Read a resource         |
 | `resource-write`  | `--path <path> --content <text> [--scope personal\|shared]` | Write/update a resource |
@@ -34,7 +34,7 @@ Read the skill files in `.agents/skills/` for detailed patterns:
 - **notion-integration** — How Notion sync works: linking, pulling, pushing
 - **storing-data** — Settings and config in SQL via settings API
 - **delegate-to-agent** — UI never calls LLMs directly
-- **scripts** — Complex operations as `pnpm script <name>`
+- **scripts** — Complex operations as `pnpm action <name>`
 - **real-time-sync** — Real-time UI sync via SSE (DB change events)
 - **frontend-design** — Build distinctive, production-grade UI
 
@@ -63,13 +63,13 @@ Views: `list` (document tree), `editor` (viewing/editing a document).
 
 **Do NOT write to `navigation`** — it is overwritten by the UI. Use `navigate` to control the UI.
 
-## Scripts
+## Actions
 
-**Always use `pnpm script <name>` for all operations.** Never use `curl`, raw HTTP requests, or `db-exec` with raw SQL for document operations.
+**Always use `pnpm action <name>` for all operations.** Never use `curl`, raw HTTP requests, or `db-exec` with raw SQL for document operations.
 
 ### Context & Navigation
 
-| Script         | Args                              | Purpose                    |
+| Action         | Args                              | Purpose                    |
 | -------------- | --------------------------------- | -------------------------- |
 | `view-screen`  |                                   | See what the user sees now |
 | `navigate`     | `--path <path>` or `--documentId` | Navigate the UI            |
@@ -77,7 +77,7 @@ Views: `list` (document tree), `editor` (viewing/editing a document).
 
 ### Document Operations
 
-| Script             | Args                                               | Purpose                            |
+| Action             | Args                                               | Purpose                            |
 | ------------------ | -------------------------------------------------- | ---------------------------------- |
 | `list-documents`   | `[--format json]`                                  | List all documents as tree         |
 | `search-documents` | `--query <text> [--format json]`                   | Search by title and content        |
@@ -88,7 +88,7 @@ Views: `list` (document tree), `editor` (viewing/editing a document).
 
 ### Notion Integration
 
-| Script                  | Args                                    | Purpose                  |
+| Action                  | Args                                    | Purpose                  |
 | ----------------------- | --------------------------------------- | ------------------------ |
 | `connect-notion-status` |                                         | Check Notion connection  |
 | `link-notion-page`      | `--documentId <id> --notionPageId <id>` | Link doc to Notion page  |

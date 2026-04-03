@@ -14,7 +14,7 @@ Charts are generated server-side as PNG images using `chartjs-node-canvas` (Char
 ## Script Usage
 
 ```bash
-pnpm script generate-chart --type=bar --title="Title" --labels='["A","B","C"]' --data='[1,2,3]' --color="#18B4F4"
+pnpm action generate-chart --type=bar --title="Title" --labels='["A","B","C"]' --data='[1,2,3]' --color="#18B4F4"
 ```
 
 ### Parameters

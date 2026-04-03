@@ -51,11 +51,11 @@ description: >
 
 ```bash
 # Search tickets
-pnpm script jira-search --jql="summary ~ SSO ORDER BY created DESC" --fields=key,summary,status,assignee
+pnpm action jira-search --jql="summary ~ SSO ORDER BY created DESC" --fields=key,summary,status,assignee
 
 # Ticket analytics
-pnpm script jira-analytics --days=30
-pnpm script jira-analytics --projects=ENG,PROD --days=30
+pnpm action jira-analytics --days=30
+pnpm action jira-analytics --projects=ENG,PROD --days=30
 ```
 
 ## Key Patterns & Gotchas

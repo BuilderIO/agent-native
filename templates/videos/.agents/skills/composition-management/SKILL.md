@@ -84,7 +84,7 @@ export const MyComp: React.FC<{ tracks?: AnimationTrack[] }> = ({
 ## Using the create-composition Script
 
 ```bash
-pnpm script create-composition --id "my-comp" --title "My Composition"
+pnpm action create-composition --id "my-comp" --title "My Composition"
 ```
 
 This scaffolds the component file, exports, and registry entry.

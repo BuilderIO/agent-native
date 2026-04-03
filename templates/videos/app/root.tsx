@@ -38,24 +38,30 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-export default function Root() {
+function AppContent() {
   useNavigationState();
-  const [queryClient] = useState(() => new QueryClient());
   const [cmdkOpen, setCmdkOpen] = useState(false);
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
+    <TooltipProvider>
+      <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
+        <CommandMenu.Group heading="Videos">
+          <CommandMenu.Item onSelect={() => {}}>
+            Search compositions
+          </CommandMenu.Item>
+        </CommandMenu.Group>
+      </CommandMenu>
+      <Outlet />
+    </TooltipProvider>
+  );
+}
+
+export default function Root() {
+  const [queryClient] = useState(() => new QueryClient());
+  return (
     <ClientOnly fallback={<DefaultSpinner />}>
       <QueryClientProvider client={queryClient}>
-        <TooltipProvider>
-          <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
-            <CommandMenu.Group heading="Videos">
-              <CommandMenu.Item onSelect={() => {}}>
-                Search compositions
-              </CommandMenu.Item>
-            </CommandMenu.Group>
-          </CommandMenu>
-          <Outlet />
-        </TooltipProvider>
+        <AppContent />
       </QueryClientProvider>
     </ClientOnly>
   );

@@ -12,7 +12,7 @@ description: >-
 Use `list-responses` to see submissions for a specific form:
 
 ```bash
-pnpm script list-responses --form <form-id> [--limit 50]
+pnpm action list-responses --form <form-id> [--limit 50]
 ```
 
 This shows each response with field labels and values, ordered by submission date (newest first).
@@ -23,10 +23,10 @@ Use `export-responses` to export to CSV or JSON:
 
 ```bash
 # CSV export (default)
-pnpm script export-responses --form <form-id> --output data/export.csv
+pnpm action export-responses --form <form-id> --output data/export.csv
 
 # JSON export
-pnpm script export-responses --form <form-id> --output data/export.json --format json
+pnpm action export-responses --form <form-id> --output data/export.json --format json
 ```
 
 The CSV includes headers derived from field labels. Array values (multiselect) are joined with semicolons.
@@ -65,7 +65,7 @@ To analyze responses, the workflow is:
 For advanced queries, use the core `db-query` script:
 
 ```bash
-pnpm script db-query --sql "SELECT data FROM responses WHERE formId = '<id>'"
+pnpm action db-query --sql "SELECT data FROM responses WHERE formId = '<id>'"
 ```
 
 ## Common Tasks

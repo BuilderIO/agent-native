@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from "react";
+import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -44,23 +44,33 @@ export function useNavigationState() {
   const { data: navCommand } = useQuery({
     queryKey: ["navigate-command"],
     queryFn: async () => {
-      const res = await fetch("/_agent-native/application-state/navigate");
-      if (!res.ok) return null;
-      const data = await res.json();
-      if (data) {
-        // Delete the one-shot command
-        fetch("/_agent-native/application-state/navigate", {
-          method: "DELETE",
-        }).catch(() => {});
-        return data;
+      try {
+        const res = await fetch("/_agent-native/application-state/navigate");
+        if (!res.ok || res.status === 204) return null;
+        const text = await res.text();
+        if (!text) return null;
+        const data = JSON.parse(text);
+        if (data) {
+          // Return with a timestamp to ensure uniqueness
+          return { ...data, _ts: Date.now() };
+        }
+      } catch (_e) {
+        // Network error, JSON parse error, etc. — ignore and retry next poll
       }
       return null;
     },
-    refetchInterval: 5_000,
+    refetchInterval: 2_000,
+    refetchIntervalInBackground: true,
+    structuralSharing: false,
+    retry: false,
   });
 
   useEffect(() => {
     if (!navCommand) return;
+    // Delete the one-shot command AFTER reading it
+    fetch("/_agent-native/application-state/navigate", {
+      method: "DELETE",
+    }).catch(() => {});
     const cmd = navCommand as NavigationState;
     let path = "/";
 
@@ -74,6 +84,8 @@ export function useNavigationState() {
       path = "/settings";
     } else if (cmd.view === "overview") {
       path = "/overview";
+    } else if (cmd.view === "about") {
+      path = "/about";
     } else {
       path = "/";
     }

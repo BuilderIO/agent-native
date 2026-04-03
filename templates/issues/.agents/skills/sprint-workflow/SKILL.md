@@ -22,7 +22,7 @@ Board -> Sprint(s) -> Issue(s)
 ## Listing Sprints
 
 ```bash
-pnpm script list-sprints --boardId <id>
+pnpm action list-sprints --boardId <id>
 ```
 
 Returns all sprints for a board, including their state (active/future/closed), start/end dates, and goals.
@@ -30,7 +30,7 @@ Returns all sprints for a board, including their state (active/future/closed), s
 ## Listing Projects
 
 ```bash
-pnpm script list-projects [--compact]
+pnpm action list-projects [--compact]
 ```
 
 Returns all Jira projects with their keys, names, and types.
@@ -54,13 +54,13 @@ Returns all Jira projects with their keys, names, and types.
 
 ```bash
 # Navigate to a project
-pnpm script navigate --view=projects --projectKey=PROJ
+pnpm action navigate --view=projects --projectKey=PROJ
 
 # Navigate to a board
-pnpm script navigate --view=board --boardId=123
+pnpm action navigate --view=board --boardId=123
 
 # Navigate to sprint view
-pnpm script navigate --view=sprint --boardId=123
+pnpm action navigate --view=sprint --boardId=123
 ```
 
 ## Related Skills

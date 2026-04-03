@@ -10,7 +10,7 @@ description: >-
 ## Listing Interviews
 
 ```bash
-pnpm script list-interviews [--compact]
+pnpm action list-interviews [--compact]
 ```
 
 Returns upcoming scheduled interviews with:

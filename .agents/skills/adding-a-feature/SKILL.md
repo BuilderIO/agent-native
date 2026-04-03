@@ -25,7 +25,7 @@ Build the user-facing interface — a page, component, dialog, or route.
 
 ### 2. Script
 
-Create agent-callable scripts in `scripts/` so the agent can perform the same operation. If the user can create something from the UI, the agent needs a script to create it too.
+Create agent-callable scripts in `actions/` so the agent can perform the same operation. If the user can create something from the UI, the agent needs a script to create it too.
 
 ### 3. Skills / Instructions
 
@@ -77,7 +77,7 @@ After completing all four areas, verify:
 
 1. Can the user perform the operation from the UI?
 2. Can the agent perform the same operation via scripts?
-3. Does `pnpm script view-screen` show the relevant state when the user is using the feature?
+3. Does `pnpm action view-screen` show the relevant state when the user is using the feature?
 4. Can the agent navigate to the feature view via the `navigate` script?
 5. Is the feature documented in AGENTS.md with script names and args?
 

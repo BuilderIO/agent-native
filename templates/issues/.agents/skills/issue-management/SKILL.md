@@ -13,7 +13,7 @@ description: >-
 Use the `create-issue` script:
 
 ```bash
-pnpm script create-issue --project PROJ --summary "Fix login bug" --type Bug --priority High
+pnpm action create-issue --project PROJ --summary "Fix login bug" --type Bug --priority High
 ```
 
 | Arg          | Required | Description                                    |
@@ -28,7 +28,7 @@ pnpm script create-issue --project PROJ --summary "Fix login bug" --type Bug --p
 Use the `update-issue` script:
 
 ```bash
-pnpm script update-issue --key PROJ-123 --summary "Updated title" --priority High --labels "bug,frontend"
+pnpm action update-issue --key PROJ-123 --summary "Updated title" --priority High --labels "bug,frontend"
 ```
 
 | Arg          | Description                         |
@@ -43,7 +43,7 @@ pnpm script update-issue --key PROJ-123 --summary "Updated title" --priority Hig
 Use `get-issue` for full details:
 
 ```bash
-pnpm script get-issue --key PROJ-123
+pnpm action get-issue --key PROJ-123
 ```
 
 Returns: summary, status, priority, assignee, reporter, labels, comments, subtasks, linked issues, sprint info.
@@ -51,8 +51,8 @@ Returns: summary, status, priority, assignee, reporter, labels, comments, subtas
 ## Listing Issues
 
 ```bash
-pnpm script list-issues --view my-issues
-pnpm script list-issues --view project --projectKey PROJ
+pnpm action list-issues --view my-issues
+pnpm action list-issues --view project --projectKey PROJ
 ```
 
 Views: `my-issues`, `project`, `recent`.
@@ -61,10 +61,10 @@ Views: `my-issues`, `project`, `recent`.
 
 ```bash
 # Text search
-pnpm script search-issues --q "login bug"
+pnpm action search-issues --q "login bug"
 
 # JQL search (see jql-queries skill)
-pnpm script search-issues --jql "issuetype = Bug AND status != Done"
+pnpm action search-issues --jql "issuetype = Bug AND status != Done"
 ```
 
 ## Issue Data Model
@@ -88,7 +88,7 @@ Issues come from the Jira Cloud API. Key fields:
 
 ## After Mutations
 
-Always run `pnpm script refresh-list` after creating or updating issues to trigger a UI refresh.
+Always run `pnpm action refresh-list` after creating or updating issues to trigger a UI refresh.
 
 ## Related Skills
 

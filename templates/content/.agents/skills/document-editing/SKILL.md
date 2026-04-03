@@ -18,8 +18,8 @@ Always use the dedicated scripts for document operations. Never use raw `db-exec
 List all documents in a tree structure.
 
 ```bash
-pnpm script list-documents
-pnpm script list-documents --format json
+pnpm action list-documents
+pnpm action list-documents --format json
 ```
 
 ### search-documents
@@ -27,8 +27,8 @@ pnpm script list-documents --format json
 Search documents by title and content.
 
 ```bash
-pnpm script search-documents --query "meeting notes"
-pnpm script search-documents --query "project plan" --format json
+pnpm action search-documents --query "meeting notes"
+pnpm action search-documents --query "project plan" --format json
 ```
 
 ### get-document
@@ -36,8 +36,8 @@ pnpm script search-documents --query "project plan" --format json
 Get a single document by ID with full content.
 
 ```bash
-pnpm script get-document --id abc123
-pnpm script get-document --id abc123 --format json
+pnpm action get-document --id abc123
+pnpm action get-document --id abc123 --format json
 ```
 
 ### create-document
@@ -45,9 +45,9 @@ pnpm script get-document --id abc123 --format json
 Create a new document.
 
 ```bash
-pnpm script create-document --title "Meeting Notes" --content "# Meeting Notes\n\nAttendees: ..."
-pnpm script create-document --title "Sub Page" --parentId parent123
-pnpm script create-document --title "My Page" --icon "📝"
+pnpm action create-document --title "Meeting Notes" --content "# Meeting Notes\n\nAttendees: ..."
+pnpm action create-document --title "Sub Page" --parentId parent123
+pnpm action create-document --title "My Page" --icon "📝"
 ```
 
 ### update-document
@@ -55,9 +55,9 @@ pnpm script create-document --title "My Page" --icon "📝"
 Update an existing document.
 
 ```bash
-pnpm script update-document --id abc123 --title "New Title"
-pnpm script update-document --id abc123 --content "# Updated Content\n\nNew text here"
-pnpm script update-document --id abc123 --title "New Title" --content "New content"
+pnpm action update-document --id abc123 --title "New Title"
+pnpm action update-document --id abc123 --content "# Updated Content\n\nNew text here"
+pnpm action update-document --id abc123 --title "New Title" --content "New content"
 ```
 
 ### delete-document
@@ -65,7 +65,7 @@ pnpm script update-document --id abc123 --title "New Title" --content "New conte
 Delete a document and all its children recursively.
 
 ```bash
-pnpm script delete-document --id abc123
+pnpm action delete-document --id abc123
 ```
 
 ### refresh-list
@@ -73,7 +73,7 @@ pnpm script delete-document --id abc123
 Trigger the UI to refresh the document list.
 
 ```bash
-pnpm script refresh-list
+pnpm action refresh-list
 ```
 
 Always run this after any document modification to update the sidebar.

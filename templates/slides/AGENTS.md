@@ -1,6 +1,6 @@
 # Slides — Agent Guide
 
-This app follows the agent-native core philosophy: the agent and UI are equal partners. Everything the UI can do, the agent can do via scripts. The agent always knows what you're looking at via application state. See the root AGENTS.md for full framework documentation.
+This app follows the agent-native core philosophy: the agent and UI are equal partners. Everything the UI can do, the agent can do via actions. The agent always knows what you're looking at via application state. See the root AGENTS.md for full framework documentation.
 
 This is an **agent-native** presentation editor built with `@agent-native/core`.
 
@@ -17,7 +17,7 @@ Resources are SQL-backed persistent files for storing notes, learnings, and cont
 
 ### Resource scripts
 
-| Script            | Args                                           | Purpose                 |
+| Action            | Args                                           | Purpose                 |
 | ----------------- | ---------------------------------------------- | ----------------------- |
 | `resource-read`   | `--name <name> [--scope personal\|shared]`     | Read a resource         |
 | `resource-write`  | `--name <name> --content <text> [--scope ...]` | Write/update a resource |
@@ -74,13 +74,13 @@ Each deck's `data` column contains a JSON object with `title` and `slides` array
 
 ## Agent Operations
 
-**Always run `pnpm script view-screen` first** before taking any action. This shows what the user is looking at and provides deck/slide context. Don't skip this step.
+**Always run `pnpm action view-screen` first** before taking any action. This shows what the user is looking at and provides deck/slide context. Don't skip this step.
 
-**Always use `pnpm script <name>` for operations** -- never curl or raw HTTP.
+**Always use `pnpm action <name>` for operations** -- never curl or raw HTTP.
 
 ### Reading & Searching
 
-| Script        | Args            | Purpose                        |
+| Action        | Args            | Purpose                        |
 | ------------- | --------------- | ------------------------------ |
 | `view-screen` |                 | See current UI state + context |
 | `list-decks`  | `[--compact]`   | List all decks with metadata   |
@@ -88,14 +88,14 @@ Each deck's `data` column contains a JSON object with `title` and `slides` array
 
 ### Navigation
 
-| Script     | Args                               | Purpose                  |
+| Action     | Args                               | Purpose                  |
 | ---------- | ---------------------------------- | ------------------------ |
 | `navigate` | `--deckId <id> [--slideIndex <n>]` | Navigate to a deck/slide |
 | `navigate` | `--view list`                      | Navigate to deck list    |
 
 ### Image Generation
 
-| Script             | Args                                                  | Purpose                     |
+| Action             | Args                                                  | Purpose                     |
 | ------------------ | ----------------------------------------------------- | --------------------------- |
 | `generate-image`   | `--prompt "..." [--count 3] [--deck-id] [--slide-id]` | Generate images with Gemini |
 | `image-search`     | `--query "..." [--count 5]`                           | Search Google Images        |
@@ -106,14 +106,14 @@ Each deck's `data` column contains a JSON object with `title` and `slides` array
 
 | User request                       | What to do                                                 |
 | ---------------------------------- | ---------------------------------------------------------- |
-| "What am I looking at?"            | `pnpm script view-screen`                                  |
-| "List my decks"                    | `pnpm script list-decks`                                   |
+| "What am I looking at?"            | `pnpm action view-screen`                                  |
+| "List my decks"                    | `pnpm action list-decks`                                   |
 | "Create a new deck about X"        | Create deck via `POST /api/decks`, then navigate to it     |
 | "Add a slide about Y"              | Get deck, add slide to data, `PUT /api/decks/:id`          |
-| "Generate an image for this slide" | `pnpm script generate-image --prompt "..." --deck-id <id>` |
-| "Open deck abc123"                 | `pnpm script navigate --deckId=abc123`                     |
-| "Go to the deck list"              | `pnpm script navigate --view=list`                         |
-| "Find the company logo for X"      | `pnpm script logo-lookup --domain x.com`                   |
+| "Generate an image for this slide" | `pnpm action generate-image --prompt "..." --deck-id <id>` |
+| "Open deck abc123"                 | `pnpm action navigate --deckId=abc123`                     |
+| "Go to the deck list"              | `pnpm action navigate --view=list`                         |
+| "Find the company logo for X"      | `pnpm action logo-lookup --domain x.com`                   |
 
 ## Slide Styling Rules
 
@@ -142,7 +142,7 @@ When generating outbound content (deck slides, marketing copy), consult **`data/
 | `slide-images`        | Before generating or sourcing images         |
 | `storing-data`        | Before storing or reading any app state      |
 | `delegate-to-agent`   | Before adding LLM calls or AI delegation     |
-| `scripts`             | Before creating or modifying scripts         |
+| `actions`             | Before creating or modifying scripts         |
 | `self-modifying-code` | Before editing source, components, or styles |
 | `frontend-design`     | Before building or restyling any UI          |
 

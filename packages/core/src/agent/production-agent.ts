@@ -8,7 +8,7 @@ import {
 } from "h3";
 import type { EventHandler as H3EventHandler } from "h3";
 import type {
-  ScriptTool,
+  ActionTool,
   AgentChatRequest,
   AgentChatEvent,
   AgentChatReference,
@@ -23,13 +23,19 @@ import {
 } from "./run-manager.js";
 import type { ActiveRun } from "./run-manager.js";
 
-export interface ScriptEntry {
-  tool: ScriptTool;
+export interface ActionEntry {
+  tool: ActionTool;
   run: (args: Record<string, string>) => Promise<string>;
 }
 
+/** @deprecated Use `ActionEntry` instead */
+export type ScriptEntry = ActionEntry;
+
 export interface ProductionAgentOptions {
-  scripts: Record<string, ScriptEntry>;
+  /** Action entries for the agent. Use `actions` (preferred) or `scripts` (deprecated alias). */
+  actions?: Record<string, ActionEntry>;
+  /** @deprecated Use `actions` instead */
+  scripts?: Record<string, ActionEntry>;
   /** Static system prompt string, or async function called per-request with the H3 event */
   systemPrompt: string | ((event: any) => string | Promise<string>);
   /** Falls back to ANTHROPIC_API_KEY env var */
@@ -136,7 +142,7 @@ async function runAgentLoop(opts: {
   systemPrompt: string;
   tools: Anthropic.Tool[];
   messages: Anthropic.MessageParam[];
-  scripts: Record<string, ScriptEntry>;
+  actions: Record<string, ActionEntry>;
   send: (event: AgentChatEvent) => void;
   signal: AbortSignal;
 }): Promise<void> {
@@ -146,7 +152,7 @@ async function runAgentLoop(opts: {
     systemPrompt,
     tools,
     messages,
-    scripts,
+    actions,
     send,
     signal,
   } = opts;
@@ -165,7 +171,7 @@ async function runAgentLoop(opts: {
         const apiStream = client.messages.stream(
           {
             model,
-            max_tokens: 4096,
+            max_tokens: 16384,
             system: systemPrompt,
             tools,
             messages,
@@ -214,8 +220,8 @@ async function runAgentLoop(opts: {
     const toolResults: Anthropic.ToolResultBlockParam[] = [];
 
     for (const toolUse of toolUseBlocks) {
-      const scriptEntry = scripts[toolUse.name];
-      if (!scriptEntry) {
+      const actionEntry = actions[toolUse.name];
+      if (!actionEntry) {
         const result = `Error: Unknown tool "${toolUse.name}"`;
         send({
           type: "tool_start",
@@ -239,7 +245,7 @@ async function runAgentLoop(opts: {
 
       let result: string;
       try {
-        result = await scriptEntry.run(toolUse.input as Record<string, string>);
+        result = await actionEntry.run(toolUse.input as Record<string, string>);
       } catch (err: any) {
         result = `Error running ${toolUse.name}: ${err?.message ?? String(err)}`;
       }
@@ -263,8 +269,11 @@ export function createProductionAgentHandler(
 ): H3EventHandler {
   const model = options.model ?? "claude-sonnet-4-6";
 
-  // Build Anthropic tool definitions from script registry
-  const tools: Anthropic.Tool[] = Object.entries(options.scripts).map(
+  // Resolve actions — prefer `actions`, fall back to deprecated `scripts`
+  const resolvedActions = options.actions ?? options.scripts ?? {};
+
+  // Build Anthropic tool definitions from action registry
+  const tools: Anthropic.Tool[] = Object.entries(resolvedActions).map(
     ([name, entry]) => ({
       name,
       description: entry.tool.description,
@@ -446,7 +455,7 @@ export function createProductionAgentHandler(
           systemPrompt,
           tools,
           messages,
-          scripts: options.scripts,
+          actions: resolvedActions,
           send,
           signal,
         });

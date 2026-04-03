@@ -22,16 +22,16 @@ Query events from Google Calendar within a date range.
 
 ```bash
 # Today's events (--to is exclusive, so use tomorrow)
-pnpm script list-events --from 2026-04-03 --to 2026-04-04
+pnpm action list-events --from 2026-04-03 --to 2026-04-04
 
 # This week
-pnpm script list-events --from 2026-04-03 --to 2026-04-10
+pnpm action list-events --from 2026-04-03 --to 2026-04-10
 
 # Filter by title
-pnpm script list-events --query "standup" --from 2026-04-01 --to 2026-04-30
+pnpm action list-events --query "standup" --from 2026-04-01 --to 2026-04-30
 
 # JSON output with full details (attendees, description, conference links)
-pnpm script list-events --from 2026-04-03 --to 2026-04-04 --json
+pnpm action list-events --from 2026-04-03 --to 2026-04-04 --json
 ```
 
 **Default range:** 7 days ago to 30 days forward. Always provide explicit `--from` and `--to` for predictable results.
@@ -43,8 +43,8 @@ pnpm script list-events --from 2026-04-03 --to 2026-04-04 --json
 Search events by title. Returns JSON with full details including attendees.
 
 ```bash
-pnpm script search-events --query "Builder"
-pnpm script search-events --query "1:1" --from 2026-04-01 --to 2026-04-30
+pnpm action search-events --query "Builder"
+pnpm action search-events --query "1:1" --from 2026-04-01 --to 2026-04-30
 ```
 
 Always requires `--query`. Case-insensitive substring match on event title.
@@ -54,12 +54,12 @@ Always requires `--query`. Case-insensitive substring match on event title.
 Create a new event on Google Calendar.
 
 ```bash
-pnpm script create-event \
+pnpm action create-event \
   --title "Team standup" \
   --start 2026-04-03T09:00:00 \
   --end 2026-04-03T09:30:00
 
-pnpm script create-event \
+pnpm action create-event \
   --title "Lunch with Alice" \
   --start 2026-04-03T12:00:00 \
   --end 2026-04-03T13:00:00 \

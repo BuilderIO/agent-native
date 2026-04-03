@@ -91,6 +91,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 function AppContent() {
+  useExitSelectionOnOutsideClick();
   useNavigationState();
   const [cmdkOpen, setCmdkOpen] = useState(false);
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
@@ -121,7 +122,6 @@ function AppContent() {
 }
 
 export default function Root() {
-  useExitSelectionOnOutsideClick();
   const [queryClient] = useState(() => new QueryClient());
 
   return (

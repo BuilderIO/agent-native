@@ -25,7 +25,13 @@ export function useKeyboardShortcuts(shortcuts: Shortcut[], enabled = true) {
         if (shortcut.skipInInput !== false) {
           const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
           const isEditable = (e.target as HTMLElement)?.isContentEditable;
-          if (tag === "input" || tag === "textarea" || isEditable) continue;
+          if (
+            tag === "input" ||
+            tag === "textarea" ||
+            isEditable ||
+            (e.target as HTMLElement)?.closest("[contenteditable]") != null
+          )
+            continue;
         }
 
         const keyMatch = e.key.toLowerCase() === shortcut.key.toLowerCase();
@@ -67,7 +73,9 @@ export function useSequenceShortcuts(
 
     const handleKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
-      const isEditable = (e.target as HTMLElement)?.isContentEditable;
+      const isEditable =
+        (e.target as HTMLElement)?.isContentEditable ||
+        (e.target as HTMLElement)?.closest("[contenteditable]") != null;
       if (tag === "input" || tag === "textarea" || isEditable) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
 

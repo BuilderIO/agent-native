@@ -50,7 +50,7 @@ import { AgentToggleButton } from "@agent-native/core/client";
 import { toast } from "sonner";
 import type { CalendarEvent } from "@shared/api";
 
-type ViewMode = "month" | "week" | "day";
+import type { ViewMode } from "@/components/layout/AppLayout";
 
 const viewModeLabels: Record<ViewMode, string> = {
   month: "Month",
@@ -62,13 +62,14 @@ export default function CalendarView() {
   const {
     selectedDate,
     setSelectedDate,
+    viewMode,
+    setViewMode,
     peopleSearchOpen,
     setPeopleSearchOpen,
     eventDetailSidebar,
     sidebarEvent,
     setSidebarEvent,
   } = useCalendarContext();
-  const [viewMode, setViewMode] = useState<ViewMode>("week");
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);

@@ -1,12 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { ScriptTool } from "../../agent/types.js";
+import type { ActionTool } from "../../agent/types.js";
 import { parseArgs } from "../utils.js";
 
 const MAX_DEPTH = 3;
 const MAX_ENTRIES = 500;
 
-export const tool: ScriptTool = {
+export const tool: ActionTool = {
   description:
     "List files and directories. Returns a tree-style listing. Use recursive=true to show nested contents (up to 3 levels deep).",
   parameters: {

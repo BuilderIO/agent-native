@@ -11,17 +11,17 @@ Images for slides are generated or sourced via three scripts. The agent delegate
 
 | Script | Purpose | Example |
 |--------|---------|---------|
-| `generate-image` | Generate images with Gemini + style references | `pnpm script generate-image --prompt "hero image" --count 3` |
-| `image-search` | Search Google Images via Custom Search API | `pnpm script image-search --query "Acme logo transparent" --count 5` |
-| `logo-lookup` | Get company logo URL via Logo.dev API | `pnpm script logo-lookup --domain acme.com` |
-| `image-gen-status` | Check if Gemini API key is configured | `pnpm script image-gen-status` |
+| `generate-image` | Generate images with Gemini + style references | `pnpm action generate-image --prompt "hero image" --count 3` |
+| `image-search` | Search Google Images via Custom Search API | `pnpm action image-search --query "Acme logo transparent" --count 5` |
+| `logo-lookup` | Get company logo URL via Logo.dev API | `pnpm action logo-lookup --domain acme.com` |
+| `image-gen-status` | Check if Gemini API key is configured | `pnpm action image-gen-status` |
 
 ## Image Generation Flow
 
 The standard workflow for generating slide images:
 
 1. User clicks "Image" in the editor or asks the agent
-2. Agent runs `pnpm script generate-image --prompt "..." --count 3`
+2. Agent runs `pnpm action generate-image --prompt "..." --count 3`
 3. Agent shows variations to the user in chat
 4. User picks a favorite
 5. Agent writes the chosen image into the slide content
@@ -47,12 +47,12 @@ Two options for company logos:
 
 **Option 1: Logo.dev API** (best quality, requires `LOGO_DEV_TOKEN`):
 ```bash
-pnpm script logo-lookup --domain acme.com
+pnpm action logo-lookup --domain acme.com
 ```
 
 **Option 2: Google Image Search** (fallback):
 ```bash
-pnpm script image-search --query "Acme logo transparent" --count 5
+pnpm action image-search --query "Acme logo transparent" --count 5
 ```
 
 ## Important Rules

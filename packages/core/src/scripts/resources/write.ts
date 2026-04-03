@@ -4,7 +4,7 @@
  * Write (create or update) a resource in the SQL store.
  *
  * Usage:
- *   pnpm script resource-write --path <path> --content <content> [--scope personal|shared] [--mime <mime-type>]
+ *   pnpm action resource-write --path <path> --content <content> [--scope personal|shared] [--mime <mime-type>]
  */
 
 import { parseArgs, fail } from "../utils.js";
@@ -45,7 +45,7 @@ export default async function resourceWriteScript(
 
   if (parsed.help === "true") {
     console.log(
-      `Usage: pnpm script resource-write --path <path> --content <content> [options]
+      `Usage: pnpm action resource-write --path <path> --content <content> [options]
 
 Options:
   --path <path>            Resource path (required)
