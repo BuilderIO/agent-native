@@ -21,8 +21,13 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
 
-  const { data: candidates } = useCandidates(
-    open ? { search: search || undefined } : undefined,
+  const { data: candidates, isFetching: candidatesLoading } = useCandidates(
+    open
+      ? {
+          search: search || undefined,
+          limit: search ? 8 : undefined,
+        }
+      : undefined,
   );
   const { data: jobs } = useJobs(open ? "open" : undefined);
 
@@ -89,6 +94,12 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
             <Command.Empty className="py-6 text-center text-sm text-muted-foreground">
               No results found.
             </Command.Empty>
+
+            {search && candidatesLoading && (
+              <div className="px-2 py-2 text-xs text-muted-foreground">
+                Searching candidates…
+              </div>
+            )}
 
             {/* Candidate results */}
             {search && candidates && candidates.length > 0 && (

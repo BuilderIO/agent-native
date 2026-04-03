@@ -71,24 +71,39 @@ export default defineEventHandler(async (event) => {
 
 ## Server Plugins
 
-Cross-cutting concerns — file watchers, file sync, scheduled jobs, auth — go in `server/plugins/`. Nitro runs these at startup before serving requests:
+Cross-cutting concerns — auth, agent chat, polling, file sync — go in `server/plugins/`. The framework auto-discovers `.ts` files in this directory, sorts them alphabetically, and runs each one at startup.
+
+### Default plugins (auto-mounted)
+
+The framework provides 6 default plugins that auto-mount when your app doesn't provide a custom version. You only need to create a plugin file if you want to customize it:
+
+| Plugin        | What it does                                  | When to customize                           |
+| ------------- | --------------------------------------------- | ------------------------------------------- |
+| `agent-chat`  | Agent chat endpoints                          | Custom `mentionProviders` or `systemPrompt` |
+| `auth`        | Authentication middleware                     | Custom `publicPaths` or Google OAuth config |
+| `core-routes` | `/api/poll`, `/api/events`, `/api/ping`, etc. | Custom `envKeys` or `sseRoute`              |
+| `file-sync`   | File watcher for sync events                  | Custom sync configuration                   |
+| `resources`   | Resource CRUD endpoints                       | Rarely customized                           |
+| `terminal`    | Terminal emulator endpoints                   | Rarely customized                           |
+
+A minimal app needs **zero** plugin files — all defaults mount automatically. Only create plugin files for plugins you need to customize.
+
+### Customizing a plugin
+
+To customize a default plugin, create a file in `server/plugins/` with the same name. Your file takes precedence over the default:
 
 ```ts
-// server/plugins/file-sync.ts
-import { defineNitroPlugin } from "@agent-native/core";
-import { createFileSync } from "@agent-native/core/adapters/sync";
+// server/plugins/auth.ts — custom auth with public paths
+import { createGoogleAuthPlugin } from "@agent-native/core/server";
 
-export default defineNitroPlugin(async () => {
-  const result = await createFileSync({ contentRoot: "./data" });
-  if (result.status === "error") {
-    console.warn(`[app] File sync failed: ${result.reason}`);
-  }
+export default createGoogleAuthPlugin({
+  publicPaths: ["/api/public", "/api/forms"],
 });
 ```
 
 ### Core Routes Plugin
 
-The `createCoreRoutesPlugin()` mounts all standard framework API routes as a single Nitro plugin, eliminating the need for individual boilerplate route files. Every template should include this plugin.
+The `createCoreRoutesPlugin()` mounts all standard framework API routes. It auto-mounts with no configuration, but you can customize it by creating a `server/plugins/core-routes.ts` file.
 
 **Simplest usage** — no configuration needed:
 

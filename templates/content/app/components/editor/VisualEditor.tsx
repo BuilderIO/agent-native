@@ -1,4 +1,4 @@
-import { useEditor, EditorContent, Extension } from "@tiptap/react";
+import { useEditor, EditorContent, Extension, Node } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
@@ -9,6 +9,7 @@ import { TableRow } from "@tiptap/extension-table-row";
 import { TableCell } from "@tiptap/extension-table-cell";
 import { TableHeader } from "@tiptap/extension-table-header";
 import { Markdown } from "tiptap-markdown";
+import { defaultMarkdownSerializer } from "@tiptap/pm/markdown";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { useEffect, useRef } from "react";
 import { BubbleToolbar } from "./BubbleToolbar";
@@ -17,11 +18,56 @@ import { LinkHoverPreview } from "./LinkHoverPreview";
 import { TableHoverControls } from "./TableHoverControls";
 import { ImageNode } from "./extensions/ImageNode";
 import { notionEditorExtensions } from "./extensions/NotionExtensions";
+import { DragHandle } from "./extensions/DragHandle";
 import { toast } from "sonner";
 import {
   parseNfmForEditor,
   serializeEditorToNfm,
 } from "@shared/notion-markdown";
+
+/**
+ * Override the paragraph node's markdown serialization so that empty
+ * paragraphs survive round-trips. Without this, prosemirror-markdown
+ * silently drops empty paragraphs and they disappear from the document.
+ *
+ * On the parse side, the updateDOM hook strips &nbsp; from paragraphs
+ * so TipTap creates truly empty paragraph nodes (no visible space).
+ */
+const EmptyLineParagraph = Node.create({
+  name: "paragraph",
+  addStorage() {
+    return {
+      markdown: {
+        serialize(state: any, node: any, parent: any, index: number) {
+          if (node.childCount === 0) {
+            state.write("&nbsp;");
+            state.closeBlock(node);
+          } else {
+            defaultMarkdownSerializer.nodes.paragraph(
+              state,
+              node,
+              parent,
+              index,
+            );
+          }
+        },
+        parse: {
+          updateDOM(element: HTMLElement) {
+            for (const p of element.querySelectorAll("p")) {
+              if (
+                p.childNodes.length === 1 &&
+                p.firstChild?.nodeType === 3 &&
+                p.firstChild.textContent === "\u00A0"
+              ) {
+                p.innerHTML = "";
+              }
+            }
+          },
+        },
+      },
+    };
+  },
+});
 
 const ARROW_REPLACEMENTS: [string, string][] = [
   ["->", "→"],
@@ -182,6 +228,8 @@ export function VisualEditor({
       TableHeader,
       TableCell,
       ...notionEditorExtensions,
+      EmptyLineParagraph,
+      DragHandle,
       TypographyReplacements,
       Markdown.configure({
         html: true,

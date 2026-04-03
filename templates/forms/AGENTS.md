@@ -98,3 +98,8 @@ pnpm script update-form --id <id> --status published
 2. **Agent + GUI work together** — The agent creates forms from natural language. The GUI provides live preview + click-to-edit for fine-tuning.
 3. **Public pages are logged-out** — Form filling pages at `/f/:slug` require no authentication. Captcha protects against bots.
 4. **Scripts for backend logic** — anything the agent needs to execute goes through `pnpm script`.
+
+## UI Conventions
+
+- **Always use shadcn/ui components** for all standard UI patterns — Popover, Dialog, Button, DropdownMenu, Select, Tabs, Input, Textarea, Badge, Card, Switch, etc. Check `app/components/ui/` before building custom UI. Never create one-off implementations when a shadcn component exists.
+- **Always use Tabler Icons** (`@tabler/icons-react`) — never use Lucide, Heroicons, or inline SVGs.

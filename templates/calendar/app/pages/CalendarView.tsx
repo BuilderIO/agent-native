@@ -211,6 +211,16 @@ export default function CalendarView() {
     newStart: Date,
     newEnd: Date,
   ) {
+    // Skip no-op drags (dropped back in same spot)
+    const event = events.find((e) => e.id === eventId);
+    if (event) {
+      const oldStart = parseISO(event.start).getTime();
+      const oldEnd = parseISO(event.end).getTime();
+      if (oldStart === newStart.getTime() && oldEnd === newEnd.getTime()) {
+        return;
+      }
+    }
+
     updateEvent.mutate(
       {
         id: eventId,

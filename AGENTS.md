@@ -120,29 +120,23 @@ Auth is automatic and environment-driven. Templates include a `server/plugins/au
 
 See [docs/auth.md](docs/auth.md) for the full guide.
 
-## Core Routes Plugin
+## Server Plugins (Auto-Mounted Defaults)
 
-Every template must include the `core-routes` plugin, which mounts all standard framework API routes (polling, SSE, health check, env management). This eliminates boilerplate route files and ensures templates automatically get new framework routes.
+The framework provides 6 default plugins that auto-mount when your app doesn't have a custom version in `server/plugins/`. You only need plugin files for plugins you customize:
 
-```ts
-// server/plugins/core-routes.ts — simplest form
-export { defaultCoreRoutesPlugin as default } from "@agent-native/core/server";
-```
+| Plugin        | Default behavior                              | Customize when                              |
+| ------------- | --------------------------------------------- | ------------------------------------------- |
+| `agent-chat`  | Agent chat endpoints                          | Custom `mentionProviders` or `systemPrompt` |
+| `auth`        | Auth middleware                               | Custom `publicPaths` or Google OAuth config |
+| `core-routes` | `/api/poll`, `/api/events`, `/api/ping`, etc. | Custom `envKeys` or `sseRoute`              |
+| `file-sync`   | File watcher sync                             | Custom sync config                          |
+| `resources`   | Resource CRUD                                 | Rarely                                      |
+| `terminal`    | Terminal emulator                             | Rarely                                      |
 
-For templates with env key management (Data Sources UI, API key settings):
+A minimal app needs **zero** plugin files. To customize, create `server/plugins/<name>.ts` — your file takes precedence over the default.
 
-```ts
-// server/plugins/core-routes.ts
-import { createCoreRoutesPlugin } from "@agent-native/core/server";
-import { envKeys } from "../lib/env-config.js";
-
-export default createCoreRoutesPlugin({ envKeys });
-```
-
-**Routes provided:** `/api/poll`, `/api/events` (SSE), `/api/file-sync/status`, `/api/ping`, `/api/env-status` (with envKeys), `/api/env-vars` (with envKeys).
-
-**Do:** Always include `server/plugins/core-routes.ts` in every template.
-**Don't:** Create individual route files for poll, events, file-sync, ping, env-status, or env-vars — these are all handled by the plugin.
+**Do:** Only create plugin files for plugins you need to customize. Let defaults auto-mount.
+**Don't:** Create boilerplate one-liner re-exports of defaults — the framework handles this automatically.
 
 ## Project Structure
 

@@ -81,7 +81,26 @@ export function useUpdateEvent() {
       if (!res.ok) throw new Error("Failed to update event");
       return res.json();
     },
-    onSuccess: () => {
+    onMutate: async (newData) => {
+      await queryClient.cancelQueries({ queryKey: ["events"] });
+      const previous = queryClient.getQueriesData<CalendarEvent[]>({
+        queryKey: ["events"],
+      });
+      queryClient.setQueriesData<CalendarEvent[]>(
+        { queryKey: ["events"] },
+        (old) =>
+          old?.map((e) => (e.id === newData.id ? { ...e, ...newData } : e)),
+      );
+      return { previous };
+    },
+    onError: (_err, _newData, context) => {
+      if (context?.previous) {
+        for (const [key, data] of context.previous) {
+          queryClient.setQueryData(key, data);
+        }
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["events"] });
     },
   });

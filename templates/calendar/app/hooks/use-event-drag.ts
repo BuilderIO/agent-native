@@ -272,16 +272,29 @@ export function useEventDrag({
     setDragState(null);
   }, [pxToMinutes, days, startHour, onEventTimeChange]);
 
+  const cancelDrag = useCallback(() => {
+    dragStateRef.current = null;
+    setDragState(null);
+  }, []);
+
   // Attach global listeners when dragging
   useEffect(() => {
     if (!dragState) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        cancelDrag();
+      }
+    };
     window.addEventListener("pointermove", onPointerMove);
     window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("keydown", onKeyDown);
     return () => {
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("keydown", onKeyDown);
     };
-  }, [dragState, onPointerMove, onPointerUp]);
+  }, [dragState, onPointerMove, onPointerUp, cancelDrag]);
 
   /** Get position overrides for an event during drag */
   const getDragOverrides = useCallback(

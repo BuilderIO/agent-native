@@ -106,7 +106,7 @@ export function FormBuilderPage() {
 
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState("builder");
+  const [activeTab, setActiveTab] = useState("edit");
   const [copied, setCopied] = useState(false);
   const { isLocal } = useDbStatus();
   const [showCloudUpgrade, setShowCloudUpgrade] = useState(false);
@@ -130,8 +130,28 @@ export function FormBuilderPage() {
     form?.fields || [],
   );
   const titleFocused = useRef(false);
+  const titleMeasureRef = useRef<HTMLSpanElement>(null);
+  const [titleInputWidth, setTitleInputWidth] = useState<number | undefined>();
   const descriptionFocused = useRef(false);
   const fieldsDirty = useRef(false);
+
+  // Esc to deselect field
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape" && selectedFieldId) {
+        setSelectedFieldId(null);
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedFieldId]);
+
+  // Measure title text width for auto-sizing input
+  useEffect(() => {
+    if (titleMeasureRef.current) {
+      setTitleInputWidth(Math.max(titleMeasureRef.current.offsetWidth + 4, 60));
+    }
+  }, [localTitle]);
 
   // Sync from server when not dirty (e.g. agent updates the fields)
   useEffect(() => {
@@ -319,7 +339,14 @@ export function FormBuilderPage() {
       {codeRequiredDialog}
       {/* Top bar */}
       <div className="flex items-center justify-between border-b border-border px-4 h-14 shrink-0">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 relative">
+          <span
+            ref={titleMeasureRef}
+            aria-hidden
+            className="invisible absolute whitespace-pre text-sm font-medium pointer-events-none"
+          >
+            {localTitle || " "}
+          </span>
           <Input
             value={localTitle}
             onChange={(e) => {
@@ -328,8 +355,8 @@ export function FormBuilderPage() {
             }}
             onFocus={() => (titleFocused.current = true)}
             onBlur={() => (titleFocused.current = false)}
-            style={{ width: `${Math.max(localTitle.length + 1, 8)}ch` }}
-            className="h-8 text-sm font-medium border-none bg-transparent px-0 focus-visible:ring-0 max-w-80"
+            style={{ width: titleInputWidth }}
+            className="h-8 text-sm font-medium border-none bg-transparent px-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 max-w-80"
           />
           <Badge
             variant="outline"
@@ -350,49 +377,6 @@ export function FormBuilderPage() {
         </div>
 
         <div className="flex items-center gap-1">
-          <TabsList className="h-8 mr-1">
-            <TabsTrigger
-              value="builder"
-              className="text-xs px-3 h-6"
-              onClick={() => setActiveTab("builder")}
-              data-state={activeTab === "builder" ? "active" : "inactive"}
-            >
-              Builder
-            </TabsTrigger>
-            <TabsTrigger
-              value="results"
-              className="text-xs px-3 h-6"
-              onClick={() => setActiveTab("results")}
-              data-state={activeTab === "results" ? "active" : "inactive"}
-            >
-              Results
-              {(form.responseCount ?? 0) > 0 && (
-                <Badge
-                  variant="secondary"
-                  className="ml-1.5 text-[9px] px-1 py-0 h-4 min-w-4"
-                >
-                  {form.responseCount}
-                </Badge>
-              )}
-            </TabsTrigger>
-            <TabsTrigger
-              value="settings"
-              className="text-xs px-3 h-6"
-              onClick={() => setActiveTab("settings")}
-              data-state={activeTab === "settings" ? "active" : "inactive"}
-            >
-              Settings
-            </TabsTrigger>
-            <TabsTrigger
-              value="integrations"
-              className="text-xs px-3 h-6"
-              onClick={() => setActiveTab("integrations")}
-              data-state={activeTab === "integrations" ? "active" : "inactive"}
-            >
-              Integrations
-            </TabsTrigger>
-          </TabsList>
-
           {form.status === "published" && (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -431,8 +415,48 @@ export function FormBuilderPage() {
         </div>
       </div>
 
+      {/* Tab row */}
+      <div className="border-b border-border px-4 shrink-0">
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="h-9 bg-transparent p-0 gap-0">
+            <TabsTrigger
+              value="edit"
+              className="text-xs px-3 h-9 rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+            >
+              Edit
+            </TabsTrigger>
+            <TabsTrigger
+              value="results"
+              className="text-xs px-3 h-9 rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+            >
+              Results
+              {(form.responseCount ?? 0) > 0 && (
+                <Badge
+                  variant="secondary"
+                  className="ml-1.5 text-[9px] px-1 py-0 h-4 min-w-4"
+                >
+                  {form.responseCount}
+                </Badge>
+              )}
+            </TabsTrigger>
+            <TabsTrigger
+              value="settings"
+              className="text-xs px-3 h-9 rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+            >
+              Settings
+            </TabsTrigger>
+            <TabsTrigger
+              value="integrations"
+              className="text-xs px-3 h-9 rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+            >
+              Integrations
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </div>
+
       {/* Tab content */}
-      {activeTab === "builder" && (
+      {activeTab === "edit" && (
         <BuilderContent
           form={form}
           fields={fields}
@@ -569,7 +593,7 @@ function BuilderContent({
   onSubmitAgent: () => void;
 }) {
   return (
-    <div className="flex flex-1 overflow-hidden">
+    <div className="flex flex-1 overflow-hidden relative">
       {/* Live preview */}
       <div className="flex-1 overflow-auto bg-muted/30">
         <div className="max-w-2xl mx-auto py-8 px-4">
@@ -599,29 +623,66 @@ function BuilderContent({
           {/* Fields */}
           <div className="space-y-3">
             {fields.map((field, idx) => (
-              <div
+              <Popover
                 key={field.id}
-                draggable
-                onDragStart={() => onDragStart(idx)}
-                onDragOver={(e) => onDragOver(e, idx)}
-                onDragEnd={onDragEnd}
-                onClick={() => onSelectField(field.id)}
-                className={cn(
-                  "group relative rounded-lg border p-4 transition-all cursor-pointer",
-                  selectedFieldId === field.id
-                    ? "border-primary ring-1 ring-primary/20 bg-card"
-                    : "border-border bg-card hover:border-primary/30",
-                  dragIdx === idx && "opacity-50",
-                )}
+                open={selectedFieldId === field.id}
+                onOpenChange={(open) => {
+                  if (!open) onSelectField(null);
+                }}
               >
-                <div
-                  className="absolute -left-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab"
-                  aria-label="Drag to reorder"
+                <PopoverTrigger asChild>
+                  <div
+                    draggable
+                    onDragStart={() => onDragStart(idx)}
+                    onDragOver={(e) => onDragOver(e, idx)}
+                    onDragEnd={onDragEnd}
+                    onClick={() =>
+                      onSelectField(
+                        selectedFieldId === field.id ? null : field.id,
+                      )
+                    }
+                    className={cn(
+                      "group relative rounded-lg border p-4 cursor-pointer",
+                      selectedFieldId === field.id
+                        ? "border-primary ring-1 ring-primary/20 bg-card"
+                        : "border-border bg-card hover:border-primary/30",
+                      dragIdx === idx && "opacity-50",
+                    )}
+                  >
+                    <div
+                      className="absolute -left-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 cursor-grab"
+                      aria-label="Drag to reorder"
+                    >
+                      <IconGripVertical className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                    <FieldRenderer field={field} preview />
+                  </div>
+                </PopoverTrigger>
+                <PopoverContent
+                  side="right"
+                  align="start"
+                  sideOffset={12}
+                  className="w-72 max-h-[520px] overflow-auto p-0"
+                  onOpenAutoFocus={(e) => e.preventDefault()}
+                  onInteractOutside={(e) => {
+                    // Don't close when interacting with dropdowns portaled to body
+                    const target = e.target as HTMLElement;
+                    if (
+                      target.closest("[data-radix-popper-content-wrapper]") ||
+                      target.closest("[role='listbox']") ||
+                      target.closest("[role='option']")
+                    ) {
+                      e.preventDefault();
+                    }
+                  }}
                 >
-                  <IconGripVertical className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <FieldRenderer field={field} preview />
-              </div>
+                  <FieldPropertiesPanel
+                    field={field}
+                    onChange={onUpdateField}
+                    onDelete={() => onDeleteField(field.id)}
+                  />
+                </PopoverContent>
+              </Popover>
             ))}
           </div>
 
@@ -704,17 +765,6 @@ function BuilderContent({
           </div>
         </div>
       </div>
-
-      {/* Properties panel */}
-      {selectedField && (
-        <div className="w-72 border-l border-border bg-card overflow-auto shrink-0">
-          <FieldPropertiesPanel
-            field={selectedField}
-            onChange={onUpdateField}
-            onDelete={() => onDeleteField(selectedField.id)}
-          />
-        </div>
-      )}
     </div>
   );
 }

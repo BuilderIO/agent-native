@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { Plus, X } from "lucide-react";
+import { IconPlus, IconX } from "@tabler/icons-react";
 import type { FormField, FormFieldType } from "@shared/types";
 
 interface FieldPropertiesPanelProps {
@@ -182,7 +182,7 @@ export function FieldPropertiesPanel({
                     onClick={() => removeOption(i)}
                     aria-label={`Remove option ${opt}`}
                   >
-                    <X className="h-3 w-3" />
+                    <IconX className="h-3 w-3" />
                   </Button>
                 </div>
               ))}
@@ -201,7 +201,7 @@ export function FieldPropertiesPanel({
                   onClick={addOption}
                   aria-label="Add option"
                 >
-                  <Plus className="h-3 w-3" />
+                  <IconPlus className="h-3 w-3" />
                 </Button>
               </div>
             </div>

@@ -160,6 +160,8 @@ function ToggleView({ node, updateAttributes, editor, getPos }: NodeViewProps) {
       className={`notion-toggle ${open ? "notion-toggle--open" : ""}`}
       data-color={node.attrs.color || undefined}
       data-heading-level={node.attrs.headingLevel || undefined}
+      draggable="true"
+      data-drag-handle=""
     >
       <div
         className="notion-toggle__summary-row"
@@ -183,11 +185,11 @@ function ToggleView({ node, updateAttributes, editor, getPos }: NodeViewProps) {
           className="notion-toggle__summary"
         />
       </div>
-      {open && (
-        <div className="notion-toggle__body">
-          <NodeViewContent className="notion-toggle__content" />
-        </div>
-      )}
+      <div
+        className={`notion-toggle__body ${open ? "" : "notion-toggle__body--collapsed"}`}
+      >
+        <NodeViewContent className="notion-toggle__content" />
+      </div>
     </NodeViewWrapper>
   );
 }
@@ -301,6 +303,7 @@ export const NotionToggle = Node.create({
   group: "block",
   content: "block*",
   defining: true,
+  draggable: true,
 
   addAttributes() {
     return {
@@ -410,6 +413,7 @@ export const NotionCallout = Node.create({
   group: "block",
   content: "block*",
   defining: true,
+  draggable: true,
 
   addAttributes() {
     return {
