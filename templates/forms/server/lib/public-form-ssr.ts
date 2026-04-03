@@ -496,7 +496,7 @@ select.fi option{background:hsl(var(--card));color:hsl(var(--fg))}
 .turnstile-wrap{margin-top:16px}
 
 .submit-btn{
-  width:100%;margin-top:16px;padding:10px 16px;
+  margin-top:16px;padding:10px 24px;
   font-size:0.875rem;font-weight:500;font-family:inherit;
   background:hsl(var(--fg));color:hsl(var(--bg));
   border:none;border-radius:var(--radius);cursor:pointer;

@@ -163,8 +163,6 @@ export function FormFillPage() {
     );
   }
 
-  const primaryColor = settings.primaryColor || "#334155";
-
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4 py-12 relative">
       <div className="absolute top-4 right-4">
@@ -181,7 +179,7 @@ export function FormFillPage() {
 
         {/* Form */}
         <form onSubmit={handleSubmit}>
-          <div className="space-y-6 rounded-xl border border-border bg-card p-6">
+          <div className="space-y-6">
             {visibleFields.map((field) => (
               <FieldRenderer
                 key={field.id}
@@ -204,10 +202,9 @@ export function FormFillPage() {
 
           <Button
             type="submit"
-            className="w-full mt-4"
+            className="mt-4"
             size="lg"
             disabled={submitForm.isPending}
-            style={{ backgroundColor: primaryColor }}
           >
             {submitForm.isPending
               ? "Submitting..."

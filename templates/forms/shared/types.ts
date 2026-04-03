@@ -60,9 +60,6 @@ export interface FormIntegration {
 // ---------------------------------------------------------------------------
 
 export interface FormSettings {
-  primaryColor?: string;
-  backgroundColor?: string;
-  fontFamily?: string;
   submitText?: string;
   successMessage?: string;
   redirectUrl?: string;

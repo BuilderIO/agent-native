@@ -995,34 +995,6 @@ function SettingsEditor({
         />
       </div>
 
-      <Separator />
-
-      <div className="space-y-2">
-        <Label className="text-xs">Primary color</Label>
-        <div className="flex items-center gap-2">
-          <input
-            type="color"
-            value={settings.primaryColor || "#334155"}
-            onChange={(e) => update({ primaryColor: e.target.value })}
-            className="h-8 w-8 rounded border border-border cursor-pointer"
-          />
-          <Input
-            value={settings.primaryColor || "#334155"}
-            onChange={(e) => update({ primaryColor: e.target.value })}
-            className="h-8 text-sm flex-1"
-          />
-        </div>
-      </div>
-
-      <div className="space-y-2">
-        <Label className="text-xs">Font family</Label>
-        <Input
-          value={settings.fontFamily || "Inter"}
-          onChange={(e) => update({ fontFamily: e.target.value })}
-          className="h-8 text-sm"
-        />
-      </div>
-
       <Button onClick={() => onSave(settings)} className="w-full" size="sm">
         Save Settings
       </Button>
