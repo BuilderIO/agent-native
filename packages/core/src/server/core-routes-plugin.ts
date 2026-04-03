@@ -43,6 +43,8 @@ export interface CoreRoutesPluginOptions {
   disableFileSync?: boolean;
   /** Disable the /_agent-native/ping health check. */
   disablePing?: boolean;
+  /** Disable the /_agent-native/application-state routes. */
+  disableAppState?: boolean;
   /** Env key configuration. Enables env-status and env-vars routes. */
   envKeys?: EnvKeyConfig[];
 }
@@ -166,21 +168,26 @@ export function createCoreRoutesPlugin(
     // ─── Application State CRUD ──────────────────────────────────────
     // Auto-mounted so templates don't need boilerplate route files.
 
-    // Compose draft routes (more specific, mounted first)
-    const composeRouter = createRouter()
-      .get("/", listComposeDrafts)
-      .delete("/", deleteAllComposeDrafts)
-      .get("/:id", getComposeDraft)
-      .put("/:id", putComposeDraft)
-      .delete("/:id", deleteComposeDraft);
-    nitroApp.h3App.use(`${P}/application-state/compose`, composeRouter.handler);
+    if (!options.disableAppState) {
+      // Compose draft routes (more specific, mounted first)
+      const composeRouter = createRouter()
+        .get("/", listComposeDrafts)
+        .delete("/", deleteAllComposeDrafts)
+        .get("/:id", getComposeDraft)
+        .put("/:id", putComposeDraft)
+        .delete("/:id", deleteComposeDraft);
+      nitroApp.h3App.use(
+        `${P}/application-state/compose`,
+        composeRouter.handler,
+      );
 
-    // Generic application state routes
-    const appStateRouter = createRouter()
-      .get("/:key", getState)
-      .put("/:key", putState)
-      .delete("/:key", deleteState);
-    nitroApp.h3App.use(`${P}/application-state`, appStateRouter.handler);
+      // Generic application state routes
+      const appStateRouter = createRouter()
+        .get("/:key", getState)
+        .put("/:key", putState)
+        .delete("/:key", deleteState);
+      nitroApp.h3App.use(`${P}/application-state`, appStateRouter.handler);
+    }
   };
 }
 

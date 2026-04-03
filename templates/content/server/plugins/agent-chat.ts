@@ -1,7 +1,11 @@
-import { createAgentChatPlugin } from "@agent-native/core/server";
+import {
+  createAgentChatPlugin,
+  autoDiscoverActions,
+} from "@agent-native/core/server";
 
 export default createAgentChatPlugin({
   appId: "content",
+  actions: () => autoDiscoverActions(import.meta.url),
   mentionProviders: async () => {
     const { getDb } = await import("../db/index.js");
     const { documents } = await import("../db/schema.js");

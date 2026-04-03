@@ -38,9 +38,9 @@ server/                # Nitro API server
 
 shared/                # Isomorphic code (imported by both client & server)
 
-scripts/               # Agent-callable scripts
+actions/               # Agent-callable scripts
   run.ts               # Script dispatcher
-  *.ts                 # Individual scripts (pnpm script <name>)
+  *.ts                 # Individual scripts (pnpm action <name>)
 
 data/                  # App data (SQLite DB file)
 
@@ -126,8 +126,8 @@ export default defineNitroPlugin(async (nitroApp) => {
 
 ## Adding a Script
 
-Create `scripts/my-script.ts` exporting `default async function(args: string[])`.
-Run with: `pnpm script my-script --arg value`
+Create `actions/my-script.ts` exporting `default async function(args: string[])`.
+Run with: `pnpm action my-script --arg value`
 
 **Sending to agent chat from UI:**
 

@@ -55,7 +55,7 @@ data/                          # App data (SQLite DB file)
 shared/                        # Shared between client + server + scripts
 └── api.ts                     # Types, interfaces, DEFAULT_STYLE_REFERENCE_URLS
 
-scripts/                       # Runnable via `pnpm script <name>`
+actions/                       # Runnable via `pnpm action <name>`
 ├── run.ts                     # Script dispatcher
 ├── generate-image.ts          # Image generation with style references
 ├── image-gen-status.ts        # Check API key status
@@ -129,7 +129,7 @@ pnpm dev          # Start dev server (client + server on port 8080)
 pnpm build        # Production build
 pnpm typecheck    # TypeScript validation
 pnpm test         # Run Vitest tests
-pnpm script <name> [--args]  # Run a backend script
+pnpm action <name> [--args]  # Run a backend script
 ```
 
 ## TypeScript Everywhere

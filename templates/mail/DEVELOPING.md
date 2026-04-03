@@ -32,7 +32,7 @@ server/
   lib/            # Shared server modules
 shared/
   types.ts        # Shared TypeScript types
-scripts/
+actions/
   run.ts          # Script dispatcher
 data/
   app.db          # SQLite database (all app data)
@@ -115,12 +115,12 @@ pnpm dev          # Vite dev server + Nitro plugin (single process)
 pnpm build        # Single Vite build (client SPA + Nitro server)
 pnpm start        # node .output/server/index.mjs (production)
 pnpm typecheck    # TypeScript validation
-pnpm script <name> [--args]  # Run a backend script
+pnpm action <name> [--args]  # Run a backend script
 ```
 
 ## Adding New Scripts
 
-Create `scripts/my-script.ts` with:
+Create `actions/my-script.ts` with:
 
 ```typescript
 export default async function main(args: string[]): Promise<void> {
@@ -128,4 +128,4 @@ export default async function main(args: string[]): Promise<void> {
 }
 ```
 
-Run with `pnpm script my-script` (auto-discovered, no registration needed).
+Run with `pnpm action my-script` (auto-discovered, no registration needed).

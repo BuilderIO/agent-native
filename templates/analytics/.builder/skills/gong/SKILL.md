@@ -39,13 +39,13 @@ description: >
 
 ```bash
 # Recent calls with a customer
-pnpm script gong-calls --company="Example Inc" --days=30
+pnpm action gong-calls --company="Example Inc" --days=30
 
 # Get call transcript
-pnpm script gong-calls --transcript=<callId>
+pnpm action gong-calls --transcript=<callId>
 
 # List Gong users
-pnpm script gong-calls --users
+pnpm action gong-calls --users
 ```
 
 ## Key Patterns & Gotchas

@@ -30,7 +30,7 @@ server/          # Nitro API server
   lib/           # Google Calendar client, env config
   db/            # Drizzle schema + DB connection
 shared/          # Shared TypeScript types
-scripts/         # Agent-callable scripts
+actions/         # Agent-callable scripts
 data/            # SQLite database file (app.db)
 ```
 
@@ -129,7 +129,7 @@ pnpm dev          # Start dev server (client + server)
 pnpm build        # Production build
 pnpm typecheck    # TypeScript validation
 pnpm test         # Run Vitest tests
-pnpm script <name> [--args]  # Run a backend script
+pnpm action <name> [--args]  # Run a backend script
 ```
 
 ## TypeScript Everywhere

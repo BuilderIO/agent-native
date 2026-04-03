@@ -215,6 +215,30 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // Poll for deck list changes (handles agent db-exec updates that bypass SSE)
+  useEffect(() => {
+    if (loading) return;
+    const interval = setInterval(async () => {
+      try {
+        const fresh = await fetchDecksFromAPI();
+        const currentIds = new Set(decks.map((d) => d.id));
+        const freshIds = new Set(fresh.map((d) => d.id));
+        // Check if deck list changed (added or removed)
+        const added = fresh.filter((d) => !currentIds.has(d.id));
+        const removed = decks.filter((d) => !freshIds.has(d.id));
+        if (added.length > 0 || removed.length > 0) {
+          lastExternalUpdateRef.current = Date.now();
+          setDecks((prev) => {
+            let next = prev.filter((d) => freshIds.has(d.id));
+            for (const a of added) next = [...next, a];
+            return next;
+          });
+        }
+      } catch {}
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [loading, decks]);
+
   // Save ALL changed decks to API — files are the single source of truth
   // Skip saves that happen within 2s of an external update (SSE or initial load)
   useEffect(() => {
@@ -231,7 +255,10 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     evtSource.onmessage = async (event) => {
       try {
         const data = JSON.parse(event.data);
-        if (data.type === "deck-changed" && data.deckId) {
+        if (data.type === "deck-deleted" && data.deckId) {
+          lastExternalUpdateRef.current = Date.now();
+          setDecks((prev) => prev.filter((d) => d.id !== data.deckId));
+        } else if (data.type === "deck-changed" && data.deckId) {
           // Refetch the changed deck from the API
           const res = await fetch(`/api/decks/${data.deckId}`);
           if (!res.ok) return;

@@ -115,8 +115,7 @@ export const handleAtlassianCallback = defineEventHandler(
 export const getAtlassianStatus = defineEventHandler(async (event: H3Event) => {
   try {
     const session = await getSession(event);
-    const status = await getAuthStatus(session?.email);
-    return status;
+    return await getAuthStatus(session?.email);
   } catch (error: any) {
     setResponseStatus(event, 500);
     return { error: error.message };
@@ -137,7 +136,9 @@ export const disconnectAtlassian = defineEventHandler(
         setResponseStatus(event, 400);
         return { error: "email is required" };
       }
-      const owned = await getAuthStatus(session.email);
+      const ownerEmail =
+        session.email !== "local@localhost" ? session.email : undefined;
+      const owned = await getAuthStatus(ownerEmail);
       const isOwned = owned.accounts.some((a) => a.email === targetEmail);
       if (!isOwned) {
         setResponseStatus(event, 403);

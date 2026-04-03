@@ -1,12 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { ScriptTool } from "../../agent/types.js";
+import type { ActionTool } from "../../agent/types.js";
 import { parseArgs } from "../utils.js";
 
 const MAX_RESULTS = 100;
 const MAX_LINE_LEN = 200;
 
-export const tool: ScriptTool = {
+export const tool: ActionTool = {
   description:
     "Search file contents for a text pattern (case-insensitive). Returns matching lines with file paths and line numbers.",
   parameters: {

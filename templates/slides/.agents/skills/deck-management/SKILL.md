@@ -49,13 +49,13 @@ Each slide has an `id`, HTML `content`, and optional `layout` type.
 
 ```bash
 # List all decks (metadata only)
-pnpm script list-decks
+pnpm action list-decks
 
 # Get a specific deck with all slides
-pnpm script get-deck --id=<deckId>
+pnpm action get-deck --id=<deckId>
 
 # See what the user is looking at
-pnpm script view-screen
+pnpm action view-screen
 ```
 
 **From the API:**
@@ -69,7 +69,7 @@ pnpm script view-screen
 
 ```bash
 # Use db-exec to insert/update
-pnpm script db-exec --sql "INSERT INTO decks (id, title, data) VALUES (?, ?, ?)" --params '["new-id", "Title", "{...}"]'
+pnpm action db-exec --sql "INSERT INTO decks (id, title, data) VALUES (?, ?, ?)" --params '["new-id", "Title", "{...}"]'
 ```
 
 **From the API:**

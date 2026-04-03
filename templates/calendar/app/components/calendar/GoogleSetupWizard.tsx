@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   IconExternalLink,
   IconCheck,
   IconCircle,
   IconLoader2,
+  IconUpload,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,22 +28,23 @@ const STEPS = [
   {
     title: "Configure OAuth consent screen",
     description:
-      'Set the app name to anything (e.g. "My Calendar"), choose "External" user type, and add your email as a test user.',
-    url: "https://console.cloud.google.com/auth/branding",
+      'Set the app name to anything (e.g. "My Calendar"), choose "External" user type, and add your email as a test user. If you see an overview page, consent is already configured — skip to the next step.',
+    url: "https://console.cloud.google.com/apis/credentials/consent",
     linkText: "Configure consent screen",
   },
   {
     title: "Create OAuth credentials",
     description:
-      'Click "Create OAuth client", choose "Web application", and add this redirect URI:',
-    url: "https://console.cloud.google.com/apis/credentials/oauthclient",
+      '1) Click "+ Create Credentials" → "OAuth client ID"\n2) Choose "Web application"\n3) Add this redirect URI:',
+    url: "https://console.cloud.google.com/apis/credentials",
     linkText: "Create credentials",
     showRedirectUri: true,
   },
   {
-    title: "Paste your credentials",
-    description: "Copy the Client ID and Client Secret from the previous step.",
-    showInputs: true,
+    title: "Upload credentials JSON",
+    description:
+      'Click "Download JSON" on the credentials page, then upload it here. Or paste the Client ID and Client Secret manually.',
+    showUpload: true,
   },
 ];
 
@@ -54,6 +56,9 @@ export function GoogleSetupWizard() {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [envStatus, setEnvStatus] = useState<EnvKeyStatus[]>([]);
+  const [showManualFields, setShowManualFields] = useState(false);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const redirectUri = `${typeof window !== "undefined" ? window.location.origin : ""}/_agent-native/google/callback`;
 
@@ -80,6 +85,50 @@ export function GoogleSetupWizard() {
 
   const allConfigured =
     envStatus.length > 0 && envStatus.every((k) => k.configured);
+
+  async function handleJsonUpload(file: File) {
+    setSaving(true);
+    setError(null);
+
+    try {
+      const text = await file.text();
+      const json = JSON.parse(text);
+
+      // Google's downloaded JSON has the credentials nested under "web" or "installed"
+      const creds = json.web || json.installed || json;
+      const id = creds.client_id;
+      const secret = creds.client_secret;
+
+      if (!id || !secret) {
+        throw new Error("Could not find client_id and client_secret in JSON");
+      }
+
+      const res = await fetch("/api/env-vars", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          vars: [
+            { key: "GOOGLE_CLIENT_ID", value: id },
+            { key: "GOOGLE_CLIENT_SECRET", value: secret },
+          ],
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to save credentials");
+      }
+
+      setSaved(true);
+      await fetchStatus();
+      // Reload after a short delay to let Vite restart with new env vars
+      setTimeout(() => window.location.reload(), 1500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to parse JSON");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function handleSave() {
     if (!clientId.trim() || !clientSecret.trim()) return;
@@ -108,6 +157,8 @@ export function GoogleSetupWizard() {
       setClientId("");
       setClientSecret("");
       await fetchStatus();
+      // Reload after a short delay to let Vite restart with new env vars
+      setTimeout(() => window.location.reload(), 1500);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save");
     } finally {
@@ -115,8 +166,10 @@ export function GoogleSetupWizard() {
     }
   }
 
-  function copyRedirectUri() {
-    navigator.clipboard.writeText(redirectUri);
+  function copyToClipboard(text: string, key: string) {
+    navigator.clipboard.writeText(text);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(null), 2000);
   }
 
   return (
@@ -164,13 +217,13 @@ export function GoogleSetupWizard() {
 
                 {isActive && (
                   <div className="mt-2 space-y-3">
-                    <p className="text-xs text-muted-foreground leading-relaxed">
+                    <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-line">
                       {step.description}
                     </p>
 
                     {step.showRedirectUri && (
                       <div className="flex items-center gap-2">
-                        <code className="flex-1 rounded bg-muted px-2 py-1.5 text-xs font-mono break-all">
+                        <code className="flex-1 rounded bg-muted px-2 py-1.5 text-xs font-mono break-all select-all">
                           {redirectUri}
                         </code>
                         <Button
@@ -179,10 +232,17 @@ export function GoogleSetupWizard() {
                           className="shrink-0 text-xs h-7"
                           onClick={(e) => {
                             e.stopPropagation();
-                            copyRedirectUri();
+                            copyToClipboard(redirectUri, "redirect");
                           }}
                         >
-                          Copy
+                          {copiedKey === "redirect" ? (
+                            <>
+                              <IconCheck className="h-3 w-3" />
+                              Copied
+                            </>
+                          ) : (
+                            "Copy"
+                          )}
                         </Button>
                       </div>
                     )}
@@ -192,78 +252,132 @@ export function GoogleSetupWizard() {
                         variant="outline"
                         size="sm"
                         className="gap-1.5 text-xs h-7"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          window.open(step.url, "_blank");
-                          if (i < STEPS.length - 1) {
-                            setCurrentStep(i + 1);
-                          }
-                        }}
+                        asChild
                       >
-                        <IconExternalLink className="h-3 w-3" />
-                        {step.linkText}
+                        <a
+                          href={step.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (i < STEPS.length - 1) {
+                              setCurrentStep(i + 1);
+                            }
+                          }}
+                        >
+                          <IconExternalLink className="h-3 w-3" />
+                          {step.linkText}
+                        </a>
                       </Button>
                     )}
 
-                    {step.showInputs && !allConfigured && (
+                    {step.showUpload && !allConfigured && (
                       <div
                         className="space-y-3"
                         onClick={(e) => e.stopPropagation()}
                       >
-                        <div className="space-y-1.5">
-                          <Label
-                            htmlFor="client-id"
-                            className="text-xs text-muted-foreground"
-                          >
-                            Client ID
-                          </Label>
-                          <Input
-                            id="client-id"
-                            value={clientId}
-                            onChange={(e) => setClientId(e.target.value)}
-                            placeholder="123456789.apps.googleusercontent.com"
-                            className="text-xs h-8 font-mono"
-                          />
-                        </div>
-                        <div className="space-y-1.5">
-                          <Label
-                            htmlFor="client-secret"
-                            className="text-xs text-muted-foreground"
-                          >
-                            Client Secret
-                          </Label>
-                          <Input
-                            id="client-secret"
-                            type="password"
-                            value={clientSecret}
-                            onChange={(e) => setClientSecret(e.target.value)}
-                            placeholder="GOCSPX-..."
-                            className="text-xs h-8 font-mono"
-                          />
-                        </div>
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          accept=".json"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handleJsonUpload(file);
+                          }}
+                        />
                         {error && (
                           <p className="text-xs text-destructive">{error}</p>
                         )}
-                        <Button
-                          size="sm"
-                          className="h-7 text-xs"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleSave();
-                          }}
-                          disabled={
-                            saving || !clientId.trim() || !clientSecret.trim()
-                          }
-                        >
-                          {saving && (
-                            <IconLoader2 className="mr-1.5 h-3 w-3 animate-spin" />
-                          )}
-                          {saving ? "Saving..." : "Save credentials"}
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            size="sm"
+                            className="h-7 text-xs gap-1.5"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              fileInputRef.current?.click();
+                            }}
+                            disabled={saving}
+                          >
+                            {saving ? (
+                              <IconLoader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <IconUpload className="h-3 w-3" />
+                            )}
+                            {saving ? "Saving..." : "Upload JSON"}
+                          </Button>
+                          <button
+                            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setShowManualFields(!showManualFields);
+                            }}
+                          >
+                            {showManualFields
+                              ? "Hide manual entry"
+                              : "Or paste manually"}
+                          </button>
+                        </div>
+
+                        {showManualFields && (
+                          <div className="space-y-3 pt-1">
+                            <div className="space-y-1.5">
+                              <Label
+                                htmlFor="client-id"
+                                className="text-xs text-muted-foreground"
+                              >
+                                Client ID
+                              </Label>
+                              <Input
+                                id="client-id"
+                                value={clientId}
+                                onChange={(e) => setClientId(e.target.value)}
+                                placeholder="123456789.apps.googleusercontent.com"
+                                className="text-xs h-8 font-mono"
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label
+                                htmlFor="client-secret"
+                                className="text-xs text-muted-foreground"
+                              >
+                                Client Secret
+                              </Label>
+                              <Input
+                                id="client-secret"
+                                type="password"
+                                value={clientSecret}
+                                onChange={(e) =>
+                                  setClientSecret(e.target.value)
+                                }
+                                placeholder="GOCSPX-..."
+                                className="text-xs h-8 font-mono"
+                              />
+                            </div>
+                            <Button
+                              size="sm"
+                              className="h-7 text-xs"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleSave();
+                              }}
+                              disabled={
+                                saving ||
+                                !clientId.trim() ||
+                                !clientSecret.trim()
+                              }
+                            >
+                              {saving && (
+                                <IconLoader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                              )}
+                              {saving ? "Saving..." : "Save credentials"}
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     )}
 
-                    {step.showInputs && allConfigured && (
+                    {step.showUpload && allConfigured && (
                       <div className="flex items-center gap-2 text-xs text-emerald-600 dark:text-emerald-400">
                         <IconCheck className="h-3.5 w-3.5" />
                         Credentials configured. You can now connect your Google

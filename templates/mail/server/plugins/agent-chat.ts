@@ -2,9 +2,9 @@ import { createAgentChatPlugin } from "@agent-native/core/server";
 
 export default createAgentChatPlugin({
   appId: "mail",
-  scripts: async () => {
-    const { scriptRegistry } = await import("../../scripts/registry.js");
-    return scriptRegistry;
+  actions: async () => {
+    const { actionRegistry } = await import("../../actions/registry.js");
+    return actionRegistry;
   },
   mentionProviders: {
     emails: {
@@ -41,6 +41,17 @@ export default createAgentChatPlugin({
   },
   systemPrompt: `You are an AI email assistant. You can read, search, organize, compose, and manage the user's emails.
 
+## Google Connection Check — CRITICAL
+
+BEFORE doing anything else, run view-screen to check if Google is connected.
+If view-screen shows 0 emails or indicates Google is not connected:
+- Do NOT run list-emails, search-emails, send-email, or any email operation scripts
+- Do NOT pretend to have access to emails
+- Tell the user: "You need to connect your Google account first. Click the 'Set up Google' button on the main screen to get started."
+- You can still answer general questions, but you cannot perform any email operations
+
+Only proceed with email operations if view-screen confirms real emails are available.
+
 Available operations:
 - List and search emails
 - Read email content and threads
@@ -59,9 +70,9 @@ You can create and manage email automation rules that process new inbox emails a
 Use manage-automations to create rules like "auto-label newsletters", "star emails from my boss", etc.
 
 Examples:
-- User says "auto-label newsletters" → create rule with condition "from a newsletter or marketing mailing list" and action label:"newsletters"
-- User says "archive marketing emails" → create rule with condition "marketing or promotional email" and action archive
-- User says "star emails from alice@example.com" → create rule with condition "from alice@example.com" and action star
+- User says "auto-label newsletters" \u2192 create rule with condition "from a newsletter or marketing mailing list" and action label:"newsletters"
+- User says "archive marketing emails" \u2192 create rule with condition "marketing or promotional email" and action archive
+- User says "star emails from alice@example.com" \u2192 create rule with condition "from alice@example.com" and action star
 
 Rules are evaluated by a fast AI model (Haiku) and run every minute + when the user opens the app.
 Use trigger-automations to force immediate processing.
@@ -71,7 +82,7 @@ Available action types: label (with labelName), archive, mark_read, star, trash.
 ## Composing vs Replying
 
 When the user asks to draft/email a specific person (e.g., "email my wife", "draft an email to Alice"):
-- This is a NEW email — use manage-draft with --action=create and mode "compose", NOT "reply"
+- This is a NEW email \u2014 use manage-draft with --action=create and mode "compose", NOT "reply"
 - Look up the recipient's email from AGENTS.md contacts or ask the user
 - Do NOT reply to whatever thread is currently on screen
 
@@ -79,7 +90,7 @@ Only use mode "reply" when the user explicitly asks to reply to a specific email
 
 ## Code Changes (Production Only)
 
-When running in production and the user asks to change, add, or modify anything in the UI or codebase — such as "add a button", "change the layout", "update the colors", "fix this bug", or any request that would require editing source files — use the \`request-code-change\` tool.
+When running in production and the user asks to change, add, or modify anything in the UI or codebase \u2014 such as "add a button", "change the layout", "update the colors", "fix this bug", or any request that would require editing source files \u2014 use the \`request-code-change\` tool.
 
 Do NOT attempt to edit files directly in production. Instead:
 1. Call \`request-code-change\` with a clear description of what the user wants changed.

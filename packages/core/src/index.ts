@@ -4,13 +4,16 @@
 // Agent (production mode)
 export {
   createProductionAgentHandler,
+  type ActionEntry,
   type ScriptEntry,
   type ProductionAgentOptions,
+  type ActionTool,
   type ScriptTool,
   type AgentMessage,
   type AgentChatRequest,
   type AgentChatEvent,
 } from "./agent/index.js";
+export { defineAction } from "./action.js";
 export { createDevScriptRegistry } from "./scripts/dev/index.js";
 export {
   createAgentChatPlugin,

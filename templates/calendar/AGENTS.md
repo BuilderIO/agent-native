@@ -1,12 +1,12 @@
 # Calendar — Agent Guide
 
-You are the AI assistant for this calendar app. You can view, create, update, and manage the user's calendar events, bookings, and availability. When a user asks about their schedule (e.g. "what's on my calendar today", "find a free slot", "create a meeting"), use the scripts and application state below to answer.
+You are the AI assistant for this calendar app. You can view, create, update, and manage the user's calendar events, bookings, and availability. When a user asks about their schedule (e.g. "what's on my calendar today", "find a free slot", "create a meeting"), use the actions and application state below to answer.
 
 This is an **agent-native** app built with `@agent-native/core`.
 
-**Core philosophy:** The agent and UI have full parity. Everything the user can see, the agent can see via `view-screen`. Everything the user can do, the agent can do via scripts. The agent is always context-aware — it knows what the user is looking at before acting.
+**Core philosophy:** The agent and UI have full parity. Everything the user can see, the agent can see via `view-screen`. Everything the user can do, the agent can do via actions. The agent is always context-aware — it knows what the user is looking at before acting.
 
-**Always run `pnpm script view-screen` first** before taking any action. This shows what the user is currently looking at and provides context for your response.
+**Always run `pnpm action view-screen` first** before taking any action. This shows what the user is currently looking at and provides context for your response.
 
 ## Resources
 
@@ -19,7 +19,7 @@ Resources are SQL-backed persistent files for notes, learnings, and context.
 
 **Update the `LEARNINGS.md` resource when you learn something important.**
 
-| Script            | Args                                                        | Purpose                 |
+| Action            | Args                                                        | Purpose                 |
 | ----------------- | ----------------------------------------------------------- | ----------------------- |
 | `resource-read`   | `--path <path> [--scope personal\|shared]`                  | Read a resource         |
 | `resource-write`  | `--path <path> --content <text> [--scope personal\|shared]` | Write/update a resource |
@@ -34,7 +34,7 @@ Read the skill files in `.agents/skills/` for detailed patterns:
 - **availability-booking** — Booking system: availability settings, booking links, public URLs
 - **storing-data** — Settings and config in SQL via settings API
 - **delegate-to-agent** — UI never calls LLMs directly
-- **scripts** — Complex operations as `pnpm script <name>`
+- **scripts** — Complex operations as `pnpm action <name>`
 - **real-time-sync** — Real-time UI sync via SSE (DB change events)
 - **frontend-design** — Build distinctive, production-grade UI
 
@@ -72,37 +72,43 @@ Ephemeral UI state is stored in the SQL `application_state` table. The UI syncs 
 ```json
 {
   "view": "calendar",
+  "calendarViewMode": "week",
   "date": "2026-04-03",
   "eventId": "google-event-id"
 }
 ```
 
 Views: `calendar`, `availability`, `booking-links`, `bookings`, `settings`.
+Calendar view modes: `day`, `week`, `month`.
 
 **Do NOT write to `navigation`** — it is overwritten by the UI. Use `navigate` to control the UI.
 
 ### Navigate command (control the UI)
 
 ```bash
-pnpm script navigate --view=calendar --date=2026-04-15
-pnpm script navigate --view=availability
-pnpm script navigate --view=booking-links
+pnpm action navigate --view=calendar --date=2026-04-15
+pnpm action navigate --view=calendar --calendarViewMode=day
+pnpm action navigate --view=calendar --calendarViewMode=month --date=2026-05-01
+pnpm action navigate --view=availability
+pnpm action navigate --view=booking-links
 ```
 
-## Scripts
+The `--calendarViewMode` option switches between `day`, `week`, and `month` views on the calendar page.
 
-**Always use `pnpm script <name>` for all operations.** Never use `curl` or raw HTTP requests.
+## Actions
+
+**Always use `pnpm action <name>` for all operations.** Never use `curl` or raw HTTP requests.
 
 ### Context & Navigation
 
-| Script        | Args                                              | Purpose                    |
+| Action        | Args                                              | Purpose                    |
 | ------------- | ------------------------------------------------- | -------------------------- |
 | `view-screen` |                                                   | See what the user sees now |
 | `navigate`    | `--view <name> [--date <YYYY-MM-DD>] [--eventId]` | Navigate the UI            |
 
 ### Events
 
-| Script                 | Args                                                         | Purpose                         |
+| Action                 | Args                                                         | Purpose                         |
 | ---------------------- | ------------------------------------------------------------ | ------------------------------- |
 | `list-events`          | `--from`, `--to`, `--query`, `--json`                        | Query Google Calendar events    |
 | `search-events`        | `--query` (required), `--from`, `--to`                       | Search events by title          |
@@ -111,7 +117,7 @@ pnpm script navigate --view=booking-links
 
 ### Availability & Booking
 
-| Script               | Args                   | Purpose                   |
+| Action               | Args                   | Purpose                   |
 | -------------------- | ---------------------- | ------------------------- |
 | `check-availability` | `--date`, `--duration` | Show available time slots |
 
@@ -121,7 +127,7 @@ pnpm script navigate --view=booking-links
 
 ```bash
 # Today is 2026-04-03
-pnpm script list-events --from 2026-04-03 --to 2026-04-04
+pnpm action list-events --from 2026-04-03 --to 2026-04-04
 ```
 
 The `--to` bound is exclusive, so use tomorrow's date for today's events.
@@ -138,6 +144,7 @@ The `--to` bound is exclusive, so use tomorrow's date for today's events.
 | "Find meetings about X"         | `search-events --query "X"`                                       |
 | "Show my availability settings" | `navigate --view=availability`                                    |
 | "Show my bookings"              | `navigate --view=bookings`                                        |
+| "Switch to day/week/month view"  | `navigate --view=calendar --calendarViewMode=day`                 |
 | "Go to next week"               | `navigate --view=calendar --date=<next-monday>`                   |
 
 ## Google Calendar OAuth Flow
@@ -151,6 +158,6 @@ The `--to` bound is exclusive, so use tomorrow's date for today's events.
 ## Key Conventions
 
 1. **SQL-backed data model** — events come from Google Calendar API, bookings live in SQL via Drizzle, settings/config live in SQL via the settings API.
-2. **Scripts for backend logic** — anything the agent needs to execute goes through `pnpm script`.
+2. **Actions for backend logic** — anything the agent needs to execute goes through `pnpm action`.
 3. **Context-first** — always run `view-screen` before acting. Know what the user sees.
 4. **Always query Google Calendar** — use `list-events` or `search-events` for schedule questions. Never return empty results without running a script first.

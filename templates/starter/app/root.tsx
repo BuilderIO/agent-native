@@ -49,6 +49,7 @@ const TAB_ID = Math.random().toString(36).slice(2, 10);
 
 function DbSyncSetup() {
   const qc = useQueryClient();
+  useNavigationState();
   useDbSync({
     queryClient: qc,
     queryKeys: ["files", "data"],
@@ -58,7 +59,6 @@ function DbSyncSetup() {
 }
 
 export default function Root() {
-  useNavigationState();
   const [queryClient] = useState(() => new QueryClient());
   const [cmdkOpen, setCmdkOpen] = useState(false);
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));

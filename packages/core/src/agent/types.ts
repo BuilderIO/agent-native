@@ -1,4 +1,4 @@
-export interface ScriptTool {
+export interface ActionTool {
   description: string;
   parameters?: {
     type: "object";
@@ -13,6 +13,9 @@ export interface ScriptTool {
     required?: string[];
   };
 }
+
+/** @deprecated Use `ActionTool` instead */
+export type ScriptTool = ActionTool;
 
 export interface AgentMessage {
   role: "user" | "assistant";
