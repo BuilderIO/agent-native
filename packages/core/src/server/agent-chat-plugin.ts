@@ -617,15 +617,15 @@ export function createAgentChatPlugin(
         const a2aClient = new Anthropic({ apiKey });
         const model = options?.model ?? "claude-sonnet-4-6";
 
-        // Build tools from the same action set as the interactive handler
+        // Build tools — same as interactive handler but WITHOUT call-agent
+        // to prevent infinite recursive A2A loops (agent calling itself).
         const a2aActions = canToggle
           ? {
               ...templateScripts,
               ...resourceScripts,
-              ...callAgentScript,
               ...devScriptsForA2A,
             }
-          : { ...templateScripts, ...resourceScripts, ...callAgentScript };
+          : { ...templateScripts, ...resourceScripts };
 
         const tools: any[] = Object.entries(a2aActions).map(
           ([name, entry]) => ({
@@ -644,6 +644,10 @@ export function createAgentChatPlugin(
         let accumulatedText = "";
         const controller = new AbortController();
 
+        console.log(
+          `[A2A] Starting agent loop: ${tools.length} tools, prompt ${systemPrompt.length} chars`,
+        );
+
         await runAgentLoop({
           client: a2aClient,
           model,
@@ -652,13 +656,24 @@ export function createAgentChatPlugin(
           messages,
           actions: a2aActions,
           send: (event) => {
-            // Capture text events to yield as A2A messages
             if (event.type === "text") {
               accumulatedText += event.text;
+            } else if (event.type === "tool_start") {
+              console.log(`[A2A] Tool call: ${event.tool}`);
+            } else if (event.type === "error") {
+              console.error(`[A2A] Error: ${event.error}`);
+            } else if (event.type === "done") {
+              console.log(
+                `[A2A] Done. Response: ${accumulatedText.length} chars`,
+              );
             }
           },
           signal: controller.signal,
         });
+
+        console.log(
+          `[A2A] Loop complete. Text: ${accumulatedText.slice(0, 100)}...`,
+        );
 
         // Yield the final accumulated text
         yield {
