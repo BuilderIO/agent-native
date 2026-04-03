@@ -9,6 +9,7 @@ import { IssueList } from "@/components/issues/IssueList";
 import { IssueDetail } from "@/components/issues/IssueDetail";
 import { CreateIssueDialog } from "@/components/issues/CreateIssueDialog";
 import { groupIssuesByStatusCategory } from "@/lib/issue-utils";
+import type { JiraIssue } from "@shared/types";
 
 interface ProjectIssuesPageProps {
   projectKey: string;
@@ -37,8 +38,10 @@ export function ProjectIssuesPage({
 
   const issues = data?.issues || [];
   const visualIssues = issues.length
-    ? groupIssuesByStatusCategory(issues as any).flatMap((g) => g.issues)
-    : [];
+    ? groupIssuesByStatusCategory(issues as JiraIssue[]).flatMap(
+        (g) => g.issues,
+      )
+    : ([] as JiraIssue[]);
 
   useKeyboardShortcuts({
     onNext: () =>

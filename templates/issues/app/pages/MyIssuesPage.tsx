@@ -8,6 +8,7 @@ import { IssueList } from "@/components/issues/IssueList";
 import { IssueDetail } from "@/components/issues/IssueDetail";
 import { CreateIssueDialog } from "@/components/issues/CreateIssueDialog";
 import { groupIssuesByStatusCategory } from "@/lib/issue-utils";
+import type { JiraIssue } from "@shared/types";
 
 interface MyIssuesPageProps {
   selectedIssueKey?: string;
@@ -30,8 +31,10 @@ export function MyIssuesPage({ selectedIssueKey: propKey }: MyIssuesPageProps) {
   const issues = data?.issues || [];
   // Flat list in visual order (grouped by status category)
   const visualIssues = issues.length
-    ? groupIssuesByStatusCategory(issues as any).flatMap((g) => g.issues)
-    : [];
+    ? groupIssuesByStatusCategory(issues as JiraIssue[]).flatMap(
+        (g) => g.issues,
+      )
+    : ([] as JiraIssue[]);
   const isAuthError =
     error && "status" in error && (error as any).status === 401;
 
