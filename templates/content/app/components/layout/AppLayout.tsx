@@ -1,4 +1,4 @@
-import { ReactNode } from "react";
+import { ReactNode, useState } from "react";
 import { DocumentSidebar } from "@/components/sidebar/DocumentSidebar";
 import { AgentSidebar } from "@agent-native/core/client";
 
@@ -8,9 +8,15 @@ interface AppLayoutProps {
 }
 
 export function AppLayout({ activeDocumentId, children }: AppLayoutProps) {
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      <DocumentSidebar activeDocumentId={activeDocumentId} />
+      <DocumentSidebar
+        activeDocumentId={activeDocumentId}
+        collapsed={sidebarCollapsed}
+        onToggleCollapsed={() => setSidebarCollapsed((c) => !c)}
+      />
       <AgentSidebar
         position="right"
         defaultOpen

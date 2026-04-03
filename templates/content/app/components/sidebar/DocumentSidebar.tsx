@@ -5,6 +5,8 @@ import {
   IconSearch,
   IconStar,
   IconFileText,
+  IconLayoutSidebarLeftCollapse,
+  IconLayoutSidebarLeftExpand,
 } from "@tabler/icons-react";
 import { toast } from "sonner";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -22,9 +24,15 @@ import { cn } from "@/lib/utils";
 
 interface DocumentSidebarProps {
   activeDocumentId: string | null;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
 }
 
-export function DocumentSidebar({ activeDocumentId }: DocumentSidebarProps) {
+export function DocumentSidebar({
+  activeDocumentId,
+  collapsed,
+  onToggleCollapsed,
+}: DocumentSidebarProps) {
   const navigate = useNavigate();
   const { data: documents = [], isLoading } = useDocuments();
   const createDocument = useCreateDocument();
@@ -76,6 +84,27 @@ export function DocumentSidebar({ activeDocumentId }: DocumentSidebarProps) {
       )
     : null;
 
+  if (collapsed) {
+    return (
+      <div className="flex flex-col h-full w-10 border-r border-border bg-muted/30 items-center py-3 gap-2">
+        <button
+          className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent text-muted-foreground hover:text-foreground"
+          onClick={onToggleCollapsed}
+          title="Expand sidebar"
+        >
+          <IconLayoutSidebarLeftExpand size={16} />
+        </button>
+        <button
+          className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent text-muted-foreground hover:text-foreground"
+          onClick={() => handleCreatePage()}
+          title="New page"
+        >
+          <IconPlus size={14} />
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-full w-60 border-r border-border bg-muted/30">
       {/* Header */}
@@ -83,13 +112,22 @@ export function DocumentSidebar({ activeDocumentId }: DocumentSidebarProps) {
         <span className="text-base font-semibold tracking-tight text-foreground">
           Documents
         </span>
-        <button
-          className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent text-muted-foreground hover:text-foreground"
-          onClick={() => setIsSearching(!isSearching)}
-          title="Search"
-        >
-          <IconSearch size={14} />
-        </button>
+        <div className="flex items-center gap-0.5">
+          <button
+            className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent text-muted-foreground hover:text-foreground"
+            onClick={() => setIsSearching(!isSearching)}
+            title="Search"
+          >
+            <IconSearch size={14} />
+          </button>
+          <button
+            className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent text-muted-foreground hover:text-foreground"
+            onClick={onToggleCollapsed}
+            title="Collapse sidebar"
+          >
+            <IconLayoutSidebarLeftCollapse size={14} />
+          </button>
+        </div>
       </div>
 
       {/* IconSearch */}

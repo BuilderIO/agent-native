@@ -6,7 +6,7 @@ const SNAP_MINUTES = 15;
 
 interface DragState {
   eventId: string;
-  mode: "move" | "resize";
+  mode: "move" | "resize" | "resize-top";
   /** The event being dragged (snapshot at drag start) */
   event: CalendarEvent;
   /** Pointer Y relative to scroll container at drag start */
@@ -105,7 +105,7 @@ export function useEventDrag({
     (
       e: React.PointerEvent,
       eventId: string,
-      mode: "move" | "resize",
+      mode: "move" | "resize" | "resize-top",
       dayIndex: number,
     ) => {
       const event = events.find((ev) => ev.id === eventId);
@@ -198,13 +198,23 @@ export function useEventDrag({
         if (days) {
           newDayIndex = getDayIndexFromX(e.clientX);
         }
-      } else {
-        // resize - change bottom edge
+      } else if (state.mode === "resize") {
+        // resize bottom - change bottom edge
         const rawBottom = pointerYInGrid;
         const rawHeight = rawBottom - state.originalTop;
         const snappedDuration = Math.max(SNAP_MINUTES, pxToMinutes(rawHeight));
         newHeight = (snappedDuration / 60) * hourHeight;
         newTop = state.originalTop;
+      } else {
+        // resize-top - change top edge, bottom stays fixed
+        const originalBottom = state.originalTop + state.originalHeight;
+        const rawTop = pointerYInGrid;
+        const snappedTopMinutes = pxToMinutes(rawTop);
+        const candidateTop = Math.max(0, (snappedTopMinutes / 60) * hourHeight);
+        const rawHeight = originalBottom - candidateTop;
+        const snappedDuration = Math.max(SNAP_MINUTES, pxToMinutes(rawHeight));
+        newHeight = (snappedDuration / 60) * hourHeight;
+        newTop = originalBottom - newHeight;
       }
 
       const updated: DragState = {

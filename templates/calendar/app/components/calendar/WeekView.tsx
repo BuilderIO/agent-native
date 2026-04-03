@@ -12,6 +12,7 @@ import {
   startOfDay,
   set,
   addDays,
+  addMinutes,
 } from "date-fns";
 import { cn } from "@/lib/utils";
 import { getEventAutoColor } from "@/lib/event-colors";
@@ -585,6 +586,20 @@ export function WeekView({
                     const durationMin = overrides
                       ? (overrides.height / HOUR_HEIGHT) * 60
                       : differenceInMinutes(end, start);
+                    // Compute display times (use drag overrides if active)
+                    const displayStart = overrides
+                      ? addMinutes(
+                          set(startOfDay(day), {
+                            hours: START_HOUR,
+                            minutes: 0,
+                            seconds: 0,
+                          }),
+                          (overrides.top / HOUR_HEIGHT) * 60,
+                        )
+                      : start;
+                    const displayEnd = overrides
+                      ? addMinutes(displayStart, durationMin)
+                      : end;
                     const isPast = end < now;
                     const isDeclined = event.responseStatus === "declined";
                     const canDrag = !!onEventTimeChange;
@@ -664,8 +679,10 @@ export function WeekView({
                               )}
                             >
                               {format(
-                                start,
-                                start.getMinutes() === 0 ? "h a" : "h:mm a",
+                                displayStart,
+                                displayStart.getMinutes() === 0
+                                  ? "h a"
+                                  : "h:mm a",
                               )}
                             </span>
                           </div>
@@ -691,11 +708,25 @@ export function WeekView({
                                   : "text-foreground/60",
                               )}
                             >
-                              {formatEventTime(start, end)}
+                              {formatEventTime(displayStart, displayEnd)}
                             </div>
                           </>
                         )}
-                        {/* Resize handle */}
+                        {/* Top resize handle */}
+                        {canDrag && (
+                          <div
+                            data-resize-handle="true"
+                            onPointerDown={(e) => {
+                              e.stopPropagation();
+                              startDrag(e, event.id, "resize-top", dayIndex);
+                            }}
+                            className="absolute left-0 right-0 top-0 h-2 cursor-n-resize opacity-0 group-hover:opacity-100"
+                            style={{ touchAction: "none" }}
+                          >
+                            <div className="mx-auto mt-0.5 h-1 w-8 rounded-full bg-foreground/20" />
+                          </div>
+                        )}
+                        {/* Bottom resize handle */}
                         {canDrag && (
                           <div
                             data-resize-handle="true"

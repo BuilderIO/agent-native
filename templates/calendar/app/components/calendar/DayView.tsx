@@ -7,6 +7,7 @@ import {
   startOfDay,
   set,
   isToday,
+  addMinutes,
 } from "date-fns";
 import { cn } from "@/lib/utils";
 import { getEventAutoColor } from "@/lib/event-colors";
@@ -314,6 +315,20 @@ export function DayView({
                     parseISO(event.end),
                     parseISO(event.start),
                   );
+              // Compute display times (use drag overrides if active)
+              const displayStart = overrides
+                ? addMinutes(
+                    set(startOfDay(date), {
+                      hours: START_HOUR,
+                      minutes: 0,
+                      seconds: 0,
+                    }),
+                    (overrides.top / HOUR_HEIGHT) * 60,
+                  )
+                : parseISO(event.start);
+              const displayEnd = overrides
+                ? addMinutes(displayStart, durationMin)
+                : parseISO(event.end);
               const isPast = parseISO(event.end) < now;
               const isDeclined = event.responseStatus === "declined";
               const canDrag = !!onEventTimeChange;
@@ -388,10 +403,8 @@ export function DayView({
                         )}
                       >
                         {format(
-                          parseISO(event.start),
-                          parseISO(event.start).getMinutes() === 0
-                            ? "h a"
-                            : "h:mm a",
+                          displayStart,
+                          displayStart.getMinutes() === 0 ? "h a" : "h:mm a",
                         )}
                       </span>
                     </div>
@@ -417,8 +430,8 @@ export function DayView({
                             : "text-foreground/60",
                         )}
                       >
-                        {format(parseISO(event.start), "h:mm a")} –{" "}
-                        {format(parseISO(event.end), "h:mm a")}
+                        {format(displayStart, "h:mm a")} –{" "}
+                        {format(displayEnd, "h:mm a")}
                       </div>
                       {durationMin >= 45 && event.location && (
                         <div className="truncate text-[11px] leading-tight text-foreground/50">
@@ -427,7 +440,21 @@ export function DayView({
                       )}
                     </>
                   )}
-                  {/* Resize handle */}
+                  {/* Top resize handle */}
+                  {canDrag && (
+                    <div
+                      data-resize-handle="true"
+                      onPointerDown={(e) => {
+                        e.stopPropagation();
+                        startDrag(e, event.id, "resize-top", 0);
+                      }}
+                      className="absolute left-0 right-0 top-0 h-2.5 cursor-n-resize opacity-0 group-hover:opacity-100"
+                      style={{ touchAction: "none" }}
+                    >
+                      <div className="mx-auto mb-1 mt-0.5 h-1 w-10 rounded-full bg-foreground/20" />
+                    </div>
+                  )}
+                  {/* Bottom resize handle */}
                   {canDrag && (
                     <div
                       data-resize-handle="true"
