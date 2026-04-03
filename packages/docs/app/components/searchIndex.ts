@@ -48,7 +48,7 @@ export const searchIndex: SearchEntry[] = [
     path: "/docs",
     section: "Architecture Principles",
     sectionId: "architecture-principles",
-    text: "Data lives in SQL all app state lives in a SQL database via Drizzle ORM. The agent and UI read/write the same tables. All AI through agent chat no inline LLM calls. UI delegates to the AI via sendToAgentChat(). Actions for agent ops agent-callable actions in actions/ let the agent do anything the UI can do. Real-time sync database changes sync to the UI via polling. Agent can update code the agent modifies the app itself.",
+    text: "Agent and UI are equal partners. Everything the UI can do the agent can do and vice versa. Context-aware the agent always knows what you're looking at. Skills-driven core functionalities have instructions so the agent doesn't explore from scratch. Inter-agent communication via A2A protocol. Fully portable any SQL database any hosting backend any AI coding tool. Fork and customize single-tenant apps you clone and evolve.",
   },
 
   // Server

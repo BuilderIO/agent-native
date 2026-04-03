@@ -149,28 +149,36 @@ export default {
       </p>
       <ol className="list-decimal space-y-3 pl-5">
         <li>
-          <strong>Data lives in SQL</strong> — All app state lives in a SQL
-          database via Drizzle ORM. The agent and UI read/write the same tables.
+          <strong>Agent + UI are equal partners</strong> — Everything the UI can
+          do, the agent can do, and vice versa. They share the same database and
+          always stay in sync. You don't think about "the agent" and "the app"
+          separately — you think about them together.
         </li>
         <li>
-          <strong>All AI through agent chat</strong> — No inline LLM calls. UI
-          delegates to the AI via <code>sendToAgentChat()</code>.
+          <strong>Context-aware</strong> — The agent always knows what you're
+          looking at. If an email is open, it knows which one. If you select
+          text and hit Cmd+I, it can act on just that selection.
         </li>
         <li>
-          <strong>Actions for agent ops</strong> — Agent-callable actions in{" "}
-          <code>actions/</code> let the agent do anything the UI can do.
+          <strong>Skills-driven</strong> — Core functionalities have
+          instructions so the agent doesn't explore from scratch every time.
+          When you add a feature, you update all four areas: UI, actions,
+          skills/instructions, and application state.
         </li>
         <li>
-          <strong>Real-time sync</strong> — Database changes sync to the UI via
-          polling. When the agent writes data, the UI updates automatically.
+          <strong>Inter-agent communication</strong> — Agents can discover and
+          call each other via the A2A protocol. Tag your analytics agent from
+          the mail app to pull data into a draft.
         </li>
         <li>
-          <strong>Agent can update code</strong> — The agent modifies the app
-          itself — components, routes, styles, actions.
+          <strong>Fully portable</strong> — Any SQL database Drizzle supports,
+          any hosting backend Nitro supports, any AI coding tool. These are
+          non-negotiable.
         </li>
         <li>
-          <strong>Deploy anywhere</strong> — Nitro presets let you deploy to
-          Node.js, Vercel, Netlify, Cloudflare, AWS Lambda, Deno, and more.
+          <strong>Fork and customize</strong> — Single-tenant apps you clone and
+          evolve. The agent can modify the app's own code — components, routes,
+          styles, actions — so it gets better over time.
         </li>
       </ol>
     </DocsLayout>

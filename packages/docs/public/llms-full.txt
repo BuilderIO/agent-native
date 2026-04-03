@@ -1,8 +1,8 @@
 # Agent-Native — Complete Documentation
 
-> Framework for building AI-native applications where agents and UI share state through files.
+> Framework for building apps where the AI agent and the UI are equal partners.
 
-Agent-Native is an open source framework for building full-featured applications powered by AI agents. Apps are React frontends with Nitro backends. All state lives in files — the agent and UI read/write the same source of truth.
+Agent-Native is an open source framework for building full-featured applications powered by AI agents. Everything the UI can do, the agent can do — and vice versa. They share the same database, the same state, and they always stay in sync.
 
 ---
 
@@ -115,13 +115,12 @@ export default {
 
 ## Architecture Principles
 
-1. **Data lives in SQL** — All app state lives in a SQL database via Drizzle ORM. The agent and UI read/write the same tables.
-2. **All AI through agent chat** — No inline LLM calls. UI delegates to the AI via `sendToAgentChat()`.
-3. **Actions for agent ops** — Agent-callable actions in `actions/` let the agent do anything the UI can do.
-4. **Real-time sync** — Database changes sync to the UI via polling. When the agent writes data, the UI updates automatically.
-5. **Agent can update code** — The agent modifies the app itself — components, routes, styles, actions.
-6. **Application state in SQL** — Ephemeral UI state lives in the `application_state` table. Both agent and UI read and write it.
-7. **Deploy anywhere** — Nitro presets let you deploy to Node.js, Vercel, Netlify, Cloudflare, AWS Lambda, Deno, and more with a single config change.
+1. **Agent + UI are equal partners** — Everything the UI can do, the agent can do, and vice versa. They share the same database and always stay in sync.
+2. **Context-aware** — The agent always knows what you're looking at. If an email is open, it knows which one. Select text and hit Cmd+I — it can act on just that selection.
+3. **Skills-driven** — Core functionalities have instructions so the agent doesn't explore from scratch. When you add a feature, you update all four areas: UI, actions, skills/instructions, and application state.
+4. **Inter-agent communication** — Agents discover and call each other via the A2A protocol. Tag your analytics agent from the mail app to pull data into a draft.
+5. **Fully portable** — Any SQL database Drizzle supports, any hosting backend Nitro supports, any AI coding tool. Non-negotiable.
+6. **Fork and customize** — Single-tenant apps you clone and evolve. The agent modifies the app's own code — components, routes, styles, actions — so it gets better over time.
 
 ---
 

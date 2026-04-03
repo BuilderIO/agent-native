@@ -1,18 +1,17 @@
 # Agent-Native
 
-> Framework for building AI-native applications where agents and UI share state through a SQL database.
+> Framework for building apps where the AI agent and the UI are equal partners.
 
-Agent-Native is an open source framework for building full-featured applications powered by AI agents. Apps are React frontends with Nitro backends. All state lives in a SQL database (SQLite locally, cloud databases like Turso/Neon/Supabase in production). The agent and UI read/write the same database — no filesystem dependency for data.
+Agent-Native is an open source framework for building full-featured applications powered by AI agents. Everything the UI can do, the agent can do — and vice versa. They share the same database, the same state, and they always stay in sync. You don't think about "the agent" and "the app" separately — you think about them together.
 
-## Key Concepts
+## Core Principles
 
-- **Data in SQL**: All app state lives in a SQL database via Drizzle ORM. SQLite works locally out of the box; set `DATABASE_URL` for cloud deployment. Local and production behave identically.
-- **AI Through the Agent**: No inline LLM calls. The UI delegates to the agent via a chat bridge (`sendToAgentChat()`).
-- **Agent Updates Code**: The agent can modify the app itself. Your tools get better over time.
-- **Real-time Sync**: SSE streams database changes to the UI. When the agent writes to the database, the UI updates instantly.
-- **Actions System**: Agent-callable actions via `pnpm action <name>` for complex operations.
-- **Production Ready**: Built-in auth, OAuth, cloud database support, and deployment presets. Apps work locally in dev and deploy to production with the same code.
-- **Embedded Agent Panel**: Every app includes an agent panel with chat and optional CLI terminal supporting Claude Code, Codex, Gemini CLI, OpenCode, and Builder.io. Deploy to Builder.io Cloud for collaboration and visual editing.
+- **Agent + UI parity**: Everything the UI can do, the agent can do. Search email, compose a draft, create a calendar event, generate slides — both sides have full access, always in sync.
+- **Context-aware**: The agent always knows what you're looking at. If an email is open, it knows which one. Select text and hit Cmd+I — it can act on just that selection.
+- **Skills-driven**: Core functionalities have instructions so the agent doesn't explore from scratch. When you add a feature, you update all four areas: UI, actions, skills, and application state.
+- **Inter-agent communication**: Agents discover and call each other via the A2A protocol. Tag your analytics agent from the mail app to pull data into a draft.
+- **Fully portable**: Any SQL database Drizzle supports, any hosting backend Nitro supports, any AI coding tool (Claude Code, Cursor, Windsurf, etc.). Non-negotiable.
+- **Fork and customize**: Single-tenant apps you clone and evolve. The agent modifies the app's own code, so it gets better over time. Builder.io provides hosting and services that make this easy.
 
 ## Quick Start
 
