@@ -222,6 +222,7 @@ function ToolCallFallback({
   result,
 }: ToolCallMessagePartProps) {
   const [expanded, setExpanded] = useState(false);
+  const streamRef = useRef<HTMLDivElement>(null);
   const thread = useThread();
   const isRunning = result === undefined && thread.isRunning;
   const isAgentCall = toolName.startsWith("agent:");
@@ -246,11 +247,20 @@ function ToolCallFallback({
         : `Asked ${agentName}`
     : toolName;
 
-  // Agent calls with streaming text auto-expand while running, and are toggleable when done
-  const canExpand = isAgentCall ? hasStreamText : result !== undefined;
+  // Agent calls always expand while running (even before first text arrives), toggleable when done
+  const canExpand = isAgentCall
+    ? isRunning || hasStreamText
+    : result !== undefined;
   const isExpanded = isAgentCall
-    ? hasStreamText && (isRunning || expanded)
+    ? isRunning || (hasStreamText && expanded)
     : expanded;
+
+  // Auto-scroll streaming text to bottom as new content arrives
+  useEffect(() => {
+    if (isAgentCall && isRunning && streamRef.current) {
+      streamRef.current.scrollTop = streamRef.current.scrollHeight;
+    }
+  }, [agentStreamText, isAgentCall, isRunning]);
 
   return (
     <div className="my-1 overflow-hidden">
@@ -260,9 +270,7 @@ function ToolCallFallback({
           "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-mono w-full text-left overflow-hidden",
           isRunning
             ? "bg-muted text-muted-foreground"
-            : isAgentCall
-              ? "bg-muted text-muted-foreground hover:bg-accent"
-              : "bg-muted text-muted-foreground hover:bg-accent",
+            : "bg-muted text-muted-foreground hover:bg-accent",
         )}
       >
         <span className="shrink-0">
@@ -289,9 +297,16 @@ function ToolCallFallback({
           />
         )}
       </button>
-      {isExpanded && isAgentCall && hasStreamText && (
-        <div className="mt-1 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
-          {agentStreamText}
+      {isExpanded && isAgentCall && (
+        <div
+          ref={streamRef}
+          className="mt-1 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground whitespace-pre-wrap break-words max-h-48 overflow-y-auto"
+        >
+          {hasStreamText ? (
+            agentStreamText
+          ) : (
+            <span className="italic opacity-50">Waiting for response...</span>
+          )}
         </div>
       )}
       {isExpanded && !isAgentCall && result !== undefined && (
@@ -321,6 +336,7 @@ function ReconnectStreamToolCall({
   result?: string;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const streamRef = useRef<HTMLDivElement>(null);
   const isRunning = result === undefined;
   const isAgentCall = toolName.startsWith("agent:");
   const agentName = isAgentCall ? toolName.slice(6) : null;
@@ -343,10 +359,18 @@ function ReconnectStreamToolCall({
         : `Asked ${agentName}`
     : toolName;
 
-  const canExpand = isAgentCall ? hasStreamText : result !== undefined;
+  const canExpand = isAgentCall
+    ? isRunning || hasStreamText
+    : result !== undefined;
   const isExpanded = isAgentCall
-    ? hasStreamText && (isRunning || expanded)
+    ? isRunning || (hasStreamText && expanded)
     : expanded;
+
+  useEffect(() => {
+    if (isAgentCall && isRunning && streamRef.current) {
+      streamRef.current.scrollTop = streamRef.current.scrollHeight;
+    }
+  }, [agentStreamText, isAgentCall, isRunning]);
 
   return (
     <div className="my-1 overflow-hidden">
@@ -356,9 +380,7 @@ function ReconnectStreamToolCall({
           "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-mono w-full text-left overflow-hidden",
           isRunning
             ? "bg-muted text-muted-foreground"
-            : isAgentCall
-              ? "bg-muted text-muted-foreground hover:bg-accent"
-              : "bg-muted text-muted-foreground hover:bg-accent",
+            : "bg-muted text-muted-foreground hover:bg-accent",
         )}
       >
         <span className="shrink-0">
@@ -383,9 +405,16 @@ function ReconnectStreamToolCall({
           />
         )}
       </button>
-      {isExpanded && isAgentCall && hasStreamText && (
-        <div className="mt-1 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
-          {agentStreamText}
+      {isExpanded && isAgentCall && (
+        <div
+          ref={streamRef}
+          className="mt-1 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground whitespace-pre-wrap break-words max-h-48 overflow-y-auto"
+        >
+          {hasStreamText ? (
+            agentStreamText
+          ) : (
+            <span className="italic opacity-50">Waiting for response...</span>
+          )}
         </div>
       )}
       {isExpanded && !isAgentCall && result !== undefined && (
