@@ -44,7 +44,6 @@ const LANGUAGES = [
   { value: "dockerfile", label: "Dockerfile" },
   { value: "ini", label: "INI" },
   { value: "diff", label: "Diff" },
-  { value: "plaintext", label: "Plain text" },
 ] as const;
 
 function CodeBlockView({ node, updateAttributes, extension }: NodeViewProps) {

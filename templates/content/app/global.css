@@ -383,11 +383,11 @@
   margin: 0.4em 0;
   border-radius: 6px;
   background: hsl(var(--muted));
-  overflow: hidden;
 }
 .notion-editor .notion-code-block-header {
   display: flex;
   align-items: center;
+  border-radius: 6px 6px 0 0;
   padding: 6px 12px;
   border-bottom: 1px solid hsl(var(--border) / 0.5);
 }
@@ -475,6 +475,7 @@
 }
 .notion-editor .notion-code-block-wrapper pre {
   background: hsl(var(--muted));
+  border-radius: 0 0 6px 6px;
 }
 .notion-editor pre code {
   font-family: inherit;
