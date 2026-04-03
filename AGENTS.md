@@ -4,7 +4,7 @@
 
 Agent-native is a framework for building apps where the AI agent and the UI are equal partners. Everything the UI can do, the agent can do. Everything the agent can do, the UI can do. They share the same database, the same state, and they always stay in sync.
 
-You don't think about "the agent" and "the app" separately — you think about them together. A feature isn't complete until both the UI and the agent can use it. A compose email flow has a UI for the user AND scripts the agent calls. A calendar event can be created from the UI OR by the agent, and either way the other side sees it immediately.
+You don't think about "the agent" and "the app" separately — you think about them together. A feature isn't complete until both the UI and the agent can use it. A compose email flow has a UI for the user AND actions the agent calls. A calendar event can be created from the UI OR by the agent, and either way the other side sees it immediately.
 
 The agent can also see what the user is looking at. If an email is open, the agent knows which email. If a slide is selected, the agent knows which slide. If the user selects text and hits Cmd+I to focus the agent, the agent knows what text is selected and can act on just that.
 
@@ -13,11 +13,11 @@ The agent can also see what the user is looking at. If an email is open, the age
 Every new feature or integration MUST update all four areas. Skipping any one breaks the agent-native contract:
 
 1. **UI** — The user-facing interface (component, route, page)
-2. **Scripts** — Agent-callable operations in `scripts/` so the agent can do the same thing
+2. **Actions** — Agent-callable operations in `actions/` so the agent can do the same thing
 3. **Skills / Instructions** — Update AGENTS.md and/or create skills if the feature introduces new patterns the agent needs to know
 4. **Application State** — Expose navigation and selection state so the agent knows what the user is looking at
 
-This applies to every feature: a new form builder, a new chart type, a new email filter. If the UI has it, there's a script for it. If the agent needs context, app-state provides it. If there's a non-obvious pattern, a skill documents it.
+This applies to every feature: a new form builder, a new chart type, a new email filter. If the UI has it, there's an action for it. If the agent needs context, app-state provides it. If there's a non-obvious pattern, a skill documents it.
 
 ## Context Awareness
 
@@ -33,13 +33,13 @@ The UI writes a `navigation` key to application-state on every route change:
 
 The agent reads this before taking action: `readAppState("navigation")`.
 
-### The view-screen Script
+### The view-screen Action
 
-Every template should have a `view-screen` script that reads navigation state, fetches the relevant data, and returns a snapshot of what the user sees. This is the agent's eyes.
+Every template should have a `view-screen` action that reads navigation state, fetches the relevant data, and returns a snapshot of what the user sees. This is the agent's eyes.
 
-### The navigate Script
+### The navigate Action
 
-Every template should have a `navigate` script that writes a one-shot command to application-state, letting the agent switch views, open items, or focus elements. The UI processes the command and clears it.
+Every template should have a `navigate` action that writes a one-shot command to application-state, letting the agent switch views, open items, or focus elements. The UI processes the command and clears it.
 
 ### Jitter Prevention
 
@@ -72,9 +72,9 @@ All app state lives in SQL via Drizzle ORM. Users choose their database by setti
 
 The UI never calls an LLM directly. When the user wants AI to do something, the UI sends a message via `sendToAgentChat()`. The agent does the work and writes results to the database.
 
-### 3. Scripts for Agent Operations
+### 3. Actions for Agent Operations
 
-When the agent needs to do something — query data, call APIs, process information — it runs a script via `pnpm script <name>`. Scripts live in `scripts/` and export a default async function. **Everything the UI can do, the agent can do via scripts.**
+When the agent needs to do something — query data, call APIs, process information — it runs an action via `pnpm action <name>`. Actions live in `actions/` and export a default async function. **Everything the UI can do, the agent can do via actions.**
 
 ### 4. Polling Keeps the UI in Sync
 
@@ -82,13 +82,13 @@ Database changes sync to the UI via polling. The client `useDbSync()` hook polls
 
 ### 5. The Agent Can Modify Code
 
-The agent can edit the app's own source code — components, routes, styles, scripts. This is a feature. Design your app expecting this.
+The agent can edit the app's own source code — components, routes, styles, actions. This is a feature. Design your app expecting this.
 
 ### 6. Application State in SQL
 
 Ephemeral UI state lives in the `application_state` table. Both agent and UI read and write it. When the agent writes state (e.g., a draft), the UI reacts via polling. When the user interacts with the UI, changes are written back so the agent can read them.
 
-**Script helpers** (from `@agent-native/core/application-state`):
+**Action helpers** (from `@agent-native/core/application-state`):
 
 - `readAppState(key)` — read state for current session
 - `writeAppState(key, value)` — write state (triggers UI sync)
@@ -109,7 +109,7 @@ The server runs on **Nitro** with **H3** as the HTTP framework. It compiles to a
 
 **Never use Express.** All server code uses H3/Nitro — `defineEventHandler`, `readBody`, `getMethod`, `setResponseHeader`, etc. Express is not a dependency. If you see Express types or patterns anywhere, replace them with H3 equivalents.
 
-Never use Node-specific APIs (`fs`, `child_process`, `path`) in server routes and plugins. Use Nitro abstractions. Scripts in `scripts/` run in Node.js and can use Node APIs freely.
+Never use Node-specific APIs (`fs`, `child_process`, `path`) in server routes and plugins. Use Nitro abstractions. Actions in `actions/` run in Node.js and can use Node APIs freely.
 
 Never assume a persistent server process. Use the SQL database for all state.
 
@@ -227,7 +227,7 @@ server/                # Nitro API server
   routes/api/          # File-based API routes
   plugins/             # Server plugins (startup logic)
   db/                  # Drizzle schema + DB connection
-scripts/               # Agent-callable scripts (view-screen, navigate, domain ops)
+actions/               # Agent-callable actions (view-screen, navigate, domain ops)
 .agents/skills/        # Agent skills — detailed guidance for patterns
 ```
 
@@ -239,8 +239,8 @@ Agent skills in `.agents/skills/` provide detailed guidance. Read the relevant s
 | --------------------- | ------------------------------------------------------------- |
 | `storing-data`        | Adding data models, reading/writing config or state           |
 | `real-time-sync`      | Wiring polling sync, debugging UI not updating, jitter issues |
-| `delegate-to-agent`   | Delegating AI work from UI or scripts to the agent            |
-| `scripts`             | Creating or running agent scripts                             |
+| `delegate-to-agent`   | Delegating AI work from UI or actions to the agent            |
+| `actions`             | Creating or running agent actions                             |
 | `self-modifying-code` | Editing app source, components, or styles                     |
 | `create-skill`        | Adding new skills for the agent                               |
 | `capture-learnings`   | Recording corrections and patterns                            |
@@ -253,9 +253,9 @@ Agent skills in `.agents/skills/` provide detailed guidance. Read the relevant s
 
 **Always use Tabler Icons** (`@tabler/icons-react`) for all icons. Never use other icon libraries.
 
-## Scripts
+## Actions
 
-Create `scripts/my-script.ts`:
+Create `actions/my-action.ts`:
 
 ```ts
 import { parseArgs } from "@agent-native/core";
@@ -265,15 +265,15 @@ export default async function (args: string[]) {
 }
 ```
 
-Run with: `pnpm script my-script --name foo`
+Run with: `pnpm action my-action --name foo`
 
-### Core Scripts (available automatically)
+### Core Actions (available automatically)
 
-| Script      | Purpose                         | Example                                            |
+| Action      | Purpose                         | Example                                            |
 | ----------- | ------------------------------- | -------------------------------------------------- |
-| `db-schema` | Show all tables, columns, types | `pnpm script db-schema`                            |
-| `db-query`  | Run a SELECT query              | `pnpm script db-query --sql "SELECT * FROM forms"` |
-| `db-exec`   | Run INSERT/UPDATE/DELETE        | `pnpm script db-exec --sql "UPDATE forms SET ..."` |
+| `db-schema` | Show all tables, columns, types | `pnpm action db-schema`                            |
+| `db-query`  | Run a SELECT query              | `pnpm action db-query --sql "SELECT * FROM forms"` |
+| `db-exec`   | Run INSERT/UPDATE/DELETE        | `pnpm action db-exec --sql "UPDATE forms SET ..."` |
 
 Per-user data scoping is automatic in production mode via `AGENT_USER_EMAIL`.
 

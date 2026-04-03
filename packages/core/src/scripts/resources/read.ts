@@ -4,7 +4,7 @@
  * Read a resource and output its content to stdout.
  *
  * Usage:
- *   pnpm script resource-read --path <path> [--scope personal|shared]
+ *   pnpm action resource-read --path <path> [--scope personal|shared]
  */
 
 import { parseArgs, fail } from "../utils.js";
@@ -20,7 +20,7 @@ export default async function resourceReadScript(
   const parsed = parseArgs(args);
 
   if (parsed.help === "true") {
-    console.log(`Usage: pnpm script resource-read --path <path> [options]
+    console.log(`Usage: pnpm action resource-read --path <path> [options]
 
 Options:
   --path <path>            Resource path (required)

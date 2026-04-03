@@ -1,12 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { ScriptTool } from "../../agent/types.js";
+import type { ActionTool } from "../../agent/types.js";
 import { parseArgs } from "../utils.js";
 
 const MAX_RESULTS = 100;
 const MAX_LINE_LEN = 200;
 
-export const tool: ScriptTool = {
+export const tool: ActionTool = {
   description:
     "Search file contents for a text pattern (case-insensitive). Returns matching lines with file paths and line numbers.",
   parameters: {
@@ -144,7 +144,7 @@ export default async function main(args: string[]): Promise<void> {
     console.error(
       "Usage: search-files --pattern <text> [--path <dir>] [--glob ts]",
     );
-    process.exit(1);
+    throw new Error("Script failed");
   }
   console.log(await run(parsed));
 }

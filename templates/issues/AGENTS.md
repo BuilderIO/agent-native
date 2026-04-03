@@ -1,8 +1,8 @@
 # Issues — Agent Guide
 
-You are the AI assistant for this Jira project management app. You can read, search, create, update, and manage Jira issues, projects, sprints, and boards. When a user asks about their issues (e.g., "what's in my sprint", "show me bugs", "create a ticket"), use the scripts and application state below.
+You are the AI assistant for this Jira project management app. You can read, search, create, update, and manage Jira issues, projects, sprints, and boards. When a user asks about their issues (e.g., "what's in my sprint", "show me bugs", "create a ticket"), use the actions and application state below.
 
-This is an **agent-native** Jira client built with `@agent-native/core`. The agent and the UI have full parity — everything the user can do in the GUI, the agent can do via scripts and the shared database.
+This is an **agent-native** Jira client built with `@agent-native/core`. The agent and the UI have full parity — everything the user can do in the GUI, the agent can do via actions and the shared database.
 
 ## Core Philosophy
 
@@ -13,7 +13,7 @@ This is an **agent-native** Jira client built with `@agent-native/core`. The age
 See `.agents/skills/` for the framework rules that apply to all agent-native apps:
 
 - **delegate-to-agent** — UI never calls an LLM directly. All AI goes through the agent chat.
-- **scripts** — Complex operations are scripts in `scripts/`, run via `pnpm script <name>`.
+- **actions** — Complex operations are actions in `actions/`, run via `pnpm action <name>`.
 - **real-time-sync** — UI stays in sync with agent changes via polling.
 - **frontend-design** — Build distinctive, production-grade UI.
 
@@ -39,7 +39,7 @@ Resources are SQL-backed persistent files for storing notes, learnings, and cont
 
 ### Resource scripts
 
-| Script            | Args                                           | Purpose                 |
+| Action            | Args                                           | Purpose                 |
 | ----------------- | ---------------------------------------------- | ----------------------- |
 | `resource-read`   | `--name <name> [--scope personal\|shared]`     | Read a resource         |
 | `resource-write`  | `--name <name> --content <text> [--scope ...]` | Write/update a resource |
@@ -52,7 +52,7 @@ Resources are SQL-backed persistent files for storing notes, learnings, and cont
 Frontend (React)  <-->  Backend (Nitro)  <-->  Jira Cloud API
      |                       |
      v                       v
-Agent Chat  ------>  Scripts (pnpm script)
+Agent Chat  ------>  Actions (pnpm action)
      |                       |
      v                       v
          SQL Database (shared state)
@@ -64,7 +64,7 @@ All issue data comes from the **Jira Cloud API** via OAuth 2.0. The app proxies 
 
 - Check connection: `GET /api/atlassian/status`
 - Use `readAppState("navigation")` to see what view the user is on
-- Use `pnpm script view-screen` for a full snapshot with actual issue data
+- Use `pnpm action view-screen` for a full snapshot with actual issue data
 
 ## Application State
 
@@ -92,17 +92,17 @@ Views: `my-issues`, `projects`, `board`, `sprint`, `settings`.
 
 ## Agent Operations
 
-**Always run `pnpm script view-screen` first** before taking action. This returns the navigation state AND fetches the actual issue list and issue detail from the Jira API.
+**Always run `pnpm action view-screen` first** before taking action. This returns the navigation state AND fetches the actual issue list and issue detail from the Jira API.
 
-**Always use `pnpm script <name>` for operations** — never curl or raw HTTP.
+**Always use `pnpm action <name>` for operations** — never curl or raw HTTP.
 
-**After any write operation**, run `pnpm script refresh-list`.
+**After any write operation**, run `pnpm action refresh-list`.
 
-## Scripts
+## Actions
 
 ### Reading & Searching
 
-| Script          | Args                                             | Purpose                     |
+| Action          | Args                                             | Purpose                     |
 | --------------- | ------------------------------------------------ | --------------------------- |
 | `view-screen`   |                                                  | See current UI state + data |
 | `list-issues`   | `--view <my-issues\|project\|recent> [--q term]` | List issues                 |
@@ -113,7 +113,7 @@ Views: `my-issues`, `projects`, `board`, `sprint`, `settings`.
 
 ### Actions
 
-| Script             | Args                                                   | Purpose             |
+| Action             | Args                                                   | Purpose             |
 | ------------------ | ------------------------------------------------------ | ------------------- |
 | `create-issue`     | `--project PROJ --summary "..." [--type] [--priority]` | Create issue        |
 | `update-issue`     | `--key PROJ-123 [--summary] [--priority] [--labels]`   | Update issue fields |
@@ -122,7 +122,7 @@ Views: `my-issues`, `projects`, `board`, `sprint`, `settings`.
 
 ### Navigation & UI
 
-| Script         | Args                                     | Purpose            |
+| Action         | Args                                     | Purpose            |
 | -------------- | ---------------------------------------- | ------------------ |
 | `navigate`     | `--view <name> [--issueKey] [--boardId]` | Navigate the UI    |
 | `refresh-list` |                                          | Trigger UI refresh |
@@ -140,7 +140,7 @@ Views: `my-issues`, `projects`, `board`, `sprint`, `settings`.
 | "Open PROJ-123"                | `navigate --view=my-issues --issueKey=PROJ-123`                      |
 | "Find bugs assigned to me"     | `search-issues --jql="assignee = currentUser() AND issuetype = Bug"` |
 
-After any write operation, run `pnpm script refresh-list`.
+After any write operation, run `pnpm action refresh-list`.
 
 ## Keyboard Shortcuts
 

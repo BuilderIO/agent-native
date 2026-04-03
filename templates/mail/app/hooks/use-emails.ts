@@ -164,7 +164,10 @@ export function useEmails(view: string = "inbox", search?: string) {
     },
     select: (data) => filterSuppressed(data, view),
     staleTime: 15_000,
-    refetchInterval: 30_000,
+    // Only poll when the last fetch succeeded — avoids retry loops when
+    // Google is disconnected or credentials are missing.
+    refetchInterval: (query) =>
+      query.state.status === "error" ? false : 30_000,
     refetchOnWindowFocus: "always",
     retry: false,
   });

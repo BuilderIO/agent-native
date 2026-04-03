@@ -1,9 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { ScriptTool } from "../../agent/types.js";
+import type { ActionTool } from "../../agent/types.js";
 import { parseArgs } from "../utils.js";
 
-export const tool: ScriptTool = {
+export const tool: ActionTool = {
   description:
     "Write content to a file. Creates the file if it doesn't exist, or overwrites it. Creates parent directories automatically.",
   parameters: {
@@ -49,7 +49,7 @@ export default async function main(args: string[]): Promise<void> {
   const parsed = parseArgs(args);
   if (!parsed.path || parsed.content === undefined) {
     console.error("Usage: write-file --path <file> --content <text>");
-    process.exit(1);
+    throw new Error("Script failed");
   }
   console.log(await run(parsed));
 }

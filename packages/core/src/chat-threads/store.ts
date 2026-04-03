@@ -1,24 +1,27 @@
 import { getDbExec, isPostgres, intType } from "../db/client.js";
 import { emitChatThreadChange } from "./emitter.js";
 
-let _initialized = false;
+let _initPromise: Promise<void> | undefined;
 
 async function ensureTable(): Promise<void> {
-  if (_initialized) return;
-  const client = getDbExec();
-  await client.execute(`
-    CREATE TABLE IF NOT EXISTS chat_threads (
-      id TEXT PRIMARY KEY,
-      owner_email TEXT NOT NULL,
-      title TEXT NOT NULL DEFAULT '',
-      preview TEXT NOT NULL DEFAULT '',
-      thread_data TEXT NOT NULL DEFAULT '{}',
-      message_count ${intType()} NOT NULL DEFAULT 0,
-      created_at ${intType()} NOT NULL,
-      updated_at ${intType()} NOT NULL
-    )
-  `);
-  _initialized = true;
+  if (!_initPromise) {
+    _initPromise = (async () => {
+      const client = getDbExec();
+      await client.execute(`
+        CREATE TABLE IF NOT EXISTS chat_threads (
+          id TEXT PRIMARY KEY,
+          owner_email TEXT NOT NULL,
+          title TEXT NOT NULL DEFAULT '',
+          preview TEXT NOT NULL DEFAULT '',
+          thread_data TEXT NOT NULL DEFAULT '{}',
+          message_count ${intType()} NOT NULL DEFAULT 0,
+          created_at ${intType()} NOT NULL,
+          updated_at ${intType()} NOT NULL
+        )
+      `);
+    })();
+  }
+  return _initPromise;
 }
 
 function generateId(): string {

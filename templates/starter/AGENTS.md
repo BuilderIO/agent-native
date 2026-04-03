@@ -1,6 +1,6 @@
 # {{APP_NAME}} — Agent Guide
 
-This app follows the agent-native core philosophy: the agent and UI are equal partners. Everything the UI can do, the agent can do via scripts. The agent always knows what you're looking at via application state. See the root AGENTS.md for full framework documentation.
+This app follows the agent-native core philosophy: the agent and UI are equal partners. Everything the UI can do, the agent can do via actions. The agent always knows what you're looking at via application state. See the root AGENTS.md for full framework documentation.
 
 This is an **@agent-native/core** application -- the AI agent and UI share state through a SQL database, with polling for real-time sync.
 
@@ -17,7 +17,7 @@ Resources are SQL-backed persistent files for storing notes, learnings, and cont
 
 ### Resource scripts
 
-| Script            | Args                                           | Purpose                 |
+| Action            | Args                                           | Purpose                 |
 | ----------------- | ---------------------------------------------- | ----------------------- |
 | `resource-read`   | `--name <name> [--scope personal\|shared]`     | Read a resource         |
 | `resource-write`  | `--name <name> --content <text> [--scope ...]` | Write/update a resource |
@@ -35,11 +35,11 @@ Ephemeral UI state is stored in the SQL `application_state` table, accessed via 
 
 ## Agent Operations
 
-**Always run `pnpm script view-screen` first** before taking any action.
+**Always run `pnpm action view-screen` first** before taking any action.
 
-### Scripts
+### Actions
 
-| Script        | Args                              | Purpose                         |
+| Action        | Args                              | Purpose                         |
 | ------------- | --------------------------------- | ------------------------------- |
 | `view-screen` |                                   | See current UI state            |
 | `navigate`    | `--view <name>` or `--path <url>` | Navigate the UI                 |
@@ -54,7 +54,7 @@ Ephemeral UI state is stored in the SQL `application_state` table, accessed via 
 | --------------------- | -------------------------------------------------------------- |
 | `storing-data`        | Before storing or reading any app state                        |
 | `delegate-to-agent`   | Before adding LLM calls or AI delegation                       |
-| `scripts`             | Before creating or modifying scripts                           |
+| `actions`             | Before creating or modifying scripts                           |
 | `self-modifying-code` | Before editing source, components, or styles                   |
 | `frontend-design`     | Before building or restyling any UI component, page, or layout |
 

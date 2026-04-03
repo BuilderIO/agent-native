@@ -2,7 +2,7 @@
 
 You are the AI assistant for this Greenhouse recruiting client. You can search jobs, manage candidates, view pipelines, analyze resumes, and help with recruiting workflows.
 
-This is an **agent-native** recruiting app built with `@agent-native/core`. The agent and the UI have full parity — everything the user can do in the GUI, the agent can do via scripts and the shared database.
+This is an **agent-native** recruiting app built with `@agent-native/core`. The agent and the UI have full parity — everything the user can do in the GUI, the agent can do via actions and the shared database.
 
 ## Core Philosophy
 
@@ -13,7 +13,7 @@ This is an **agent-native** recruiting app built with `@agent-native/core`. The 
 See `.agents/skills/` for the framework rules that apply to all agent-native apps:
 
 - **delegate-to-agent** — UI never calls an LLM directly. All AI goes through the agent chat.
-- **scripts** — Complex operations are scripts in `scripts/`, run via `pnpm script <name>`.
+- **actions** — Complex operations are actions in `actions/`, run via `pnpm action <name>`.
 - **real-time-sync** — UI stays in sync with agent changes via polling.
 - **frontend-design** — Build distinctive, production-grade UI.
 
@@ -39,7 +39,7 @@ Resources are SQL-backed persistent files for storing notes, learnings, and cont
 
 ### Resource scripts
 
-| Script            | Args                                           | Purpose                 |
+| Action            | Args                                           | Purpose                 |
 | ----------------- | ---------------------------------------------- | ----------------------- |
 | `resource-read`   | `--name <name> [--scope personal\|shared]`     | Read a resource         |
 | `resource-write`  | `--name <name> --content <text> [--scope ...]` | Write/update a resource |
@@ -56,7 +56,7 @@ Resources are SQL-backed persistent files for storing notes, learnings, and cont
 │  - reads data      │     │  - reads/writes    │
 │    via API proxy   │     │    via scripts     │
 │  - sends actions   │     │  - runs scripts    │
-│    via API         │     │    via pnpm script │
+│    via API         │     │    via pnpm action │
 └────────┬───────────┘     └──────────┬─────────┘
          │                            │
          └──────────┬─────────────────┘
@@ -81,10 +81,10 @@ Resources are SQL-backed persistent files for storing notes, learnings, and cont
 
 All recruiting data comes from the **Greenhouse Harvest API**. The app proxies all requests through local API routes. Agent notes are stored in SQL (SQLite, Postgres, Turso, etc. via `DATABASE_URL`).
 
-- Use `pnpm script view-screen` to see what the user is looking at (with actual data)
-- Use `pnpm script list-jobs --status=open` to list open jobs
-- Use `pnpm script list-candidates --search=term` to search candidates
-- Use `pnpm script get-pipeline --jobId=123` to see a job's pipeline
+- Use `pnpm action view-screen` to see what the user is looking at (with actual data)
+- Use `pnpm action list-jobs --status=open` to list open jobs
+- Use `pnpm action list-candidates --search=term` to search candidates
+- Use `pnpm action get-pipeline --jobId=123` to see a job's pipeline
 - Check connection status via `GET /api/greenhouse/status`
 
 ## Application State
@@ -112,17 +112,17 @@ Views: `dashboard`, `jobs`, `candidates`, `interviews`, `settings`.
 
 ## Agent Operations
 
-**Always run `pnpm script view-screen` first** before taking any action. This returns the navigation state AND fetches actual job/candidate/interview data from the Greenhouse API.
+**Always run `pnpm action view-screen` first** before taking any action. This returns the navigation state AND fetches actual job/candidate/interview data from the Greenhouse API.
 
-**Always use `pnpm script <name>` for operations** — scripts call the API and handle errors. Never use `curl`.
+**Always use `pnpm action <name>` for operations** — scripts call the API and handle errors. Never use `curl`.
 
-**After any mutation** (advance, move, reject, create), always run `pnpm script refresh-data`.
+**After any mutation** (advance, move, reject, create), always run `pnpm action refresh-data`.
 
-## Scripts
+## Actions
 
 ### Reading & Searching
 
-| Script              | Args                             | Purpose                             |
+| Action              | Args                             | Purpose                             |
 | ------------------- | -------------------------------- | ----------------------------------- |
 | `view-screen`       |                                  | See what the user sees (with data)  |
 | `list-jobs`         | `--status <open\|closed\|draft>` | List jobs with optional filter      |
@@ -135,7 +135,7 @@ Views: `dashboard`, `jobs`, `candidates`, `interviews`, `settings`.
 
 ### Actions
 
-| Script              | Args                                                       | Purpose                |
+| Action              | Args                                                       | Purpose                |
 | ------------------- | ---------------------------------------------------------- | ---------------------- |
 | `advance-candidate` | `--applicationId <id> --fromStageId <id>`                  | Advance to next stage  |
 | `move-candidate`    | `--applicationId <id> --fromStageId <id> --toStageId <id>` | Move to specific stage |
@@ -144,7 +144,7 @@ Views: `dashboard`, `jobs`, `candidates`, `interviews`, `settings`.
 
 ### Notes & Navigation
 
-| Script         | Args                                                                    | Purpose               |
+| Action         | Args                                                                    | Purpose               |
 | -------------- | ----------------------------------------------------------------------- | --------------------- |
 | `manage-notes` | `--action=create\|list\|delete --candidateId <id> [--content] [--type]` | CRUD for AI notes     |
 | `navigate`     | `--view <name> [--jobId <id>] [--candidateId <id>]`                     | Navigate the UI       |

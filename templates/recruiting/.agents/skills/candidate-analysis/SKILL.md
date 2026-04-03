@@ -11,11 +11,11 @@ description: >-
 
 When the user asks you to analyze a candidate:
 
-1. **Get the candidate**: `pnpm script get-candidate --id <candidateId>`
-2. **Get the job context**: `pnpm script get-job --id <jobId>` (from the candidate's application)
+1. **Get the candidate**: `pnpm action get-candidate --id <candidateId>`
+2. **Get the job context**: `pnpm action get-job --id <jobId>` (from the candidate's application)
 3. **Perform your analysis** — evaluate fit, identify strengths/weaknesses, note concerns
-4. **Save the result**: `pnpm script manage-notes --action=create --candidateId=<id> --type=resume_analysis --content="..."`
-5. **Refresh the UI**: `pnpm script refresh-data`
+4. **Save the result**: `pnpm action manage-notes --action=create --candidateId=<id> --type=resume_analysis --content="..."`
+5. **Refresh the UI**: `pnpm action refresh-data`
 
 ## Note Types
 
@@ -30,13 +30,13 @@ When the user asks you to analyze a candidate:
 
 ```bash
 # Create a note
-pnpm script manage-notes --action=create --candidateId=123 --type=resume_analysis --content="Strong frontend skills..."
+pnpm action manage-notes --action=create --candidateId=123 --type=resume_analysis --content="Strong frontend skills..."
 
 # List notes for a candidate
-pnpm script manage-notes --action=list --candidateId=123
+pnpm action manage-notes --action=list --candidateId=123
 
 # Delete a note
-pnpm script manage-notes --action=delete --id=note-abc123
+pnpm action manage-notes --action=delete --id=note-abc123
 ```
 
 ## Comparison Workflow

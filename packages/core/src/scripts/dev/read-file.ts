@@ -1,11 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { ScriptTool } from "../../agent/types.js";
+import type { ActionTool } from "../../agent/types.js";
 import { parseArgs } from "../utils.js";
 
 const MAX_OUTPUT = 50_000;
 
-export const tool: ScriptTool = {
+export const tool: ActionTool = {
   description:
     "Read the contents of a file. Returns the file with line numbers. Use offset and limit to read specific sections of large files.",
   parameters: {
@@ -70,7 +70,7 @@ export default async function main(args: string[]): Promise<void> {
   const parsed = parseArgs(args);
   if (!parsed.path) {
     console.error("Usage: read-file --path <file>");
-    process.exit(1);
+    throw new Error("Script failed");
   }
   console.log(await run(parsed));
 }

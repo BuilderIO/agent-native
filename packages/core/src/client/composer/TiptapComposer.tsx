@@ -31,6 +31,12 @@ interface TiptapComposerProps {
   placeholder?: string;
   disabled?: boolean;
   focusRef?: React.Ref<TiptapComposerHandle>;
+  /** When provided, called instead of composerRuntime.send(). Used for queue mode. */
+  onSubmit?: (text: string, references: Reference[]) => void;
+  /** Custom action button (e.g. stop button) to render instead of the default send button. */
+  actionButton?: React.ReactNode;
+  /** Custom attachment button to render instead of ComposerPrimitive.AddAttachment. */
+  attachButton?: React.ReactNode;
 }
 
 type PopoverState = {
@@ -44,6 +50,9 @@ export function TiptapComposer({
   placeholder = "Message agent...",
   disabled = false,
   focusRef,
+  onSubmit,
+  actionButton,
+  attachButton,
 }: TiptapComposerProps) {
   const [popover, setPopover] = useState<PopoverState>(null);
   const popoverRef = useRef<MentionPopoverRef>(null);
@@ -186,19 +195,27 @@ export function TiptapComposer({
           return true;
         }
 
-        // Detect @ trigger
+        // Detect @ trigger — only when preceded by start-of-text, space, or newline
+        // (not after alphanumeric chars, which would indicate an email address)
         if (event.key === "@") {
-          const coords = view.coordsAtPos(view.state.selection.from);
-          setTimeout(() => {
-            const state: PopoverState = {
-              type: "@",
-              position: { top: coords.top, left: coords.left },
-              startPos: view.state.selection.from,
-              query: "",
-            };
-            popoverStateRef.current = state;
-            setPopover(state);
-          }, 0);
+          const { from } = view.state.selection;
+          const textBefore = view.state.doc.textBetween(
+            Math.max(0, from - 1),
+            from,
+          );
+          if (from === 1 || textBefore === "" || /\s/.test(textBefore)) {
+            const coords = view.coordsAtPos(from);
+            setTimeout(() => {
+              const state: PopoverState = {
+                type: "@",
+                position: { top: coords.top, left: coords.left },
+                startPos: view.state.selection.from,
+                query: "",
+              };
+              popoverStateRef.current = state;
+              setPopover(state);
+            }, 0);
+          }
           return false;
         }
 
@@ -251,11 +268,10 @@ export function TiptapComposer({
       if (node.isText) {
         textParts.push(node.text);
       } else if (node.type.name === "mentionReference") {
-        textParts.push(`@${node.attrs.label}`);
+        textParts.push(`@[${node.attrs.label}|${node.attrs.icon || "file"}]`);
       } else if (node.type.name === "fileReference") {
-        textParts.push(
-          `@${node.attrs.path?.split("/").pop() || node.attrs.path}`,
-        );
+        const label = node.attrs.path?.split("/").pop() || node.attrs.path;
+        textParts.push(`@[${label}|file]`);
       } else if (node.type.name === "skillReference") {
         textParts.push(`/${node.attrs.name}`);
       } else if (node.type.name === "hardBreak") {
@@ -321,14 +337,16 @@ export function TiptapComposer({
     if (!ed) return;
 
     const { text, references } = syncComposerState();
-    const composerState = composerRuntime.getState();
-    if (!text.trim() && references.length === 0 && composerState.isEmpty)
-      return;
+    if (!text.trim() && references.length === 0) return;
 
-    composerRuntime.send();
+    if (onSubmit) {
+      onSubmit(text, references);
+    } else {
+      composerRuntime.send();
+    }
     ed.commands.clearContent();
     closePopover();
-  }, [closePopover, composerRuntime, editor, syncComposerState]);
+  }, [closePopover, composerRuntime, editor, onSubmit, syncComposerState]);
 
   // Helper functions that operate on the editor view directly
   // These are called from handleKeyDown which can't use React state
@@ -489,15 +507,17 @@ export function TiptapComposer({
   return (
     <>
       <div className="flex items-center gap-1 px-2 py-1.5">
-        <ComposerPrimitive.AddAttachment asChild>
-          <button
-            type="button"
-            className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50 disabled:opacity-30 disabled:cursor-not-allowed"
-            title="Attach files"
-          >
-            <IconPaperclip className="h-4 w-4" />
-          </button>
-        </ComposerPrimitive.AddAttachment>
+        {attachButton ?? (
+          <ComposerPrimitive.AddAttachment asChild>
+            <button
+              type="button"
+              className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50 disabled:opacity-30 disabled:cursor-not-allowed"
+              title="Attach files"
+            >
+              <IconPaperclip className="h-4 w-4" />
+            </button>
+          </ComposerPrimitive.AddAttachment>
+        )}
         <style>{`
           .aui-composer .ProseMirror p.is-editor-empty:first-child::before {
             content: attr(data-placeholder);
@@ -512,20 +532,24 @@ export function TiptapComposer({
           editor={editor}
           className="aui-composer flex-1 min-w-0 [&_.ProseMirror]:outline-none [&_.ProseMirror_p]:m-0"
         />
-        {!canSend && (
-          <kbd className="shrink-0 text-[11px] text-muted-foreground/40 font-medium border border-border/50 rounded px-1.5 py-0.5 leading-none pointer-events-none">
-            {isMac ? "⌘I" : "Ctrl+I"}
-          </kbd>
+        {actionButton ?? (
+          <>
+            {!canSend && (
+              <kbd className="shrink-0 text-[11px] text-muted-foreground/40 font-medium border border-border/50 rounded px-1.5 py-0.5 leading-none pointer-events-none">
+                {isMac ? "⌘I" : "Ctrl+I"}
+              </kbd>
+            )}
+            <button
+              type="button"
+              onClick={submitComposer}
+              disabled={!canSend}
+              className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed"
+              title="Send message"
+            >
+              <IconArrowUp className="h-3.5 w-3.5" />
+            </button>
+          </>
         )}
-        <button
-          type="button"
-          onClick={submitComposer}
-          disabled={!canSend}
-          className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed"
-          title="Send message"
-        >
-          <IconArrowUp className="h-3.5 w-3.5" />
-        </button>
       </div>
       <MentionPopover
         ref={popoverRef}

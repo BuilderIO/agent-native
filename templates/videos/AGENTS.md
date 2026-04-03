@@ -1,6 +1,6 @@
 # Videos — Agent Guide
 
-This app follows the agent-native core philosophy: the agent and UI are equal partners. Everything the UI can do, the agent can do via scripts. The agent always knows what you're looking at via application state. See the root AGENTS.md for full framework documentation.
+This app follows the agent-native core philosophy: the agent and UI are equal partners. Everything the UI can do, the agent can do via actions. The agent always knows what you're looking at via application state. See the root AGENTS.md for full framework documentation.
 
 This is an **agent-native** Remotion animation studio built with `@agent-native/core`.
 
@@ -21,7 +21,7 @@ Resources are SQL-backed persistent files for storing notes, learnings, and cont
 
 ### Resource scripts
 
-| Script            | Args                                           | Purpose                 |
+| Action            | Args                                           | Purpose                 |
 | ----------------- | ---------------------------------------------- | ----------------------- |
 | `resource-read`   | `--name <name> [--scope personal\|shared]`     | Read a resource         |
 | `resource-write`  | `--name <name> --content <text> [--scope ...]` | Write/update a resource |
@@ -59,13 +59,13 @@ Views: `"home"` (studio home), `"composition"` (editing a composition), `"compon
 
 ## Agent Operations
 
-**Always run `pnpm script view-screen` first** before taking any action.
+**Always run `pnpm action view-screen` first** before taking any action.
 
-**Always use `pnpm script <name>` for operations** -- never curl or raw HTTP.
+**Always use `pnpm action <name>` for operations** -- never curl or raw HTTP.
 
-### Scripts
+### Actions
 
-| Script                        | Args                                    | Purpose                        |
+| Action                        | Args                                    | Purpose                        |
 | ----------------------------- | --------------------------------------- | ------------------------------ |
 | `view-screen`                 |                                         | See current UI state + context |
 | `navigate`                    | `--compositionId <id>` or `--view home` | Navigate the UI                |
@@ -77,11 +77,11 @@ Views: `"home"` (studio home), `"composition"` (editing a composition), `"compon
 
 | User request                     | What to do                                                             |
 | -------------------------------- | ---------------------------------------------------------------------- |
-| "What am I looking at?"          | `pnpm script view-screen`                                              |
-| "Create a new composition"       | `pnpm script create-composition --id my-comp --title "..."`            |
-| "Open the logo reveal"           | `pnpm script navigate --compositionId=logo-reveal`                     |
-| "Go back to the studio"          | `pnpm script navigate --view=home`                                     |
-| "Generate an animated component" | `pnpm script generate-animated-component --name X --description "..."` |
+| "What am I looking at?"          | `pnpm action view-screen`                                              |
+| "Create a new composition"       | `pnpm action create-composition --id my-comp --title "..."`            |
+| "Open the logo reveal"           | `pnpm action navigate --compositionId=logo-reveal`                     |
+| "Go back to the studio"          | `pnpm action navigate --view=home`                                     |
+| "Generate an animated component" | `pnpm action generate-animated-component --name X --description "..."` |
 
 ## Skills
 
@@ -91,7 +91,7 @@ Views: `"home"` (studio home), `"composition"` (editing a composition), `"compon
 | `animation-tracks`       | Before editing animation tracks or properties |
 | `storing-data`           | Before storing or reading any app state       |
 | `delegate-to-agent`      | Before adding LLM calls or AI delegation      |
-| `scripts`                | Before creating or modifying scripts          |
+| `actions`                | Before creating or modifying scripts          |
 | `self-modifying-code`    | Before editing source, components, or styles  |
 | `frontend-design`        | Before building or restyling any UI           |
 

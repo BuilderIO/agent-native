@@ -74,7 +74,7 @@ export function createAgentChatAdapter(options?: {
             .filter(
               (p): p is { type: "text"; text: string } => p.type === "text",
             )
-            .map((p) => p.text)
+            .map((p) => p.text.replace(/@\[([^\]|]+)\|[^\]]+\]/g, "@$1"))
             .join("\n"),
         }))
         .filter((m) => m.content.trim());
@@ -98,7 +98,7 @@ export function createAgentChatAdapter(options?: {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            message: messageText,
+            message: messageText.replace(/@\[([^\]|]+)\|[^\]]+\]/g, "@$1"),
             history,
             ...(threadId ? { threadId } : {}),
             ...(attachments.length > 0 ? { attachments } : {}),

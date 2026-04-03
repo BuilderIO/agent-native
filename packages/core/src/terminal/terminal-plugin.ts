@@ -139,6 +139,7 @@ export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
       const cleanup = () => result.close();
       process.once("SIGTERM", cleanup);
       process.once("SIGINT", cleanup);
+      process.once("exit", cleanup);
 
       console.log(
         `[terminal] Agent terminal ready (command: ${command}, port: ${result.port})`,

@@ -24,8 +24,10 @@ export { requireEnvKey, type MissingKeyResponse } from "./missing-key.js";
 export { verifyCaptcha, type CaptchaVerifyResult } from "./captcha.js";
 export {
   createProductionAgentHandler,
+  type ActionEntry,
   type ScriptEntry,
   type ProductionAgentOptions,
+  type ActionTool,
   type ScriptTool,
   type AgentMessage,
   type AgentChatRequest,
@@ -88,7 +90,12 @@ export {
   type TerminalPluginOptions,
 } from "../terminal/terminal-plugin.js";
 
+export { isOAuthConnected, getOAuthAccounts } from "./oauth-helpers.js";
 export { wrapWithAnalytics } from "./analytics.js";
+export {
+  autoDiscoverActions,
+  autoDiscoverScripts,
+} from "./action-discovery.js";
 
 export {
   isElectron,

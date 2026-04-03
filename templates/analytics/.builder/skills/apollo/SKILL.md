@@ -37,19 +37,19 @@ description: >
 
 ```bash
 # Search by email
-pnpm script apollo-search --email=user@example.com
+pnpm action apollo-search --email=user@example.com
 
 # Search by company
-pnpm script apollo-search --company=Example Inc
+pnpm action apollo-search --company=Example Inc
 
 # Search by domain
-pnpm script apollo-search --domain=example.com
+pnpm action apollo-search --domain=example.com
 
 # Find decision-makers
-pnpm script apollo-search --company=Example Inc --title=CTO
+pnpm action apollo-search --company=Example Inc --title=CTO
 
 # Search by name
-pnpm script apollo-search --name="John Smith"
+pnpm action apollo-search --name="John Smith"
 ```
 
 ## Key Patterns & Gotchas

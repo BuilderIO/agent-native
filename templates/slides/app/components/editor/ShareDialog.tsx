@@ -81,14 +81,20 @@ export default function ShareDialog({
     >
       <DialogContent className="bg-[hsl(240,5%,8%)] border-white/[0.08] max-w-md">
         {showCloudUpgrade || isLocal ? (
-          <CloudUpgrade
-            title="Share Presentation"
-            description="To share presentations publicly, connect a cloud database so your slides can be accessed from anywhere."
-            onClose={() => {
-              setShowCloudUpgrade(false);
-              onOpenChange(false);
-            }}
-          />
+          <>
+            <DialogTitle className="sr-only">Share Presentation</DialogTitle>
+            <DialogDescription className="sr-only">
+              Connect a cloud database to share presentations.
+            </DialogDescription>
+            <CloudUpgrade
+              title="Share Presentation"
+              description="To share presentations publicly, connect a cloud database so your slides can be accessed from anywhere."
+              onClose={() => {
+                setShowCloudUpgrade(false);
+                onOpenChange(false);
+              }}
+            />
+          </>
         ) : (
           <>
             <DialogHeader>

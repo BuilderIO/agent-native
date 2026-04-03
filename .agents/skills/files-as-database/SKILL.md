@@ -44,9 +44,9 @@ Define schema with Drizzle ORM in `server/db/schema.ts`. Get a database instance
 
 The agent uses scripts to read/write the database:
 
-- `pnpm script db-schema` — Show all tables, columns, types
-- `pnpm script db-query --sql "SELECT * FROM forms"` — Run SELECT queries
-- `pnpm script db-exec --sql "INSERT INTO ..."` — Run INSERT/UPDATE/DELETE
+- `pnpm action db-schema` — Show all tables, columns, types
+- `pnpm action db-query --sql "SELECT * FROM forms"` — Run SELECT queries
+- `pnpm action db-exec --sql "INSERT INTO ..."` — Run INSERT/UPDATE/DELETE
 - App-specific scripts for domain operations
 
 ### Cloud Deployment

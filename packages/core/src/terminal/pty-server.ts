@@ -12,6 +12,7 @@ import {
   type IncomingMessage,
   type Server as HttpServer,
 } from "http";
+import { execSync } from "child_process";
 import os from "os";
 import path from "path";
 import fs from "fs";
@@ -20,6 +21,66 @@ import {
   commandExists,
   isAllowedCommand,
 } from "./cli-registry.js";
+
+/**
+ * Kill a process and all its descendants.
+ * node-pty's kill() only sends a signal to the shell, but child processes
+ * (like `builder`) may be in their own process group and survive as orphans.
+ */
+function killProcessTree(pid: number, logPrefix: string): void {
+  if (os.platform() === "win32") {
+    try {
+      execSync(`taskkill /pid ${pid} /T /F`, { stdio: "ignore" });
+    } catch {}
+    return;
+  }
+
+  // Find all descendant PIDs (children, grandchildren, etc.)
+  const descendants: number[] = [];
+  function findDescendants(parentPid: number) {
+    try {
+      const output = execSync(`pgrep -P ${parentPid}`, {
+        encoding: "utf-8",
+        stdio: ["pipe", "pipe", "ignore"],
+      }).trim();
+      if (output) {
+        for (const line of output.split("\n")) {
+          const childPid = parseInt(line, 10);
+          if (childPid && !isNaN(childPid)) {
+            descendants.push(childPid);
+            findDescendants(childPid);
+          }
+        }
+      }
+    } catch {
+      // pgrep returns non-zero when no children found
+    }
+  }
+  findDescendants(pid);
+
+  // Kill descendants first (deepest first), then the parent
+  for (const childPid of descendants.reverse()) {
+    try {
+      process.kill(childPid, "SIGTERM");
+    } catch {}
+  }
+
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch {}
+
+  // Force-kill any survivors after a short delay
+  setTimeout(() => {
+    for (const childPid of descendants) {
+      try {
+        process.kill(childPid, "SIGKILL");
+      } catch {}
+    }
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {}
+  }, 500);
+}
 
 export interface PtyServerOptions {
   /** Working directory for PTY processes. Defaults to process.cwd() */
@@ -298,13 +359,11 @@ export async function createPtyWebSocketServer(
     });
 
     ws.on("close", () => {
-      console.log(`${logPrefix} WebSocket closed, killing PTY`);
+      console.log(
+        `${logPrefix} WebSocket closed, killing PTY tree (pid: ${ptyProcess.pid})`,
+      );
       activePtys.delete(ptyProcess);
-      try {
-        ptyProcess.kill();
-      } catch {
-        // Process may have already exited
-      }
+      killProcessTree(ptyProcess.pid, logPrefix);
     });
   });
 
@@ -324,9 +383,7 @@ export async function createPtyWebSocketServer(
         port: actualPort,
         close: () => {
           for (const p of activePtys) {
-            try {
-              p.kill();
-            } catch {}
+            killProcessTree(p.pid, logPrefix);
           }
           activePtys.clear();
           wss.close();

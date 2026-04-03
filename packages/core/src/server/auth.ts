@@ -133,26 +133,29 @@ function resetRateLimit(key: string): void {
 // Session store — SQL-backed
 // ---------------------------------------------------------------------------
 
-let _sessionTableReady = false;
+let _sessionInitPromise: Promise<void> | undefined;
 let sessionMaxAge = DEFAULT_MAX_AGE;
 
 async function ensureSessionTable(): Promise<void> {
-  if (_sessionTableReady) return;
-  const client = getDbExec();
-  await client.execute(`
-    CREATE TABLE IF NOT EXISTS sessions (
-      token TEXT PRIMARY KEY,
-      email TEXT,
-      created_at ${intType()} NOT NULL
-    )
-  `);
-  // Migration: add email column to existing tables that lack it
-  try {
-    await client.execute(`ALTER TABLE sessions ADD COLUMN email TEXT`);
-  } catch {
-    // Column already exists — ignore
+  if (!_sessionInitPromise) {
+    _sessionInitPromise = (async () => {
+      const client = getDbExec();
+      await client.execute(`
+        CREATE TABLE IF NOT EXISTS sessions (
+          token TEXT PRIMARY KEY,
+          email TEXT,
+          created_at ${intType()} NOT NULL
+        )
+      `);
+      // Migration: add email column to existing tables that lack it
+      try {
+        await client.execute(`ALTER TABLE sessions ADD COLUMN email TEXT`);
+      } catch {
+        // Column already exists — ignore
+      }
+    })();
   }
-  _sessionTableReady = true;
+  return _sessionInitPromise;
 }
 
 async function pruneExpiredSessions(): Promise<void> {

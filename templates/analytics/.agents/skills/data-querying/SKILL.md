@@ -12,8 +12,8 @@ The analytics app connects to multiple data sources. This skill covers general p
 ## Approach
 
 1. **Read the relevant provider skill first** — check `.builder/skills/<provider>/SKILL.md` for table names, column mappings, auth, and gotchas
-2. **Use existing scripts** — run `pnpm script <name> --arg=value` with `--grep` and `--fields` for filtering
-3. **Write ad-hoc scripts** — if no existing script covers the question, create one in `scripts/`
+2. **Use existing scripts** — run `pnpm action <name> --arg=value` with `--grep` and `--fields` for filtering
+3. **Write ad-hoc scripts** — if no existing script covers the question, create one in `actions/`
 4. **Present data in chat** — don't just say "check the dashboard" — actually query, get the data, and present it
 
 ## Built-in Filtering
@@ -22,13 +22,13 @@ All scripts that use `output()` support universal flags:
 
 ```bash
 # Case-insensitive search across all values
-pnpm script hubspot-deals --grep="enterprise"
+pnpm action hubspot-deals --grep="enterprise"
 
 # Pick specific fields from results
-pnpm script hubspot-deals --fields=dealname,amount,stageLabel
+pnpm action hubspot-deals --fields=dealname,amount,stageLabel
 
 # Combine both
-pnpm script seo-top-keywords --grep=remix --fields=keyword,rank_absolute,etv
+pnpm action seo-top-keywords --grep=remix --fields=keyword,rank_absolute,etv
 ```
 
 ## Generating Charts
@@ -41,24 +41,24 @@ Use the `generate-chart` script to create inline charts for chat responses. See 
 
 ```bash
 # GitHub PRs
-pnpm script github-prs --org=YourOrg --query="is:open label:bug"
+pnpm action github-prs --org=YourOrg --query="is:open label:bug"
 
 # Jira tickets
-pnpm script jira-search --jql="summary ~ SSO" --fields=key,summary,status
+pnpm action jira-search --jql="summary ~ SSO" --fields=key,summary,status
 
 # HubSpot deals
-pnpm script hubspot-deals --fields=dealname,amount,stageLabel
+pnpm action hubspot-deals --fields=dealname,amount,stageLabel
 
 # SEO keywords
-pnpm script seo-top-keywords --grep=remix --fields=keyword,rank_absolute,etv
+pnpm action seo-top-keywords --grep=remix --fields=keyword,rank_absolute,etv
 ```
 
 ### Writing Ad-Hoc Scripts
 
 When no existing script covers the question:
 
-1. Create a new script in `scripts/` that imports the relevant server lib
-2. Run it via `pnpm script <name>`
+1. Create a new script in `actions/` that imports the relevant server lib
+2. Run it via `pnpm action <name>`
 3. For one-off queries, you can delete the script after
 4. For reusable queries, keep the script
 

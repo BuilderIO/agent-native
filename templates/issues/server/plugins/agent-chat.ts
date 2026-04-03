@@ -1,8 +1,8 @@
 import { createAgentChatPlugin } from "@agent-native/core/server";
-import { scriptRegistry, systemPrompt } from "../../scripts/registry.js";
+import { actionRegistry, systemPrompt } from "../../actions/registry.js";
 
 export default createAgentChatPlugin({
   appId: "issues",
-  scripts: async () => scriptRegistry,
+  actions: async () => actionRegistry,
   systemPrompt,
 });

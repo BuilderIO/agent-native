@@ -96,7 +96,7 @@ pnpm dev          # Start dev server (client + server)
 pnpm build        # Production build
 pnpm typecheck    # TypeScript validation
 pnpm test         # Run Vitest tests
-pnpm script <name> [--args]  # Run a backend script
+pnpm action <name> [--args]  # Run a backend script
 ```
 
 ## TypeScript Everywhere

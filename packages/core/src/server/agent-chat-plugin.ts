@@ -5,10 +5,10 @@ import {
   getRun,
   abortRun,
   subscribeToRun,
-  type ScriptEntry,
+  type ActionEntry,
 } from "../agent/production-agent.js";
 import type {
-  ScriptTool,
+  ActionTool,
   MentionProvider,
   MentionProviderItem,
 } from "../agent/types.js";
@@ -46,22 +46,13 @@ import fs from "node:fs";
 import nodePath from "node:path";
 
 /**
- * Wraps a core CLI script (that writes to console.log) as a ScriptEntry
+ * Wraps a core CLI script (that writes to console.log) as a ActionEntry
  * by capturing stdout.
  */
-/** Sentinel thrown by our process.exit interceptor */
-class ExitIntercepted extends Error {
-  code: number;
-  constructor(code: number) {
-    super(`process.exit(${code})`);
-    this.code = code;
-  }
-}
-
 function wrapCliScript(
-  tool: ScriptTool,
+  tool: ActionTool,
   cliDefault: (args: string[]) => Promise<void>,
-): ScriptEntry {
+): ActionEntry {
   return {
     tool,
     run: async (args: Record<string, string>): Promise<string> => {
@@ -73,7 +64,6 @@ function wrapCliScript(
       const origLog = console.log;
       const origError = console.error;
       const origStdoutWrite = process.stdout.write;
-      const origExit = process.exit;
       console.log = (...a: unknown[]) => {
         logs.push(a.map(String).join(" "));
       };
@@ -90,21 +80,14 @@ function wrapCliScript(
         }
         return true;
       }) as any;
-      // Intercept process.exit so scripts don't kill the server
-      process.exit = ((code?: number) => {
-        throw new ExitIntercepted(code ?? 0);
-      }) as never;
       try {
         await cliDefault(cliArgs);
       } catch (err: any) {
-        if (!(err instanceof ExitIntercepted)) {
-          logs.push(`Error: ${err?.message ?? String(err)}`);
-        }
+        logs.push(`Error: ${err?.message ?? String(err)}`);
       } finally {
         console.log = origLog;
         console.error = origError;
         process.stdout.write = origStdoutWrite;
-        process.exit = origExit;
       }
       return logs.join("\n") || "(no output)";
     },
@@ -115,7 +98,7 @@ function wrapCliScript(
  * Creates resource ScriptEntries available in both prod and dev modes.
  */
 async function createResourceScriptEntries(): Promise<
-  Record<string, ScriptEntry>
+  Record<string, ActionEntry>
 > {
   try {
     const [list, read, write, del] = await Promise.all([
@@ -236,10 +219,10 @@ async function createResourceScriptEntries(): Promise<
 }
 
 /**
- * Creates the call-agent ScriptEntry for cross-agent A2A communication.
+ * Creates the call-agent ActionEntry for cross-agent A2A communication.
  */
 async function createCallAgentScriptEntry(): Promise<
-  Record<string, ScriptEntry>
+  Record<string, ActionEntry>
 > {
   try {
     const mod = await import("../scripts/call-agent.js");
@@ -257,12 +240,18 @@ async function createCallAgentScriptEntry(): Promise<
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
 export interface AgentChatPluginOptions {
-  /** Template-specific scripts (email ops, booking ops, etc.) */
-  scripts?:
-    | Record<string, ScriptEntry>
+  /** Template-specific actions (email ops, booking ops, etc.) */
+  actions?:
+    | Record<string, ActionEntry>
     | (() =>
-        | Record<string, ScriptEntry>
-        | Promise<Record<string, ScriptEntry>>);
+        | Record<string, ActionEntry>
+        | Promise<Record<string, ActionEntry>>);
+  /** @deprecated Use `actions` instead */
+  scripts?:
+    | Record<string, ActionEntry>
+    | (() =>
+        | Record<string, ActionEntry>
+        | Promise<Record<string, ActionEntry>>);
   /** System prompt for the agent. A sensible default is provided. */
   systemPrompt?: string;
   /** Additional system prompt prepended in dev mode */
@@ -309,6 +298,10 @@ Resources can be personal (per-user) or shared (team-wide). By default, resource
 
 When you learn something important (user corrections, preferences, patterns), update the "LEARNINGS.md" resource. Keep it tidy — revise, consolidate, and remove outdated entries rather than only appending.
 When the user gives instructions that should apply to all users/sessions, update the shared "AGENTS.md" resource instead.
+
+### Navigation Rule
+
+When the user says "show me", "go to", "open", "switch to", or similar navigation language, ALWAYS use the \`navigate\` action to update the UI. The user expects to SEE the result in the main app, not just read it in chat. Navigate first, then fetch/display data.
 `;
 
 const PROD_FRAMEWORK_PROMPT = `## Agent-Native Framework — Production Mode
@@ -317,7 +310,7 @@ You are an AI agent in an agent-native application, running in **production mode
 
 The agent and the UI are equal partners — everything the UI can do, you can do via your tools, and vice versa. They share the same SQL database and stay in sync automatically.
 
-**In production mode, you operate through registered scripts exposed as tools.** These are your capabilities — use them to read data, take actions, and help the user. You cannot edit source code or access the filesystem directly. Your tools are the app's API.
+**In production mode, you operate through registered actions exposed as tools.** These are your capabilities — use them to read data, take actions, and help the user. You cannot edit source code or access the filesystem directly. Your tools are the app's API.
 ${FRAMEWORK_CORE}`;
 
 const DEV_FRAMEWORK_PROMPT = `## Agent-Native Framework — Development Mode
@@ -382,10 +375,32 @@ async function loadResourcesForPrompt(owner: string): Promise<string> {
 const DEFAULT_DEV_PROMPT = "";
 
 /**
+ * Generates a system prompt section describing registered template actions.
+ * This helps the agent prefer template-specific actions over raw db-query/db-exec.
+ */
+function generateActionsPrompt(registry: Record<string, ActionEntry>): string {
+  if (!registry || Object.keys(registry).length === 0) return "";
+
+  const lines = Object.entries(registry).map(([name, entry]) => {
+    const desc = entry.tool.description;
+    const params = entry.tool.parameters?.properties;
+    if (params) {
+      const paramList = Object.entries(params)
+        .map(([k, v]) => `--${k}${v.description ? ` (${v.description})` : ""}`)
+        .join(", ");
+      return `- \`${name}\` — ${desc} Args: ${paramList}`;
+    }
+    return `- \`${name}\` — ${desc}`;
+  });
+
+  return `\n\n## Available Actions\n\nThese are your registered template actions. ALWAYS prefer these over raw db-query/db-exec when a matching action exists:\n\n${lines.join("\n")}`;
+}
+
+/**
  * Creates a Nitro plugin that mounts the agent chat endpoint.
  *
  * In dev mode (NODE_ENV !== "production"), automatically includes
- * file system, shell, and database tools alongside any template-specific scripts.
+ * file system, shell, and database tools alongside any template-specific actions.
  *
  * Usage in templates:
  * ```ts
@@ -473,12 +488,12 @@ export function createAgentChatPlugin(
       process.env.AGENT_MODE !== "production";
     const routePath = options?.path ?? "/_agent-native/agent-chat";
 
-    // Resolve scripts — supports lazy loading to avoid import issues with Vite SSR
-    const rawScripts = options?.scripts;
+    // Resolve actions — prefer `actions`, fall back to deprecated `scripts`
+    const rawActions = options?.actions ?? options?.scripts;
     const templateScripts =
-      typeof rawScripts === "function"
-        ? await rawScripts()
-        : (rawScripts ?? {});
+      typeof rawActions === "function"
+        ? await rawActions()
+        : (rawActions ?? {});
 
     // Resource and cross-agent scripts are available in both prod and dev modes
     const resourceScripts = await createResourceScriptEntries();
@@ -504,44 +519,87 @@ export function createAgentChatPlugin(
         name,
         description: entry.tool.description,
       })),
-      handler: async (message) => {
+      streaming: true,
+      handler: async function* (message, context) {
+        // Resolve the caller's identity for user-scoped data access.
+        // Dev: use most recent session from local DB (single user, no verification).
+        // Prod: verify Google OAuth token from caller, check email domain.
+        const isDev = process.env.NODE_ENV !== "production";
+        let userEmail: string | undefined;
+
+        if (isDev) {
+          // Dev mode: trust the caller's claimed email, or auto-detect from local sessions
+          userEmail = (context.metadata?.userEmail as string) || undefined;
+          if (!userEmail) {
+            try {
+              const { getDbExec } = await import("../db/client.js");
+              const db = getDbExec();
+              const { rows } = await db.execute({
+                sql: "SELECT email FROM sessions ORDER BY created_at DESC LIMIT 1",
+                args: [],
+              });
+              if (rows[0]) userEmail = rows[0].email as string;
+            } catch {}
+          }
+        } else {
+          // Prod mode: verify identity via Google OAuth token
+          const googleToken = context.metadata?.googleToken as string;
+          if (googleToken) {
+            try {
+              const res = await fetch(
+                `https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(googleToken)}`,
+              );
+              if (res.ok) {
+                const info = (await res.json()) as {
+                  email?: string;
+                  email_verified?: string;
+                };
+                if (info.email && info.email_verified === "true") {
+                  userEmail = info.email;
+                }
+              }
+            } catch {}
+          }
+        }
+
+        if (userEmail) {
+          process.env.AGENT_USER_EMAIL = userEmail;
+        }
+
         const text = message.parts
           .filter((p): p is { type: "text"; text: string } => p.type === "text")
           .map((p) => p.text)
           .join("\n");
 
         if (!text) {
-          return {
-            message: {
-              role: "agent",
-              parts: [{ type: "text", text: "No text content in message" }],
-            },
+          yield {
+            role: "agent" as const,
+            parts: [
+              { type: "text" as const, text: "No text content in message" },
+            ],
           };
+          return;
         }
 
-        // Run the agent loop directly in-process using the same scripts + prompt.
-        // This avoids HTTP self-calls and port detection issues.
         const Anthropic = (await import("@anthropic-ai/sdk")).default;
         const apiKey = options?.apiKey ?? process.env.ANTHROPIC_API_KEY;
         if (!apiKey) {
-          return {
-            message: {
-              role: "agent" as const,
-              parts: [
-                {
-                  type: "text" as const,
-                  text: "Anthropic API key is not configured. Set ANTHROPIC_API_KEY in .env or pass apiKey in plugin options.",
-                },
-              ],
-            },
+          yield {
+            role: "agent" as const,
+            parts: [
+              {
+                type: "text" as const,
+                text: "Anthropic API key is not configured. Set ANTHROPIC_API_KEY in .env.",
+              },
+            ],
           };
+          return;
         }
         const client = new Anthropic({ apiKey });
-        const model = options?.model ?? "claude-sonnet-4-6-20250514";
-        const resources = await loadResourcesForPrompt("local@localhost");
-        const systemPrompt = basePrompt + resources;
+        const model = options?.model ?? "claude-sonnet-4-6";
+        const a2aSystemPrompt = `You are the ${options?.appId ?? "app"} agent responding to a request from another agent. Be concise and helpful. Use your tools to look up data or take actions as needed.`;
 
-        const tools: any[] = Object.entries(allScripts).map(
+        const tools: any[] = Object.entries(templateScripts).map(
           ([name, entry]) => ({
             name,
             description: entry.tool.description,
@@ -553,70 +611,93 @@ export function createAgentChatPlugin(
         );
 
         const msgs: any[] = [{ role: "user", content: text }];
-        const textParts: string[] = [];
+        let accumulatedText = "";
 
         for (let i = 0; i < 10; i++) {
-          const response = await client.messages.create({
+          // Stream the Anthropic response so we can yield text chunks
+          const apiStream = client.messages.stream({
             model,
             max_tokens: 4096,
-            system: systemPrompt,
-            tools,
+            system: a2aSystemPrompt,
+            tools: tools.length > 0 ? tools : undefined,
             messages: msgs,
           });
 
-          const toolUseBlocks: any[] = [];
-          for (const block of response.content) {
-            if (block.type === "text") textParts.push(block.text);
-            if (block.type === "tool_use") toolUseBlocks.push(block);
+          // Yield text deltas as they arrive
+          for await (const event of apiStream) {
+            if (
+              event.type === "content_block_delta" &&
+              (event.delta as any)?.type === "text_delta"
+            ) {
+              accumulatedText += (event.delta as any).text;
+              yield {
+                role: "agent" as const,
+                parts: [{ type: "text" as const, text: accumulatedText }],
+              };
+            }
           }
+
+          // Get the complete message for tool_use detection
+          const finalMessage = await apiStream.finalMessage();
+          const toolUseBlocks = finalMessage.content.filter(
+            (b: any) => b.type === "tool_use",
+          );
 
           if (
             toolUseBlocks.length === 0 ||
-            response.stop_reason !== "tool_use"
+            finalMessage.stop_reason !== "tool_use"
           ) {
             break;
           }
 
-          msgs.push({ role: "assistant", content: response.content });
+          // Execute tools and continue the loop
+          msgs.push({ role: "assistant", content: finalMessage.content });
           const toolResults = [];
           for (const tb of toolUseBlocks) {
-            const script = allScripts[tb.name];
-            let result = `Unknown tool: ${tb.name}`;
+            const script = allScripts[(tb as any).name];
+            let result = `Unknown tool: ${(tb as any).name}`;
             if (script) {
               try {
-                result = await script.run(tb.input as Record<string, string>);
+                result = await script.run(
+                  (tb as any).input as Record<string, string>,
+                );
               } catch (err: any) {
                 result = `Error: ${err?.message}`;
               }
             }
             toolResults.push({
               type: "tool_result" as const,
-              tool_use_id: tb.id,
+              tool_use_id: (tb as any).id,
               content: result,
             });
           }
           msgs.push({ role: "user", content: toolResults });
         }
 
-        return {
-          message: {
-            role: "agent",
-            parts: [
-              { type: "text", text: textParts.join("") || "(no response)" },
-            ],
-          },
-        };
+        // Final yield if nothing was yielded yet
+        if (!accumulatedText) {
+          yield {
+            role: "agent" as const,
+            parts: [{ type: "text" as const, text: "(no response)" }],
+          };
+        }
       },
     });
+
+    // Generate an "Available Actions" section from template-specific actions
+    // so the agent knows to use them instead of raw SQL
+    const actionsPrompt = generateActionsPrompt(templateScripts);
 
     // Build system prompts — dynamic functions that pre-load resources per-request.
     // Production gets PROD_FRAMEWORK_PROMPT, dev gets DEV_FRAMEWORK_PROMPT.
     // Custom systemPrompt from options overrides the framework default entirely.
-    const prodPrompt = options?.systemPrompt ?? PROD_FRAMEWORK_PROMPT;
-    const devPrompt = options?.devSystemPrompt
-      ? options.devSystemPrompt +
-        (options?.systemPrompt ?? PROD_FRAMEWORK_PROMPT)
-      : DEV_FRAMEWORK_PROMPT;
+    const prodPrompt =
+      (options?.systemPrompt ?? PROD_FRAMEWORK_PROMPT) + actionsPrompt;
+    const devPrompt =
+      (options?.devSystemPrompt
+        ? options.devSystemPrompt +
+          (options?.systemPrompt ?? PROD_FRAMEWORK_PROMPT)
+        : DEV_FRAMEWORK_PROMPT) + actionsPrompt;
     // Keep legacy names for the composition below
     const basePrompt = prodPrompt;
     const devPrefix = options?.devSystemPrompt ?? DEFAULT_DEV_PROMPT;
@@ -693,7 +774,7 @@ export function createAgentChatPlugin(
 
     // Always build the production handler (includes resource tools + call-agent)
     const prodHandler = createProductionAgentHandler({
-      scripts: { ...templateScripts, ...resourceScripts, ...callAgentScript },
+      actions: { ...templateScripts, ...resourceScripts, ...callAgentScript },
       systemPrompt: async (event: any) => {
         const owner = await getOwnerFromEvent(event);
         const resources = await loadResourcesForPrompt(owner);
@@ -710,14 +791,14 @@ export function createAgentChatPlugin(
     if (canToggle) {
       const { createDevScriptRegistry } =
         await import("../scripts/dev/index.js");
-      const devScripts = {
+      const devActions = {
         ...templateScripts,
         ...resourceScripts,
         ...callAgentScript,
         ...(await createDevScriptRegistry()),
       };
       devHandler = createProductionAgentHandler({
-        scripts: devScripts,
+        actions: devActions,
         systemPrompt: async (event: any) => {
           const owner = await getOwnerFromEvent(event);
           const resources = await loadResourcesForPrompt(owner);
@@ -1367,7 +1448,7 @@ export function createAgentChatPlugin(
 }
 
 /**
- * Default agent chat plugin with no template-specific scripts.
+ * Default agent chat plugin with no template-specific actions.
  * In dev mode, provides file system, shell, and database tools.
  * In production, provides only the default system prompt.
  */

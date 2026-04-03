@@ -219,8 +219,7 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
 export const getGoogleStatus = defineEventHandler(async (event: H3Event) => {
   try {
     const session = await getSession(event);
-    const status = await getAuthStatus(session?.email);
-    return status;
+    return await getAuthStatus(session?.email);
   } catch (error: any) {
     setResponseStatus(event, 500);
     return { error: error.message };

@@ -16,7 +16,7 @@ The content app can sync documents bidirectionally with Notion. Documents can be
 Check the Notion connection status.
 
 ```bash
-pnpm script connect-notion-status
+pnpm action connect-notion-status
 ```
 
 Returns whether a Notion integration is connected and which workspace it belongs to.
@@ -26,7 +26,7 @@ Returns whether a Notion integration is connected and which workspace it belongs
 Link a local document to a Notion page for syncing.
 
 ```bash
-pnpm script link-notion-page --documentId abc123 --notionPageId notion-page-id
+pnpm action link-notion-page --documentId abc123 --notionPageId notion-page-id
 ```
 
 ### list-notion-links
@@ -34,7 +34,7 @@ pnpm script link-notion-page --documentId abc123 --notionPageId notion-page-id
 List all documents that are linked to Notion pages.
 
 ```bash
-pnpm script list-notion-links
+pnpm action list-notion-links
 ```
 
 ### pull-notion-page
@@ -42,7 +42,7 @@ pnpm script list-notion-links
 Pull content from a linked Notion page into the local document.
 
 ```bash
-pnpm script pull-notion-page --documentId abc123
+pnpm action pull-notion-page --documentId abc123
 ```
 
 This overwrites the local document's content with the Notion page's content, converted to markdown.
@@ -52,7 +52,7 @@ This overwrites the local document's content with the Notion page's content, con
 Push local document content to the linked Notion page.
 
 ```bash
-pnpm script push-notion-page --documentId abc123
+pnpm action push-notion-page --documentId abc123
 ```
 
 This overwrites the Notion page's content with the local document's markdown, converted to Notion blocks.

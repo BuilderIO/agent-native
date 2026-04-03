@@ -37,7 +37,7 @@ All generated slides follow these conventions:
 
 To edit a slide's content:
 
-1. **Get the deck**: `pnpm script get-deck --id=<deckId>`
+1. **Get the deck**: `pnpm action get-deck --id=<deckId>`
 2. **Parse the JSON**, find the slide by ID
 3. **Modify the content** HTML string
 4. **Update the deck** via `PUT /api/decks/:id` with the full updated deck JSON

@@ -5,29 +5,32 @@
  */
 import { getDbExec, intType } from "../db/client.js";
 
-let _initialized = false;
+let _initPromise: Promise<void> | undefined;
 
 async function ensureRunTables(): Promise<void> {
-  if (_initialized) return;
-  const client = getDbExec();
-  await client.execute(`
-    CREATE TABLE IF NOT EXISTS agent_runs (
-      id TEXT PRIMARY KEY,
-      thread_id TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'running',
-      started_at ${intType()} NOT NULL,
-      completed_at ${intType()}
-    )
-  `);
-  await client.execute(`
-    CREATE TABLE IF NOT EXISTS agent_run_events (
-      run_id TEXT NOT NULL,
-      seq ${intType()} NOT NULL,
-      event_data TEXT NOT NULL,
-      PRIMARY KEY (run_id, seq)
-    )
-  `);
-  _initialized = true;
+  if (!_initPromise) {
+    _initPromise = (async () => {
+      const client = getDbExec();
+      await client.execute(`
+        CREATE TABLE IF NOT EXISTS agent_runs (
+          id TEXT PRIMARY KEY,
+          thread_id TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'running',
+          started_at ${intType()} NOT NULL,
+          completed_at ${intType()}
+        )
+      `);
+      await client.execute(`
+        CREATE TABLE IF NOT EXISTS agent_run_events (
+          run_id TEXT NOT NULL,
+          seq ${intType()} NOT NULL,
+          event_data TEXT NOT NULL,
+          PRIMARY KEY (run_id, seq)
+        )
+      `);
+    })();
+  }
+  return _initPromise;
 }
 
 export async function insertRun(id: string, threadId: string): Promise<void> {

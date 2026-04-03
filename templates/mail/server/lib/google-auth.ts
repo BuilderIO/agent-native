@@ -14,6 +14,7 @@ import {
   listOAuthAccountsByOwner,
   hasOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
+import { isOAuthConnected, getOAuthAccounts } from "@agent-native/core/server";
 
 const SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",
@@ -235,11 +236,7 @@ export async function getClients(
  * checks only that specific account.
  */
 export async function isConnected(forEmail?: string): Promise<boolean> {
-  if (forEmail) {
-    const accounts = await listOAuthAccountsByOwner("google", forEmail);
-    return accounts.length > 0;
-  }
-  return hasOAuthTokens("google");
+  return isOAuthConnected("google", forEmail);
 }
 
 export async function getConnectedAccounts(): Promise<string[]> {
@@ -259,15 +256,7 @@ export interface GoogleAuthStatus {
 export async function getAuthStatus(
   forEmail?: string,
 ): Promise<GoogleAuthStatus> {
-  let oauthAccounts: Array<{
-    accountId: string;
-    tokens: Record<string, unknown>;
-  }>;
-  if (forEmail) {
-    oauthAccounts = await listOAuthAccountsByOwner("google", forEmail);
-  } else {
-    oauthAccounts = await listOAuthAccounts("google");
-  }
+  const oauthAccounts = await getOAuthAccounts("google", forEmail);
 
   if (oauthAccounts.length === 0) {
     return { connected: false, accounts: [] };
@@ -335,12 +324,19 @@ export async function listGmailMessages(
         const messageIds = listRes.messages || [];
         if (messageIds.length === 0) return [];
 
-        const messages = await Promise.all(
-          messageIds.map(async (m: any) => {
-            const msg = await gmailGetMessage(accessToken, m.id, "full");
-            return { ...msg, _accountEmail: email };
-          }),
-        );
+        // Fetch messages in batches of 5 to avoid Gmail rate limits
+        const batchSize = 5;
+        const messages: any[] = [];
+        for (let i = 0; i < messageIds.length; i += batchSize) {
+          const batch = messageIds.slice(i, i + batchSize);
+          const batchResults = await Promise.all(
+            batch.map(async (m: any) => {
+              const msg = await gmailGetMessage(accessToken, m.id, "full");
+              return { ...msg, _accountEmail: email };
+            }),
+          );
+          messages.push(...batchResults);
+        }
 
         return messages;
       } catch (error: any) {

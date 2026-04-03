@@ -4,9 +4,9 @@ You are the AI assistant for this analytics dashboard app. You can query data, b
 
 This is an **agent-native** app built with `@agent-native/core`.
 
-**Core philosophy:** The agent and UI have full parity. Everything the user can see, the agent can see via `view-screen`. Everything the user can do, the agent can do via scripts. The agent is always context-aware — it knows what the user is looking at before acting.
+**Core philosophy:** The agent and UI have full parity. Everything the user can see, the agent can see via `view-screen`. Everything the user can do, the agent can do via actions. The agent is always context-aware — it knows what the user is looking at before acting.
 
-**Always run `pnpm script view-screen` first** before taking any action. This shows what the user is currently looking at and provides context for your response.
+**Always run `pnpm action view-screen` first** before taking any action. This shows what the user is currently looking at and provides context for your response.
 
 ## Resources
 
@@ -19,7 +19,7 @@ Resources are SQL-backed persistent files for notes, learnings, and context.
 
 **Update the `LEARNINGS.md` resource when you learn something important.**
 
-| Script            | Args                                                        | Purpose                 |
+| Action            | Args                                                        | Purpose                 |
 | ----------------- | ----------------------------------------------------------- | ----------------------- |
 | `resource-read`   | `--path <path> [--scope personal\|shared]`                  | Read a resource         |
 | `resource-write`  | `--path <path> --content <text> [--scope personal\|shared]` | Write/update a resource |
@@ -34,7 +34,7 @@ Resources are SQL-backed persistent files for notes, learnings, and context.
 - **data-querying** — General patterns for querying data, filtering, and charts
 - **storing-data** — Settings and config in SQL via settings API
 - **delegate-to-agent** — UI never calls LLMs directly
-- **scripts** — Complex operations as `pnpm script <name>`
+- **scripts** — Complex operations as `pnpm action <name>`
 - **real-time-sync** — Real-time UI sync via SSE (DB change events)
 - **frontend-design** — Build distinctive, production-grade UI
 
@@ -83,7 +83,7 @@ Views: `overview`, `adhoc` (with `dashboardId`), `query`, `data-sources`, `setti
 Frontend (React)  <-->  Backend (Nitro)  <-->  Data Sources (BigQuery, HubSpot, etc.)
      |                       |
      v                       v
-Agent Chat  ------>  Scripts (pnpm script)
+Agent Chat  ------>  Actions (pnpm action)
      |                       |
      v                       v
          SQL Database (shared state)
@@ -99,20 +99,20 @@ Dashboard configs, explorer configs, and theme settings are stored in SQL via th
 | `config-{id}`     | Explorer/tool configuration        |
 | `analytics-theme` | Theme settings (colors, dark mode) |
 
-## Scripts
+## Actions
 
-**Always use `pnpm script <name>` for all operations.** Never use `curl` or raw HTTP requests.
+**Always use `pnpm action <name>` for all operations.** Never use `curl` or raw HTTP requests.
 
 ### Context & Navigation
 
-| Script        | Args                                 | Purpose                    |
+| Action        | Args                                 | Purpose                    |
 | ------------- | ------------------------------------ | -------------------------- |
 | `view-screen` |                                      | See what the user sees now |
 | `navigate`    | `--view <name> [--dashboardId <id>]` | Navigate the UI            |
 
 ### Data Source Scripts
 
-| Script               | Args / Flags                | Use For                         |
+| Action               | Args / Flags                | Use For                         |
 | -------------------- | --------------------------- | ------------------------------- |
 | `github-prs`         | `--org`, `--query`          | PR & issue search               |
 | `hubspot-deals`      | `--grep`, `--fields`        | CRM deals, pipelines            |
@@ -140,7 +140,7 @@ Dashboard configs, explorer configs, and theme settings are stored in SQL via th
 All scripts that use `output()` support:
 
 ```bash
-pnpm script hubspot-deals --grep="enterprise" --fields=dealname,amount,stageLabel
+pnpm action hubspot-deals --grep="enterprise" --fields=dealname,amount,stageLabel
 ```
 
 ## Common Tasks

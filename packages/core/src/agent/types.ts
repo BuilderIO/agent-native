@@ -1,4 +1,4 @@
-export interface ScriptTool {
+export interface ActionTool {
   description: string;
   parameters?: {
     type: "object";
@@ -13,6 +13,9 @@ export interface ScriptTool {
     required?: string[];
   };
 }
+
+/** @deprecated Use `ActionTool` instead */
+export type ScriptTool = ActionTool;
 
 export interface AgentMessage {
   role: "user" | "assistant";
@@ -71,6 +74,7 @@ export type AgentChatEvent =
       agent: string;
       status: "start" | "done" | "error";
     }
+  | { type: "agent_call_text"; agent: string; text: string }
   | { type: "done" }
   | { type: "error"; error: string }
   | { type: "missing_api_key" }

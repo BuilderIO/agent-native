@@ -8,7 +8,7 @@ import {
 } from "h3";
 import type { EventHandler as H3EventHandler } from "h3";
 import type {
-  ScriptTool,
+  ActionTool,
   AgentChatRequest,
   AgentChatEvent,
   AgentChatReference,
@@ -23,13 +23,28 @@ import {
 } from "./run-manager.js";
 import type { ActiveRun } from "./run-manager.js";
 
-export interface ScriptEntry {
-  tool: ScriptTool;
-  run: (args: Record<string, string>) => Promise<string>;
+/** Context passed to action run() for emitting intermediate events */
+export interface ActionRunContext {
+  /** Emit an SSE event to the client (e.g., agent_call_text for streaming) */
+  send: (event: AgentChatEvent) => void;
 }
 
+export interface ActionEntry {
+  tool: ActionTool;
+  run: (
+    args: Record<string, string>,
+    context?: ActionRunContext,
+  ) => Promise<string>;
+}
+
+/** @deprecated Use `ActionEntry` instead */
+export type ScriptEntry = ActionEntry;
+
 export interface ProductionAgentOptions {
-  scripts: Record<string, ScriptEntry>;
+  /** Action entries for the agent. Use `actions` (preferred) or `scripts` (deprecated alias). */
+  actions?: Record<string, ActionEntry>;
+  /** @deprecated Use `actions` instead */
+  scripts?: Record<string, ActionEntry>;
   /** Static system prompt string, or async function called per-request with the H3 event */
   systemPrompt: string | ((event: any) => string | Promise<string>);
   /** Falls back to ANTHROPIC_API_KEY env var */
@@ -136,7 +151,7 @@ async function runAgentLoop(opts: {
   systemPrompt: string;
   tools: Anthropic.Tool[];
   messages: Anthropic.MessageParam[];
-  scripts: Record<string, ScriptEntry>;
+  actions: Record<string, ActionEntry>;
   send: (event: AgentChatEvent) => void;
   signal: AbortSignal;
 }): Promise<void> {
@@ -146,7 +161,7 @@ async function runAgentLoop(opts: {
     systemPrompt,
     tools,
     messages,
-    scripts,
+    actions,
     send,
     signal,
   } = opts;
@@ -165,7 +180,7 @@ async function runAgentLoop(opts: {
         const apiStream = client.messages.stream(
           {
             model,
-            max_tokens: 4096,
+            max_tokens: 16384,
             system: systemPrompt,
             tools,
             messages,
@@ -214,8 +229,8 @@ async function runAgentLoop(opts: {
     const toolResults: Anthropic.ToolResultBlockParam[] = [];
 
     for (const toolUse of toolUseBlocks) {
-      const scriptEntry = scripts[toolUse.name];
-      if (!scriptEntry) {
+      const actionEntry = actions[toolUse.name];
+      if (!actionEntry) {
         const result = `Error: Unknown tool "${toolUse.name}"`;
         send({
           type: "tool_start",
@@ -239,7 +254,10 @@ async function runAgentLoop(opts: {
 
       let result: string;
       try {
-        result = await scriptEntry.run(toolUse.input as Record<string, string>);
+        result = await actionEntry.run(
+          toolUse.input as Record<string, string>,
+          { send },
+        );
       } catch (err: any) {
         result = `Error running ${toolUse.name}: ${err?.message ?? String(err)}`;
       }
@@ -263,8 +281,11 @@ export function createProductionAgentHandler(
 ): H3EventHandler {
   const model = options.model ?? "claude-sonnet-4-6";
 
-  // Build Anthropic tool definitions from script registry
-  const tools: Anthropic.Tool[] = Object.entries(options.scripts).map(
+  // Resolve actions — prefer `actions`, fall back to deprecated `scripts`
+  const resolvedActions = options.actions ?? options.scripts ?? {};
+
+  // Build Anthropic tool definitions from action registry
+  const tools: Anthropic.Tool[] = Object.entries(resolvedActions).map(
     ([name, entry]) => ({
       name,
       description: entry.tool.description,
@@ -389,7 +410,7 @@ export function createProductionAgentHandler(
       async (send, signal) => {
         // Resolve agent @-mentions via A2A calls (inside run so we can emit SSE events)
         if (agentRefs.length > 0) {
-          const { callAgent } = await import("../a2a/client.js");
+          const { A2AClient, callAgent } = await import("../a2a/client.js");
           const agentResponses: string[] = [];
 
           const results = await Promise.allSettled(
@@ -400,13 +421,74 @@ export function createProductionAgentHandler(
                 status: "start",
               });
               try {
-                const response = await callAgent(ref.path, message);
+                // Try streaming first — shows progressive text in the UI
+                const client = new A2AClient(ref.path);
+                const callerEmail = process.env.AGENT_USER_EMAIL;
+
+                // Build A2A metadata with identity info
+                const a2aMetadata: Record<string, unknown> = {};
+                if (callerEmail) a2aMetadata.userEmail = callerEmail;
+                // In prod, include Google token for verification
+                if (process.env.NODE_ENV === "production" && callerEmail) {
+                  try {
+                    const { listOAuthAccountsByOwner } =
+                      await import("../oauth-tokens/store.js");
+                    const accounts = await listOAuthAccountsByOwner(
+                      "google",
+                      callerEmail,
+                    );
+                    const tokens = accounts[0]?.tokens;
+                    if (tokens?.access_token) {
+                      a2aMetadata.googleToken = tokens.access_token;
+                    }
+                  } catch {}
+                }
+
+                let responseText = "";
+                let lastSentLength = 0;
+
+                try {
+                  for await (const task of client.stream(
+                    {
+                      role: "user",
+                      parts: [{ type: "text", text: message }],
+                    },
+                    Object.keys(a2aMetadata).length > 0
+                      ? { metadata: a2aMetadata }
+                      : undefined,
+                  )) {
+                    const newText =
+                      task.status?.message?.parts
+                        ?.filter(
+                          (p): p is { type: "text"; text: string } =>
+                            p.type === "text",
+                        )
+                        ?.map((p) => p.text)
+                        ?.join("") ?? "";
+
+                    if (newText.length > lastSentLength) {
+                      send({
+                        type: "agent_call_text",
+                        agent: ref.name,
+                        text: newText.slice(lastSentLength),
+                      });
+                      lastSentLength = newText.length;
+                    }
+                    responseText = newText;
+                  }
+                } catch {
+                  // Streaming failed — fall back to blocking call
+                  if (!responseText) {
+                    responseText = await callAgent(ref.path, message);
+                  }
+                }
+
                 send({
                   type: "agent_call",
                   agent: ref.name,
                   status: "done",
                 });
-                return `<agent-response name="${ref.name}" id="${ref.refId}">\n${response}\n</agent-response>`;
+                return `<agent-response name="${ref.name}" id="${ref.refId}">\n${responseText}\n</agent-response>`;
               } catch (err: any) {
                 send({
                   type: "agent_call",
@@ -446,7 +528,7 @@ export function createProductionAgentHandler(
           systemPrompt,
           tools,
           messages,
-          scripts: options.scripts,
+          actions: resolvedActions,
           send,
           signal,
         });

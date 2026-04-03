@@ -32,10 +32,10 @@ description: >
 
 ```bash
 # List deals
-pnpm script hubspot-deals --fields=dealname,amount,stageLabel
+pnpm action hubspot-deals --fields=dealname,amount,stageLabel
 
 # Search for a specific customer
-pnpm script hubspot-deals --grep="Example Corp" --fields=dealname,amount,stageLabel
+pnpm action hubspot-deals --grep="Example Corp" --fields=dealname,amount,stageLabel
 ```
 
 ## Key Patterns & Gotchas

@@ -16,7 +16,8 @@ export function useKeyboardShortcuts(config: ShortcutConfig) {
       const isInput =
         target.tagName === "INPUT" ||
         target.tagName === "TEXTAREA" ||
-        target.isContentEditable;
+        target.isContentEditable ||
+        target.closest("[contenteditable]") != null;
 
       if (isInput) return;
 

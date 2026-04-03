@@ -22,13 +22,13 @@ Forms move through three statuses:
 
 ```bash
 # Create as draft (default)
-pnpm script create-form --title "Survey" --fields '[...]'
+pnpm action create-form --title "Survey" --fields '[...]'
 
 # Publish when ready
-pnpm script update-form --id <form-id> --status published
+pnpm action update-form --id <form-id> --status published
 
 # Close when done collecting responses
-pnpm script update-form --id <form-id> --status closed
+pnpm action update-form --id <form-id> --status closed
 ```
 
 ## Public URLs

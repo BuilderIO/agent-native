@@ -1,7 +1,7 @@
 import { EventEmitter } from "events";
 import { getDbExec, isPostgres, intType, type DbExec } from "../db/client.js";
 
-let _initialized = false;
+let _initPromise: Promise<void> | undefined;
 
 const _emitter = new EventEmitter();
 
@@ -10,16 +10,19 @@ export function getSettingsEmitter(): EventEmitter {
 }
 
 async function ensureTable(): Promise<void> {
-  if (_initialized) return;
-  const client = getDbExec();
-  await client.execute(`
-    CREATE TABLE IF NOT EXISTS settings (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL,
-      updated_at ${intType()} NOT NULL
-    )
-  `);
-  _initialized = true;
+  if (!_initPromise) {
+    _initPromise = (async () => {
+      const client = getDbExec();
+      await client.execute(`
+        CREATE TABLE IF NOT EXISTS settings (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL,
+          updated_at ${intType()} NOT NULL
+        )
+      `);
+    })();
+  }
+  return _initPromise;
 }
 
 export async function getSetting(

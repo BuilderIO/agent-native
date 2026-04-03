@@ -38,13 +38,13 @@ description: >
 
 ```bash
 # Open support tickets for a customer
-pnpm script pylon-issues --account="Example Corp" --state=open
+pnpm action pylon-issues --account="Example Corp" --state=open
 
 # All issues
-pnpm script pylon-issues --query=search_term
+pnpm action pylon-issues --query=search_term
 
 # List accounts
-pnpm script pylon-issues --accounts
+pnpm action pylon-issues --accounts
 ```
 
 ## Key Patterns & Gotchas
