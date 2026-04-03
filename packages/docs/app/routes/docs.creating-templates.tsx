@@ -159,8 +159,9 @@ export default function Settings() {
       />
       <p>
         The <code>useFileWatcher</code> hook connects to{" "}
-        <code>/api/events</code> and invalidates react-query caches when files
-        change. This is how the UI stays in sync when the agent modifies data.
+        <code>/_agent-native/events</code> and invalidates react-query caches
+        when files change. This is how the UI stays in sync when the agent
+        modifies data.
       </p>
 
       <h2 id="add-api-routes">Add API routes</h2>

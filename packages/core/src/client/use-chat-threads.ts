@@ -22,7 +22,7 @@ export interface ChatThreadData {
 
 const ACTIVE_THREAD_KEY = "agent-chat-active-thread";
 
-export function useChatThreads(apiUrl = "/api/agent-chat") {
+export function useChatThreads(apiUrl = "/_agent-native/agent-chat") {
   const [threads, setThreads] = useState<ChatThreadSummary[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(() => {
     try {

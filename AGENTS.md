@@ -78,7 +78,7 @@ When the agent needs to do something — query data, call APIs, process informat
 
 ### 4. Polling Keeps the UI in Sync
 
-Database changes sync to the UI via polling. The client `useFileWatcher()` hook polls `/api/poll` every 2 seconds and invalidates React Query caches when changes are detected. This works in all deployment environments including serverless and edge.
+Database changes sync to the UI via polling. The client `useFileWatcher()` hook polls `/_agent-native/poll` every 2 seconds and invalidates React Query caches when changes are detected. This works in all deployment environments including serverless and edge.
 
 ### 5. The Agent Can Modify Code
 
@@ -190,16 +190,36 @@ Auth is automatic and environment-driven via `autoMountAuth(app)`.
 
 6 default plugins auto-mount when your app doesn't have a custom version in `server/plugins/`:
 
-| Plugin        | Default behavior              | Customize when                              |
-| ------------- | ----------------------------- | ------------------------------------------- |
-| `agent-chat`  | Agent chat endpoints          | Custom `mentionProviders` or `systemPrompt` |
-| `auth`        | Auth middleware               | Custom `publicPaths` or Google OAuth config |
-| `core-routes` | `/api/poll`, `/api/ping`, etc | Custom `envKeys` or `sseRoute`              |
-| `file-sync`   | File watcher sync             | Custom sync config                          |
-| `resources`   | Resource CRUD                 | Rarely                                      |
-| `terminal`    | Terminal emulator             | Rarely                                      |
+| Plugin        | Default behavior                                  | Customize when                              |
+| ------------- | ------------------------------------------------- | ------------------------------------------- |
+| `agent-chat`  | Agent chat endpoints                              | Custom `mentionProviders` or `systemPrompt` |
+| `auth`        | Auth middleware                                   | Custom `publicPaths` or Google OAuth config |
+| `core-routes` | `/_agent-native/poll`, `/_agent-native/ping`, etc | Custom `envKeys` or `sseRoute`              |
+| `file-sync`   | File watcher sync                                 | Custom sync config                          |
+| `resources`   | Resource CRUD                                     | Rarely                                      |
+| `terminal`    | Terminal emulator                                 | Rarely                                      |
 
 Only create plugin files for plugins you need to customize. Let defaults auto-mount.
+
+### Framework Route Namespace: `/_agent-native/`
+
+All framework-level routes live under the `/_agent-native/` prefix to avoid collisions with template-specific `/api/*` routes. Templates should NEVER create routes under `/_agent-native/` — that namespace is reserved for the framework.
+
+**Auto-mounted framework routes** (no template boilerplate needed):
+
+| Route                                                         | Purpose                                  |
+| ------------------------------------------------------------- | ---------------------------------------- |
+| `GET /_agent-native/poll`                                     | Polling endpoint for DB change detection |
+| `GET /_agent-native/events`                                   | SSE endpoint for real-time sync          |
+| `GET /_agent-native/ping`                                     | Health check                             |
+| `GET/PUT/DELETE /_agent-native/application-state/:key`        | Application state CRUD                   |
+| `GET/PUT/DELETE /_agent-native/application-state/compose/:id` | Compose draft CRUD                       |
+| `POST /_agent-native/agent-chat`                              | Agent chat SSE endpoint                  |
+| `GET /_agent-native/agent-chat/mentions`                      | Mention search for @-tagging             |
+| `GET /_agent-native/env-status`                               | Env key configuration status             |
+| `POST /_agent-native/env-vars`                                | Save env vars                            |
+
+Templates define their own routes under `/api/*` (e.g., `/api/emails`, `/api/forms`). Never put template routes under `/_agent-native/`.
 
 ## Project Structure
 

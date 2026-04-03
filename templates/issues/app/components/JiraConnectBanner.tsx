@@ -173,7 +173,7 @@ export function JiraConnectBanner() {
                 }
                 setSaving(true);
                 try {
-                  const res = await fetch("/api/env-vars", {
+                  const res = await fetch("/_agent-native/env-vars", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({

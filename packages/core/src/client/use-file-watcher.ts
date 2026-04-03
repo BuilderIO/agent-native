@@ -5,7 +5,7 @@ interface QueryClient {
 }
 
 /**
- * Hook that polls /api/poll for DB change events and invalidates
+ * Hook that polls /_agent-native/poll for DB change events and invalidates
  * react-query caches when changes are detected.
  *
  * Replaces the old SSE-based useFileWatcher. Works in all deployment
@@ -14,7 +14,7 @@ interface QueryClient {
  * @param options.queryClient - The react-query QueryClient instance
  * @param options.queryKeys - Array of query key prefixes to invalidate on change.
  *   Default: ["file", "fileTree"]
- * @param options.eventsUrl - Poll endpoint URL. Default: "/api/poll"
+ * @param options.eventsUrl - Poll endpoint URL. Default: "/_agent-native/poll"
  * @param options.onEvent - Optional callback for each change event
  * @param options.interval - Poll interval in ms. Default: 2000
  * @param options.ignoreSource - Skip events whose `requestSource` matches this
@@ -34,7 +34,7 @@ export function useFileWatcher(
   const {
     queryClient,
     queryKeys = ["file", "fileTree"],
-    eventsUrl = "/api/poll",
+    eventsUrl = "/_agent-native/poll",
     interval = 2000,
   } = options;
 

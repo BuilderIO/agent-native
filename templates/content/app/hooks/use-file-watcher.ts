@@ -5,7 +5,7 @@ export function useFileWatcher() {
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    const eventSource = new EventSource("/api/events");
+    const eventSource = new EventSource("/_agent-native/events");
 
     eventSource.onmessage = () => {
       queryClient.invalidateQueries({ queryKey: ["documents"] });

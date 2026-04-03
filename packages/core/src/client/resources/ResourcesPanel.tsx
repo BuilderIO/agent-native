@@ -1,4 +1,11 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
+import {
+  IconPlus,
+  IconUpload,
+  IconArrowLeft,
+  IconSparkles,
+  IconTrash,
+} from "@tabler/icons-react";
 import { cn } from "../utils.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import { ResourceTree } from "./ResourceTree.js";
@@ -13,92 +20,6 @@ import {
   type ResourceScope,
   type ResourceMeta,
 } from "./use-resources.js";
-
-// ─── Icons ──────────────────────────────────────────────────────────────────
-
-function PlusIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.9}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M12 5v14M5 12h14" />
-    </svg>
-  );
-}
-
-function UploadIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-      <polyline points="17 8 12 3 7 8" />
-      <line x1="12" y1="3" x2="12" y2="15" />
-    </svg>
-  );
-}
-
-function FileIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
-      <path d="M14 2v4a2 2 0 0 0 2 2h4" />
-    </svg>
-  );
-}
-
-function ArrowLeftIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="m12 19-7-7 7-7" />
-      <path d="M19 12H5" />
-    </svg>
-  );
-}
-
-function SkillIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
-    </svg>
-  );
-}
 
 // ─── New Skill Popover ──────────────────────────────────────────────────────
 
@@ -233,7 +154,7 @@ Keep the skill concise (under 500 lines) and actionable.`,
         )}
         title="Create a skill"
       >
-        <SkillIcon className="h-3.5 w-3.5" />
+        <IconSparkles className="h-3.5 w-3.5" />
       </button>
       {open && (
         <div
@@ -344,7 +265,7 @@ function NewFilePopover({ onSubmit }: { onSubmit: (name: string) => void }) {
         )}
         title="New resource"
       >
-        <PlusIcon className="h-3.5 w-3.5" />
+        <IconPlus className="h-3.5 w-3.5" />
       </button>
       {open && (
         <div
@@ -603,7 +524,7 @@ export function ResourcesPanel() {
                 className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
                 title="Back to files"
               >
-                <ArrowLeftIcon className="h-3.5 w-3.5" />
+                <IconArrowLeft className="h-3.5 w-3.5" />
               </button>
               {resourceQuery.data && (
                 <PathBreadcrumb path={resourceQuery.data.path} />
@@ -617,7 +538,7 @@ export function ResourcesPanel() {
                 className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-accent/50"
                 title="Delete resource"
               >
-                <TrashIcon className="h-3.5 w-3.5" />
+                <IconTrash className="h-3.5 w-3.5" />
               </button>
             </div>
           </>
@@ -658,7 +579,7 @@ export function ResourcesPanel() {
                 className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
                 title="Upload file"
               >
-                <UploadIcon className="h-3.5 w-3.5" />
+                <IconUpload className="h-3.5 w-3.5" />
               </button>
               <input
                 ref={fileInputRef}
@@ -734,22 +655,5 @@ export function ResourcesPanel() {
         )}
       </div>
     </div>
-  );
-}
-
-// Re-used from ResourceTree but needed here for delete button
-function TrashIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.85}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-    </svg>
   );
 }

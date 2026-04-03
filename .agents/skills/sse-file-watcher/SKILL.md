@@ -92,7 +92,7 @@ Mitigations:
 | Symptom                            | Check                                                                                                           |
 | ---------------------------------- | --------------------------------------------------------------------------------------------------------------- |
 | UI not updating after agent writes | Is `useFileWatcher` called with the correct `queryClient`? Are the `queryKeys` matching your `useQuery` keys?   |
-| SSE not firing                     | Open browser devtools → Network tab → filter by EventStream. Is `/api/events` connected? Is the server running? |
+| SSE not firing                     | Open browser devtools → Network tab → filter by EventStream. Is `/_agent-native/events` connected? Is the server running? |
 | Watcher not detecting changes      | Is the path correct? `createFileWatcher("./data")` is relative to CWD. Check the server's working directory.    |
 | Constant reconnections             | Check for server crashes in terminal output.                                                                    |
 | High CPU / event storms            | The agent is writing many files rapidly. Add `staleTime` to queries and use path-based filtering.               |

@@ -1,6 +1,7 @@
 import { createAgentChatPlugin } from "@agent-native/core/server";
 
 export default createAgentChatPlugin({
+  appId: "slides",
   mentionProviders: async () => {
     const { getDb } = await import("../db/index.js");
     const { decks } = await import("../db/schema.js");

@@ -343,6 +343,9 @@ export function createProductionAgentHandler(
     const client = new Anthropic({ apiKey });
     const enrichedMessage = enrichMessage(message, references);
 
+    // Pre-compute agent references for A2A resolution inside the run
+    const agentRefs = references.filter((r) => r.type === "agent");
+
     // Build user content: text + any image attachments
     const userContent: Anthropic.ContentBlockParam[] = [];
     if (attachments?.length) {
@@ -383,8 +386,62 @@ export function createProductionAgentHandler(
     startRun(
       runId,
       threadId ?? runId,
-      (send, signal) =>
-        runAgentLoop({
+      async (send, signal) => {
+        // Resolve agent @-mentions via A2A calls (inside run so we can emit SSE events)
+        if (agentRefs.length > 0) {
+          const { callPeerAgent } =
+            await import("../server/call-peer-agent.js");
+          const agentResponses: string[] = [];
+
+          const results = await Promise.allSettled(
+            agentRefs.map(async (ref) => {
+              send({
+                type: "agent_call",
+                agent: ref.name,
+                status: "start",
+              });
+              try {
+                const response = await callPeerAgent(ref.path, message);
+                send({
+                  type: "agent_call",
+                  agent: ref.name,
+                  status: "done",
+                });
+                return `<agent-response name="${ref.name}" id="${ref.refId}">\n${response}\n</agent-response>`;
+              } catch (err: any) {
+                send({
+                  type: "agent_call",
+                  agent: ref.name,
+                  status: "error",
+                });
+                return `<agent-response name="${ref.name}" id="${ref.refId}" error="true">\nFailed to reach ${ref.name}: ${err?.message}\n</agent-response>`;
+              }
+            }),
+          );
+
+          for (const result of results) {
+            if (result.status === "fulfilled") {
+              agentResponses.push(result.value);
+            }
+          }
+
+          if (agentResponses.length > 0) {
+            const agentContext =
+              "Responses from other agents:\n\n" + agentResponses.join("\n\n");
+            // Prepend agent responses to the last user message's text content
+            const lastMsg = messages[messages.length - 1];
+            if (lastMsg?.role === "user" && Array.isArray(lastMsg.content)) {
+              const textBlock = lastMsg.content.find(
+                (b): b is Anthropic.TextBlockParam => b.type === "text",
+              );
+              if (textBlock) {
+                textBlock.text = agentContext + "\n\n" + textBlock.text;
+              }
+            }
+          }
+        }
+
+        return runAgentLoop({
           client,
           model,
           systemPrompt,
@@ -393,7 +450,8 @@ export function createProductionAgentHandler(
           scripts: options.scripts,
           send,
           signal,
-        }),
+        });
+      },
       options.onRunComplete
         ? (run) => options.onRunComplete!(run, threadId)
         : undefined,

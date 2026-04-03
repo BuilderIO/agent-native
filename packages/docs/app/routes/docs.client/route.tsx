@@ -126,7 +126,7 @@ function App() {
   useFileWatcher({
     queryClient,
     queryKeys: ["files", "projects", "versionHistory"],
-    eventsUrl: "/api/events",
+    eventsUrl: "/_agent-native/events",
     onEvent: (data) => console.log("File changed:", data),
   });
 
@@ -158,7 +158,7 @@ function App() {
             [
               "eventsUrl",
               "string?",
-              'SSE endpoint URL. Default: "/api/events"',
+              'SSE endpoint URL. Default: "/_agent-native/events"',
             ],
             [
               "onEvent",

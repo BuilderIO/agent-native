@@ -1,4 +1,10 @@
-import { defineEventHandler, readBody, setResponseStatus, getMethod } from "h3";
+import {
+  createRouter,
+  defineEventHandler,
+  readBody,
+  setResponseStatus,
+  getMethod,
+} from "h3";
 import type { H3Event } from "h3";
 import path from "node:path";
 import {
@@ -8,50 +14,80 @@ import {
 } from "./default-watcher.js";
 import { upsertEnvFile } from "./create-server.js";
 import type { EnvKeyConfig } from "./create-server.js";
+import {
+  getState,
+  putState,
+  deleteState,
+  listComposeDrafts,
+  getComposeDraft,
+  putComposeDraft,
+  deleteComposeDraft,
+  deleteAllComposeDrafts,
+} from "../application-state/handlers.js";
+
+/**
+ * The base path prefix for all framework-level routes.
+ * All agent-native core routes live under this namespace to avoid
+ * collisions with template-specific `/api/*` routes.
+ */
+export const FRAMEWORK_ROUTE_PREFIX = "/_agent-native";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
 export interface CoreRoutesPluginOptions {
-  /** Route path for the SSE endpoint. Default: "/api/events" */
+  /** Route path for the SSE endpoint. Default: "/_agent-native/events" */
   sseRoute?: string;
   /** Disable the SSE endpoint entirely. */
   disableSSE?: boolean;
   /** Disable the deprecated file-sync status endpoint. */
   disableFileSync?: boolean;
-  /** Disable the /api/ping health check. */
+  /** Disable the /_agent-native/ping health check. */
   disablePing?: boolean;
-  /** Env key configuration. Enables /api/env-status and /api/env-vars routes. */
+  /** Env key configuration. Enables env-status and env-vars routes. */
   envKeys?: EnvKeyConfig[];
 }
 
 /**
  * Creates a Nitro plugin that mounts all standard agent-native framework routes.
  *
+ * All routes are mounted under `/_agent-native/` to avoid collisions
+ * with template-specific routes.
+ *
  * Routes:
- *   GET  /api/poll              — polling endpoint for change detection
- *   GET  /api/events (or custom) — SSE endpoint for real-time sync
- *   GET  /api/file-sync/status  — (deprecated) file sync status
- *   GET  /api/ping              — health check
- *   GET  /api/env-status        — env key configuration status (when envKeys provided)
- *   POST /api/env-vars          — save env vars to .env (when envKeys provided)
+ *   GET    /_agent-native/poll                          — polling endpoint for change detection
+ *   GET    /_agent-native/events (or custom)            — SSE endpoint for real-time sync
+ *   GET    /_agent-native/file-sync/status              — (deprecated) file sync status
+ *   GET    /_agent-native/ping                          — health check
+ *   GET    /_agent-native/env-status                    — env key configuration status (when envKeys provided)
+ *   POST   /_agent-native/env-vars                      — save env vars to .env (when envKeys provided)
+ *   GET    /_agent-native/application-state/:key        — read application state
+ *   PUT    /_agent-native/application-state/:key        — write application state
+ *   DELETE /_agent-native/application-state/:key        — delete application state
+ *   GET    /_agent-native/application-state/compose     — list compose drafts
+ *   DELETE /_agent-native/application-state/compose     — delete all compose drafts
+ *   GET    /_agent-native/application-state/compose/:id — get compose draft
+ *   PUT    /_agent-native/application-state/compose/:id — upsert compose draft
+ *   DELETE /_agent-native/application-state/compose/:id — delete compose draft
  */
 export function createCoreRoutesPlugin(
   options: CoreRoutesPluginOptions = {},
 ): NitroPluginDef {
   return async (nitroApp: any) => {
+    const P = FRAMEWORK_ROUTE_PREFIX;
+
     // Polling
-    nitroApp.h3App.use("/api/poll", createDefaultPollHandler());
+    nitroApp.h3App.use(`${P}/poll`, createDefaultPollHandler());
 
     // SSE
     if (!options.disableSSE) {
-      const sseRoute = options.sseRoute ?? "/api/events";
+      const sseRoute = options.sseRoute ?? `${P}/events`;
       nitroApp.h3App.use(sseRoute, createDefaultSSEHandler());
     }
 
     // File sync status (deprecated but kept for backward compat)
     if (!options.disableFileSync) {
       nitroApp.h3App.use(
-        "/api/file-sync/status",
+        `${P}/file-sync/status`,
         defineEventHandler(() => defaultSyncStatusHandler()),
       );
     }
@@ -59,7 +95,7 @@ export function createCoreRoutesPlugin(
     // Ping
     if (!options.disablePing) {
       nitroApp.h3App.use(
-        "/api/ping",
+        `${P}/ping`,
         defineEventHandler(() => ({
           message: process.env.PING_MESSAGE ?? "pong",
         })),
@@ -72,7 +108,7 @@ export function createCoreRoutesPlugin(
       const allowedKeys = new Set(envKeys.map((k) => k.key));
 
       nitroApp.h3App.use(
-        "/api/env-status",
+        `${P}/env-status`,
         defineEventHandler(() =>
           envKeys.map((cfg) => ({
             key: cfg.key,
@@ -84,7 +120,7 @@ export function createCoreRoutesPlugin(
       );
 
       nitroApp.h3App.use(
-        "/api/env-vars",
+        `${P}/env-vars`,
         defineEventHandler(async (event: H3Event) => {
           if (getMethod(event) !== "POST") {
             setResponseStatus(event, 405);
@@ -126,6 +162,25 @@ export function createCoreRoutesPlugin(
         }),
       );
     }
+
+    // ─── Application State CRUD ──────────────────────────────────────
+    // Auto-mounted so templates don't need boilerplate route files.
+
+    // Compose draft routes (more specific, mounted first)
+    const composeRouter = createRouter()
+      .get("/", listComposeDrafts)
+      .delete("/", deleteAllComposeDrafts)
+      .get("/:id", getComposeDraft)
+      .put("/:id", putComposeDraft)
+      .delete("/:id", deleteComposeDraft);
+    nitroApp.h3App.use(`${P}/application-state/compose`, composeRouter.handler);
+
+    // Generic application state routes
+    const appStateRouter = createRouter()
+      .get("/:key", getState)
+      .put("/:key", putState)
+      .delete("/:key", deleteState);
+    nitroApp.h3App.use(`${P}/application-state`, appStateRouter.handler);
   };
 }
 

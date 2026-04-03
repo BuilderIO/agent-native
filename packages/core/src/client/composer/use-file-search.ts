@@ -20,7 +20,7 @@ export function useFileSearch(query: string, enabled: boolean) {
       async () => {
         try {
           const res = await fetch(
-            `/api/agent-chat/files?q=${encodeURIComponent(query)}`,
+            `/_agent-native/agent-chat/files?q=${encodeURIComponent(query)}`,
           );
           if (!res.ok) throw new Error();
           const data = await res.json();

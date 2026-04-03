@@ -77,14 +77,14 @@ Cross-cutting concerns — auth, agent chat, polling, file sync — go in `serve
 
 The framework provides 6 default plugins that auto-mount when your app doesn't provide a custom version. You only need to create a plugin file if you want to customize it:
 
-| Plugin        | What it does                                  | When to customize                           |
-| ------------- | --------------------------------------------- | ------------------------------------------- |
-| `agent-chat`  | Agent chat endpoints                          | Custom `mentionProviders` or `systemPrompt` |
-| `auth`        | Authentication middleware                     | Custom `publicPaths` or Google OAuth config |
-| `core-routes` | `/api/poll`, `/api/events`, `/api/ping`, etc. | Custom `envKeys` or `sseRoute`              |
-| `file-sync`   | File watcher for sync events                  | Custom sync configuration                   |
-| `resources`   | Resource CRUD endpoints                       | Rarely customized                           |
-| `terminal`    | Terminal emulator endpoints                   | Rarely customized                           |
+| Plugin        | What it does                                                                | When to customize                           |
+| ------------- | --------------------------------------------------------------------------- | ------------------------------------------- |
+| `agent-chat`  | Agent chat endpoints                                                        | Custom `mentionProviders` or `systemPrompt` |
+| `auth`        | Authentication middleware                                                   | Custom `publicPaths` or Google OAuth config |
+| `core-routes` | `/_agent-native/poll`, `/_agent-native/events`, `/_agent-native/ping`, etc. | Custom `envKeys` or `sseRoute`              |
+| `file-sync`   | File watcher for sync events                                                | Custom sync configuration                   |
+| `resources`   | Resource CRUD endpoints                                                     | Rarely customized                           |
+| `terminal`    | Terminal emulator endpoints                                                 | Rarely customized                           |
 
 A minimal app needs **zero** plugin files — all defaults mount automatically. Only create plugin files for plugins you need to customize.
 
@@ -134,35 +134,35 @@ export const envKeys: EnvKeyConfig[] = [
 ];
 ```
 
-**With custom SSE route** — for templates where `/api/events` conflicts with app routes (e.g. a calendar app that has event CRUD at `/api/events/`):
+**With custom SSE route** — if you need to change the SSE endpoint path:
 
 ```ts
 // server/plugins/core-routes.ts
 import { createCoreRoutesPlugin } from "@agent-native/core/server";
 
-export default createCoreRoutesPlugin({ sseRoute: "/api/sse" });
+export default createCoreRoutesPlugin({ sseRoute: "/_agent-native/sse" });
 ```
 
 #### Routes provided
 
-| Method | Path                    | Purpose                                           |
-| ------ | ----------------------- | ------------------------------------------------- |
-| GET    | `/api/poll`             | Polling endpoint for change detection             |
-| GET    | `/api/events`           | SSE endpoint for real-time sync (configurable)    |
-| GET    | `/api/file-sync/status` | File sync status (deprecated, backward compat)    |
-| GET    | `/api/ping`             | Health check                                      |
-| GET    | `/api/env-status`       | Env key configuration status (requires `envKeys`) |
-| POST   | `/api/env-vars`         | Save env vars to `.env` file (requires `envKeys`) |
+| Method | Path                              | Purpose                                           |
+| ------ | --------------------------------- | ------------------------------------------------- |
+| GET    | `/_agent-native/poll`             | Polling endpoint for change detection             |
+| GET    | `/_agent-native/events`           | SSE endpoint for real-time sync (configurable)    |
+| GET    | `/_agent-native/file-sync/status` | File sync status (deprecated, backward compat)    |
+| GET    | `/_agent-native/ping`             | Health check                                      |
+| GET    | `/_agent-native/env-status`       | Env key configuration status (requires `envKeys`) |
+| POST   | `/_agent-native/env-vars`         | Save env vars to `.env` file (requires `envKeys`) |
 
 #### Options
 
-| Option            | Type             | Default         | Description                            |
-| ----------------- | ---------------- | --------------- | -------------------------------------- |
-| `sseRoute`        | `string`         | `"/api/events"` | Path for the SSE endpoint              |
-| `disableSSE`      | `boolean`        | `false`         | Disable the SSE endpoint entirely      |
-| `disableFileSync` | `boolean`        | `false`         | Disable the file-sync status endpoint  |
-| `disablePing`     | `boolean`        | `false`         | Disable the ping health check          |
-| `envKeys`         | `EnvKeyConfig[]` | —               | Enables env-status and env-vars routes |
+| Option            | Type             | Default                   | Description                            |
+| ----------------- | ---------------- | ------------------------- | -------------------------------------- |
+| `sseRoute`        | `string`         | `"/_agent-native/events"` | Path for the SSE endpoint              |
+| `disableSSE`      | `boolean`        | `false`                   | Disable the SSE endpoint entirely      |
+| `disableFileSync` | `boolean`        | `false`                   | Disable the file-sync status endpoint  |
+| `disablePing`     | `boolean`        | `false`                   | Disable the ping health check          |
+| `envKeys`         | `EnvKeyConfig[]` | —                         | Enables env-status and env-vars routes |
 
 When new framework routes are added to `createCoreRoutesPlugin()`, all templates pick them up automatically on the next dependency update — no per-template file changes needed.
 
@@ -244,7 +244,7 @@ const watcher = createFileWatcher("./data");
 Creates an H3 event handler that streams file changes as Server-Sent Events:
 
 ```ts
-// server/routes/api/events.get.ts
+// server/routes/_agent-native/events.get.ts
 import { createSSEHandler } from "@agent-native/core";
 import { watcher, sseExtraEmitters } from "../../lib/watcher.js";
 
@@ -276,12 +276,12 @@ router.get("/api/items", defineEventHandler(listItems));
 
 ### Options
 
-| Option        | Type                               | Description                                                    |
-| ------------- | ---------------------------------- | -------------------------------------------------------------- |
-| `cors`        | `Record<string, unknown> \| false` | CORS config. Pass `false` to disable.                          |
-| `pingMessage` | `string`                           | Health check response. Default: env `PING_MESSAGE` or `"pong"` |
-| `disablePing` | `boolean`                          | Disable `/api/ping` endpoint.                                  |
-| `envKeys`     | `EnvKeyConfig[]`                   | Enables `/api/env-status` and `/api/env-vars` settings routes. |
+| Option        | Type                               | Description                                                                        |
+| ------------- | ---------------------------------- | ---------------------------------------------------------------------------------- |
+| `cors`        | `Record<string, unknown> \| false` | CORS config. Pass `false` to disable.                                              |
+| `pingMessage` | `string`                           | Health check response. Default: env `PING_MESSAGE` or `"pong"`                     |
+| `disablePing` | `boolean`                          | Disable `/_agent-native/ping` endpoint.                                            |
+| `envKeys`     | `EnvKeyConfig[]`                   | Enables `/_agent-native/env-status` and `/_agent-native/env-vars` settings routes. |
 
 ## mountAuthMiddleware(app, accessToken)
 
@@ -297,7 +297,7 @@ Adds two routes automatically: `POST /api/auth/login` and `POST /api/auth/logout
 
 ## createProductionAgentHandler(options)
 
-Creates an H3 SSE handler at `POST /api/agent-chat` that runs an agentic tool loop using Claude. Each script's `run()` function is registered as a tool the agent can invoke.
+Creates an H3 SSE handler at `POST /_agent-native/agent-chat` that runs an agentic tool loop using Claude. Each script's `run()` function is registered as a tool the agent can invoke.
 
 ```ts
 import { createProductionAgentHandler } from "@agent-native/core";

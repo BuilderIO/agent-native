@@ -20,6 +20,7 @@ import { MentionReference } from "./extensions/MentionReference.js";
 import { MentionPopover, type MentionPopoverRef } from "./MentionPopover.js";
 import { useMentionSearch } from "./use-mention-search.js";
 import { useSkills } from "./use-skills.js";
+import { IconArrowUp, IconPaperclip } from "@tabler/icons-react";
 import type { MentionItem, SkillResult, Reference } from "./types.js";
 
 export interface TiptapComposerHandle {
@@ -38,39 +39,6 @@ type PopoverState = {
   startPos: number;
   query: string;
 } | null;
-
-function SendIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M12 19V5" />
-      <path d="M6 11L12 5L18 11" />
-    </svg>
-  );
-}
-
-function PaperclipIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M21.44 11.05L12.25 20.24C10.06 22.43 6.51 22.43 4.32 20.24C2.13 18.05 2.13 14.5 4.32 12.31L13.51 3.12C14.97 1.66 17.34 1.66 18.8 3.12C20.26 4.58 20.26 6.95 18.8 8.41L9.6 17.61C8.87 18.34 7.69 18.34 6.96 17.61C6.23 16.88 6.23 15.7 6.96 14.97L15.49 6.44" />
-    </svg>
-  );
-}
 
 export function TiptapComposer({
   placeholder = "Message agent...",
@@ -287,8 +255,14 @@ export function TiptapComposer({
           source: node.attrs.source || "codebase",
         });
       } else if (node.type.name === "mentionReference") {
+        const refType = node.attrs.refType;
         references.push({
-          type: node.attrs.refType === "file" ? "file" : "mention",
+          type:
+            refType === "file"
+              ? "file"
+              : refType === "agent"
+                ? "agent"
+                : "mention",
           path: node.attrs.refPath || "",
           name: node.attrs.label,
           source: node.attrs.source,
@@ -496,7 +470,7 @@ export function TiptapComposer({
             className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50 disabled:opacity-30 disabled:cursor-not-allowed"
             title="Attach files"
           >
-            <PaperclipIcon className="h-4 w-4" />
+            <IconPaperclip className="h-4 w-4" />
           </button>
         </ComposerPrimitive.AddAttachment>
         <style>{`
@@ -525,7 +499,7 @@ export function TiptapComposer({
           className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed"
           title="Send message"
         >
-          <SendIcon className="h-3.5 w-3.5" />
+          <IconArrowUp className="h-3.5 w-3.5" />
         </button>
       </div>
       <MentionPopover

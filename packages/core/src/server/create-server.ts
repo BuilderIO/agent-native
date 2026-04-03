@@ -162,7 +162,7 @@ export function createServer(
   // Health check
   if (!options.disablePing) {
     router.get(
-      "/api/ping",
+      "/_agent-native/ping",
       defineEventHandler(() => {
         const message =
           options.pingMessage ?? process.env.PING_MESSAGE ?? "pong";
@@ -176,7 +176,7 @@ export function createServer(
     const envKeys = options.envKeys;
 
     router.get(
-      "/api/env-status",
+      "/_agent-native/env-status",
       defineEventHandler(() => {
         return envKeys.map((cfg) => ({
           key: cfg.key,
@@ -188,7 +188,7 @@ export function createServer(
     );
 
     router.post(
-      "/api/env-vars",
+      "/_agent-native/env-vars",
       defineEventHandler(async (event: H3Event) => {
         const body = await readBody(event);
         const { vars } = body as {

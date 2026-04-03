@@ -57,7 +57,7 @@ export const searchIndex: SearchEntry[] = [
     path: "/docs/server",
     section: "createServer()",
     sectionId: "createserver",
-    text: "Creates a pre-configured Express app with standard middleware. Includes cors json limit 50mb urlencoded /api/ping. Options: cors CorsOptions or false CORS config pass false to disable. jsonLimit string JSON body parser limit default 50mb. pingMessage string health check response default env PING_MESSAGE or pong. disablePing boolean disable /api/ping endpoint.",
+    text: "Creates a pre-configured Express app with standard middleware. Includes cors json limit 50mb urlencoded /_agent-native/ping. Options: cors CorsOptions or false CORS config pass false to disable. jsonLimit string JSON body parser limit default 50mb. pingMessage string health check response default env PING_MESSAGE or pong. disablePing boolean disable /_agent-native/ping endpoint.",
   },
   {
     page: "Server",
@@ -71,7 +71,7 @@ export const searchIndex: SearchEntry[] = [
     path: "/docs/server",
     section: "createSSEHandler()",
     sectionId: "createssehandler",
-    text: 'Creates an Express route handler that streams file changes as Server-Sent Events. Each SSE message is JSON type change path data/file.json. Options: extraEmitters additional EventEmitters to stream. app.get("/api/events", createSSEHandler(watcher))',
+    text: 'Creates an Express route handler that streams file changes as Server-Sent Events. Each SSE message is JSON type change path data/file.json. Options: extraEmitters additional EventEmitters to stream. app.get("/_agent-native/events", createSSEHandler(watcher))',
   },
   {
     page: "Server",
@@ -108,7 +108,7 @@ export const searchIndex: SearchEntry[] = [
     path: "/docs/client",
     section: "useFileWatcher()",
     sectionId: "usefilewatcher",
-    text: "React hook that connects to the SSE endpoint and invalidates react-query caches on file changes. Options: queryClient React-query client for cache invalidation. queryKeys string array query key prefixes to invalidate default file fileTree. eventsUrl string SSE endpoint URL default /api/events. onEvent callback for each SSE event.",
+    text: "React hook that connects to the SSE endpoint and invalidates react-query caches on file changes. Options: queryClient React-query client for cache invalidation. queryKeys string array query key prefixes to invalidate default file fileTree. eventsUrl string SSE endpoint URL default /_agent-native/events. onEvent callback for each SSE event.",
   },
   {
     page: "Client",

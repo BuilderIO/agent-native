@@ -235,6 +235,25 @@ async function createResourceScriptEntries(): Promise<
   }
 }
 
+/**
+ * Creates the call-agent ScriptEntry for cross-agent A2A communication.
+ */
+async function createCallAgentScriptEntry(): Promise<
+  Record<string, ScriptEntry>
+> {
+  try {
+    const mod = await import("../scripts/call-agent.js");
+    return {
+      "call-agent": {
+        tool: mod.tool,
+        run: mod.run,
+      },
+    };
+  } catch {
+    return {};
+  }
+}
+
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
 export interface AgentChatPluginOptions {
@@ -252,7 +271,7 @@ export interface AgentChatPluginOptions {
   model?: string;
   /** Anthropic API key. Falls back to ANTHROPIC_API_KEY env var */
   apiKey?: string;
-  /** Route path. Default: /api/agent-chat */
+  /** Route path. Default: /_agent-native/agent-chat */
   path?: string;
   /** Custom mention providers for @-tagging template entities */
   mentionProviders?:
@@ -260,6 +279,8 @@ export interface AgentChatPluginOptions {
     | (() =>
         | Record<string, MentionProvider>
         | Promise<Record<string, MentionProvider>>);
+  /** App ID used to exclude self from agent discovery (e.g., "mail", "calendar") */
+  appId?: string;
 }
 
 /**
@@ -450,7 +471,7 @@ export function createAgentChatPlugin(
     const canToggle =
       (env === "development" || env === "test") &&
       process.env.AGENT_MODE !== "production";
-    const routePath = options?.path ?? "/api/agent-chat";
+    const routePath = options?.path ?? "/_agent-native/agent-chat";
 
     // Resolve scripts — supports lazy loading to avoid import issues with Vite SSR
     const rawScripts = options?.scripts;
@@ -459,8 +480,9 @@ export function createAgentChatPlugin(
         ? await rawScripts()
         : (rawScripts ?? {});
 
-    // Resource scripts are available in both prod and dev modes
+    // Resource and cross-agent scripts are available in both prod and dev modes
     const resourceScripts = await createResourceScriptEntries();
+    const callAgentScript = await createCallAgentScriptEntry();
 
     // Build system prompts — dynamic functions that pre-load resources per-request.
     // Production gets PROD_FRAMEWORK_PROMPT, dev gets DEV_FRAMEWORK_PROMPT.
@@ -544,9 +566,9 @@ export function createAgentChatPlugin(
       }
     };
 
-    // Always build the production handler (includes resource tools)
+    // Always build the production handler (includes resource tools + call-agent)
     const prodHandler = createProductionAgentHandler({
-      scripts: { ...templateScripts, ...resourceScripts },
+      scripts: { ...templateScripts, ...resourceScripts, ...callAgentScript },
       systemPrompt: async (event: any) => {
         const owner = await getOwnerFromEvent(event);
         const resources = await loadResourcesForPrompt(owner);
@@ -566,6 +588,7 @@ export function createAgentChatPlugin(
       const devScripts = {
         ...templateScripts,
         ...resourceScripts,
+        ...callAgentScript,
         ...(await createDevScriptRegistry()),
       };
       devHandler = createProductionAgentHandler({
@@ -866,6 +889,7 @@ export function createAgentChatPlugin(
           refType: string;
           refPath?: string;
           refId?: string;
+          section?: string;
         }
 
         const items: MentionItemResponse[] = [];
@@ -889,6 +913,7 @@ export function createAgentChatPlugin(
               source: "codebase",
               refType: "file",
               refPath: f.path,
+              section: "Files",
             });
           }
         }
@@ -908,6 +933,7 @@ export function createAgentChatPlugin(
               source: isShared ? "resource:shared" : "resource:private",
               refType: "file",
               refPath: r.path,
+              section: "Files",
             });
           }
         } catch {}
@@ -926,6 +952,7 @@ export function createAgentChatPlugin(
                 refType: item.refType,
                 refPath: item.refPath,
                 refId: item.refId,
+                section: provider.label,
               }));
             } catch {
               return [];
@@ -934,6 +961,27 @@ export function createAgentChatPlugin(
         );
         for (const batch of providerResults) {
           items.push(...batch);
+        }
+
+        // 4. Discovered peer agents
+        try {
+          const { discoverAgents } = await import("./agent-discovery.js");
+          const agents = discoverAgents(options?.appId);
+          for (const agent of agents) {
+            items.push({
+              id: `agent:${agent.id}`,
+              label: agent.name,
+              description: agent.description,
+              icon: "agent",
+              source: "agent",
+              refType: "agent",
+              refPath: agent.url,
+              refId: agent.id,
+              section: "Agents",
+            });
+          }
+        } catch {
+          // Agent discovery not available — skip
         }
 
         // Filter by query and limit

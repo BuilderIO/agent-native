@@ -13,7 +13,7 @@ export interface ProductionAgentMessage {
 }
 
 export interface UseProductionAgentOptions {
-  /** API endpoint URL. Default: "/api/agent-chat" */
+  /** API endpoint URL. Default: "/_agent-native/agent-chat" */
   apiUrl?: string;
 }
 
@@ -28,7 +28,7 @@ export interface UseProductionAgentResult {
 export function useProductionAgent(
   options?: UseProductionAgentOptions,
 ): UseProductionAgentResult {
-  const apiUrl = options?.apiUrl ?? "/api/agent-chat";
+  const apiUrl = options?.apiUrl ?? "/_agent-native/agent-chat";
   const [messages, setMessages] = useState<ProductionAgentMessage[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -144,6 +144,45 @@ export function useProductionAgent(
                   return { ...m, toolCalls: calls };
                 }),
               );
+            } else if (ev.type === "agent_call") {
+              const agentName = ev.agent;
+              if (ev.status === "start") {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantId
+                      ? {
+                          ...m,
+                          toolCalls: [
+                            ...(m.toolCalls ?? []),
+                            {
+                              tool: `agent:${agentName}`,
+                              input: {},
+                            },
+                          ],
+                        }
+                      : m,
+                  ),
+                );
+              } else if (ev.status === "done" || ev.status === "error") {
+                setMessages((prev) =>
+                  prev.map((m) => {
+                    if (m.id !== assistantId) return m;
+                    const calls = [...(m.toolCalls ?? [])];
+                    const idx = calls
+                      .map((c) => c.tool)
+                      .lastIndexOf(`agent:${agentName}`);
+                    if (idx >= 0)
+                      calls[idx] = {
+                        ...calls[idx],
+                        result:
+                          ev.status === "error"
+                            ? "Error calling agent"
+                            : "Done",
+                      };
+                    return { ...m, toolCalls: calls };
+                  }),
+                );
+              }
             } else if (ev.type === "done" || ev.type === "error") {
               if (ev.type === "error") {
                 setMessages((prev) =>

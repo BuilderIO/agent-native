@@ -36,7 +36,7 @@ export function useNavigationState() {
   // Sync route to app-state on every navigation
   useEffect(() => {
     const state = deriveNavigationState(location.pathname);
-    fetch("/api/application-state/navigation", {
+    fetch("/_agent-native/application-state/navigation", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(state),
@@ -110,12 +110,12 @@ await writeAppState("navigate", { view: "inbox", threadId: "abc123" });
 const { data: navCommand } = useQuery({
   queryKey: ["navigate-command"],
   queryFn: async () => {
-    const res = await fetch("/api/application-state/navigate");
+    const res = await fetch("/_agent-native/application-state/navigate");
     if (!res.ok) return null;
     const data = await res.json();
     if (data) {
       // Delete the one-shot command after reading
-      fetch("/api/application-state/navigate", { method: "DELETE" });
+      fetch("/_agent-native/application-state/navigate", { method: "DELETE" });
       return data;
     }
     return null;

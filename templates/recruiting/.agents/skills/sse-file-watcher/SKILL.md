@@ -24,4 +24,4 @@ The flow:
 | Symptom | Check |
 |---------|-------|
 | UI not updating after script writes | Is the script using `writeAppState`/`writeSetting`? Direct SQL writes don't emit SSE. |
-| SSE not connected | Browser devtools → Network → EventStream. Is `/api/events` connected? |
+| SSE not connected | Browser devtools → Network → EventStream. Is `/_agent-native/events` connected? |

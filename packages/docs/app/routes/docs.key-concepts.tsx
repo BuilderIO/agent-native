@@ -256,8 +256,9 @@ pnpm script fetch-data --source=signups`}
         Database changes are synced to the UI via lightweight polling. When the
         agent writes to the database (application state, settings, or domain
         data), a version counter increments. The client{" "}
-        <code>useFileWatcher()</code> hook polls <code>/api/poll</code> every 2
-        seconds and invalidates React Query caches when changes are detected.
+        <code>useFileWatcher()</code> hook polls{" "}
+        <code>/_agent-native/poll</code> every 2 seconds and invalidates React
+        Query caches when changes are detected.
       </p>
       <CodeBlock
         code={`// Client: invalidate caches on database changes

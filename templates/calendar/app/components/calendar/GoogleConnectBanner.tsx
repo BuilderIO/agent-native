@@ -87,7 +87,7 @@ export function GoogleConnectBanner({
 
   const fetchStatus = useCallback(async () => {
     try {
-      const res = await fetch("/api/env-status");
+      const res = await fetch("/_agent-native/env-status");
       if (res.ok) {
         const data: EnvKeyStatus[] = await res.json();
         setEnvStatus(data);
@@ -186,7 +186,7 @@ export function GoogleConnectBanner({
         throw new Error("Could not find client_id and client_secret in JSON");
       }
 
-      const res = await fetch("/api/env-vars", {
+      const res = await fetch("/_agent-native/env-vars", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

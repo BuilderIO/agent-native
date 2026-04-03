@@ -1,5 +1,11 @@
 import { useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
+import {
+  IconPackageExport,
+  IconCode,
+  IconExternalLink,
+  IconX,
+} from "@tabler/icons-react";
 
 export interface CodeRequiredDialogProps {
   open: boolean;
@@ -45,22 +51,7 @@ export function CodeRequiredDialog({
         {/* Header */}
         <div style={s.header}>
           <div style={s.iconWrap}>
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="m16 18 2 2 4-4" />
-              <path d="M21 12V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l2-1.14" />
-              <path d="m7.5 4.27 9 5.15" />
-              <polyline points="3.29 7 12 12 20.71 7" />
-              <line x1="12" y1="22" x2="12" y2="12" />
-            </svg>
+            <IconPackageExport size={20} />
           </div>
           <div>
             <h2 style={s.title}>Code changes required</h2>
@@ -87,19 +78,7 @@ export function CodeRequiredDialog({
             }}
           >
             <div style={s.optionIcon}>
-              <svg
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <polyline points="16 18 22 12 16 6" />
-                <polyline points="8 6 2 12 8 18" />
-              </svg>
+              <IconCode size={24} />
             </div>
             <div style={s.optionText}>
               <span style={s.optionTitle}>Use local development</span>
@@ -123,20 +102,7 @@ export function CodeRequiredDialog({
             }}
           >
             <div style={s.optionIcon}>
-              <svg
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M15 3h6v6" />
-                <path d="M10 14 21 3" />
-                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-              </svg>
+              <IconExternalLink size={24} />
             </div>
             <div style={s.optionText}>
               <span style={s.optionTitle}>Use Builder.io Agent</span>
@@ -151,19 +117,7 @@ export function CodeRequiredDialog({
 
         {/* Close */}
         <button style={s.closeButton} onClick={onClose} aria-label="Close">
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <line x1="18" y1="6" x2="6" y2="18" />
-            <line x1="6" y1="6" x2="18" y2="18" />
-          </svg>
+          <IconX size={16} />
         </button>
       </div>
     </div>,

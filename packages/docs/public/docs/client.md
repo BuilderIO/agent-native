@@ -78,7 +78,7 @@ function App() {
   useFileWatcher({
     queryClient,
     queryKeys: ["files", "projects", "versionHistory"],
-    eventsUrl: "/api/events",
+    eventsUrl: "/_agent-native/events",
     onEvent: (data) => console.log("File changed:", data),
   });
 
@@ -92,7 +92,7 @@ function App() {
 | ------------- | ---------------- | --------------------------------------------------------------- |
 | `queryClient` | `QueryClient?`   | React-query client for cache invalidation                       |
 | `queryKeys`   | `string[]?`      | Query key prefixes to invalidate. Default: ["file", "fileTree"] |
-| `eventsUrl`   | `string?`        | SSE endpoint URL. Default: "/api/events"                        |
+| `eventsUrl`   | `string?`        | SSE endpoint URL. Default: "/\_agent-native/events"             |
 | `onEvent`     | `(data) => void` | Optional callback for each SSE event                            |
 
 ## ApiKeySettings
@@ -112,7 +112,7 @@ function SettingsPage() {
 }
 ```
 
-The component automatically fetches `GET /api/env-status` to show which keys are configured, and saves new values via `POST /api/env-vars` (writes to `.env` and updates `process.env`).
+The component automatically fetches `GET /_agent-native/env-status` to show which keys are configured, and saves new values via `POST /_agent-native/env-vars` (writes to `.env` and updates `process.env`).
 
 ### Props
 
@@ -143,22 +143,22 @@ Returns `{ session: AuthSession | null, isLoading: boolean }`.
 
 The following routes are provided by the core routes plugin and are available in every template. You can call these from client code using `fetch()`:
 
-### GET /api/poll
+### GET /\_agent-native/poll
 
 Returns change events since a given version. Used by `useFileWatcher()` internally.
 
 ```ts
-const res = await fetch(`/api/poll?since=${lastVersion}`);
+const res = await fetch(`/_agent-native/poll?since=${lastVersion}`);
 const { version, events } = await res.json();
 // events: [{ source: "app-state" | "settings" | "resources", type, key }]
 ```
 
-### GET /api/env-status
+### GET /\_agent-native/env-status
 
 Returns the configuration status of all registered env keys. Requires `envKeys` on the plugin.
 
 ```ts
-const res = await fetch("/api/env-status");
+const res = await fetch("/_agent-native/env-status");
 const keys: Array<{
   key: string;
   label: string;
@@ -167,12 +167,12 @@ const keys: Array<{
 }> = await res.json();
 ```
 
-### POST /api/env-vars
+### POST /\_agent-native/env-vars
 
 Saves environment variables to `.env` and updates `process.env`. Only accepts keys registered in `envKeys`.
 
 ```ts
-const res = await fetch("/api/env-vars", {
+const res = await fetch("/_agent-native/env-vars", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
@@ -185,7 +185,7 @@ const res = await fetch("/api/env-vars", {
 const { saved } = await res.json(); // saved: ["STRIPE_SECRET_KEY", "GITHUB_TOKEN"]
 ```
 
-### GET /api/ping
+### GET /\_agent-native/ping
 
 Health check endpoint. Returns `{ message: "pong" }` (or custom `PING_MESSAGE` env value).
 

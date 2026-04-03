@@ -32,7 +32,7 @@ export function useNavigationState() {
       state.view = "share";
     }
 
-    fetch("/api/application-state/navigation", {
+    fetch("/_agent-native/application-state/navigation", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(state),
@@ -43,14 +43,14 @@ export function useNavigationState() {
   const { data: navCommand } = useQuery({
     queryKey: ["navigate-command"],
     queryFn: async () => {
-      const res = await fetch("/api/application-state/navigate");
+      const res = await fetch("/_agent-native/application-state/navigate");
       if (!res.ok) return null;
       const data = await res.json();
       if (data) {
         // Delete the one-shot command
-        fetch("/api/application-state/navigate", { method: "DELETE" }).catch(
-          () => {},
-        );
+        fetch("/_agent-native/application-state/navigate", {
+          method: "DELETE",
+        }).catch(() => {});
         return data;
       }
       return null;

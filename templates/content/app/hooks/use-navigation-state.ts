@@ -37,7 +37,7 @@ export function useNavigationState() {
       }
     }
 
-    fetch("/api/application-state/navigation", {
+    fetch("/_agent-native/application-state/navigation", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(state),
@@ -50,7 +50,9 @@ export function useNavigationState() {
 
     async function poll() {
       try {
-        const res = await fetch(`/api/poll?since=${versionRef.current}`);
+        const res = await fetch(
+          `/_agent-native/poll?since=${versionRef.current}`,
+        );
         if (!res.ok) return;
         const data = (await res.json()) as {
           version: number;
@@ -74,7 +76,9 @@ export function useNavigationState() {
 
           if (navEvent) {
             handledVersionRef.current = navEvent.version;
-            const stateRes = await fetch("/api/application-state/navigate");
+            const stateRes = await fetch(
+              "/_agent-native/application-state/navigate",
+            );
             if (stateRes.ok) {
               const stateData = (await stateRes.json()) as {
                 path?: string;
@@ -82,7 +86,7 @@ export function useNavigationState() {
               if (stateData?.path) {
                 navigate(stateData.path);
                 // Delete the one-shot command
-                fetch("/api/application-state/navigate", {
+                fetch("/_agent-native/application-state/navigate", {
                   method: "DELETE",
                 }).catch(() => {});
               }
@@ -99,7 +103,7 @@ export function useNavigationState() {
     }
 
     // Seed the current version so we only react to future events
-    fetch("/api/poll?since=0")
+    fetch("/_agent-native/poll?since=0")
       .then((r) => r.json())
       .then((d: { version: number }) => {
         versionRef.current = d.version;

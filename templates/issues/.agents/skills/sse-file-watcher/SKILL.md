@@ -26,5 +26,5 @@ This happens automatically for all writes through `@agent-native/core/applicatio
 | Symptom | Check |
 |---------|-------|
 | UI not updating after script writes | Is the script using `writeAppState`/`writeSetting`? Direct SQL writes don't emit SSE. |
-| SSE not connected | Browser devtools → Network → EventStream. Is `/api/events` connected? |
+| SSE not connected | Browser devtools → Network → EventStream. Is `/_agent-native/events` connected? |
 | Wrong queries invalidating | Check the `onEvent` callback — filter by `data.source` and `data.key` |

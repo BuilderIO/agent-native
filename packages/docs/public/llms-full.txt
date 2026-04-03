@@ -228,7 +228,7 @@ Options: `ignored` (glob/regex), `emitInitial` (boolean, default false).
 Creates an H3 event handler that streams file changes as Server-Sent Events:
 
 ```ts
-// server/routes/api/events.get.ts
+// server/routes/_agent-native/events.get.ts
 import { createSSEHandler } from "@agent-native/core";
 import { watcher, sseExtraEmitters } from "../../lib/watcher.js";
 
@@ -252,7 +252,7 @@ import { createServer } from "@agent-native/core";
 const { app, router } = createServer();
 ```
 
-Options: `cors` (Record<string, unknown> | false), `pingMessage` (string), `disablePing` (boolean), `envKeys` (EnvKeyConfig[] — enables `/api/env-status` and `/api/env-vars` routes).
+Options: `cors` (Record<string, unknown> | false), `pingMessage` (string), `disablePing` (boolean), `envKeys` (EnvKeyConfig[] — enables `/_agent-native/env-status` and `/_agent-native/env-vars` routes).
 
 ## mountAuthMiddleware(app, accessToken)
 
@@ -268,7 +268,7 @@ Adds `POST /api/auth/login` and `POST /api/auth/logout` routes automatically.
 
 ## createProductionAgentHandler(options)
 
-Creates an H3 SSE handler at `POST /api/agent-chat` that runs an agentic tool loop using Claude. Each script's `run()` function is registered as a tool the agent can invoke.
+Creates an H3 SSE handler at `POST /_agent-native/agent-chat` that runs an agentic tool loop using Claude. Each script's `run()` function is registered as a tool the agent can invoke.
 
 ```ts
 import { createProductionAgentHandler } from "@agent-native/core";
@@ -338,12 +338,12 @@ React hook that connects to the SSE endpoint and invalidates react-query caches 
 useFileWatcher({
   queryClient,
   queryKeys: ["files", "projects"],
-  eventsUrl: "/api/events",
+  eventsUrl: "/_agent-native/events",
   onEvent: (data) => console.log("File changed:", data),
 });
 ```
 
-Options: `queryClient` (QueryClient?), `queryKeys` (string[]?), `eventsUrl` (string?, default: "/api/events"), `onEvent` ((data) => void).
+Options: `queryClient` (QueryClient?), `queryKeys` (string[]?), `eventsUrl` (string?, default: "/_agent-native/events"), `onEvent` ((data) => void).
 
 ## cn(...inputs)
 
