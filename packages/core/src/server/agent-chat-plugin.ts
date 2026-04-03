@@ -860,6 +860,7 @@ export function createAgentChatPlugin(
       const { createDevScriptRegistry } =
         await import("../scripts/dev/index.js");
       const devActions = {
+        ...discoveredActions,
         ...templateScripts,
         ...resourceScripts,
         ...callAgentScript,

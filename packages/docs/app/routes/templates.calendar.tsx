@@ -125,12 +125,41 @@ export default function CalendarTemplate() {
             </h1>
 
             <p className="mb-6 text-lg leading-relaxed text-[var(--fg-secondary)]">
-              A full calendar app with Google Calendar sync and a Calendly-style
-              public booking page. Let the agent manage your schedule, find open
-              slots, and handle bookings.
+              A full calendar app with multi-account Google Calendar sync,
+              configurable availability, and customizable Calendly-style booking
+              links. Let the agent manage your schedule, find open slots, and
+              handle bookings.
             </p>
 
-            <div className="mb-8 flex flex-col items-start gap-3">
+            <div className="mb-8 flex flex-wrap items-center gap-3">
+              <a
+                href="https://calendar.agent-native.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
+                onClick={() =>
+                  trackEvent("try_live_demo", {
+                    template: "calendar",
+                    location: "landing_page",
+                  })
+                }
+              >
+                Try Live Demo
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                  <polyline points="15 3 21 3 21 9" />
+                  <line x1="10" y1="14" x2="21" y2="3" />
+                </svg>
+              </a>
               <CliCopy />
             </div>
           </div>
@@ -151,7 +180,7 @@ export default function CalendarTemplate() {
           {[
             { number: "3", label: "Calendar views" },
             { number: "4", label: "Agent scripts" },
-            { number: "1", label: "Public booking page" },
+            { number: "N", label: "Booking link types" },
             { number: "2-way", label: "Google sync" },
           ].map((stat) => (
             <div key={stat.label} className="bg-[var(--bg)] p-6 text-center">
@@ -241,10 +270,10 @@ export default function CalendarTemplate() {
                 <line x1="23" y1="11" x2="17" y2="11" />
               </svg>
             </div>
-            <h3 className="mb-1 text-sm font-semibold">Public Booking Page</h3>
+            <h3 className="mb-1 text-sm font-semibold">Customizable Booking Links</h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Calendly-style booking at /book/meeting. Visitors pick a slot from
-              your availability.
+              Create multiple Calendly-style booking pages with different
+              durations and availability. Visitors pick a slot that works.
             </p>
           </div>
           <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
@@ -280,8 +309,8 @@ export default function CalendarTemplate() {
               Google Calendar Sync
             </h3>
             <p className="mb-4 text-sm text-[var(--fg-secondary)]">
-              Connect via OAuth 2.0 and pull events from any Google Calendar.
-              Create events that sync back to Google.
+              Connect multiple Google accounts via OAuth 2.0. Pull events from
+              all your calendars and create events that sync back to Google.
             </p>
             <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
               <li className="flex items-start gap-2">
@@ -339,8 +368,8 @@ export default function CalendarTemplate() {
               Calendly-Style Booking
             </h3>
             <p className="mb-4 text-sm text-[var(--fg-secondary)]">
-              A public page where anyone can book time with you based on your
-              configured availability.
+              Create customizable booking links where anyone can book time with
+              you. Configurable availability settings per booking type.
             </p>
             <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
               <li className="flex items-start gap-2">

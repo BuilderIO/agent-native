@@ -514,7 +514,7 @@ export default function AnalyticsTemplate() {
                 <td className="px-5 py-3">Built-in SDKs</td>
                 <td className="px-5 py-3">Manual upload</td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  20+ sources + custom
+                  Multiple sources + custom
                 </td>
               </tr>
               <tr className="border-b border-[var(--border)]">
@@ -524,7 +524,7 @@ export default function AnalyticsTemplate() {
                 <td className="px-5 py-3">Basic</td>
                 <td className="px-5 py-3">None</td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  550+ metrics with context
+                  Full metrics with context
                 </td>
               </tr>
               <tr className="border-b border-[var(--border)]">
