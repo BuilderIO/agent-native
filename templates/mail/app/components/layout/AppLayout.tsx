@@ -916,11 +916,10 @@ export function AppLayout({ children }: AppLayoutProps) {
             )}
 
             {/* Show full-page takeover when no accounts connected (except on settings page) */}
-            {view !== "settings" && googleStatus.isLoading ? (
-              <div className="flex flex-1 items-center justify-center" />
-            ) : !googleStatus.isLoading &&
-              !hasAccounts &&
-              view !== "settings" ? (
+            {!googleStatus.isLoading &&
+            !googleStatus.isError &&
+            !hasAccounts &&
+            view !== "settings" ? (
               <GoogleConnectBanner variant="hero" />
             ) : (
               <main className="flex flex-1 overflow-hidden">{children}</main>
