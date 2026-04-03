@@ -215,10 +215,9 @@ export async function autoDiscoverActions(
       } else {
         // Neither pattern — skip silently
       }
-    } catch (err: any) {
-      console.warn(
-        `[autoDiscoverActions] Failed to load action "${name}" from ${filePath}: ${err?.message}`,
-      );
+    } catch {
+      // CLI-style scripts (top-level execution) will throw on import.
+      // This is expected — they'll be available via `pnpm action <name>` / shell instead.
     }
   }
 
