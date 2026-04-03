@@ -1,5 +1,6 @@
 import {
   createProductionAgentHandler,
+  runAgentLoop,
   getActiveRunForThread,
   getActiveRunForThreadAsync,
   getRun,
@@ -531,13 +532,10 @@ export function createAgentChatPlugin(
       streaming: true,
       handler: async function* (message, context) {
         // Resolve the caller's identity for user-scoped data access.
-        // Dev: use most recent session from local DB (single user, no verification).
-        // Prod: verify Google OAuth token from caller, check email domain.
         const isDev = process.env.NODE_ENV !== "production";
         let userEmail: string | undefined;
 
         if (isDev) {
-          // Dev mode: trust the caller's claimed email, or auto-detect from local sessions
           userEmail = (context.metadata?.userEmail as string) || undefined;
           if (!userEmail) {
             try {
@@ -551,7 +549,6 @@ export function createAgentChatPlugin(
             } catch {}
           }
         } else {
-          // Prod mode: verify identity via Google OAuth token
           const googleToken = context.metadata?.googleToken as string;
           if (googleToken) {
             try {
@@ -590,6 +587,8 @@ export function createAgentChatPlugin(
           return;
         }
 
+        // Use the SAME agent setup as the interactive chat — identical tools,
+        // prompt, and capabilities. The A2A agent IS the app's agent.
         const Anthropic = (await import("@anthropic-ai/sdk")).default;
         const apiKey = options?.apiKey ?? process.env.ANTHROPIC_API_KEY;
         if (!apiKey) {
@@ -604,17 +603,31 @@ export function createAgentChatPlugin(
           };
           return;
         }
-        const client = new Anthropic({ apiKey });
-        const model = options?.model ?? "claude-sonnet-4-6";
 
-        // Load shared AGENTS.md resource so the agent knows how to use its tools
+        // Use the same handler (dev or prod) that the interactive chat uses
+        const handler = canToggle && devHandler ? devHandler : prodHandler;
+
+        // Build the same system prompt the interactive agent uses
         const owner = userEmail || "local@localhost";
         const resources = await loadResourcesForPrompt(owner);
-        const a2aSystemPrompt =
-          `You are the ${options?.appId ?? "app"} agent responding to a request from another agent. Be concise and helpful. Use your tools to look up data or take actions as needed. Do not ask for clarification — use your tools to find the answer.` +
-          resources;
+        const systemPrompt = canToggle
+          ? devPrompt + resources
+          : basePrompt + resources;
 
-        const tools: any[] = Object.entries(allScripts).map(
+        const a2aClient = new Anthropic({ apiKey });
+        const model = options?.model ?? "claude-sonnet-4-6";
+
+        // Build tools from the same action set as the interactive handler
+        const a2aActions = canToggle
+          ? {
+              ...templateScripts,
+              ...resourceScripts,
+              ...callAgentScript,
+              ...devScriptsForA2A,
+            }
+          : { ...templateScripts, ...resourceScripts, ...callAgentScript };
+
+        const tools: any[] = Object.entries(a2aActions).map(
           ([name, entry]) => ({
             name,
             description: entry.tool.description,
@@ -625,77 +638,38 @@ export function createAgentChatPlugin(
           }),
         );
 
-        const msgs: any[] = [{ role: "user", content: text }];
+        const messages: any[] = [{ role: "user", content: text }];
+
+        // Run the SAME agent loop, collect text events, yield as A2A messages
         let accumulatedText = "";
+        const controller = new AbortController();
 
-        for (let i = 0; i < 10; i++) {
-          // Stream the Anthropic response so we can yield text chunks
-          const apiStream = client.messages.stream({
-            model,
-            max_tokens: 4096,
-            system: a2aSystemPrompt,
-            tools: tools.length > 0 ? tools : undefined,
-            messages: msgs,
-          });
-
-          // Yield text deltas as they arrive
-          for await (const event of apiStream) {
-            if (
-              event.type === "content_block_delta" &&
-              (event.delta as any)?.type === "text_delta"
-            ) {
-              accumulatedText += (event.delta as any).text;
-              yield {
-                role: "agent" as const,
-                parts: [{ type: "text" as const, text: accumulatedText }],
-              };
+        await runAgentLoop({
+          client: a2aClient,
+          model,
+          systemPrompt,
+          tools,
+          messages,
+          actions: a2aActions,
+          send: (event) => {
+            // Capture text events to yield as A2A messages
+            if (event.type === "text") {
+              accumulatedText += event.text;
             }
-          }
+          },
+          signal: controller.signal,
+        });
 
-          // Get the complete message for tool_use detection
-          const finalMessage = await apiStream.finalMessage();
-          const toolUseBlocks = finalMessage.content.filter(
-            (b: any) => b.type === "tool_use",
-          );
-
-          if (
-            toolUseBlocks.length === 0 ||
-            finalMessage.stop_reason !== "tool_use"
-          ) {
-            break;
-          }
-
-          // Execute tools and continue the loop
-          msgs.push({ role: "assistant", content: finalMessage.content });
-          const toolResults = [];
-          for (const tb of toolUseBlocks) {
-            const script = allScripts[(tb as any).name];
-            let result = `Unknown tool: ${(tb as any).name}`;
-            if (script) {
-              try {
-                result = await script.run(
-                  (tb as any).input as Record<string, string>,
-                );
-              } catch (err: any) {
-                result = `Error: ${err?.message}`;
-              }
-            }
-            toolResults.push({
-              type: "tool_result" as const,
-              tool_use_id: (tb as any).id,
-              content: result,
-            });
-          }
-          msgs.push({ role: "user", content: toolResults });
-        }
-
-        // Final yield if nothing was yielded yet
-        if (!accumulatedText) {
-          yield {
-            role: "agent" as const,
-            parts: [{ type: "text" as const, text: "(no response)" }],
-          };
-        }
+        // Yield the final accumulated text
+        yield {
+          role: "agent" as const,
+          parts: [
+            {
+              type: "text" as const,
+              text: accumulatedText || "(no response)",
+            },
+          ],
+        };
       },
     });
 

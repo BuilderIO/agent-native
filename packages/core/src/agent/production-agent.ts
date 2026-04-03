@@ -145,7 +145,7 @@ function enrichMessage(
  * The core agent loop — calls Claude iteratively until no more tool calls.
  * Decoupled from HTTP transport so it can run in the background.
  */
-async function runAgentLoop(opts: {
+export async function runAgentLoop(opts: {
   client: Anthropic;
   model: string;
   systemPrompt: string;
