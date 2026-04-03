@@ -569,7 +569,7 @@ export function createAgentChatPlugin(
           };
         }
         const client = new Anthropic({ apiKey });
-        const model = options?.model ?? "claude-sonnet-4-6-20250514";
+        const model = options?.model ?? "claude-sonnet-4-6";
         const resources = await loadResourcesForPrompt("local@localhost");
         const systemPrompt = basePrompt + resources;
 
