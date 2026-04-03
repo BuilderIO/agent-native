@@ -126,13 +126,14 @@ export const handleGetInstruction = defineEventHandler(async (event) => {
       return { error: "Missing path parameter" };
     }
 
-    // Security: ensure path is within .builder directory
-    if (!filePath.startsWith(".builder/")) {
+    // Security: ensure resolved path is within .builder directory
+    const baseDir = path.resolve(process.cwd(), ".builder");
+    const fullPath = path.resolve(process.cwd(), filePath);
+    if (!fullPath.startsWith(baseDir + path.sep) && fullPath !== baseDir) {
       setResponseStatus(event, 403);
       return { error: "Access denied" };
     }
 
-    const fullPath = path.join(process.cwd(), filePath);
     const content = await fs.readFile(fullPath, "utf-8");
 
     return { content, path: filePath };
@@ -224,13 +225,13 @@ export const handleSaveInstruction = defineEventHandler(async (event) => {
       return { error: "Missing content parameter" };
     }
 
-    // Security: ensure path is within .builder directory
-    if (!filePath.startsWith(".builder/")) {
+    // Security: ensure resolved path is within .builder directory
+    const baseDir = path.resolve(process.cwd(), ".builder");
+    const fullPath = path.resolve(process.cwd(), filePath);
+    if (!fullPath.startsWith(baseDir + path.sep) && fullPath !== baseDir) {
       setResponseStatus(event, 403);
       return { error: "Access denied" };
     }
-
-    const fullPath = path.join(process.cwd(), filePath);
 
     // Ensure directory exists
     await fs.mkdir(path.dirname(fullPath), { recursive: true });

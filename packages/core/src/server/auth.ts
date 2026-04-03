@@ -78,7 +78,20 @@ setInterval(
 ).unref();
 
 function getClientIp(event: H3Event): string {
-  return getRequestIP(event, { xForwardedFor: true }) ?? "unknown";
+  // Prefer the actual socket remote address to prevent X-Forwarded-For spoofing.
+  // Only fall back to X-Forwarded-For if the direct connection is from a
+  // loopback address (i.e. behind a local reverse proxy).
+  const socketIp = event.node?.req?.socket?.remoteAddress;
+  const isFromProxy =
+    socketIp === "127.0.0.1" ||
+    socketIp === "::1" ||
+    socketIp === "::ffff:127.0.0.1";
+  if (isFromProxy) {
+    return (
+      getRequestIP(event, { xForwardedFor: true }) ?? socketIp ?? "unknown"
+    );
+  }
+  return socketIp ?? getRequestIP(event, { xForwardedFor: false }) ?? "unknown";
 }
 
 /**
@@ -245,7 +258,7 @@ function isDevMode(): boolean {
   // On edge runtimes (e.g. CF Workers), NODE_ENV may not be set.
   // Treat undefined as production — dev mode must be explicitly opted in.
   const env = process.env.NODE_ENV;
-  return env === "development" || env === "test";
+  return env === "development";
 }
 
 // ---------------------------------------------------------------------------
@@ -311,6 +324,8 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
         path: "/",
         maxAge: sessionMaxAge,
       });
+      // Prevent token from leaking via Referer headers
+      event.node.res.setHeader("Referrer-Policy", "no-referrer");
       return { email, token: qToken };
     }
   }

@@ -120,6 +120,11 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         // Cap input length to mitigate ReDoS on user-defined patterns
         const safeValue = value.slice(0, 1000);
         let re: RegExp;
+        // Limit pattern length and reject obviously dangerous constructs
+        if (field.pattern.length > 200) {
+          setResponseStatus(event, 400);
+          return { error: `Validation pattern too long for ${field.label}` };
+        }
         try {
           re = new RegExp(field.pattern);
         } catch {

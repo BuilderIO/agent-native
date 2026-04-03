@@ -16,7 +16,8 @@
 export function sendToHarness(type: string, data?: any): void {
   if (typeof window === "undefined") return;
   const target = window.parent !== window ? window.parent : window;
-  target.postMessage({ type, data }, "*");
+  const targetOrigin = getHarnessOrigin() || window.location.origin;
+  target.postMessage({ type, data }, targetOrigin);
 }
 
 /**
@@ -30,6 +31,17 @@ export function onHarnessMessage(
   if (typeof window === "undefined") return () => {};
 
   const listener = (event: MessageEvent) => {
+    // Validate origin: accept from harness origin, own origin, or same window
+    const harness = getHarnessOrigin();
+    const ownOrigin = window.location.origin;
+    if (
+      event.source !== window &&
+      event.origin !== ownOrigin &&
+      harness &&
+      event.origin !== harness
+    ) {
+      return;
+    }
     if (event.data?.type === type) {
       handler(event.data.data ?? event.data.detail ?? event.data);
     }
@@ -44,10 +56,16 @@ export function onHarnessMessage(
 
 let _harnessOrigin: string | null = null;
 
-// Listen for harness origin message and cache it
+// Listen for harness origin message and cache it.
+// Only accept from the direct parent frame, and only set once.
 if (typeof window !== "undefined") {
   window.addEventListener("message", (event: MessageEvent) => {
-    if (event.data?.type === "builder.harnessOrigin" && event.data.origin) {
+    if (
+      event.data?.type === "builder.harnessOrigin" &&
+      event.data.origin &&
+      !_harnessOrigin &&
+      event.source === window.parent
+    ) {
       _harnessOrigin = event.data.origin;
     }
   });
