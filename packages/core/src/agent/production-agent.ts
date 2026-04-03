@@ -398,7 +398,7 @@ export function createProductionAgentHandler(
       async (send, signal) => {
         // Resolve agent @-mentions via A2A calls (inside run so we can emit SSE events)
         if (agentRefs.length > 0) {
-          const { callAgent } = await import("../a2a/client.js");
+          const { A2AClient, callAgent } = await import("../a2a/client.js");
           const agentResponses: string[] = [];
 
           const results = await Promise.allSettled(
@@ -409,30 +409,54 @@ export function createProductionAgentHandler(
                 status: "start",
               });
               try {
-                if (process.env.DEBUG_A2A) {
-                  console.log(
-                    `[A2A] Calling ${ref.name} at ${ref.path} with message: "${message.slice(0, 100)}..."`,
-                  );
+                // Try streaming first — shows progressive text in the UI
+                const client = new A2AClient(ref.path);
+                let responseText = "";
+                let lastSentLength = 0;
+
+                try {
+                  for await (const task of client.stream({
+                    role: "user",
+                    parts: [{ type: "text", text: message }],
+                  })) {
+                    const newText =
+                      task.status?.message?.parts
+                        ?.filter(
+                          (p): p is { type: "text"; text: string } =>
+                            p.type === "text",
+                        )
+                        ?.map((p) => p.text)
+                        ?.join("") ?? "";
+
+                    if (newText.length > lastSentLength) {
+                      send({
+                        type: "agent_call_text",
+                        agent: ref.name,
+                        text: newText.slice(lastSentLength),
+                      });
+                      lastSentLength = newText.length;
+                    }
+                    responseText = newText;
+                  }
+                } catch {
+                  // Streaming failed — fall back to blocking call
+                  if (!responseText) {
+                    responseText = await callAgent(ref.path, message);
+                  }
                 }
-                const response = await callAgent(ref.path, message);
-                if (process.env.DEBUG_A2A) {
-                  console.log(
-                    `[A2A] ${ref.name} responded: "${(response || "").slice(0, 100)}..."`,
-                  );
-                }
+
                 send({
                   type: "agent_call",
                   agent: ref.name,
                   status: "done",
                 });
-                return `<agent-response name="${ref.name}" id="${ref.refId}">\n${response}\n</agent-response>`;
+                return `<agent-response name="${ref.name}" id="${ref.refId}">\n${responseText}\n</agent-response>`;
               } catch (err: any) {
                 send({
                   type: "agent_call",
                   agent: ref.name,
                   status: "error",
                 });
-                console.error(`[A2A] Error calling ${ref.name}:`, err?.message);
                 return `<agent-response name="${ref.name}" id="${ref.refId}" error="true">\nFailed to reach ${ref.name}: ${err?.message}\n</agent-response>`;
               }
             }),

@@ -519,45 +519,41 @@ export function createAgentChatPlugin(
         name,
         description: entry.tool.description,
       })),
-      handler: async (message) => {
+      streaming: true,
+      handler: async function* (message) {
         const text = message.parts
           .filter((p): p is { type: "text"; text: string } => p.type === "text")
           .map((p) => p.text)
           .join("\n");
 
         if (!text) {
-          return {
-            message: {
-              role: "agent" as const,
-              parts: [
-                { type: "text" as const, text: "No text content in message" },
-              ],
-            },
+          yield {
+            role: "agent" as const,
+            parts: [
+              { type: "text" as const, text: "No text content in message" },
+            ],
           };
+          return;
         }
 
-        // Run a lean agent loop for A2A — minimal prompt, only template scripts.
-        // Full resources/framework prompt would blow up the payload and hit rate limits.
         const Anthropic = (await import("@anthropic-ai/sdk")).default;
         const apiKey = options?.apiKey ?? process.env.ANTHROPIC_API_KEY;
         if (!apiKey) {
-          return {
-            message: {
-              role: "agent" as const,
-              parts: [
-                {
-                  type: "text" as const,
-                  text: "Anthropic API key is not configured. Set ANTHROPIC_API_KEY in .env.",
-                },
-              ],
-            },
+          yield {
+            role: "agent" as const,
+            parts: [
+              {
+                type: "text" as const,
+                text: "Anthropic API key is not configured. Set ANTHROPIC_API_KEY in .env.",
+              },
+            ],
           };
+          return;
         }
         const client = new Anthropic({ apiKey });
         const model = options?.model ?? "claude-sonnet-4-6";
         const a2aSystemPrompt = `You are the ${options?.appId ?? "app"} agent responding to a request from another agent. Be concise and helpful. Use your tools to look up data or take actions as needed.`;
 
-        // Only include template scripts (not resource/call-agent meta-scripts) to keep payload small
         const tools: any[] = Object.entries(templateScripts).map(
           ([name, entry]) => ({
             name,
@@ -569,17 +565,12 @@ export function createAgentChatPlugin(
           }),
         );
 
-        if (process.env.DEBUG_A2A) {
-          console.log(
-            `[A2A Handler] System prompt: ${a2aSystemPrompt.length} chars, ${tools.length} tools`,
-          );
-        }
-
         const msgs: any[] = [{ role: "user", content: text }];
-        const textParts: string[] = [];
+        let accumulatedText = "";
 
         for (let i = 0; i < 10; i++) {
-          const response = await client.messages.create({
+          // Stream the Anthropic response so we can yield text chunks
+          const apiStream = client.messages.stream({
             model,
             max_tokens: 4096,
             system: a2aSystemPrompt,
@@ -587,51 +578,64 @@ export function createAgentChatPlugin(
             messages: msgs,
           });
 
-          const toolUseBlocks: any[] = [];
-          for (const block of response.content) {
-            if (block.type === "text") textParts.push(block.text);
-            if (block.type === "tool_use") toolUseBlocks.push(block);
+          // Yield text deltas as they arrive
+          for await (const event of apiStream) {
+            if (
+              event.type === "content_block_delta" &&
+              (event.delta as any)?.type === "text_delta"
+            ) {
+              accumulatedText += (event.delta as any).text;
+              yield {
+                role: "agent" as const,
+                parts: [{ type: "text" as const, text: accumulatedText }],
+              };
+            }
           }
+
+          // Get the complete message for tool_use detection
+          const finalMessage = await apiStream.finalMessage();
+          const toolUseBlocks = finalMessage.content.filter(
+            (b: any) => b.type === "tool_use",
+          );
 
           if (
             toolUseBlocks.length === 0 ||
-            response.stop_reason !== "tool_use"
+            finalMessage.stop_reason !== "tool_use"
           ) {
             break;
           }
 
-          msgs.push({ role: "assistant", content: response.content });
+          // Execute tools and continue the loop
+          msgs.push({ role: "assistant", content: finalMessage.content });
           const toolResults = [];
           for (const tb of toolUseBlocks) {
-            const script = allScripts[tb.name];
-            let result = `Unknown tool: ${tb.name}`;
+            const script = allScripts[(tb as any).name];
+            let result = `Unknown tool: ${(tb as any).name}`;
             if (script) {
               try {
-                result = await script.run(tb.input as Record<string, string>);
+                result = await script.run(
+                  (tb as any).input as Record<string, string>,
+                );
               } catch (err: any) {
                 result = `Error: ${err?.message}`;
               }
             }
             toolResults.push({
               type: "tool_result" as const,
-              tool_use_id: tb.id,
+              tool_use_id: (tb as any).id,
               content: result,
             });
           }
           msgs.push({ role: "user", content: toolResults });
         }
 
-        return {
-          message: {
+        // Final yield if nothing was yielded yet
+        if (!accumulatedText) {
+          yield {
             role: "agent" as const,
-            parts: [
-              {
-                type: "text" as const,
-                text: textParts.join("") || "(no response)",
-              },
-            ],
-          },
-        };
+            parts: [{ type: "text" as const, text: "(no response)" }],
+          };
+        }
       },
     });
 
