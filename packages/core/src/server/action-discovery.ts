@@ -196,7 +196,7 @@ export async function autoDiscoverActions(
     const filePath = nodePath.join(actionsDir, file);
 
     try {
-      const mod = await import(filePath);
+      const mod = await import(/* @vite-ignore */ filePath);
 
       if (mod.tool && typeof mod.run === "function") {
         // Full interface: has both tool definition and run function

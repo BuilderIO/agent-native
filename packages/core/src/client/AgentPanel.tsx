@@ -538,11 +538,24 @@ export function AgentPanel({
   const [tabMenuOpen, setTabMenuOpen] = useState<string | null>(null);
   const [cliPickerOpen, setCliPickerOpen] = useState(false);
 
-  // Ref callback: scroll the active tab into view whenever it mounts/changes
+  // Ref callback: scroll the active tab into view in the overflow container.
+  // Manually calculates scroll position to avoid scrollIntoView moving outer containers.
   const activeTabRefCb = useCallback((el: HTMLDivElement | null) => {
-    if (el) {
-      el.scrollIntoView({ block: "nearest", inline: "nearest" });
-    }
+    if (!el) return;
+    const container = el.parentElement;
+    if (!container) return;
+    // Use rAF so layout is settled after React commit
+    requestAnimationFrame(() => {
+      const tabLeft = el.offsetLeft;
+      const tabRight = tabLeft + el.offsetWidth;
+      const scrollLeft = container.scrollLeft;
+      const viewWidth = container.clientWidth;
+      if (tabLeft < scrollLeft) {
+        container.scrollLeft = tabLeft;
+      } else if (tabRight > scrollLeft + viewWidth) {
+        container.scrollLeft = tabRight - viewWidth;
+      }
+    });
   }, []);
 
   const renderChatHeader = useCallback(

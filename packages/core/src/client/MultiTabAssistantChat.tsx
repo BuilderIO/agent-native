@@ -302,11 +302,22 @@ export function MultiTabAssistantChat({
     return () => clearTimeout(t);
   }, [activeThreadId]);
 
-  // Ref callback: scroll the active tab into view whenever it mounts/changes
+  // Ref callback: scroll the active tab into view in the overflow container.
   const activeTabRefCb = useCallback((el: HTMLButtonElement | null) => {
-    if (el) {
-      el.scrollIntoView({ block: "nearest", inline: "nearest" });
-    }
+    if (!el) return;
+    const container = el.parentElement;
+    if (!container) return;
+    requestAnimationFrame(() => {
+      const tabLeft = el.offsetLeft;
+      const tabRight = tabLeft + el.offsetWidth;
+      const scrollLeft = container.scrollLeft;
+      const viewWidth = container.clientWidth;
+      if (tabLeft < scrollLeft) {
+        container.scrollLeft = tabLeft;
+      } else if (tabRight > scrollLeft + viewWidth) {
+        container.scrollLeft = tabRight - viewWidth;
+      }
+    });
   }, []);
 
   const [messageCounts, setMessageCounts] = useState<Record<string, number>>(
@@ -433,6 +444,7 @@ export function MultiTabAssistantChat({
       });
       chatRefs.current.delete(tabId);
       pendingSends.current.delete(tabId);
+      newThreadIds.current.delete(tabId);
     },
     [switchThread],
   );
@@ -448,6 +460,7 @@ export function MultiTabAssistantChat({
         if (key !== tabId) {
           chatRefs.current.delete(key);
           pendingSends.current.delete(key);
+          newThreadIds.current.delete(key);
         }
       }
     },
@@ -459,11 +472,12 @@ export function MultiTabAssistantChat({
     if (id) {
       newThreadIds.current.add(id);
       setOpenTabIds([id]);
+      switchThread(id);
       // Clean up all old refs
       chatRefs.current.clear();
       pendingSends.current.clear();
     }
-  }, [createThread]);
+  }, [createThread, switchThread]);
 
   const clearActiveTab = useCallback(() => {
     addTab();
