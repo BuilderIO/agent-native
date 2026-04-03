@@ -586,9 +586,11 @@ export function createAgentChatPlugin(
           }),
         );
 
-        console.log(
-          `[A2A Handler] System prompt: ${a2aSystemPrompt.length} chars, ${tools.length} tools`,
-        );
+        if (process.env.DEBUG_A2A) {
+          console.log(
+            `[A2A Handler] System prompt: ${a2aSystemPrompt.length} chars, ${tools.length} tools`,
+          );
+        }
 
         const msgs: any[] = [{ role: "user", content: text }];
         const textParts: string[] = [];
