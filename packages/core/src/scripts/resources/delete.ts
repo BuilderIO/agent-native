@@ -4,7 +4,7 @@
  * Delete a resource from the SQL store.
  *
  * Usage:
- *   pnpm script resource-delete --path <path> [--scope personal|shared]
+ *   pnpm action resource-delete --path <path> [--scope personal|shared]
  */
 
 import { parseArgs, fail } from "../utils.js";
@@ -16,7 +16,7 @@ export default async function resourceDeleteScript(
   const parsed = parseArgs(args);
 
   if (parsed.help === "true") {
-    console.log(`Usage: pnpm script resource-delete --path <path> [options]
+    console.log(`Usage: pnpm action resource-delete --path <path> [options]
 
 Options:
   --path <path>            Resource path (required)

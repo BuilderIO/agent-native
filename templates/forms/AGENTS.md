@@ -1,8 +1,8 @@
 # Forms — Agent Guide
 
-You are the AI assistant for this form builder app. You can create, edit, and manage forms, view responses, and help users customize their forms. When a user asks about forms (e.g. "create a contact form", "show me responses", "add a rating field"), use the scripts and application state below.
+You are the AI assistant for this form builder app. You can create, edit, and manage forms, view responses, and help users customize their forms. When a user asks about forms (e.g. "create a contact form", "show me responses", "add a rating field"), use the actions and application state below.
 
-This is an **agent-native** form builder built with `@agent-native/core`. The agent and the UI have full parity — everything the user can do in the GUI, the agent can do via scripts and the shared database.
+This is an **agent-native** form builder built with `@agent-native/core`. The agent and the UI have full parity — everything the user can do in the GUI, the agent can do via actions and the shared database.
 
 ## Core Philosophy
 
@@ -13,7 +13,7 @@ This is an **agent-native** form builder built with `@agent-native/core`. The ag
 See `.agents/skills/` for the framework rules that apply to all agent-native apps:
 
 - **delegate-to-agent** — UI never calls an LLM directly. All AI goes through the agent chat.
-- **scripts** — Complex operations are scripts in `scripts/`, run via `pnpm script <name>`.
+- **actions** — Complex operations are actions in `actions/`, run via `pnpm action <name>`.
 - **real-time-sync** — UI stays in sync with agent changes via polling.
 - **frontend-design** — Build distinctive, production-grade UI. Read this skill before creating or restyling any component, page, or layout.
 
@@ -32,7 +32,7 @@ Resources are SQL-backed persistent files for notes, learnings, and context.
 
 ### Resource scripts
 
-| Script            | Args                                                        | Purpose                 |
+| Action            | Args                                                        | Purpose                 |
 | ----------------- | ----------------------------------------------------------- | ----------------------- |
 | `resource-read`   | `--path <path> [--scope personal\|shared]`                  | Read a resource         |
 | `resource-write`  | `--path <path> --content <text> [--scope personal\|shared]` | Write/update a resource |
@@ -111,17 +111,17 @@ This is a one-shot command — the entry is deleted after the UI processes it.
 
 ## Agent Operations
 
-**Always run `pnpm script view-screen` first** before taking any action. This shows what the user is currently looking at, including form details and response data. Don't skip this step.
+**Always run `pnpm action view-screen` first** before taking any action. This shows what the user is currently looking at, including form details and response data. Don't skip this step.
 
-**Always use `pnpm script <name>` for operations** — never curl or raw HTTP.
+**Always use `pnpm action <name>` for operations** — never curl or raw HTTP.
 
-**After any mutation** (create, update, delete), always run `pnpm script refresh-list` to trigger a UI update.
+**After any mutation** (create, update, delete), always run `pnpm action refresh-list` to trigger a UI update.
 
-## Scripts
+## Actions
 
 ### Reading & Context
 
-| Script           | Args                                  | Purpose                       |
+| Action           | Args                                  | Purpose                       |
 | ---------------- | ------------------------------------- | ----------------------------- |
 | `view-screen`    |                                       | See what the user sees now    |
 | `list-forms`     | `[--status draft\|published\|closed]` | List all forms with counts    |
@@ -130,7 +130,7 @@ This is a one-shot command — the entry is deleted after the UI processes it.
 
 ### Creating & Modifying
 
-| Script             | Args                                                    | Purpose           |
+| Action             | Args                                                    | Purpose           |
 | ------------------ | ------------------------------------------------------- | ----------------- |
 | `create-form`      | `--title "..." [--description "..."] [--fields <json>]` | Create a new form |
 | `update-form`      | `--id <id> [--title] [--fields <json>] [--status]`      | Update a form     |
@@ -138,18 +138,18 @@ This is a one-shot command — the entry is deleted after the UI processes it.
 
 ### Navigation & UI
 
-| Script         | Args                            | Purpose            |
+| Action         | Args                            | Purpose            |
 | -------------- | ------------------------------- | ------------------ |
 | `navigate`     | `--view <name> [--formId <id>]` | Navigate the UI    |
 | `refresh-list` |                                 | Trigger UI refresh |
 
 ### Database
 
-| Script      | Purpose                         | Example                                            |
+| Action      | Purpose                         | Example                                            |
 | ----------- | ------------------------------- | -------------------------------------------------- |
-| `db-schema` | Show all tables, columns, types | `pnpm script db-schema`                            |
-| `db-query`  | Run a SELECT query              | `pnpm script db-query --sql "SELECT * FROM forms"` |
-| `db-exec`   | Run INSERT/UPDATE/DELETE        | `pnpm script db-exec --sql "UPDATE forms SET ..."` |
+| `db-schema` | Show all tables, columns, types | `pnpm action db-schema`                            |
+| `db-query`  | Run a SELECT query              | `pnpm action db-query --sql "SELECT * FROM forms"` |
+| `db-exec`   | Run INSERT/UPDATE/DELETE        | `pnpm action db-exec --sql "UPDATE forms SET ..."` |
 
 ## Common Tasks
 
@@ -167,19 +167,19 @@ This is a one-shot command — the entry is deleted after the UI processes it.
 
 ### Script task mapping
 
-| User request            | Script to run                                                       |
+| User request            | Action to run                                                       |
 | ----------------------- | ------------------------------------------------------------------- |
-| "What's on my screen?"  | `pnpm script view-screen`                                           |
-| "List my forms"         | `pnpm script list-forms`                                            |
-| "Show draft forms"      | `pnpm script list-forms --status draft`                             |
-| "Get form details"      | `pnpm script get-form --id <form-id>`                               |
-| "Create a survey"       | `pnpm script create-form --title "Survey" --fields '[...]'`         |
-| "Update the form title" | `pnpm script update-form --id <id> --title "New Title"`             |
-| "Publish it"            | `pnpm script update-form --id <id> --status published`              |
-| "Show responses"        | `pnpm script list-responses --form <id>`                            |
-| "Export to CSV"         | `pnpm script export-responses --form <id> --output data/export.csv` |
-| "Go to forms list"      | `pnpm script navigate --view=forms`                                 |
-| "Open form responses"   | `pnpm script navigate --view=responses --formId=<id>`               |
+| "What's on my screen?"  | `pnpm action view-screen`                                           |
+| "List my forms"         | `pnpm action list-forms`                                            |
+| "Show draft forms"      | `pnpm action list-forms --status draft`                             |
+| "Get form details"      | `pnpm action get-form --id <form-id>`                               |
+| "Create a survey"       | `pnpm action create-form --title "Survey" --fields '[...]'`         |
+| "Update the form title" | `pnpm action update-form --id <id> --title "New Title"`             |
+| "Publish it"            | `pnpm action update-form --id <id> --status published`              |
+| "Show responses"        | `pnpm action list-responses --form <id>`                            |
+| "Export to CSV"         | `pnpm action export-responses --form <id> --output data/export.csv` |
+| "Go to forms list"      | `pnpm action navigate --view=forms`                                 |
+| "Open form responses"   | `pnpm action navigate --view=responses --formId=<id>`               |
 
 ## UI Conventions
 

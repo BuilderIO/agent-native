@@ -4,7 +4,7 @@
  * List resources stored in the SQL resource store.
  *
  * Usage:
- *   pnpm script resource-list [--prefix <path>] [--scope personal|shared|all] [--format json|text]
+ *   pnpm action resource-list [--prefix <path>] [--scope personal|shared|all] [--format json|text]
  */
 
 import { parseArgs } from "../utils.js";
@@ -21,7 +21,7 @@ export default async function resourceListScript(
   const parsed = parseArgs(args);
 
   if (parsed.help === "true") {
-    console.log(`Usage: pnpm script resource-list [options]
+    console.log(`Usage: pnpm action resource-list [options]
 
 Options:
   --prefix <path>              Filter by path prefix

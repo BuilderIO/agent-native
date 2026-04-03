@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from "react";
+import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -47,19 +47,22 @@ export function useNavigationState() {
       if (!res.ok) return null;
       const data = await res.json();
       if (data) {
-        // Delete the one-shot command
-        fetch("/_agent-native/application-state/navigate", {
-          method: "DELETE",
-        }).catch(() => {});
-        return data;
+        // Return with a timestamp to ensure uniqueness
+        return { ...data, _ts: Date.now() };
       }
       return null;
     },
-    refetchInterval: 5_000,
+    refetchInterval: 2_000,
+    refetchIntervalInBackground: true,
+    structuralSharing: false,
   });
 
   useEffect(() => {
     if (!navCommand) return;
+    // Delete the one-shot command AFTER reading it
+    fetch("/_agent-native/application-state/navigate", {
+      method: "DELETE",
+    }).catch(() => {});
     const cmd = navCommand as NavigationState;
     let path = "/";
 

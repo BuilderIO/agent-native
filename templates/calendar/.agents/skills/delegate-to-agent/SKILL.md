@@ -84,7 +84,7 @@ Scripts may call external APIs (image generation, search, etc.) — but the AI r
 
 ## Related Skills
 
-- **scripts** — The agent invokes scripts via `pnpm script <name>` to perform complex operations
+- **scripts** — The agent invokes scripts via `pnpm action <name>` to perform complex operations
 - **self-modifying-code** — The agent operates through the chat bridge to make code changes
 - **storing-data** — The agent writes results to the database after processing requests
 - **real-time-sync** — The UI updates automatically when the agent writes to the database

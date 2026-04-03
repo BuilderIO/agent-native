@@ -21,6 +21,8 @@ import {
 import { IntegrationsSidebar } from "@/components/email/IntegrationsSidebar";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { useAccountFilter } from "@/hooks/use-account-filter";
+import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
+import { Button } from "@/components/ui/button";
 import type { EmailMessage } from "@shared/types";
 
 function ContactPanel({
@@ -151,7 +153,9 @@ export function InboxPage() {
     data: rawEmails = [],
     isLoading,
     isError,
+    refetch,
   } = useEmails(view, searchQuery);
+  const googleStatus = useGoogleAuthStatus();
   const { activeAccounts } = useAccountFilter();
 
   const pinnedLabels = settings?.pinnedLabels ?? [];
@@ -335,10 +339,31 @@ export function InboxPage() {
   // Use the focused email ID for the contact panel, falling back to the selected thread
   const contactEmailId = threadId ?? focusedId ?? undefined;
 
-  // Error state — emails failed to load (expired tokens, missing keys, etc.)
-  // Show the full onboarding/connect flow so the user can re-setup keys + account
+  // Error state — only show connect banner when Google is definitively not connected.
+  // For transient errors (rate limits, network blips), show a retry message instead.
   if (isError && !hasThread && threads.length === 0) {
-    return <GoogleConnectBanner variant="hero" />;
+    if (!googleStatus.isLoading && googleStatus.data?.connected === false) {
+      return <GoogleConnectBanner variant="hero" />;
+    }
+    if (!googleStatus.isLoading && googleStatus.data?.connected) {
+      return (
+        <div className="flex flex-1 items-center justify-center text-center">
+          <div>
+            <p className="text-sm text-muted-foreground">
+              Failed to load emails
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-2"
+              onClick={() => refetch()}
+            >
+              Retry
+            </Button>
+          </div>
+        </div>
+      );
+    }
   }
 
   // Inbox Zero — full-bleed image, no sidebar

@@ -6,7 +6,7 @@
  * into the app's data model.
  *
  * Usage:
- *   pnpm script db-schema [--db path] [--format json]
+ *   pnpm action db-schema [--db path] [--format json]
  */
 
 import path from "path";
@@ -211,7 +211,7 @@ export default async function dbSchema(args: string[]): Promise<void> {
   const parsed = parseArgs(args);
 
   if (parsed.help === "true") {
-    console.log(`Usage: pnpm script db-schema [--db <path>] [--format json]
+    console.log(`Usage: pnpm action db-schema [--db <path>] [--format json]
 
 Options:
   --db <path>     Path to SQLite database (default: data/app.db)

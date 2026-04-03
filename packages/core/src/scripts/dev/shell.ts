@@ -1,12 +1,12 @@
 import { execSync } from "node:child_process";
 import path from "node:path";
-import type { ScriptTool } from "../../agent/types.js";
+import type { ActionTool } from "../../agent/types.js";
 import { parseArgs } from "../utils.js";
 
 const MAX_OUTPUT = 50_000;
 const TIMEOUT_MS = 30_000;
 
-export const tool: ScriptTool = {
+export const tool: ActionTool = {
   description:
     "Run a shell command and return the output. Use for build commands, git operations, package management, or any CLI task. Has a 30-second timeout.",
   parameters: {

@@ -8,9 +8,13 @@ import type { CalendarEvent } from "@shared/api";
 
 const EVENT_DETAIL_MODE_KEY = "calendar-event-detail-mode";
 
+export type ViewMode = "month" | "week" | "day";
+
 interface CalendarContextValue {
   selectedDate: Date;
   setSelectedDate: (date: Date) => void;
+  viewMode: ViewMode;
+  setViewMode: (mode: ViewMode) => void;
   peopleSearchOpen: boolean;
   setPeopleSearchOpen: (open: boolean) => void;
   /** Whether to show event details in sidebar instead of popover */
@@ -24,6 +28,8 @@ interface CalendarContextValue {
 const CalendarContext = createContext<CalendarContextValue>({
   selectedDate: new Date(),
   setSelectedDate: () => {},
+  viewMode: "week",
+  setViewMode: () => {},
   peopleSearchOpen: false,
   setPeopleSearchOpen: () => {},
   eventDetailSidebar: false,
@@ -48,6 +54,7 @@ interface AppLayoutProps {
 export function AppLayout({ children }: AppLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [viewMode, setViewMode] = useState<ViewMode>("week");
   const [peopleSearchOpen, setPeopleSearchOpen] = useState(false);
   const [eventDetailSidebar, setEventDetailSidebarState] = useState(false);
   const [sidebarEvent, setSidebarEvent] = useState<CalendarEvent | null>(null);
@@ -75,6 +82,8 @@ export function AppLayout({ children }: AppLayoutProps) {
       value={{
         selectedDate,
         setSelectedDate,
+        viewMode,
+        setViewMode,
         peopleSearchOpen,
         setPeopleSearchOpen,
         eventDetailSidebar,

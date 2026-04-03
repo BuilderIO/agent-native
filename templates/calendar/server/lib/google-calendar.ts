@@ -7,6 +7,7 @@ import {
   listOAuthAccountsByOwner,
   hasOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
+import { isOAuthConnected, getOAuthAccounts } from "@agent-native/core/server";
 import {
   createOAuth2Client,
   oauth2GetUserInfo,
@@ -178,11 +179,7 @@ export async function getClients(
 }
 
 export async function isConnected(forEmail?: string): Promise<boolean> {
-  if (forEmail) {
-    const accounts = await listOAuthAccountsByOwner("google", forEmail);
-    return accounts.length > 0;
-  }
-  return hasOAuthTokens("google");
+  return isOAuthConnected("google", forEmail);
 }
 
 export async function getConnectedAccounts(): Promise<string[]> {
@@ -193,15 +190,7 @@ export async function getConnectedAccounts(): Promise<string[]> {
 export async function getAuthStatus(
   forEmail?: string,
 ): Promise<GoogleAuthStatus> {
-  let oauthAccounts: Array<{
-    accountId: string;
-    tokens: Record<string, unknown>;
-  }>;
-  if (forEmail) {
-    oauthAccounts = await listOAuthAccountsByOwner("google", forEmail);
-  } else {
-    oauthAccounts = await listOAuthAccounts("google");
-  }
+  const oauthAccounts = await getOAuthAccounts("google", forEmail);
 
   if (oauthAccounts.length === 0) {
     return { connected: false, accounts: [] };

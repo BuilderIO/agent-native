@@ -1,10 +1,14 @@
-import { useEffect, useCallback } from "react";
+import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCalendarContext } from "@/components/layout/AppLayout";
+import {
+  useCalendarContext,
+  type ViewMode,
+} from "@/components/layout/AppLayout";
 
 interface NavigationState {
   view: string;
+  calendarViewMode?: ViewMode;
   date?: string;
   eventId?: string;
   bookingLinkId?: string;
@@ -14,7 +18,8 @@ export function useNavigationState() {
   const location = useLocation();
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const { selectedDate, sidebarEvent } = useCalendarContext();
+  const { selectedDate, viewMode, setViewMode, setSelectedDate, sidebarEvent } =
+    useCalendarContext();
 
   // Sync current route to application state
   useEffect(() => {
@@ -35,6 +40,9 @@ export function useNavigationState() {
       state.view = "settings";
     }
 
+    // Include the current calendar view mode
+    state.calendarViewMode = viewMode;
+
     // Include the currently selected date
     if (selectedDate) {
       state.date = selectedDate.toISOString().split("T")[0];
@@ -50,7 +58,7 @@ export function useNavigationState() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(state),
     }).catch(() => {});
-  }, [location.pathname, selectedDate, sidebarEvent]);
+  }, [location.pathname, selectedDate, viewMode, sidebarEvent]);
 
   // Listen for navigate commands from agent
   const { data: navCommand } = useQuery({
@@ -60,19 +68,22 @@ export function useNavigationState() {
       if (!res.ok) return null;
       const data = await res.json();
       if (data) {
-        // Delete the one-shot command
-        fetch("/_agent-native/application-state/navigate", {
-          method: "DELETE",
-        }).catch(() => {});
-        return data;
+        // Return with a timestamp to ensure uniqueness
+        return { ...data, _ts: Date.now() };
       }
       return null;
     },
-    refetchInterval: 5_000,
+    refetchInterval: 2_000,
+    refetchIntervalInBackground: true,
+    structuralSharing: false,
   });
 
   useEffect(() => {
     if (!navCommand) return;
+    // Delete the one-shot command AFTER reading it
+    fetch("/_agent-native/application-state/navigate", {
+      method: "DELETE",
+    }).catch(() => {});
     const cmd = navCommand as NavigationState;
     let path = "/";
 
@@ -89,7 +100,19 @@ export function useNavigationState() {
       path = "/";
     }
 
+    // Apply calendar view mode change (day/week/month)
+    if (cmd.calendarViewMode) {
+      setViewMode(cmd.calendarViewMode);
+    }
+
+    // Apply date change
+    if (cmd.date) {
+      // Parse YYYY-MM-DD as local date (not UTC)
+      const [y, m, d] = cmd.date.split("-").map(Number);
+      setSelectedDate(new Date(y, m - 1, d));
+    }
+
     navigate(path);
     qc.setQueryData(["navigate-command"], null);
-  }, [navCommand, navigate, qc]);
+  }, [navCommand, navigate, qc, setViewMode, setSelectedDate]);
 }

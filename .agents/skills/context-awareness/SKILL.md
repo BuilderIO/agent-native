@@ -68,7 +68,7 @@ const navigation = await readAppState("navigation");
 Every template should have a `view-screen` script. It reads navigation state, fetches the relevant data from the API, and returns a snapshot of what the user sees. This is the agent's eyes.
 
 ```ts
-// scripts/view-screen.ts
+// actions/view-screen.ts
 import { readAppState } from "@agent-native/core/application-state";
 
 export default async function main() {

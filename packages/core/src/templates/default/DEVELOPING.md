@@ -73,8 +73,8 @@ export default defineNitroPlugin(async (nitroApp) => {
 
 ## Adding a Script
 
-Create `scripts/my-script.ts` exporting `default async function(args: string[])`.
-Run with: `pnpm script my-script --arg value`
+Create `actions/my-script.ts` exporting `default async function(args: string[])`.
+Run with: `pnpm action my-script --arg value`
 
 ## Sending to Agent Chat
 

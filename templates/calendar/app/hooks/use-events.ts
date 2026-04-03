@@ -30,6 +30,7 @@ export function useEvents(
       return res.json();
     },
     retry: false,
+    staleTime: 30_000,
     placeholderData: keepPreviousData,
   });
 }

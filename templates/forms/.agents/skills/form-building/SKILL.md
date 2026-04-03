@@ -13,7 +13,7 @@ description: >-
 Use the `create-form` script to create forms from natural language:
 
 ```bash
-pnpm script create-form --title "Contact Form" --fields '[...]'
+pnpm action create-form --title "Contact Form" --fields '[...]'
 ```
 
 The script generates a unique ID, creates a URL slug, and stores the form in SQL as `draft` status.
@@ -82,13 +82,13 @@ Use `update-form` to modify any form property:
 
 ```bash
 # Change title
-pnpm script update-form --id <id> --title "New Title"
+pnpm action update-form --id <id> --title "New Title"
 
 # Update fields
-pnpm script update-form --id <id> --fields '[...]'
+pnpm action update-form --id <id> --fields '[...]'
 
 # Change status
-pnpm script update-form --id <id> --status published
+pnpm action update-form --id <id> --status published
 ```
 
 ## Common Form Templates

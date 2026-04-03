@@ -34,7 +34,7 @@ server/            # Nitro API backend
   handlers/        # Business logic
   lib/             # Jira API client, auth, ADF converter
   plugins/         # Server plugins
-scripts/           # Agent-callable scripts
+actions/           # Agent-callable scripts
 shared/            # TypeScript types
 ```
 
@@ -48,7 +48,7 @@ shared/            # TypeScript types
 ## Running Scripts
 
 ```bash
-pnpm script list-issues --compact
-pnpm script get-issue --key=PROJ-123
-pnpm script create-issue --project=PROJ --summary="Fix bug"
+pnpm action list-issues --compact
+pnpm action get-issue --key=PROJ-123
+pnpm action create-issue --project=PROJ --summary="Fix bug"
 ```

@@ -13,16 +13,26 @@ function getCached(key: string) {
   return null;
 }
 
-async function getFormById(formId: string) {
-  const cached = getCached(formId);
+async function getFormBySlugOrId(slugOrId: string) {
+  const cached = getCached(slugOrId);
   if (cached) return cached;
 
   const db = getDb();
-  const row = await db
+
+  // Try matching by slug first, then fall back to ID
+  let row = await db
     .select()
     .from(schema.forms)
-    .where(eq(schema.forms.id, formId))
+    .where(eq(schema.forms.slug, slugOrId))
     .then((rows) => rows[0]);
+
+  if (!row) {
+    row = await db
+      .select()
+      .from(schema.forms)
+      .where(eq(schema.forms.id, slugOrId))
+      .then((rows) => rows[0]);
+  }
 
   if (!row || row.status !== "published") return null;
 
@@ -34,7 +44,7 @@ async function getFormById(formId: string) {
     settings: JSON.parse(row.settings) as FormSettings,
   };
 
-  cache.set(formId, { data: result, ts: Date.now() });
+  cache.set(slugOrId, { data: result, ts: Date.now() });
   return result;
 }
 
@@ -118,13 +128,9 @@ function renderField(field: FormField): string {
 export async function renderPublicFormHtml(
   url: string,
 ): Promise<{ html: string; status: number }> {
-  const segments = url
-    .split("?")[0]
-    .replace(/^\/f\//, "")
-    .split("/")
-    .filter(Boolean);
-  const formId = segments[segments.length - 1] || "";
-  const form = formId ? await getFormById(formId) : null;
+  // Extract everything after /f/ as the slug (may contain slashes for legacy URLs)
+  const slugOrId = decodeURIComponent(url.split("?")[0].replace(/^\/f\//, ""));
+  const form = slugOrId ? await getFormBySlugOrId(slugOrId) : null;
 
   if (!form) {
     return { html: notFoundPage(), status: 404 };

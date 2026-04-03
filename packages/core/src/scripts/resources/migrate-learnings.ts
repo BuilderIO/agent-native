@@ -4,7 +4,7 @@
  * Migrate a learnings.md file from the project root into the SQL resource store.
  *
  * Usage:
- *   pnpm script migrate-learnings
+ *   pnpm action migrate-learnings
  */
 
 import fs from "fs";
