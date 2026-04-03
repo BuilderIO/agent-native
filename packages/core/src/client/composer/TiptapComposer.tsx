@@ -152,10 +152,10 @@ export function TiptapComposer({
           if (event.key === "Enter") {
             event.preventDefault();
             const idx = popoverRef.current?.getSelectedIndex() ?? 0;
-            const currentMentions = mentionItemsRef.current;
             const currentSkills = filteredSkillsRef.current;
-            if (pop.type === "@" && currentMentions[idx]) {
-              selectMention(view, pop, currentMentions[idx]);
+            if (pop.type === "@") {
+              const item = popoverRef.current?.getSelectedMention();
+              if (item) selectMention(view, pop, item);
             } else if (pop.type === "/" && currentSkills[idx]) {
               selectSkill(view, pop, currentSkills[idx]);
             }

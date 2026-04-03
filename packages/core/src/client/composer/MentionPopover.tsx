@@ -23,6 +23,7 @@ export interface MentionPopoverRef {
   moveUp: () => void;
   moveDown: () => void;
   getSelectedIndex: () => number;
+  getSelectedMention: () => MentionItem | null;
 }
 
 interface MentionPopoverProps {
@@ -189,6 +190,7 @@ export const MentionPopover = forwardRef<
       setSelectedIndex((prev) => (prev >= itemCount - 1 ? 0 : prev + 1));
     },
     getSelectedIndex: () => selectedIndex,
+    getSelectedMention: () => flatMentionItems[selectedIndex] ?? null,
   }));
 
   if (!position) return null;
