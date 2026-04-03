@@ -40,7 +40,7 @@ export function output(data: unknown): void {
 /** Print error and exit with code 1 */
 export function fatal(message: string): never {
   console.error(`Error: ${message}`);
-  process.exit(1);
+  throw new Error("Script failed");
 }
 
 function matchesGrep(obj: unknown, term: string): boolean {

@@ -381,7 +381,7 @@ function generateComponent(options: GeneratorOptions): void {
     fs.mkdirSync(compDir, { recursive: true });
   } else {
     console.error(`❌ Directory already exists: ${compDir}`);
-    process.exit(1);
+    throw new Error("Script failed");
   }
 
   // Generate main composition file
@@ -433,7 +433,7 @@ Examples:
   npm run generate:component MyDashboard --elements Button,Card,Panel,Toggle
   npm run generate:component MyApp --elements Hero,Feature,CTA --output src/components
     `);
-    process.exit(0);
+    return;
   }
 
   const name = args[0];

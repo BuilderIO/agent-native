@@ -49,7 +49,7 @@ export default async function main(args: string[]) {
     console.error(
       "\nRequires LOGO_DEV_TOKEN env var. Sign up free at https://logo.dev/signup",
     );
-    process.exit(1);
+    throw new Error("Script failed");
   }
 
   const token = process.env.LOGO_DEV_TOKEN;

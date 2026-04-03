@@ -53,6 +53,6 @@ export default async function main(_args: string[]) {
     agentChat.submit(
       `Database connection failed: ${err.message}. Mode: ${isLocal ? "local" : "remote"}.`,
     );
-    process.exit(1);
+    throw new Error("Script failed");
   }
 }

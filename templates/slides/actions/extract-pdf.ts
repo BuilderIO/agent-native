@@ -4,7 +4,7 @@ import { PDFParse } from "pdf-parse";
 const pdfPath = process.argv[2];
 if (!pdfPath) {
   console.error("Usage: node scripts/extract-pdf.ts <path-to-pdf>");
-  process.exit(1);
+  throw new Error("Script failed");
 }
 
 async function main() {

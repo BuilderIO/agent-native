@@ -36,7 +36,7 @@ export default async function main(args: string[]) {
 
   if (!title) {
     console.error("Error: --title is required");
-    process.exit(1);
+    throw new Error("Script failed");
   }
 
   const id = nanoid();
@@ -56,7 +56,7 @@ export default async function main(args: string[]) {
       fields = JSON.parse(fieldsJson);
     } catch {
       console.error("Error: --fields must be valid JSON");
-      process.exit(1);
+      throw new Error("Script failed");
     }
   }
 

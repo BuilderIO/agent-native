@@ -58,7 +58,7 @@ export default async function main(): Promise<void> {
     console.error(
       "Error: At least --view or --deckId is required. Usage: pnpm action navigate --deckId=abc123",
     );
-    process.exit(1);
+    throw new Error("Script failed");
   }
   const result = await run(args);
   console.error(result);
