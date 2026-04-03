@@ -34,6 +34,19 @@ import React, {
 import * as SelectPrimitive from "@radix-ui/react-select";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import {
+  IconMessage,
+  IconTerminal2,
+  IconSettings,
+  IconLayoutSidebarRightCollapse,
+  IconChevronDown,
+  IconCheck,
+  IconPlus,
+  IconFolder,
+  IconX,
+  IconPencil,
+  IconClockHour3,
+} from "@tabler/icons-react";
+import {
   MultiTabAssistantChat,
   type MultiTabAssistantChatHeaderProps,
 } from "./MultiTabAssistantChat.js";
@@ -55,6 +68,8 @@ const ResourcesPanel = lazy(() =>
 
 const CLI_STORAGE_KEY = "agent-native-cli-command";
 const CLI_DEFAULT = "builder";
+const EXEC_MODE_KEY = "agent-native-exec-mode";
+type ExecMode = "build" | "plan";
 const AGENT_PANEL_FONT_FAMILY =
   'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
 const AGENT_PANEL_ROOT_STYLE = {
@@ -115,173 +130,6 @@ const IS_DEV: boolean =
   typeof (import.meta as any).env !== "undefined" &&
   (import.meta as any).env.DEV === true;
 
-// ─── Icons ──────────────────────────────────────────────────────────────────
-
-function ChatBubbleIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
-    </svg>
-  );
-}
-
-function TerminalIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <polyline points="4 17 10 11 4 5" />
-      <line x1="12" y1="19" x2="20" y2="19" />
-    </svg>
-  );
-}
-
-function CogIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  );
-}
-
-function SidebarIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <rect x="3" y="3" width="18" height="18" rx="2" />
-      <path d="M9 3v18" />
-    </svg>
-  );
-}
-
-function ChevronDownIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="m6 9 6 6 6-6" />
-    </svg>
-  );
-}
-
-function CheckIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M20 6 9 17l-5-5" />
-    </svg>
-  );
-}
-
-function PlusIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.9}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M12 5v14M5 12h14" />
-    </svg>
-  );
-}
-
-function FolderIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
-    </svg>
-  );
-}
-
-function XIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2.1}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M18 6L6 18M6 6l12 12" />
-    </svg>
-  );
-}
-
-function HistoryIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-      <path d="M3 3v5h5" />
-      <path d="M12 7v5l4 2" />
-    </svg>
-  );
-}
-
 interface SettingsSelectOption {
   value: string;
   label: string;
@@ -314,7 +162,7 @@ function SettingsSelect({
             {selected?.label ?? value}
           </SelectPrimitive.Value>
           <SelectPrimitive.Icon asChild>
-            <ChevronDownIcon className="h-3.5 w-3.5 text-muted-foreground" />
+            <IconChevronDown size={14} className="text-muted-foreground" />
           </SelectPrimitive.Icon>
         </SelectPrimitive.Trigger>
         <SelectPrimitive.Portal>
@@ -333,7 +181,7 @@ function SettingsSelect({
                 >
                   <span className="absolute left-2 top-2.5 flex h-4 w-4 items-center justify-center text-muted-foreground">
                     <SelectPrimitive.ItemIndicator>
-                      <CheckIcon className="h-3.5 w-3.5" />
+                      <IconCheck size={14} />
                     </SelectPrimitive.ItemIndicator>
                   </span>
                   <div className="flex min-w-0 flex-col">
@@ -472,7 +320,7 @@ function AgentSettingsPopover({
         )}
         title="Agent settings"
       >
-        <CogIcon className="h-3.5 w-3.5" />
+        <IconSettings size={14} />
       </button>
       {open &&
         pos &&
@@ -538,6 +386,26 @@ export function AgentPanel({
   onCollapse,
 }: AgentPanelProps) {
   const mounted = useClientOnly();
+  const [execMode, setExecMode] = useState<ExecMode>(() => {
+    try {
+      const saved = localStorage.getItem(EXEC_MODE_KEY);
+      if (saved === "build" || saved === "plan") return saved;
+    } catch {}
+    return "build";
+  });
+
+  const switchExecMode = useCallback((next: ExecMode) => {
+    setExecMode(next);
+    try {
+      localStorage.setItem(EXEC_MODE_KEY, next);
+    } catch {}
+    window.dispatchEvent(
+      new CustomEvent("agent-panel:exec-mode-change", {
+        detail: { mode: next },
+      }),
+    );
+  }, []);
+
   const [mode, setMode] = useState<"chat" | "cli" | "resources">(() => {
     try {
       const saved = localStorage.getItem("agent-native-panel-mode");
@@ -607,7 +475,7 @@ export function AgentPanel({
           title="Chat mode"
           style={AGENT_PANEL_CONTROL_STYLE}
         >
-          <ChatBubbleIcon className="h-3.5 w-3.5" />
+          <IconMessage size={14} />
           Chat
         </button>
         {isDevMode && (
@@ -622,7 +490,7 @@ export function AgentPanel({
             title="CLI terminal mode"
             style={AGENT_PANEL_CONTROL_STYLE}
           >
-            <TerminalIcon className="h-3.5 w-3.5" />
+            <IconTerminal2 size={14} />
             CLI
           </button>
         )}
@@ -637,7 +505,7 @@ export function AgentPanel({
           title="Files & resources"
           style={AGENT_PANEL_CONTROL_STYLE}
         >
-          <FolderIcon className="h-3.5 w-3.5" />
+          <IconFolder size={14} />
           Files
         </button>
       </div>
@@ -667,7 +535,7 @@ export function AgentPanel({
               onClick={onCollapse}
               className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
             >
-              <SidebarIcon className="h-3.5 w-3.5" />
+              <IconLayoutSidebarRightCollapse size={14} />
             </button>
           </IconTooltip>
         )}
@@ -713,7 +581,7 @@ export function AgentPanel({
                   onClick={mode === "cli" ? addCliTab : addTab}
                   className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
                 >
-                  <PlusIcon className="h-3.5 w-3.5" />
+                  <IconPlus size={14} />
                 </button>
               </IconTooltip>
             )}
@@ -726,7 +594,7 @@ export function AgentPanel({
                     showHistory && "bg-accent text-foreground",
                   )}
                 >
-                  <HistoryIcon className="h-3.5 w-3.5" />
+                  <IconClockHour3 size={14} />
                 </button>
               </IconTooltip>
             )}
@@ -774,7 +642,7 @@ export function AgentPanel({
                           "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
                       }}
                     >
-                      <XIcon className="h-2.5 w-2.5" />
+                      <IconX size={10} />
                     </button>
                   </div>
                 ))
@@ -811,7 +679,7 @@ export function AgentPanel({
                           "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
                       }}
                     >
-                      <XIcon className="h-2.5 w-2.5" />
+                      <IconX size={10} />
                     </button>
                   </div>
                 ))}
@@ -820,7 +688,7 @@ export function AgentPanel({
               className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
               title={mode === "cli" ? "New terminal" : "New chat"}
             >
-              <PlusIcon className="h-3.5 w-3.5" />
+              <IconPlus size={14} />
             </button>
           </div>
         )}
@@ -873,6 +741,49 @@ export function AgentPanel({
             emptyStateText={emptyStateText}
             suggestions={suggestions}
             onSwitchToCli={isDevMode ? () => switchMode("cli") : undefined}
+            composerSlot={
+              <div className="shrink-0 px-3 pt-1.5 pb-0 flex items-center justify-between gap-2">
+                {execMode === "plan" ? (
+                  <div className="flex items-center gap-1.5 text-[11px] text-amber-700 dark:text-amber-400 min-w-0 truncate">
+                    <IconPencil size={12} className="shrink-0" />
+                    <span className="truncate">
+                      Plan mode — will plan before executing
+                    </span>
+                  </div>
+                ) : (
+                  <div />
+                )}
+                <div
+                  className="flex shrink-0 items-center rounded-md border border-border overflow-hidden"
+                  style={AGENT_PANEL_CONTROL_STYLE}
+                >
+                  <button
+                    onClick={() => switchExecMode("build")}
+                    className={cn(
+                      "px-2 py-1 text-[11px] leading-none",
+                      execMode === "build"
+                        ? "bg-accent text-foreground"
+                        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                    )}
+                    title="Build mode — agent executes immediately"
+                  >
+                    Build
+                  </button>
+                  <button
+                    onClick={() => switchExecMode("plan")}
+                    className={cn(
+                      "px-2 py-1 text-[11px] leading-none",
+                      execMode === "plan"
+                        ? "bg-amber-500/20 text-amber-700 dark:text-amber-400"
+                        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                    )}
+                    title="Plan mode — agent plans before executing"
+                  >
+                    Plan
+                  </button>
+                </div>
+              </div>
+            }
           />
         )}
       </div>
@@ -1183,7 +1094,7 @@ export function AgentToggleButton({ className }: { className?: string }) {
       )}
       title="Toggle agent"
     >
-      <ChatBubbleIcon className="h-4 w-4" />
+      <IconMessage size={16} />
     </button>
   );
 }
