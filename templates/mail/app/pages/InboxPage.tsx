@@ -11,7 +11,6 @@ import {
   type NavigationState,
 } from "@/hooks/use-navigation-state";
 import {
-  useEmail,
   useEmails,
   useMarkRead,
   useDeleteDraft,
@@ -28,12 +27,17 @@ import type { EmailMessage } from "@shared/types";
 function ContactPanel({
   emailId,
   contactEmail,
+  emails,
 }: {
   emailId: string | undefined;
   contactEmail?: string;
+  emails: EmailMessage[];
 }) {
-  const { data: email } = useEmail(emailId);
-  const { data: allEmails = [] } = useEmails("inbox");
+  // Look up from already-cached list data instead of making a separate API call
+  const email = useMemo(
+    () => emails.find((e) => e.id === emailId),
+    [emails, emailId],
+  );
 
   const displayEmail = contactEmail || email?.from.email;
   const displayName = contactEmail
@@ -48,7 +52,7 @@ function ContactPanel({
     );
   }
 
-  const recentFromContact = allEmails
+  const recentFromContact = emails
     .filter((e) => e.from.email === displayEmail && e.id !== emailId)
     .slice(0, 4)
     .map((e) => ({ id: e.id, subject: e.subject }));
@@ -345,7 +349,7 @@ export function InboxPage() {
     if (!googleStatus.isLoading && googleStatus.data?.connected === false) {
       return <GoogleConnectBanner variant="hero" />;
     }
-    if (!googleStatus.isLoading && googleStatus.data?.connected) {
+    if (!googleStatus.isLoading) {
       return (
         <div className="flex flex-1 items-center justify-center text-center">
           <div>
@@ -411,6 +415,7 @@ export function InboxPage() {
           <ContactPanel
             emailId={contactEmailId}
             contactEmail={sidebarContactEmail}
+            emails={emails}
           />
         </div>
       )}

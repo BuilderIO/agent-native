@@ -41,6 +41,47 @@ import {
 import { getSyntheticEmailsForView } from "../lib/jobs.js";
 
 // ---------------------------------------------------------------------------
+// Label map cache — avoids re-fetching label names from Gmail on every request
+// ---------------------------------------------------------------------------
+
+const labelMapCache = new Map<
+  string,
+  { map: Map<string, string>; expiresAt: number }
+>();
+const LABEL_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+async function getCachedLabelMap(
+  accountTokens: Array<{ email: string; accessToken: string }>,
+): Promise<Map<string, string>> {
+  // Build a cache key from sorted account emails
+  const cacheKey = accountTokens
+    .map((a) => a.email)
+    .sort()
+    .join(",");
+  const cached = labelMapCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.map;
+
+  const labelMap = new Map<string, string>();
+  await Promise.all(
+    accountTokens.map(async ({ accessToken }) => {
+      try {
+        const res = await gmailListLabels(accessToken);
+        for (const label of res.labels || []) {
+          if (label.id && label.name) {
+            labelMap.set(label.id, label.name);
+          }
+        }
+      } catch {}
+    }),
+  );
+  labelMapCache.set(cacheKey, {
+    map: labelMap,
+    expiresAt: Date.now() + LABEL_CACHE_TTL,
+  });
+  return labelMap;
+}
+
+// ---------------------------------------------------------------------------
 // Token helper — get a valid access token, refreshing if needed
 // ---------------------------------------------------------------------------
 
@@ -241,26 +282,9 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
         searchQuery = gmailQuery[view] ?? `label:${view}`;
       }
 
-      // Fetch label name mapping from all accounts
+      // Fetch label name mapping from all accounts (cached)
       const accountTokens = await getAccountTokens(email);
-      const labelMap = new Map<string, string>();
-      await Promise.all(
-        accountTokens.map(async ({ accessToken }) => {
-          try {
-            const res = await gmailListLabels(accessToken);
-            for (const label of res.labels || []) {
-              if (label.id && label.name) {
-                labelMap.set(label.id, label.name);
-              }
-            }
-          } catch (err: any) {
-            console.error(
-              "[listEmails] Failed to fetch label map:",
-              err?.message,
-            );
-          }
-        }),
-      );
+      const labelMap = await getCachedLabelMap(accountTokens);
       const { messages, errors } = await listGmailMessages(
         searchQuery,
         undefined,
@@ -364,19 +388,7 @@ export const getThreadMessages = defineEventHandler(async (event: H3Event) => {
   if (await isConnected(email)) {
     try {
       const accountTokens = await getAccountTokens(email);
-      const labelMap = new Map<string, string>();
-      await Promise.all(
-        accountTokens.map(async ({ accessToken }) => {
-          try {
-            const res = await gmailListLabels(accessToken);
-            for (const label of res.labels || []) {
-              if (label.id && label.name) {
-                labelMap.set(label.id, label.name);
-              }
-            }
-          } catch {}
-        }),
-      );
+      const labelMap = await getCachedLabelMap(accountTokens);
 
       // Search across all accounts for messages in this thread
       for (const { email: acctEmail, accessToken } of accountTokens) {
@@ -434,15 +446,9 @@ export const getEmail = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
   if (await isConnected(email)) {
     const accountTokens = await getAccountTokens(email);
+    const labelMap = await getCachedLabelMap(accountTokens);
     for (const { email: acctEmail, accessToken } of accountTokens) {
       try {
-        const labelRes = await gmailListLabels(accessToken);
-        const labelMap = new Map<string, string>();
-        for (const label of labelRes.labels || []) {
-          if (label.id && label.name) {
-            labelMap.set(label.id, label.name);
-          }
-        }
         const msg = await gmailGetMessage(
           accessToken,
           getRouterParam(event, "id") as string,
