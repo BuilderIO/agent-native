@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { cn, formatEmailDate, truncate } from "@/lib/utils";
 import { IconStarFilled } from "@tabler/icons-react";
 import type { EmailMessage } from "@shared/types";
@@ -80,7 +81,7 @@ function getLabelStyle(labelId: string): { bg: string; text: string } {
   return options[Math.abs(hash) % options.length];
 }
 
-export function EmailListItem({
+export const EmailListItem = memo(function EmailListItem({
   email,
   thread,
   isSelected,
@@ -238,4 +239,4 @@ export function EmailListItem({
       </div>
     </div>
   );
-}
+});
