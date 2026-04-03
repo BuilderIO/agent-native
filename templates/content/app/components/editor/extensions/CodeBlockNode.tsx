@@ -143,7 +143,7 @@ function CodeBlockView({ node, updateAttributes, extension }: NodeViewProps) {
         </div>
       </div>
       <pre>
-        <NodeViewContent as="code" />
+        <NodeViewContent as={"code" as any} />
       </pre>
     </NodeViewWrapper>
   );
