@@ -19,7 +19,7 @@ export function useEvents(
   }
   const qs = params.toString();
 
-  return useQuery<CalendarEvent[]>({
+  const query = useQuery<CalendarEvent[]>({
     queryKey: ["events", from, to, overlayEmails?.join(",") ?? ""],
     queryFn: async () => {
       const res = await fetch(`/api/events${qs ? `?${qs}` : ""}`);
@@ -33,6 +33,10 @@ export function useEvents(
     staleTime: 30_000,
     placeholderData: keepPreviousData,
   });
+  return {
+    ...query,
+    isLoading: query.isLoading || query.isPlaceholderData,
+  };
 }
 
 export function useEvent(id: string) {

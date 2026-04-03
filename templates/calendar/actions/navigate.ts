@@ -80,7 +80,7 @@ export default async function main(argv: string[]): Promise<void> {
       "Error: At least --view, --date, --calendarViewMode, or --eventId is required.\n" +
         "Usage: pnpm action navigate --view=calendar --calendarViewMode=day --date=2026-04-15",
     );
-    process.exit(1);
+    throw new Error("Script failed");
   }
   const result = await run(args);
   console.error(result);

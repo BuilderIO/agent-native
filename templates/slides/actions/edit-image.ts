@@ -46,12 +46,12 @@ export default async function main(args: string[]) {
     console.error(
       "Usage: pnpm action edit-image --input <path> --prompt <instructions> [--output <prefix>] [--count N]",
     );
-    process.exit(1);
+    throw new Error("Script failed");
   }
 
   if (!process.env.GEMINI_API_KEY) {
     console.error("Error: GEMINI_API_KEY not set");
-    process.exit(1);
+    throw new Error("Script failed");
   }
 
   const { GoogleGenAI } = await import("@google/genai");

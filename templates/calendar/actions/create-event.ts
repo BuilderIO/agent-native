@@ -29,15 +29,15 @@ export default async function main(args: string[]) {
 
   if (!opts["title"]) {
     console.error("Error: --title is required");
-    process.exit(1);
+    throw new Error("Script failed");
   }
   if (!opts["start"]) {
     console.error("Error: --start is required (ISO date format)");
-    process.exit(1);
+    throw new Error("Script failed");
   }
   if (!opts["end"]) {
     console.error("Error: --end is required (ISO date format)");
-    process.exit(1);
+    throw new Error("Script failed");
   }
 
   // Import the Google Calendar client
@@ -50,7 +50,7 @@ export default async function main(args: string[]) {
     agentChat.submit(
       "Cannot create event: Google Calendar is not connected. The user needs to connect via the Settings page.",
     );
-    process.exit(1);
+    throw new Error("Script failed");
   }
 
   const event = {
@@ -78,7 +78,7 @@ export default async function main(args: string[]) {
     agentChat.submit(
       `Failed to create event on Google Calendar: ${err.message}`,
     );
-    process.exit(1);
+    throw new Error("Script failed");
   }
 
   console.log(`Event "${event.title}" created successfully.`);

@@ -38,7 +38,7 @@ export default async function main(args: string[]) {
 
   if (!id) {
     console.error("Error: --id is required");
-    process.exit(1);
+    throw new Error("Script failed");
   }
 
   const db = getDb();
@@ -50,7 +50,7 @@ export default async function main(args: string[]) {
 
   if (!existing) {
     console.error(`Error: Form ${id} not found`);
-    process.exit(1);
+    throw new Error("Script failed");
   }
 
   const updates: Record<string, unknown> = {
@@ -74,7 +74,7 @@ export default async function main(args: string[]) {
       updates.fields = fieldsJson;
     } catch {
       console.error("Error: --fields must be valid JSON");
-      process.exit(1);
+      throw new Error("Script failed");
     }
   }
 

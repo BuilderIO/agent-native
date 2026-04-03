@@ -30,7 +30,7 @@ export default async function main(args: string[]) {
   if (!query) {
     console.error("Error: --query is required");
     console.error('Usage: pnpm action search-events --query "meeting title"');
-    process.exit(1);
+    throw new Error("Script failed");
   }
 
   const now = new Date();

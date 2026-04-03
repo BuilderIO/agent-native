@@ -91,14 +91,18 @@ async function buildApiListener(
   cwd: string,
 ): Promise<ReturnType<typeof toNodeListener>> {
   const apiDir = path.join(cwd, "server/routes/api");
+  const agentNativeDir = path.join(cwd, "server/routes/_agent-native");
   const pluginsDir = path.join(cwd, "server/plugins");
 
   const app = createApp();
   const router = createRouter();
   app.use(router);
 
-  // Discover and register API route files
-  const routeFiles = discoverFiles(apiDir, "api");
+  // Discover and register API route files (both /api/* and /_agent-native/*)
+  const routeFiles = [
+    ...discoverFiles(apiDir, "api"),
+    ...discoverFiles(agentNativeDir, "_agent-native"),
+  ];
   let registered = 0;
 
   for (const relFile of routeFiles) {
@@ -230,10 +234,11 @@ export function devApiServer(): Plugin {
 
       const cwd = server.config.root || process.cwd();
       const apiDir = path.join(cwd, "server/routes/api");
+      const agentNativeDir = path.join(cwd, "server/routes/_agent-native");
       const serverDir = path.join(cwd, "server");
 
-      // Skip if no API routes directory exists
-      if (!fs.existsSync(apiDir)) return;
+      // Skip if no route directories exist
+      if (!fs.existsSync(apiDir) && !fs.existsSync(agentNativeDir)) return;
 
       // Lazily initialize the H3 listener on first /api/ request.
       // This avoids blocking server startup and ensures ssrLoadModule is ready.

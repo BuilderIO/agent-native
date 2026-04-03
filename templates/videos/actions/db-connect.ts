@@ -50,7 +50,7 @@ export default async function main(args: string[]) {
 
   if (!url) {
     console.error("Error: --url is required");
-    process.exit(1);
+    throw new Error("Script failed");
   }
 
   const envPath = path.join(process.cwd(), ".env");
@@ -69,7 +69,7 @@ export default async function main(args: string[]) {
     console.error(
       `Error: ${err instanceof Error ? err.message : "Invalid value"}`,
     );
-    process.exit(1);
+    throw new Error("Script failed");
   }
 
   fs.writeFileSync(envPath, lines.join("\n"));

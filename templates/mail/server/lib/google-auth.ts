@@ -324,12 +324,19 @@ export async function listGmailMessages(
         const messageIds = listRes.messages || [];
         if (messageIds.length === 0) return [];
 
-        const messages = await Promise.all(
-          messageIds.map(async (m: any) => {
-            const msg = await gmailGetMessage(accessToken, m.id, "full");
-            return { ...msg, _accountEmail: email };
-          }),
-        );
+        // Fetch messages in batches of 5 to avoid Gmail rate limits
+        const batchSize = 5;
+        const messages: any[] = [];
+        for (let i = 0; i < messageIds.length; i += batchSize) {
+          const batch = messageIds.slice(i, i + batchSize);
+          const batchResults = await Promise.all(
+            batch.map(async (m: any) => {
+              const msg = await gmailGetMessage(accessToken, m.id, "full");
+              return { ...msg, _accountEmail: email };
+            }),
+          );
+          messages.push(...batchResults);
+        }
 
         return messages;
       } catch (error: any) {

@@ -106,25 +106,36 @@ export async function googleFetch(
   accessToken: string,
   opts?: RequestInit,
 ): Promise<any> {
-  const headers = new Headers(opts?.headers);
-  headers.set("Authorization", `Bearer ${accessToken}`);
+  const maxRetries = 3;
 
-  const res = await fetch(url, { ...opts, headers });
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const headers = new Headers(opts?.headers);
+    headers.set("Authorization", `Bearer ${accessToken}`);
 
-  // 204 No Content — return null
-  if (res.status === 204) return null;
+    const res = await fetch(url, { ...opts, headers });
 
-  const data = await res.json();
+    // 204 No Content — return null
+    if (res.status === 204) return null;
 
-  if (!res.ok) {
-    const msg =
-      (data as any)?.error?.message ||
-      (data as any)?.error_description ||
-      res.statusText;
-    throw new Error(`Google API error (${res.status}): ${msg}`);
+    // 429 Too Many Requests or 503 — retry with exponential backoff
+    if ((res.status === 429 || res.status === 503) && attempt < maxRetries) {
+      const delay = Math.min(1000 * 2 ** attempt, 8000);
+      await new Promise((r) => setTimeout(r, delay));
+      continue;
+    }
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      const msg =
+        (data as any)?.error?.message ||
+        (data as any)?.error_description ||
+        res.statusText;
+      throw new Error(`Google API error (${res.status}): ${msg}`);
+    }
+
+    return data;
   }
-
-  return data;
 }
 
 // ---------------------------------------------------------------------------

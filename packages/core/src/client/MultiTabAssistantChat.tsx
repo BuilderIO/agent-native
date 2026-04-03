@@ -187,10 +187,14 @@ export interface MultiTabAssistantChatHeaderProps {
   setActiveTabId: (tabId: string) => void;
   addTab: () => void;
   closeTab: (tabId: string) => void;
+  closeOtherTabs: (tabId: string) => void;
+  closeAllTabs: () => void;
   clearActiveTab: () => void;
   /** Open the history popover */
   showHistory?: boolean;
   toggleHistory?: () => void;
+  /** Number of open tabs (useful for triggering scroll on tab count change) */
+  tabCount: number;
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────
@@ -235,6 +239,7 @@ export function MultiTabAssistantChat({
   const pendingSends = useRef<Map<string, string>>(new Map());
   const [runningThreads, setRunningThreads] = useState<Set<string>>(new Set());
   const [showHistory, setShowHistory] = useState(false);
+  const newThreadIds = useRef<Set<string>>(new Set());
 
   // Open tabs — persisted to localStorage so they survive refresh.
   const OPEN_TABS_KEY = "agent-chat-open-tabs";
@@ -296,6 +301,24 @@ export function MultiTabAssistantChat({
     }, 50);
     return () => clearTimeout(t);
   }, [activeThreadId]);
+
+  // Ref callback: scroll the active tab into view in the overflow container.
+  const activeTabRefCb = useCallback((el: HTMLButtonElement | null) => {
+    if (!el) return;
+    const container = el.parentElement;
+    if (!container) return;
+    requestAnimationFrame(() => {
+      const tabLeft = el.offsetLeft;
+      const tabRight = tabLeft + el.offsetWidth;
+      const scrollLeft = container.scrollLeft;
+      const viewWidth = container.clientWidth;
+      if (tabLeft < scrollLeft) {
+        container.scrollLeft = tabLeft;
+      } else if (tabRight > scrollLeft + viewWidth) {
+        container.scrollLeft = tabRight - viewWidth;
+      }
+    });
+  }, []);
 
   const [messageCounts, setMessageCounts] = useState<Record<string, number>>(
     () => Object.fromEntries(threads.map((t) => [t.id, t.messageCount ?? 0])),
@@ -403,6 +426,7 @@ export function MultiTabAssistantChat({
   const addTab = useCallback(async () => {
     const id = await createThread();
     if (id) {
+      newThreadIds.current.add(id);
       setOpenTabIds((prev) => [...prev, id]);
     }
   }, [createThread]);
@@ -420,9 +444,40 @@ export function MultiTabAssistantChat({
       });
       chatRefs.current.delete(tabId);
       pendingSends.current.delete(tabId);
+      newThreadIds.current.delete(tabId);
     },
     [switchThread],
   );
+
+  const closeOtherTabs = useCallback(
+    (tabId: string) => {
+      setOpenTabIds([tabId]);
+      if (activeThreadIdRef.current !== tabId) {
+        switchThread(tabId);
+      }
+      // Clean up refs for closed tabs
+      for (const key of chatRefs.current.keys()) {
+        if (key !== tabId) {
+          chatRefs.current.delete(key);
+          pendingSends.current.delete(key);
+          newThreadIds.current.delete(key);
+        }
+      }
+    },
+    [switchThread],
+  );
+
+  const closeAllTabs = useCallback(async () => {
+    const id = await createThread();
+    if (id) {
+      newThreadIds.current.add(id);
+      setOpenTabIds([id]);
+      switchThread(id);
+      // Clean up all old refs
+      chatRefs.current.clear();
+      pendingSends.current.clear();
+    }
+  }, [createThread, switchThread]);
 
   const clearActiveTab = useCallback(() => {
     addTab();
@@ -496,9 +551,12 @@ export function MultiTabAssistantChat({
     setActiveTabId: switchThread,
     addTab,
     closeTab,
+    closeOtherTabs,
+    closeAllTabs,
     clearActiveTab,
     showHistory,
     toggleHistory: () => setShowHistory((v) => !v),
+    tabCount: openTabIds.length,
   };
 
   if (isLoading) {
@@ -522,6 +580,7 @@ export function MultiTabAssistantChat({
             {tabs.map((tab) => (
               <button
                 key={tab.id}
+                ref={tab.id === activeThreadId ? activeTabRefCb : undefined}
                 onClick={() => switchThread(tab.id)}
                 className={cn(
                   "agent-tab relative flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] font-medium shrink-0 max-w-[130px]",
@@ -619,6 +678,7 @@ export function MultiTabAssistantChat({
               threadId={tabId}
               tabId={tabId}
               apiUrl={apiUrl}
+              isNewThread={newThreadIds.current.has(tabId)}
               onMessageCountChange={(count) =>
                 setMessageCounts((prev) =>
                   prev[tabId] === count ? prev : { ...prev, [tabId]: count },

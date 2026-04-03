@@ -36,7 +36,6 @@ import {
 import type { Reference } from "./composer/types.js";
 import {
   IconSparkles,
-  IconPaperclip,
   IconX,
   IconPlayerStop,
   IconCheck,
@@ -47,6 +46,15 @@ import {
   IconCircleX,
   IconSquareFilled,
   IconClock,
+  IconFile,
+  IconFolder,
+  IconFileText,
+  IconCheckbox,
+  IconMail,
+  IconUser,
+  IconPresentation,
+  IconStack2,
+  IconMessageChatbot,
 } from "@tabler/icons-react";
 
 // ─── Markdown Text ──────────────────────────────────────────────────────────
@@ -210,14 +218,19 @@ function ComposerAttachmentPreviewStrip() {
 function ToolCallFallback({
   toolName,
   args,
+  argsText,
   result,
 }: ToolCallMessagePartProps) {
   const [expanded, setExpanded] = useState(false);
+  const streamRef = useRef<HTMLDivElement>(null);
   const thread = useThread();
   const isRunning = result === undefined && thread.isRunning;
   const isAgentCall = toolName.startsWith("agent:");
   const agentName = isAgentCall ? toolName.slice(6) : null;
   const isAgentError = isAgentCall && result === "Error calling agent";
+  // For agent calls, argsText holds the streaming response text
+  const agentStreamText = isAgentCall ? (argsText ?? "") : "";
+  const hasStreamText = agentStreamText.length > 0;
   const argsStr = isAgentCall
     ? ""
     : Object.entries(args as Record<string, unknown>)
@@ -234,17 +247,30 @@ function ToolCallFallback({
         : `Asked ${agentName}`
     : toolName;
 
+  // Agent calls always expand while running (even before first text arrives), toggleable when done
+  const canExpand = isAgentCall
+    ? isRunning || hasStreamText
+    : result !== undefined;
+  const isExpanded = isAgentCall
+    ? isRunning || (hasStreamText && expanded)
+    : expanded;
+
+  // Auto-scroll streaming text to bottom as new content arrives
+  useEffect(() => {
+    if (isAgentCall && isRunning && streamRef.current) {
+      streamRef.current.scrollTop = streamRef.current.scrollHeight;
+    }
+  }, [agentStreamText, isAgentCall, isRunning]);
+
   return (
     <div className="my-1 overflow-hidden">
       <button
-        onClick={() => !isAgentCall && setExpanded(!expanded)}
+        onClick={() => canExpand && setExpanded(!isExpanded)}
         className={cn(
           "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-mono w-full text-left overflow-hidden",
           isRunning
             ? "bg-muted text-muted-foreground"
-            : isAgentCall
-              ? "bg-muted text-muted-foreground"
-              : "bg-muted text-muted-foreground hover:bg-accent",
+            : "bg-muted text-muted-foreground hover:bg-accent",
         )}
       >
         <span className="shrink-0">
@@ -262,16 +288,28 @@ function ToolCallFallback({
           <span className="font-medium">{displayName}</span>
           {argsStr && <span className="opacity-60 ml-1">({argsStr})</span>}
         </span>
-        {!isAgentCall && !isRunning && result !== undefined && (
+        {canExpand && !isRunning && (
           <IconChevronDown
             className={cn(
               "ml-auto h-3 w-3 shrink-0 opacity-40",
-              expanded && "rotate-180",
+              isExpanded && "rotate-180",
             )}
           />
         )}
       </button>
-      {!isAgentCall && expanded && result !== undefined && (
+      {isExpanded && isAgentCall && (
+        <div
+          ref={streamRef}
+          className="mt-1 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground whitespace-pre-wrap break-words max-h-48 overflow-y-auto"
+        >
+          {hasStreamText ? (
+            agentStreamText
+          ) : (
+            <span className="italic opacity-50">Waiting for response...</span>
+          )}
+        </div>
+      )}
+      {isExpanded && !isAgentCall && result !== undefined && (
         <div className="mt-1 rounded-md bg-muted/50 px-3 py-2 text-xs font-mono text-muted-foreground whitespace-pre-wrap break-all max-h-48 overflow-y-auto">
           {typeof result === "string"
             ? result
@@ -288,18 +326,23 @@ function ToolCallFallback({
 
 function ReconnectStreamToolCall({
   toolName,
+  argsText,
   args,
   result,
 }: {
   toolName: string;
+  argsText?: string;
   args: Record<string, string>;
   result?: string;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const streamRef = useRef<HTMLDivElement>(null);
   const isRunning = result === undefined;
   const isAgentCall = toolName.startsWith("agent:");
   const agentName = isAgentCall ? toolName.slice(6) : null;
   const isAgentError = isAgentCall && result === "Error calling agent";
+  const agentStreamText = isAgentCall ? (argsText ?? "") : "";
+  const hasStreamText = agentStreamText.length > 0;
   const argsStr = isAgentCall
     ? ""
     : Object.entries(args)
@@ -316,17 +359,28 @@ function ReconnectStreamToolCall({
         : `Asked ${agentName}`
     : toolName;
 
+  const canExpand = isAgentCall
+    ? isRunning || hasStreamText
+    : result !== undefined;
+  const isExpanded = isAgentCall
+    ? isRunning || (hasStreamText && expanded)
+    : expanded;
+
+  useEffect(() => {
+    if (isAgentCall && isRunning && streamRef.current) {
+      streamRef.current.scrollTop = streamRef.current.scrollHeight;
+    }
+  }, [agentStreamText, isAgentCall, isRunning]);
+
   return (
     <div className="my-1 overflow-hidden">
       <button
-        onClick={() => !isAgentCall && setExpanded(!expanded)}
+        onClick={() => canExpand && setExpanded(!isExpanded)}
         className={cn(
           "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-mono w-full text-left overflow-hidden",
           isRunning
             ? "bg-muted text-muted-foreground"
-            : isAgentCall
-              ? "bg-muted text-muted-foreground"
-              : "bg-muted text-muted-foreground hover:bg-accent",
+            : "bg-muted text-muted-foreground hover:bg-accent",
         )}
       >
         <span className="shrink-0">
@@ -342,16 +396,28 @@ function ReconnectStreamToolCall({
           <span className="font-medium">{displayName}</span>
           {argsStr && <span className="opacity-60 ml-1">({argsStr})</span>}
         </span>
-        {!isAgentCall && !isRunning && result !== undefined && (
+        {canExpand && !isRunning && (
           <IconChevronDown
             className={cn(
               "ml-auto h-3 w-3 shrink-0 opacity-40",
-              expanded && "rotate-180",
+              isExpanded && "rotate-180",
             )}
           />
         )}
       </button>
-      {!isAgentCall && expanded && result !== undefined && (
+      {isExpanded && isAgentCall && (
+        <div
+          ref={streamRef}
+          className="mt-1 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground whitespace-pre-wrap break-words max-h-48 overflow-y-auto"
+        >
+          {hasStreamText ? (
+            agentStreamText
+          ) : (
+            <span className="italic opacity-50">Waiting for response...</span>
+          )}
+        </div>
+      )}
+      {isExpanded && !isAgentCall && result !== undefined && (
         <div className="mt-1 rounded-md bg-muted/50 px-3 py-2 text-xs font-mono text-muted-foreground whitespace-pre-wrap break-all max-h-48 overflow-y-auto">
           {typeof result === "string"
             ? result
@@ -394,6 +460,7 @@ function ReconnectStreamMessage({ content }: { content: ContentPart[] }) {
               <ReconnectStreamToolCall
                 key={`reconnect-tool-${i}`}
                 toolName={part.toolName}
+                argsText={part.argsText}
                 args={part.args}
                 result={part.result}
               />
@@ -409,19 +476,78 @@ function ReconnectStreamMessage({ content }: { content: ContentPart[] }) {
 
 // ─── Message Components ─────────────────────────────────────────────────────
 
-const mentionPattern = /((?:^|(?<=\s))@(\w+))/g;
+const mentionIconProps = {
+  size: 14,
+  className: "shrink-0 text-muted-foreground",
+};
+
+function MentionChipIcon({ icon }: { icon?: string }) {
+  switch (icon) {
+    case "folder":
+      return <IconFolder {...mentionIconProps} />;
+    case "document":
+      return <IconFileText {...mentionIconProps} />;
+    case "form":
+      return <IconCheckbox {...mentionIconProps} />;
+    case "email":
+      return <IconMail {...mentionIconProps} />;
+    case "user":
+      return <IconUser {...mentionIconProps} />;
+    case "deck":
+      return <IconPresentation {...mentionIconProps} />;
+    case "agent":
+      return <IconMessageChatbot {...mentionIconProps} />;
+    case "file":
+      return <IconFile {...mentionIconProps} />;
+    default:
+      return <IconStack2 {...mentionIconProps} />;
+  }
+}
+
+// Matches rich mention format: @[label|icon] or plain @word
+const richMentionPattern = /@\[([^\]|]+)\|([^\]]+)\]/g;
+const plainMentionPattern = /((?:^|(?<=\s))@(\w+))/g;
 
 function UserMessageText({ text }: { text: string }) {
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
   let match: RegExpExecArray | null;
+  let hasRichMentions = false;
 
-  // Reset regex state
-  mentionPattern.lastIndex = 0;
-
-  while ((match = mentionPattern.exec(text)) !== null) {
+  // First try rich mentions (@[label|icon])
+  richMentionPattern.lastIndex = 0;
+  while ((match = richMentionPattern.exec(text)) !== null) {
+    hasRichMentions = true;
     const matchStart = match.index;
-    // Push any text before this match
+    if (matchStart > lastIndex) {
+      parts.push(text.slice(lastIndex, matchStart));
+    }
+    const label = match[1];
+    const icon = match[2];
+    parts.push(
+      <span
+        key={matchStart}
+        className="inline-flex items-center gap-1 rounded-md border border-input bg-muted/50 px-1.5 py-0.5 text-xs font-medium text-foreground align-middle mx-0.5 max-w-[200px] select-all"
+        data-mention-label={label}
+      >
+        <MentionChipIcon icon={icon} />
+        <span className="truncate">{label}</span>
+      </span>,
+    );
+    lastIndex = matchStart + match[0].length;
+  }
+
+  if (hasRichMentions) {
+    if (lastIndex < text.length) {
+      parts.push(text.slice(lastIndex));
+    }
+    return <>{parts}</>;
+  }
+
+  // Fallback: plain @word mentions (for older messages)
+  plainMentionPattern.lastIndex = 0;
+  while ((match = plainMentionPattern.exec(text)) !== null) {
+    const matchStart = match.index;
     if (matchStart > lastIndex) {
       parts.push(text.slice(lastIndex, matchStart));
     }
@@ -429,7 +555,8 @@ function UserMessageText({ text }: { text: string }) {
     parts.push(
       <span
         key={matchStart}
-        className="inline-flex items-center gap-1 rounded-md border border-input bg-muted/50 px-1.5 py-0.5 text-xs font-medium text-foreground align-middle mx-0.5 select-none"
+        className="inline-flex items-center gap-1 rounded-md border border-input bg-muted/50 px-1.5 py-0.5 text-xs font-medium text-foreground align-middle mx-0.5 select-all"
+        data-mention-label={mentionName}
       >
         @{mentionName}
       </span>,
@@ -437,7 +564,6 @@ function UserMessageText({ text }: { text: string }) {
     lastIndex = matchStart + match[0].length;
   }
 
-  // Push any remaining text after the last match
   if (lastIndex < text.length) {
     parts.push(text.slice(lastIndex));
   }
@@ -467,7 +593,23 @@ function UserMessage() {
   return (
     <div className="flex justify-end" style={{ contentVisibility: "auto" }}>
       <div className="max-w-[85%]">
-        <div className="relative rounded-lg bg-accent px-3 py-2 text-sm leading-relaxed text-foreground">
+        <div
+          className="relative rounded-lg bg-accent px-3 py-2 text-sm leading-relaxed text-foreground"
+          onCopy={(e) => {
+            const selection = window.getSelection();
+            if (!selection || selection.rangeCount === 0) return;
+            const fragment = selection.getRangeAt(0).cloneContents();
+            const mentions = fragment.querySelectorAll("[data-mention-label]");
+            if (mentions.length === 0) return;
+            e.preventDefault();
+            mentions.forEach((el) => {
+              el.textContent = `@${el.getAttribute("data-mention-label")}`;
+            });
+            const div = document.createElement("div");
+            div.appendChild(fragment);
+            e.clipboardData.setData("text/plain", div.textContent || "");
+          }}
+        >
           <div
             ref={contentRef}
             className={cn(
@@ -725,150 +867,8 @@ export interface AssistantChatProps {
   onGenerateTitle?: (message: string) => void;
   /** Optional content rendered just above the composer input */
   composerSlot?: React.ReactNode;
-}
-
-// ─── Queue Composer ──────────────────────────────────────────────────────────
-// Custom composer shown while the agent is running. Uses a plain textarea
-// (not ComposerPrimitive) so we can submit without interrupting the active run.
-
-function QueueComposer({
-  composerRef,
-  addToQueue,
-  queuedCount,
-  onStop,
-}: {
-  composerRef: React.RefObject<HTMLTextAreaElement | null>;
-  addToQueue: (text: string, images?: string[]) => void;
-  queuedCount: number;
-  onStop: () => void;
-}) {
-  const [value, setValue] = useState("");
-  const [pendingImages, setPendingImages] = useState<
-    Array<{ name: string; dataUrl: string }>
-  >([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleSubmit = useCallback(() => {
-    const text = value.trim();
-    if (!text && pendingImages.length === 0) return;
-    addToQueue(
-      text || "(attached images)",
-      pendingImages.length > 0
-        ? pendingImages.map((img) => img.dataUrl)
-        : undefined,
-    );
-    setValue("");
-    setPendingImages([]);
-    setTimeout(() => composerRef.current?.focus(), 0);
-  }, [value, pendingImages, addToQueue, composerRef]);
-
-  const handleAutoResize = useCallback(
-    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      setValue(e.target.value);
-      e.target.style.height = "auto";
-      e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`;
-    },
-    [],
-  );
-
-  const handleFiles = useCallback((files: FileList | File[]) => {
-    for (const file of Array.from(files)) {
-      if (!file.type.startsWith("image/")) continue;
-      const reader = new FileReader();
-      reader.onload = () => {
-        setPendingImages((prev) => [
-          ...prev,
-          { name: file.name, dataUrl: reader.result as string },
-        ]);
-      };
-      reader.readAsDataURL(file);
-    }
-  }, []);
-
-  return (
-    <div className="flex flex-col rounded-lg border border-input bg-background focus-within:ring-1 focus-within:ring-ring">
-      {pendingImages.length > 0 && (
-        <div className="flex flex-wrap gap-2 px-2 pt-2">
-          {pendingImages.map((img, i) => (
-            <div
-              key={i}
-              className="group relative h-16 w-16 rounded-md overflow-hidden border border-border"
-            >
-              <img
-                src={img.dataUrl}
-                alt={img.name}
-                className="h-full w-full object-cover"
-              />
-              <button
-                type="button"
-                onClick={() =>
-                  setPendingImages((prev) => prev.filter((_, j) => j !== i))
-                }
-                className="absolute right-0.5 top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-background/90 text-muted-foreground hover:text-foreground"
-              >
-                <IconX className="h-3 w-3" />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-      <div className="flex items-center gap-1 px-2 py-1.5">
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          multiple
-          className="hidden"
-          onChange={(e) => {
-            if (e.target.files) handleFiles(e.target.files);
-            e.target.value = "";
-          }}
-        />
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
-          title="Attach images"
-        >
-          <IconPaperclip className="h-4 w-4" />
-        </button>
-        <textarea
-          ref={composerRef}
-          value={value}
-          onChange={handleAutoResize}
-          onPaste={(e) => {
-            const files = Array.from(e.clipboardData?.files ?? []).filter((f) =>
-              f.type.startsWith("image/"),
-            );
-            if (files.length > 0) {
-              e.preventDefault();
-              handleFiles(files);
-            }
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              handleSubmit();
-            }
-          }}
-          placeholder={
-            queuedCount > 0
-              ? `${queuedCount} queued — type another...`
-              : "Queue a message..."
-          }
-          className="flex-1 resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none leading-[1.625rem]"
-          rows={1}
-        />
-        <button
-          onClick={onStop}
-          className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90"
-          title="Stop generating"
-        >
-          <IconPlayerStop className="h-3.5 w-3.5" />
-        </button>
-      </div>
-    </div>
-  );
+  /** When true, skip the restore skeleton (used for freshly created threads with no messages) */
+  isNewThread?: boolean;
 }
 
 export const CHAT_STORAGE_PREFIX = "agent-chat:";
@@ -901,6 +901,7 @@ const AssistantChatInner = forwardRef<
     onSaveThread,
     onGenerateTitle,
     composerSlot,
+    isNewThread,
   },
   ref,
 ) {
@@ -911,18 +912,17 @@ const AssistantChatInner = forwardRef<
   const messages = thread.messages;
   const [missingApiKey, setMissingApiKey] = useState(false);
   const [queuedMessages, setQueuedMessages] = useState<
-    Array<{ text: string; images?: string[] }>
+    Array<{ text: string; images?: string[]; references?: Reference[] }>
   >([]);
   const [showContinue, setShowContinue] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [reconnectContent, setReconnectContent] = useState<ContentPart[]>([]);
   const wasRunningRef = useRef(false);
-  const composerRef = useRef<HTMLTextAreaElement>(null);
   const tiptapRef = useRef<TiptapComposerHandle>(null);
 
   // ─── Chat persistence ──────────────────────────────────────────────
   const hasRestoredRef = useRef(false);
-  const [isRestoring, setIsRestoring] = useState(!!threadId);
+  const [isRestoring, setIsRestoring] = useState(!!threadId && !isNewThread);
   const onSaveThreadRef = useRef(onSaveThread);
   onSaveThreadRef.current = onSaveThread;
   const onGenerateTitleRef = useRef(onGenerateTitle);
@@ -1171,17 +1171,23 @@ const AssistantChatInner = forwardRef<
             content.push({ type: "image", image: img });
           }
         }
-        threadRuntime.append({ role: "user", content });
+        threadRuntime.append({
+          role: "user",
+          content,
+          ...(next.references && next.references.length > 0
+            ? { runConfig: { custom: { references: next.references } } }
+            : {}),
+        });
       }, 100);
     }
     wasRunningRef.current = isRunning;
   }, [isRunning, queuedMessages, threadRuntime]);
 
   const addToQueue = useCallback(
-    (text: string, images?: string[]) => {
+    (text: string, images?: string[], references?: Reference[]) => {
       setShowContinue(false);
       if (isRunning) {
-        setQueuedMessages((prev) => [...prev, { text, images }]);
+        setQueuedMessages((prev) => [...prev, { text, images, references }]);
       } else {
         const content: Array<
           { type: "text"; text: string } | { type: "image"; image: string }
@@ -1423,19 +1429,40 @@ const AssistantChatInner = forwardRef<
       {composerSlot}
       {/* Input area */}
       <div className="shrink-0 px-3 py-2">
-        {isRunning ? (
-          <QueueComposer
-            composerRef={composerRef}
-            addToQueue={addToQueue}
-            queuedCount={queuedMessages.length}
-            onStop={() => threadRuntime.cancelRun()}
+        <ComposerPrimitive.Root className="flex flex-col rounded-lg border border-input bg-background focus-within:ring-1 focus-within:ring-ring">
+          <ComposerAttachmentPreviewStrip />
+          <TiptapComposer
+            focusRef={tiptapRef}
+            placeholder={
+              isRunning
+                ? queuedMessages.length > 0
+                  ? `${queuedMessages.length} queued — type another...`
+                  : "Queue a message..."
+                : undefined
+            }
+            onSubmit={
+              isRunning
+                ? (text, references) =>
+                    addToQueue(
+                      text,
+                      undefined,
+                      references.length > 0 ? references : undefined,
+                    )
+                : undefined
+            }
+            actionButton={
+              isRunning ? (
+                <button
+                  onClick={() => threadRuntime.cancelRun()}
+                  className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90"
+                  title="Stop generating"
+                >
+                  <IconPlayerStop className="h-3.5 w-3.5" />
+                </button>
+              ) : undefined
+            }
           />
-        ) : (
-          <ComposerPrimitive.Root className="flex flex-col rounded-lg border border-input bg-background focus-within:ring-1 focus-within:ring-ring">
-            <ComposerAttachmentPreviewStrip />
-            <TiptapComposer focusRef={tiptapRef} />
-          </ComposerPrimitive.Root>
-        )}
+        </ComposerPrimitive.Root>
       </div>
     </div>
   );

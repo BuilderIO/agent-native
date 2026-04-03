@@ -23,6 +23,6 @@ export default async function main() {
     console.error(
       `  Status: error — ${err instanceof Error ? err.message : "Unknown"}`,
     );
-    process.exit(1);
+    throw new Error("Script failed");
   }
 }

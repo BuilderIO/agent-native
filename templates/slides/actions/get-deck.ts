@@ -98,7 +98,7 @@ export default async function main(): Promise<void> {
     console.error(
       "Error: --id is required. Usage: pnpm action get-deck --id=abc123",
     );
-    process.exit(1);
+    throw new Error("Script failed");
   }
   const result = await run(args);
   try {
