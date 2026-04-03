@@ -487,32 +487,63 @@
 
 /* Syntax highlighting tokens */
 .notion-editor .hljs-comment,
-.notion-editor .hljs-quote { color: hsl(var(--muted-foreground)); font-style: italic; }
+.notion-editor .hljs-quote {
+  color: hsl(var(--muted-foreground));
+  font-style: italic;
+}
 .notion-editor .hljs-keyword,
-.notion-editor .hljs-selector-tag { color: hsl(280 70% 65%); }
+.notion-editor .hljs-selector-tag {
+  color: hsl(280 70% 65%);
+}
 .notion-editor .hljs-string,
-.notion-editor .hljs-addition { color: hsl(120 40% 58%); }
+.notion-editor .hljs-addition {
+  color: hsl(120 40% 58%);
+}
 .notion-editor .hljs-number,
-.notion-editor .hljs-literal { color: hsl(30 80% 60%); }
+.notion-editor .hljs-literal {
+  color: hsl(30 80% 60%);
+}
 .notion-editor .hljs-built_in,
-.notion-editor .hljs-type { color: hsl(190 70% 55%); }
+.notion-editor .hljs-type {
+  color: hsl(190 70% 55%);
+}
 .notion-editor .hljs-title,
 .notion-editor .hljs-title\\.class_,
-.notion-editor .hljs-section { color: hsl(210 70% 65%); }
+.notion-editor .hljs-section {
+  color: hsl(210 70% 65%);
+}
 .notion-editor .hljs-name,
 .notion-editor .hljs-selector-id,
-.notion-editor .hljs-selector-class { color: hsl(350 65% 60%); }
+.notion-editor .hljs-selector-class {
+  color: hsl(350 65% 60%);
+}
 .notion-editor .hljs-attr,
-.notion-editor .hljs-attribute { color: hsl(40 70% 60%); }
+.notion-editor .hljs-attribute {
+  color: hsl(40 70% 60%);
+}
 .notion-editor .hljs-variable,
-.notion-editor .hljs-template-variable { color: hsl(0 60% 65%); }
-.notion-editor .hljs-regexp { color: hsl(0 65% 60%); }
+.notion-editor .hljs-template-variable {
+  color: hsl(0 60% 65%);
+}
+.notion-editor .hljs-regexp {
+  color: hsl(0 65% 60%);
+}
 .notion-editor .hljs-symbol,
-.notion-editor .hljs-bullet { color: hsl(280 50% 55%); }
-.notion-editor .hljs-meta { color: hsl(var(--muted-foreground)); }
-.notion-editor .hljs-deletion { color: hsl(0 60% 55%); }
-.notion-editor .hljs-function { color: hsl(210 70% 65%); }
-.notion-editor .hljs-params { color: hsl(var(--foreground)); }
+.notion-editor .hljs-bullet {
+  color: hsl(280 50% 55%);
+}
+.notion-editor .hljs-meta {
+  color: hsl(var(--muted-foreground));
+}
+.notion-editor .hljs-deletion {
+  color: hsl(0 60% 55%);
+}
+.notion-editor .hljs-function {
+  color: hsl(210 70% 65%);
+}
+.notion-editor .hljs-params {
+  color: hsl(var(--foreground));
+}
 
 /* Inline code */
 .notion-editor code {

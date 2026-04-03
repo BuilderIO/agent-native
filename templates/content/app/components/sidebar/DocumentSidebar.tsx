@@ -50,7 +50,7 @@ export function DocumentSidebar({
         const doc = await createDocument.mutateAsync({
           parentId: parentId ?? null,
         });
-        navigate(`/${doc.id}`);
+        navigate(`/page/${doc.id}`);
       } catch (err) {
         toast.error("Failed to create page", {
           description:
@@ -173,7 +173,7 @@ export function DocumentSidebar({
                         : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                     )}
                     onClick={() => {
-                      navigate(`/${doc.id}`);
+                      navigate(`/page/${doc.id}`);
                       setIsSearching(false);
                       setSearchQuery("");
                     }}
@@ -204,7 +204,7 @@ export function DocumentSidebar({
                           ? "bg-accent text-accent-foreground"
                           : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                       )}
-                      onClick={() => navigate(`/${doc.id}`)}
+                      onClick={() => navigate(`/page/${doc.id}`)}
                     >
                       <span className="flex-shrink-0 w-5 text-center">
                         {doc.icon || <IconFileText size={14} />}
@@ -248,7 +248,7 @@ export function DocumentSidebar({
                       node={node}
                       depth={0}
                       activeId={activeDocumentId}
-                      onSelect={(id) => navigate(`/${id}`)}
+                      onSelect={(id) => navigate(`/page/${id}`)}
                       onCreateChild={(parentId) => handleCreatePage(parentId)}
                       onDelete={handleDelete}
                       onToggleFavorite={handleToggleFavorite}

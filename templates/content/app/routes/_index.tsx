@@ -23,7 +23,7 @@ export default function IndexRoute() {
   // Auto-select the first document if any exist
   useEffect(() => {
     if (documents && documents.length > 0) {
-      navigate(`/${documents[0].id}`, { replace: true });
+      navigate(`/page/${documents[0].id}`, { replace: true });
     }
   }, [documents, navigate]);
 
