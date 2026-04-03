@@ -441,8 +441,17 @@ export function createProductionAgentHandler(
                     responseText = newText;
                   }
                 } catch (streamErr: any) {
-                  // If streaming fails (not supported, network error), fall back to send
-                  if (!responseText) {
+                  // If streaming threw after partial text, keep what we have
+                  // but don't silently swallow the error
+                  if (responseText) {
+                    responseText += "\n[Stream interrupted]";
+                  }
+                }
+
+                // If streaming yielded nothing (0 chunks, silent 200, or threw before any data),
+                // fall back to synchronous send
+                if (!responseText) {
+                  try {
                     const task = await client.send({
                       role: "user",
                       parts: [{ type: "text", text: message }],
@@ -457,6 +466,8 @@ export function createProductionAgentHandler(
                         .map((p) => p.text)
                         .join("\n");
                     }
+                  } catch {
+                    responseText = "Agent did not return a response.";
                   }
                 }
 
