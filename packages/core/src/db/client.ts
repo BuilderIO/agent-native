@@ -83,8 +83,10 @@ export function getDialect(): Dialect {
     return _dialect;
   }
 
-  _dialect = "sqlite";
-  return _dialect;
+  // Don't cache the fallthrough — on CF Workers, env bindings (__cf_env) aren't
+  // available at import time. If we cache "sqlite" here, D1 will never be
+  // detected once the bindings are set in the fetch handler.
+  return "sqlite";
 }
 
 export function isPostgres(): boolean {
