@@ -152,6 +152,51 @@ function filterSuppressed(
   return emails.filter((e) => !isSuppressedInView(e.threadId || e.id, view));
 }
 
+// ─── Optimistic property overrides ──────────────────────────────────────────
+// Gmail's eventual consistency means refetches can return stale read/star state,
+// overwriting optimistic updates. We track local overrides here and apply them
+// in the `select` transform so the UI never flickers back to stale state.
+
+const optimisticOverrides = new Map<
+  string,
+  { props: Partial<EmailMessage>; timestamp: number }
+>();
+const OVERRIDE_DURATION = 60_000; // 60s — covers Gmail's consistency window
+
+/** Set optimistic property overrides for an email (read, star, etc.) */
+export function setOptimisticOverride(
+  emailId: string,
+  props: Partial<EmailMessage>,
+) {
+  const existing = optimisticOverrides.get(emailId);
+  optimisticOverrides.set(emailId, {
+    props: { ...(existing?.props ?? {}), ...props },
+    timestamp: Date.now(),
+  });
+}
+
+/** Clear optimistic overrides — used on mutation error rollback. */
+export function clearOptimisticOverride(emailId: string) {
+  optimisticOverrides.delete(emailId);
+}
+
+function applyOverrides(emails: EmailMessage[]): EmailMessage[] {
+  if (optimisticOverrides.size === 0) return emails;
+  const now = Date.now();
+  let changed = false;
+  const result = emails.map((e) => {
+    const entry = optimisticOverrides.get(e.id);
+    if (!entry) return e;
+    if (now - entry.timestamp > OVERRIDE_DURATION) {
+      optimisticOverrides.delete(e.id);
+      return e;
+    }
+    changed = true;
+    return { ...e, ...entry.props };
+  });
+  return changed ? result : emails;
+}
+
 // ─── Emails ──────────────────────────────────────────────────────────────────
 
 export function useEmails(view: string = "inbox", search?: string) {
@@ -162,7 +207,7 @@ export function useEmails(view: string = "inbox", search?: string) {
       if (search) params.set("q", search);
       return apiFetch(`/api/emails?${params}`);
     },
-    select: (data) => filterSuppressed(data, view),
+    select: (data) => applyOverrides(filterSuppressed(data, view)),
     staleTime: 15_000,
     // Only poll when the last fetch succeeded — avoids retry loops when
     // Google is disconnected or credentials are missing.
@@ -203,12 +248,14 @@ export function useMarkRead() {
       const previous = qc.getQueriesData<EmailMessage[]>({
         queryKey: ["emails"],
       });
+      setOptimisticOverride(id, { isRead });
       qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
         old?.map((e) => (e.id === id ? { ...e, isRead } : e)),
       );
       return { previous };
     },
-    onError: (_err, _vars, context) => {
+    onError: (_err, { id }, context) => {
+      clearOptimisticOverride(id);
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
     },
     onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
@@ -217,14 +264,16 @@ export function useMarkRead() {
 
 export function useMarkThreadRead() {
   const qc = useQueryClient();
-  // Stash unread IDs between onMutate (which computes them before the
-  // optimistic update) and mutationFn (which sends the actual API calls).
-  let pendingUnreadIds: string[] = [];
+  // Per-thread pending IDs — using a Map so concurrent mutations for different
+  // threads don't overwrite each other's pending IDs.
+  const pendingByThread = new Map<string, string[]>();
   return useMutation({
-    mutationFn: async (_threadId: string) => {
-      if (pendingUnreadIds.length > 0) {
+    mutationFn: async (threadId: string) => {
+      const ids = pendingByThread.get(threadId) ?? [];
+      pendingByThread.delete(threadId);
+      if (ids.length > 0) {
         await Promise.all(
-          pendingUnreadIds.map((id) =>
+          ids.map((id) =>
             apiFetch(`/api/emails/${id}/read`, {
               method: "PATCH",
               body: JSON.stringify({ isRead: true }),
@@ -240,18 +289,26 @@ export function useMarkThreadRead() {
       });
       // Capture unread IDs BEFORE optimistic update
       const allEmails = previous.flatMap(([, data]) => data ?? []) ?? [];
-      pendingUnreadIds = allEmails
+      const unreadIds = allEmails
         .filter((e) => (e.threadId || e.id) === threadId && !e.isRead)
         .map((e) => e.id);
+      pendingByThread.set(threadId, unreadIds);
+      // Set overrides so refetches don't revert read state
+      for (const id of unreadIds) {
+        setOptimisticOverride(id, { isRead: true });
+      }
       // Optimistic update
       qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
         old?.map((e) =>
           (e.threadId || e.id) === threadId ? { ...e, isRead: true } : e,
         ),
       );
-      return { previous };
+      return { previous, overrideIds: [...unreadIds] };
     },
     onError: (_err, _vars, context) => {
+      for (const id of context?.overrideIds ?? []) {
+        clearOptimisticOverride(id);
+      }
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
     },
     onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
@@ -266,7 +323,22 @@ export function useToggleStar() {
         method: "PATCH",
         body: JSON.stringify({ isStarred }),
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["emails"] }),
+    onMutate: async ({ id, isStarred }) => {
+      await qc.cancelQueries({ queryKey: ["emails"] });
+      const previous = qc.getQueriesData<EmailMessage[]>({
+        queryKey: ["emails"],
+      });
+      setOptimisticOverride(id, { isStarred });
+      qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
+        old?.map((e) => (e.id === id ? { ...e, isStarred } : e)),
+      );
+      return { previous };
+    },
+    onError: (_err, { id }, context) => {
+      clearOptimisticOverride(id);
+      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+    },
+    onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
   });
 }
 
@@ -536,7 +608,7 @@ export function useReportSpam() {
       if (context?.threadId) unsuppressThread(context.threadId);
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: ["emails"] }),
+    onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
   });
 }
 
@@ -572,7 +644,7 @@ export function useBlockSender() {
       if (context?.threadId) unsuppressThread(context.threadId);
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: ["emails"] }),
+    onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
   });
 }
 
@@ -596,7 +668,7 @@ export function useMuteThread() {
       if (context?.threadId) unsuppressThread(context.threadId);
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: ["emails"] }),
+    onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
   });
 }
 
