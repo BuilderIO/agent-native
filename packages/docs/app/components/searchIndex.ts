@@ -41,7 +41,7 @@ export const searchIndex: SearchEntry[] = [
     path: "/docs",
     section: "Subpath Exports",
     sectionId: "subpath-exports",
-    text: "@agent-native/core exports createServer createFileWatcher createSSEHandler createProductionServer runScript parseArgs loadEnv fail agentChat sendToAgentChat useAgentChatGenerating useFileWatcher cn. @agent-native/core/vite exports defineConfig defineServerConfig. @agent-native/core/tailwind Tailwind preset HSL colors shadcn/ui tokens animations. @agent-native/core/adapters/sync FileSyncAdapter interface FileRecord FileChange types. @agent-native/core/adapters/firestore FirestoreFileSyncAdapter FileSync threeWayMerge loadSyncConfig. @agent-native/core/adapters/supabase SupabaseFileSyncAdapter FileSync.",
+    text: "@agent-native/core exports createServer createFileWatcher createSSEHandler createProductionServer runScript parseArgs loadEnv fail agentChat sendToAgentChat useAgentChatGenerating useDbSync cn. @agent-native/core/vite exports defineConfig defineServerConfig. @agent-native/core/tailwind Tailwind preset HSL colors shadcn/ui tokens animations. @agent-native/core/adapters/sync FileSyncAdapter interface FileRecord FileChange types. @agent-native/core/adapters/firestore FirestoreFileSyncAdapter FileSync threeWayMerge loadSyncConfig. @agent-native/core/adapters/supabase SupabaseFileSyncAdapter FileSync.",
   },
   {
     page: "Getting Started",
@@ -106,9 +106,9 @@ export const searchIndex: SearchEntry[] = [
   {
     page: "Client",
     path: "/docs/client",
-    section: "useFileWatcher()",
-    sectionId: "usefilewatcher",
-    text: "React hook that connects to the SSE endpoint and invalidates react-query caches on file changes. Options: queryClient React-query client for cache invalidation. queryKeys string array query key prefixes to invalidate default file fileTree. eventsUrl string SSE endpoint URL default /_agent-native/events. onEvent callback for each SSE event.",
+    section: "useDbSync()",
+    sectionId: "usedbsync",
+    text: "React hook (formerly useFileWatcher) that polls for database changes and invalidates react-query caches. Options: queryClient React-query client for cache invalidation. queryKeys string array query key prefixes to invalidate default file fileTree. pollUrl string poll endpoint URL default /_agent-native/poll. onEvent callback for each poll event.",
   },
   {
     page: "Client",
@@ -182,7 +182,7 @@ export const searchIndex: SearchEntry[] = [
     path: "/docs/harnesses",
     section: "How It Works",
     sectionId: "how-it-works",
-    text: "Agent chat use sendToAgentChat() to send messages to the agent. Generation state use useAgentChatGenerating() to track when the agent is running. File watching SSE endpoint keeps UI in sync when the agent modifies files. Script system pnpm script dispatches to callable scripts. Your app code is identical regardless of how the agent is provided.",
+    text: "Agent chat use sendToAgentChat() to send messages to the agent. Generation state use useAgentChatGenerating() to track when the agent is running. Database sync useDbSync polls for changes and keeps UI in sync when the agent modifies data. Script system pnpm script dispatches to callable scripts. Your app code is identical regardless of how the agent is provided.",
   },
 
   // Key Concepts
@@ -212,7 +212,7 @@ export const searchIndex: SearchEntry[] = [
     path: "/docs/key-concepts",
     section: "Real-time SSE Sync",
     sectionId: "sse-sync",
-    text: "Chokidar file watcher monitors data directory streams changes to browser via Server-Sent Events. useFileWatcher hook invalidates react-query caches. No polling no refresh UI updates instantly when agent acts. createFileWatcher createSSEHandler.",
+    text: "Database changes sync to UI via polling. useDbSync hook (formerly useFileWatcher) invalidates react-query caches when data updates. createFileWatcher createSSEHandler.",
   },
   {
     page: "Key Concepts",
@@ -419,7 +419,7 @@ export const searchIndex: SearchEntry[] = [
     path: "/docs/context-awareness",
     section: "Jitter Prevention",
     sectionId: "jitter-prevention",
-    text: "Source tagging prevents UI from refetching data it just wrote. Agent writes tagged requestSource agent. UI writes include tab ID via X-Request-Source header. ignoreSource in useFileWatcher filters own writes.",
+    text: "Source tagging prevents UI from refetching data it just wrote. Agent writes tagged requestSource agent. UI writes include tab ID via X-Request-Source header. ignoreSource in useDbSync (formerly useFileWatcher) filters own writes.",
   },
 
   // Skills Guide

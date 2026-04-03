@@ -43,7 +43,7 @@ Every template should have a `navigate` script that writes a one-shot command to
 
 ### Jitter Prevention
 
-When the agent writes to application-state, the UI updates via polling. But polling must NOT override the user's active edits. Only explicit agent writes should push changes to the UI. Templates use the `ignoreSource` option on `useFileWatcher()` with a per-tab ID so the UI ignores its own writes while still picking up agent and other-tab changes.
+When the agent writes to application-state, the UI updates via polling. But polling must NOT override the user's active edits. Only explicit agent writes should push changes to the UI. Templates use the `ignoreSource` option on `useDbSync()` with a per-tab ID so the UI ignores its own writes while still picking up agent and other-tab changes.
 
 ## The Six Rules
 
@@ -78,7 +78,7 @@ When the agent needs to do something — query data, call APIs, process informat
 
 ### 4. Polling Keeps the UI in Sync
 
-Database changes sync to the UI via polling. The client `useFileWatcher()` hook polls `/_agent-native/poll` every 2 seconds and invalidates React Query caches when changes are detected. This works in all deployment environments including serverless and edge.
+Database changes sync to the UI via polling. The client `useDbSync()` hook polls `/_agent-native/poll` every 2 seconds and invalidates React Query caches when changes are detected. This works in all deployment environments including serverless and edge.
 
 ### 5. The Agent Can Modify Code
 
@@ -182,7 +182,7 @@ Auth is automatic and environment-driven via `autoMountAuth(app)`.
 | `agent-chat`  | Agent chat endpoints                              | Custom `mentionProviders` or `systemPrompt` |
 | `auth`        | Auth middleware                                   | Custom `publicPaths` or Google OAuth config |
 | `core-routes` | `/_agent-native/poll`, `/_agent-native/ping`, etc | Custom `envKeys` or `sseRoute`              |
-| `file-sync`   | File watcher sync                                 | Custom sync config                          |
+| `file-sync`   | DB sync polling                                   | Custom sync config                          |
 | `resources`   | Resource CRUD                                     | Rarely                                      |
 | `terminal`    | Terminal emulator                                 | Rarely                                      |
 

@@ -98,7 +98,7 @@ export default {
 
 | Import | Exports |
 |--------|---------|
-| `@agent-native/core` | Server: `createServer`, `createFileWatcher`, `createSSEHandler`, `mountAuthMiddleware`, `createProductionAgentHandler` · Client: `sendToAgentChat`, `useAgentChatGenerating`, `useFileWatcher`, `useProductionAgent`, `ProductionAgentPanel`, `cn` · Scripts: `runScript`, `parseArgs`, `loadEnv`, `fail`, `agentChat` |
+| `@agent-native/core` | Server: `createServer`, `createFileWatcher`, `createSSEHandler`, `mountAuthMiddleware`, `createProductionAgentHandler` · Client: `sendToAgentChat`, `useAgentChatGenerating`, `useDbSync`, `useProductionAgent`, `ProductionAgentPanel`, `cn` · Scripts: `runScript`, `parseArgs`, `loadEnv`, `fail`, `agentChat` |
 | `@agent-native/core/router` | React Router re-exports: `Link`, `NavLink`, `Outlet`, `useNavigate`, `useParams`, `useLoaderData`, `redirect`, `Form`, `Links`, `Meta`, `Scripts`, `ScrollRestoration` |
 | `@agent-native/core/vite` | `defineConfig()` |
 | `@agent-native/core/tailwind` | Tailwind preset (HSL colors, shadcn/ui tokens, animations) |
@@ -330,20 +330,22 @@ const [isGenerating, send] = useAgentChatGenerating();
 
 `isGenerating` turns true when you call `send()` and automatically resets to false when the agent finishes.
 
-## useFileWatcher(options?)
+## useDbSync(options?)
 
-React hook that connects to the SSE endpoint and invalidates react-query caches on file changes:
+> Formerly `useFileWatcher`. The old name is still exported as a deprecated alias.
+
+React hook that polls for database changes and invalidates react-query caches:
 
 ```tsx
-useFileWatcher({
+useDbSync({
   queryClient,
   queryKeys: ["files", "projects"],
-  eventsUrl: "/_agent-native/events",
-  onEvent: (data) => console.log("File changed:", data),
+  pollUrl: "/_agent-native/poll",
+  onEvent: (data) => console.log("Data changed:", data),
 });
 ```
 
-Options: `queryClient` (QueryClient?), `queryKeys` (string[]?), `eventsUrl` (string?, default: "/_agent-native/events"), `onEvent` ((data) => void).
+Options: `queryClient` (QueryClient?), `queryKeys` (string[]?), `pollUrl` (string?, default: "/_agent-native/poll"), `onEvent` ((data) => void).
 
 ## cn(...inputs)
 

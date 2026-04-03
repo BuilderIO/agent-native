@@ -132,13 +132,13 @@ useEffect(() => {
 
 ## Jitter Prevention
 
-When the agent writes to application-state via script helpers (`writeAppState`), the write is tagged with `requestSource: "agent"`. The UI uses the `ignoreSource` option on `useFileWatcher()` with a per-tab ID so it ignores its own writes while still picking up changes from agents, other tabs, and scripts.
+When the agent writes to application-state via script helpers (`writeAppState`), the write is tagged with `requestSource: "agent"`. The UI uses the `ignoreSource` option on `useDbSync()` with a per-tab ID so it ignores its own writes while still picking up changes from agents, other tabs, and scripts.
 
 ```ts
 // app/root.tsx
 import { TAB_ID } from "@/lib/tab-id";
 
-useFileWatcher({
+useDbSync({
   queryClient,
   queryKeys: ["app-state", "settings"],
   ignoreSource: TAB_ID,  // ignore events from this tab's own writes
@@ -185,6 +185,6 @@ The mail template demonstrates all three patterns working together:
 ## Related Skills
 
 - **adding-a-feature** — Context awareness is area 4 of the four-area checklist
-- **real-time-sync** — How polling and `useFileWatcher` deliver app-state changes to the UI
+- **real-time-sync** — How polling and `useDbSync` deliver app-state changes to the UI
 - **scripts** — How to create the `view-screen` and `navigate` scripts
 - **storing-data** — Application-state is one of the core SQL stores

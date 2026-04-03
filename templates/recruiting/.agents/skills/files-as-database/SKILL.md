@@ -23,5 +23,5 @@ Recruiting data comes from the **Greenhouse Harvest API**. Agent notes are store
 
 ## Related Skills
 
-- **sse-file-watcher** — Database writes trigger SSE events to update the UI
+- **real-time-sync** — Database writes trigger poll events to update the UI
 - **scripts** — Scripts read/write data via core SQL stores

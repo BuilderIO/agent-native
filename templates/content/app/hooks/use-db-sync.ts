@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-export function useFileWatcher() {
+export function useDbSync() {
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -13,7 +13,7 @@ export function useFileWatcher() {
     };
 
     eventSource.onerror = (err) => {
-      console.error("[FileWatcher] SSE connection error", err);
+      console.error("[DbSync] SSE connection error", err);
     };
 
     return () => {

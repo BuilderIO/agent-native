@@ -59,7 +59,7 @@ Local SQLite works out of the box. To deploy to production with a cloud database
 
 ### Real-time Sync
 
-SSE streams database changes to the UI. When the agent writes to the database via scripts, the UI updates instantly via `useFileWatcher()` which invalidates React Query caches.
+Polling streams database changes to the UI. When the agent writes to the database via scripts, the UI updates automatically via `useDbSync()` which invalidates React Query caches.
 
 ## Do
 

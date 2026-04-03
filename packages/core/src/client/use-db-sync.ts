@@ -8,23 +8,24 @@ interface QueryClient {
  * Hook that polls /_agent-native/poll for DB change events and invalidates
  * react-query caches when changes are detected.
  *
- * Replaces the old SSE-based useFileWatcher. Works in all deployment
- * environments (serverless, edge, long-lived server).
+ * Works in all deployment environments (serverless, edge, long-lived server).
  *
  * @param options.queryClient - The react-query QueryClient instance
  * @param options.queryKeys - Array of query key prefixes to invalidate on change.
- *   Default: ["file", "fileTree"]
- * @param options.eventsUrl - Poll endpoint URL. Default: "/_agent-native/poll"
+ *   Default: ["data"]
+ * @param options.pollUrl - Poll endpoint URL. Default: "/_agent-native/poll"
  * @param options.onEvent - Optional callback for each change event
  * @param options.interval - Poll interval in ms. Default: 2000
  * @param options.ignoreSource - Skip events whose `requestSource` matches this
  *   value. Use a per-tab ID so the UI ignores its own writes while still
  *   picking up changes from other tabs, agents, and scripts.
  */
-export function useFileWatcher(
+export function useDbSync(
   options: {
     queryClient?: QueryClient;
     queryKeys?: string[];
+    pollUrl?: string;
+    /** @deprecated Use pollUrl instead */
     eventsUrl?: string;
     onEvent?: (data: any) => void;
     interval?: number;
@@ -33,8 +34,8 @@ export function useFileWatcher(
 ): void {
   const {
     queryClient,
-    queryKeys = ["file", "fileTree"],
-    eventsUrl = "/_agent-native/poll",
+    queryKeys = ["data"],
+    pollUrl = options.eventsUrl ?? "/_agent-native/poll",
     interval = 2000,
   } = options;
 
@@ -55,7 +56,7 @@ export function useFileWatcher(
     async function poll() {
       if (stopped) return;
       try {
-        const res = await fetch(`${eventsUrl}?since=${versionRef}`);
+        const res = await fetch(`${pollUrl}?since=${versionRef}`);
         if (!res.ok) throw new Error("HTTP " + res.status);
         const data = await res.json();
         const { version, events } = data as {
@@ -97,5 +98,8 @@ export function useFileWatcher(
       stopped = true;
       if (timer) clearTimeout(timer);
     };
-  }, [eventsUrl, queryClient, interval]);
+  }, [pollUrl, queryClient, interval]);
 }
+
+/** @deprecated Use useDbSync instead */
+export const useFileWatcher = useDbSync;

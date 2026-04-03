@@ -64,22 +64,24 @@ function GenerateButton() {
 
 `isGenerating` turns true when you call `send()` and automatically resets to false when the agent finishes generating.
 
-## useFileWatcher(options?)
+## useDbSync(options?)
 
-React hook that connects to the SSE endpoint and invalidates react-query caches on file changes:
+> Formerly `useFileWatcher`. The old name is still exported as a deprecated alias.
+
+React hook that polls for database changes and invalidates react-query caches when data updates:
 
 ```tsx
-import { useFileWatcher } from "@agent-native/core";
+import { useDbSync } from "@agent-native/core";
 import { useQueryClient } from "@tanstack/react-query";
 
 function App() {
   const queryClient = useQueryClient();
 
-  useFileWatcher({
+  useDbSync({
     queryClient,
     queryKeys: ["files", "projects", "versionHistory"],
-    eventsUrl: "/_agent-native/events",
-    onEvent: (data) => console.log("File changed:", data),
+    pollUrl: "/_agent-native/poll",
+    onEvent: (data) => console.log("Data changed:", data),
   });
 
   return <div>...</div>;
@@ -92,8 +94,8 @@ function App() {
 | ------------- | ---------------- | --------------------------------------------------------------- |
 | `queryClient` | `QueryClient?`   | React-query client for cache invalidation                       |
 | `queryKeys`   | `string[]?`      | Query key prefixes to invalidate. Default: ["file", "fileTree"] |
-| `eventsUrl`   | `string?`        | SSE endpoint URL. Default: "/\_agent-native/events"             |
-| `onEvent`     | `(data) => void` | Optional callback for each SSE event                            |
+| `pollUrl`     | `string?`        | Poll endpoint URL. Default: "/\_agent-native/poll"              |
+| `onEvent`     | `(data) => void` | Optional callback for each poll event                           |
 
 ## ApiKeySettings
 
@@ -145,7 +147,7 @@ The following routes are provided by the core routes plugin and are available in
 
 ### GET /\_agent-native/poll
 
-Returns change events since a given version. Used by `useFileWatcher()` internally.
+Returns change events since a given version. Used by `useDbSync()` internally.
 
 ```ts
 const res = await fetch(`/_agent-native/poll?since=${lastVersion}`);

@@ -213,7 +213,7 @@ export function useNavigationState() {
         code={`// app/root.tsx
 import { TAB_ID } from "@/lib/tab-id";
 
-useFileWatcher({
+useDbSync({
   queryClient,
   queryKeys: ["app-state", "settings"],
   ignoreSource: TAB_ID,  // ignore events from this tab's own writes

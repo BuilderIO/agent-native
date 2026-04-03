@@ -486,6 +486,8 @@ export function createAgentChatPlugin(
 
     // Auto-mount A2A protocol endpoints so every app is discoverable
     // and callable by other agents via the standard protocol.
+    // The custom handler calls the local agent-chat endpoint to process
+    // A2A messages using the same production agent pipeline.
     const allScripts = {
       ...templateScripts,
       ...resourceScripts,
@@ -502,6 +504,96 @@ export function createAgentChatPlugin(
         name,
         description: entry.tool.description,
       })),
+      handler: async (message) => {
+        const text = message.parts
+          .filter((p): p is { type: "text"; text: string } => p.type === "text")
+          .map((p) => p.text)
+          .join("\n");
+
+        if (!text) {
+          return {
+            message: {
+              role: "agent",
+              parts: [{ type: "text", text: "No text content in message" }],
+            },
+          };
+        }
+
+        // Run the agent loop directly in-process using the same scripts + prompt.
+        // This avoids HTTP self-calls and port detection issues.
+        const Anthropic = (await import("@anthropic-ai/sdk")).default;
+        const apiKey = options?.apiKey || process.env.ANTHROPIC_API_KEY || "";
+        const client = new Anthropic({ apiKey });
+        const model = options?.model ?? "claude-sonnet-4-6-20250514";
+        const resources = await loadResourcesForPrompt("local@localhost");
+        const systemPrompt = basePrompt + resources;
+
+        const tools: any[] = Object.entries(allScripts).map(
+          ([name, entry]) => ({
+            name,
+            description: entry.tool.description,
+            input_schema: entry.tool.parameters ?? {
+              type: "object" as const,
+              properties: {},
+            },
+          }),
+        );
+
+        const msgs: any[] = [{ role: "user", content: text }];
+        const textParts: string[] = [];
+
+        for (let i = 0; i < 10; i++) {
+          const response = await client.messages.create({
+            model,
+            max_tokens: 4096,
+            system: systemPrompt,
+            tools,
+            messages: msgs,
+          });
+
+          const toolUseBlocks: any[] = [];
+          for (const block of response.content) {
+            if (block.type === "text") textParts.push(block.text);
+            if (block.type === "tool_use") toolUseBlocks.push(block);
+          }
+
+          if (
+            toolUseBlocks.length === 0 ||
+            response.stop_reason !== "tool_use"
+          ) {
+            break;
+          }
+
+          msgs.push({ role: "assistant", content: response.content });
+          const toolResults = [];
+          for (const tb of toolUseBlocks) {
+            const script = allScripts[tb.name];
+            let result = `Unknown tool: ${tb.name}`;
+            if (script) {
+              try {
+                result = await script.run(tb.input as Record<string, string>);
+              } catch (err: any) {
+                result = `Error: ${err?.message}`;
+              }
+            }
+            toolResults.push({
+              type: "tool_result" as const,
+              tool_use_id: tb.id,
+              content: result,
+            });
+          }
+          msgs.push({ role: "user", content: toolResults });
+        }
+
+        return {
+          message: {
+            role: "agent",
+            parts: [
+              { type: "text", text: textParts.join("") || "(no response)" },
+            ],
+          },
+        };
+      },
     });
 
     // Build system prompts — dynamic functions that pre-load resources per-request.
