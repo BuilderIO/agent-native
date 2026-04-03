@@ -130,14 +130,11 @@ export const createForm = defineEventHandler(async (event: H3Event) => {
   const db = getDb();
   const body = await readBody(event);
   const now = new Date().toISOString();
-  const id = nanoid();
+  const id = nanoid(10);
   const slug =
     body.slug || slugify(body.title || "untitled") + "/" + id.slice(0, 6);
 
   const defaultSettings: FormSettings = {
-    primaryColor: "#2563eb",
-    backgroundColor: "#ffffff",
-    fontFamily: "Inter",
     submitText: "Submit",
     successMessage: "Thank you! Your response has been recorded.",
     showProgressBar: false,
@@ -258,9 +255,10 @@ export const deleteForm = defineEventHandler(async (event: H3Event) => {
 });
 
 export const getPublicForm = defineEventHandler(async (event: H3Event) => {
-  // URL: /api/forms/public/optional-slug/formId — last segment is the ID
-  const raw = getRouterParam(event, "slug") || "";
-  const segments = raw.split("/").filter(Boolean);
+  // URL: /api/forms/public/{formId} — extract last path segment as the ID
+  const url = event.node.req.url ?? "";
+  const afterPublic = url.split("/api/forms/public/")[1] || "";
+  const segments = afterPublic.split("?")[0].split("/").filter(Boolean);
   const formId = segments[segments.length - 1] || "";
 
   // Check cache first

@@ -111,12 +111,13 @@ function renderField(field: FormField): string {
 }
 
 // ---------------------------------------------------------------------------
-// Main SSR handler — called from [...page].get.ts for /f/* URLs
+// Pure render function — takes a URL, returns { html, status }
+// Used by both the H3 handler and the Vite dev plugin.
 // ---------------------------------------------------------------------------
 
-export async function renderPublicForm(event: H3Event) {
-  // URL format: /f/formId or /f/optional-slug/formId — last segment is always the ID
-  const url = event.node.req.url ?? "";
+export async function renderPublicFormHtml(
+  url: string,
+): Promise<{ html: string; status: number }> {
   const segments = url
     .split("?")[0]
     .replace(/^\/f\//, "")
@@ -125,23 +126,47 @@ export async function renderPublicForm(event: H3Event) {
   const formId = segments[segments.length - 1] || "";
   const form = formId ? await getFormById(formId) : null;
 
-  setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
-
   if (!form) {
-    setResponseStatus(event, 404);
-    return notFoundPage();
+    return { html: notFoundPage(), status: 404 };
   }
 
-  // Cache public form pages at CDN level
-  setResponseHeader(
-    event,
-    "Cache-Control",
-    "public, s-maxage=60, stale-while-revalidate=300",
-  );
+  return { html: renderFormPage(form), status: 200 };
+}
 
+// ---------------------------------------------------------------------------
+// H3 handler wrapper — used in production (Nitro plugins / routes)
+// ---------------------------------------------------------------------------
+
+export async function renderPublicForm(event: H3Event) {
+  const url = event.node.req.url ?? "";
+  const { html, status } = await renderPublicFormHtml(url);
+
+  setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
+  if (status !== 200) {
+    setResponseStatus(event, status);
+  } else {
+    setResponseHeader(
+      event,
+      "Cache-Control",
+      "public, s-maxage=60, stale-while-revalidate=300",
+    );
+  }
+  return html;
+}
+
+// ---------------------------------------------------------------------------
+// HTML generation
+// ---------------------------------------------------------------------------
+
+function renderFormPage(form: {
+  id: string;
+  title: string;
+  description?: string | null;
+  fields: FormField[];
+  settings: FormSettings;
+}): string {
   const settings: FormSettings = form.settings || {};
   const fields: FormField[] = form.fields || [];
-  const primaryColor = settings.primaryColor || "#334155";
   const turnstileSiteKey = process.env.VITE_TURNSTILE_SITE_KEY || "";
 
   const fieldsHtml = fields.map(renderField).join("\n");
@@ -157,7 +182,7 @@ ${form.description ? `<meta name="description" content="${escapeHtml(form.descri
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<style>${CSS(primaryColor)}</style>
+<style>${CSS()}</style>
 </head>
 <body>
 <div class="page">
@@ -392,7 +417,7 @@ function notFoundPage() {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Form not found</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<style>${CSS("#334155")}</style>
+<style>${CSS()}</style>
 </head>
 <body>
 <div class="page">
@@ -410,7 +435,7 @@ function notFoundPage() {
 // CSS
 // ---------------------------------------------------------------------------
 
-function CSS(primaryColor: string) {
+function CSS() {
   return `
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 
@@ -419,7 +444,6 @@ function CSS(primaryColor: string) {
   --card:0 0% 100%;--card-fg:220 10% 10%;
   --muted:220 10% 95%;--muted-fg:220 5% 45%;
   --border:220 10% 90%;--input:220 10% 90%;
-  --primary:${primaryColor};
   --ring:220 10% 40%;
   --radius:0.5rem;
 }
@@ -441,7 +465,7 @@ body{background:hsl(var(--bg));color:hsl(var(--fg));min-height:100vh;-webkit-fon
 .header h1{font-size:1.5rem;font-weight:600;line-height:1.3;letter-spacing:-0.01em}
 .desc{margin-top:6px;font-size:0.875rem;color:hsl(var(--muted-fg));line-height:1.5}
 
-.fields-card{border:1px solid hsl(var(--border));border-radius:12px;background:hsl(var(--card));padding:24px;display:flex;flex-direction:column;gap:24px}
+.fields-card{display:flex;flex-direction:column;gap:24px}
 
 .field{display:flex;flex-direction:column;gap:6px}
 .field-half{width:50%}
@@ -456,7 +480,7 @@ select.fi{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns=
 select.fi option{background:hsl(var(--card));color:hsl(var(--fg))}
 
 .cb-label{display:flex;align-items:center;gap:8px;font-size:0.875rem;cursor:pointer}
-.cb,.radio{width:16px;height:16px;accent-color:var(--primary);cursor:pointer}
+.cb,.radio{width:16px;height:16px;accent-color:hsl(var(--fg));cursor:pointer}
 .ms-group,.radio-group{display:flex;flex-direction:column;gap:8px}
 
 .rating-group{display:flex;gap:4px}
@@ -465,7 +489,7 @@ select.fi option{background:hsl(var(--card));color:hsl(var(--fg))}
 .star-btn.active svg{fill:#fbbf24}
 
 .scale-group{padding-top:8px}
-.slider{width:100%;accent-color:var(--primary);cursor:pointer}
+.slider{width:100%;accent-color:hsl(var(--fg));cursor:pointer}
 .scale-labels{display:flex;justify-content:space-between;font-size:0.75rem;color:hsl(var(--muted-fg));margin-top:4px}
 .scale-val{font-weight:500;color:hsl(var(--fg))}
 
@@ -474,7 +498,7 @@ select.fi option{background:hsl(var(--card));color:hsl(var(--fg))}
 .submit-btn{
   width:100%;margin-top:16px;padding:10px 16px;
   font-size:0.875rem;font-weight:500;font-family:inherit;
-  background:var(--primary);color:#fff;
+  background:hsl(var(--fg));color:hsl(var(--bg));
   border:none;border-radius:var(--radius);cursor:pointer;
 }
 .submit-btn:hover{opacity:0.9}
@@ -532,9 +556,7 @@ html:not(.dark) .icon-moon{display:none}
 .empty{text-align:center;color:hsl(var(--muted-fg));padding:32px 0}
 
 @media(max-width:640px){
-  .page{padding:32px 12px 80px}
-  .fields-card{padding:16px}
-  .field-half{width:100%}
+  .page{padding:32px 12px 80px}  .field-half{width:100%}
 }
 `;
 }

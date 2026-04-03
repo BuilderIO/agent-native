@@ -72,23 +72,28 @@ const EmptyLineParagraph = Extension.create({
       (ext) => ext.name === "paragraph",
     );
     if (paragraph) {
+      const paragraphStorage = (paragraph as any).storage ?? {};
+      const markdownStorage = paragraphStorage.markdown ?? {};
+      if ((markdownStorage as any).__emptyLinePatched) return;
+
       const origSerialize =
-        paragraph.storage?.markdown?.serialize ??
-        defaultMarkdownSerializer.nodes.paragraph;
-      (paragraph as any).storage = {
-        ...paragraph.storage,
-        markdown: {
-          ...paragraph.storage?.markdown,
-          serialize(state: any, node: any, parent: any, index: number) {
-            if (node.childCount === 0) {
-              state.write("&nbsp;");
-              state.closeBlock(node);
-            } else {
-              origSerialize(state, node, parent, index);
-            }
-          },
-        },
+        markdownStorage.serialize ?? defaultMarkdownSerializer.nodes.paragraph;
+
+      markdownStorage.serialize = function (
+        state: any,
+        node: any,
+        parent: any,
+        index: number,
+      ) {
+        if (node.childCount === 0) {
+          state.write("&nbsp;");
+          state.closeBlock(node);
+        } else {
+          origSerialize(state, node, parent, index);
+        }
       };
+      markdownStorage.__emptyLinePatched = true;
+      paragraphStorage.markdown = markdownStorage;
     }
   },
 });
