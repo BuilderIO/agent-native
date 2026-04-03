@@ -38,6 +38,9 @@ function ContactPanel({
     () => emails.find((e) => e.id === emailId),
     [emails, emailId],
   );
+  // Always use inbox emails for "recent from contact" — shares React Query cache,
+  // no extra fetch. The `emails` prop may be a different view (sent, starred, etc.)
+  const { data: inboxEmails = [] } = useEmails("inbox");
 
   const displayEmail = contactEmail || email?.from.email;
   const displayName = contactEmail
@@ -52,7 +55,7 @@ function ContactPanel({
     );
   }
 
-  const recentFromContact = emails
+  const recentFromContact = inboxEmails
     .filter((e) => e.from.email === displayEmail && e.id !== emailId)
     .slice(0, 4)
     .map((e) => ({ id: e.id, subject: e.subject }));
