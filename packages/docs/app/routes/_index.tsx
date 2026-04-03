@@ -252,9 +252,7 @@ export default function Home() {
 
             <h1 className="mx-auto max-w-3xl">
               Agentic Apps That{" "}
-              <span className="inline-block bg-gradient-to-r from-[var(--accent)] to-[#7928ca] bg-clip-text text-transparent">
-                Self Improve
-              </span>
+              <span className="hero-gradient-text">Self Improve</span>
             </h1>
 
             <p className="mx-auto mb-10 max-w-xl text-lg leading-relaxed text-[var(--fg-secondary)]">
