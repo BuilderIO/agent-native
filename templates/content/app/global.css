@@ -592,6 +592,12 @@
 .notion-toggle__body {
   padding: 0 0 0 1.5em;
 }
+.notion-toggle__body--collapsed {
+  height: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
 
 .notion-toggle__content > :first-child {
   margin-top: 0;
@@ -803,6 +809,35 @@ video.media-block__content {
 .media-placeholder:hover {
   border-color: hsl(var(--muted-foreground));
   background: hsl(var(--muted));
+}
+
+/* ===== Block drag handle ===== */
+.drag-handle {
+  position: absolute;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 24px;
+  border-radius: 4px;
+  cursor: grab;
+  color: hsl(var(--muted-foreground) / 0.4);
+  z-index: 10;
+  user-select: none;
+}
+.drag-handle:hover {
+  color: hsl(var(--muted-foreground));
+  background: hsl(var(--muted));
+}
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+/* Selected node outline (for toggle, callout, etc.) */
+.notion-editor .ProseMirror-selectednode {
+  outline: 2px solid hsl(var(--primary) / 0.4);
+  outline-offset: 1px;
+  border-radius: 4px;
 }
 
 /* ===== Drag-and-drop overlay ===== */

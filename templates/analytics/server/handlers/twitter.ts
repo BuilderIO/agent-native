@@ -1,5 +1,5 @@
 import { defineEventHandler, getQuery, setResponseStatus } from "h3";
-import { requireEnvKey } from "@agent-native/core/server";
+import { requireCredential, resolveCredential } from "../lib/credentials";
 import { createHash } from "crypto";
 
 // ─── In-memory cache (TTL-based) ───────────────────────────────────────
@@ -114,7 +114,11 @@ export async function fetchAllTweetsForUser(
 
 // ─── Handler: GET /api/twitter/tweets?userName=...&pages=... ──────────
 export const handleTwitterTweets = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "TWITTER_BEARER_TOKEN", "Twitter");
+  const missing = await requireCredential(
+    event,
+    "TWITTER_BEARER_TOKEN",
+    "Twitter",
+  );
   if (missing) return missing;
   const { userName: userNameParam, pages: pagesParam } = getQuery(event);
   const userName = userNameParam as string;
@@ -123,7 +127,7 @@ export const handleTwitterTweets = defineEventHandler(async (event) => {
   }
   const maxPages = Math.min(Number(pagesParam) || 5, 10);
 
-  const apiKey = process.env.TWITTER_API_KEY;
+  const apiKey = await resolveCredential("TWITTER_API_KEY");
   console.log(
     "[Twitter] API key present:",
     !!apiKey,
@@ -157,7 +161,11 @@ export const handleTwitterTweets = defineEventHandler(async (event) => {
 
 // ─── Handler: GET /api/twitter/multi?userNames=a,b,c&pages=... ──────
 export const handleTwitterMulti = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "TWITTER_BEARER_TOKEN", "Twitter");
+  const missing = await requireCredential(
+    event,
+    "TWITTER_BEARER_TOKEN",
+    "Twitter",
+  );
   if (missing) return missing;
   const { userNames: userNamesParam, pages: pagesParam } = getQuery(event);
   const userNames = ((userNamesParam as string) || "")
@@ -182,7 +190,7 @@ export const handleTwitterMulti = defineEventHandler(async (event) => {
     return { error: "Max 10 usernames at a time" };
   }
 
-  const apiKey = process.env.TWITTER_API_KEY;
+  const apiKey = await resolveCredential("TWITTER_API_KEY");
   console.log("[Twitter Multi] API key present:", !!apiKey);
   if (!apiKey) {
     console.error("[Twitter Multi] TWITTER_API_KEY not configured");

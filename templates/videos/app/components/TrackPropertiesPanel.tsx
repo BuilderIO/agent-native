@@ -71,7 +71,7 @@ const EASING_COLORS: Record<EasingKey, string> = {
 /** Label displayed in the badge for a known property */
 const PROP_LABEL: Record<string, string> = {
   translateY: "Y",
-  translateX: "IconX",
+  translateX: "X",
   opacity: "op",
   scale: "sc",
   rotate: "rot",

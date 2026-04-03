@@ -1,14 +1,16 @@
 // Apollo.io contact & company enrichment API helper
 // Search people, enrich contacts, search/enrich organizations
 
+import { resolveCredential } from "./credentials";
+
 const API_BASE = "https://api.apollo.io";
 
 const cache = new Map<string, { data: unknown; ts: number }>();
 const CACHE_TTL_MS = 10 * 60 * 1000;
 const MAX_CACHE = 120;
 
-function getApiKey(): string {
-  const key = process.env.APOLLO_API_KEY;
+async function getApiKey(): Promise<string> {
+  const key = await resolveCredential("APOLLO_API_KEY");
   if (!key) throw new Error("APOLLO_API_KEY env var required");
   return key;
 }
@@ -28,7 +30,7 @@ async function apiPost<T>(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-api-key": getApiKey(),
+      "x-api-key": await getApiKey(),
     },
     body: JSON.stringify(body),
   });

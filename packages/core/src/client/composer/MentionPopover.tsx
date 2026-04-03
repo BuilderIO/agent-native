@@ -144,6 +144,25 @@ function EmailIconSmall() {
   );
 }
 
+function UserIconSmall() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="shrink-0 text-muted-foreground"
+    >
+      <path d="M20 21a8 8 0 0 0-16 0" />
+      <circle cx="12" cy="7" r="4" />
+    </svg>
+  );
+}
+
 function DeckIconSmall() {
   return (
     <svg
@@ -174,6 +193,8 @@ function MentionItemIcon({ icon }: { icon?: string }) {
       return <FormIconSmall />;
     case "email":
       return <EmailIconSmall />;
+    case "user":
+      return <UserIconSmall />;
     case "deck":
       return <DeckIconSmall />;
     case "file":

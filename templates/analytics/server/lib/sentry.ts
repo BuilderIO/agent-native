@@ -1,6 +1,8 @@
 // Sentry API helper
 // Fetches projects, issues, events, and org-level stats
 
+import { resolveCredential } from "./credentials";
+
 const API_BASE = "https://sentry.io/api/0";
 const ORG_SLUG = "bridge-tm";
 
@@ -9,9 +11,10 @@ const cache = new Map<string, { data: unknown; ts: number }>();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_CACHE = 100;
 
-function getToken(): string {
+async function getToken(): Promise<string> {
   const token =
-    process.env.SENTRY_SERVER_TOKEN ?? process.env.SENTRY_AUTH_TOKEN;
+    (await resolveCredential("SENTRY_SERVER_TOKEN")) ??
+    (await resolveCredential("SENTRY_AUTH_TOKEN"));
   if (!token) throw new Error("SENTRY_SERVER_TOKEN env var required");
   return token;
 }
@@ -33,7 +36,7 @@ async function apiGet<T>(path: string, cacheKey?: string): Promise<T> {
 
   const res = await fetch(`${API_BASE}${path}`, {
     headers: {
-      Authorization: `Bearer ${getToken()}`,
+      Authorization: `Bearer ${await getToken()}`,
     },
   });
 

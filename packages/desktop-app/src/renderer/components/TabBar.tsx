@@ -16,17 +16,16 @@ import {
 import type { Tab } from "../App.js";
 
 const ICON_MAP: Record<string, React.ComponentType<Record<string, unknown>>> = {
-  IconMail,
-  IconCalendar,
-  IconFileText,
-  IconChartBar,
-  IconLayoutGrid,
-  IconStack2,
-  IconVideo,
-  IconCircleDot,
-  IconClipboardList,
-  IconUsers,
-  IconCode,
+  Mail: IconMail,
+  CalendarDays: IconCalendar,
+  FileText: IconFileText,
+  BarChart2: IconChartBar,
+  GalleryHorizontal: IconLayoutGrid,
+  Code: IconCode,
+  Video: IconVideo,
+  CircleDot: IconCircleDot,
+  ClipboardList: IconClipboardList,
+  Users: IconUsers,
 };
 
 interface TabBarProps {

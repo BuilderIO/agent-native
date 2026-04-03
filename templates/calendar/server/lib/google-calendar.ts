@@ -13,7 +13,6 @@ import {
   calendarListEvents,
   calendarGetEvent,
   calendarInsertEvent,
-  calendarUpdateEvent,
   calendarDeleteEvent,
   calendarPatchEvent,
 } from "./google-api.js";
@@ -131,7 +130,9 @@ export async function getClient(
 
   let account: (typeof accounts)[number] | undefined;
   if (email) {
-    account = accounts.find((a) => a.accountId === email);
+    account =
+      accounts.find((a) => a.accountId === email) ??
+      accounts.find((a) => a.owner === email);
     if (!account) return null;
   } else {
     account = accounts[0];
@@ -442,7 +443,7 @@ export async function updateEvent(
       : { dateTime: event.end };
   }
 
-  await calendarUpdateEvent(
+  await calendarPatchEvent(
     client.accessToken,
     "primary",
     googleEventId,

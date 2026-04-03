@@ -1,6 +1,6 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { table, text, integer } from "@agent-native/core/db/schema";
 
-export const scheduledJobs = sqliteTable("scheduled_jobs", {
+export const scheduledJobs = table("scheduled_jobs", {
   id: text("id").primaryKey(),
   type: text("type", { enum: ["snooze", "send_later"] }).notNull(),
   ownerEmail: text("owner_email"),
@@ -17,7 +17,7 @@ export const scheduledJobs = sqliteTable("scheduled_jobs", {
   createdAt: integer("created_at").notNull(),
 });
 
-export const automationRules = sqliteTable("automation_rules", {
+export const automationRules = table("automation_rules", {
   id: text("id").primaryKey(),
   ownerEmail: text("owner_email").notNull(),
   domain: text("domain").notNull(), // "mail" | "calendar"

@@ -179,9 +179,16 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       if (isActive && !app.placeholder && !error) {
         const wv = webviewRef.current;
         if (wv) {
-          // Small delay to ensure the webview is ready to accept focus
-          const timer = setTimeout(() => wv.focus(), 50);
-          return () => clearTimeout(timer);
+          // Try focusing immediately, then retry — the webview needs a
+          // moment after becoming visible (visibility: hidden → visible)
+          // and the sidebar click may have stolen focus.
+          wv.focus();
+          const t1 = setTimeout(() => wv.focus(), 80);
+          const t2 = setTimeout(() => wv.focus(), 250);
+          return () => {
+            clearTimeout(t1);
+            clearTimeout(t2);
+          };
         }
       }
     }, [isActive, app.placeholder, error]);

@@ -6,6 +6,10 @@ import {
   createError,
 } from "h3";
 import * as gh from "../lib/greenhouse-api.js";
+import {
+  mapCandidateListItem,
+  searchCandidates,
+} from "../lib/candidate-search.js";
 
 export const listCandidatesHandler = defineEventHandler(async (event) => {
   const query = getQuery(event) as {
@@ -13,37 +17,31 @@ export const listCandidatesHandler = defineEventHandler(async (event) => {
     search?: string;
     per_page?: string;
     page?: string;
+    limit?: string;
   };
 
   // Default to recently-updated candidates for a useful default view.
-  // When searching, use a wider window (1 year) so search covers more candidates.
-  // (Greenhouse API doesn't support name search, so we filter server-side)
+  // Greenhouse API doesn't support native candidate search, so free-text search
+  // is handled by a deeper server-side scan when a search term is provided.
   const thirtyDaysAgo = new Date(
     Date.now() - 30 * 24 * 60 * 60 * 1000,
   ).toISOString();
-  const oneYearAgo = new Date(
-    Date.now() - 365 * 24 * 60 * 60 * 1000,
-  ).toISOString();
+  const jobId = query.job_id ? Number(query.job_id) : undefined;
+  const perPage = Number(query.per_page) || 100;
+  const limit = Number(query.limit) || perPage;
 
-  const candidates = await gh.listCandidates({
-    job_id: query.job_id ? Number(query.job_id) : undefined,
-    updated_after: query.search ? oneYearAgo : thirtyDaysAgo,
-    per_page: Number(query.per_page) || 100,
-    page: Number(query.page) || 1,
-  });
-
-  // Client-side search filtering (Greenhouse API doesn't have a search param)
-  let results = candidates;
-  if (query.search) {
-    const term = query.search.toLowerCase();
-    results = candidates.filter(
-      (c) =>
-        c.first_name?.toLowerCase().includes(term) ||
-        c.last_name?.toLowerCase().includes(term) ||
-        (c.company && c.company.toLowerCase().includes(term)) ||
-        (c.emails || []).some((e) => e.value.toLowerCase().includes(term)),
-    );
-  }
+  const results = query.search?.trim()
+    ? await searchCandidates({
+        search: query.search,
+        jobId,
+        limit,
+      })
+    : await gh.listCandidates({
+        job_id: jobId,
+        updated_after: thirtyDaysAgo,
+        per_page: perPage,
+        page: Number(query.page) || 1,
+      });
 
   // Sort by most recently active first
   results.sort((a, b) => {
@@ -52,23 +50,7 @@ export const listCandidatesHandler = defineEventHandler(async (event) => {
     return bDate - aDate;
   });
 
-  // Return only fields needed for the list view to reduce payload size
-  return results.map((c) => ({
-    id: c.id,
-    first_name: c.first_name,
-    last_name: c.last_name,
-    title: c.title,
-    company: c.company,
-    emails: (c.emails || []).slice(0, 1),
-    tags: c.tags || [],
-    last_activity: c.last_activity,
-    applications: (c.applications || []).map((a) => ({
-      id: a.id,
-      status: a.status,
-      current_stage: a.current_stage,
-      jobs: a.jobs,
-    })),
-  }));
+  return results.map(mapCandidateListItem);
 });
 
 export const getCandidateHandler = defineEventHandler(async (event) => {

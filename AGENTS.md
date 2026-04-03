@@ -4,6 +4,46 @@
 
 Agent-native is a framework for building apps where an AI agent is a first-class citizen alongside the UI. Think Next.js, but the AI agent can read data, write data, run scripts, and even modify the app's own code.
 
+## Portability: Database & Hosting Agnostic
+
+**This is a hard requirement that applies to ALL code — framework core, templates, scripts, migrations, and raw SQL.**
+
+### Database
+
+The framework supports **multiple SQL databases** via Drizzle ORM and `@agent-native/core/db/client`. Users choose their database by setting `DATABASE_URL`:
+
+- **SQLite** — local dev default when `DATABASE_URL` is unset (fallback to `data/app.db`)
+- **Neon Postgres** — common in both dev and production
+- **Turso** (libSQL) — edge-friendly SQLite-compatible
+- **Supabase Postgres**
+- **Cloudflare D1**
+- **Plain Postgres**
+
+**Never assume SQLite.** Never write SQLite-only syntax (`INSERT OR REPLACE`, `AUTOINCREMENT`, `datetime('now')`, etc.) without a Postgres equivalent. Use the framework helpers:
+
+- `getDbExec()` — auto-converts `?` params to `$1` for Postgres
+- `isPostgres()` — runtime dialect check for branching
+- `intType()` — returns correct integer type for the dialect
+- Drizzle ORM — generates dialect-correct SQL automatically
+
+When writing AGENTS.md or other docs for templates, say **"SQL"** or **"SQL database"** — not "SQLite". If you must mention SQLite, always qualify it: "SQLite (or Postgres/Turso/etc. via `DATABASE_URL`)".
+
+### Hosting
+
+The server runs on **Nitro**, which compiles to any deployment target:
+
+- **Node.js** — local dev, traditional servers
+- **Cloudflare Workers/Pages**
+- **Netlify Functions/Edge**
+- **Vercel Serverless/Edge**
+- **Deno Deploy**
+- **AWS Lambda**
+- **Bun**
+
+**Never write code that only works in Node.js.** Avoid Node-specific APIs (`fs`, `child_process`, `path`) in server routes and plugins — these don't exist in Workers/edge environments. Use Nitro's built-in abstractions and h3 utilities instead. Scripts (in `scripts/`) run in Node.js and can use Node APIs freely.
+
+**Never assume a persistent server process.** Serverless and edge environments are stateless — no in-memory caches that survive between requests, no long-lived connections, no background intervals. Use the SQL database for all state. The polling/SSE sync system is designed to work in stateless environments.
+
 ## The Six Rules
 
 Every agent-native app follows these rules. Violating them breaks the architecture.
@@ -79,6 +119,24 @@ Auth is automatic and environment-driven. Templates include a `server/plugins/au
 **Bring your own auth**: Pass a custom `getSession` function to `autoMountAuth(app, { getSession: ... })` to plug in Auth.js, Clerk, or any auth system. Templates don't change.
 
 See [docs/auth.md](docs/auth.md) for the full guide.
+
+## Server Plugins (Auto-Mounted Defaults)
+
+The framework provides 6 default plugins that auto-mount when your app doesn't have a custom version in `server/plugins/`. You only need plugin files for plugins you customize:
+
+| Plugin        | Default behavior                              | Customize when                              |
+| ------------- | --------------------------------------------- | ------------------------------------------- |
+| `agent-chat`  | Agent chat endpoints                          | Custom `mentionProviders` or `systemPrompt` |
+| `auth`        | Auth middleware                               | Custom `publicPaths` or Google OAuth config |
+| `core-routes` | `/api/poll`, `/api/events`, `/api/ping`, etc. | Custom `envKeys` or `sseRoute`              |
+| `file-sync`   | File watcher sync                             | Custom sync config                          |
+| `resources`   | Resource CRUD                                 | Rarely                                      |
+| `terminal`    | Terminal emulator                             | Rarely                                      |
+
+A minimal app needs **zero** plugin files. To customize, create `server/plugins/<name>.ts` — your file takes precedence over the default.
+
+**Do:** Only create plugin files for plugins you need to customize. Let defaults auto-mount.
+**Don't:** Create boilerplate one-liner re-exports of defaults — the framework handles this automatically.
 
 ## Project Structure
 
@@ -212,3 +270,5 @@ Agent skills in `.agents/skills/` provide detailed guidance for architectural ru
 The **`frontend-design`** skill (sourced from [Anthropic's skills library](https://github.com/anthropics/skills/blob/main/skills/frontend-design/SKILL.md)) applies whenever the agent generates or modifies UI. It enforces distinctive, production-grade aesthetics — avoiding generic AI-generated design patterns like purple gradients, overused fonts, and cookie-cutter layouts.
 
 **Always use shadcn/ui components** for standard UI patterns — Tabs, Dialog, Button, DropdownMenu, Select, Popover, Input, Textarea, Badge, Card, etc. Every template includes shadcn components in `app/components/ui/`. Never create custom one-off implementations when a shadcn component exists. Check `app/components/ui/` before building custom UI elements.
+
+**Always use Tabler Icons** (`@tabler/icons-react`) for all icons. Import like `import { IconName } from "@tabler/icons-react"`. Never generate inline SVGs or use other icon libraries (Lucide, Heroicons, Font Awesome, etc.). Tabler has 5,800+ icons — search for what you need at https://tabler.io/icons. Every template already has `@tabler/icons-react` installed.
