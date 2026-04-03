@@ -25,8 +25,14 @@ function hasDep(pkg: string, cwd: string): boolean {
 /**
  * In monorepo dev mode, resolve @agent-native/core imports to source (src/)
  * instead of dist/ so that Vite HMR picks up changes without rebuilding.
+ *
+ * Returns Vite array-style aliases with exact matching (regex anchored with $)
+ * to prevent `@agent-native/core` from prefix-matching and swallowing
+ * sub-path imports like `@agent-native/core/client`.
  */
-function getCoreSourceAliases(cwd: string): Record<string, string> {
+function getCoreSourceAliases(
+  cwd: string,
+): Array<{ find: RegExp; replacement: string }> {
   // Detect monorepo: walk up to find packages/core/src/
   const candidates = [
     path.resolve(cwd, "../../packages/core"), // templates/<name>/
@@ -41,11 +47,12 @@ function getCoreSourceAliases(cwd: string): Record<string, string> {
     }
   }
 
-  if (!coreSrc) return {}; // Not in monorepo — use dist as normal
+  if (!coreSrc) return []; // Not in monorepo — use dist as normal
 
-  // Map every @agent-native/core/* export to its src/ equivalent
-  const map: Record<string, string> = {
-    "@agent-native/core": path.join(coreSrc, "index.ts"),
+  // Map every @agent-native/core/* export to its src/ equivalent.
+  // Each entry uses a regex with $ anchor for exact matching.
+  const entries: Record<string, string> = {
+    "@agent-native/core": path.join(coreSrc, "index.browser.ts"),
     "@agent-native/core/server": path.join(coreSrc, "server/index.ts"),
     "@agent-native/core/client": path.join(coreSrc, "client/index.ts"),
     "@agent-native/core/db": path.join(coreSrc, "db/index.ts"),
@@ -90,7 +97,11 @@ function getCoreSourceAliases(cwd: string): Record<string, string> {
     ),
   };
 
-  return map;
+  // Escape special regex chars in the key and anchor with $
+  return Object.entries(entries).map(([find, replacement]) => ({
+    find: new RegExp(`^${find.replace(/[/]/g, "\\/")}$`),
+    replacement,
+  }));
 }
 
 export interface NitroOptions {
@@ -285,13 +296,19 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
       ],
     },
     resolve: {
-      alias: {
-        // In monorepo dev: resolve @agent-native/core to source for HMR
+      alias: [
+        // In monorepo dev: resolve @agent-native/core to source for HMR.
+        // Uses regex with $ anchor for exact matching to prevent
+        // @agent-native/core from prefix-matching @agent-native/core/client.
         ...getCoreSourceAliases(cwd),
-        "@": path.resolve(cwd, "./app"),
-        "@shared": path.resolve(cwd, "./shared"),
-        ...options.aliases,
-      },
+        // Standard path aliases (prefix matching is fine here)
+        { find: "@", replacement: path.resolve(cwd, "./app") },
+        { find: "@shared", replacement: path.resolve(cwd, "./shared") },
+        ...Object.entries(options.aliases ?? {}).map(([find, replacement]) => ({
+          find,
+          replacement,
+        })),
+      ],
     },
   };
 }
