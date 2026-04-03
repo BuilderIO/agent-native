@@ -2,7 +2,7 @@ import { Layout } from "@/components/layout/Layout";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ApiKeySettings } from "@agent-native/core/client";
+import { Link } from "react-router";
 
 export default function Settings() {
   const { auth } = useAuth();
@@ -30,10 +30,15 @@ export default function Settings() {
 
         <Card className="bg-card border-border/50">
           <CardHeader>
-            <CardTitle className="text-base">API Keys</CardTitle>
+            <CardTitle className="text-base">Data Source Credentials</CardTitle>
           </CardHeader>
           <CardContent>
-            <ApiKeySettings />
+            <p className="text-sm text-muted-foreground mb-3">
+              API keys and credentials are managed on the Data Sources page.
+            </p>
+            <Button variant="outline" size="sm" asChild>
+              <Link to="/data-sources">Manage Data Sources</Link>
+            </Button>
           </CardContent>
         </Card>
 

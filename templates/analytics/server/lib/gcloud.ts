@@ -3,8 +3,13 @@
 // Uses manual JWT-based service account auth (no SDK dependencies)
 
 import { createPrivateKey } from "crypto";
+import { resolveCredential } from "./credentials";
 
-const PROJECT_ID = process.env.BIGQUERY_PROJECT_ID || "your-gcp-project-id";
+async function getProjectId(): Promise<string> {
+  return (
+    (await resolveCredential("BIGQUERY_PROJECT_ID")) || "your-gcp-project-id"
+  );
+}
 
 // In-memory cache
 const cache = new Map<string, { data: unknown; ts: number }>();
@@ -19,8 +24,10 @@ function base64url(data: Buffer | Uint8Array | string): string {
   return buf.toString("base64url");
 }
 
-function getServiceAccountCredentials() {
-  const credsJson = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+async function getServiceAccountCredentials() {
+  const credsJson = await resolveCredential(
+    "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+  );
   if (!credsJson) {
     throw new Error("GOOGLE_APPLICATION_CREDENTIALS_JSON env var required");
   }
@@ -48,7 +55,7 @@ export async function getAccessToken(): Promise<string> {
     return cachedToken.token;
   }
 
-  const creds = getServiceAccountCredentials();
+  const creds = await getServiceAccountCredentials();
   const now = Math.floor(Date.now() / 1000);
 
   const jwtPayload = {
@@ -207,7 +214,8 @@ export interface LogEntry {
 // -- API functions --
 
 export async function listCloudRunServices(): Promise<CloudRunService[]> {
-  const url = `https://run.googleapis.com/v2/projects/${PROJECT_ID}/locations/-/services`;
+  const projectId = await getProjectId();
+  const url = `https://run.googleapis.com/v2/projects/${projectId}/locations/-/services`;
   const data = await apiGet<{ services?: any[] }>(url);
   if (!data.services) return [];
 
@@ -228,7 +236,8 @@ export async function listCloudRunServices(): Promise<CloudRunService[]> {
 }
 
 export async function listCloudFunctions(): Promise<CloudFunction[]> {
-  const url = `https://cloudfunctions.googleapis.com/v2/projects/${PROJECT_ID}/locations/-/functions`;
+  const projectId = await getProjectId();
+  const url = `https://cloudfunctions.googleapis.com/v2/projects/${projectId}/locations/-/functions`;
   const data = await apiGet<{ functions?: any[] }>(url);
   if (!data.functions) return [];
 
@@ -316,7 +325,8 @@ export async function queryMetrics(
     }
   }
 
-  const url = `https://monitoring.googleapis.com/v3/projects/${PROJECT_ID}/timeSeries?${params.toString()}`;
+  const projectId = await getProjectId();
+  const url = `https://monitoring.googleapis.com/v3/projects/${projectId}/timeSeries?${params.toString()}`;
   const data = await apiGet<{ timeSeries?: any[] }>(url);
 
   if (!data.timeSeries) return [];
@@ -399,7 +409,7 @@ export async function listLogEntries(
 ): Promise<LogEntry[]> {
   const url = "https://logging.googleapis.com/v2/entries:list";
   const body = {
-    resourceNames: [`projects/${PROJECT_ID}`],
+    resourceNames: [`projects/${await getProjectId()}`],
     filter,
     orderBy: "timestamp desc",
     pageSize,

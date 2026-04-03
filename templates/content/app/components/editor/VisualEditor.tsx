@@ -1,4 +1,4 @@
-import { useEditor, EditorContent } from "@tiptap/react";
+import { useEditor, EditorContent, Extension } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
@@ -9,6 +9,8 @@ import { TableRow } from "@tiptap/extension-table-row";
 import { TableCell } from "@tiptap/extension-table-cell";
 import { TableHeader } from "@tiptap/extension-table-header";
 import { Markdown } from "tiptap-markdown";
+import { defaultMarkdownSerializer } from "@tiptap/pm/markdown";
+import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { useEffect, useRef } from "react";
 import { BubbleToolbar } from "./BubbleToolbar";
 import { SlashCommandMenu } from "./SlashCommandMenu";
@@ -16,11 +18,120 @@ import { LinkHoverPreview } from "./LinkHoverPreview";
 import { TableHoverControls } from "./TableHoverControls";
 import { ImageNode } from "./extensions/ImageNode";
 import { notionEditorExtensions } from "./extensions/NotionExtensions";
+import { DragHandle } from "./extensions/DragHandle";
+import { CodeBlock } from "./extensions/CodeBlockNode";
 import { toast } from "sonner";
 import {
   parseNfmForEditor,
   serializeEditorToNfm,
 } from "@shared/notion-markdown";
+
+/**
+ * Override the paragraph node's markdown serialization so that empty
+ * paragraphs survive round-trips. Without this, prosemirror-markdown
+ * silently drops empty paragraphs and they disappear from the document.
+ *
+ * On the parse side, the updateDOM hook strips &nbsp; from paragraphs
+ * so TipTap creates truly empty paragraph nodes (no visible space).
+ */
+/**
+ * Override the paragraph node's markdown serialization so that empty
+ * paragraphs survive round-trips. Without this, prosemirror-markdown
+ * silently drops empty paragraphs and they disappear from the document.
+ *
+ * On the parse side, the updateDOM hook strips &nbsp; from paragraphs
+ * so TipTap creates truly empty paragraph nodes (no visible space).
+ *
+ * Uses Extension (not Node) to avoid re-registering the paragraph schema
+ * which would cause infinite recursion in ProseMirror's content matching.
+ */
+const EmptyLineParagraph = Extension.create({
+  name: "emptyLineParagraph",
+  addStorage() {
+    return {
+      markdown: {
+        serialize: null as any,
+        parse: {
+          updateDOM(element: HTMLElement) {
+            for (const p of element.querySelectorAll("p")) {
+              if (
+                p.childNodes.length === 1 &&
+                p.firstChild?.nodeType === 3 &&
+                p.firstChild.textContent === "\u00A0"
+              ) {
+                p.innerHTML = "";
+              }
+            }
+          },
+        },
+      },
+    };
+  },
+  onBeforeCreate() {
+    // Patch the paragraph node's markdown storage after StarterKit registers it
+    const paragraph = this.editor.extensionManager.extensions.find(
+      (ext) => ext.name === "paragraph",
+    );
+    if (paragraph) {
+      const paragraphStorage = (paragraph as any).storage ?? {};
+      const markdownStorage = paragraphStorage.markdown ?? {};
+      if ((markdownStorage as any).__emptyLinePatched) return;
+
+      const origSerialize =
+        markdownStorage.serialize ?? defaultMarkdownSerializer.nodes.paragraph;
+
+      markdownStorage.serialize = function (
+        state: any,
+        node: any,
+        parent: any,
+        index: number,
+      ) {
+        if (node.childCount === 0) {
+          state.write("&nbsp;");
+          state.closeBlock(node);
+        } else {
+          origSerialize(state, node, parent, index);
+        }
+      };
+      markdownStorage.__emptyLinePatched = true;
+      paragraphStorage.markdown = markdownStorage;
+    }
+  },
+});
+
+const ARROW_REPLACEMENTS: [string, string][] = [
+  ["->", "→"],
+  ["<-", "←"],
+  ["=>", "⇒"],
+];
+
+const TypographyReplacements = Extension.create({
+  name: "typographyReplacements",
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: new PluginKey("typographyReplacements"),
+        props: {
+          handleTextInput(view, from, to, text) {
+            const { state } = view;
+            for (const [trigger, replacement] of ARROW_REPLACEMENTS) {
+              const lastChar = trigger[trigger.length - 1];
+              if (text !== lastChar) continue;
+              const prefix = trigger.slice(0, -1);
+              const start = from - prefix.length;
+              if (start < 0) continue;
+              const before = state.doc.textBetween(start, from, "");
+              if (before !== prefix) continue;
+              view.dispatch(state.tr.insertText(replacement, start, to));
+              return true;
+            }
+            return false;
+          },
+        },
+      }),
+    ];
+  },
+});
 
 const CustomTable = BaseTable.extend({
   addStorage() {
@@ -107,12 +218,11 @@ export function VisualEditor({
     extensions: [
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
-        codeBlock: {
-          HTMLAttributes: { class: "notion-code-block" },
-        },
+        codeBlock: false,
         horizontalRule: {},
         dropcursor: { color: "hsl(243 75% 59%)", width: 2 },
       }),
+      CodeBlock,
       Placeholder.configure({
         placeholder: ({ node }) => {
           if (node.type.name === "heading") {
@@ -147,6 +257,9 @@ export function VisualEditor({
       TableHeader,
       TableCell,
       ...notionEditorExtensions,
+      EmptyLineParagraph,
+      DragHandle,
+      TypographyReplacements,
       Markdown.configure({
         html: true,
         transformPastedText: true,

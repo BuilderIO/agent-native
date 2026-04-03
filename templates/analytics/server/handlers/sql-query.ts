@@ -1,5 +1,5 @@
 import { defineEventHandler, readBody, setResponseStatus } from "h3";
-import { requireEnvKey } from "@agent-native/core/server";
+import { requireCredential } from "../lib/credentials";
 import { runQuery } from "../lib/bigquery";
 import { getDbExec } from "@agent-native/core/db";
 
@@ -18,7 +18,11 @@ export const handleSqlQuery = defineEventHandler(async (event) => {
 
   try {
     if (source === "bigquery") {
-      const missing = requireEnvKey(event, "BIGQUERY_PROJECT_ID", "BigQuery");
+      const missing = await requireCredential(
+        event,
+        "BIGQUERY_PROJECT_ID",
+        "BigQuery",
+      );
       if (missing) return missing;
       const result = await runQuery(query);
       return result;

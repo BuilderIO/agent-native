@@ -1,6 +1,8 @@
 // Notion API helper for content calendar database & page rendering
 // Docs: https://developers.notion.com/reference/post-database-query
 
+import { resolveCredential } from "./credentials";
+
 const NOTION_API = "https://api.notion.com/v1";
 const NOTION_VERSION = "2022-06-28";
 const CONTENT_DB_ID = "db4ae46c822443ba96e51a6a352e0fbe";
@@ -13,8 +15,8 @@ const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 // Page block cache
 const pageCache = new Map<string, { data: NotionPageData; ts: number }>();
 
-function getApiKey(): string {
-  const key = process.env.NOTION_API_KEY;
+async function getApiKey(): Promise<string> {
+  const key = await resolveCredential("NOTION_API_KEY");
   if (!key) throw new Error("NOTION_API_KEY env var required");
   return key;
 }
@@ -22,7 +24,7 @@ function getApiKey(): string {
 async function notionGet(path: string): Promise<unknown> {
   const res = await fetch(`${NOTION_API}${path}`, {
     headers: {
-      Authorization: `Bearer ${getApiKey()}`,
+      Authorization: `Bearer ${await getApiKey()}`,
       "Notion-Version": NOTION_VERSION,
     },
   });
@@ -37,7 +39,7 @@ async function notionPost(path: string, body: unknown): Promise<unknown> {
   const res = await fetch(`${NOTION_API}${path}`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${getApiKey()}`,
+      Authorization: `Bearer ${await getApiKey()}`,
       "Notion-Version": NOTION_VERSION,
       "Content-Type": "application/json",
     },

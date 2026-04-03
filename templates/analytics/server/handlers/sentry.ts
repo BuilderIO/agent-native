@@ -1,5 +1,5 @@
 import { defineEventHandler, getQuery, setResponseStatus } from "h3";
-import { requireEnvKey } from "@agent-native/core/server";
+import { requireCredential } from "../lib/credentials";
 import {
   listProjects,
   listIssues,
@@ -8,7 +8,7 @@ import {
 } from "../lib/sentry";
 
 export const handleSentryProjects = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "SENTRY_AUTH_TOKEN", "Sentry");
+  const missing = await requireCredential(event, "SENTRY_AUTH_TOKEN", "Sentry");
   if (missing) return missing;
   try {
     const projects = await listProjects();
@@ -21,7 +21,7 @@ export const handleSentryProjects = defineEventHandler(async (event) => {
 });
 
 export const handleSentryIssues = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "SENTRY_AUTH_TOKEN", "Sentry");
+  const missing = await requireCredential(event, "SENTRY_AUTH_TOKEN", "Sentry");
   if (missing) return missing;
   try {
     const { project, query, statsPeriod } = getQuery(event);
@@ -39,7 +39,7 @@ export const handleSentryIssues = defineEventHandler(async (event) => {
 });
 
 export const handleSentryIssueEvents = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "SENTRY_AUTH_TOKEN", "Sentry");
+  const missing = await requireCredential(event, "SENTRY_AUTH_TOKEN", "Sentry");
   if (missing) return missing;
   try {
     const { issueId } = getQuery(event);
@@ -57,7 +57,7 @@ export const handleSentryIssueEvents = defineEventHandler(async (event) => {
 });
 
 export const handleSentryStats = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "SENTRY_AUTH_TOKEN", "Sentry");
+  const missing = await requireCredential(event, "SENTRY_AUTH_TOKEN", "Sentry");
   if (missing) return missing;
   try {
     const { statsPeriod, category } = getQuery(event);

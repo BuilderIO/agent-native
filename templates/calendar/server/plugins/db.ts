@@ -7,8 +7,8 @@ export default runMigrations([
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     email TEXT NOT NULL,
-    start TEXT NOT NULL,
-    end TEXT NOT NULL,
+    "start" TEXT NOT NULL,
+    "end" TEXT NOT NULL,
     slug TEXT NOT NULL,
     event_title TEXT,
     notes TEXT,
@@ -32,27 +32,27 @@ export default runMigrations([
   },
   {
     version: 3,
-    sql: `ALTER TABLE booking_links ADD COLUMN durations TEXT`,
+    sql: `ALTER TABLE booking_links ADD COLUMN IF NOT EXISTS durations TEXT`,
   },
   {
     version: 4,
-    sql: `ALTER TABLE booking_links ADD COLUMN custom_fields TEXT`,
+    sql: `ALTER TABLE booking_links ADD COLUMN IF NOT EXISTS custom_fields TEXT`,
   },
   {
     version: 5,
-    sql: `ALTER TABLE bookings ADD COLUMN field_responses TEXT`,
+    sql: `ALTER TABLE bookings ADD COLUMN IF NOT EXISTS field_responses TEXT`,
   },
   {
     version: 6,
-    sql: `ALTER TABLE booking_links ADD COLUMN conferencing TEXT`,
+    sql: `ALTER TABLE booking_links ADD COLUMN IF NOT EXISTS conferencing TEXT`,
   },
   {
     version: 7,
-    sql: `ALTER TABLE bookings ADD COLUMN meeting_link TEXT`,
+    sql: `ALTER TABLE bookings ADD COLUMN IF NOT EXISTS meeting_link TEXT`,
   },
   {
     version: 8,
-    sql: `ALTER TABLE bookings ADD COLUMN cancel_token TEXT`,
+    sql: `ALTER TABLE bookings ADD COLUMN IF NOT EXISTS cancel_token TEXT`,
   },
   {
     version: 9,
