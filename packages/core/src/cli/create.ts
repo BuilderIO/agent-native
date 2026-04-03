@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 import { setupAgentSymlinks } from "./setup-agents.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -127,6 +127,44 @@ async function createFromTemplate(
 }
 
 /**
+ * Validate a GitHub repo string (user/repo) to prevent injection.
+ */
+function validateRepoName(repo: string): void {
+  if (!/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(repo)) {
+    console.error(
+      `Invalid repository name "${repo}". Expected format: user/repo`,
+    );
+    process.exit(1);
+  }
+}
+
+/**
+ * Download a tarball from a URL and extract it to a directory.
+ * Uses execFileSync with array args to avoid shell injection.
+ */
+function downloadAndExtract(url: string, destDir: string): void {
+  fs.mkdirSync(destDir, { recursive: true });
+  // Download with curl (no shell — execFileSync passes args directly)
+  const tarball = execFileSync("curl", ["-sL", url], {
+    maxBuffer: 100 * 1024 * 1024,
+  });
+  // Write tarball to a temp file, then extract (avoids pipe through shell)
+  const tarPath = path.join(destDir, ".download.tar.gz");
+  fs.writeFileSync(tarPath, tarball);
+  try {
+    execFileSync(
+      "tar",
+      ["xzf", tarPath, "--strip-components=1", "-C", destDir],
+      {
+        stdio: "pipe",
+      },
+    );
+  } finally {
+    fs.unlinkSync(tarPath);
+  }
+}
+
+/**
  * Download a subdirectory from a GitHub repo using the tarball API.
  */
 async function downloadGitHubSubdir(
@@ -134,18 +172,14 @@ async function downloadGitHubSubdir(
   subdir: string,
   targetDir: string,
 ): Promise<void> {
+  validateRepoName(repo);
   const tarUrl = `https://api.github.com/repos/${repo}/tarball/main`;
 
   // Download and extract into a temp dir, then copy the subdir
   const tmpDir = path.join(targetDir, "..", `.agent-native-tmp-${Date.now()}`);
-  fs.mkdirSync(tmpDir, { recursive: true });
 
   try {
-    // Download tarball
-    execSync(
-      `curl -sL "${tarUrl}" | tar xz --strip-components=1 -C "${tmpDir}"`,
-      { stdio: "pipe" },
-    );
+    downloadAndExtract(tarUrl, tmpDir);
 
     const srcDir = path.join(tmpDir, subdir);
     if (!fs.existsSync(srcDir)) {
@@ -170,15 +204,11 @@ async function downloadGitHubRepo(
   repo: string,
   targetDir: string,
 ): Promise<void> {
+  validateRepoName(repo);
   const tarUrl = `https://api.github.com/repos/${repo}/tarball/main`;
 
-  fs.mkdirSync(targetDir, { recursive: true });
-
   try {
-    execSync(
-      `curl -sL "${tarUrl}" | tar xz --strip-components=1 -C "${targetDir}"`,
-      { stdio: "pipe" },
-    );
+    downloadAndExtract(tarUrl, targetDir);
   } catch {
     console.error(
       `Failed to download template from ${repo}. Check the repo name and that it's public.`,

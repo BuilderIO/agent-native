@@ -24,7 +24,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Server", to: "/docs/server" as const },
       { label: "Client", to: "/docs/client" as const },
       { label: "Resources & Skills", to: "/docs/resources" as const },
-      { label: "Scripts", to: "/docs/scripts" as const },
+      { label: "Actions", to: "/docs/actions" as const },
       { label: "File Sync", to: "/docs/file-sync" as const },
     ],
   },
