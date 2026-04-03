@@ -49,6 +49,8 @@ jobs:
         with:
           node-version: "22"
           cache: "pnpm"
+          registry-url: "https://registry.npmjs.org"
+
       - name: Upgrade npm for OIDC trusted publisher support
         run: npm install -g npm@11.3.0
 
