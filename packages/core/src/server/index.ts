@@ -95,6 +95,8 @@ export {
   getTask,
   getTaskByThread,
   listTasks,
+  sendToTask,
+  markTaskErrored,
   type AgentTask,
   type SpawnTaskOptions,
 } from "./agent-teams.js";

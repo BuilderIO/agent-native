@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import ReactMarkdown from "react-markdown";
 import {
   IconLoader2,
   IconCheck,
@@ -41,11 +42,15 @@ export function AgentTaskCard({
       if (!detail?.taskId || detail.taskId !== taskId) return;
 
       if (detail.type === "agent_task_update") {
-        if (detail.preview) setPreview(detail.preview);
-        if (detail.currentStep) setCurrentStep(detail.currentStep);
+        if (detail.preview != null) setPreview(detail.preview);
+        if (detail.currentStep != null) setCurrentStep(detail.currentStep);
       } else if (detail.type === "agent_task_complete") {
         setStatus("completed");
         if (detail.summary) setSummary(detail.summary);
+        setCurrentStep("");
+      } else if (detail.type === "agent_task" && detail.status === "errored") {
+        setStatus("errored");
+        setCurrentStep("");
       }
     }
 
@@ -60,6 +65,14 @@ export function AgentTaskCard({
     }
   }, [preview, status]);
 
+  const handleOpen = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      onOpen?.(threadId);
+    },
+    [onOpen, threadId],
+  );
+
   const isRunning = status === "running";
   const isComplete = status === "completed";
   const isError = status === "errored";
@@ -70,8 +83,12 @@ export function AgentTaskCard({
   return (
     <div
       className={cn(
-        "my-2 rounded-lg border overflow-hidden",
-        isError ? "border-destructive/30" : "border-border",
+        "my-2 rounded-lg border overflow-hidden transition-colors",
+        isError
+          ? "border-destructive/30"
+          : isComplete
+            ? "border-emerald-500/20"
+            : "border-border",
       )}
     >
       {/* Header */}
@@ -89,16 +106,20 @@ export function AgentTaskCard({
           )}
         </span>
 
-        <IconSubtask className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+        <IconSubtask className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
 
         <span className="text-xs font-medium truncate min-w-0 flex-1">
           {description}
         </span>
 
         {currentStep && isRunning && (
-          <span className="text-[10px] text-muted-foreground truncate max-w-[200px]">
+          <span className="text-[10px] text-muted-foreground/70 truncate max-w-[180px] shrink-0">
             {currentStep}
           </span>
+        )}
+
+        {isComplete && (
+          <span className="text-[10px] text-emerald-500/70 shrink-0">Done</span>
         )}
 
         <IconChevronRight
@@ -114,23 +135,29 @@ export function AgentTaskCard({
         <div className="px-3 pb-2">
           <div
             ref={previewRef}
-            className="rounded-md bg-muted/30 px-3 py-2 text-xs text-muted-foreground break-words max-h-40 overflow-y-auto whitespace-pre-wrap"
+            className="rounded-md bg-muted/30 px-3 py-2 text-xs text-muted-foreground break-words max-h-48 overflow-y-auto agent-markdown prose prose-sm prose-invert max-w-none"
           >
-            {displayText.length > 500
-              ? "..." + displayText.slice(-500)
-              : displayText}
+            <ReactMarkdown>
+              {displayText.length > 800
+                ? "..." + displayText.slice(-800)
+                : displayText}
+            </ReactMarkdown>
           </div>
         </div>
       )}
 
       {/* Footer with Open button */}
       {expanded && (
-        <div className="flex items-center justify-end px-3 pb-2">
+        <div className="flex items-center justify-between px-3 pb-2">
+          {isRunning && !hasContent && (
+            <span className="text-[10px] text-muted-foreground/50">
+              Working...
+            </span>
+          )}
+          {!isRunning && !hasContent && <span />}
+          {hasContent && <span />}
           <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpen?.(threadId);
-            }}
+            onClick={handleOpen}
             className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted"
           >
             Open

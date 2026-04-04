@@ -119,35 +119,39 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
   // Start the agent run in background
   const runId = `run-task-${taskId}`;
   let accumulatedText = "";
+  let lastPreviewSent = 0;
+  const PREVIEW_INTERVAL_MS = 300; // Throttle preview updates to every 300ms
 
   startRun(
     runId,
     thread.id,
     async (send, signal) => {
+      const sendPreviewUpdate = (force = false) => {
+        const now = Date.now();
+        if (!force && now - lastPreviewSent < PREVIEW_INTERVAL_MS) return;
+        lastPreviewSent = now;
+        task.preview = accumulatedText.slice(-800);
+        opts.parentSend({
+          type: "agent_task_update",
+          taskId,
+          preview: task.preview,
+          currentStep: task.currentStep,
+        });
+      };
+
       // Wrap the send function to also emit preview updates to parent
       const wrappedSend = (event: AgentChatEvent) => {
         send(event);
 
-        // Accumulate text for preview
         if (event.type === "text") {
           accumulatedText += event.text;
-          // Send periodic preview updates to parent (every ~200 chars of new text)
-          task.preview = accumulatedText.slice(-500);
-          if (accumulatedText.length % 200 < (event.text?.length ?? 0)) {
-            opts.parentSend({
-              type: "agent_task_update",
-              taskId,
-              preview: task.preview,
-            });
-          }
+          sendPreviewUpdate();
         } else if (event.type === "tool_start") {
           task.currentStep = `Running ${event.tool}...`;
-          opts.parentSend({
-            type: "agent_task_update",
-            taskId,
-            preview: task.preview,
-            currentStep: task.currentStep,
-          });
+          sendPreviewUpdate(true);
+        } else if (event.type === "tool_done") {
+          task.currentStep = "";
+          sendPreviewUpdate(true);
         }
       };
 
@@ -162,17 +166,29 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
         signal,
       });
     },
-    // onComplete callback
-    () => {
-      task.status = "completed";
-      task.summary =
-        accumulatedText.slice(0, 500) || "Task completed successfully.";
-
-      opts.parentSend({
-        type: "agent_task_complete",
-        taskId,
-        summary: task.summary,
-      });
+    // onComplete callback — called when the run finishes (success or error)
+    (run) => {
+      if (run.status === "errored") {
+        task.status = "errored";
+        task.summary = accumulatedText.slice(-500) || "Task failed.";
+        // Emit error as agent_task_complete with errored status
+        opts.parentSend({
+          type: "agent_task",
+          taskId,
+          threadId: thread.id,
+          description: task.description,
+          status: "errored",
+        });
+      } else {
+        task.status = "completed";
+        task.summary =
+          accumulatedText.slice(-1000) || "Task completed successfully.";
+        opts.parentSend({
+          type: "agent_task_complete",
+          taskId,
+          summary: task.summary,
+        });
+      }
     },
   );
 
@@ -195,17 +211,38 @@ export function listTasks(): AgentTask[] {
   return Array.from(tasks.values()).sort((a, b) => b.createdAt - a.createdAt);
 }
 
-/** Send a message to a running sub-agent (for bidirectional communication) */
-export function sendToTask(
+/** Send a message/update to a running sub-agent via application state */
+export async function sendToTask(
   taskId: string,
-  _message: string,
-): { ok: boolean; error?: string } {
+  message: string,
+): Promise<{ ok: boolean; error?: string }> {
   const task = tasks.get(taskId);
   if (!task) return { ok: false, error: "Task not found" };
   if (task.status !== "running")
     return { ok: false, error: "Task is not running" };
 
-  // TODO: Inject message into the sub-agent's run
-  // This requires extending run-manager to support message injection
+  // Write the message to application state so the sub-agent can read it
+  // on its next tool call or iteration
+  try {
+    const { appStatePut } = await import("../application-state/store.js");
+    const sessionId = process.env.AGENT_USER_EMAIL || "local@localhost";
+    await appStatePut(sessionId, `task-message:${taskId}`, {
+      from: "orchestrator",
+      message,
+      timestamp: Date.now(),
+    });
+  } catch {
+    // Application state not available — best effort
+  }
+
   return { ok: true };
+}
+
+/** Mark a task as errored */
+export function markTaskErrored(taskId: string, error: string): void {
+  const task = tasks.get(taskId);
+  if (task) {
+    task.status = "errored";
+    task.summary = error;
+  }
 }

@@ -416,6 +416,60 @@ function createTeamTools(deps: {
         });
       },
     },
+    "send-to-task": {
+      tool: {
+        description:
+          "Send a message or update to a running sub-agent. Use this to redirect, add context, or give feedback to a sub-agent while it's working.",
+        parameters: {
+          type: "object",
+          properties: {
+            taskId: {
+              type: "string",
+              description: "The task ID returned by spawn-task",
+            },
+            message: {
+              type: "string",
+              description: "Message to send to the sub-agent",
+            },
+          },
+          required: ["taskId", "message"],
+        },
+      },
+      run: async (args: Record<string, string>) => {
+        const { sendToTask } = await import("./agent-teams.js");
+        const result = await sendToTask(args.taskId, args.message);
+        return JSON.stringify(result);
+      },
+    },
+    "list-tasks": {
+      tool: {
+        description:
+          "List all sub-agent tasks and their current status. Use this to see what's running, completed, or failed.",
+        parameters: {
+          type: "object",
+          properties: {},
+        },
+      },
+      run: async () => {
+        const { listTasks } = await import("./agent-teams.js");
+        const tasks = listTasks();
+        if (tasks.length === 0) {
+          return "No sub-agent tasks.";
+        }
+        return JSON.stringify(
+          tasks.map((t) => ({
+            taskId: t.taskId,
+            threadId: t.threadId,
+            description: t.description,
+            status: t.status,
+            currentStep: t.currentStep,
+            hasResult: t.summary.length > 0,
+          })),
+          null,
+          2,
+        );
+      },
+    },
   };
 }
 
@@ -493,16 +547,26 @@ You can search and restore previous chat conversations:
 
 When the user asks to find a previous conversation, use \`search-chats\` first to find matching threads, then \`open-chat\` to restore the one they want.
 
-### Agent Teams
+### Agent Teams — Orchestration
 
-You can delegate tasks to sub-agents that run independently in the background:
-- \`spawn-task\` — Spawn a sub-agent for a specific task. It runs in its own thread while this chat stays available.
+You are an orchestrator. For complex or multi-step tasks, delegate to sub-agents:
+- \`spawn-task\` — Spawn a sub-agent for a task. It runs in its own thread while you stay available. A live preview card appears in the chat.
 - \`task-status\` — Check the progress of a running sub-agent.
 - \`read-task-result\` — Read the result when a sub-agent finishes.
 
-When a user asks for something that involves multiple steps or will take significant work (research, analysis, content generation), consider spawning sub-agents for the heavy lifting. This keeps the main chat responsive and lets work happen in parallel. A live preview card will appear in the chat showing each sub-agent's progress.
+**When to delegate vs do directly:**
+- **Delegate** when the task involves multiple tool calls, research, content generation, or anything that takes more than a few seconds. Examples: "create a deck about X", "analyze the data and write a report", "look up Y and draft an email about it".
+- **Do directly** for quick single-step tasks like navigation, reading state, or answering simple questions.
+- **Spawn multiple sub-agents** when the user asks for multiple independent things — they'll run in parallel.
 
-For simple, quick tasks, just handle them directly — don't spawn a sub-agent for one-liners.
+**How to orchestrate:**
+1. When the user asks for something complex, spawn a sub-agent with a clear task description.
+2. Tell the user what you've started ("I'm having a sub-agent research that for you").
+3. You can keep chatting — sub-agents run independently.
+4. Use \`read-task-result\` to check results when needed, or the user can see live progress in the card.
+5. If the user's request has multiple steps, you can spawn one sub-agent per step, or chain them.
+
+The sub-agent has the same tools you do. Give it a specific, actionable task description — it will figure out which tools to use.
 `;
 
 const PROD_FRAMEWORK_PROMPT = `## Agent-Native Framework — Production Mode
@@ -1055,7 +1119,9 @@ export function createAgentChatPlugin(
     // ─── Agent Teams: run-scoped send reference ─────────────────────────
     // Team tools need to emit events to the parent chat's SSE stream.
     // We use a mutable ref that gets set at the start of each run.
-    let _currentRunSend: ((event: import("../agent/types.js").AgentChatEvent) => void) | null = null;
+    let _currentRunSend:
+      | ((event: import("../agent/types.js").AgentChatEvent) => void)
+      | null = null;
     let _currentRunOwner = "local@localhost";
     let _currentRunSystemPrompt = basePrompt;
     const resolvedModel = options?.model ?? "claude-sonnet-4-6";
@@ -1076,7 +1142,10 @@ export function createAgentChatPlugin(
     });
 
     // Wrap onRunComplete to also clear the run-scoped send reference
-    const wrappedOnRunComplete = async (run: any, threadId: string | undefined) => {
+    const wrappedOnRunComplete = async (
+      run: any,
+      threadId: string | undefined,
+    ) => {
       await onRunComplete(run, threadId);
     };
 
@@ -1104,7 +1173,9 @@ export function createAgentChatPlugin(
       model: options?.model,
       apiKey: options?.apiKey,
       onRunComplete: wrappedOnRunComplete,
-      onRunStart: (send: (event: import("../agent/types.js").AgentChatEvent) => void) => {
+      onRunStart: (
+        send: (event: import("../agent/types.js").AgentChatEvent) => void,
+      ) => {
         _currentRunSend = send;
       },
     });
@@ -1136,7 +1207,9 @@ export function createAgentChatPlugin(
         model: options?.model,
         apiKey: options?.apiKey,
         onRunComplete: wrappedOnRunComplete,
-        onRunStart: (send: (event: import("../agent/types.js").AgentChatEvent) => void) => {
+        onRunStart: (
+          send: (event: import("../agent/types.js").AgentChatEvent) => void,
+        ) => {
           _currentRunSend = send;
         },
       });

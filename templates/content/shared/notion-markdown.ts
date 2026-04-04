@@ -182,16 +182,35 @@ function preserveEmptyLines(markdown: string): string {
   const lines = normalizeLineEndings(markdown).split("\n");
   const result: string[] = [];
   let inCodeFence = false;
+  // Track when the last push was an <empty-block/> converted from &nbsp;.
+  // The blank line that follows is just a markdown paragraph separator and
+  // must NOT be treated as an extra empty line — otherwise empty-block tags
+  // inflate exponentially on every save/load cycle.
+  let lastWasNbspBlock = false;
 
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trim();
-    if (CODE_FENCE_RE.test(trimmed)) inCodeFence = !inCodeFence;
+    if (CODE_FENCE_RE.test(trimmed)) {
+      inCodeFence = !inCodeFence;
+      result.push(lines[i]);
+      lastWasNbspBlock = false;
+      continue;
+    }
     if (inCodeFence) {
       result.push(lines[i]);
+      lastWasNbspBlock = false;
       continue;
     }
 
-    // A blank line that follows another blank line (or <empty-block/>) is extra spacing
+    // Skip the structural paragraph-separator blank line after an &nbsp;
+    // that was just converted to <empty-block/>
+    if (trimmed === "" && lastWasNbspBlock) {
+      lastWasNbspBlock = false;
+      continue;
+    }
+    lastWasNbspBlock = false;
+
+    // A blank line that follows another blank line is extra spacing
     if (trimmed === "" && i > 0) {
       const prevTrimmed =
         result.length > 0 ? result[result.length - 1].trim() : "";
@@ -204,6 +223,7 @@ function preserveEmptyLines(markdown: string): string {
     // &nbsp; used by editor for empty paragraphs → <empty-block/>
     if (trimmed === "&nbsp;") {
       result.push("<empty-block/>");
+      lastWasNbspBlock = true;
       continue;
     }
 
@@ -481,8 +501,14 @@ function convertNfmBlocks(text: string): string {
     }
 
     // <empty-block/> → visible empty paragraph (preserves Notion's vertical spacing)
+    // Only add a leading blank line if the previous line isn't already blank,
+    // to avoid creating redundant blank lines between consecutive empty-blocks
+    // that inflate on the next save cycle.
     if (/^<empty-block\b[^>]*\/>$/.test(trimmed)) {
-      result.push("");
+      const prevLine = result.length > 0 ? result[result.length - 1] : "";
+      if (prevLine.trim() !== "") {
+        result.push("");
+      }
       result.push("&nbsp;");
       result.push("");
       continue;

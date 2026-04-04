@@ -262,7 +262,9 @@ function ToolCallFallback({
             }
             onOpen={(tid) => {
               window.dispatchEvent(
-                new CustomEvent("agent-task-open", { detail: { threadId: tid } }),
+                new CustomEvent("agent-task-open", {
+                  detail: { threadId: tid },
+                }),
               );
             }}
           />

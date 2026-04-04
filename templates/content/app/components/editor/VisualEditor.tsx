@@ -99,6 +99,100 @@ const EmptyLineParagraph = Extension.create({
   },
 });
 
+/**
+ * Detects whether plain text looks like markdown by checking for common
+ * markdown patterns (headings, lists, bold/italic, links, code blocks, etc.).
+ * When pasting, the clipboard often has both HTML and plain text — TipTap
+ * prefers the HTML, which renders markdown syntax literally. This regex-based
+ * heuristic lets us intercept and parse the plain text as markdown instead.
+ */
+const MARKDOWN_PATTERNS = [
+  /^#{1,6}\s+\S/m, // headings
+  /^\s*[-*+]\s+\S/m, // unordered lists
+  /^\s*\d+\.\s+\S/m, // ordered lists
+  /^\s*[-*_]{3,}\s*$/m, // horizontal rules
+  /^\s*>\s+\S/m, // blockquotes
+  /^\s*```/m, // code fences
+  /\*\*\S.*?\S\*\*/m, // bold
+  /\*\S.*?\S\*/m, // italic
+  /\[.+?\]\(.+?\)/m, // links
+  /^\s*- \[[ x]\]\s/m, // task lists
+  /\|.+\|.+\|/m, // tables
+];
+
+function looksLikeMarkdown(text: string): boolean {
+  // Need at least 2 matching patterns to avoid false positives
+  let matches = 0;
+  for (const pattern of MARKDOWN_PATTERNS) {
+    if (pattern.test(text)) {
+      matches++;
+      if (matches >= 2) return true;
+    }
+  }
+  // Single heading at the start is a strong enough signal on its own
+  if (matches === 1 && /^#{1,6}\s+\S/m.test(text)) return true;
+  return false;
+}
+
+/**
+ * ProseMirror plugin that intercepts paste events and converts markdown
+ * plain text into rich editor content, similar to Notion's paste behavior.
+ * When the clipboard has HTML (e.g. from a code editor), TipTap normally
+ * uses that HTML — which renders markdown syntax literally. This plugin
+ * detects markdown in the plain text and parses it as rich content instead.
+ */
+const MarkdownPasteDetection = Extension.create({
+  name: "markdownPasteDetection",
+  addProseMirrorPlugins() {
+    const editor = this.editor;
+    return [
+      new Plugin({
+        key: new PluginKey("markdownPasteDetection"),
+        props: {
+          handlePaste(view, event) {
+            const clipboardData = event.clipboardData;
+            if (!clipboardData) return false;
+
+            const html = clipboardData.getData("text/html");
+            const plainText = clipboardData.getData("text/plain");
+
+            // Only intercept when there's both HTML and plain text,
+            // and the plain text looks like markdown. If there's no HTML,
+            // tiptap-markdown's transformPastedText handles it already.
+            if (!html || !plainText || !looksLikeMarkdown(plainText)) {
+              return false;
+            }
+
+            // Check if the HTML already has rich structure (from a rich text
+            // source like Google Docs) — if so, let TipTap handle it normally.
+            const div = document.createElement("div");
+            div.innerHTML = html;
+            const hasRichStructure = div.querySelector(
+              "h1, h2, h3, h4, h5, h6, ul, ol, blockquote, table",
+            );
+            // But allow interception if the HTML is just a code/pre wrapper
+            // (from code editors or terminals)
+            const isCodeWrapper =
+              div.querySelector("pre, code") !== null && !hasRichStructure;
+
+            if (hasRichStructure && !isCodeWrapper) {
+              return false;
+            }
+
+            // Prevent default paste and insert markdown as content —
+            // tiptap-markdown will parse it into rich nodes
+            event.preventDefault();
+            editor.commands.insertContent(
+              (editor.storage as any).markdown.parser.parse(plainText),
+            );
+            return true;
+          },
+        },
+      }),
+    ];
+  },
+});
+
 const ARROW_REPLACEMENTS: [string, string][] = [
   ["->", "→"],
   ["<-", "←"],
@@ -260,6 +354,7 @@ export function VisualEditor({
       EmptyLineParagraph,
       DragHandle,
       TypographyReplacements,
+      MarkdownPasteDetection,
       Markdown.configure({
         html: true,
         transformPastedText: true,

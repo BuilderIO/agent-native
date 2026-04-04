@@ -155,9 +155,7 @@ export function processEvent(
     ev.type === "agent_task_complete"
   ) {
     if (typeof window !== "undefined") {
-      window.dispatchEvent(
-        new CustomEvent("agent-task-event", { detail: ev }),
-      );
+      window.dispatchEvent(new CustomEvent("agent-task-event", { detail: ev }));
     }
     // Don't add to content — the spawn-task tool call handles rendering
     return { action: "continue" };
