@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useComments, useAddComment } from "@/hooks/use-comments";
 import { adfToHtml } from "@/lib/adf-client";
+import { sanitizeHtml } from "@/lib/sanitize-html";
 import { format } from "date-fns";
 import { IconSend } from "@tabler/icons-react";
 
@@ -84,7 +85,7 @@ export function IssueComments({ issueKey }: IssueCommentsProps) {
                 </div>
                 <div
                   className="adf-content text-[13px]"
-                  dangerouslySetInnerHTML={{ __html: html }}
+                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(html) }}
                 />
               </div>
             );

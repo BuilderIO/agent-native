@@ -339,7 +339,16 @@ export async function createPtyWebSocketServer(
         }
 
         if (msg.type === "resize" && msg.cols && msg.rows) {
-          ptyProcess.resize(msg.cols, msg.rows);
+          const cols = Math.max(
+            1,
+            Math.min(65535, Math.trunc(Number(msg.cols))),
+          );
+          const rows = Math.max(
+            1,
+            Math.min(65535, Math.trunc(Number(msg.rows))),
+          );
+          if (!Number.isFinite(cols) || !Number.isFinite(rows)) return;
+          ptyProcess.resize(cols, rows);
           return;
         }
       } catch {

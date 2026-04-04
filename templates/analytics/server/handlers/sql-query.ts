@@ -28,17 +28,27 @@ export const handleSqlQuery = defineEventHandler(async (event) => {
       return result;
     }
 
-    // app-db: read-only enforcement — reject any DML/DDL keywords
+    // app-db: strict read-only enforcement
     const trimmed = query.trim().toUpperCase();
     if (!trimmed.startsWith("SELECT") && !trimmed.startsWith("WITH")) {
       setResponseStatus(event, 400);
       return { error: "Only SELECT queries are allowed for app-db" };
     }
-    const dmlPattern =
-      /\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|REPLACE)\b/i;
-    if (dmlPattern.test(query)) {
+    const forbiddenPattern =
+      /\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|REPLACE|ATTACH|DETACH|PRAGMA|LOAD_EXTENSION|VACUUM|REINDEX)\b/i;
+    if (forbiddenPattern.test(query)) {
       setResponseStatus(event, 400);
       return { error: "Only SELECT queries are allowed for app-db" };
+    }
+    // Block semicolons to prevent statement stacking
+    if (query.includes(";")) {
+      const statementsBeforeSemicolon = query
+        .split(";")
+        .filter((s) => s.trim());
+      if (statementsBeforeSemicolon.length > 1) {
+        setResponseStatus(event, 400);
+        return { error: "Multiple statements are not allowed" };
+      }
     }
 
     const client = getDbExec();

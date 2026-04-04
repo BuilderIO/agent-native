@@ -51,7 +51,14 @@ export interface OAuthStatePayload {
  * when OAuth is configured and is never exposed to the browser.
  */
 function getStateSigningKey(): string {
-  return process.env.GOOGLE_CLIENT_SECRET || "oauth-state-key";
+  const secret = process.env.GOOGLE_CLIENT_SECRET;
+  if (!secret) {
+    throw new Error(
+      "GOOGLE_CLIENT_SECRET is required for OAuth state signing. " +
+        "Set it in your environment before enabling Google OAuth.",
+    );
+  }
+  return secret;
 }
 
 /**

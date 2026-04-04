@@ -8,6 +8,9 @@ on:
         required: false
         type: string
 
+permissions:
+  contents: write
+
 jobs:
   build-mac:
     runs-on: macos-latest
@@ -29,7 +32,9 @@ jobs:
       - name: Bump version
         if: inputs.version != ''
         working-directory: packages/desktop-app
-        run: npm version ${{ inputs.version }} --no-git-tag-version
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: npm version "$RELEASE_VERSION" --no-git-tag-version
 
       - name: Import signing certificate
         env:
@@ -73,7 +78,9 @@ jobs:
       - name: Bump version
         if: inputs.version != ''
         working-directory: packages/desktop-app
-        run: npm version ${{ inputs.version }} --no-git-tag-version
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: npm version "$RELEASE_VERSION" --no-git-tag-version
 
       - name: Build and publish
         working-directory: packages/desktop-app
@@ -101,7 +108,9 @@ jobs:
       - name: Bump version
         if: inputs.version != ''
         working-directory: packages/desktop-app
-        run: npm version ${{ inputs.version }} --no-git-tag-version
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: npm version "$RELEASE_VERSION" --no-git-tag-version
 
       - name: Build and publish
         working-directory: packages/desktop-app

@@ -5,6 +5,8 @@
  * Messages are sent via postMessage to the parent window (or self if top-level).
  */
 
+import { getHarnessOrigin } from "./harness.js";
+
 export interface AgentChatMessage {
   /** The visible prompt message sent to the chat */
   message: string;
@@ -64,6 +66,7 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
   };
 
   const target = window.parent !== window ? window.parent : window;
-  target.postMessage(payload, "*");
+  const targetOrigin = getHarnessOrigin() || window.location.origin;
+  target.postMessage(payload, targetOrigin);
   return tabId;
 }
