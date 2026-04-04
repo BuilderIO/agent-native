@@ -364,31 +364,7 @@ function ReconnectStreamToolCall({
   args: Record<string, string>;
   result?: string;
 }) {
-  // Render spawn-task as AgentTaskCard
-  if (toolName === "spawn-task" && result) {
-    try {
-      const parsed = JSON.parse(result);
-      if (parsed.taskId && parsed.threadId) {
-        return (
-          <AgentTaskCard
-            taskId={parsed.taskId}
-            threadId={parsed.threadId}
-            description={parsed.description || args?.task || "Sub-agent task"}
-            onOpen={(threadId) => {
-              window.dispatchEvent(
-                new CustomEvent("agent-task-open", {
-                  detail: { threadId },
-                }),
-              );
-            }}
-          />
-        );
-      }
-    } catch {
-      // Fall through
-    }
-  }
-
+  // NOTE: All hooks must be above any conditional returns
   const streamRef = useRef<HTMLDivElement>(null);
   const isRunning = result === undefined;
   const isAgentCall = toolName.startsWith("agent:");
@@ -421,6 +397,31 @@ function ReconnectStreamToolCall({
       streamRef.current.scrollTop = streamRef.current.scrollHeight;
     }
   }, [agentStreamText, isAgentCall, isRunning]);
+
+  // Render spawn-task as AgentTaskCard
+  if (toolName === "spawn-task" && result) {
+    try {
+      const parsed = JSON.parse(result);
+      if (parsed.taskId && parsed.threadId) {
+        return (
+          <AgentTaskCard
+            taskId={parsed.taskId}
+            threadId={parsed.threadId}
+            description={parsed.description || args?.task || "Sub-agent task"}
+            onOpen={(threadId) => {
+              window.dispatchEvent(
+                new CustomEvent("agent-task-open", {
+                  detail: { threadId },
+                }),
+              );
+            }}
+          />
+        );
+      }
+    } catch {
+      // Fall through
+    }
+  }
 
   return (
     <div className="my-1 overflow-hidden">

@@ -10,6 +10,9 @@
  * - Tracking task status and results
  * - Emitting SSE events for live preview cards
  * - Bidirectional messaging between main agent and sub-agents
+ *
+ * Task state is persisted in application_state (SQL) so it survives
+ * serverless cold starts and works across multiple processes.
  */
 
 import type { AgentChatEvent } from "../agent/types.js";
@@ -17,6 +20,12 @@ import type { ActionEntry } from "../agent/production-agent.js";
 import { createThread } from "../chat-threads/store.js";
 import { startRun, subscribeToRun } from "../agent/run-manager.js";
 import { runAgentLoop } from "../agent/production-agent.js";
+import {
+  readAppState,
+  writeAppState,
+  listAppState,
+  deleteAppState,
+} from "../application-state/script-helpers.js";
 
 export interface AgentTask {
   taskId: string;
@@ -29,11 +38,29 @@ export interface AgentTask {
   createdAt: number;
 }
 
-/** In-memory task registry — maps taskId → AgentTask */
-const tasks = new Map<string, AgentTask>();
+/** Key prefix for task records: agent-task:{taskId} */
+const TASK_PREFIX = "agent-task:";
 
-/** Maps threadId → taskId for reverse lookup */
-const threadToTask = new Map<string, string>();
+/** Key prefix for thread→task reverse lookup: agent-task-thread:{threadId} */
+const THREAD_PREFIX = "agent-task-thread:";
+
+async function saveTask(task: AgentTask): Promise<void> {
+  await writeAppState(`${TASK_PREFIX}${task.taskId}`, task as any);
+  await writeAppState(`${THREAD_PREFIX}${task.threadId}`, {
+    taskId: task.taskId,
+  });
+}
+
+async function loadTask(taskId: string): Promise<AgentTask | null> {
+  const data = await readAppState(`${TASK_PREFIX}${taskId}`);
+  return data ? (data as unknown as AgentTask) : null;
+}
+
+async function loadTaskByThread(threadId: string): Promise<AgentTask | null> {
+  const ref = await readAppState(`${THREAD_PREFIX}${threadId}`);
+  if (!ref || !ref.taskId) return null;
+  return loadTask(ref.taskId as string);
+}
 
 function generateTaskId(): string {
   return `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -98,8 +125,7 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
     createdAt: Date.now(),
   };
 
-  tasks.set(taskId, task);
-  threadToTask.set(thread.id, taskId);
+  await saveTask(task);
 
   // Notify parent chat that a sub-agent was spawned
   opts.parentSend({
@@ -184,10 +210,11 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
       });
     },
     // onComplete callback — called when the run finishes (success or error)
-    (run) => {
+    async (run) => {
       if (run.status === "errored") {
         task.status = "errored";
         task.summary = accumulatedText.slice(-500) || "Task failed.";
+        await saveTask(task);
         // Emit error as agent_task_complete with errored status
         opts.parentSend({
           type: "agent_task",
@@ -200,6 +227,7 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
         task.status = "completed";
         task.summary =
           accumulatedText.slice(-1000) || "Task completed successfully.";
+        await saveTask(task);
         opts.parentSend({
           type: "agent_task_complete",
           taskId,
@@ -213,19 +241,24 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
 }
 
 /** Get task by ID */
-export function getTask(taskId: string): AgentTask | undefined {
-  return tasks.get(taskId);
+export async function getTask(taskId: string): Promise<AgentTask | undefined> {
+  const task = await loadTask(taskId);
+  return task ?? undefined;
 }
 
 /** Get task by thread ID */
-export function getTaskByThread(threadId: string): AgentTask | undefined {
-  const taskId = threadToTask.get(threadId);
-  return taskId ? tasks.get(taskId) : undefined;
+export async function getTaskByThread(
+  threadId: string,
+): Promise<AgentTask | undefined> {
+  const task = await loadTaskByThread(threadId);
+  return task ?? undefined;
 }
 
 /** List all tasks (most recent first) */
-export function listTasks(): AgentTask[] {
-  return Array.from(tasks.values()).sort((a, b) => b.createdAt - a.createdAt);
+export async function listTasks(): Promise<AgentTask[]> {
+  const entries = await listAppState(TASK_PREFIX);
+  const tasks = entries.map((e) => e.value as unknown as AgentTask);
+  return tasks.sort((a, b) => b.createdAt - a.createdAt);
 }
 
 /** Send a message/update to a running sub-agent via application state */
@@ -233,7 +266,7 @@ export async function sendToTask(
   taskId: string,
   message: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  const task = tasks.get(taskId);
+  const task = await loadTask(taskId);
   if (!task) return { ok: false, error: "Task not found" };
   if (task.status !== "running")
     return { ok: false, error: "Task is not running" };
@@ -256,10 +289,14 @@ export async function sendToTask(
 }
 
 /** Mark a task as errored */
-export function markTaskErrored(taskId: string, error: string): void {
-  const task = tasks.get(taskId);
+export async function markTaskErrored(
+  taskId: string,
+  error: string,
+): Promise<void> {
+  const task = await loadTask(taskId);
   if (task) {
     task.status = "errored";
     task.summary = error;
+    await saveTask(task);
   }
 }

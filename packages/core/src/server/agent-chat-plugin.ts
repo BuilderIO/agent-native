@@ -308,7 +308,9 @@ function createTeamTools(deps: {
   getActions: () => Record<string, ActionEntry>;
   getApiKey: () => string;
   getModel: () => string;
-  parentSend: (event: import("../agent/types.js").AgentChatEvent) => void;
+  getSend: () =>
+    | ((event: import("../agent/types.js").AgentChatEvent) => void)
+    | null;
 }): Record<string, ActionEntry> {
   return {
     "spawn-task": {
@@ -342,7 +344,10 @@ function createTeamTools(deps: {
           actions: deps.getActions(),
           apiKey: deps.getApiKey(),
           model: deps.getModel(),
-          parentSend: deps.parentSend,
+          parentSend: (event) => {
+            const send = deps.getSend();
+            if (send) send(event);
+          },
         });
         return JSON.stringify({
           taskId: task.taskId,
@@ -369,7 +374,7 @@ function createTeamTools(deps: {
       },
       run: async (args: Record<string, string>) => {
         const { getTask } = await import("./agent-teams.js");
-        const task = getTask(args.taskId);
+        const task = await getTask(args.taskId);
         if (!task) return JSON.stringify({ error: "Task not found" });
         return JSON.stringify({
           taskId: task.taskId,
@@ -399,7 +404,7 @@ function createTeamTools(deps: {
       },
       run: async (args: Record<string, string>) => {
         const { getTask } = await import("./agent-teams.js");
-        const task = getTask(args.taskId);
+        const task = await getTask(args.taskId);
         if (!task) return JSON.stringify({ error: "Task not found" });
         if (task.status === "running") {
           return JSON.stringify({
@@ -452,7 +457,7 @@ function createTeamTools(deps: {
       },
       run: async () => {
         const { listTasks } = await import("./agent-teams.js");
-        const tasks = listTasks();
+        const tasks = await listTasks();
         if (tasks.length === 0) {
           return "No sub-agent tasks.";
         }
@@ -1116,13 +1121,16 @@ export function createAgentChatPlugin(
       }
     };
 
-    // ─── Agent Teams: run-scoped send reference ─────────────────────────
+    // ─── Agent Teams: per-run send reference ─────────────────────────
     // Team tools need to emit events to the parent chat's SSE stream.
-    // We use a mutable ref that gets set at the start of each run.
-    let _currentRunSend:
-      | ((event: import("../agent/types.js").AgentChatEvent) => void)
-      | null = null;
+    // Each run gets its own send function, keyed by threadId so concurrent
+    // requests for different threads don't clobber each other.
+    const _runSendByThread = new Map<
+      string,
+      (event: import("../agent/types.js").AgentChatEvent) => void
+    >();
     let _currentRunOwner = "local@localhost";
+    let _currentRunThreadId = "";
     let _currentRunSystemPrompt = basePrompt;
     const resolvedModel = options?.model ?? "claude-sonnet-4-6";
 
@@ -1136,22 +1144,14 @@ export function createAgentChatPlugin(
       }),
       getApiKey: () => options?.apiKey ?? process.env.ANTHROPIC_API_KEY ?? "",
       getModel: () => resolvedModel,
-      parentSend: (event) => {
-        if (_currentRunSend) _currentRunSend(event);
+      getSend: () => {
+        // Return the send for the current run's thread
+        const send = _runSendByThread.get(_currentRunThreadId);
+        return send ?? null;
       },
     });
 
-    // Wrap onRunComplete to also clear the run-scoped send reference
-    const wrappedOnRunComplete = async (
-      run: any,
-      threadId: string | undefined,
-    ) => {
-      await onRunComplete(run, threadId);
-    };
-
     // Hook into the run lifecycle to set/clear the send reference.
-    // We do this by wrapping createProductionAgentHandler with a custom
-    // handler that intercepts the run.
     const prodActions = {
       ...templateScripts,
       ...resourceScripts,
@@ -1172,11 +1172,16 @@ export function createAgentChatPlugin(
       },
       model: options?.model,
       apiKey: options?.apiKey,
-      onRunComplete: wrappedOnRunComplete,
       onRunStart: (
         send: (event: import("../agent/types.js").AgentChatEvent) => void,
+        threadId: string,
       ) => {
-        _currentRunSend = send;
+        _runSendByThread.set(threadId, send);
+        _currentRunThreadId = threadId;
+      },
+      onRunComplete: async (run: any, threadId: string | undefined) => {
+        if (threadId) _runSendByThread.delete(threadId);
+        await onRunComplete(run, threadId);
       },
     });
 
@@ -1206,11 +1211,16 @@ export function createAgentChatPlugin(
         },
         model: options?.model,
         apiKey: options?.apiKey,
-        onRunComplete: wrappedOnRunComplete,
         onRunStart: (
           send: (event: import("../agent/types.js").AgentChatEvent) => void,
+          threadId: string,
         ) => {
-          _currentRunSend = send;
+          _runSendByThread.set(threadId, send);
+          _currentRunThreadId = threadId;
+        },
+        onRunComplete: async (run: any, threadId: string | undefined) => {
+          if (threadId) _runSendByThread.delete(threadId);
+          await onRunComplete(run, threadId);
         },
       });
     }
