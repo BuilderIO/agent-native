@@ -33,17 +33,10 @@ import {
  *
  * On the parse side, the updateDOM hook strips &nbsp; from paragraphs
  * so TipTap creates truly empty paragraph nodes (no visible space).
- */
-/**
- * Override the paragraph node's markdown serialization so that empty
- * paragraphs survive round-trips. Without this, prosemirror-markdown
- * silently drops empty paragraphs and they disappear from the document.
  *
- * On the parse side, the updateDOM hook strips &nbsp; from paragraphs
- * so TipTap creates truly empty paragraph nodes (no visible space).
- *
- * Uses Extension (not Node) to avoid re-registering the paragraph schema
- * which would cause infinite recursion in ProseMirror's content matching.
+ * Directly patches the MarkdownSerializer instance's `nodes` getter
+ * rather than trying to modify extension storage, which is fragile
+ * across tiptap-markdown versions.
  */
 const EmptyLineParagraph = Extension.create({
   name: "emptyLineParagraph",
@@ -67,39 +60,48 @@ const EmptyLineParagraph = Extension.create({
       },
     };
   },
-  onBeforeCreate() {
-    // Patch ALL paragraph extensions' markdown storage.
-    // tiptap-markdown adds its own Paragraph extension via addExtensions(),
-    // and the serializer uses the LAST one (Object.fromEntries keeps last
-    // entry for duplicate keys). Using .find() only patched the first,
-    // so the serialize override was silently ignored.
-    const paragraphs = this.editor.extensionManager.extensions.filter(
-      (ext) => ext.name === "paragraph",
-    );
-    for (const paragraph of paragraphs) {
-      const paragraphStorage = (paragraph as any).storage ?? {};
-      const markdownStorage = paragraphStorage.markdown ?? {};
-      if ((markdownStorage as any).__emptyLinePatched) continue;
+  onCreate() {
+    // Patch the serializer's nodes getter directly on the instance.
+    // This is more robust than patching extension storage because
+    // tiptap-markdown's getMarkdownSpec merges default and instance
+    // specs in ways that can silently drop our override.
+    const serializer = this.editor.storage.markdown?.serializer;
+    if (!serializer) return;
 
-      const origSerialize =
-        markdownStorage.serialize ?? defaultMarkdownSerializer.nodes.paragraph;
+    const proto = Object.getPrototypeOf(serializer);
+    const desc = Object.getOwnPropertyDescriptor(proto, "nodes");
+    if (!desc?.get) return;
 
-      markdownStorage.serialize = function (
-        state: any,
-        node: any,
-        parent: any,
-        index: number,
-      ) {
-        if (node.childCount === 0) {
-          state.write("&nbsp;");
-          state.closeBlock(node);
-        } else {
-          origSerialize(state, node, parent, index);
-        }
-      };
-      markdownStorage.__emptyLinePatched = true;
-      paragraphStorage.markdown = markdownStorage;
-    }
+    const origGet = desc.get;
+
+    Object.defineProperty(serializer, "nodes", {
+      get() {
+        const nodes = origGet.call(this);
+        const origParagraph = nodes.paragraph;
+        nodes.paragraph = (
+          state: any,
+          node: any,
+          parent: any,
+          index: number,
+        ) => {
+          if (node.childCount === 0) {
+            state.write("&nbsp;");
+            state.closeBlock(node);
+          } else if (origParagraph) {
+            origParagraph(state, node, parent, index);
+          } else {
+            defaultMarkdownSerializer.nodes.paragraph(
+              state,
+              node,
+              parent,
+              index,
+            );
+          }
+        };
+        return nodes;
+      },
+      configurable: true,
+    });
   },
 });
 

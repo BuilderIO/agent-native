@@ -234,8 +234,12 @@ export function MultiTabAssistantChat({
     refreshThreads,
   } = useChatThreads(apiUrl);
 
+  // Track which tabs have been focused at least once (lazy mount for sub-agent tabs)
+  const mountedTabsRef = useRef<Set<string>>(new Set());
   const activeThreadIdRef = useRef(activeThreadId);
   activeThreadIdRef.current = activeThreadId;
+  // Mark the active tab as mounted so it persists when switched away
+  if (activeThreadId) mountedTabsRef.current.add(activeThreadId);
   const chatRefs = useRef<Map<string, AssistantChatHandle>>(new Map());
   const pendingSends = useRef<Map<string, string>>(new Map());
   const [runningThreads, setRunningThreads] = useState<Set<string>>(new Set());
@@ -249,7 +253,11 @@ export function MultiTabAssistantChat({
       const saved = localStorage.getItem(OPEN_TABS_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Mark restored tabs as mounted
+          for (const id of parsed) mountedTabsRef.current.add(id);
+          return parsed;
+        }
       }
     } catch {}
     return [];
@@ -726,43 +734,50 @@ export function MultiTabAssistantChat({
           />
         )}
 
-        {/* Render all open tabs, hide inactive ones to preserve state */}
-        {[...new Set(openTabIds)].map((tabId) => (
-          <div
-            key={tabId}
-            className="flex-1 min-h-0"
-            style={{
-              display:
-                contentHidden || tabId !== activeThreadId ? "none" : "flex",
-            }}
-          >
-            <AssistantChat
-              {...props}
-              ref={(handle) => {
-                if (handle) {
-                  chatRefs.current.set(tabId, handle);
-                } else {
-                  chatRefs.current.delete(tabId);
-                }
+        {/* Render tabs that have been activated at least once, hide inactive ones to preserve state.
+            Sub-agent tabs are only mounted when first focused — prevents stale restore from running
+            while the component is display:none before the user switches to it. */}
+        {[...new Set(openTabIds)]
+          .filter(
+            (tabId) =>
+              tabId === activeThreadId || mountedTabsRef.current.has(tabId),
+          )
+          .map((tabId) => (
+            <div
+              key={tabId}
+              className="flex-1 min-h-0"
+              style={{
+                display:
+                  contentHidden || tabId !== activeThreadId ? "none" : "flex",
               }}
-              threadId={tabId}
-              tabId={tabId}
-              apiUrl={apiUrl}
-              isNewThread={newThreadIds.current.has(tabId)}
-              onMessageCountChange={(count) =>
-                setMessageCounts((prev) =>
-                  prev[tabId] === count ? prev : { ...prev, [tabId]: count },
-                )
-              }
-              onSaveThread={
-                tabId === activeThreadId ? handleSaveThread : undefined
-              }
-              onGenerateTitle={
-                tabId === activeThreadId ? handleGenerateTitle : undefined
-              }
-            />
-          </div>
-        ))}
+            >
+              <AssistantChat
+                {...props}
+                ref={(handle) => {
+                  if (handle) {
+                    chatRefs.current.set(tabId, handle);
+                  } else {
+                    chatRefs.current.delete(tabId);
+                  }
+                }}
+                threadId={tabId}
+                tabId={tabId}
+                apiUrl={apiUrl}
+                isNewThread={newThreadIds.current.has(tabId)}
+                onMessageCountChange={(count) =>
+                  setMessageCounts((prev) =>
+                    prev[tabId] === count ? prev : { ...prev, [tabId]: count },
+                  )
+                }
+                onSaveThread={
+                  tabId === activeThreadId ? handleSaveThread : undefined
+                }
+                onGenerateTitle={
+                  tabId === activeThreadId ? handleGenerateTitle : undefined
+                }
+              />
+            </div>
+          ))}
       </div>
     </div>
   );
