@@ -15,9 +15,12 @@ import {
   useTrashEmail,
   useUntrashEmail,
 } from "@/hooks/use-emails";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import type { EmailMessage } from "@shared/types";
+
+type EmailsPage = { emails: EmailMessage[]; nextPageToken?: string };
+type InfiniteEmails = InfiniteData<EmailsPage, string | undefined>;
 import { setUndoAction } from "@/hooks/use-undo";
 import { toast } from "sonner";
 import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
@@ -151,6 +154,9 @@ export function EmailList({
     isLoading,
     error: emailsError,
     refetch,
+    hasNextPage,
+    fetchNextPage,
+    isFetchingNextPage,
   } = useEmails(view, searchQuery);
 
   const emails = emailsProp ?? fetchedEmails;
@@ -288,12 +294,20 @@ export function EmailList({
     }
 
     const undo = () => {
-      queryClient.setQueriesData<EmailMessage[]>(
+      queryClient.setQueriesData<InfiniteEmails>(
         { queryKey: ["emails"] },
-        (old) =>
-          [...(old ?? []), ...snapshots].sort(
+        (old) => {
+          if (!old) return old;
+          // Re-insert snapshots into the first page
+          const firstPage = old.pages[0];
+          const restored = [...(firstPage?.emails ?? []), ...snapshots].sort(
             (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
-          ),
+          );
+          return {
+            ...old,
+            pages: [{ ...firstPage, emails: restored }, ...old.pages.slice(1)],
+          };
+        },
       );
       for (const id of ids) unarchiveEmail.mutate(id);
     };
@@ -354,12 +368,19 @@ export function EmailList({
     }
 
     const undo = () => {
-      queryClient.setQueriesData<EmailMessage[]>(
+      queryClient.setQueriesData<InfiniteEmails>(
         { queryKey: ["emails"] },
-        (old) =>
-          [...(old ?? []), ...snapshots].sort(
+        (old) => {
+          if (!old) return old;
+          const firstPage = old.pages[0];
+          const restored = [...(firstPage?.emails ?? []), ...snapshots].sort(
             (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
-          ),
+          );
+          return {
+            ...old,
+            pages: [{ ...firstPage, emails: restored }, ...old.pages.slice(1)],
+          };
+        },
       );
       for (const id of ids) untrashEmail.mutate(id);
     };
@@ -634,6 +655,23 @@ export function EmailList({
     return <InboxZero />;
   }
 
+  // Infinite scroll — fetch next page when the sentinel enters the viewport
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || !hasNextPage) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasNextPage && !isFetchingNextPage) {
+          fetchNextPage();
+        }
+      },
+      { rootMargin: "200px" },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+
   return (
     <div className="flex h-full flex-col" ref={containerRef}>
       {selectedIds.size > 1 && (
@@ -669,6 +707,20 @@ export function EmailList({
             }}
           />
         ))}
+        {/* Sentinel for infinite scroll + loading indicator */}
+        {hasNextPage && (
+          <div
+            ref={sentinelRef}
+            className="flex items-center justify-center py-3"
+          >
+            {isFetchingNextPage && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <div className="h-3 w-3 rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground animate-spin" />
+                Loading more...
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

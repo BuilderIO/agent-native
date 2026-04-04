@@ -233,7 +233,7 @@ export default function Seascape({ className = "" }: SeascapeProps) {
     function resize() {
       const w = container!.clientWidth;
       const h = container!.clientHeight;
-      const dpr = Math.min(window.devicePixelRatio, 2);
+      const dpr = Math.min(window.devicePixelRatio, 1.5);
       canvas!.width = w * dpr;
       canvas!.height = h * dpr;
       canvas!.style.width = w + "px";
@@ -244,27 +244,46 @@ export default function Seascape({ className = "" }: SeascapeProps) {
     resize();
     window.addEventListener("resize", resize);
 
-    function isDarkMode() {
-      return (
+    // Cache dark mode, update on mutations
+    let dark =
+      document.documentElement.classList.contains("dark") ||
+      document.documentElement.getAttribute("data-theme") === "dark";
+    const observer = new MutationObserver(() => {
+      dark =
         document.documentElement.classList.contains("dark") ||
-        document.documentElement.getAttribute("data-theme") === "dark"
-      );
-    }
+        document.documentElement.getAttribute("data-theme") === "dark";
+    });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class", "data-theme"],
+    });
 
     const startTime = performance.now();
+    let lastFrame = 0;
+    const frameBudget = 1000 / 30; // 30fps is plenty for this slow animation
 
-    function render() {
-      const t = (performance.now() - startTime) * 0.001;
+    function render(now: number) {
+      rafRef.current = requestAnimationFrame(render);
+
+      // Throttle to 30fps
+      if (now - lastFrame < frameBudget) return;
+      lastFrame = now;
+
+      // Pause when scrolled out of view
+      const rect = container!.getBoundingClientRect();
+      if (rect.bottom < 0 || rect.top > window.innerHeight) return;
+
+      const t = (now - startTime) * 0.001;
       gl!.uniform1f(uTime, t);
       gl!.uniform2f(uRes, canvas!.width, canvas!.height);
-      gl!.uniform1f(uDark, isDarkMode() ? 1.0 : 0.0);
+      gl!.uniform1f(uDark, dark ? 1.0 : 0.0);
       gl!.drawArrays(gl!.TRIANGLES, 0, 6);
-      rafRef.current = requestAnimationFrame(render);
     }
     rafRef.current = requestAnimationFrame(render);
 
     return () => {
       cancelAnimationFrame(rafRef.current);
+      observer.disconnect();
       window.removeEventListener("resize", resize);
       gl.deleteProgram(program);
       gl.deleteShader(vs);

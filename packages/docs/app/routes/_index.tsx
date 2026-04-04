@@ -219,10 +219,10 @@ function BidirectionalTabs() {
 export default function Home() {
   return (
     <>
-      <main className="mx-auto max-w-[1200px] px-6">
+      <main>
         {/* Hero */}
         <section
-          className="hero-section relative"
+          className="hero-section relative mx-auto flex min-h-[85vh] max-w-[1200px] items-center justify-center px-6"
           style={{ clipPath: "inset(-100vh -100vw 0 -100vw)" }}
         >
           <div
@@ -252,9 +252,7 @@ export default function Home() {
 
             <h1 className="mx-auto max-w-3xl">
               Agentic Apps That{" "}
-              <span className="inline-block bg-gradient-to-r from-[var(--accent)] to-[#7928ca] bg-clip-text text-transparent">
-                Self Improve
-              </span>
+              <span className="hero-gradient-text">Self Improve</span>
             </h1>
 
             <p className="mx-auto mb-10 max-w-xl text-lg leading-relaxed text-[var(--fg-secondary)]">
@@ -312,279 +310,56 @@ export default function Home() {
             <TerminalCommand />
           </div>
         </section>
-      </main>
 
-      {/* Bidirectional Awareness - above templates */}
-      <section className="py-20 px-6 border-t border-[var(--border)]">
-        <div className="mb-12 text-center">
-          <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-            Agents and UIs — fully connected
-          </h2>
-          <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-            The agent and the UI are equal citizens of the same system. Every
-            action works both ways — click it or ask for it.
-          </p>
-        </div>
-
-        <div className="mx-auto max-w-[1200px]">
-          <BidirectionalTabs />
-        </div>
-      </section>
-
-      {/* Templates - breaks out of max-width on ultra-wide screens */}
-      <section id="templates" className="py-20 px-6">
-        <div className="mb-12 text-center">
-          <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-            Start with a full featured template
-          </h2>
-          <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-            High-quality, vetted templates that replace tools you're paying for
-            — except you own the code and can customize everything. Try them
-            with example data before connecting your own sources.
-          </p>
-        </div>
-
-        <div className="mx-auto grid max-w-[1200px] grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
-          {templates.map((t) => (
-            <TemplateCard key={t.name} template={t} />
-          ))}
-        </div>
-
-        <div className="mt-8 text-center">
-          <Link
-            prefetch="render"
-            to="/templates"
-            className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
-            onClick={() =>
-              trackEvent("click_cta", {
-                label: "view_all_templates",
-                location: "templates_section",
-              })
-            }
-          >
-            View all templates
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <line x1="5" y1="12" x2="19" y2="12" />
-              <polyline points="12 5 19 12 12 19" />
-            </svg>
-          </Link>
-        </div>
-      </section>
-
-      <main className="mx-auto max-w-[1200px] px-6">
-        {/* The best of both worlds */}
-        <section className="border-t border-[var(--border)] py-20">
+        {/* Bidirectional Awareness - above templates */}
+        <section className="py-20 px-6 border-t border-[var(--border)]">
           <div className="mb-12 text-center">
             <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-              The best of both worlds
+              Agents and UIs — fully connected
             </h2>
             <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-              SaaS tools are rigid and bolting AI on as an afterthought. Raw AI
-              agents are powerful but have no UI. Agent-native apps combine
-              both.
+              The agent and the UI are equal citizens of the same system. Every
+              action works both ways — click it or ask for it.
             </p>
           </div>
 
-          <div className="approaches-table-outer">
-            <div className="approaches-table-wrapper">
-              <div className="approaches-table-scroll">
-                <table className="approaches-table">
-                  <thead>
-                    <tr className="border-b border-[var(--border)] bg-[var(--bg-secondary)]">
-                      <th className="approaches-th approaches-col-dim"></th>
-                      <th className="approaches-th approaches-col-muted">
-                        SaaS Tools
-                      </th>
-                      <th className="approaches-th approaches-col-muted">
-                        Raw AI Agents
-                      </th>
-                      <th className="approaches-th approaches-col-muted">
-                        Internal Tools
-                      </th>
-                      <th className="approaches-th">Agent-Native</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr className="border-b border-[var(--border)]">
-                      <td className="approaches-td approaches-td--dim">UI</td>
-                      <td className="approaches-td approaches-td--good">
-                        Polished but rigid
-                      </td>
-                      <td className="approaches-td approaches-td--bad">None</td>
-                      <td className="approaches-td approaches-td--warn">
-                        Mixed quality
-                      </td>
-                      <td className="approaches-td approaches-td--good">
-                        Full UI, fork &amp; go
-                      </td>
-                    </tr>
-                    <tr className="border-b border-[var(--border)]">
-                      <td className="approaches-td approaches-td--dim">AI</td>
-                      <td className="approaches-td approaches-td--bad">
-                        Bolted on
-                      </td>
-                      <td className="approaches-td approaches-td--good">
-                        Powerful
-                      </td>
-                      <td className="approaches-td approaches-td--warn">
-                        Shallowly connected
-                      </td>
-                      <td className="approaches-td approaches-td--good">
-                        Agent-first, integrated
-                      </td>
-                    </tr>
-                    <tr className="border-b border-[var(--border)]">
-                      <td className="approaches-td approaches-td--dim">
-                        Customization
-                      </td>
-                      <td className="approaches-td approaches-td--bad">
-                        Can't
-                      </td>
-                      <td className="approaches-td approaches-td--warn">
-                        Instructions and skills
-                      </td>
-                      <td className="approaches-td approaches-td--warn">
-                        Full, but high maintenance
-                      </td>
-                      <td className="approaches-td approaches-td--good">
-                        Agent modifies the app
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="approaches-td approaches-td--dim">
-                        Ownership
-                      </td>
-                      <td className="approaches-td approaches-td--bad">
-                        Rented
-                      </td>
-                      <td className="approaches-td approaches-td--warn">
-                        Somewhat yours
-                      </td>
-                      <td className="approaches-td approaches-td--good">
-                        You own the code
-                      </td>
-                      <td className="approaches-td approaches-td--good">
-                        You own the code
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
+          <div className="mx-auto max-w-[1200px]">
+            <BidirectionalTabs />
           </div>
         </section>
 
-        {/* Value props */}
-        <section className="border-t border-[var(--border)] py-20">
+        {/* Templates - breaks out of max-width on ultra-wide screens */}
+        <section id="templates" className="py-20 px-6">
           <div className="mb-12 text-center">
             <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-              How it works
+              Start with a full featured template
             </h2>
             <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-              The agent and the UI are equal partners out of the box. Everything
-              the UI can do, the agent can do — and vice versa.
+              High-quality, vetted templates that replace tools you're paying
+              for — except you own the code and can customize everything. Try
+              them with example data before connecting your own sources.
             </p>
           </div>
 
-          <div className="mx-auto grid max-w-4xl gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            <div className="rounded-xl border border-[var(--border)] p-6">
-              <h3 className="mb-2 text-base font-semibold">Everything syncs</h3>
-              <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                Agent and UI share one database and one state. Changes from
-                either side show up instantly on the other.
-              </p>
-            </div>
-            <div className="rounded-xl border border-[var(--border)] p-6">
-              <h3 className="mb-2 text-base font-semibold">Context-aware</h3>
-              <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                The agent knows what you're looking at. Select text, hit Cmd+I,
-                and tell it what to do.
-              </p>
-            </div>
-            <div className="rounded-xl border border-[var(--border)] p-6">
-              <h3 className="mb-2 text-base font-semibold">
-                Agents call agents
-              </h3>
-              <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                Tag another agent from any app. They discover each other over
-                A2A and take action across your stack.
-              </p>
-            </div>
-            <div className="rounded-xl border border-[var(--border)] p-6">
-              <h3 className="mb-2 text-base font-semibold">
-                Any database, any host
-              </h3>
-              <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                Any SQL database Drizzle supports. Any hosting target Nitro
-                supports. No lock-in.
-              </p>
-            </div>
-            <div className="rounded-xl border border-[var(--border)] p-6">
-              <h3 className="mb-2 text-base font-semibold">Any AI agent</h3>
-              <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                Claude Code, Codex, Gemini CLI, OpenCode, or Builder.io. Use
-                whichever agent you prefer.
-              </p>
-            </div>
-            <div className="rounded-xl border border-[var(--border)] p-6">
-              <h3 className="mb-2 text-base font-semibold">
-                Apps that improve themselves
-              </h3>
-              <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                Your apps get better on their own. The agent can add features,
-                fix bugs, and refine the UI over time.
-              </p>
-            </div>
-          </div>
-        </section>
-
-        {/* Quick Start */}
-        <section className="border-t border-[var(--border)] py-20">
-          <div className="mb-12 text-center">
-            <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-              Launch in minutes
-            </h2>
-            <p className="mx-auto max-w-xl text-base text-[var(--fg-secondary)]">
-              One command to fork a template and start building locally.
-            </p>
+          <div className="mx-auto grid max-w-[1200px] grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
+            {templates.map((t) => (
+              <TemplateCard key={t.name} template={t} />
+            ))}
           </div>
 
-          <div className="mx-auto max-w-2xl">
-            <CodeBlock code={quickStartCode} lang="bash" />
-          </div>
-        </section>
-
-        {/* Bottom CTA */}
-        <section className="border-t border-[var(--border)] py-20 text-center">
-          <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-            Software you own, built for the agentic era
-          </h2>
-          <p className="mx-auto mb-8 max-w-lg text-base text-[var(--fg-secondary)]">
-            Stop renting rigid SaaS. Fork a template, customize it to your exact
-            workflow, and let the agent keep evolving it. Open source. Forkable.
-            Yours.
-          </p>
-          <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
-            <a
-              href="#templates"
-              className="primary-button"
+          <div className="mt-8 text-center">
+            <Link
+              prefetch="render"
+              to="/templates"
+              className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
               onClick={() =>
                 trackEvent("click_cta", {
-                  label: "launch_a_template",
-                  location: "footer",
+                  label: "view_all_templates",
+                  location: "templates_section",
                 })
               }
             >
-              Launch a Template
+              View all templates
               <svg
                 width="16"
                 height="16"
@@ -598,33 +373,263 @@ export default function Home() {
                 <line x1="5" y1="12" x2="19" y2="12" />
                 <polyline points="12 5 19 12 12 19" />
               </svg>
-            </a>
-            <Link
-              prefetch="render"
-              to="/docs"
-              className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
-              onClick={() =>
-                trackEvent("click_cta", {
-                  label: "read_the_docs",
-                  location: "footer",
-                })
-              }
-            >
-              Read the Docs
             </Link>
-            <a
-              href="https://github.com/BuilderIO/agent-native"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
-              onClick={() =>
-                trackEvent("click_cta", { label: "github", location: "footer" })
-              }
-            >
-              View on GitHub
-            </a>
           </div>
         </section>
+
+        <div className="mx-auto max-w-[1200px] px-6">
+          {/* The best of both worlds */}
+          <section className="border-t border-[var(--border)] py-20">
+            <div className="mb-12 text-center">
+              <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
+                The best of both worlds
+              </h2>
+              <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
+                SaaS tools are rigid and bolting AI on as an afterthought. Raw
+                AI agents are powerful but have no UI. Agent-native apps combine
+                both.
+              </p>
+            </div>
+
+            <div className="approaches-table-outer">
+              <div className="approaches-table-wrapper">
+                <div className="approaches-table-scroll">
+                  <table className="approaches-table">
+                    <thead>
+                      <tr className="border-b border-[var(--border)] bg-[var(--bg-secondary)]">
+                        <th className="approaches-th approaches-col-dim"></th>
+                        <th className="approaches-th approaches-col-muted">
+                          SaaS Tools
+                        </th>
+                        <th className="approaches-th approaches-col-muted">
+                          Raw AI Agents
+                        </th>
+                        <th className="approaches-th approaches-col-muted">
+                          Internal Tools
+                        </th>
+                        <th className="approaches-th">Agent-Native</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr className="border-b border-[var(--border)]">
+                        <td className="approaches-td approaches-td--dim">UI</td>
+                        <td className="approaches-td approaches-td--good">
+                          Polished but rigid
+                        </td>
+                        <td className="approaches-td approaches-td--bad">
+                          None
+                        </td>
+                        <td className="approaches-td approaches-td--warn">
+                          Mixed quality
+                        </td>
+                        <td className="approaches-td approaches-td--good">
+                          Full UI, fork &amp; go
+                        </td>
+                      </tr>
+                      <tr className="border-b border-[var(--border)]">
+                        <td className="approaches-td approaches-td--dim">AI</td>
+                        <td className="approaches-td approaches-td--bad">
+                          Bolted on
+                        </td>
+                        <td className="approaches-td approaches-td--good">
+                          Powerful
+                        </td>
+                        <td className="approaches-td approaches-td--warn">
+                          Shallowly connected
+                        </td>
+                        <td className="approaches-td approaches-td--good">
+                          Agent-first, integrated
+                        </td>
+                      </tr>
+                      <tr className="border-b border-[var(--border)]">
+                        <td className="approaches-td approaches-td--dim">
+                          Customization
+                        </td>
+                        <td className="approaches-td approaches-td--bad">
+                          Can't
+                        </td>
+                        <td className="approaches-td approaches-td--warn">
+                          Instructions and skills
+                        </td>
+                        <td className="approaches-td approaches-td--warn">
+                          Full, but high maintenance
+                        </td>
+                        <td className="approaches-td approaches-td--good">
+                          Agent modifies the app
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="approaches-td approaches-td--dim">
+                          Ownership
+                        </td>
+                        <td className="approaches-td approaches-td--bad">
+                          Rented
+                        </td>
+                        <td className="approaches-td approaches-td--warn">
+                          Somewhat yours
+                        </td>
+                        <td className="approaches-td approaches-td--good">
+                          You own the code
+                        </td>
+                        <td className="approaches-td approaches-td--good">
+                          You own the code
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Value props */}
+          <section className="border-t border-[var(--border)] py-20">
+            <div className="mb-12 text-center">
+              <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
+                How it works
+              </h2>
+              <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
+                The agent and the UI are equal partners out of the box.
+                Everything the UI can do, the agent can do — and vice versa.
+              </p>
+            </div>
+
+            <div className="mx-auto grid max-w-4xl gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="rounded-xl border border-[var(--border)] p-6">
+                <h3 className="mb-2 text-base font-semibold">
+                  Everything syncs
+                </h3>
+                <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+                  Agent and UI share one database and one state. Changes from
+                  either side show up instantly on the other.
+                </p>
+              </div>
+              <div className="rounded-xl border border-[var(--border)] p-6">
+                <h3 className="mb-2 text-base font-semibold">Context-aware</h3>
+                <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+                  The agent knows what you're looking at. Select text, hit
+                  Cmd+I, and tell it what to do.
+                </p>
+              </div>
+              <div className="rounded-xl border border-[var(--border)] p-6">
+                <h3 className="mb-2 text-base font-semibold">
+                  Agents call agents
+                </h3>
+                <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+                  Tag another agent from any app. They discover each other over
+                  A2A and take action across your stack.
+                </p>
+              </div>
+              <div className="rounded-xl border border-[var(--border)] p-6">
+                <h3 className="mb-2 text-base font-semibold">
+                  Any database, any host
+                </h3>
+                <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+                  Any SQL database Drizzle supports. Any hosting target Nitro
+                  supports. No lock-in.
+                </p>
+              </div>
+              <div className="rounded-xl border border-[var(--border)] p-6">
+                <h3 className="mb-2 text-base font-semibold">Any AI agent</h3>
+                <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+                  Claude Code, Codex, Gemini CLI, OpenCode, or Builder.io. Use
+                  whichever agent you prefer.
+                </p>
+              </div>
+              <div className="rounded-xl border border-[var(--border)] p-6">
+                <h3 className="mb-2 text-base font-semibold">
+                  Apps that improve themselves
+                </h3>
+                <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+                  Your apps get better on their own. The agent can add features,
+                  fix bugs, and refine the UI over time.
+                </p>
+              </div>
+            </div>
+          </section>
+
+          {/* Quick Start */}
+          <section className="border-t border-[var(--border)] py-20">
+            <div className="mb-12 text-center">
+              <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
+                Launch in minutes
+              </h2>
+              <p className="mx-auto max-w-xl text-base text-[var(--fg-secondary)]">
+                One command to fork a template and start building locally.
+              </p>
+            </div>
+
+            <div className="mx-auto max-w-2xl">
+              <CodeBlock code={quickStartCode} lang="bash" />
+            </div>
+          </section>
+
+          {/* Bottom CTA */}
+          <section className="border-t border-[var(--border)] py-20 text-center">
+            <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
+              Software you own, built for the agentic era
+            </h2>
+            <p className="mx-auto mb-8 max-w-lg text-base text-[var(--fg-secondary)]">
+              Stop renting rigid SaaS. Fork a template, customize it to your
+              exact workflow, and let the agent keep evolving it. Open source.
+              Forkable. Yours.
+            </p>
+            <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
+              <a
+                href="#templates"
+                className="primary-button"
+                onClick={() =>
+                  trackEvent("click_cta", {
+                    label: "launch_a_template",
+                    location: "footer",
+                  })
+                }
+              >
+                Launch a Template
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                  <polyline points="12 5 19 12 12 19" />
+                </svg>
+              </a>
+              <Link
+                prefetch="render"
+                to="/docs"
+                className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+                onClick={() =>
+                  trackEvent("click_cta", {
+                    label: "read_the_docs",
+                    location: "footer",
+                  })
+                }
+              >
+                Read the Docs
+              </Link>
+              <a
+                href="https://github.com/BuilderIO/agent-native"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+                onClick={() =>
+                  trackEvent("click_cta", {
+                    label: "github",
+                    location: "footer",
+                  })
+                }
+              >
+                View on GitHub
+              </a>
+            </div>
+          </section>
+        </div>
       </main>
     </>
   );
