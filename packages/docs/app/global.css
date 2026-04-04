@@ -324,6 +324,27 @@ html.dark .shiki span {
     background-color 200ms ease;
 }
 
+.hero-gradient-text {
+  display: inline-block;
+  background: linear-gradient(90deg, #0987c4 0%, #0ea5e9 50%, #22d3ee 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+:is(.dark) .hero-gradient-text {
+  background: linear-gradient(
+    90deg,
+    #18b4f4 0%,
+    #1ec7f7 25%,
+    #24d9f9 50%,
+    #29ecfc 75%,
+    #2fffff 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
 /* Home hero */
 .hero-section {
   text-align: center;
@@ -475,9 +496,15 @@ html.dark .shiki span {
   font-weight: 700;
   letter-spacing: -0.03em;
   margin: 0 0 12px;
-  background: linear-gradient(135deg, var(--accent), #7928ca);
+  background: linear-gradient(90deg, #0987c4 0%, #0ea5e9 50%, #22d3ee 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+:is(.dark) .approaches-solution-tagline {
+  background: linear-gradient(90deg, #18b4f4 0%, #22d5f9 50%, #2fffff 100%);
+  -webkit-background-clip: text;
   background-clip: text;
 }
 

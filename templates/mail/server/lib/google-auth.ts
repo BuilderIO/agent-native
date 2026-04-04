@@ -304,14 +304,19 @@ export async function listGmailMessages(
   query?: string,
   maxResults = 50,
   forEmail?: string,
+  pageTokens?: Record<string, string>,
 ): Promise<{
   messages: any[];
   errors: Array<{ email: string; error: string }>;
+  nextPageTokens?: Record<string, string>;
+  resultSizeEstimate?: number;
 }> {
   const clients = await getClients(forEmail);
   if (clients.length === 0) return { messages: [], errors: [] };
 
   const errors: Array<{ email: string; error: string }> = [];
+  const nextPageTokens: Record<string, string> = {};
+  let totalEstimate = 0;
 
   const allResults = await Promise.all(
     clients.map(async ({ email, accessToken }) => {
@@ -319,7 +324,13 @@ export async function listGmailMessages(
         const listRes = await gmailListMessages(accessToken, {
           q: query || "in:inbox",
           maxResults,
+          pageToken: pageTokens?.[email],
         });
+
+        totalEstimate += listRes.resultSizeEstimate || 0;
+        if (listRes.nextPageToken) {
+          nextPageTokens[email] = listRes.nextPageToken;
+        }
 
         const messageIds = listRes.messages || [];
         if (messageIds.length === 0) return [];
@@ -350,7 +361,12 @@ export async function listGmailMessages(
     }),
   );
 
-  return { messages: allResults.flat(), errors };
+  return {
+    messages: allResults.flat(),
+    errors,
+    ...(Object.keys(nextPageTokens).length > 0 && { nextPageTokens }),
+    ...(totalEstimate > 0 && { resultSizeEstimate: totalEstimate }),
+  };
 }
 
 function getHeader(

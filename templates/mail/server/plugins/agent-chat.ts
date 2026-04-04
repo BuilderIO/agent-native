@@ -19,7 +19,8 @@ export default createAgentChatPlugin({
             `http://localhost:${port}/api/emails?${params.toString()}`,
           );
           if (!res.ok) return [];
-          const emails = (await res.json()) as Array<{
+          const body = await res.json();
+          const emails = (body.emails ?? body) as Array<{
             id: string;
             from: { name?: string; email: string };
             subject: string;

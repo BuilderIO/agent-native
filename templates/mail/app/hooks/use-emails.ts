@@ -1,4 +1,10 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
+import {
+  useQuery,
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 import type { EmailMessage, Label, UserSettings } from "@shared/types";
 import { TAB_ID } from "@/lib/tab-id";
 
@@ -197,25 +203,73 @@ function applyOverrides(emails: EmailMessage[]): EmailMessage[] {
   return changed ? result : emails;
 }
 
+// ─── Infinite query helpers ──────────────────────────────────────────────────
+// The emails query uses useInfiniteQuery, so cached data is InfiniteData<EmailsPage>.
+// These helpers let optimistic mutations map/filter emails within pages.
+
+import type { InfiniteData } from "@tanstack/react-query";
+
+type InfiniteEmails = InfiniteData<EmailsPage, string | undefined>;
+
+function mapInfiniteEmails(
+  old: InfiniteEmails | undefined,
+  fn: (emails: EmailMessage[]) => EmailMessage[],
+): InfiniteEmails | undefined {
+  if (!old) return old;
+  return {
+    ...old,
+    pages: old.pages.map((page) => ({ ...page, emails: fn(page.emails) })),
+  };
+}
+
+function flattenInfiniteEmails(
+  data: InfiniteEmails | undefined,
+): EmailMessage[] {
+  return data?.pages.flatMap((p) => p.emails) ?? [];
+}
+
 // ─── Emails ──────────────────────────────────────────────────────────────────
 
+interface EmailsPage {
+  emails: EmailMessage[];
+  nextPageToken?: string;
+  totalEstimate?: number;
+}
+
 export function useEmails(view: string = "inbox", search?: string) {
-  return useQuery<EmailMessage[], Error, EmailMessage[]>({
+  const q = useInfiniteQuery({
     queryKey: ["emails", view, search],
-    queryFn: () => {
+    queryFn: ({ pageParam }: { pageParam: string | undefined }) => {
       const params = new URLSearchParams({ view });
       if (search) params.set("q", search);
-      return apiFetch(`/api/emails?${params}`);
+      if (pageParam) params.set("pageToken", pageParam);
+      return apiFetch<EmailsPage>(`/api/emails?${params}`);
     },
-    select: (data) => applyOverrides(filterSuppressed(data, view)),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage: EmailsPage) => lastPage.nextPageToken,
     staleTime: 15_000,
-    // Only poll when the last fetch succeeded — avoids retry loops when
-    // Google is disconnected or credentials are missing.
-    refetchInterval: (query) =>
+    refetchInterval: (query: { state: { status: string } }) =>
       query.state.status === "error" ? false : 30_000,
-    refetchOnWindowFocus: "always",
+    refetchOnWindowFocus: "always" as const,
     retry: false,
   });
+
+  const data = useMemo(() => {
+    if (!q.data) return undefined;
+    const all = q.data.pages.flatMap((p: EmailsPage) => p.emails);
+    return applyOverrides(filterSuppressed(all, view));
+  }, [q.data, view]);
+
+  return {
+    data,
+    isLoading: q.isLoading,
+    isError: q.isError,
+    error: q.error,
+    refetch: q.refetch,
+    hasNextPage: q.hasNextPage,
+    fetchNextPage: q.fetchNextPage,
+    isFetchingNextPage: q.isFetchingNextPage,
+  };
 }
 
 export function useEmail(id: string | undefined) {
@@ -245,12 +299,14 @@ export function useMarkRead() {
       }),
     onMutate: async ({ id, isRead }) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
-      const previous = qc.getQueriesData<EmailMessage[]>({
+      const previous = qc.getQueriesData<InfiniteEmails>({
         queryKey: ["emails"],
       });
       setOptimisticOverride(id, { isRead });
-      qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
-        old?.map((e) => (e.id === id ? { ...e, isRead } : e)),
+      qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
+        mapInfiniteEmails(old, (emails) =>
+          emails.map((e) => (e.id === id ? { ...e, isRead } : e)),
+        ),
       );
       return { previous };
     },
@@ -284,11 +340,12 @@ export function useMarkThreadRead() {
     },
     onMutate: async (threadId) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
-      const previous = qc.getQueriesData<EmailMessage[]>({
+      const previous = qc.getQueriesData<InfiniteEmails>({
         queryKey: ["emails"],
       });
       // Capture unread IDs BEFORE optimistic update
-      const allEmails = previous.flatMap(([, data]) => data ?? []) ?? [];
+      const allEmails =
+        previous.flatMap(([, data]) => flattenInfiniteEmails(data)) ?? [];
       const unreadIds = allEmails
         .filter((e) => (e.threadId || e.id) === threadId && !e.isRead)
         .map((e) => e.id);
@@ -298,9 +355,11 @@ export function useMarkThreadRead() {
         setOptimisticOverride(id, { isRead: true });
       }
       // Optimistic update
-      qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
-        old?.map((e) =>
-          (e.threadId || e.id) === threadId ? { ...e, isRead: true } : e,
+      qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
+        mapInfiniteEmails(old, (emails) =>
+          emails.map((e) =>
+            (e.threadId || e.id) === threadId ? { ...e, isRead: true } : e,
+          ),
         ),
       );
       return { previous, overrideIds: [...unreadIds] };
@@ -325,12 +384,14 @@ export function useToggleStar() {
       }),
     onMutate: async ({ id, isStarred }) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
-      const previous = qc.getQueriesData<EmailMessage[]>({
+      const previous = qc.getQueriesData<InfiniteEmails>({
         queryKey: ["emails"],
       });
       setOptimisticOverride(id, { isStarred });
-      qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
-        old?.map((e) => (e.id === id ? { ...e, isStarred } : e)),
+      qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
+        mapInfiniteEmails(old, (emails) =>
+          emails.map((e) => (e.id === id ? { ...e, isStarred } : e)),
+        ),
       );
       return { previous };
     },
@@ -366,16 +427,18 @@ export function useArchiveEmail() {
       removeLabel?: string;
     }) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
-      const previous = qc.getQueriesData<EmailMessage[]>({
+      const previous = qc.getQueriesData<InfiniteEmails>({
         queryKey: ["emails"],
       });
       const target = previous
-        .flatMap(([, data]) => data ?? [])
+        .flatMap(([, data]) => flattenInfiniteEmails(data))
         .find((e) => e.id === id);
       const threadId = target?.threadId || id;
       suppressThread(threadId, "archive");
-      qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
-        old?.filter((e) => (e.threadId || e.id) !== threadId),
+      qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
+        mapInfiniteEmails(old, (emails) =>
+          emails.filter((e) => (e.threadId || e.id) !== threadId),
+        ),
       );
       return { previous, threadId };
     },
@@ -412,18 +475,20 @@ export function useTrashEmail() {
       apiFetch(`/api/emails/${id}/trash`, { method: "PATCH" }),
     onMutate: async (id: string) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
-      const previous = qc.getQueriesData<EmailMessage[]>({
+      const previous = qc.getQueriesData<InfiniteEmails>({
         queryKey: ["emails"],
       });
       // Find the email across all cached queries to get its threadId
       const target = previous
-        .flatMap(([, data]) => data ?? [])
+        .flatMap(([, data]) => flattenInfiniteEmails(data))
         .find((e) => e.id === id);
       const threadId = target?.threadId || id;
       suppressThread(threadId, "trash");
       // Remove all thread messages from all cached email queries
-      qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
-        old?.filter((e) => (e.threadId || e.id) !== threadId),
+      qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
+        mapInfiniteEmails(old, (emails) =>
+          emails.filter((e) => (e.threadId || e.id) !== threadId),
+        ),
       );
       return { previous, threadId };
     },
@@ -492,8 +557,8 @@ export function useSendEmail() {
       });
       const settings = qc.getQueryData<UserSettings>(["settings"]);
       const cachedEmails = qc
-        .getQueriesData<EmailMessage[]>({ queryKey: ["emails"] })
-        .flatMap(([, emails]) => emails ?? []);
+        .getQueriesData<InfiniteEmails>({ queryKey: ["emails"] })
+        .flatMap(([, data]) => flattenInfiniteEmails(data));
       const replyTarget = data.replyToId
         ? cachedEmails.find((email) => email.id === data.replyToId)
         : undefined;
@@ -594,13 +659,15 @@ export function useReportSpam() {
       apiFetch(`/api/emails/${id}/spam`, { method: "POST" }),
     onMutate: async ({ threadId }) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
-      const previous = qc.getQueriesData<EmailMessage[]>({
+      const previous = qc.getQueriesData<InfiniteEmails>({
         queryKey: ["emails"],
       });
       suppressThread(threadId, "spam");
       // Filter out entire thread, not just the single message
-      qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
-        old?.filter((e) => (e.threadId || e.id) !== threadId),
+      qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
+        mapInfiniteEmails(old, (emails) =>
+          emails.filter((e) => (e.threadId || e.id) !== threadId),
+        ),
       );
       return { previous, threadId };
     },
@@ -630,13 +697,15 @@ export function useBlockSender() {
       }),
     onMutate: async ({ threadId }) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
-      const previous = qc.getQueriesData<EmailMessage[]>({
+      const previous = qc.getQueriesData<InfiniteEmails>({
         queryKey: ["emails"],
       });
       suppressThread(threadId, "block");
       // Filter out entire thread, not just the single message
-      qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
-        old?.filter((e) => (e.threadId || e.id) !== threadId),
+      qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
+        mapInfiniteEmails(old, (emails) =>
+          emails.filter((e) => (e.threadId || e.id) !== threadId),
+        ),
       );
       return { previous, threadId };
     },
@@ -655,12 +724,14 @@ export function useMuteThread() {
       apiFetch(`/api/threads/${threadId}/mute`, { method: "POST" }),
     onMutate: async (threadId: string) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
-      const previous = qc.getQueriesData<EmailMessage[]>({
+      const previous = qc.getQueriesData<InfiniteEmails>({
         queryKey: ["emails"],
       });
       suppressThread(threadId, "mute");
-      qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
-        old?.filter((e) => (e.threadId || e.id) !== threadId),
+      qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
+        mapInfiniteEmails(old, (emails) =>
+          emails.filter((e) => (e.threadId || e.id) !== threadId),
+        ),
       );
       return { previous, threadId };
     },
