@@ -82,7 +82,7 @@ const AGENT_PANEL_ROOT_STYLE = {
 const AGENT_PANEL_HEADER_CLASS =
   "relative z-[240] flex h-11 shrink-0 items-center justify-between gap-2 border-b border-border";
 const AGENT_PANEL_HEADER_STYLE = {
-  paddingLeft: 12,
+  paddingLeft: 8,
   paddingRight: 8,
 } satisfies React.CSSProperties;
 const AGENT_PANEL_CONTROL_STYLE = {
@@ -585,7 +585,7 @@ export function AgentPanel({
         </div>
         {/* Tab bar: always visible for chat and CLI */}
         {(mode === "chat" || mode === "cli") && (
-          <div className="flex items-center px-1 py-1 border-b border-border gap-0.5">
+          <div className="flex items-center px-2 py-1 border-b border-border gap-0.5">
             <div className="flex items-center gap-0.5 min-w-0 overflow-x-auto scrollbar-none flex-1">
               {mode === "chat"
                 ? tabs.map((tab) => (

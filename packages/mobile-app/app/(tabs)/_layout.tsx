@@ -1,7 +1,30 @@
 import { Tabs } from "expo-router";
 import { Feather } from "@expo/vector-icons";
+import { useApps } from "../../lib/use-apps";
+
+/** Map tab file names to app IDs in the config */
+const TAB_TO_APP_ID: Record<string, string> = {
+  index: "mail",
+  calendar: "calendar",
+  content: "content",
+  forms: "forms",
+  issues: "issues",
+  recruiting: "recruiting",
+};
 
 export default function TabLayout() {
+  const { enabledApps, loading } = useApps();
+
+  const enabledIds = new Set(enabledApps.map((a) => a.id));
+
+  /** Returns `undefined` (show tab) or `null` (hide tab) */
+  const hrefFor = (tabName: string) => {
+    const appId = TAB_TO_APP_ID[tabName];
+    // Settings tab is always visible; unknown tabs default to visible
+    if (!appId) return undefined;
+    return enabledIds.has(appId) ? undefined : null;
+  };
+
   return (
     <Tabs
       screenOptions={{
@@ -21,6 +44,7 @@ export default function TabLayout() {
         options={{
           title: "Mail",
           headerShown: false,
+          href: hrefFor("index"),
           tabBarIcon: ({ color, size }) => (
             <Feather name="mail" size={size} color={color} />
           ),
@@ -31,6 +55,7 @@ export default function TabLayout() {
         options={{
           title: "Calendar",
           headerShown: false,
+          href: hrefFor("calendar"),
           tabBarIcon: ({ color, size }) => (
             <Feather name="calendar" size={size} color={color} />
           ),
@@ -41,6 +66,7 @@ export default function TabLayout() {
         options={{
           title: "Content",
           headerShown: false,
+          href: hrefFor("content"),
           tabBarIcon: ({ color, size }) => (
             <Feather name="file-text" size={size} color={color} />
           ),
@@ -51,6 +77,7 @@ export default function TabLayout() {
         options={{
           title: "Forms",
           headerShown: false,
+          href: hrefFor("forms"),
           tabBarIcon: ({ color, size }) => (
             <Feather name="clipboard" size={size} color={color} />
           ),
@@ -61,6 +88,7 @@ export default function TabLayout() {
         options={{
           title: "Issues",
           headerShown: false,
+          href: hrefFor("issues"),
           tabBarIcon: ({ color, size }) => (
             <Feather name="alert-circle" size={size} color={color} />
           ),
@@ -71,6 +99,7 @@ export default function TabLayout() {
         options={{
           title: "Recruiting",
           headerShown: false,
+          href: hrefFor("recruiting"),
           tabBarIcon: ({ color, size }) => (
             <Feather name="users" size={size} color={color} />
           ),

@@ -1,5 +1,6 @@
 import { coreDbScripts } from "./db/index.js";
 import { coreResourceScripts } from "./resources/index.js";
+import { coreChatScripts } from "./chat/index.js";
 
 /**
  * Registry of all core scripts provided by @agent-native/core.
@@ -8,6 +9,7 @@ import { coreResourceScripts } from "./resources/index.js";
 export const coreScripts: Record<string, (args: string[]) => Promise<void>> = {
   ...coreDbScripts,
   ...coreResourceScripts,
+  ...coreChatScripts,
 };
 
 /**

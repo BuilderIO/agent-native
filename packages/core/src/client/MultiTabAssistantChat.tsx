@@ -493,6 +493,51 @@ export function MultiTabAssistantChat({
     [openTabIds, switchThread],
   );
 
+  // Watch for agent-issued chat-command in application-state
+  const lastChatCommandRef = useRef(0);
+  useEffect(() => {
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    async function pollChatCommand() {
+      if (stopped) return;
+      try {
+        const res = await fetch(
+          "/_agent-native/application-state/chat-command",
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (
+            data?.value?.command === "open-thread" &&
+            data.value.threadId &&
+            data.value.timestamp > lastChatCommandRef.current
+          ) {
+            lastChatCommandRef.current = data.value.timestamp;
+            const threadId = data.value.threadId as string;
+            // Open the thread as a tab and focus it
+            if (!openTabIds.includes(threadId)) {
+              setOpenTabIds((prev) => [...prev, threadId]);
+            }
+            switchThread(threadId);
+            // Clear the command
+            fetch("/_agent-native/application-state/chat-command", {
+              method: "DELETE",
+            }).catch(() => {});
+          }
+        }
+      } catch {}
+      if (!stopped) {
+        timer = setTimeout(pollChatCommand, 2000);
+      }
+    }
+
+    pollChatCommand();
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [openTabIds, switchThread]);
+
   const handleGenerateTitle = useCallback(
     (message: string) => {
       if (activeThreadId) {

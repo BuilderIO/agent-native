@@ -31,11 +31,11 @@ Pins are stored as JSON files in `data/pins/{uuid}.json`:
 - `selector` — CSS selector for the DOM element
 - `comment` — what the user wants changed
 
-## Scripts
+## Actions
 
-Run with `pnpm script <name>`:
+Run with `pnpm action <name>`:
 
-| Script | Purpose | Key Args |
+| Action | Purpose | Key Args |
 |--------|---------|----------|
 | `get-pins` | List pins | `--pageUrl`, `--status` |
 | `create-pin` | Create a pin | `--pageUrl`, `--selector`, `--comment` |
@@ -47,9 +47,9 @@ Run with `pnpm script <name>`:
 ## Workflow
 
 1. User annotates elements in the browser
-2. Read pins: `pnpm script get-pins --status open`
+2. Read pins: `pnpm action get-pins --status open`
 3. Use `sourceFile` to locate the code and make the requested changes
-4. Mark resolved: `pnpm script resolve-pin --id <uuid>`
+4. Mark resolved: `pnpm action resolve-pin --id <uuid>`
 
 ## Tips
 

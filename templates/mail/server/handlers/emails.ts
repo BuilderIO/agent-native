@@ -257,12 +257,25 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
           message.body.toLowerCase().includes(query),
       );
     }
-    return emails;
+    return { emails };
   }
 
   // If Google is connected, fetch from Gmail directly (skip demo data)
   if (await isConnected(email)) {
     try {
+      const { pageToken } = getQuery(event) as { pageToken?: string };
+      // Decode composite page tokens (one per Gmail account)
+      let pageTokens: Record<string, string> | undefined;
+      if (pageToken) {
+        try {
+          pageTokens = JSON.parse(
+            Buffer.from(pageToken, "base64url").toString(),
+          );
+        } catch {
+          // ignore malformed tokens
+        }
+      }
+
       // Map view to Gmail search query
       const gmailQuery: Record<string, string> = {
         inbox: "in:inbox",
@@ -285,11 +298,8 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
       // Fetch label name mapping from all accounts (cached)
       const accountTokens = await getAccountTokens(email);
       const labelMap = await getCachedLabelMap(accountTokens);
-      const { messages, errors } = await listGmailMessages(
-        searchQuery,
-        undefined,
-        email,
-      );
+      const { messages, errors, nextPageTokens, resultSizeEstimate } =
+        await listGmailMessages(searchQuery, undefined, email, pageTokens);
       if (messages.length === 0 && errors.length > 0) {
         // All accounts failed — surface as error
         setResponseStatus(event, 502);
@@ -308,7 +318,19 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
       if (errors.length > 0) {
         setResponseHeader(event, "X-Account-Errors", JSON.stringify(errors));
       }
-      return emails;
+
+      // Encode next page token for the frontend
+      let nextPageToken: string | undefined;
+      if (nextPageTokens) {
+        nextPageToken = Buffer.from(JSON.stringify(nextPageTokens)).toString(
+          "base64url",
+        );
+      }
+      return {
+        emails,
+        ...(nextPageToken && { nextPageToken }),
+        ...(resultSizeEstimate && { totalEstimate: resultSizeEstimate }),
+      };
     } catch (error: any) {
       console.error("[listEmails] Gmail error:", error.message);
       setResponseStatus(event, 500);
@@ -376,7 +398,7 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
   );
 
-  return emails;
+  return { emails };
 });
 
 // ─── Thread messages ─────────────────────────────────────────────────────────
@@ -1082,7 +1104,8 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
       }
 
       if (selectedToken) {
-        // Fetch the sender's display name from Gmail send-as settings
+        // Fetch the sender's display name from Gmail send-as settings,
+        // falling back to Google profile name
         let fromHeader = selectedEmail;
         try {
           const sendAs = await googleFetch(
@@ -1097,7 +1120,21 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
             fromHeader = `${match.displayName} <${selectedEmail}>`;
           }
         } catch {
-          // Fall back to email-only if settings fetch fails
+          // Fall back to profile name below
+        }
+        // If sendAs didn't have a display name, try Google profile
+        if (fromHeader === selectedEmail) {
+          try {
+            const profile = await googleFetch(
+              `https://www.googleapis.com/oauth2/v2/userinfo`,
+              selectedToken,
+            );
+            if (profile?.name) {
+              fromHeader = `${profile.name} <${selectedEmail}>`;
+            }
+          } catch {
+            // Fall back to email-only
+          }
         }
 
         const raw = buildRawEmail({

@@ -500,8 +500,24 @@ export async function sendScheduledEmail(
         } catch {}
       }
 
+      // Resolve sender display name
+      let senderFrom = from || account.email || "me";
+      if (!senderFrom.includes("<")) {
+        try {
+          const profile = await googleFetch(
+            `https://www.googleapis.com/oauth2/v2/userinfo`,
+            account.accessToken,
+          );
+          if (profile?.name) {
+            senderFrom = `${profile.name} <${senderFrom}>`;
+          }
+        } catch {
+          // Fall back to email-only
+        }
+      }
+
       const lines = [
-        `From: ${from || account.email || "me"}`,
+        `From: ${senderFrom}`,
         `To: ${to}`,
         ...(cc ? [`Cc: ${cc}`] : []),
         ...(bcc ? [`Bcc: ${bcc}`] : []),

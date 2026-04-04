@@ -17,13 +17,13 @@ afterEach(() => {
 });
 
 describe("createApp", () => {
-  it("scaffolds a directory with the app name", () => {
-    createApp("my-app");
+  it("scaffolds a directory with the app name", async () => {
+    await createApp("my-app");
     expect(fs.existsSync(path.join(tmpDir, "my-app"))).toBe(true);
   });
 
-  it("replaces {{APP_NAME}} in package.json", () => {
-    createApp("hello-world");
+  it("replaces {{APP_NAME}} in package.json", async () => {
+    await createApp("hello-world");
     const pkg = JSON.parse(
       fs.readFileSync(
         path.join(tmpDir, "hello-world", "package.json"),
@@ -34,8 +34,8 @@ describe("createApp", () => {
     expect(pkg.name).not.toContain("{{");
   });
 
-  it("replaces {{APP_TITLE}} in route index file so it is not left as a bare identifier", () => {
-    createApp("my-app");
+  it("replaces {{APP_TITLE}} in route index file so it is not left as a bare identifier", async () => {
+    await createApp("my-app");
     // The _index.tsx (or equivalent) must not contain the unreplaced placeholder
     const indexPath = path.join(
       tmpDir,
@@ -52,8 +52,8 @@ describe("createApp", () => {
     }
   });
 
-  it("replaces {{APP_NAME}} in AGENTS.md", () => {
-    createApp("my-cool-app");
+  it("replaces {{APP_NAME}} in AGENTS.md", async () => {
+    await createApp("my-cool-app");
     const agentsPath = path.join(tmpDir, "my-cool-app", "AGENTS.md");
     if (fs.existsSync(agentsPath)) {
       const content = fs.readFileSync(agentsPath, "utf-8");
@@ -62,8 +62,8 @@ describe("createApp", () => {
     }
   });
 
-  it("does not create a circular symlink inside .agents/skills", () => {
-    createApp("my-app");
+  it("does not create a circular symlink inside .agents/skills", async () => {
+    await createApp("my-app");
     const skillsDir = path.join(tmpDir, "my-app", ".agents", "skills");
     if (fs.existsSync(skillsDir)) {
       // There must be no entry named 'skills' inside the skills directory
@@ -73,13 +73,13 @@ describe("createApp", () => {
     }
   });
 
-  it("creates .gitignore from _gitignore", () => {
-    createApp("my-app");
+  it("creates .gitignore from _gitignore", async () => {
+    await createApp("my-app");
     const gitignore = path.join(tmpDir, "my-app", ".gitignore");
     expect(fs.existsSync(gitignore)).toBe(true);
   });
 
-  it("exits with error for invalid app name", () => {
+  it("exits with error for invalid app name", async () => {
     let exited = false;
     const origExit = process.exit.bind(process);
     // @ts-ignore
@@ -88,7 +88,7 @@ describe("createApp", () => {
       throw new Error("process.exit called");
     };
     try {
-      createApp("My_Invalid App!");
+      await createApp("My_Invalid App!");
     } catch {
       // expected
     }

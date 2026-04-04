@@ -18,6 +18,7 @@
  *   --mode     compose, reply, or forward (default: compose)
  *   --replyToId       Message ID being replied to
  *   --replyToThreadId Thread ID for grouping
+ *   --accountEmail    The "from" account email address to send from
  */
 
 import { parseArgs, output, fatal } from "./helpers.js";
@@ -66,6 +67,10 @@ export const tool: ActionTool = {
         type: "string",
         description: "Thread ID for grouping",
       },
+      accountEmail: {
+        type: "string",
+        description: "The 'from' account email address to send from",
+      },
     },
     required: ["action"],
   },
@@ -105,6 +110,7 @@ export async function run(args: Record<string, string>): Promise<string> {
     if (args.bcc) draft.bcc = args.bcc;
     if (args.replyToId) draft.replyToId = args.replyToId;
     if (args.replyToThreadId) draft.replyToThreadId = args.replyToThreadId;
+    if (args.accountEmail) draft.accountEmail = args.accountEmail;
     await writeAppState(`compose-${id}`, draft);
     return `Created draft ${id}`;
   }
@@ -124,6 +130,7 @@ export async function run(args: Record<string, string>): Promise<string> {
       "mode",
       "replyToId",
       "replyToThreadId",
+      "accountEmail",
     ]) {
       if (args[key] !== undefined) (draft as any)[key] = args[key];
     }

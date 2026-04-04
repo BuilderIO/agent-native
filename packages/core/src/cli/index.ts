@@ -167,7 +167,19 @@ switch (command) {
   }
 
   case "create": {
-    import("./create.js").then((m) => m.createApp(args[0]));
+    // Parse --template flag from args
+    let createName: string | undefined;
+    let createTemplate: string | undefined;
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === "--template" && args[i + 1]) {
+        createTemplate = args[++i];
+      } else if (!args[i].startsWith("-")) {
+        createName = args[i];
+      }
+    }
+    import("./create.js").then((m) =>
+      m.createApp(createName, { template: createTemplate }),
+    );
     break;
   }
 
@@ -199,7 +211,9 @@ Usage:
 
 Options:
   -h, --help                    Show this help message
-  -v, --version                 Show version number`);
+  -v, --version                 Show version number
+  --template <name>             Template to use with create (mail, calendar, analytics, etc.)
+                                Or github:user/repo for community templates`);
     break;
 
   default:

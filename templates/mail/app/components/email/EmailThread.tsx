@@ -1398,6 +1398,15 @@ const ExpandedMessageCard = forwardRef<
 
 // ─── Plain text body with quoted text trimming ───────────────────────────────
 
+/** Detect where an email signature begins in plain text (standard "-- " separator) */
+function findSignatureStart(lines: string[], beforeLine?: number): number {
+  const limit = beforeLine != null ? beforeLine : lines.length;
+  for (let i = 0; i < limit; i++) {
+    if (/^--\s*$/.test(lines[i].trim())) return i;
+  }
+  return -1;
+}
+
 /** Detect where quoted/forwarded content begins in a plain text email */
 function findQuoteStart(lines: string[]): number {
   for (let i = 0; i < lines.length; i++) {
@@ -1431,17 +1440,31 @@ function PlainTextBody({
   activeLocalIdx?: number | null;
 }) {
   const [showQuoted, setShowQuoted] = useState(false);
+  const [showSig, setShowSig] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const lines = body.split("\n");
   const quoteStart = findQuoteStart(lines);
   const hasQuoted = quoteStart >= 0;
+  const sigStart = findSignatureStart(
+    lines,
+    hasQuoted ? quoteStart : undefined,
+  );
+  const hasSig = sigStart >= 0;
 
-  // When searching, show all content (including quoted) so matches aren't hidden
+  // When searching, show all content (including quoted/sig) so matches aren't hidden
   const forceShowAll = !!searchTerm;
-  const visibleLines =
-    hasQuoted && !showQuoted && !forceShowAll
-      ? lines.slice(0, quoteStart)
-      : lines;
+
+  // Determine visible lines: body → [sig toggle] → [quote toggle]
+  let visibleLines: string[];
+  if (forceShowAll) {
+    visibleLines = lines;
+  } else if (hasSig && !showSig) {
+    visibleLines = lines.slice(0, sigStart);
+  } else if (hasQuoted && !showQuoted) {
+    visibleLines = lines.slice(0, quoteStart);
+  } else {
+    visibleLines = lines;
+  }
 
   // Scroll active match into view
   useEffect(() => {
@@ -1512,10 +1535,18 @@ function PlainTextBody({
           </p>
         );
       })}
-      {hasQuoted && !showQuoted && !forceShowAll && (
+      {hasSig && !showSig && !forceShowAll && (
+        <button
+          onClick={() => setShowSig(true)}
+          className="mt-1 text-[13px] text-muted-foreground/50 hover:text-muted-foreground tracking-wider"
+        >
+          ···
+        </button>
+      )}
+      {hasQuoted && !showQuoted && !forceShowAll && (showSig || !hasSig) && (
         <button
           onClick={() => setShowQuoted(true)}
-          className="mt-1 text-[13px] text-muted-foreground/50 hover:text-muted-foreground transition-colors tracking-wider"
+          className="mt-1 text-[13px] text-muted-foreground/50 hover:text-muted-foreground tracking-wider"
         >
           ···
         </button>
@@ -1530,9 +1561,10 @@ function PlainTextBody({
 const IFRAME_BG_DARK = "#17181a";
 const IFRAME_BG_LIGHT = "#ffffff";
 
-// ─── Color utilities for light-background detection ─────────────────────────
+// ─── Color utilities for dark-mode email processing ─────────────────────────
 
-const DARK_NAMED_COLORS: Record<string, [number, number, number]> = {
+const NAMED_COLORS: Record<string, [number, number, number]> = {
+  // Dark colors
   black: [0, 0, 0],
   navy: [0, 0, 128],
   darkblue: [0, 0, 139],
@@ -1547,6 +1579,35 @@ const DARK_NAMED_COLORS: Record<string, [number, number, number]> = {
   darkslategrey: [47, 79, 79],
   dimgray: [105, 105, 105],
   dimgrey: [105, 105, 105],
+  gray: [128, 128, 128],
+  grey: [128, 128, 128],
+  // Light/white colors (needed for background detection)
+  white: [255, 255, 255],
+  snow: [255, 250, 250],
+  ivory: [255, 255, 240],
+  floralwhite: [255, 250, 240],
+  ghostwhite: [248, 248, 255],
+  whitesmoke: [245, 245, 245],
+  seashell: [255, 245, 238],
+  linen: [250, 240, 230],
+  beige: [245, 245, 220],
+  oldlace: [253, 245, 230],
+  antiquewhite: [250, 235, 215],
+  aliceblue: [240, 248, 255],
+  mintcream: [245, 255, 250],
+  lavender: [230, 230, 250],
+  // Mid-range colors
+  red: [255, 0, 0],
+  green: [0, 128, 0],
+  blue: [0, 0, 255],
+  yellow: [255, 255, 0],
+  cyan: [0, 255, 255],
+  magenta: [255, 0, 255],
+  orange: [255, 165, 0],
+  teal: [0, 128, 128],
+  silver: [192, 192, 192],
+  lightgray: [211, 211, 211],
+  lightgrey: [211, 211, 211],
 };
 
 function parseColorToRgb(
@@ -1554,8 +1615,8 @@ function parseColorToRgb(
 ): { r: number; g: number; b: number } | null {
   const c = color.trim().toLowerCase();
 
-  if (DARK_NAMED_COLORS[c]) {
-    const [r, g, b] = DARK_NAMED_COLORS[c];
+  if (NAMED_COLORS[c]) {
+    const [r, g, b] = NAMED_COLORS[c];
     return { r, g, b };
   }
 
@@ -1604,98 +1665,145 @@ function relativeLuminance(r: number, g: number, b: number): number {
   return 0.2126 * rs + 0.7152 * gs + 0.0722 * bs;
 }
 
-// Would this color be illegible on our dark background (#17181a, luminance ~0.01)?
-// Only flags truly dark colors — threshold 0.1 catches black through ~#555.
-// Colors like #666+ are readable on dark bg and should NOT trigger light mode.
-function isIllegiblyDark(colorStr: string): boolean {
-  const rgb = parseColorToRgb(colorStr);
-  if (!rgb) return false;
-  return relativeLuminance(rgb.r, rgb.g, rgb.b) < 0.1;
+/** Convert RGB to HSL (h: 0-360, s: 0-1, l: 0-1) */
+function rgbToHsl(
+  r: number,
+  g: number,
+  b: number,
+): { h: number; s: number; l: number } {
+  r /= 255;
+  g /= 255;
+  b /= 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  if (max === min) return { h: 0, s: 0, l };
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h = 0;
+  if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+  else if (max === g) h = ((b - r) / d + 2) / 6;
+  else h = ((r - g) / d + 4) / 6;
+  return { h: h * 360, s, l };
+}
+
+/** Convert HSL back to RGB */
+function hslToRgb(
+  h: number,
+  s: number,
+  l: number,
+): { r: number; g: number; b: number } {
+  h /= 360;
+  if (s === 0) {
+    const v = Math.round(l * 255);
+    return { r: v, g: v, b: v };
+  }
+  const hue2rgb = (p: number, q: number, t: number) => {
+    if (t < 0) t += 1;
+    if (t > 1) t -= 1;
+    if (t < 1 / 6) return p + (q - p) * 6 * t;
+    if (t < 1 / 2) return q;
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+    return p;
+  };
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  return {
+    r: Math.round(hue2rgb(p, q, h + 1 / 3) * 255),
+    g: Math.round(hue2rgb(p, q, h) * 255),
+    b: Math.round(hue2rgb(p, q, h - 1 / 3) * 255),
+  };
 }
 
 /**
- * Detect if an HTML email would be illegible on a dark background.
- * This is an escape hatch — we WANT dark mode as much as possible.
- * Only bail to white when the email has significant dark text or
- * structural light backgrounds that would make content unreadable.
+ * Transform a dark color to its light equivalent for dark mode.
+ * Preserves hue and saturation, lightens the color.
+ * e.g. dark blue (#00008B) → light blue (#8B8BFF), black → #e4e4e7
+ * Returns null if the color doesn't need transformation (already light enough).
  */
-function emailExpectsLightBackground(html: string): boolean {
-  // Fast path: skip DOMParser for truly plain emails
+function lightenColorForDarkMode(colorStr: string): string | null {
+  const rgb = parseColorToRgb(colorStr);
+  if (!rgb) return null;
+  const lum = relativeLuminance(rgb.r, rgb.g, rgb.b);
+  // Don't transform colors that are already readable on dark bg
+  if (lum >= 0.15) return null;
+  const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
+  // For near-black/gray (no saturation), use our standard light text color
+  if (hsl.s < 0.1) return "#e4e4e7";
+  // Lighten: mirror the lightness around 0.5 and boost
+  // A dark color at L=0.2 becomes L=0.7, L=0.1 becomes L=0.75
+  const newL = Math.min(0.85, Math.max(0.6, 1 - hsl.l));
+  const newRgb = hslToRgb(hsl.h, Math.min(hsl.s, 0.85), newL);
+  return `rgb(${newRgb.r}, ${newRgb.g}, ${newRgb.b})`;
+}
+
+/**
+ * Check if the email has intentional colored (non-white) backgrounds
+ * that indicate a designed layout. White/near-white backgrounds are NOT
+ * considered "designed" — they're just the default and we override them to dark.
+ * Returns true only for colored backgrounds (e.g. blue banners, gray sections).
+ */
+function emailHasDesignedBackground(html: string): boolean {
   const lower = html.toLowerCase();
   if (
     !lower.includes("style") &&
     !lower.includes("bgcolor") &&
-    !lower.includes("<font") &&
-    !lower.includes("color")
+    !lower.includes("background")
   ) {
     return false;
   }
 
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, "text/html");
+
+  // Check for non-white background colors on body/html
+  const checkBg = (colorStr: string): boolean => {
+    const rgb = parseColorToRgb(colorStr.trim());
+    if (!rgb) return false;
+    const lum = relativeLuminance(rgb.r, rgb.g, rgb.b);
+    // White/near-white (lum > 0.85) → not "designed", just default
+    // Very dark (lum < 0.05) → already dark, no issue
+    // Everything else (colored backgrounds) → designed layout
+    return lum <= 0.85 && lum >= 0.05;
+  };
+
   const body = doc.body;
-
-  // ── Structural light backgrounds ──
-  // Only trigger on body/html-level backgrounds — these define the entire email canvas.
-  // Ignore bgcolor on inner elements (table cells, etc.) — our dark CSS can coexist.
-
   const bodyStyle = body?.getAttribute("style") || "";
-  if (/background(-color)?:/i.test(bodyStyle)) {
-    // Body has an explicit background — email was designed for a specific look
-    return true;
-  }
+  const bgMatch = bodyStyle.match(/background(?:-color)?\s*:\s*([^;!]+)/i);
+  if (bgMatch && checkBg(bgMatch[1])) return true;
 
-  // bgcolor on body or html
   const bodyBg = body?.getAttribute("bgcolor");
-  const htmlEl = doc.documentElement;
-  const htmlBg = htmlEl?.getAttribute("bgcolor");
-  if (bodyBg || htmlBg) return true;
+  if (bodyBg && checkBg(bodyBg)) return true;
 
-  // background-color in <style> blocks on html/body only
+  const htmlBg = doc.documentElement?.getAttribute("bgcolor");
+  if (htmlBg && checkBg(htmlBg)) return true;
+
+  // Check <style> blocks for body/html background
   const styleTags = doc.querySelectorAll("style");
   for (const tag of styleTags) {
     const text = tag.textContent || "";
-    if (/(?:html|body)\s*\{[^}]*background(-color)?:/im.test(text)) return true;
-  }
-
-  // ── Dark text that would be illegible ──
-  // Count how many text characters are styled with illegibly dark colors.
-  // Only bail if a significant portion of the email text is affected.
-
-  let darkTextChars = 0;
-  const DARK_CHAR_THRESHOLD = 100; // need 100+ chars of dark text to trigger
-
-  // <font color="..."> with dark color (legacy HTML emails)
-  const fontEls = doc.querySelectorAll("font[color]");
-  for (const el of fontEls) {
-    const c = el.getAttribute("color") || "";
-    if (c && isIllegiblyDark(c)) {
-      darkTextChars += (el.textContent || "").trim().length;
-      if (darkTextChars >= DARK_CHAR_THRESHOLD) return true;
-    }
-  }
-
-  // Inline style color: on elements
-  const styledEls = doc.querySelectorAll('[style*="color"]');
-  let checked = 0;
-  for (const el of styledEls) {
-    if (checked++ > 100) break;
-    const style = el.getAttribute("style") || "";
-    const colorMatch = style.match(/(?<![a-z-])color\s*:\s*([^;!]+)/i);
-    if (colorMatch && isIllegiblyDark(colorMatch[1].trim())) {
-      darkTextChars += (el.textContent || "").trim().length;
-      if (darkTextChars >= DARK_CHAR_THRESHOLD) return true;
-    }
-  }
-
-  // color: in <style> blocks on body/td/p — broad text selectors
-  // Only trigger if it targets elements that carry most of the text
-  for (const tag of styleTags) {
-    const text = tag.textContent || "";
     const ruleMatch = text.match(
-      /(?:body|td|p)\s*(?:,\s*(?:body|td|p)\s*)*\{[^}]*(?<![a-z-])color\s*:\s*([^;}]+)/im,
+      /(?:html|body)\s*\{[^}]*?background(?:-color)?\s*:\s*([^;}]+)/im,
     );
-    if (ruleMatch && isIllegiblyDark(ruleMatch[1].trim())) return true;
+    if (ruleMatch && checkBg(ruleMatch[1])) return true;
+  }
+
+  // Check for significant use of colored table cell backgrounds
+  // (common in marketing emails with colored sections)
+  const coloredCells = doc.querySelectorAll(
+    'td[bgcolor], th[bgcolor], td[style*="background"], th[style*="background"]',
+  );
+  let coloredCellCount = 0;
+  for (const cell of coloredCells) {
+    const bg =
+      cell.getAttribute("bgcolor") ||
+      (cell.getAttribute("style") || "").match(
+        /background(?:-color)?\s*:\s*([^;!]+)/i,
+      )?.[1];
+    if (bg && checkBg(bg)) {
+      coloredCellCount++;
+      if (coloredCellCount >= 3) return true; // multiple colored cells → designed
+    }
   }
 
   return false;
@@ -1849,12 +1957,10 @@ function HtmlEmailBody({
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const sanitizedHtml = useMemo(() => sanitizeEmailHtml(html), [html]);
-  const expectsLightBg = useMemo(
-    () => emailExpectsLightBackground(html),
-    [html],
-  );
-  const IFRAME_BG =
-    expectsLightBg || !isDark ? IFRAME_BG_LIGHT : IFRAME_BG_DARK;
+  // Only fall back to light bg when the email has actual designed colored backgrounds
+  // (not white/near-white which we override to dark). This matches Superhuman behavior.
+  const hasDesignedBg = useMemo(() => emailHasDesignedBackground(html), [html]);
+  const IFRAME_BG = hasDesignedBg || !isDark ? IFRAME_BG_LIGHT : IFRAME_BG_DARK;
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
 
@@ -1891,7 +1997,7 @@ function HtmlEmailBody({
     setShowImagesForThread(true);
   };
 
-  const useDarkIframeCss = !expectsLightBg && isDark;
+  const useDarkIframeCss = isDark && !hasDesignedBg;
 
   useEffect(() => {
     const iframe = iframeRef.current;
@@ -1906,18 +2012,31 @@ function HtmlEmailBody({
     html, body {
       margin: 0;
       padding: 0;
-      background: ${IFRAME_BG};
-      color: #e4e4e7;
+      background: ${IFRAME_BG} !important;
+      color: #e4e4e7 !important;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       font-size: 14px;
       line-height: 1.6;
       overflow: hidden;
+      color-scheme: dark;
     }
-    a { color: #818cf8 }
+    /* Force dark backgrounds on all container elements */
+    div, table, tr, td, th, span, p, blockquote, pre, ul, ol, li,
+    h1, h2, h3, h4, h5, h6, header, footer, section, article,
+    form, fieldset, center, font, main, aside, nav {
+      background-color: transparent !important;
+      background-image: none !important;
+    }
+    /* Default text color for elements that don't have readable inline colors */
+    body, div, p, span, td, th, li, h1, h2, h3, h4, h5, h6,
+    font, strong, em, b, i, u, small, label, dt, dd, pre, code,
+    blockquote { color: inherit; }
+    a { color: #818cf8 !important; }
     img { max-width: 100%; height: auto; }
-    hr { border-color: rgba(255,255,255,0.1); }
+    hr { border-color: rgba(255,255,255,0.1) !important; }
     .quoted-hidden { display: none; }
-    .quote-toggle {
+    .sig-collapsed { display: none; }
+    .quote-toggle, .sig-toggle {
       display: inline-block;
       cursor: pointer;
       color: rgba(161,161,170,0.5);
@@ -1928,7 +2047,7 @@ function HtmlEmailBody({
       background: none;
       margin-top: 4px;
     }
-    .quote-toggle:hover { color: rgba(161,161,170,0.8); }
+    .quote-toggle:hover, .sig-toggle:hover { color: rgba(161,161,170,0.8); }
 `
       : `
     html, body {
@@ -1943,7 +2062,8 @@ function HtmlEmailBody({
     }
     img { max-width: 100%; height: auto; }
     .quoted-hidden { display: none; }
-    .quote-toggle {
+    .sig-collapsed { display: none; }
+    .quote-toggle, .sig-toggle {
       display: inline-block;
       cursor: pointer;
       color: rgba(0,0,0,0.4);
@@ -1954,7 +2074,7 @@ function HtmlEmailBody({
       background: none;
       margin-top: 4px;
     }
-    .quote-toggle:hover { color: rgba(0,0,0,0.7); }
+    .quote-toggle:hover, .sig-toggle:hover { color: rgba(0,0,0,0.7); }
 `;
 
     doc.write(`<!DOCTYPE html>
@@ -2002,6 +2122,122 @@ function HtmlEmailBody({
       });
       quote.parentNode?.insertBefore(toggle, quote);
     });
+
+    // ── Collapse signature blocks ──
+    // Gmail signatures
+    const sigSelectors = [
+      ".gmail_signature",
+      '[data-smartmail="gmail_signature"]',
+    ];
+    const sigs = doc.querySelectorAll(sigSelectors.join(","));
+    sigs.forEach((sig) => {
+      (sig as HTMLElement).classList.add("sig-collapsed");
+      const toggle = doc.createElement("button");
+      toggle.className = "sig-toggle";
+      toggle.textContent = "···";
+      toggle.addEventListener("click", () => {
+        const wasHidden = (sig as HTMLElement).classList.contains(
+          "sig-collapsed",
+        );
+        (sig as HTMLElement).classList.toggle("sig-collapsed");
+        toggle.style.display = wasHidden ? "none" : "";
+        requestAnimationFrame(resize);
+      });
+      sig.parentNode?.insertBefore(toggle, sig);
+    });
+
+    // Detect "-- " signature separator in text nodes (standard email sig convention)
+    if (sigs.length === 0) {
+      const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, null);
+      let sigNode: HTMLElement | null = null;
+      let textNode: Text | null;
+      while ((textNode = walker.nextNode() as Text | null)) {
+        const text = textNode.textContent || "";
+        // Standard sig separator: "-- " on its own line (or just "--")
+        if (/^--\s*$/.test(text.trim())) {
+          sigNode = textNode.parentElement;
+          break;
+        }
+      }
+      if (sigNode) {
+        // Wrap the sig separator and all following siblings in a container
+        const container = doc.createElement("div");
+        container.className = "sig-collapsed";
+        sigNode.parentNode?.insertBefore(container, sigNode);
+        container.appendChild(sigNode);
+        while (container.nextSibling) {
+          // Don't swallow quote toggles or quoted content
+          if (
+            (container.nextSibling as HTMLElement).classList?.contains(
+              "quote-toggle",
+            ) ||
+            (container.nextSibling as HTMLElement).classList?.contains(
+              "quoted-hidden",
+            )
+          )
+            break;
+          container.appendChild(container.nextSibling);
+        }
+        const toggle = doc.createElement("button");
+        toggle.className = "sig-toggle";
+        toggle.textContent = "···";
+        toggle.addEventListener("click", () => {
+          const wasHidden = container.classList.contains("sig-collapsed");
+          container.classList.toggle("sig-collapsed");
+          toggle.style.display = wasHidden ? "none" : "";
+          requestAnimationFrame(resize);
+        });
+        container.parentNode?.insertBefore(toggle, container);
+      }
+    }
+
+    // ── Force dark mode: transform colors for readability ──
+    if (useDarkIframeCss) {
+      // Remove bgcolor attributes — replace white/light with nothing (our CSS
+      // sets dark bg), keep truly transparent
+      doc.querySelectorAll("[bgcolor]").forEach((el) => {
+        (el as HTMLElement).removeAttribute("bgcolor");
+      });
+
+      // Walk elements with inline styles and transform colors
+      const styledEls = doc.querySelectorAll<HTMLElement>("[style]");
+      styledEls.forEach((el) => {
+        const style = el.getAttribute("style") || "";
+
+        // Remove inline background colors (CSS handles it via !important)
+        if (/background/i.test(style)) {
+          el.style.backgroundColor = "transparent";
+          el.style.backgroundImage = "none";
+        }
+
+        // Transform dark text colors → light equivalents (preserving hue)
+        const colorMatch = style.match(/(?<![a-z-])color\s*:\s*([^;!]+)/i);
+        if (colorMatch) {
+          const lightened = lightenColorForDarkMode(colorMatch[1].trim());
+          if (lightened) el.style.color = lightened;
+        }
+      });
+
+      // Transform <font color="..."> dark colors
+      doc.querySelectorAll<HTMLElement>("font[color]").forEach((el) => {
+        const c = el.getAttribute("color") || "";
+        const lightened = lightenColorForDarkMode(c);
+        if (lightened) el.setAttribute("color", lightened);
+      });
+
+      // Transform dark text color rules in <style> blocks
+      doc.querySelectorAll("style").forEach((tag) => {
+        const text = tag.textContent || "";
+        tag.textContent = text.replace(
+          /((?:body|td|th|p|div|span|li|font)\s*(?:,\s*(?:body|td|th|p|div|span|li|font)\s*)*\{[^}]*?)(?<![a-z-])color\s*:\s*([^;}]+)/gim,
+          (match, before, colorVal) => {
+            const lightened = lightenColorForDarkMode(colorVal.trim());
+            if (lightened) return `${before}color: ${lightened}`;
+            return match;
+          },
+        );
+      });
+    }
 
     // Make all links open in a new browser tab (web) or new window (Electron)
     const links = doc.querySelectorAll("a[href]");
@@ -2183,7 +2419,6 @@ function HtmlEmailBody({
   }, [
     processedHtml,
     sanitizedHtml.headHtml,
-    expectsLightBg,
     isDark,
     useDarkIframeCss,
     IFRAME_BG,
@@ -2310,7 +2545,7 @@ function HtmlEmailBody({
           border: "none",
           background: IFRAME_BG,
           colorScheme: useDarkIframeCss ? "dark" : "light",
-          borderRadius: expectsLightBg ? "6px" : undefined,
+          borderRadius: hasDesignedBg && isDark ? "6px" : undefined,
         }}
         title="Email content"
       />
