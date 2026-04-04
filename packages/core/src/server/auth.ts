@@ -261,7 +261,7 @@ function isDevMode(): boolean {
   // On edge runtimes (e.g. CF Workers), NODE_ENV may not be set.
   // Treat undefined as production — dev mode must be explicitly opted in.
   const env = process.env.NODE_ENV;
-  return env === "development";
+  return env === "development" || env === "test";
 }
 
 // ---------------------------------------------------------------------------
