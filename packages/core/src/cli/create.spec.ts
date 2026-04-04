@@ -18,12 +18,12 @@ afterEach(() => {
 
 describe("createApp", () => {
   it("scaffolds a directory with the app name", async () => {
-    await createApp("my-app");
+    await createApp("my-app", { template: "blank" });
     expect(fs.existsSync(path.join(tmpDir, "my-app"))).toBe(true);
   });
 
   it("replaces {{APP_NAME}} in package.json", async () => {
-    await createApp("hello-world");
+    await createApp("hello-world", { template: "blank" });
     const pkg = JSON.parse(
       fs.readFileSync(
         path.join(tmpDir, "hello-world", "package.json"),
@@ -35,7 +35,7 @@ describe("createApp", () => {
   });
 
   it("replaces {{APP_TITLE}} in route index file so it is not left as a bare identifier", async () => {
-    await createApp("my-app");
+    await createApp("my-app", { template: "blank" });
     // The _index.tsx (or equivalent) must not contain the unreplaced placeholder
     const indexPath = path.join(
       tmpDir,
@@ -53,7 +53,7 @@ describe("createApp", () => {
   });
 
   it("replaces {{APP_NAME}} in AGENTS.md", async () => {
-    await createApp("my-cool-app");
+    await createApp("my-cool-app", { template: "blank" });
     const agentsPath = path.join(tmpDir, "my-cool-app", "AGENTS.md");
     if (fs.existsSync(agentsPath)) {
       const content = fs.readFileSync(agentsPath, "utf-8");
@@ -63,7 +63,7 @@ describe("createApp", () => {
   });
 
   it("does not create a circular symlink inside .agents/skills", async () => {
-    await createApp("my-app");
+    await createApp("my-app", { template: "blank" });
     const skillsDir = path.join(tmpDir, "my-app", ".agents", "skills");
     if (fs.existsSync(skillsDir)) {
       // There must be no entry named 'skills' inside the skills directory
@@ -74,7 +74,7 @@ describe("createApp", () => {
   });
 
   it("creates .gitignore from _gitignore", async () => {
-    await createApp("my-app");
+    await createApp("my-app", { template: "blank" });
     const gitignore = path.join(tmpDir, "my-app", ".gitignore");
     expect(fs.existsSync(gitignore)).toBe(true);
   });

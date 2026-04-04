@@ -65,7 +65,7 @@ const EmptyLineParagraph = Extension.create({
     // This is more robust than patching extension storage because
     // tiptap-markdown's getMarkdownSpec merges default and instance
     // specs in ways that can silently drop our override.
-    const serializer = this.editor.storage.markdown?.serializer;
+    const serializer = (this.editor.storage as any).markdown?.serializer;
     if (!serializer) return;
 
     const proto = Object.getPrototypeOf(serializer);
