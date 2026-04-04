@@ -376,7 +376,9 @@ function ReconnectStreamToolCall({
             description={parsed.description || args?.task || "Sub-agent task"}
             onOpen={(threadId) => {
               window.dispatchEvent(
-                new CustomEvent("agent-task-open", { detail: { threadId } }),
+                new CustomEvent("agent-task-open", {
+                  detail: { threadId },
+                }),
               );
             }}
           />

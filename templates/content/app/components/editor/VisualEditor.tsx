@@ -68,14 +68,18 @@ const EmptyLineParagraph = Extension.create({
     };
   },
   onBeforeCreate() {
-    // Patch the paragraph node's markdown storage after StarterKit registers it
-    const paragraph = this.editor.extensionManager.extensions.find(
+    // Patch ALL paragraph extensions' markdown storage.
+    // tiptap-markdown adds its own Paragraph extension via addExtensions(),
+    // and the serializer uses the LAST one (Object.fromEntries keeps last
+    // entry for duplicate keys). Using .find() only patched the first,
+    // so the serialize override was silently ignored.
+    const paragraphs = this.editor.extensionManager.extensions.filter(
       (ext) => ext.name === "paragraph",
     );
-    if (paragraph) {
+    for (const paragraph of paragraphs) {
       const paragraphStorage = (paragraph as any).storage ?? {};
       const markdownStorage = paragraphStorage.markdown ?? {};
-      if ((markdownStorage as any).__emptyLinePatched) return;
+      if ((markdownStorage as any).__emptyLinePatched) continue;
 
       const origSerialize =
         markdownStorage.serialize ?? defaultMarkdownSerializer.nodes.paragraph;

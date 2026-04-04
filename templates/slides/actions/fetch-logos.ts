@@ -1,20 +1,30 @@
-const API_KEY =
-  "oBi4Cty5Hn7oWUPkqWpVauDn6E4S45ueHa14ymPF6MWgBCqj3MuoDGDJJGq311iM2DsQ0aSvVvL7Pa2Ay5553w";
+import { parseArgs } from "@agent-native/core";
 
-const brands = [
-  "greylock.com",
-  "microsoft.com",
-  "zapier.com",
-  "jcrew.com",
-  "panasonic.com",
-  "scale.com",
-  "ocbc.com",
-  "pendo.io",
-  "clickup.com",
-  "harrys.com",
-];
+export default async function (args: string[]) {
+  const { domains: domainsArg } = parseArgs(args);
 
-async function fetchLogos() {
+  const API_KEY = process.env.BRANDFETCH_API_KEY;
+  if (!API_KEY) {
+    throw new Error(
+      "Missing BRANDFETCH_API_KEY env var. Set it in your .env file.",
+    );
+  }
+
+  const brands = domainsArg
+    ? (domainsArg as string).split(",").map((d: string) => d.trim())
+    : [
+        "greylock.com",
+        "microsoft.com",
+        "zapier.com",
+        "jcrew.com",
+        "panasonic.com",
+        "scale.com",
+        "ocbc.com",
+        "pendo.io",
+        "clickup.com",
+        "harrys.com",
+      ];
+
   const results: Record<
     string,
     { url: string; format: string; theme: string }
@@ -22,9 +32,12 @@ async function fetchLogos() {
 
   for (const domain of brands) {
     try {
-      const res = await fetch("https://api.brandfetch.io/v2/brands/" + domain, {
-        headers: { Authorization: "Bearer " + API_KEY },
-      });
+      const res = await fetch(
+        "https://api.brandfetch.io/v2/brands/" + domain,
+        {
+          headers: { Authorization: "Bearer " + API_KEY },
+        },
+      );
 
       if (!res.ok) {
         console.log(domain, "ERROR:", res.status, res.statusText);
@@ -78,5 +91,3 @@ async function fetchLogos() {
   console.log("\n--- JSON OUTPUT ---");
   console.log(JSON.stringify(results, null, 2));
 }
-
-fetchLogos();

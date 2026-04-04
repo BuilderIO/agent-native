@@ -231,6 +231,7 @@ export function MultiTabAssistantChat({
     saveThreadData,
     generateTitle,
     searchThreads,
+    refreshThreads,
   } = useChatThreads(apiUrl);
 
   const activeThreadIdRef = useRef(activeThreadId);
@@ -498,6 +499,8 @@ export function MultiTabAssistantChat({
     function handleOpenTask(e: Event) {
       const threadId = (e as CustomEvent).detail?.threadId;
       if (!threadId) return;
+      // Refresh thread list so the new sub-agent thread appears with its title
+      refreshThreads();
       // Open the sub-agent thread as a tab and focus it
       if (!openTabIds.includes(threadId)) {
         setOpenTabIds((prev) => [...prev, threadId]);
@@ -506,7 +509,7 @@ export function MultiTabAssistantChat({
     }
     window.addEventListener("agent-task-open", handleOpenTask);
     return () => window.removeEventListener("agent-task-open", handleOpenTask);
-  }, [openTabIds, switchThread]);
+  }, [openTabIds, switchThread, refreshThreads]);
 
   // Watch for agent-issued chat-command in application-state
   const lastChatCommandRef = useRef(0);
@@ -593,7 +596,7 @@ export function MultiTabAssistantChat({
       const t = threadMap.get(id);
       return {
         id,
-        label: t?.title || t?.preview?.slice(0, 20) || "New chat",
+        label: t?.title || t?.preview?.slice(0, 30) || "New chat",
         status: runningThreads.has(id)
           ? ("running" as const)
           : (messageCounts[id] ?? t?.messageCount ?? 0) > 0
@@ -601,6 +604,13 @@ export function MultiTabAssistantChat({
             : ("idle" as const),
       };
     });
+
+  // Include sub-agent tabs that aren't in threadMap yet (just created, not refreshed)
+  for (const id of openTabIds) {
+    if (!tabs.some((t) => t.id === id)) {
+      tabs.push({ id, label: "Sub-agent...", status: "running" as const });
+    }
+  }
 
   const headerProps: MultiTabAssistantChatHeaderProps = {
     tabs,

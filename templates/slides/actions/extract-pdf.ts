@@ -1,13 +1,14 @@
 import fs from "fs";
 import { PDFParse } from "pdf-parse";
+import { parseArgs } from "@agent-native/core";
 
-const pdfPath = process.argv[2];
-if (!pdfPath) {
-  console.error("Usage: node scripts/extract-pdf.ts <path-to-pdf>");
-  throw new Error("Script failed");
-}
+export default async function (args: string[]) {
+  const { path: pdfPath } = parseArgs(args);
+  if (!pdfPath) {
+    console.error("Usage: pnpm action extract-pdf --path <path-to-pdf>");
+    throw new Error("Missing --path argument");
+  }
 
-async function main() {
   const buf = fs.readFileSync(pdfPath);
   const pdf = new PDFParse(new Uint8Array(buf));
   await pdf.load();
@@ -19,5 +20,3 @@ async function main() {
     console.log(page.text);
   });
 }
-
-main().catch((e) => console.error(e));

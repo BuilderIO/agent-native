@@ -65,10 +65,27 @@ export interface SpawnTaskOptions {
 export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
   const taskId = generateTaskId();
 
-  // Create a dedicated thread for the sub-agent
+  // Create a dedicated thread for the sub-agent with the task as the first message
   const thread = await createThread(opts.ownerEmail, {
     title: opts.description.slice(0, 100),
   });
+
+  // Save the initial user message to thread data so the tab shows content immediately
+  try {
+    const { updateThreadData } = await import("../chat-threads/store.js");
+    const threadData = JSON.stringify({
+      messages: [{ role: "user", content: opts.description }],
+    });
+    await updateThreadData(
+      thread.id,
+      threadData,
+      opts.description.slice(0, 100),
+      opts.description.slice(0, 200),
+      1,
+    );
+  } catch {
+    // Best effort — thread will still work without persisted messages
+  }
 
   const task: AgentTask = {
     taskId,
