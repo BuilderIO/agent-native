@@ -16,6 +16,8 @@ on:
           - major
           - dev
 
+permissions: {}
+
 jobs:
   publish:
     name: Build and publish
@@ -62,10 +64,12 @@ jobs:
       - name: Bump version (manual dispatch only)
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.version_bump != 'dev'
         working-directory: packages/core
+        env:
+          VERSION_BUMP: ${{ github.event.inputs.version_bump }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          npm version ${{ github.event.inputs.version_bump }} --no-git-tag-version
+          npm version "$VERSION_BUMP" --no-git-tag-version
           VERSION=$(node -p "require('./package.json').version")
           git add package.json
           git commit -m "chore: bump @agent-native/core to v${VERSION}"

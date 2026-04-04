@@ -361,6 +361,11 @@ describe("resource handlers", () => {
 
   describe("handleDeleteResource", () => {
     it("deletes resource and returns ok", async () => {
+      mockResourceGet.mockResolvedValue({
+        id: "r1",
+        path: "doc.md",
+        owner: "test@test.com",
+      });
       mockResourceDelete.mockResolvedValue(true);
 
       const event = { _params: { id: "r1" }, context: {} };
@@ -378,7 +383,7 @@ describe("resource handlers", () => {
     });
 
     it("returns 404 when resource not found", async () => {
-      mockResourceDelete.mockResolvedValue(false);
+      mockResourceGet.mockResolvedValue(null);
 
       const event = { _params: { id: "missing" }, context: {} };
       const result = await handleDeleteResource(event);

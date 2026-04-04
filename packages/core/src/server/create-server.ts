@@ -134,10 +134,26 @@ export function createServer(
 
   // CORS middleware
   if (options.cors !== false) {
+    const allowedOrigins = process.env.CORS_ALLOWED_ORIGINS
+      ? process.env.CORS_ALLOWED_ORIGINS.split(",").map((o) => o.trim())
+      : null;
+
     app.use(
       defineEventHandler((event) => {
         const headers = event.node.res;
-        headers.setHeader("Access-Control-Allow-Origin", "*");
+        const requestOrigin = event.node.req.headers.origin;
+
+        // If allowlist is configured, validate origin; otherwise allow all (dev)
+        const origin =
+          allowedOrigins && requestOrigin
+            ? allowedOrigins.includes(requestOrigin)
+              ? requestOrigin
+              : allowedOrigins[0]
+            : requestOrigin || "*";
+        headers.setHeader("Access-Control-Allow-Origin", origin);
+        if (origin !== "*") {
+          headers.setHeader("Vary", "Origin");
+        }
         headers.setHeader(
           "Access-Control-Allow-Methods",
           "GET,POST,PUT,PATCH,DELETE,OPTIONS",

@@ -1,4 +1,5 @@
 import { adfToHtml } from "@/lib/adf-client";
+import { sanitizeHtml } from "@/lib/sanitize-html";
 
 interface IssueDescriptionProps {
   description: unknown;
@@ -21,6 +22,9 @@ export function IssueDescription({ description }: IssueDescriptionProps) {
   const html = adfToHtml(description);
 
   return (
-    <div className="adf-content" dangerouslySetInnerHTML={{ __html: html }} />
+    <div
+      className="adf-content"
+      dangerouslySetInnerHTML={{ __html: sanitizeHtml(html) }}
+    />
   );
 }

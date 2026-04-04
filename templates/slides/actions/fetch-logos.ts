@@ -1,5 +1,9 @@
-const API_KEY =
-  "oBi4Cty5Hn7oWUPkqWpVauDn6E4S45ueHa14ymPF6MWgBCqj3MuoDGDJJGq311iM2DsQ0aSvVvL7Pa2Ay5553w";
+const API_KEY = process.env.BRANDFETCH_API_KEY;
+
+if (!API_KEY) {
+  console.error("BRANDFETCH_API_KEY environment variable is required");
+  process.exit(1);
+}
 
 const brands = [
   "greylock.com",

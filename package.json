@@ -25,7 +25,20 @@
   "pnpm": {
     "overrides": {
       "@types/react": "^18.3.23",
-      "@types/react-dom": "^18.3.7"
+      "@types/react-dom": "^18.3.7",
+      "rollup": ">=4.59.0",
+      "multer": ">=2.1.1",
+      "minimatch": ">=9.0.7",
+      "undici": ">=7.24.0",
+      "lodash": ">=4.18.0",
+      "@remix-run/router": ">=1.23.2",
+      "node-forge": ">=1.4.0",
+      "path-to-regexp": ">=8.4.0",
+      "picomatch": ">=4.0.4",
+      "fast-xml-parser": ">=5.5.6",
+      "glob": ">=10.5.0",
+      "@anthropic-ai/sdk": ">=0.81.0",
+      "hono": ">=4.12.4"
     },
     "onlyBuiltDependencies": [
       "better-sqlite3",
