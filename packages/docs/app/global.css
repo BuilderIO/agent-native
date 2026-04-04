@@ -348,7 +348,7 @@ html.dark .shiki span {
 /* Home hero */
 .hero-section {
   text-align: center;
-  padding: 80px 0 64px;
+  padding: 80px 24px 64px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -363,7 +363,7 @@ html.dark .shiki span {
 @media (max-width: 767px) {
   .hero-section {
     text-align: left;
-    padding: 48px 0 48px;
+    padding: 48px 24px;
   }
 
   .hero-section .flex {
