@@ -31,7 +31,7 @@ function TerminalCommand() {
       className="group mx-auto mt-8 flex items-center gap-3 rounded-lg border border-[var(--code-border)] bg-[var(--code-bg)] px-5 py-3 font-mono text-sm transition hover:border-[var(--fg-secondary)]"
     >
       <span className="text-[var(--fg-secondary)]">$</span>
-      <span className="terminal-command-text text-[var(--fg)]">{command}</span>
+      <span className="terminal-command-text min-w-0 flex-1 text-[var(--fg)]">{command}</span>
       <span className="ml-2 text-[var(--fg-secondary)] opacity-0 transition group-hover:opacity-100">
         {copied ? (
           <svg
@@ -244,7 +244,7 @@ export default function Home() {
               opacity: 0.5,
             }}
           />
-          <div className="relative z-10">
+          <div className="relative z-10 hero-content">
             <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-1.5 text-sm text-[var(--fg-secondary)]">
               <span className="inline-block h-2 w-2 rounded-full bg-[var(--accent)]" />
               Open source framework
