@@ -32,12 +32,9 @@ export default async function (args: string[]) {
 
   for (const domain of brands) {
     try {
-      const res = await fetch(
-        "https://api.brandfetch.io/v2/brands/" + domain,
-        {
-          headers: { Authorization: "Bearer " + API_KEY },
-        },
-      );
+      const res = await fetch("https://api.brandfetch.io/v2/brands/" + domain, {
+        headers: { Authorization: "Bearer " + API_KEY },
+      });
 
       if (!res.ok) {
         console.log(domain, "ERROR:", res.status, res.statusText);
