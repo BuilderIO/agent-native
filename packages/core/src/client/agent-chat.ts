@@ -24,6 +24,10 @@ export interface AgentChatMessage {
   tabId?: string;
   /** If true, this action requires source code changes (won't work in production) */
   requiresCode?: boolean;
+  /** Model preference for this sub-agent (e.g. "claude-haiku-4-5"). Uses default if omitted */
+  model?: string;
+  /** Scoped system prompt additions for this sub-agent */
+  instructions?: string;
 }
 
 const AGENT_CHAT_MESSAGE_TYPE = "builder.submitChat";

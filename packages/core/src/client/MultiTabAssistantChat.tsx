@@ -493,6 +493,21 @@ export function MultiTabAssistantChat({
     [openTabIds, switchThread],
   );
 
+  // Listen for agent-task-open events (from AgentTaskCard "Open" button)
+  useEffect(() => {
+    function handleOpenTask(e: Event) {
+      const threadId = (e as CustomEvent).detail?.threadId;
+      if (!threadId) return;
+      // Open the sub-agent thread as a tab and focus it
+      if (!openTabIds.includes(threadId)) {
+        setOpenTabIds((prev) => [...prev, threadId]);
+      }
+      switchThread(threadId);
+    }
+    window.addEventListener("agent-task-open", handleOpenTask);
+    return () => window.removeEventListener("agent-task-open", handleOpenTask);
+  }, [openTabIds, switchThread]);
+
   // Watch for agent-issued chat-command in application-state
   const lastChatCommandRef = useRef(0);
   useEffect(() => {

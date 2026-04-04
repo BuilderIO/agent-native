@@ -90,6 +90,14 @@ export {
   type TerminalPluginOptions,
 } from "../terminal/terminal-plugin.js";
 
+export {
+  spawnTask,
+  getTask,
+  getTaskByThread,
+  listTasks,
+  type AgentTask,
+  type SpawnTaskOptions,
+} from "./agent-teams.js";
 export { isOAuthConnected, getOAuthAccounts } from "./oauth-helpers.js";
 export { wrapWithAnalytics } from "./analytics.js";
 export {

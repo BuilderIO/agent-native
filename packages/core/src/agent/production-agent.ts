@@ -53,6 +53,8 @@ export interface ProductionAgentOptions {
   model?: string;
   /** Called when a run completes (for server-side thread persistence) */
   onRunComplete?: (run: ActiveRun, threadId: string | undefined) => void;
+  /** Called when a run starts, with the send function for emitting events */
+  onRunStart?: (send: (event: AgentChatEvent) => void) => void;
 }
 
 const MAX_ITERATIONS = 40;
@@ -408,6 +410,11 @@ export function createProductionAgentHandler(
       runId,
       threadId ?? runId,
       async (send, signal) => {
+        // Notify listeners that a run has started (used by agent teams)
+        if (options.onRunStart) {
+          options.onRunStart(send);
+        }
+
         // Resolve agent @-mentions via A2A calls (inside run so we can emit SSE events)
         if (agentRefs.length > 0) {
           const { A2AClient, callAgent } = await import("../a2a/client.js");
