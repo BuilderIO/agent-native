@@ -370,9 +370,10 @@ export function calendarDeleteEvent(
   accessToken: string,
   calendarId: string,
   eventId: string,
+  sendUpdates?: string,
 ) {
   return googleFetch(
-    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}${qs({ sendUpdates })}`,
     accessToken,
     { method: "DELETE" },
   );

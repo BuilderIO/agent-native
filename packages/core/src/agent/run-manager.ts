@@ -398,9 +398,11 @@ export function getActiveRunForThread(threadId: string): ActiveRun | null {
 export async function getActiveRunForThreadAsync(
   threadId: string,
 ): Promise<{ runId: string; threadId: string; status: string } | null> {
-  // Check memory first
+  // Check memory first — return both running AND recently-completed runs
+  // that still have events in memory. This allows sub-agent tabs to replay
+  // the full conversation from completed runs via SSE.
   const memRun = getActiveRunForThread(threadId);
-  if (memRun && memRun.status === "running") {
+  if (memRun && (memRun.status === "running" || memRun.events.length > 0)) {
     return {
       runId: memRun.runId,
       threadId: memRun.threadId,

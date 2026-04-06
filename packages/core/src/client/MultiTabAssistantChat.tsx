@@ -178,6 +178,8 @@ interface ChatTab {
   id: string;
   label: string;
   status: "idle" | "running" | "completed";
+  /** If this tab is a sub-agent, the parent thread ID */
+  parentThreadId?: string;
 }
 
 export interface MultiTabAssistantChatHeaderProps {
@@ -245,6 +247,24 @@ export function MultiTabAssistantChat({
   const [runningThreads, setRunningThreads] = useState<Set<string>>(new Set());
   const [showHistory, setShowHistory] = useState(false);
   const newThreadIds = useRef<Set<string>>(new Set());
+
+  // Parent-child thread mapping — persisted to localStorage.
+  // Maps childThreadId → parentThreadId for sub-agent tabs.
+  const PARENT_MAP_KEY = "agent-chat-parent-map";
+  const [parentMap, setParentMap] = useState<Record<string, string>>(() => {
+    try {
+      const saved = localStorage.getItem(PARENT_MAP_KEY);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return {};
+  });
+
+  // Persist parent map to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(PARENT_MAP_KEY, JSON.stringify(parentMap));
+    } catch {}
+  }, [parentMap]);
 
   // Open tabs — persisted to localStorage so they survive refresh.
   const OPEN_TABS_KEY = "agent-chat-open-tabs";
@@ -507,17 +527,45 @@ export function MultiTabAssistantChat({
     function handleOpenTask(e: Event) {
       const threadId = (e as CustomEvent).detail?.threadId;
       if (!threadId) return;
+      // The current active thread is the parent that spawned this sub-agent
+      const parentId = activeThreadIdRef.current;
+      if (parentId && parentId !== threadId) {
+        setParentMap((prev) =>
+          prev[threadId] === parentId
+            ? prev
+            : { ...prev, [threadId]: parentId },
+        );
+      }
       // Refresh thread list so the new sub-agent thread appears with its title
       refreshThreads();
-      // Open the sub-agent thread as a tab and focus it
+      // Open the sub-agent thread as a tab — insert after parent for visual grouping
       if (!openTabIds.includes(threadId)) {
-        setOpenTabIds((prev) => [...prev, threadId]);
+        setOpenTabIds((prev) => {
+          if (parentId) {
+            const parentIdx = prev.indexOf(parentId);
+            if (parentIdx !== -1) {
+              // Insert after the parent (and any existing children of that parent)
+              const next = [...prev];
+              let insertIdx = parentIdx + 1;
+              // Skip past any existing children of the same parent
+              while (
+                insertIdx < next.length &&
+                parentMap[next[insertIdx]] === parentId
+              ) {
+                insertIdx++;
+              }
+              next.splice(insertIdx, 0, threadId);
+              return next;
+            }
+          }
+          return [...prev, threadId];
+        });
       }
       switchThread(threadId);
     }
     window.addEventListener("agent-task-open", handleOpenTask);
     return () => window.removeEventListener("agent-task-open", handleOpenTask);
-  }, [openTabIds, switchThread, refreshThreads]);
+  }, [openTabIds, switchThread, refreshThreads, parentMap]);
 
   // Watch for agent-issued chat-command in application-state
   const lastChatCommandRef = useRef(0);

@@ -1686,7 +1686,10 @@ export function createAgentChatPlugin(
         const url = event.node?.req?.url || event.path || "";
 
         // Route: POST /runs/:id/abort
-        const abortMatch = url.match(/\/runs\/([^/?]+)\/abort/);
+        // Match both full URL (/runs/{id}/abort) and h3 prefix-stripped (/{id}/abort)
+        const abortMatch =
+          url.match(/\/runs\/([^/?]+)\/abort/) ||
+          url.match(/^\/([^/?]+)\/abort/);
         if (abortMatch && method === "POST") {
           const runId = decodeURIComponent(abortMatch[1]);
           abortRun(runId); // Aborts in-memory + marks aborted in SQL
@@ -1694,7 +1697,10 @@ export function createAgentChatPlugin(
         }
 
         // Route: GET /runs/:id/events?after=N
-        const eventsMatch = url.match(/\/runs\/([^/?]+)\/events/);
+        // Match both full URL (/runs/{id}/events) and h3 prefix-stripped (/{id}/events)
+        const eventsMatch =
+          url.match(/\/runs\/([^/?]+)\/events/) ||
+          url.match(/^\/([^/?]+)\/events/);
         if (eventsMatch && method === "GET") {
           const runId = decodeURIComponent(eventsMatch[1]);
           const query = getQuery(event);

@@ -38,8 +38,18 @@ export interface CalendarEvent {
   };
   visibility?: "default" | "public" | "private" | "confidential";
   status?: "confirmed" | "tentative" | "cancelled";
+  organizer?: { email: string; displayName?: string; self?: boolean };
   createdAt: string;
   updatedAt: string;
+}
+
+export type DeleteEventScope = "single" | "all" | "thisAndFollowing";
+
+export interface DeleteEventOptions {
+  scope?: DeleteEventScope;
+  sendUpdates?: "all" | "none";
+  /** When true and user is not the organizer, decline instead of deleting */
+  removeOnly?: boolean;
 }
 
 export interface OverlayPerson {

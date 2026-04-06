@@ -50,6 +50,41 @@ class ExitIntercepted extends Error {
 }
 
 /**
+ * Split a string into shell-like tokens, handling double and single quotes.
+ * `--title "My Page" --content ""` → `["--title", "My Page", "--content", ""]`
+ */
+function splitShellArgs(input: string): string[] {
+  const tokens: string[] = [];
+  let current = "";
+  let inDouble = false;
+  let inSingle = false;
+
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i];
+    if (ch === '"' && !inSingle) {
+      inDouble = !inDouble;
+      continue;
+    }
+    if (ch === "'" && !inDouble) {
+      inSingle = !inSingle;
+      continue;
+    }
+    if ((ch === " " || ch === "\t") && !inDouble && !inSingle) {
+      if (current.length > 0 || tokens.length > 0) {
+        tokens.push(current);
+        current = "";
+      }
+      continue;
+    }
+    current += ch;
+  }
+  if (current.length > 0 || inDouble || inSingle) {
+    tokens.push(current);
+  }
+  return tokens;
+}
+
+/**
  * Wrap a CLI-style action (that writes to console.log) as an ActionEntry
  * by capturing stdout/stderr and intercepting process.exit.
  */
@@ -77,7 +112,7 @@ function wrapDefaultExport(
       const cliArgs: string[] = [];
       // If only an "args" key was provided, split it into CLI tokens
       if (args.args && Object.keys(args).length === 1) {
-        cliArgs.push(...args.args.split(/\s+/));
+        cliArgs.push(...splitShellArgs(args.args));
       } else {
         for (const [k, v] of Object.entries(args)) {
           cliArgs.push(`--${k}`, v);

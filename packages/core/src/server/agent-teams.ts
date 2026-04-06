@@ -97,11 +97,19 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
     title: opts.description.slice(0, 100),
   });
 
-  // Save the initial user message to thread data so the tab shows content immediately
+  // Save the initial user message to thread data so the tab shows content immediately.
+  // Format must match assistant-ui's threadRuntime.import() expectations:
+  // content must be an array of parts, not a plain string.
   try {
     const { updateThreadData } = await import("../chat-threads/store.js");
     const threadData = JSON.stringify({
-      messages: [{ role: "user", content: opts.description }],
+      messages: [
+        {
+          id: `msg-${Date.now()}-user`,
+          role: "user",
+          content: [{ type: "text", text: opts.description }],
+        },
+      ],
     });
     await updateThreadData(
       thread.id,
@@ -235,6 +243,94 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
           taskId,
           summary: task.summary,
         });
+      }
+
+      // Persist the full conversation to threadData so the sub-agent tab
+      // can restore it later (after the in-memory run is cleaned up).
+      // Convert Anthropic messages to the assistant-ui repository format.
+      try {
+        const { updateThreadData } = await import("../chat-threads/store.js");
+        const repoMessages = messages.map((msg: any, i: number) => {
+          const parts: any[] = [];
+          const content = msg.content;
+          if (typeof content === "string") {
+            parts.push({ type: "text", text: content });
+          } else if (Array.isArray(content)) {
+            for (const block of content) {
+              if (block.type === "text") {
+                parts.push({ type: "text", text: block.text });
+              } else if (block.type === "tool_use") {
+                parts.push({
+                  type: "tool-call",
+                  toolCallId: block.id,
+                  toolName: block.name,
+                  args: block.input,
+                });
+              } else if (block.type === "tool_result") {
+                // Tool results are part of the user message in Anthropic format
+                // but in assistant-ui they're attached to the tool-call
+                // Skip here — they'll be matched to their tool-call
+              }
+            }
+          }
+          const repoMsg: any = {
+            id: `msg-${taskId}-${i}`,
+            role: msg.role,
+            content: parts.length > 0 ? parts : [{ type: "text", text: "" }],
+          };
+          if (msg.role === "assistant") {
+            repoMsg.status = { type: "complete", reason: "stop" };
+          }
+          return repoMsg;
+        });
+
+        // Attach tool results to their corresponding tool-call parts
+        for (let i = 0; i < messages.length; i++) {
+          const msg = messages[i];
+          if (msg.role !== "user" || !Array.isArray(msg.content)) continue;
+          for (const block of msg.content) {
+            if (block.type !== "tool_result") continue;
+            // Find the assistant message with the matching tool_use
+            for (const repoMsg of repoMessages) {
+              if (repoMsg.role !== "assistant") continue;
+              const tc = repoMsg.content?.find(
+                (p: any) =>
+                  p.type === "tool-call" && p.toolCallId === block.tool_use_id,
+              );
+              if (tc) {
+                tc.result =
+                  typeof block.content === "string"
+                    ? block.content
+                    : JSON.stringify(block.content);
+                break;
+              }
+            }
+          }
+        }
+
+        // Filter out user messages that only contain tool_result blocks (empty content)
+        const filteredMessages = repoMessages.filter(
+          (m: any) =>
+            m.content.length > 0 &&
+            !(
+              m.content.length === 1 &&
+              m.content[0].type === "text" &&
+              m.content[0].text === ""
+            ),
+        );
+
+        const repo = { messages: filteredMessages };
+        const title = opts.description.slice(0, 100);
+        const preview = accumulatedText.slice(0, 200);
+        await updateThreadData(
+          thread.id,
+          JSON.stringify(repo),
+          title,
+          preview,
+          filteredMessages.length,
+        );
+      } catch {
+        // Best effort — the in-memory replay path still works
       }
     },
   );
