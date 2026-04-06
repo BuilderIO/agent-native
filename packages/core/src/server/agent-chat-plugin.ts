@@ -309,6 +309,7 @@ function createTeamTools(deps: {
   getActions: () => Record<string, ActionEntry>;
   getApiKey: () => string;
   getModel: () => string;
+  getParentThreadId: () => string;
   getSend: () =>
     | ((event: import("../agent/types.js").AgentChatEvent) => void)
     | null;
@@ -353,6 +354,7 @@ function createTeamTools(deps: {
           actions: deps.getActions(),
           apiKey: deps.getApiKey(),
           model: deps.getModel(),
+          parentThreadId: deps.getParentThreadId(),
           parentSend: (event) => {
             if (capturedSend) capturedSend(event);
           },
@@ -1202,6 +1204,7 @@ export function createAgentChatPlugin(
       }),
       getApiKey: () => options?.apiKey ?? process.env.ANTHROPIC_API_KEY ?? "",
       getModel: () => resolvedModel,
+      getParentThreadId: () => _currentRunThreadId,
       getSend: () => {
         // Return the send for the current run's thread
         const send = _runSendByThread.get(_currentRunThreadId);

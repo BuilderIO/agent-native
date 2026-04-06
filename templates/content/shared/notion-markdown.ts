@@ -399,6 +399,33 @@ function nfmLinesToHtml(lines: string[]): string {
   }
   if (!isFinite(baseIndent)) baseIndent = 0;
 
+  // Build a normalized depth map: collect all unique raw indent levels from
+  // list items and map them to consecutive 0,1,2,… depths. This prevents
+  // gaps (e.g. indent 0→2 skipping 1) which would create <ul> directly
+  // inside <ul> without a <li> wrapper — invalid HTML that causes TipTap
+  // to concatenate all list items into one block.
+  const indentLevels = new Set<number>();
+  {
+    let scanCodeFence = false;
+    for (const line of lines) {
+      const t = line.trim();
+      if (CODE_FENCE_RE.test(t)) {
+        scanCodeFence = !scanCodeFence;
+        continue;
+      }
+      if (scanCodeFence || !t || /^<empty-block\b[^>]*\/>$/.test(t)) continue;
+      if (/^<\/?[a-zA-Z]/.test(t)) continue;
+      const { indent, rest } = countLineIndent(line);
+      const content = rest.trim();
+      if (/^[-*+]\s/.test(content) || /^\d+\.\s/.test(content)) {
+        indentLevels.add(indent - baseIndent);
+      }
+    }
+  }
+  const sortedIndents = [...indentLevels].sort((a, b) => a - b);
+  const depthMap = new Map<number, number>();
+  sortedIndents.forEach((raw, i) => depthMap.set(raw, i));
+
   const closeLists = () => {
     while (openLevels > 0) {
       html.push("</li></ul>");
@@ -442,7 +469,7 @@ function nfmLinesToHtml(lines: string[]): string {
     }
 
     const { indent, rest } = countLineIndent(line);
-    const depth = indent - baseIndent;
+    const rawDepth = indent - baseIndent;
     const content = rest.trim();
 
     // HTML element tags (nested <details>, <summary>, <callout>, etc.)
@@ -453,10 +480,12 @@ function nfmLinesToHtml(lines: string[]): string {
       continue;
     }
 
-    const listMatch = content.match(/^[-*+]\s+(.*)/);
+    const listMatch =
+      content.match(/^[-*+]\s+(.*)/) || content.match(/^\d+\.\s+(.*)/);
 
     if (listMatch) {
       const text = listMatch[1].trim();
+      const depth = depthMap.get(rawDepth) ?? rawDepth;
       const target = depth + 1;
 
       while (openLevels > target) {
@@ -478,7 +507,7 @@ function nfmLinesToHtml(lines: string[]): string {
       closeLists();
       // Plain text — use nested <blockquote> for indentation
       let tag = `<p>${inlineMarkdownToHtml(content)}</p>`;
-      for (let i = 0; i < depth; i++) {
+      for (let i = 0; i < rawDepth; i++) {
         tag = `<blockquote>${tag}</blockquote>`;
       }
       html.push(tag);
