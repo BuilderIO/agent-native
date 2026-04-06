@@ -35,6 +35,7 @@ node-compile-cache/
 # Build output
 build/
 .output/
+.deploy-tmp/
 
 # Ralph Loop runtime state
 ralph-loop.local.md
