@@ -25,9 +25,8 @@ if (preset === "node") {
 
 console.log(`[deploy] Building for preset "${preset}" via Nitro...`);
 
-const { createNitro, prepare, copyPublicAssets, build } = await import(
-  "nitro/builder"
-);
+const { createNitro, prepare, copyPublicAssets, build } =
+  await import("nitro/builder");
 
 const nitro = await createNitro({
   rootDir: cwd,
