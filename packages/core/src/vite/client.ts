@@ -4,7 +4,10 @@ import { createRequire } from "module";
 import type { Plugin, UserConfig } from "vite";
 import { nitro as nitroVitePlugin } from "nitro/vite";
 
+import { fileURLToPath } from "url";
+
 const require = createRequire(import.meta.url);
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /** Check if a package is installed in the project */
 function hasDep(pkg: string, cwd: string): boolean {
@@ -219,6 +222,31 @@ function baseRedirectGuard(): Plugin {
 }
 
 /**
+ * Work around a Rolldown bug where Nitro passes service entries as objects
+ * ({index: "path"}) but Rolldown expects strings. This plugin normalizes
+ * rollupOptions.input entries in the SSR environment.
+ */
+function rolldownInputFix(): Plugin {
+  return {
+    name: "agent-native-rolldown-input-fix",
+    configEnvironment(name, config) {
+      const input = config.build?.rollupOptions?.input;
+      if (!Array.isArray(input)) return;
+      // Flatten any object entries to just their string values
+      const fixed = input.map((entry: any) => {
+        if (typeof entry === "string") return entry;
+        if (typeof entry === "object" && entry !== null) {
+          const values = Object.values(entry);
+          return values[0] as string;
+        }
+        return entry;
+      });
+      config.build!.rollupOptions!.input = fixed;
+    },
+  };
+}
+
+/**
  * Expose the resolved Vite dev server port as process.env.PORT so that
  * in-process scripts (which use localFetch → http://localhost:${PORT}/api/...)
  * hit the right address even when Vite auto-increments the port.
@@ -294,17 +322,37 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
       autoReloadOnOptimizeDep(),
       baseRedirectGuard(),
       portExposer(),
-      // Nitro Vite plugin for dev-mode API route serving.
-      // Disabled during build — production uses react-router build + deploy/build.ts
-      ...(process.env.NODE_ENV === "production" || process.argv.includes("build")
-        ? []
-        : [nitroVitePlugin({
-            serverDir: "./server",
-            ...(options.nitro ?? {}),
-          } as any)]),
+      rolldownInputFix(),
+      nitroVitePlugin({
+        serverDir: "./server",
+        output: {
+          publicDir: "build/client",
+          serverDir: "build/server",
+          dir: "build",
+        },
+        experimental: {
+          vite: {
+            // Tell Nitro about our SSR entry so it doesn't auto-detect
+            // React Router's virtual module (which it can't resolve)
+            services: {
+              ssr: {
+                entry: fs.existsSync(path.join(cwd, "ssr-entry.ts"))
+                  ? path.resolve(cwd, "ssr-entry.ts")
+                  : path.resolve(__dirname, "../templates/default/ssr-entry.ts"),
+              },
+            },
+          },
+        },
+        ...(options.nitro ?? {}),
+      } as any),
       reactPluginInstance,
       ...(options.plugins ?? []),
     ].filter(Boolean),
+    environments: {
+      client: {
+        build: { outDir: "build/client" },
+      },
+    },
     optimizeDeps: {
       include: [
         "@tabler/icons-react",

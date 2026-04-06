@@ -1,42 +1,54 @@
-import { runMigrations } from "@agent-native/core/db";
+import { runMigrations, isPostgres } from "@agent-native/core/db";
 
-// These raw SQL migrations use SQLite syntax and only run on SQLite.
-// For Postgres deployments, use `drizzle-kit push` against the Drizzle schema instead.
+function pk(): string {
+  return isPostgres() ? "SERIAL PRIMARY KEY" : "INTEGER PRIMARY KEY";
+}
+
+function realType(): string {
+  return isPostgres() ? "DOUBLE PRECISION" : "REAL";
+}
+
 export default runMigrations([
   {
     version: 1,
-    sql: `CREATE TABLE IF NOT EXISTS meals (
-      id INTEGER PRIMARY KEY,
+    get sql() {
+      return `CREATE TABLE IF NOT EXISTS meals (
+      id ${pk()},
       name TEXT NOT NULL,
       calories INTEGER NOT NULL DEFAULT 0,
-      protein REAL,
-      carbs REAL,
-      fat REAL,
+      protein ${realType()},
+      carbs ${realType()},
+      fat ${realType()},
       date TEXT NOT NULL,
       image_url TEXT,
       notes TEXT,
       created_at INTEGER
-    )`,
+    )`;
+    },
   },
   {
     version: 2,
-    sql: `CREATE TABLE IF NOT EXISTS exercises (
-      id INTEGER PRIMARY KEY,
+    get sql() {
+      return `CREATE TABLE IF NOT EXISTS exercises (
+      id ${pk()},
       name TEXT NOT NULL,
       calories_burned INTEGER NOT NULL DEFAULT 0,
       duration_minutes INTEGER,
       date TEXT NOT NULL,
       created_at INTEGER
-    )`,
+    )`;
+    },
   },
   {
     version: 3,
-    sql: `CREATE TABLE IF NOT EXISTS weights (
-      id INTEGER PRIMARY KEY,
-      weight REAL NOT NULL,
+    get sql() {
+      return `CREATE TABLE IF NOT EXISTS weights (
+      id ${pk()},
+      weight ${realType()} NOT NULL,
       date TEXT NOT NULL,
       notes TEXT,
       created_at INTEGER
-    )`,
+    )`;
+    },
   },
 ]);
