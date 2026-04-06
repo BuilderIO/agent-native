@@ -2,7 +2,8 @@ import { createRequestHandler } from "react-router";
 import { defineEventHandler, sendRedirect, toWebRequest } from "h3";
 
 const handler = createRequestHandler(
-  // virtual module provided by React Router Vite plugin
+  // In dev: Vite resolves this virtual module for HMR.
+  // In production: Nitro's build aliases this to build/server/index.js.
   () => import("virtual:react-router/server-build"),
 );
 

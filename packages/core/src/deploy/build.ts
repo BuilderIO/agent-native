@@ -25,14 +25,12 @@ if (preset === "node") {
 
 console.log(`[deploy] Building for preset "${preset}" via Nitro...`);
 
-const { createNitro, prepare, copyPublicAssets, build } = await import(
-  "nitro/builder"
-);
+const { createNitro, prepare, copyPublicAssets, build } =
+  await import("nitro/builder");
 
 // Resolve the React Router server build so the SSR catch-all route
 // can import "virtual:react-router/server-build" in production.
 const rrServerBuild = path.join(cwd, "build", "server", "index.js");
-
 const nitro = await createNitro({
   rootDir: cwd,
   dev: false,
@@ -41,7 +39,7 @@ const nitro = await createNitro({
   serverDir: "./server",
   alias: fs.existsSync(rrServerBuild)
     ? { "virtual:react-router/server-build": rrServerBuild }
-    : {},
+    : undefined,
 } as any);
 
 await prepare(nitro);
