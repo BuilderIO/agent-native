@@ -1,5 +1,5 @@
 [build]
-  command = "pnpm run build"
+  command = "pnpm --filter @agent-native/core build && pnpm --filter calorie-tracker build"
   publish = ".output/public"
 
 [functions]
