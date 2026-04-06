@@ -109,6 +109,7 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
             id: `msg-${Date.now()}-user`,
             role: "user",
             content: [{ type: "text", text: opts.description }],
+            metadata: {},
           },
         },
       ],
@@ -279,6 +280,7 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
             id: `msg-${taskId}-${i}`,
             role: msg.role,
             content: parts.length > 0 ? parts : [{ type: "text", text: "" }],
+            metadata: {},
           };
           if (msg.role === "assistant") {
             repoMsg.status = { type: "complete", reason: "stop" };

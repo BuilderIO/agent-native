@@ -154,6 +154,13 @@ export const getEvent = defineEventHandler(async (event: H3Event) => {
           source: "google",
           googleEventId: evt.id || undefined,
           accountEmail: acctEmail,
+          organizer: evt.organizer
+            ? {
+                email: evt.organizer.email,
+                displayName: evt.organizer.displayName || undefined,
+                self: evt.organizer.self || undefined,
+              }
+            : undefined,
           createdAt: evt.created || new Date().toISOString(),
           updatedAt: evt.updated || new Date().toISOString(),
         };
@@ -266,13 +273,37 @@ export const deleteEvent = defineEventHandler(async (event: H3Event) => {
     }
 
     const query = getQuery(event);
+    const body = await readBody(event).catch(() => ({}));
+
     const accountEmail = await resolveAccountEmail(
-      query.accountEmail as string | undefined,
+      (body?.accountEmail || query.accountEmail) as string | undefined,
       email,
     );
 
+    const scope = (body?.scope || query.scope || "single") as
+      | "single"
+      | "all"
+      | "thisAndFollowing";
+    const sendUpdates = (body?.sendUpdates || query.sendUpdates || "none") as
+      | "all"
+      | "none";
+    const removeOnly = body?.removeOnly === true;
+
     try {
-      await googleCalendar.deleteEvent(googleEventId, accountEmail);
+      if (removeOnly) {
+        // Non-organizer: decline the event to remove from calendar
+        await googleCalendar.removeEventFromCalendar(
+          googleEventId,
+          accountEmail,
+          { scope, sendUpdates },
+        );
+      } else {
+        // Organizer: actually delete the event
+        await googleCalendar.deleteEvent(googleEventId, accountEmail, {
+          scope,
+          sendUpdates,
+        });
+      }
     } catch (error: any) {
       setResponseStatus(event, 500);
       return { error: `Failed to delete Google event: ${error.message}` };

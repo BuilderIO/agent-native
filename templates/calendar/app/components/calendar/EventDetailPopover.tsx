@@ -529,8 +529,8 @@ export function EventDetailPopover({
             <div className="h-3" />
           </div>
 
-          {/* Actions — only for local events */}
-          {event.source !== "google" && !event.overlayEmail && (
+          {/* Actions */}
+          {!event.overlayEmail && (
             <div className="shrink-0 border-t border-border px-4 py-2.5 flex items-center gap-2">
               <Button
                 variant="ghost"

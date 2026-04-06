@@ -180,28 +180,26 @@ export function EventDetailPanel({
               </div>
 
               {/* Actions */}
-              {event.source !== "google" && (
-                <div className="shrink-0 border-t border-border px-4 py-3 flex items-center gap-2">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                    onClick={() => onDelete(event.id)}
-                  >
-                    <IconTrash className="mr-1.5 h-3.5 w-3.5" />
-                    Delete
-                  </Button>
-                  <div className="flex-1" />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => onEdit(event)}
-                  >
-                    <IconEdit className="mr-1.5 h-3.5 w-3.5" />
-                    Edit
-                  </Button>
-                </div>
-              )}
+              <div className="shrink-0 border-t border-border px-4 py-3 flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                  onClick={() => onDelete(event.id)}
+                >
+                  <IconTrash className="mr-1.5 h-3.5 w-3.5" />
+                  Delete
+                </Button>
+                <div className="flex-1" />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onEdit(event)}
+                >
+                  <IconEdit className="mr-1.5 h-3.5 w-3.5" />
+                  Edit
+                </Button>
+              </div>
             </>
           )}
         </div>

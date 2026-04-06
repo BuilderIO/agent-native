@@ -1096,7 +1096,9 @@ export function createAgentChatPlugin(
         if (!Array.isArray(repo.messages)) repo.messages = [];
 
         const lastMsg = repo.messages[repo.messages.length - 1];
-        if (lastMsg?.role === "assistant") {
+        // Check both wrapped ({ message: { role } }) and unwrapped ({ role }) formats
+        const lastRole = lastMsg?.message?.role ?? lastMsg?.role;
+        if (lastRole === "assistant") {
           // Frontend already saved the assistant response — just bump timestamp
           await updateThreadData(
             threadId,
@@ -1108,7 +1110,17 @@ export function createAgentChatPlugin(
           return;
         }
 
-        repo.messages.push(assistantMsg);
+        // Determine if repo uses wrapped format ({ message, parentId }) or flat format
+        const isWrapped = lastMsg && "message" in lastMsg;
+        if (isWrapped) {
+          const parentId =
+            repo.messages.length > 0
+              ? (repo.messages[repo.messages.length - 1].message?.id ?? null)
+              : null;
+          repo.messages.push({ message: assistantMsg, parentId });
+        } else {
+          repo.messages.push(assistantMsg);
+        }
 
         const meta = extractThreadMeta(repo);
         await updateThreadData(

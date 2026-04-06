@@ -150,6 +150,15 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
           <input
             value={localTitle}
             onChange={(e) => handleTitleChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                const pm = window.document.querySelector(
+                  ".ProseMirror",
+                ) as HTMLElement | null;
+                pm?.focus();
+              }
+            }}
             placeholder="Untitled"
             className="w-full text-4xl font-bold bg-transparent border-none outline-none text-foreground placeholder:text-muted-foreground/40"
           />

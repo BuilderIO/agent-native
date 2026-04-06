@@ -560,14 +560,9 @@ export async function removeEventFromCalendar(
   },
 ): Promise<void> {
   const scope = options?.scope || "single";
-  const sendNotification = options?.sendUpdates === "all";
+  const sendUpdates = options?.sendUpdates;
 
-  // Use the existing RSVP mechanism to decline
-  await rsvpEvent(googleEventId, "declined", accountEmail, scope);
-
-  // Note: rsvpEvent currently sends no notifications. If the user wants
-  // to notify the organizer, we need to update the RSVP to use sendUpdates.
-  // For now, the decline itself handles the removal.
+  await rsvpEvent(googleEventId, "declined", accountEmail, scope, sendUpdates);
 }
 
 /**
@@ -603,6 +598,7 @@ export async function rsvpEvent(
   responseStatus: "accepted" | "declined" | "tentative",
   accountEmail: string,
   scope: "single" | "all" | "thisAndFollowing" = "single",
+  sendUpdates?: string,
 ): Promise<void> {
   const client = await getClient(accountEmail);
   if (!client) return;
@@ -613,6 +609,7 @@ export async function rsvpEvent(
       googleEventId,
       responseStatus,
       accountEmail,
+      sendUpdates,
     );
     return;
   }
@@ -633,6 +630,7 @@ export async function rsvpEvent(
       recurringEventId,
       responseStatus,
       accountEmail,
+      sendUpdates,
     );
     return;
   }
@@ -661,7 +659,13 @@ export async function rsvpEvent(
   // RSVP each instance (including the current one)
   await Promise.all(
     futureInstances.map((e: any) =>
-      rsvpSingleEvent(client.accessToken, e.id, responseStatus, accountEmail),
+      rsvpSingleEvent(
+        client.accessToken,
+        e.id,
+        responseStatus,
+        accountEmail,
+        sendUpdates,
+      ),
     ),
   );
 }

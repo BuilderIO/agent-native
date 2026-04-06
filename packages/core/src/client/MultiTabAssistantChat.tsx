@@ -474,6 +474,12 @@ export function MultiTabAssistantChat({
       chatRefs.current.delete(tabId);
       pendingSends.current.delete(tabId);
       newThreadIds.current.delete(tabId);
+      // Clean up parent map entry
+      setParentMap((prev) => {
+        if (!(tabId in prev)) return prev;
+        const { [tabId]: _, ...rest } = prev;
+        return rest;
+      });
     },
     [switchThread],
   );
@@ -492,6 +498,11 @@ export function MultiTabAssistantChat({
           newThreadIds.current.delete(key);
         }
       }
+      // Clean up parent map — only keep the entry for the surviving tab
+      setParentMap((prev) => {
+        if (tabId in prev) return { [tabId]: prev[tabId] };
+        return {};
+      });
     },
     [switchThread],
   );
@@ -505,6 +516,7 @@ export function MultiTabAssistantChat({
       // Clean up all old refs
       chatRefs.current.clear();
       pendingSends.current.clear();
+      setParentMap({});
     }
   }, [createThread, switchThread]);
 
@@ -613,35 +625,34 @@ export function MultiTabAssistantChat({
   }, [openTabIds, switchThread]);
 
   const handleGenerateTitle = useCallback(
-    (message: string) => {
-      if (activeThreadId) {
-        generateTitle(activeThreadId, message).then((title) => {
-          if (title && activeThreadId) {
-            // Persist the generated title to the server
-            saveThreadData(activeThreadId, {
-              threadData: "",
-              title,
-              preview: message.slice(0, 120),
-            });
-          }
-        });
-      }
+    (threadId: string, message: string) => {
+      generateTitle(threadId, message).then((title) => {
+        if (title) {
+          // Persist the generated title to the server
+          saveThreadData(threadId, {
+            threadData: "",
+            title,
+            preview: message.slice(0, 120),
+          });
+        }
+      });
     },
-    [activeThreadId, generateTitle, saveThreadData],
+    [generateTitle, saveThreadData],
   );
 
   const handleSaveThread = useCallback(
-    (data: {
-      threadData: string;
-      title: string;
-      preview: string;
-      messageCount: number;
-    }) => {
-      if (activeThreadId) {
-        saveThreadData(activeThreadId, data);
-      }
+    (
+      threadId: string,
+      data: {
+        threadData: string;
+        title: string;
+        preview: string;
+        messageCount: number;
+      },
+    ) => {
+      saveThreadData(threadId, data);
     },
-    [activeThreadId, saveThreadData],
+    [saveThreadData],
   );
 
   // Build tabs from open thread IDs
@@ -658,13 +669,19 @@ export function MultiTabAssistantChat({
           : (messageCounts[id] ?? t?.messageCount ?? 0) > 0
             ? ("completed" as const)
             : ("idle" as const),
+        parentThreadId: parentMap[id],
       };
     });
 
   // Include sub-agent tabs that aren't in threadMap yet (just created, not refreshed)
   for (const id of openTabIds) {
     if (!tabs.some((t) => t.id === id)) {
-      tabs.push({ id, label: "Sub-agent...", status: "running" as const });
+      tabs.push({
+        id,
+        label: "Sub-agent...",
+        status: "running" as const,
+        parentThreadId: parentMap[id],
+      });
     }
   }
 
@@ -703,47 +720,68 @@ export function MultiTabAssistantChat({
       ) : showTabBar ? (
         <div className="flex items-center px-1 py-1 border-b border-border shrink-0 gap-0.5">
           <div className="flex items-center gap-0.5 min-w-0 overflow-x-auto scrollbar-none flex-1">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                ref={tab.id === activeThreadId ? activeTabRefCb : undefined}
-                onClick={() => switchThread(tab.id)}
-                className={cn(
-                  "agent-tab relative flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] font-medium shrink-0 max-w-[130px]",
-                  tab.id === activeThreadId
-                    ? "bg-accent text-foreground"
-                    : "text-muted-foreground hover:text-foreground hover:bg-accent",
-                )}
-              >
-                <span className="truncate pr-1">{tab.label}</span>
-                {tab.status === "running" && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50 shrink-0 animate-pulse" />
-                )}
-                {openTabIds.length > 1 && (
-                  <span
-                    role="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      closeTab(tab.id);
-                    }}
-                    className="agent-tab-close flex items-center justify-end text-muted-foreground hover:!text-foreground"
-                    style={{
-                      position: "absolute",
-                      right: 0,
-                      top: 0,
-                      bottom: 0,
-                      width: 28,
-                      paddingRight: 6,
-                      borderRadius: "0 6px 6px 0",
-                      background:
-                        "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
-                    }}
+            {tabs.map((tab) => {
+              const isChild = !!tab.parentThreadId;
+              return (
+                <React.Fragment key={tab.id}>
+                  {isChild && (
+                    <span className="flex items-center shrink-0 text-muted-foreground/30 -mr-0.5">
+                      <svg
+                        width="10"
+                        height="16"
+                        viewBox="0 0 10 16"
+                        fill="none"
+                      >
+                        <path
+                          d="M1 0 L1 9 Q1 12 4 12 L10 12"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                          fill="none"
+                        />
+                      </svg>
+                    </span>
+                  )}
+                  <button
+                    ref={tab.id === activeThreadId ? activeTabRefCb : undefined}
+                    onClick={() => switchThread(tab.id)}
+                    className={cn(
+                      "agent-tab relative flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] font-medium shrink-0 max-w-[130px]",
+                      tab.id === activeThreadId
+                        ? "bg-accent text-foreground"
+                        : "text-muted-foreground hover:text-foreground hover:bg-accent",
+                    )}
                   >
-                    <IconX size={8} />
-                  </span>
-                )}
-              </button>
-            ))}
+                    <span className="truncate pr-1">{tab.label}</span>
+                    {tab.status === "running" && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50 shrink-0 animate-pulse" />
+                    )}
+                    {openTabIds.length > 1 && (
+                      <span
+                        role="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          closeTab(tab.id);
+                        }}
+                        className="agent-tab-close flex items-center justify-end text-muted-foreground hover:!text-foreground"
+                        style={{
+                          position: "absolute",
+                          right: 0,
+                          top: 0,
+                          bottom: 0,
+                          width: 28,
+                          paddingRight: 6,
+                          borderRadius: "0 6px 6px 0",
+                          background:
+                            "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
+                        }}
+                      >
+                        <IconX size={8} />
+                      </span>
+                    )}
+                  </button>
+                </React.Fragment>
+              );
+            })}
           </div>
           <div className="flex items-center gap-px shrink-0 ml-auto">
             <button
@@ -817,12 +855,8 @@ export function MultiTabAssistantChat({
                     prev[tabId] === count ? prev : { ...prev, [tabId]: count },
                   )
                 }
-                onSaveThread={
-                  tabId === activeThreadId ? handleSaveThread : undefined
-                }
-                onGenerateTitle={
-                  tabId === activeThreadId ? handleGenerateTitle : undefined
-                }
+                onSaveThread={handleSaveThread}
+                onGenerateTitle={handleGenerateTitle}
               />
             </div>
           ))}

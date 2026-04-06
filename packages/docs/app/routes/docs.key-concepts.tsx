@@ -5,6 +5,7 @@ import CodeBlock from "../components/CodeBlock";
 const TOC = [
   { id: "why-agent-native", label: "Why Agent-Native" },
   { id: "the-architecture", label: "The Architecture" },
+  { id: "four-area-checklist", label: "The Four-Area Checklist" },
   { id: "data-in-sql", label: "Data in SQL" },
   { id: "agent-chat-bridge", label: "Agent Chat Bridge" },
   { id: "actions-system", label: "Actions System" },
@@ -13,6 +14,8 @@ const TOC = [
   { id: "context-awareness", label: "Context Awareness" },
   { id: "apis-and-clis", label: "APIs & CLIs, Not MCPs" },
   { id: "agent-modifies-code", label: "Agent Modifies Code" },
+  { id: "database-agnostic", label: "Database Agnostic" },
+  { id: "hosting-agnostic", label: "Hosting Agnostic" },
   { id: "deep-dives", label: "Deep Dives" },
 ];
 
@@ -21,7 +24,7 @@ export const meta = () => [
   {
     name: "description",
     content:
-      "How agent-native apps work: SQL database, agent chat bridge, polling sync, actions, and context awareness.",
+      "How agent-native apps work: the four-area checklist, SQL database, agent chat bridge, polling sync, actions, context awareness, and portability.",
   },
 ];
 
@@ -32,8 +35,8 @@ export default function KeyConceptsDocs() {
         Key Concepts
       </h1>
       <p className="mb-4 text-base text-[var(--fg-secondary)]">
-        How agent-native apps work under the hood — and why they're built this
-        way.
+        How agent-native apps work under the hood — the principles, the
+        architecture, and why they're built this way.
       </p>
 
       <h2 id="why-agent-native">Why agent-native</h2>
@@ -72,10 +75,10 @@ export default function KeyConceptsDocs() {
       </p>
       <p>
         See{" "}
-        <Link to="/docs/core-philosophy" className="text-[var(--accent)]">
-          Core Philosophy
+        <Link to="/docs/what-is-agent-native" className="text-[var(--accent)]">
+          What Is Agent-Native?
         </Link>{" "}
-        for the foundational principles.
+        for the full vision and philosophy.
       </p>
 
       <h2 id="the-architecture">The architecture</h2>
@@ -137,6 +140,41 @@ export default function KeyConceptsDocs() {
           in the database, readable by both agent and UI
         </li>
       </ol>
+
+      <h2 id="four-area-checklist">The four-area checklist</h2>
+      <p>
+        Every new feature must update all four areas. Skipping any one breaks
+        the agent-native contract.
+      </p>
+      <div className="my-6 overflow-hidden rounded-xl border border-[var(--border)]">
+        <div className="grid grid-cols-2 gap-px bg-[var(--border)] sm:grid-cols-4">
+          {[
+            ["1. UI", "Page, component, or dialog the user interacts with"],
+            [
+              "2. Action",
+              "Agent-callable action in actions/ for the same operation",
+            ],
+            [
+              "3. Skills",
+              "Update AGENTS.md and/or create a skill documenting the pattern",
+            ],
+            [
+              "4. App-State",
+              "Navigation state, view-screen data, and navigate commands",
+            ],
+          ].map(([title, desc]) => (
+            <div key={title} className="bg-[var(--bg)] p-4">
+              <div className="mb-1 text-sm font-semibold">{title}</div>
+              <p className="m-0 text-xs text-[var(--fg-secondary)]">{desc}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+      <p>
+        A feature with only UI is invisible to the agent. A feature with only
+        actions is invisible to the user. A feature without app-state means the
+        agent is blind to what the user is doing.
+      </p>
 
       <h2 id="data-in-sql">Data in SQL</h2>
       <p>
@@ -376,14 +414,83 @@ useDbSync({
         <li>Your app keeps improving without manual development</li>
       </ol>
 
+      <h2 id="database-agnostic">Database agnostic</h2>
+      <p>
+        The framework supports every Drizzle-supported database. Never write SQL
+        that only works on one dialect.
+      </p>
+      <ul className="list-disc space-y-1 pl-5">
+        <li>
+          <strong>SQLite</strong> — local dev fallback when{" "}
+          <code>DATABASE_URL</code> is unset
+        </li>
+        <li>
+          <strong>Neon Postgres</strong> — common in both dev and production
+        </li>
+        <li>
+          <strong>Turso</strong> (libSQL) — edge-friendly SQLite-compatible
+        </li>
+        <li>
+          <strong>Supabase Postgres</strong>
+        </li>
+        <li>
+          <strong>Cloudflare D1</strong>
+        </li>
+        <li>
+          <strong>Plain Postgres</strong>
+        </li>
+      </ul>
+      <p>Use the framework helpers for dialect-agnostic SQL:</p>
+      <CodeBlock
+        code={`import { getDbExec, isPostgres, intType } from "@agent-native/core/db/client";
+
+// getDbExec() auto-converts ? params to $1 for Postgres
+const client = getDbExec();
+await client.execute({
+  sql: "SELECT * FROM forms WHERE owner_email = ?",
+  args: [email],
+});
+
+// Branch when syntax differs
+const upsert = isPostgres()
+  ? "INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2"
+  : "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)";`}
+      />
+
+      <h2 id="hosting-agnostic">Hosting agnostic</h2>
+      <p>The server runs on Nitro, which compiles to any deployment target:</p>
+      <ul className="list-disc space-y-1 pl-5">
+        <li>Node.js — local dev, traditional servers</li>
+        <li>Cloudflare Workers/Pages</li>
+        <li>Netlify Functions/Edge</li>
+        <li>Vercel Serverless/Edge</li>
+        <li>Deno Deploy</li>
+        <li>AWS Lambda</li>
+        <li>Bun</li>
+      </ul>
+      <p>
+        Never use Node-specific APIs (<code>fs</code>,{" "}
+        <code>child_process</code>, <code>path</code>) in server routes or
+        plugins. These don't exist in Workers/edge environments. Actions in{" "}
+        <code>actions/</code> run in Node.js and can use Node APIs freely.
+      </p>
+      <p>
+        Never assume a persistent server process. Serverless and edge
+        environments are stateless — no in-memory caches, no long-lived
+        connections. Use the SQL database for all state.
+      </p>
+
       <h2 id="deep-dives">Deep dives</h2>
       <p>For detailed guidance on specific patterns:</p>
       <ul className="list-disc space-y-1 pl-5">
         <li>
-          <Link to="/docs/core-philosophy" className="text-[var(--accent)]">
-            Core Philosophy
+          <Link
+            to="/docs/what-is-agent-native"
+            className="text-[var(--accent)]"
+          >
+            What Is Agent-Native?
           </Link>{" "}
-          — foundational principles
+          — the vision and philosophy
         </li>
         <li>
           <Link to="/docs/context-awareness" className="text-[var(--accent)]">

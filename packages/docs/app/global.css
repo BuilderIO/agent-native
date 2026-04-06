@@ -150,6 +150,11 @@ h4 {
 }
 
 /* Docs prose */
+.docs-content h2[id],
+.docs-content h3[id] {
+  scroll-margin-top: 80px;
+}
+
 .docs-content h2 {
   font-size: 24px;
   margin-top: 32px;
@@ -162,6 +167,32 @@ h4 {
   font-size: 18px;
   margin-top: 24px;
   margin-bottom: 8px;
+}
+
+/* Heading anchor links */
+.docs-content h2,
+.docs-content h3 {
+  position: relative;
+}
+
+.heading-anchor {
+  margin-left: 8px;
+  color: var(--fg-secondary);
+  opacity: 0;
+  font-weight: 400;
+  text-decoration: none;
+  font-size: 0.85em;
+}
+
+.docs-content h2:hover .heading-anchor,
+.docs-content h3:hover .heading-anchor,
+.heading-anchor:focus {
+  opacity: 1;
+}
+
+.heading-anchor:hover {
+  color: var(--accent);
+  text-decoration: none;
 }
 
 .docs-content p {

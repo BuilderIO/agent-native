@@ -42,6 +42,7 @@ import { KeyboardShortcutsHelp } from "@/components/calendar/KeyboardShortcutsHe
 import { GoogleConnectBanner } from "@/components/calendar/GoogleConnectBanner";
 import { PeopleSearchDialog } from "@/components/calendar/PeopleSearchDialog";
 import { EventDetailPanel } from "@/components/calendar/EventDetailPanel";
+import { DeleteEventDialog } from "@/components/calendar/DeleteEventDialog";
 import { useCalendarContext } from "@/components/layout/AppLayout";
 import { useEvents, useUpdateEvent, useDeleteEvent } from "@/hooks/use-events";
 import { useOverlayPeople } from "@/hooks/use-overlay-people";
@@ -73,6 +74,8 @@ export default function CalendarView() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
+  const [deleteDialogEvent, setDeleteDialogEvent] =
+    useState<CalendarEvent | null>(null);
 
   const googleStatus = useGoogleAuthStatus();
   const { data: overlayPeople = [] } = useOverlayPeople();
@@ -114,8 +117,12 @@ export default function CalendarView() {
   const {
     data: rawEvents = [],
     error: eventsError,
-    isLoading: eventsLoading,
+    isLoading,
   } = useEvents(from, to, overlayEmails);
+
+  // Only show skeleton on the very first load when there's no data at all.
+  // Background refetches (e.g. window refocus) keep showing existing events.
+  const eventsLoading = isLoading && rawEvents.length === 0;
 
   // Apply overlay colors to events
   const events = useMemo(() => {
@@ -166,10 +173,10 @@ export default function CalendarView() {
   }
 
   function handleDeleteEvent(eventId: string) {
-    deleteEvent.mutate(eventId, {
-      onSuccess: () => toast.success("Event deleted"),
-      onError: () => toast.error("Failed to delete event"),
-    });
+    const ev = events.find((e) => e.id === eventId);
+    if (ev) {
+      setDeleteDialogEvent(ev);
+    }
   }
 
   // Move event to a new date (drag-and-drop from MonthView)
@@ -265,11 +272,10 @@ export default function CalendarView() {
       if (isTypingInInput(e)) return;
       if (createDialogOpen || shortcutsHelpOpen) return;
 
-      // Delete/Backspace — delete the selected sidebar event
+      // Delete/Backspace — open delete dialog for the selected sidebar event
       if ((e.key === "Delete" || e.key === "Backspace") && sidebarEvent) {
         e.preventDefault();
-        handleDeleteEvent(sidebarEvent.id);
-        setSidebarEvent(null);
+        setDeleteDialogEvent(sidebarEvent);
         return;
       }
 
@@ -571,6 +577,29 @@ export default function CalendarView() {
         <PeopleSearchDialog
           open={peopleSearchOpen}
           onOpenChange={setPeopleSearchOpen}
+        />
+        <DeleteEventDialog
+          event={deleteDialogEvent}
+          open={deleteDialogEvent !== null}
+          onClose={() => setDeleteDialogEvent(null)}
+          onConfirm={(options) => {
+            if (!deleteDialogEvent) return;
+            deleteEvent.mutate(
+              { id: deleteDialogEvent.id, ...options },
+              {
+                onSuccess: () => {
+                  const label = options.removeOnly ? "removed" : "deleted";
+                  toast.success(`Event ${label}`);
+                  setDeleteDialogEvent(null);
+                  if (sidebarEvent?.id === deleteDialogEvent.id) {
+                    setSidebarEvent(null);
+                  }
+                },
+                onError: () => toast.error("Failed to delete event"),
+              },
+            );
+          }}
+          isPending={deleteEvent.isPending}
         />
       </div>
     </TooltipProvider>

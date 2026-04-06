@@ -35,7 +35,7 @@ export function useEvents(
   });
   return {
     ...query,
-    isLoading: query.isLoading || query.isPlaceholderData,
+    isLoading: query.isLoading && !query.isPlaceholderData,
   };
 }
 
@@ -114,8 +114,22 @@ export function useUpdateEvent() {
 export function useDeleteEvent() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
-      const res = await fetch(`/api/events/${id}`, { method: "DELETE" });
+    mutationFn: async ({
+      id,
+      scope,
+      sendUpdates,
+      removeOnly,
+    }: {
+      id: string;
+      scope?: "single" | "all" | "thisAndFollowing";
+      sendUpdates?: "all" | "none";
+      removeOnly?: boolean;
+    }) => {
+      const res = await fetch(`/api/events/${id}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scope, sendUpdates, removeOnly }),
+      });
       if (!res.ok) throw new Error("Failed to delete event");
       return res.json();
     },
