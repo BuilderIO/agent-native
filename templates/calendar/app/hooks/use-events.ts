@@ -47,17 +47,55 @@ export function useCreateEvent() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (
-      data: Omit<CalendarEvent, "id" | "createdAt" | "updatedAt" | "source">,
+      data: Omit<CalendarEvent, "id" | "createdAt" | "updatedAt" | "source"> & {
+        /** Temporary client-side ID used for optimistic rendering */
+        _tempId?: string;
+      },
     ) => {
+      const { _tempId, ...eventData } = data;
       const res = await fetch("/api/events", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+        body: JSON.stringify(eventData),
       });
       if (!res.ok) throw new Error("Failed to create event");
-      return res.json();
+      const result = await res.json();
+      // Return tempId so onSuccess can map it
+      return { ...result, _tempId };
     },
-    onSuccess: () => {
+    onMutate: async (newData) => {
+      if (!newData._tempId) return;
+      await queryClient.cancelQueries({ queryKey: ["events"] });
+      const previous = queryClient.getQueriesData<CalendarEvent[]>({
+        queryKey: ["events"],
+      });
+      // Optimistically add the event to all matching queries
+      const optimisticEvent: CalendarEvent = {
+        id: newData._tempId,
+        title: newData.title,
+        start: newData.start,
+        end: newData.end,
+        allDay: newData.allDay ?? false,
+        description: newData.description,
+        location: newData.location,
+        source: "local",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      queryClient.setQueriesData<CalendarEvent[]>(
+        { queryKey: ["events"] },
+        (old) => (old ? [...old, optimisticEvent] : [optimisticEvent]),
+      );
+      return { previous };
+    },
+    onError: (_err, _newData, context) => {
+      if (context?.previous) {
+        for (const [key, data] of context.previous) {
+          queryClient.setQueryData(key, data);
+        }
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["events"] });
     },
   });

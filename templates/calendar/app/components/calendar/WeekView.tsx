@@ -27,7 +27,50 @@ interface WeekViewProps {
   onEditEvent: (event: CalendarEvent) => void;
   onDeleteEvent: (eventId: string) => void;
   onEventTimeChange?: (eventId: string, newStart: Date, newEnd: Date) => void;
+  onClickTimeSlot?: (date: Date, startTime: string, endTime: string) => void;
+  quickEditEventId?: string | null;
+  onQuickEditSave?: (eventId: string, title: string) => void;
+  onQuickEditCancel?: (eventId: string) => void;
   isLoading?: boolean;
+}
+
+function QuickEditInput({
+  eventId,
+  onSave,
+  onCancel,
+}: {
+  eventId: string;
+  onSave: (eventId: string, title: string) => void;
+  onCancel: (eventId: string) => void;
+}) {
+  const [value, setValue] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    // Focus after a frame so the element is painted
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }, []);
+
+  return (
+    <input
+      ref={inputRef}
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          onSave(eventId, value);
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          onCancel(eventId);
+        }
+        e.stopPropagation();
+      }}
+      onBlur={() => onSave(eventId, value)}
+      placeholder="(No title)"
+      className="w-full bg-transparent text-[11px] font-semibold text-foreground placeholder:text-foreground/40 outline-none leading-tight"
+    />
+  );
 }
 
 // [startHour, startMin, durationMin, widthPct] per day column (Sun–Sat)
@@ -169,6 +212,10 @@ export function WeekView({
   onEditEvent,
   onDeleteEvent,
   onEventTimeChange,
+  onClickTimeSlot,
+  quickEditEventId,
+  onQuickEditSave,
+  onQuickEditCancel,
   isLoading = false,
 }: WeekViewProps) {
   const [now, setNow] = useState(new Date());
@@ -504,6 +551,28 @@ export function WeekView({
                   "relative flex-1 border-r border-border last:border-r-0",
                   isCurrentDay && "bg-primary/[0.02]",
                 )}
+                onClick={(e) => {
+                  // Only fire on empty space (not on event buttons or after drags)
+                  if ((e.target as HTMLElement).closest("button")) return;
+                  if (!onClickTimeSlot || isDragging || shouldSuppressClick())
+                    return;
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const y = e.clientY - rect.top;
+                  const totalMinutes =
+                    Math.floor(((y / HOUR_HEIGHT) * 60) / 15) * 15 +
+                    START_HOUR * 60;
+                  const startH = Math.floor(totalMinutes / 60);
+                  const startM = totalMinutes % 60;
+                  const endMinutes = totalMinutes + 60;
+                  const endH = Math.min(Math.floor(endMinutes / 60), 23);
+                  const endM = endMinutes % 60;
+                  const pad = (n: number) => String(n).padStart(2, "0");
+                  onClickTimeSlot(
+                    day,
+                    `${pad(startH)}:${pad(startM)}`,
+                    `${pad(endH)}:${pad(endM)}`,
+                  );
+                }}
               >
                 {/* Hour grid lines */}
                 {hours.map((hour) => (
@@ -656,7 +725,20 @@ export function WeekView({
                             isBeingDragged && isDragging ? 0.9 : undefined,
                         }}
                       >
-                        {durationMin <= 30 ? (
+                        {quickEditEventId === event.id &&
+                        onQuickEditSave &&
+                        onQuickEditCancel ? (
+                          <div className="flex flex-col justify-center flex-1 min-w-0 mt-0.5">
+                            <QuickEditInput
+                              eventId={event.id}
+                              onSave={onQuickEditSave}
+                              onCancel={onQuickEditCancel}
+                            />
+                            <div className="mt-0.5 truncate text-[9px] leading-tight text-foreground/60">
+                              {formatEventTime(displayStart, displayEnd)}
+                            </div>
+                          </div>
+                        ) : durationMin <= 30 ? (
                           <div className="flex items-baseline gap-1 truncate">
                             <span
                               className={cn(
@@ -743,8 +825,11 @@ export function WeekView({
                       </button>
                     );
 
-                    // Don't wrap in popover while dragging
-                    if (isBeingDragged && isDragging) {
+                    // Don't wrap in popover while dragging or quick-editing
+                    if (
+                      (isBeingDragged && isDragging) ||
+                      quickEditEventId === event.id
+                    ) {
                       return (
                         <div key={event.id} className="contents">
                           {eventButton}

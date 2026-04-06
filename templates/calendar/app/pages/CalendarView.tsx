@@ -44,7 +44,12 @@ import { PeopleSearchDialog } from "@/components/calendar/PeopleSearchDialog";
 import { EventDetailPanel } from "@/components/calendar/EventDetailPanel";
 import { DeleteEventDialog } from "@/components/calendar/DeleteEventDialog";
 import { useCalendarContext } from "@/components/layout/AppLayout";
-import { useEvents, useUpdateEvent, useDeleteEvent } from "@/hooks/use-events";
+import {
+  useEvents,
+  useCreateEvent,
+  useUpdateEvent,
+  useDeleteEvent,
+} from "@/hooks/use-events";
 import { useOverlayPeople } from "@/hooks/use-overlay-people";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 import { AgentToggleButton } from "@agent-native/core/client";
@@ -73,6 +78,9 @@ export default function CalendarView() {
     focusedEvent,
   } = useCalendarContext();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [createDefaultStart, setCreateDefaultStart] = useState<string>();
+  const [createDefaultEnd, setCreateDefaultEnd] = useState<string>();
+  const [quickEditEventId, setQuickEditEventId] = useState<string | null>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
   const [deleteDialogEvent, setDeleteDialogEvent] =
@@ -85,6 +93,7 @@ export default function CalendarView() {
     [overlayPeople],
   );
   const isGoogleConnected = googleStatus.data?.connected ?? false;
+  const createEvent = useCreateEvent();
   const updateEvent = useUpdateEvent();
   const deleteEvent = useDeleteEvent();
 
@@ -273,6 +282,58 @@ export default function CalendarView() {
     );
   }
 
+  function handleClickTimeSlot(
+    clickedDate: Date,
+    startTime: string,
+    endTime: string,
+  ) {
+    const dateStr = format(clickedDate, "yyyy-MM-dd");
+    const startISO = new Date(`${dateStr}T${startTime}:00`).toISOString();
+    const endISO = new Date(`${dateStr}T${endTime}:00`).toISOString();
+    const tempId = `temp-${Date.now()}`;
+
+    createEvent.mutate(
+      {
+        title: "(No title)",
+        description: "",
+        location: "",
+        start: startISO,
+        end: endISO,
+        allDay: false,
+        _tempId: tempId,
+      },
+      {
+        onSuccess: (result) => {
+          // Replace temp ID with real ID for quick-edit
+          setQuickEditEventId(result.id);
+        },
+        onError: () => {
+          setQuickEditEventId(null);
+          toast.error("Failed to create event");
+        },
+      },
+    );
+
+    // Immediately show inline editor on the optimistic event
+    setQuickEditEventId(tempId);
+  }
+
+  function handleQuickEditSave(eventId: string, title: string) {
+    setQuickEditEventId(null);
+    if (title.trim() && title.trim() !== "(No title)") {
+      updateEvent.mutate({ id: eventId, title: title.trim() });
+    }
+  }
+
+  function handleQuickEditCancel(eventId: string) {
+    setQuickEditEventId(null);
+    // Delete the event if title was never set
+    const ev = events.find((e) => e.id === eventId);
+    if (!ev || ev.title === "(No title)") {
+      deleteEvent.mutate({ id: eventId, scope: "single", sendUpdates: "none" });
+    }
+  }
+
   // IconKeyboard shortcuts — don't fire when user is typing in an input
   const isTypingInInput = useCallback((e: KeyboardEvent) => {
     const target = e.target as HTMLElement;
@@ -343,6 +404,8 @@ export default function CalendarView() {
           break;
         case "c":
           e.preventDefault();
+          setCreateDefaultStart(undefined);
+          setCreateDefaultEnd(undefined);
           setCreateDialogOpen(true);
           break;
         case "/":
@@ -535,8 +598,16 @@ export default function CalendarView() {
 
               <CreateEventPopover
                 open={createDialogOpen}
-                onOpenChange={setCreateDialogOpen}
+                onOpenChange={(open) => {
+                  setCreateDialogOpen(open);
+                  if (!open) {
+                    setCreateDefaultStart(undefined);
+                    setCreateDefaultEnd(undefined);
+                  }
+                }}
                 defaultDate={selectedDate}
+                defaultStartTime={createDefaultStart}
+                defaultEndTime={createDefaultEnd}
               />
               <AgentToggleButton />
             </div>
@@ -563,6 +634,10 @@ export default function CalendarView() {
                 onEditEvent={handleEditEvent}
                 onDeleteEvent={handleDeleteEvent}
                 onEventTimeChange={handleEventTimeChange}
+                onClickTimeSlot={handleClickTimeSlot}
+                quickEditEventId={quickEditEventId}
+                onQuickEditSave={handleQuickEditSave}
+                onQuickEditCancel={handleQuickEditCancel}
                 isLoading={eventsLoading}
               />
             )}
@@ -573,6 +648,10 @@ export default function CalendarView() {
                 onEditEvent={handleEditEvent}
                 onDeleteEvent={handleDeleteEvent}
                 onEventTimeChange={handleEventTimeChange}
+                onClickTimeSlot={handleClickTimeSlot}
+                quickEditEventId={quickEditEventId}
+                onQuickEditSave={handleQuickEditSave}
+                onQuickEditCancel={handleQuickEditCancel}
                 isLoading={eventsLoading}
               />
             )}

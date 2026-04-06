@@ -18,12 +18,16 @@ interface CreateEventPopoverProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   defaultDate?: Date;
+  defaultStartTime?: string;
+  defaultEndTime?: string;
 }
 
 export function CreateEventPopover({
   open,
   onOpenChange,
   defaultDate,
+  defaultStartTime: defaultStart,
+  defaultEndTime: defaultEnd,
 }: CreateEventPopoverProps) {
   const today = defaultDate || new Date();
   const defaultDateStr = format(today, "yyyy-MM-dd");
@@ -31,8 +35,8 @@ export function CreateEventPopover({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [date, setDate] = useState(defaultDateStr);
-  const [startTime, setStartTime] = useState("09:00");
-  const [endTime, setEndTime] = useState("10:00");
+  const [startTime, setStartTime] = useState(defaultStart || "09:00");
+  const [endTime, setEndTime] = useState(defaultEnd || "10:00");
   const [location, setLocation] = useState("");
   const [allDay, setAllDay] = useState(false);
 
@@ -45,12 +49,12 @@ export function CreateEventPopover({
       setTitle("");
       setDescription("");
       setDate(format(defaultDate || new Date(), "yyyy-MM-dd"));
-      setStartTime("09:00");
-      setEndTime("10:00");
+      setStartTime(defaultStart || "09:00");
+      setEndTime(defaultEnd || "10:00");
       setLocation("");
       setAllDay(false);
     }
-  }, [open, defaultDate]);
+  }, [open, defaultDate, defaultStart, defaultEnd]);
 
   // ⌘+Enter to submit
   useEffect(() => {

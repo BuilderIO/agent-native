@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   IconLoader2,
   IconCheck,
@@ -182,7 +183,7 @@ export function AgentTaskCard({
             ref={previewRef}
             className="rounded-md bg-muted/30 px-3 py-2 text-xs text-muted-foreground break-words max-h-48 overflow-y-auto agent-markdown prose prose-sm prose-invert max-w-none"
           >
-            <ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
               {displayText.length > 800
                 ? "..." + displayText.slice(-800)
                 : displayText}
