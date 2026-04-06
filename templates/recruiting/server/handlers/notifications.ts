@@ -4,6 +4,7 @@ import {
   putSetting,
   deleteSetting,
 } from "@agent-native/core/settings";
+import { getOrgContext } from "../lib/org-context.js";
 import type { ActionItemsResponse } from "./action-items.js";
 
 type SlackConfig = {
@@ -11,26 +12,41 @@ type SlackConfig = {
   enabled: boolean;
 };
 
-const SETTING_KEY = "slack-notifications";
+function slackSettingsKey(orgId: string | null): string {
+  return orgId ? `org:${orgId}:slack-notifications` : "slack-notifications";
+}
 
-async function getSlackConfig(): Promise<SlackConfig | null> {
-  const setting = await getSetting(SETTING_KEY);
+async function getSlackConfig(
+  orgId: string | null,
+): Promise<SlackConfig | null> {
+  const setting = await getSetting(slackSettingsKey(orgId));
   if (setting && typeof setting === "object" && "webhookUrl" in setting) {
     return setting as SlackConfig;
+  }
+  // Fall back to global key
+  if (orgId) {
+    const global = await getSetting("slack-notifications");
+    if (global && typeof global === "object" && "webhookUrl" in global) {
+      return global as SlackConfig;
+    }
   }
   return null;
 }
 
-export const getNotificationStatusHandler = defineEventHandler(async () => {
-  const config = await getSlackConfig();
-  return {
-    configured: !!config?.webhookUrl,
-    enabled: config?.enabled ?? false,
-  };
-});
+export const getNotificationStatusHandler = defineEventHandler(
+  async (event) => {
+    const ctx = await getOrgContext(event);
+    const config = await getSlackConfig(ctx.orgId);
+    return {
+      configured: !!config?.webhookUrl,
+      enabled: config?.enabled ?? false,
+    };
+  },
+);
 
 export const saveNotificationConfigHandler = defineEventHandler(
   async (event) => {
+    const ctx = await getOrgContext(event);
     const body = await readBody(event);
     if (!body?.webhookUrl) {
       throw createError({
@@ -47,7 +63,7 @@ export const saveNotificationConfigHandler = defineEventHandler(
       });
     }
 
-    await putSetting(SETTING_KEY, {
+    await putSetting(slackSettingsKey(ctx.orgId), {
       webhookUrl: body.webhookUrl,
       enabled: body.enabled ?? true,
     });
@@ -56,14 +72,18 @@ export const saveNotificationConfigHandler = defineEventHandler(
   },
 );
 
-export const deleteNotificationConfigHandler = defineEventHandler(async () => {
-  await deleteSetting(SETTING_KEY);
-  return { success: true };
-});
+export const deleteNotificationConfigHandler = defineEventHandler(
+  async (event) => {
+    const ctx = await getOrgContext(event);
+    await deleteSetting(slackSettingsKey(ctx.orgId));
+    return { success: true };
+  },
+);
 
 export const sendRecruiterUpdateHandler = defineEventHandler(async (event) => {
+  const ctx = await getOrgContext(event);
   const body = await readBody(event);
-  const config = await getSlackConfig();
+  const config = await getSlackConfig(ctx.orgId);
 
   if (!config?.webhookUrl || !config.enabled) {
     throw createError({

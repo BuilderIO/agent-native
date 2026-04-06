@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import {
   IconPlus,
@@ -40,9 +40,27 @@ export function DocumentSidebar({
   const updateDocument = useUpdateDocument();
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
+  // Track which nodes have been explicitly collapsed by the user.
+  // All nodes default to expanded; only collapsed IDs are tracked.
+  const collapsedIds = useRef(new Set<string>());
+  const [, forceUpdate] = useState(0);
 
   const tree = buildDocumentTree(documents);
   const favorites = documents.filter((d) => d.isFavorite);
+
+  // Build expanded set: all document IDs except those explicitly collapsed
+  const expandedIds = new Set(
+    documents.map((d) => d.id).filter((id) => !collapsedIds.current.has(id)),
+  );
+
+  const handleToggleExpanded = useCallback((id: string) => {
+    if (collapsedIds.current.has(id)) {
+      collapsedIds.current.delete(id);
+    } else {
+      collapsedIds.current.add(id);
+    }
+    forceUpdate((n) => n + 1);
+  }, []);
 
   const handleCreatePage = useCallback(
     async (parentId?: string) => {
@@ -248,6 +266,8 @@ export function DocumentSidebar({
                       node={node}
                       depth={0}
                       activeId={activeDocumentId}
+                      expandedIds={expandedIds}
+                      onToggleExpanded={handleToggleExpanded}
                       onSelect={(id) => navigate(`/page/${id}`)}
                       onCreateChild={(parentId) => handleCreatePage(parentId)}
                       onDelete={handleDelete}

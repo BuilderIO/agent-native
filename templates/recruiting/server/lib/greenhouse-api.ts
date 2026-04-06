@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { getSetting } from "@agent-native/core/settings";
 import type {
   GreenhouseJob,
@@ -12,10 +13,43 @@ import type {
 
 const BASE_URL = "https://harvest.greenhouse.io/v1";
 
+/** AsyncLocalStorage to thread org context through Greenhouse API calls. */
+const orgContextStore = new AsyncLocalStorage<{ orgId: string }>();
+
+/**
+ * Run a function with org context so that Greenhouse API calls
+ * automatically use the org-scoped API key.
+ */
+export function withOrgContext<T>(
+  orgId: string,
+  fn: () => T | Promise<T>,
+): T | Promise<T> {
+  return orgContextStore.run({ orgId }, fn);
+}
+
+function settingsKey(): string {
+  const ctx = orgContextStore.getStore();
+  return ctx?.orgId
+    ? `org:${ctx.orgId}:greenhouse-api-key`
+    : "greenhouse-api-key";
+}
+
 export async function getApiKey(): Promise<string | null> {
-  const setting = await getSetting("greenhouse-api-key");
+  const setting = await getSetting(settingsKey());
   if (setting && typeof setting === "object" && "apiKey" in setting) {
     return (setting as { apiKey: string }).apiKey;
+  }
+  // Fall back to global key if org-scoped key not found
+  const ctx = orgContextStore.getStore();
+  if (ctx?.orgId) {
+    const globalSetting = await getSetting("greenhouse-api-key");
+    if (
+      globalSetting &&
+      typeof globalSetting === "object" &&
+      "apiKey" in globalSetting
+    ) {
+      return (globalSetting as { apiKey: string }).apiKey;
+    }
   }
   return null;
 }

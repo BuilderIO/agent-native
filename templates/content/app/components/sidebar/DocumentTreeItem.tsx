@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   IconChevronRight,
   IconFileText,
@@ -20,6 +19,8 @@ interface DocumentTreeItemProps {
   node: DocumentTreeNode;
   depth: number;
   activeId: string | null;
+  expandedIds: Set<string>;
+  onToggleExpanded: (id: string) => void;
   onSelect: (id: string) => void;
   onCreateChild: (parentId: string) => void;
   onDelete: (id: string) => void;
@@ -30,12 +31,14 @@ export function DocumentTreeItem({
   node,
   depth,
   activeId,
+  expandedIds,
+  onToggleExpanded,
   onSelect,
   onCreateChild,
   onDelete,
   onToggleFavorite,
 }: DocumentTreeItemProps) {
-  const [expanded, setExpanded] = useState(true);
+  const expanded = expandedIds.has(node.id);
   const hasChildren = node.children.length > 0;
   const isActive = node.id === activeId;
 
@@ -58,7 +61,7 @@ export function DocumentTreeItem({
           )}
           onClick={(e) => {
             e.stopPropagation();
-            setExpanded(!expanded);
+            onToggleExpanded(node.id);
           }}
         >
           <IconChevronRight
@@ -141,6 +144,8 @@ export function DocumentTreeItem({
               node={child}
               depth={depth + 1}
               activeId={activeId}
+              expandedIds={expandedIds}
+              onToggleExpanded={onToggleExpanded}
               onSelect={onSelect}
               onCreateChild={onCreateChild}
               onDelete={onDelete}
