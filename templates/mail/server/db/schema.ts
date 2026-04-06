@@ -17,6 +17,16 @@ export const scheduledJobs = table("scheduled_jobs", {
   createdAt: integer("created_at").notNull(),
 });
 
+export const contactFrequency = table("contact_frequency", {
+  id: text("id").primaryKey(), // ownerEmail:contactEmail
+  ownerEmail: text("owner_email").notNull(),
+  contactEmail: text("contact_email").notNull(),
+  contactName: text("contact_name").notNull().default(""),
+  sendCount: integer("send_count").notNull().default(0),
+  receiveCount: integer("receive_count").notNull().default(0),
+  lastContactedAt: integer("last_contacted_at").notNull(),
+});
+
 export const automationRules = table("automation_rules", {
   id: text("id").primaryKey(),
   ownerEmail: text("owner_email").notNull(),

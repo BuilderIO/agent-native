@@ -150,6 +150,13 @@ export function AppLayout({ children }: AppLayoutProps) {
   const tabsLoading = labelsLoading || settingsLoading || emailsLoading;
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  // Drag-to-reorder tabs
+  const [dragPinnedId, setDragPinnedId] = useState<string | null>(null);
+  const [dropIndicator, setDropIndicator] = useState<{
+    tabIndex: number;
+    side: "left" | "right";
+  } | null>(null);
+
   // Compute thread counts per label from inbox emails, filtered by active accounts
   const labelCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -202,6 +209,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const visibleTabs = useMemo(() => {
     const tabs: {
       id: string;
+      pinnedId?: string;
       label: string;
       href: string;
       isActive: boolean;
@@ -228,6 +236,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         seenLabels.add(sysView.label.toLowerCase());
         tabs.push({
           id: sysView.id,
+          pinnedId: id,
           label: sysView.label,
           href: `/${sysView.id}`,
           isActive: view === sysView.id,
@@ -255,6 +264,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         seenLabels.add(displayKey);
         tabs.push({
           id: lbl.id,
+          pinnedId: id,
           label: aliasedName,
           href: `/inbox?label=${encodeURIComponent(lbl.id)}`,
           isActive: activeLabel === lbl.id,
@@ -435,6 +445,71 @@ export function AppLayout({ children }: AppLayoutProps) {
     [settings?.pinnedLabels, updateSettings],
   );
 
+  // Drag-to-reorder tab handlers
+  const handleTabDragStart = useCallback(
+    (e: React.DragEvent, pinnedId: string) => {
+      setDragPinnedId(pinnedId);
+      e.dataTransfer.effectAllowed = "move";
+    },
+    [],
+  );
+
+  const handleTabDragOver = useCallback(
+    (e: React.DragEvent, tabIndex: number) => {
+      if (!dragPinnedId) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      const midX = rect.left + rect.width / 2;
+      setDropIndicator({
+        tabIndex,
+        side: e.clientX < midX ? "left" : "right",
+      });
+    },
+    [dragPinnedId],
+  );
+
+  const handleTabDrop = useCallback(() => {
+    if (!dragPinnedId || !dropIndicator) return;
+    const current = settings?.pinnedLabels ?? [];
+    if (!current.includes(dragPinnedId)) return;
+
+    const targetTab = visibleTabs[dropIndicator.tabIndex];
+    if (!targetTab) return;
+
+    const without = current.filter((id) => id !== dragPinnedId);
+    let insertAt: number;
+
+    if (targetTab.pinnedId === "important") {
+      insertAt = 0;
+    } else if (!targetTab.pinnedId) {
+      insertAt = without.length;
+    } else {
+      const targetIdx = without.indexOf(targetTab.pinnedId);
+      if (targetIdx < 0) {
+        insertAt = without.length;
+      } else {
+        insertAt = dropIndicator.side === "left" ? targetIdx : targetIdx + 1;
+      }
+    }
+
+    without.splice(insertAt, 0, dragPinnedId);
+    updateSettings.mutate({ pinnedLabels: without });
+    setDragPinnedId(null);
+    setDropIndicator(null);
+  }, [
+    dragPinnedId,
+    dropIndicator,
+    settings?.pinnedLabels,
+    visibleTabs,
+    updateSettings,
+  ]);
+
+  const handleTabDragEnd = useCallback(() => {
+    setDragPinnedId(null);
+    setDropIndicator(null);
+  }, []);
+
   // Global keyboard shortcuts
   const cycleTab = useCallback(
     (reverse?: boolean) => {
@@ -564,39 +639,69 @@ export function AppLayout({ children }: AppLayoutProps) {
                 </nav>
               ) : (
                 <nav className="flex items-center gap-0.5 overflow-x-auto hide-scrollbar">
-                  {visibleTabs.map((tab) => {
+                  {visibleTabs.map((tab, idx) => {
                     const count = getTotalCount(tab.id);
+                    const isDragging = dragPinnedId === tab.pinnedId;
+                    const canDrag =
+                      !!tab.pinnedId && tab.pinnedId !== "important";
+                    const showLeft =
+                      dropIndicator?.tabIndex === idx &&
+                      dropIndicator.side === "left";
+                    const showRight =
+                      dropIndicator?.tabIndex === idx &&
+                      dropIndicator.side === "right";
                     return (
-                      <Link
-                        key={tab.id}
-                        to={tab.href}
-                        className={cn(
-                          "flex items-center gap-1.5 whitespace-nowrap px-2.5 py-1 text-[13px]",
-                          tab.isActive
-                            ? "text-foreground font-semibold"
-                            : "text-muted-foreground font-medium hover:text-foreground/80",
-                        )}
+                      <div
+                        key={tab.pinnedId || tab.id}
+                        className="relative flex items-center"
+                        onDragOver={(e) => handleTabDragOver(e, idx)}
+                        onDrop={handleTabDrop}
                       >
-                        {tab.color && (
-                          <span
-                            className="h-1.5 w-1.5 rounded-full shrink-0"
-                            style={{ backgroundColor: tab.color }}
-                          />
+                        {showLeft && (
+                          <div className="absolute left-0 top-1.5 bottom-1.5 w-0.5 bg-primary rounded-full z-10" />
                         )}
-                        {tab.label}
-                        {count > 0 && (
-                          <span
-                            className={cn(
-                              "text-[11px] tabular-nums",
-                              tab.isActive
-                                ? "text-foreground/60"
-                                : "text-muted-foreground/70",
-                            )}
-                          >
-                            {count}
-                          </span>
+                        <Link
+                          to={tab.href}
+                          draggable={canDrag}
+                          onDragStart={(e) =>
+                            canDrag &&
+                            tab.pinnedId &&
+                            handleTabDragStart(e, tab.pinnedId)
+                          }
+                          onDragEnd={handleTabDragEnd}
+                          className={cn(
+                            "flex items-center gap-1.5 whitespace-nowrap px-2.5 py-1 text-[13px] select-none",
+                            tab.isActive
+                              ? "text-foreground font-semibold"
+                              : "text-muted-foreground font-medium hover:text-foreground/80",
+                            isDragging && "opacity-40",
+                            canDrag && "cursor-grab",
+                          )}
+                        >
+                          {tab.color && (
+                            <span
+                              className="h-1.5 w-1.5 rounded-full shrink-0"
+                              style={{ backgroundColor: tab.color }}
+                            />
+                          )}
+                          {tab.label}
+                          {count > 0 && (
+                            <span
+                              className={cn(
+                                "text-[11px] tabular-nums",
+                                tab.isActive
+                                  ? "text-foreground/60"
+                                  : "text-muted-foreground/70",
+                              )}
+                            >
+                              {count}
+                            </span>
+                          )}
+                        </Link>
+                        {showRight && (
+                          <div className="absolute right-0 top-1.5 bottom-1.5 w-0.5 bg-primary rounded-full z-10" />
                         )}
-                      </Link>
+                      </div>
                     );
                   })}
 

@@ -5,8 +5,9 @@
  * against a SQLite or Postgres database.
  *
  * In production mode, temporary views scope UPDATE/DELETE to the current
- * user's data (AGENT_USER_EMAIL). For INSERT, the `owner_email` column
- * is auto-injected if the target table uses the ownership convention.
+ * user's data (AGENT_USER_EMAIL / AGENT_ORG_ID). For INSERT, the
+ * `owner_email` and `org_id` columns are auto-injected if the target
+ * table uses the ownership convention.
  *
  * Usage:
  *   pnpm action db-exec --sql "UPDATE forms SET status='published' WHERE id='abc'" [--db path]
@@ -27,15 +28,14 @@ function isPostgresUrl(url: string): boolean {
 }
 
 /**
- * For INSERT statements targeting a table with an owner_email column,
- * auto-inject the current user's email if not already present.
+ * For INSERT statements targeting a table with owner_email / org_id columns,
+ * auto-inject the current user's email and org ID if not already present.
  *
- * Handles both forms:
- *   INSERT INTO table (col1, col2) VALUES (?, ?)
- *   INSERT INTO table VALUES (...)
+ * Handles the explicit column list form:
+ *   INSERT INTO table (col1, col2) VALUES (val1, val2)
  */
-function injectOwnerEmail(sql: string, scoping: ScopingContext): string {
-  if (!scoping.active || !scoping.userEmail) return sql;
+function injectOwnership(sql: string, scoping: ScopingContext): string {
+  if (!scoping.active) return sql;
 
   const upper = sql
     .replace(/^\s*--[^\n]*\n/gm, "")
@@ -49,10 +49,33 @@ function injectOwnerEmail(sql: string, scoping: ScopingContext): string {
   if (!match) return sql;
 
   const tableName = match[1];
-  if (!scoping.ownerEmailTables.has(tableName)) return sql;
 
-  // Check if owner_email is already in the column list
-  if (/owner_email/i.test(sql)) return sql;
+  // Determine which columns to inject
+  const injections: { col: string; value: string }[] = [];
+
+  if (
+    scoping.userEmail &&
+    scoping.ownerEmailTables.has(tableName) &&
+    !/owner_email/i.test(sql)
+  ) {
+    injections.push({
+      col: "owner_email",
+      value: `'${scoping.userEmail.replace(/'/g, "''")}'`,
+    });
+  }
+
+  if (
+    scoping.orgId &&
+    scoping.orgIdTables.has(tableName) &&
+    !/org_id/i.test(sql)
+  ) {
+    injections.push({
+      col: "org_id",
+      value: `'${scoping.orgId.replace(/'/g, "''")}'`,
+    });
+  }
+
+  if (injections.length === 0) return sql;
 
   // Try to inject into explicit column list: INSERT INTO t (cols) VALUES (vals)
   const colListMatch = sql.match(
@@ -60,8 +83,9 @@ function injectOwnerEmail(sql: string, scoping: ScopingContext): string {
   );
   if (colListMatch) {
     const [, prefix, cols, valueKeyword, vals] = colListMatch;
-    const escaped = scoping.userEmail.replace(/'/g, "''");
-    return `${prefix}(${cols}, owner_email)${valueKeyword}(${vals}, '${escaped}')`;
+    const extraCols = injections.map((i) => i.col).join(", ");
+    const extraVals = injections.map((i) => i.value).join(", ");
+    return `${prefix}(${cols}, ${extraCols})${valueKeyword}(${vals}, ${extraVals})`;
   }
 
   return sql;
@@ -185,8 +209,8 @@ Options:
         await pgSql.unsafe(stmt);
       }
 
-      // For INSERT: auto-inject owner_email
-      const finalSql = injectOwnerEmail(sql, scoping);
+      // For INSERT: auto-inject owner_email / org_id
+      const finalSql = injectOwnership(sql, scoping);
 
       const result = await pgSql.unsafe(finalSql);
       const rows: Record<string, unknown>[] =
@@ -221,8 +245,8 @@ Options:
       await client.execute(stmt);
     }
 
-    // For INSERT: auto-inject owner_email
-    const finalSql = injectOwnerEmail(sql, scoping);
+    // For INSERT: auto-inject owner_email / org_id
+    const finalSql = injectOwnership(sql, scoping);
 
     const result = await client.execute(finalSql);
 

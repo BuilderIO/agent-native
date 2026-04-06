@@ -148,6 +148,103 @@ describe("scoping", () => {
       }
     });
 
+    it("scopes by org_id when AGENT_ORG_ID is set", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AGENT_USER_EMAIL", "alice@test.com");
+      vi.stubEnv("AGENT_ORG_ID", "org-123");
+      const { buildScopingSqlite } = await import("./scoping.js");
+
+      const mockClient = {
+        execute: vi.fn().mockImplementation((sql: string) => {
+          if (sql.includes("sqlite_master")) {
+            return {
+              rows: [
+                { name: "notes" },
+                { name: "org_only_table" },
+                { name: "plain_table" },
+              ],
+            };
+          }
+          if (sql.includes("notes")) {
+            return {
+              rows: [
+                { name: "id" },
+                { name: "owner_email" },
+                { name: "org_id" },
+                { name: "content" },
+              ],
+            };
+          }
+          if (sql.includes("org_only_table")) {
+            return {
+              rows: [{ name: "id" }, { name: "org_id" }, { name: "data" }],
+            };
+          }
+          if (sql.includes("plain_table")) {
+            return {
+              rows: [{ name: "id" }, { name: "data" }],
+            };
+          }
+          return { rows: [] };
+        }),
+      };
+
+      const ctx = await buildScopingSqlite(mockClient);
+      expect(ctx.active).toBe(true);
+      expect(ctx.orgId).toBe("org-123");
+
+      // notes has both owner_email AND org_id — both should appear
+      const notesView = ctx.setup.find((s) => s.includes('"notes"'));
+      expect(notesView).toContain('"owner_email" = ');
+      expect(notesView).toContain('"org_id" = ');
+      expect(notesView).toContain("AND");
+
+      // org_only_table has only org_id
+      const orgOnlyView = ctx.setup.find((s) => s.includes('"org_only_table"'));
+      expect(orgOnlyView).toContain('"org_id" = ');
+      expect(orgOnlyView).not.toContain("owner_email");
+
+      // plain_table has neither — should not be scoped
+      const plainView = ctx.setup.find((s) => s.includes('"plain_table"'));
+      expect(plainView).toBeUndefined();
+
+      // Track org_id tables
+      expect(ctx.orgIdTables.has("notes")).toBe(true);
+      expect(ctx.orgIdTables.has("org_only_table")).toBe(true);
+      expect(ctx.orgIdTables.has("plain_table")).toBe(false);
+    });
+
+    it("skips org_id scoping when AGENT_ORG_ID is not set", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AGENT_USER_EMAIL", "alice@test.com");
+      delete process.env.AGENT_ORG_ID;
+      const { buildScopingSqlite } = await import("./scoping.js");
+
+      const mockClient = {
+        execute: vi.fn().mockImplementation((sql: string) => {
+          if (sql.includes("sqlite_master")) {
+            return { rows: [{ name: "notes" }] };
+          }
+          return {
+            rows: [
+              { name: "id" },
+              { name: "owner_email" },
+              { name: "org_id" },
+              { name: "content" },
+            ],
+          };
+        }),
+      };
+
+      const ctx = await buildScopingSqlite(mockClient);
+      expect(ctx.orgId).toBeNull();
+
+      // Should scope by owner_email but NOT org_id
+      const notesView = ctx.setup.find((s) => s.includes('"notes"'));
+      expect(notesView).toContain('"owner_email"');
+      expect(notesView).not.toContain("org_id");
+    });
+
     it("escapes single quotes in email for SQL safety", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("AGENT_USER_EMAIL", "o'malley@test.com");

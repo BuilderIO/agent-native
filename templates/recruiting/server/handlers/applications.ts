@@ -1,7 +1,8 @@
-import { defineEventHandler, getRouterParam, readBody, createError } from "h3";
+import { getRouterParam, readBody, createError } from "h3";
 import * as gh from "../lib/greenhouse-api.js";
+import { defineOrgHandler } from "../lib/org-context.js";
 
-export const getApplicationHandler = defineEventHandler(async (event) => {
+export const getApplicationHandler = defineOrgHandler(async (event) => {
   const id = Number(getRouterParam(event, "id"));
   if (!id)
     throw createError({
@@ -11,7 +12,7 @@ export const getApplicationHandler = defineEventHandler(async (event) => {
   return gh.getApplication(id);
 });
 
-export const advanceApplicationHandler = defineEventHandler(async (event) => {
+export const advanceApplicationHandler = defineOrgHandler(async (event) => {
   const id = Number(getRouterParam(event, "id"));
   if (!id)
     throw createError({
@@ -23,7 +24,7 @@ export const advanceApplicationHandler = defineEventHandler(async (event) => {
   return { success: true };
 });
 
-export const moveApplicationHandler = defineEventHandler(async (event) => {
+export const moveApplicationHandler = defineOrgHandler(async (event) => {
   const id = Number(getRouterParam(event, "id"));
   if (!id)
     throw createError({
@@ -41,7 +42,7 @@ export const moveApplicationHandler = defineEventHandler(async (event) => {
   return { success: true };
 });
 
-export const rejectApplicationHandler = defineEventHandler(async (event) => {
+export const rejectApplicationHandler = defineOrgHandler(async (event) => {
   const id = Number(getRouterParam(event, "id"));
   if (!id)
     throw createError({

@@ -18,7 +18,10 @@ export function useIntegrationStatus() {
   const fetchStatuses = useCallback(async () => {
     try {
       const res = await fetch("/_agent-native/integrations/status");
-      if (!res.ok) return;
+      if (!res.ok) {
+        if (mountedRef.current) setLoading(false);
+        return;
+      }
       const data = await res.json();
       if (mountedRef.current) {
         setStatuses(Array.isArray(data) ? data : []);

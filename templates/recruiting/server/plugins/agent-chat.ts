@@ -1,7 +1,12 @@
 import { createAgentChatPlugin } from "@agent-native/core/server";
+import { getOrgContext } from "../lib/org-context.js";
 
 export default createAgentChatPlugin({
   appId: "recruiting",
+  resolveOrgId: async (event) => {
+    const ctx = await getOrgContext(event);
+    return ctx.orgId;
+  },
   actions: async () => {
     const { actionRegistry } = await import("../../actions/registry.js");
     return actionRegistry;
