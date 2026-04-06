@@ -75,9 +75,9 @@ function splitShellArgs(input: string): string[] {
     if ((ch === " " || ch === "\t") && !inDouble && !inSingle) {
       if (current.length > 0 || wasQuoted) {
         tokens.push(current);
-        current = "";
-        wasQuoted = false;
       }
+      current = "";
+      wasQuoted = false;
       continue;
     }
     current += ch;
