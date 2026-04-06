@@ -2,6 +2,17 @@
   command = "pnpm --filter @agent-native/core build && pnpm --filter calorie-tracker build"
   publish = "build/client"
 
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+# SSR catch-all redirect to the server function
+[[redirects]]
+  from = "/*"
+  to = "/.netlify/functions/server"
+  status = 200
+  force = false
+
 # Ensure HTML is never cached
 [[headers]]
   for = "/"
