@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import {
   format,
   startOfMonth,
@@ -120,20 +120,26 @@ export default function CalendarView() {
     isLoading,
   } = useEvents(from, to, overlayEmails);
 
-  // Only show skeleton on the very first load when there's no data at all.
-  // Background refetches (e.g. window refocus) keep showing existing events.
-  const eventsLoading = isLoading && rawEvents.length === 0;
+  // Keep a ref of the last non-empty events so we never flash skeletons
+  // when refetching (e.g. window refocus after stale tab, query key change).
+  const lastEventsRef = useRef<typeof rawEvents>(rawEvents);
+  if (rawEvents.length > 0) lastEventsRef.current = rawEvents;
+  const displayEvents =
+    rawEvents.length > 0 ? rawEvents : lastEventsRef.current;
+
+  // Only show skeleton on the very first load when there's truly no data at all.
+  const eventsLoading = isLoading && displayEvents.length === 0;
 
   // Apply overlay colors to events
   const events = useMemo(() => {
     const colorMap = new Map(overlayPeople.map((p) => [p.email, p.color]));
-    return rawEvents.map((e) => {
+    return displayEvents.map((e) => {
       if (e.overlayEmail && colorMap.has(e.overlayEmail)) {
         return { ...e, color: colorMap.get(e.overlayEmail) };
       }
       return e;
     });
-  }, [rawEvents, overlayPeople]);
+  }, [displayEvents, overlayPeople]);
 
   // Filter events for day view
   const dayEvents = useMemo(

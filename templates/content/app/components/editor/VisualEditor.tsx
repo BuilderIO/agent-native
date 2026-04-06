@@ -404,7 +404,16 @@ export function VisualEditor({
       // during navigation we must force content replacement
       if (editor.isFocused && !docChanged) return;
       isSettingContent.current = true;
-      editor.commands.setContent(nextEditorContent);
+      // Use addToHistory: false so cmd+z doesn't erase loaded content.
+      // External content changes (load, sync) should never be undoable.
+      editor
+        .chain()
+        .command(({ tr }) => {
+          tr.setMeta("addToHistory", false);
+          return true;
+        })
+        .setContent(nextEditorContent)
+        .run();
       isSettingContent.current = false;
     }
   }, [content, editor, documentId]);

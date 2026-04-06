@@ -359,6 +359,32 @@ function inlineMarkdownToHtml(text: string): string {
   return result;
 }
 
+/**
+ * Count leading indentation in a line, treating each tab as 1 level
+ * and each pair of spaces as 1 level. Returns the indent count and
+ * the rest of the line after the whitespace.
+ */
+function countLineIndent(line: string): { indent: number; rest: string } {
+  let indent = 0;
+  let i = 0;
+  while (i < line.length) {
+    if (line[i] === "\t") {
+      indent++;
+      i++;
+    } else if (line[i] === " ") {
+      let spaces = 0;
+      while (i < line.length && line[i] === " ") {
+        spaces++;
+        i++;
+      }
+      indent += Math.floor(spaces / 2);
+    } else {
+      break;
+    }
+  }
+  return { indent, rest: line.slice(i) };
+}
+
 /** Convert NFM lines (tab-indented, with optional list markers) to HTML. */
 function nfmLinesToHtml(lines: string[]): string {
   const html: string[] = [];
@@ -368,8 +394,7 @@ function nfmLinesToHtml(lines: string[]): string {
   let baseIndent = Infinity;
   for (const line of lines) {
     if (!line.trim()) continue;
-    const m = line.match(/^(\t*)/);
-    if (m) baseIndent = Math.min(baseIndent, m[1].length);
+    baseIndent = Math.min(baseIndent, countLineIndent(line).indent);
   }
   if (!isFinite(baseIndent)) baseIndent = 0;
 
@@ -400,12 +425,9 @@ function nfmLinesToHtml(lines: string[]): string {
       continue;
     }
     if (inCodeFence) {
+      const tabPrefix = "\t".repeat(baseIndent);
       html.push(
-        escapeHtml(
-          line.startsWith("\t".repeat(baseIndent))
-            ? line.slice(baseIndent)
-            : line,
-        ),
+        escapeHtml(line.startsWith(tabPrefix) ? line.slice(baseIndent) : line),
       );
       continue;
     }
@@ -415,9 +437,9 @@ function nfmLinesToHtml(lines: string[]): string {
       continue;
     }
 
-    const indentMatch = line.match(/^(\t*)(.*)/);
-    const depth = (indentMatch ? indentMatch[1].length : 0) - baseIndent;
-    const content = (indentMatch ? indentMatch[2] : line).trim();
+    const { indent, rest } = countLineIndent(line);
+    const depth = indent - baseIndent;
+    const content = rest.trim();
 
     // HTML element tags (nested <details>, <summary>, <callout>, etc.)
     // Use [a-zA-Z] to avoid matching text like "<3"
@@ -445,7 +467,9 @@ function nfmLinesToHtml(lines: string[]): string {
         openLevels++;
       }
 
-      html.push(`<li>${inlineMarkdownToHtml(text)}`);
+      // Wrap text in <p> so TipTap's ListItem (content: 'paragraph block*')
+      // can properly parse the list item content.
+      html.push(`<li><p>${inlineMarkdownToHtml(text)}</p>`);
     } else {
       closeLists();
       // Plain text — use nested <blockquote> for indentation

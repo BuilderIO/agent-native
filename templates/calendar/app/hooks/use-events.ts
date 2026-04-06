@@ -31,6 +31,7 @@ export function useEvents(
     },
     retry: false,
     staleTime: 30_000,
+    gcTime: 10 * 60 * 1000,
     placeholderData: keepPreviousData,
   });
   return {

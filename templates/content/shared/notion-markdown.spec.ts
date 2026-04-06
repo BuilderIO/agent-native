@@ -102,7 +102,7 @@ describe("parseNfmForEditor", () => {
       expect(result).toContain("</details>");
     });
 
-    it("converts list items inside toggle to HTML lists", () => {
+    it("converts list items inside toggle to HTML lists with paragraph wrappers", () => {
       const input = [
         "<details>",
         "<summary>Toggle</summary>",
@@ -113,6 +113,25 @@ describe("parseNfmForEditor", () => {
       const result = parseNfmForEditor(input);
       expect(result).toContain("<ul>");
       expect(result).toContain("<li>");
+      // List items must have <p> wrappers for TipTap's ListItem to parse them
+      expect(result).toContain("<p>item 1</p>");
+      expect(result).toContain("<p>item 2</p>");
+    });
+
+    it("preserves nested list indentation inside toggle", () => {
+      const input = [
+        "<details>",
+        "<summary>Toggle</summary>",
+        "\t- parent",
+        "\t  - child",
+        "</details>",
+      ].join("\n");
+      const result = parseNfmForEditor(input);
+      // Should have nested <ul> structure
+      const ulCount = (result.match(/<ul>/g) || []).length;
+      expect(ulCount).toBeGreaterThanOrEqual(2);
+      expect(result).toContain("<p>parent</p>");
+      expect(result).toContain("<p>child</p>");
     });
 
     it("handles nested indentation inside toggle", () => {
