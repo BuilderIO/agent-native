@@ -10,7 +10,14 @@ export const tool: ActionTool = {
       view: {
         type: "string",
         description: "View to navigate to",
-        enum: ["dashboard", "jobs", "candidates", "interviews", "settings"],
+        enum: [
+          "dashboard",
+          "action-items",
+          "jobs",
+          "candidates",
+          "interviews",
+          "settings",
+        ],
       },
       jobId: { type: "string", description: "Job ID to open" },
       candidateId: { type: "string", description: "Candidate ID to open" },

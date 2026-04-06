@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
 } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router";
@@ -15,7 +16,7 @@ import {
   IconPlus,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
-import { useContacts, type Contact } from "@/hooks/use-emails";
+import { useContacts, useEmails, type Contact } from "@/hooks/use-emails";
 import { useAliases, useCreateAlias } from "@/hooks/use-aliases";
 import {
   isAliasToken,
@@ -239,6 +240,25 @@ export function RecipientInput({
 
   const { data: contacts = [] } = useContacts();
   const { data: aliases = [] } = useAliases();
+  const { data: recentEmails = [] } = useEmails("inbox");
+
+  // Build email frequency map from loaded inbox for sorting contacts by recency
+  const emailFrequency = useMemo(() => {
+    const freq = new Map<string, number>();
+    for (const e of recentEmails) {
+      // Count appearances in from, to, cc
+      const addrs = [
+        e.from.email,
+        ...e.to.map((t) => t.email),
+        ...(e.cc || []).map((c) => c.email),
+      ];
+      for (const addr of addrs) {
+        const key = addr.toLowerCase();
+        freq.set(key, (freq.get(key) || 0) + 1);
+      }
+    }
+    return freq;
+  }, [recentEmails]);
 
   const recipients = parseRecipients(value);
 
@@ -252,16 +272,23 @@ export function RecipientInput({
     : [];
 
   const filteredContacts = query
-    ? contacts.filter((c) => {
-        const alreadyAdded = recipients.some(
-          (r) => r.toLowerCase() === c.email.toLowerCase(),
-        );
-        return (
-          !alreadyAdded &&
-          (c.name.toLowerCase().includes(query) ||
-            c.email.toLowerCase().includes(query))
-        );
-      })
+    ? contacts
+        .filter((c) => {
+          const alreadyAdded = recipients.some(
+            (r) => r.toLowerCase() === c.email.toLowerCase(),
+          );
+          return (
+            !alreadyAdded &&
+            (c.name.toLowerCase().includes(query) ||
+              c.email.toLowerCase().includes(query))
+          );
+        })
+        .sort((a, b) => {
+          // Sort by email frequency from recent inbox (most emailed first)
+          const aFreq = emailFrequency.get(a.email.toLowerCase()) || 0;
+          const bFreq = emailFrequency.get(b.email.toLowerCase()) || 0;
+          return bFreq - aFreq;
+        })
     : [];
 
   // Combined for keyboard nav — aliases first (sliced to match dropdown rendering)

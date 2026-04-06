@@ -119,10 +119,34 @@ export function AppLayout({ children }: AppLayoutProps) {
   const popoverRef = useRef<HTMLDivElement>(null);
   const tabSettingsRef = useRef<HTMLDivElement>(null);
 
-  const pinnedLabels = settings?.pinnedLabels ?? [];
+  const isGoogleConnected = (googleStatus.data?.accounts?.length ?? 0) > 0;
+  const connectedEmails = useMemo(
+    () => new Set(accounts.map((a) => a.email.toLowerCase())),
+    [accounts],
+  );
+  // Important is always on and always first when Google is connected
+  const userPinnedLabels = settings?.pinnedLabels ?? [];
+  const pinnedLabels = isGoogleConnected
+    ? ["important", ...userPinnedLabels.filter((id) => id !== "important")]
+    : userPinnedLabels;
+  const hasNoteToSelf = pinnedLabels.includes("note-to-self");
   const labelAliases = settings?.labelAliases ?? {};
-  const { data: inboxEmails = [], isLoading: emailsLoading } =
+  const { data: rawInboxEmails = [], isLoading: emailsLoading } =
     useEmails("inbox");
+  // Augment emails: self-sent → "important" (or "note-to-self" if pinned)
+  const inboxEmails = useMemo(() => {
+    if (!isGoogleConnected) return rawInboxEmails;
+    return rawInboxEmails.map((e) => {
+      const isSelfSent = connectedEmails.has(e.from.email.toLowerCase());
+      if (!isSelfSent) return e;
+      const virtualLabel = hasNoteToSelf ? "note-to-self" : "important";
+      if (e.labelIds.includes(virtualLabel)) return e;
+      let labelIds = [...e.labelIds];
+      if (hasNoteToSelf) labelIds = labelIds.filter((l) => l !== "important");
+      if (!labelIds.includes(virtualLabel)) labelIds.push(virtualLabel);
+      return { ...e, labelIds };
+    });
+  }, [rawInboxEmails, isGoogleConnected, connectedEmails, hasNoteToSelf]);
   const tabsLoading = labelsLoading || settingsLoading || emailsLoading;
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -170,6 +194,11 @@ export function AppLayout({ children }: AppLayoutProps) {
   }, [inboxEmails, pinnedLabels, activeAccounts]);
 
   // Tabs to show in the bar: Inbox + pinned items (system views or labels)
+  // Check if any pinned labels are category/label filters (not system views like starred/sent)
+  const hasPinnedFilters = pinnedLabels.some(
+    (id) => !collapsibleViews.some((v) => v.id === id),
+  );
+
   const visibleTabs = useMemo(() => {
     const tabs: {
       id: string;
@@ -177,14 +206,18 @@ export function AppLayout({ children }: AppLayoutProps) {
       href: string;
       isActive: boolean;
       color?: string;
-    }[] = [
-      {
+    }[] = [];
+
+    // When there are pinned label/category filters, add them first,
+    // then "Other" (inbox minus pinned). Otherwise just show "Inbox".
+    if (!hasPinnedFilters) {
+      tabs.push({
         id: "inbox",
         label: "Inbox",
         href: "/inbox",
         isActive: view === "inbox" && !activeLabel,
-      },
-    ];
+      });
+    }
 
     const seenLabels = new Set<string>(["inbox"]);
     for (const id of pinnedLabels) {
@@ -229,8 +262,20 @@ export function AppLayout({ children }: AppLayoutProps) {
         });
       }
     }
+
+    // When there are pinned label/category filters, add "Other" at the end
+    // (shows inbox emails not in any pinned label)
+    if (hasPinnedFilters) {
+      tabs.push({
+        id: "inbox",
+        label: "Other",
+        href: "/inbox",
+        isActive: view === "inbox" && !activeLabel,
+      });
+    }
+
     return tabs;
-  }, [labels, pinnedLabels, labelAliases, view, activeLabel]);
+  }, [labels, pinnedLabels, labelAliases, view, activeLabel, hasPinnedFilters]);
 
   // System views NOT pinned (go in the "more" dropdown)
   const hiddenViews = useMemo(
@@ -1107,9 +1152,42 @@ function TabSettingsPopover({
     ? systemViews.filter((v) => v.label.toLowerCase().includes(q))
     : systemViews;
 
-  const filteredLabels = search
+  // Split labels into Gmail categories and regular user labels
+  // "important" is excluded — it's always on and not toggleable
+  const gmailCategoryIds = new Set([
+    "note-to-self",
+    "promotions",
+    "social",
+    "updates",
+    "forums",
+    "personal",
+  ]);
+  // Ensure all known Gmail categories always appear (some are virtual, not from API)
+  const knownCategories: Label[] = [
+    {
+      id: "note-to-self",
+      name: "Note to Self",
+      type: "system",
+      unreadCount: 0,
+    },
+    { id: "promotions", name: "Promotions", type: "system", unreadCount: 0 },
+    { id: "social", name: "Social", type: "system", unreadCount: 0 },
+    { id: "updates", name: "Updates", type: "system", unreadCount: 0 },
+    { id: "forums", name: "Forums", type: "system", unreadCount: 0 },
+  ];
+  const apiCategories = userLabels.filter((l) => gmailCategoryIds.has(l.id));
+  const apiCategoryIds = new Set(apiCategories.map((l) => l.id));
+  const mergedCategories = [
+    ...apiCategories,
+    ...knownCategories.filter((c) => !apiCategoryIds.has(c.id)),
+  ];
+  const allLabels = search
     ? userLabels.filter((l) => l.name.toLowerCase().includes(q))
     : userLabels;
+  const filteredCategories = search
+    ? mergedCategories.filter((l) => l.name.toLowerCase().includes(q))
+    : mergedCategories;
+  const filteredLabels = allLabels.filter((l) => !gmailCategoryIds.has(l.id));
 
   // Sort: pinned first, then alphabetical
   const sortedLabels = [...filteredLabels].sort((a, b) => {
@@ -1119,8 +1197,9 @@ function TabSettingsPopover({
   });
 
   const showViews = filteredViews.length > 0;
+  const showCategories = filteredCategories.length > 0;
   const showLabels = sortedLabels.length > 0;
-  const noResults = !showViews && !showLabels && search;
+  const noResults = !showViews && !showCategories && !showLabels && search;
 
   return (
     <div className="absolute left-0 top-full mt-1.5 z-50 w-60 rounded-lg border border-border/50 bg-card shadow-xl">
@@ -1159,13 +1238,36 @@ function TabSettingsPopover({
           </div>
         )}
 
+        {/* Gmail categories */}
+        {showCategories && (
+          <div>
+            <p
+              className={cn(
+                "px-3 pt-2 pb-1 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider",
+                showViews && "border-t border-border/20 mt-1",
+              )}
+            >
+              Categories
+            </p>
+            {filteredCategories.map((cat) => (
+              <CheckboxRow
+                key={cat.id}
+                checked={pinnedLabels.includes(cat.id)}
+                label={cat.name}
+                onToggle={() => onToggle(cat.id)}
+              />
+            ))}
+          </div>
+        )}
+
         {/* User labels */}
         {showLabels && (
           <div>
             <p
               className={cn(
                 "px-3 pt-2 pb-1 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider",
-                showViews && "border-t border-border/20 mt-1",
+                (showViews || showCategories) &&
+                  "border-t border-border/20 mt-1",
               )}
             >
               Labels

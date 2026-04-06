@@ -11,7 +11,7 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import { cn } from "../utils.js";
-import type { TreeNode, ResourceMeta } from "./use-resources.js";
+import type { TreeNode, ResourceMeta, JobMetadata } from "./use-resources.js";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -45,6 +45,47 @@ export interface ResourceTreeProps {
 interface CreatingState {
   parentPath: string;
   type: "file" | "folder";
+}
+
+function JobStatusDot({ meta }: { meta: JobMetadata }) {
+  if (!meta.enabled) {
+    return (
+      <span
+        className="ml-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/40"
+        title="Disabled"
+      />
+    );
+  }
+  if (meta.lastStatus === "running") {
+    return (
+      <span
+        className="ml-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500 animate-pulse"
+        title="Running"
+      />
+    );
+  }
+  if (meta.lastStatus === "error") {
+    return (
+      <span
+        className="ml-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-red-500"
+        title="Last run failed"
+      />
+    );
+  }
+  if (meta.lastStatus === "success") {
+    return (
+      <span
+        className="ml-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-green-500"
+        title="Last run succeeded"
+      />
+    );
+  }
+  return (
+    <span
+      className="ml-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500"
+      title="Scheduled (not yet run)"
+    />
+  );
 }
 
 // ─── TreeNodeRow ────────────────────────────────────────────────────────────
@@ -107,6 +148,7 @@ function TreeNodeRow({
         <span className="min-w-0 truncate text-[12px] leading-none">
           {node.name}
         </span>
+        {node.jobMeta && <JobStatusDot meta={node.jobMeta} />}
         <div className="ml-auto flex shrink-0 items-center gap-0.5 opacity-0 group-hover/row:opacity-100">
           {isFolder && (
             <button

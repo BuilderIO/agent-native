@@ -21,12 +21,23 @@ export interface ResourceMeta {
   updatedAt: number;
 }
 
+export interface JobMetadata {
+  schedule?: string;
+  scheduleDescription?: string;
+  enabled?: boolean;
+  lastStatus?: "success" | "error" | "running" | "skipped";
+  lastRun?: string;
+  nextRun?: string;
+}
+
 export interface TreeNode {
   name: string;
   path: string;
   type: "file" | "folder";
   children?: TreeNode[];
   resource?: ResourceMeta;
+  /** Parsed metadata for job files (under jobs/) */
+  jobMeta?: JobMetadata;
 }
 
 export type ResourceScope = "personal" | "shared" | "all";

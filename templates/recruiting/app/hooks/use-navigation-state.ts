@@ -8,6 +8,8 @@ function resolveNavPath(cmd: NavigationState): string {
     return cmd.jobId ? `/jobs/${cmd.jobId}` : "/jobs";
   } else if (cmd.view === "candidates") {
     return cmd.candidateId ? `/candidates/${cmd.candidateId}` : "/candidates";
+  } else if (cmd.view === "action-items") {
+    return "/action-items";
   } else if (cmd.view === "interviews") {
     return "/interviews";
   } else if (cmd.view === "settings") {
@@ -36,6 +38,8 @@ export function useNavigationState() {
       state.view = "candidates";
       const match = path.match(/\/candidates\/(\d+)/);
       if (match) state.candidateId = parseInt(match[1], 10);
+    } else if (path.startsWith("/action-items")) {
+      state.view = "action-items";
     } else if (path.startsWith("/interviews")) {
       state.view = "interviews";
     } else if (path === "/settings") {

@@ -75,6 +75,7 @@
     "better-sqlite3": "^12.8.0",
     "chokidar": "^4.0.0",
     "clsx": "^2.1.1",
+    "cron-parser": "^5.5.0",
     "dotenv": "^17.2.1",
     "drizzle-orm": "^0.44.0",
     "h3": "^1.14.0",

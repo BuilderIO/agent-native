@@ -23,7 +23,7 @@ interface AgentEntry {
  * Built-in agent registry. Mirrors DEFAULT_APPS from @agent-native/shared-app-config
  * but inlined here to avoid a cross-package dependency that breaks tsc.
  */
-const AGENTS: AgentEntry[] = [
+const BUILTIN_AGENTS: AgentEntry[] = [
   {
     id: "mail",
     name: "Mail",
@@ -126,10 +126,10 @@ const AGENTS: AgentEntry[] = [
 ];
 
 /**
- * Discover peer agents. Returns a static list — no network calls.
+ * Get built-in agents (static, no DB). Used as fallback and for seeding.
  */
-export function discoverAgents(selfAppId?: string): DiscoveredAgent[] {
-  return AGENTS.filter(
+export function getBuiltinAgents(selfAppId?: string): DiscoveredAgent[] {
+  return BUILTIN_AGENTS.filter(
     (app) => app.id !== selfAppId && app.enabled && !app.placeholder && app.url,
   ).map((app) => ({
     id: app.id,
@@ -141,16 +141,86 @@ export function discoverAgents(selfAppId?: string): DiscoveredAgent[] {
 }
 
 /**
+ * Parse a JSON agent resource into a DiscoveredAgent.
+ * Returns null if the resource is not valid agent config.
+ */
+function parseAgentResource(
+  content: string,
+  path: string,
+): DiscoveredAgent | null {
+  try {
+    const data = JSON.parse(content);
+    const id = data.id || path.replace(/^agents\//, "").replace(/\.json$/, "");
+    if (!data.url) return null;
+    return {
+      id,
+      name: data.name || id,
+      description: data.description || "",
+      url: data.url,
+      color: data.color || "#6B7280",
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Discover all agents: built-in + custom agents stored as resources.
+ * Custom agents override built-in agents with the same ID.
+ */
+export async function discoverAgents(
+  selfAppId?: string,
+): Promise<DiscoveredAgent[]> {
+  const builtins = getBuiltinAgents(selfAppId);
+  const agentsById = new Map<string, DiscoveredAgent>();
+
+  // Start with built-ins
+  for (const agent of builtins) {
+    agentsById.set(agent.id, agent);
+  }
+
+  // Overlay custom agents from resources
+  try {
+    const { resourceList, resourceGet, SHARED_OWNER, resourceListAccessible } =
+      await import("../resources/store.js");
+
+    const isDevMode =
+      typeof process !== "undefined" && process.env?.NODE_ENV !== "production";
+
+    const resources = isDevMode
+      ? await resourceListAccessible("local@localhost", "agents/")
+      : await resourceList(SHARED_OWNER, "agents/");
+
+    for (const r of resources) {
+      if (!r.path.endsWith(".json")) continue;
+      try {
+        const full = await resourceGet(r.id);
+        if (!full) continue;
+        const agent = parseAgentResource(full.content, r.path);
+        if (agent && agent.id !== selfAppId) {
+          agentsById.set(agent.id, agent);
+        }
+      } catch {
+        // Skip unreadable resources
+      }
+    }
+  } catch {
+    // Resources not available — use built-ins only
+  }
+
+  return Array.from(agentsById.values());
+}
+
+/**
  * Look up a single agent by ID or name (case-insensitive).
  */
-export function findAgent(
+export async function findAgent(
   idOrName: string,
   selfAppId?: string,
-): DiscoveredAgent | undefined {
+): Promise<DiscoveredAgent | undefined> {
   const lower = idOrName.toLowerCase();
-  return discoverAgents(selfAppId).find(
-    (a) => a.id === lower || a.name.toLowerCase() === lower,
-  );
+  const agents = await discoverAgents(selfAppId);
+  return agents.find((a) => a.id === lower || a.name.toLowerCase() === lower);
 }
 
 function isDevEnvironment(): boolean {
@@ -160,8 +230,6 @@ function isDevEnvironment(): boolean {
 }
 
 function resolveAgentUrl(app: AgentEntry): string {
-  // In dev environment, always use local URLs regardless of per-app mode.
-  // If one app is running locally, they all are.
   if (isDevEnvironment()) {
     return app.devUrl || `http://localhost:${app.devPort}`;
   }
