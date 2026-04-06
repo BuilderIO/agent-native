@@ -371,7 +371,7 @@ async function buildCloudflarePages() {
   // stub that returns our require shim (which is already injected via the banner).
   workerCode = workerCode.replace(
     /\bimport\s*\{\s*createRequire\s+as\s+(\w+)\s*\}\s*from\s*["']module["']\s*;/g,
-    "var $1 = function() { return function(m) { throw new Error('require not supported: ' + m); }; };",
+    "var $1 = function() { return globalThis.require || function(m) { throw new Error('require not supported: ' + m); }; };",
   );
 
   fs.writeFileSync(entryFile, workerCode);
