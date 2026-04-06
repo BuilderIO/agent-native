@@ -10,7 +10,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { useCreateEvent } from "@/hooks/use-events";
+import { useCreateEvent, useDeleteEvent } from "@/hooks/use-events";
+import { setUndoAction } from "@/hooks/use-undo";
 import { toast } from "sonner";
 import { IconPlus } from "@tabler/icons-react";
 
@@ -41,6 +42,7 @@ export function CreateEventPopover({
   const [allDay, setAllDay] = useState(false);
 
   const createEvent = useCreateEvent();
+  const delEvent = useDeleteEvent();
   const formRef = useRef<HTMLFormElement>(null);
 
   // Reset form when popover opens
@@ -94,9 +96,22 @@ export function CreateEventPopover({
         color: undefined,
       },
       {
-        onSuccess: () => {
-          toast.success("Event created");
+        onSuccess: (result) => {
           onOpenChange(false);
+          const eventId = result?.id;
+          const undo = eventId
+            ? () => {
+                delEvent.mutate({
+                  id: eventId,
+                  scope: "single",
+                  sendUpdates: "none",
+                });
+              }
+            : undefined;
+          if (undo) setUndoAction(undo);
+          toast("Event created", {
+            action: undo ? { label: "Undo", onClick: undo } : undefined,
+          });
         },
         onError: () => toast.error("Failed to create event"),
       },

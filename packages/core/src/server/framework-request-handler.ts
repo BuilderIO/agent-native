@@ -28,6 +28,7 @@ import {
   defaultAgentChatPlugin,
 } from "./index.js";
 import { defaultTerminalPlugin } from "../terminal/terminal-plugin.js";
+import { defaultIntegrationsPlugin } from "../integrations/plugin.js";
 
 const DEFAULT_PLUGIN_IMPLEMENTATIONS: Record<
   string,
@@ -37,6 +38,7 @@ const DEFAULT_PLUGIN_IMPLEMENTATIONS: Record<
   auth: defaultAuthPlugin,
   "core-routes": defaultCoreRoutesPlugin,
   "file-sync": defaultFileSyncPlugin,
+  integrations: defaultIntegrationsPlugin,
   resources: defaultResourcesPlugin,
   terminal: defaultTerminalPlugin,
 };

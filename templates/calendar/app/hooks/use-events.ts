@@ -163,7 +163,25 @@ export function useDeleteEvent() {
       if (!res.ok) throw new Error("Failed to delete event");
       return res.json();
     },
-    onSuccess: () => {
+    onMutate: async ({ id }) => {
+      await queryClient.cancelQueries({ queryKey: ["events"] });
+      const previous = queryClient.getQueriesData<CalendarEvent[]>({
+        queryKey: ["events"],
+      });
+      queryClient.setQueriesData<CalendarEvent[]>(
+        { queryKey: ["events"] },
+        (old) => old?.filter((e) => e.id !== id),
+      );
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) {
+        for (const [key, data] of context.previous) {
+          queryClient.setQueryData(key, data);
+        }
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["events"] });
     },
   });
