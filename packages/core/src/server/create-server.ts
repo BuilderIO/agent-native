@@ -2,7 +2,10 @@ import {
   createApp,
   createRouter,
   defineEventHandler,
+  getMethod,
+  getRequestHeader,
   readBody,
+  setResponseHeader,
   setResponseStatus,
   type H3Event,
 } from "h3";
@@ -140,8 +143,7 @@ export function createServer(
 
     app.use(
       defineEventHandler((event) => {
-        const headers = event.node.res;
-        const requestOrigin = event.node.req.headers.origin;
+        const requestOrigin = getRequestHeader(event, "origin");
 
         // If allowlist is configured, validate origin; otherwise allow all (dev)
         const origin =
@@ -150,23 +152,23 @@ export function createServer(
               ? requestOrigin
               : allowedOrigins[0]
             : requestOrigin || "*";
-        headers.setHeader("Access-Control-Allow-Origin", origin);
+        setResponseHeader(event, "Access-Control-Allow-Origin", origin);
         if (origin !== "*") {
-          headers.setHeader("Vary", "Origin");
+          setResponseHeader(event, "Vary", "Origin");
         }
-        headers.setHeader(
+        setResponseHeader(
+          event,
           "Access-Control-Allow-Methods",
           "GET,POST,PUT,PATCH,DELETE,OPTIONS",
         );
-        headers.setHeader(
+        setResponseHeader(
+          event,
           "Access-Control-Allow-Headers",
           "Content-Type,Authorization,X-Requested-With",
         );
 
-        if (event.node.req.method === "OPTIONS") {
-          headers.writeHead(204);
-          headers.end();
-          return null;
+        if (getMethod(event) === "OPTIONS") {
+          return new Response(null, { status: 204 });
         }
       }),
     );

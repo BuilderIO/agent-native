@@ -3,6 +3,7 @@ import {
   readBody,
   getQuery,
   getRouterParam,
+  setResponseHeader,
   setResponseStatus,
   getMethod,
   readMultipartFormData,
@@ -231,10 +232,9 @@ export async function handleGetResource(event: any) {
       ? Buffer.from(resource.content, "utf-8")
       : Buffer.from(resource.content, "base64");
 
-    event.node.res.setHeader("Content-Type", resource.mimeType);
-    event.node.res.setHeader("Content-Length", buf.length);
-    event.node.res.end(buf);
-    return;
+    setResponseHeader(event, "Content-Type", resource.mimeType);
+    setResponseHeader(event, "Content-Length", buf.length);
+    return new Response(buf);
   }
 
   // For binary resources (images, audio, video), omit the content field from
