@@ -1,10 +1,6 @@
 [build]
   command = "pnpm --filter @agent-native/core build && pnpm --filter calorie-tracker build"
-  publish = ".output/public"
-
-[functions]
-  directory = ".output/server"
-  node_bundler = "esbuild"
+  publish = "build/client"
 
 # Ensure HTML is never cached
 [[headers]]

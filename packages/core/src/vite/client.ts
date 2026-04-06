@@ -294,10 +294,14 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
       autoReloadOnOptimizeDep(),
       baseRedirectGuard(),
       portExposer(),
-      nitroVitePlugin({
-        serverDir: "./server",
-        ...(options.nitro ?? {}),
-      } as any),
+      // Nitro Vite plugin for dev-mode API route serving.
+      // Disabled during build — production uses react-router build + deploy/build.ts
+      ...(process.env.NODE_ENV === "production" || process.argv.includes("build")
+        ? []
+        : [nitroVitePlugin({
+            serverDir: "./server",
+            ...(options.nitro ?? {}),
+          } as any)]),
       reactPluginInstance,
       ...(options.plugins ?? []),
     ].filter(Boolean),
