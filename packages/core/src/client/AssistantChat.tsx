@@ -930,6 +930,23 @@ export function clearChatStorage(tabId?: string) {
   } catch {}
 }
 
+/**
+ * Ensure all messages in a thread repository have `metadata: {}`.
+ * assistant-ui's _getMessageRuntime accesses `message.metadata.submittedFeedback`
+ * without null-checking, so server-constructed messages without metadata crash.
+ */
+function ensureMessageMetadata(repo: any): any {
+  if (!repo?.messages || !Array.isArray(repo.messages)) return repo;
+  for (const entry of repo.messages) {
+    // Handle both wrapped ({ message: { ... } }) and flat ({ role, ... }) formats
+    const msg = entry?.message ?? entry;
+    if (msg && !msg.metadata) {
+      msg.metadata = {};
+    }
+  }
+  return repo;
+}
+
 // Re-export for backwards compatibility
 import { extractThreadMeta } from "../agent/thread-data-builder.js";
 export { extractThreadMeta };
@@ -1000,7 +1017,7 @@ const AssistantChatInner = forwardRef<
                 : data.threadData;
             if (repo?.messages?.length > 0) {
               titleGeneratedRef.current = true; // Don't re-generate for restored threads
-              threadRuntime.import(repo);
+              threadRuntime.import(ensureMessageMetadata(repo));
             }
           }
           // Also skip title generation if thread already has a title
@@ -1071,7 +1088,7 @@ const AssistantChatInner = forwardRef<
                           ? JSON.parse(refreshData.threadData)
                           : refreshData.threadData;
                       if (repo?.messages?.length > 0) {
-                        threadRuntime.import(repo);
+                        threadRuntime.import(ensureMessageMetadata(repo));
                       }
                     }
                   }
@@ -1098,7 +1115,7 @@ const AssistantChatInner = forwardRef<
         if (saved) {
           const repo = JSON.parse(saved);
           if (repo?.messages?.length > 0) {
-            threadRuntime.import(repo);
+            threadRuntime.import(ensureMessageMetadata(repo));
           }
         }
       } catch {}
