@@ -1,21 +1,14 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import {
-  IconMicrophone,
-  IconMicrophoneOff,
-  IconLoader2,
-} from "@tabler/icons-react";
+import { IconMicrophone, IconMicrophoneOff } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import {
-  sendToAgentChat,
-  useAgentChatGenerating,
-} from "@agent-native/core/client";
+import { sendToAgentChat } from "@agent-native/core/client";
 
 interface VoiceDictationProps {
   currentDate: Date;
 }
 
-type VoiceState = "idle" | "listening" | "processing";
+type VoiceState = "idle" | "listening";
 
 export function VoiceDictation({ currentDate }: VoiceDictationProps) {
   const [state, setState] = useState<VoiceState>("idle");
@@ -27,8 +20,6 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
     typeof window !== "undefined" &&
     ("SpeechRecognition" in window ||
       "webkitSpeechRecognition" in (window as any));
-
-  const [isGenerating, sendToAgent] = useAgentChatGenerating();
 
   // Track sidebar open state to shift mic button out of the way
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -46,35 +37,12 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
     };
   }, []);
 
-  // When agent finishes generating, go back to idle
-  useEffect(() => {
-    if (state === "processing" && !isGenerating) {
-      setState("idle");
-      setTranscript("");
-      toast.success("Done");
-    }
-  }, [isGenerating, state]);
-
-  const processCommand = useCallback(
-    async (text: string) => {
-      setState("processing");
-      try {
-        sendToAgent({ message: text, submit: true });
-        // Timeout fallback — if sidebar is closed or event never fires,
-        // don't leave the mic stuck in processing forever
-        setTimeout(() => {
-          setState((s) => (s === "processing" ? "idle" : s));
-          setTranscript((t) => (t ? "" : t));
-        }, 15000);
-      } catch (error) {
-        console.error("Error sending voice command:", error);
-        toast.error("Failed to process voice command");
-        setState("idle");
-        setTranscript("");
-      }
-    },
-    [sendToAgent],
-  );
+  const processCommand = useCallback((text: string) => {
+    sendToAgentChat({ message: text, submit: true });
+    toast.success("Sent to assistant", { description: `"${text}"` });
+    setState("idle");
+    setTranscript("");
+  }, []);
 
   const startListening = useCallback(() => {
     if (!isSupported) {
@@ -181,36 +149,25 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
         sidebarOpen ? "md:right-[400px]" : "md:right-6",
       )}
     >
-      {(state === "listening" || state === "processing") && (
+      {state === "listening" && (
         <div className="animate-in fade-in slide-in-from-bottom-2 duration-200">
           <div className="bg-card/95 backdrop-blur-xl border border-white/10 rounded-2xl px-4 py-3 shadow-2xl max-w-[300px] md:max-w-[250px]">
-            {state === "listening" && (
-              <div className="flex items-center gap-2">
-                <div className="flex gap-1">
-                  <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse" />
-                  <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse delay-75" />
-                  <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse delay-150" />
-                </div>
-                <span className="text-sm text-muted-foreground">
-                  {transcript || "Listening..."}
-                </span>
+            <div className="flex items-center gap-2">
+              <div className="flex gap-1">
+                <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse" />
+                <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse delay-75" />
+                <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse delay-150" />
               </div>
-            )}
-            {state === "processing" && (
-              <div className="flex items-center gap-2">
-                <IconLoader2 className="h-4 w-4 animate-spin text-primary" />
-                <span className="text-sm text-muted-foreground">
-                  Sending: &quot;{transcript}&quot;
-                </span>
-              </div>
-            )}
+              <span className="text-sm text-muted-foreground">
+                {transcript || "Listening..."}
+              </span>
+            </div>
           </div>
         </div>
       )}
 
       <button
         onClick={handleClick}
-        disabled={state === "processing"}
         className={cn(
           "relative flex items-center justify-center",
           "w-16 h-16 md:w-12 md:h-12 rounded-full",
@@ -221,8 +178,6 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
             "bg-gradient-to-br from-primary to-primary/80 hover:scale-105 active:scale-95",
           state === "listening" &&
             "bg-gradient-to-br from-red-500 to-red-600 scale-110",
-          state === "processing" &&
-            "bg-gradient-to-br from-muted to-muted/80 cursor-not-allowed",
         )}
       >
         {state === "listening" && (
@@ -236,9 +191,6 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
         )}
         {state === "listening" && (
           <IconMicrophoneOff className="h-7 w-7 md:h-5 md:w-5 text-white" />
-        )}
-        {state === "processing" && (
-          <IconLoader2 className="h-7 w-7 md:h-5 md:w-5 text-muted-foreground animate-spin" />
         )}
       </button>
 
