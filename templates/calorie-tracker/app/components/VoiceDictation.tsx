@@ -6,7 +6,7 @@ import {
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { sendToAgentChat } from "@agent-native/core/client";
+import { useAgentChatGenerating } from "@agent-native/core/client";
 
 interface VoiceDictationProps {
   currentDate: Date;
@@ -19,26 +19,36 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
   const [transcript, setTranscript] = useState("");
   const recognitionRef = useRef<any>(null);
   const isProcessingRef = useRef(false);
+  const [isGenerating, sendToAgent] = useAgentChatGenerating();
 
   const isSupported =
     typeof window !== "undefined" &&
     ("SpeechRecognition" in window ||
       "webkitSpeechRecognition" in (window as any));
 
-  const processCommand = useCallback(async (text: string) => {
-    setState("processing");
-    try {
-      // Send to agent chat - the agent will parse and execute
-      sendToAgentChat({ message: text, submit: true });
-      toast.success("Sent to assistant", { description: `"${text}"` });
-    } catch (error) {
-      console.error("Error sending voice command:", error);
-      toast.error("Failed to process voice command");
-    } finally {
+  // When agent finishes generating, transition back to idle
+  useEffect(() => {
+    if (!isGenerating && state === "processing") {
       setState("idle");
       setTranscript("");
+      toast.success("Done");
     }
-  }, []);
+  }, [isGenerating, state]);
+
+  const processCommand = useCallback(
+    (text: string) => {
+      setState("processing");
+      try {
+        sendToAgent({ message: text, submit: true });
+      } catch (error) {
+        console.error("Error sending voice command:", error);
+        toast.error("Failed to process voice command");
+        setState("idle");
+        setTranscript("");
+      }
+    },
+    [sendToAgent],
+  );
 
   const startListening = useCallback(() => {
     if (!isSupported) {
@@ -159,7 +169,7 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
               <div className="flex items-center gap-2">
                 <IconLoader2 className="h-4 w-4 animate-spin text-primary" />
                 <span className="text-sm text-muted-foreground">
-                  Sending: &quot;{transcript}&quot;
+                  Processing: &quot;{transcript}&quot;
                 </span>
               </div>
             )}
