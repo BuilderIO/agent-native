@@ -338,7 +338,10 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
               ssr: {
                 entry: fs.existsSync(path.join(cwd, "ssr-entry.ts"))
                   ? path.resolve(cwd, "ssr-entry.ts")
-                  : path.resolve(__dirname, "../templates/default/ssr-entry.ts"),
+                  : path.resolve(
+                      __dirname,
+                      "../templates/default/ssr-entry.ts",
+                    ),
               },
             },
           },
