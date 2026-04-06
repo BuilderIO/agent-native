@@ -42,7 +42,7 @@ import {
   incrementSendFrequency,
   getContactFrequencyMap,
 } from "../lib/contact-frequency.js";
-import { getSyntheticEmailsForView } from "../lib/jobs.js";
+import { getSyntheticEmailsForView, getSnoozedThreadIds } from "../lib/jobs.js";
 
 // ---------------------------------------------------------------------------
 // Label map cache — avoids re-fetching label names from Gmail on every request
@@ -328,13 +328,24 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
           error: errors.map((e) => `${e.email}: ${e.error}`).join("; "),
         };
       }
-      const emails = messages.map((m) =>
+      let emails = messages.map((m) =>
         gmailToEmailMessage(m, undefined, labelMap),
       );
       emails.sort(
         (a: any, b: any) =>
           new Date(b.date).getTime() - new Date(a.date).getTime(),
       );
+
+      // Filter out snoozed emails (they may linger in Gmail due to eventual consistency)
+      if (view === "inbox" || view === "unread") {
+        const snoozedIds = await getSnoozedThreadIds(email);
+        if (snoozedIds.size > 0) {
+          emails = emails.filter(
+            (e) => !snoozedIds.has(e.threadId) && !snoozedIds.has(e.id),
+          );
+        }
+      }
+
       // If some accounts failed but others succeeded, add warning header
       if (errors.length > 0) {
         setResponseHeader(event, "X-Account-Errors", JSON.stringify(errors));
@@ -412,6 +423,16 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
         e.from.email.toLowerCase().includes(query) ||
         e.body.toLowerCase().includes(query),
     );
+  }
+
+  // Filter out snoozed emails
+  if (view === "inbox" || view === "unread") {
+    const snoozedIds = await getSnoozedThreadIds(email);
+    if (snoozedIds.size > 0) {
+      emails = emails.filter(
+        (e) => !snoozedIds.has(e.threadId) && !snoozedIds.has(e.id),
+      );
+    }
   }
 
   // Sort by date descending
