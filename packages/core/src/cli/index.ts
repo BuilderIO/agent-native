@@ -167,9 +167,26 @@ switch (command) {
   }
 
   case "create": {
-    const nameArg = args.find((a) => !a.startsWith("--"));
     const templateIdx = args.indexOf("--template");
+    if (templateIdx !== -1 && args[templateIdx + 1] === undefined) {
+      console.error("Missing value for --template flag.");
+      process.exit(1);
+    }
     const template = templateIdx !== -1 ? args[templateIdx + 1] : "default";
+    // Collect indices occupied by known flags and their values so we don't
+    // mistake a flag value (e.g. "mail" after --template) for the app name.
+    const flagValueIndices = new Set<number>();
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === "--template") {
+        flagValueIndices.add(i);
+        flagValueIndices.add(i + 1);
+      } else if (args[i].startsWith("--")) {
+        flagValueIndices.add(i);
+      }
+    }
+    const nameArg = args.find(
+      (a, i) => !a.startsWith("--") && !flagValueIndices.has(i),
+    );
     import("./create.js").then((m) => m.createApp(nameArg, template));
     break;
   }

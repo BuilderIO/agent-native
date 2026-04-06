@@ -113,12 +113,17 @@ export async function createApp(
     }
 
     console.log(`Creating ${name} from "${template}" template...`);
-    await downloadAndExtractTemplate(
-      template,
-      version,
-      targetDir,
-      availableTemplates,
-    );
+    try {
+      await downloadAndExtractTemplate(
+        template,
+        version,
+        targetDir,
+        availableTemplates,
+      );
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exit(1);
+    }
   }
 
   // Rewrite workspace:* protocol references so the project installs outside the monorepo
@@ -206,10 +211,9 @@ async function downloadAndExtractTemplate(
     }
 
     if (!downloaded) {
-      console.error(
+      throw new Error(
         "Failed to download template tarball from GitHub. Check your internet connection.",
       );
-      process.exit(1);
     }
 
     // Extract the full tarball
@@ -218,16 +222,14 @@ async function downloadAndExtractTemplate(
     // The tarball root is BuilderIO-agent-native-<sha>/ — find it
     const [repoDir] = fs.readdirSync(extractDir);
     if (!repoDir) {
-      console.error("Tarball appears empty.");
-      process.exit(1);
+      throw new Error("Tarball appears empty.");
     }
 
     const templateSrc = path.join(extractDir, repoDir, "templates", template);
     if (!fs.existsSync(templateSrc)) {
-      console.error(
+      throw new Error(
         `Template "${template}" was not found in the repository. Available templates: ${availableTemplates.join(", ")}`,
       );
-      process.exit(1);
     }
 
     copyDir(templateSrc, targetDir);
@@ -273,26 +275,32 @@ function downloadFile(url: string, dest: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(dest);
 
+    function fail(err: Error): void {
+      file.close(() => reject(err));
+    }
+
     function get(u: string): void {
       https
         .get(u, (res) => {
           if (res.statusCode === 301 || res.statusCode === 302) {
             const location = res.headers.location;
+            res.resume(); // discard response body
             if (!location) {
-              reject(new Error("Redirect with no Location header"));
+              fail(new Error("Redirect with no Location header"));
               return;
             }
             get(location);
             return;
           }
           if (res.statusCode !== 200) {
-            reject(new Error(`HTTP ${res.statusCode} for ${u}`));
+            res.resume(); // discard response body
+            fail(new Error(`HTTP ${res.statusCode} for ${u}`));
             return;
           }
           res.pipe(file);
           file.on("finish", () => file.close(() => resolve()));
         })
-        .on("error", reject);
+        .on("error", fail);
     }
 
     get(url);
