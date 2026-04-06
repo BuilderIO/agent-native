@@ -38,6 +38,10 @@ import {
   listGmailMessages,
   gmailToEmailMessage,
 } from "../lib/google-auth.js";
+import {
+  incrementSendFrequency,
+  getContactFrequencyMap,
+} from "../lib/contact-frequency.js";
 import { getSyntheticEmailsForView } from "../lib/jobs.js";
 
 // ---------------------------------------------------------------------------
@@ -1181,6 +1185,20 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
           },
         );
 
+        // Track contact frequency for all recipients
+        const allRecipients = [to, cc, bcc]
+          .filter(Boolean)
+          .flatMap((field: string) =>
+            field.split(",").map((r: string) => {
+              const match = r.trim().match(/^(.+?)\s*<(.+?)>$/);
+              return match
+                ? { email: match[2].trim(), name: match[1].trim() }
+                : { email: r.trim() };
+            }),
+          )
+          .filter((r) => r.email);
+        incrementSendFrequency(email, allRecipients).catch(() => {});
+
         setResponseStatus(event, 201);
         return {
           id: sent.id,
@@ -1742,9 +1760,19 @@ export const listContacts = defineEventHandler(async (event: H3Event) => {
         }
       }
 
-      const contacts = Array.from(contactMap.values()).sort(
-        (a, b) => b.count - a.count,
-      );
+      // Merge SQL-tracked send frequency into contact counts
+      let freqMap: Map<string, number>;
+      try {
+        freqMap = await getContactFrequencyMap(email);
+      } catch {
+        freqMap = new Map();
+      }
+      const contacts = Array.from(contactMap.values())
+        .map((c) => ({
+          ...c,
+          count: c.count + (freqMap.get(c.email.toLowerCase()) || 0) * 10,
+        }))
+        .sort((a, b) => b.count - a.count);
       contactCache.set(email, {
         data: contacts,
         expiresAt: Date.now() + CONTACT_CACHE_TTL,
