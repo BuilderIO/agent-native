@@ -318,3 +318,95 @@ const agent = createProductionAgentHandler({
 | `systemPrompt` | `string`                      | System prompt for the embedded agent                |
 | `apiKey`       | `string`                      | Anthropic API key. Default: `ANTHROPIC_API_KEY` env |
 | `model`        | `string`                      | Model to use. Default: `claude-sonnet-4-6`          |
+
+## Resources
+
+The resources system provides persistent, SQL-backed files for agent memory, instructions, and skills. Resources are accessible via the `/_agent-native/resources` API and appear in the AgentSidebar's files panel.
+
+### Default resources
+
+| Resource       | Scope             | Purpose                                                |
+| -------------- | ----------------- | ------------------------------------------------------ |
+| `AGENTS.md`    | shared + personal | Agent instructions and context                         |
+| `LEARNINGS.md` | shared + personal | Preferences, corrections, patterns the agent remembers |
+| `skills/*.md`  | shared + personal | Specialized agent skills with YAML frontmatter         |
+| `jobs/*.md`    | shared + personal | Recurring jobs (see below)                             |
+
+### Agent tools
+
+The agent has built-in tools for managing resources:
+
+- `resource-list` — List all resources
+- `resource-read` — Read a resource by path
+- `resource-write` — Create or update a resource
+- `resource-delete` — Delete a resource
+
+### Auto-memory
+
+The agent proactively updates `LEARNINGS.md` when it learns something important during conversations — user corrections, preferences, patterns, or personal context. This happens automatically without needing to ask.
+
+## Recurring Jobs
+
+Recurring jobs let users set up scheduled tasks in natural language. The agent converts requests like "every weekday at 9am, check for overdue scorecards" into a job that runs automatically.
+
+### How it works
+
+1. **User asks** for something recurring in the agent chat
+2. **Agent creates a job** — a resource file at `jobs/<name>.md` with cron schedule in YAML frontmatter
+3. **Scheduler runs every 60 seconds**, checks for due jobs, and executes them via the same agent loop used for chat
+4. **Job results** are saved as chat threads so users can review what happened
+
+### Job file format
+
+```markdown
+---
+schedule: "0 9 * * 1-5"
+enabled: true
+nextRun: 2026-04-07T16:00:00.000Z
+---
+
+Check if any scorecards are overdue using check-scorecards --section=overdue.
+If there are overdue scorecards, send a Slack update via send-recruiter-update.
+If none are overdue, do nothing.
+```
+
+### Frontmatter fields
+
+| Field        | Type    | Description                                           |
+| ------------ | ------- | ----------------------------------------------------- |
+| `schedule`   | string  | Cron expression (5 fields: minute hour dom month dow) |
+| `enabled`    | boolean | Whether the job runs on schedule                      |
+| `lastRun`    | string  | ISO timestamp of last execution                       |
+| `lastStatus` | string  | `success`, `error`, `running`, or `skipped`           |
+| `lastError`  | string  | Error message from last failed run                    |
+| `nextRun`    | string  | ISO timestamp of next scheduled run                   |
+
+### Agent tools for jobs
+
+- `create-job` — Create a recurring job with name, cron schedule, and instructions
+- `list-jobs` — List all jobs and their status
+- `update-job` — Update schedule, instructions, or toggle enabled/disabled
+- Delete via `resource-delete --path jobs/<name>.md`
+
+### Common cron patterns
+
+| Schedule                | Cron expression |
+| ----------------------- | --------------- |
+| Every day at 9am        | `0 9 * * *`     |
+| Weekdays at 9am         | `0 9 * * 1-5`   |
+| Every hour              | `0 * * * *`     |
+| Every 30 minutes        | `*/30 * * * *`  |
+| Mondays at 9am          | `0 9 * * 1`     |
+| Twice daily (9am & 5pm) | `0 9,17 * * *`  |
+
+### UI
+
+Jobs appear in the AgentSidebar resources panel under a `jobs/` folder. Each job file shows a colored status dot:
+
+- **Green** — last run succeeded
+- **Red** — last run failed
+- **Blue (pulsing)** — currently running
+- **Amber** — scheduled but hasn't run yet
+- **Gray** — disabled
+
+The resources panel toolbar includes a clock icon button for creating new recurring jobs via natural language.
