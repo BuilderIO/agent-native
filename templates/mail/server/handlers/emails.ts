@@ -1845,22 +1845,21 @@ export const listLabels = defineEventHandler(async (_event: H3Event) => {
         unreadCount: 0,
       }));
 
-      // Add Gmail category labels as pinnable filters (if not already present)
-      const gmailCategories: { id: string; name: string }[] = [
-        { id: "important", name: "Important" },
-        { id: "promotions", name: "Promotions" },
-        { id: "social", name: "Social" },
-        { id: "updates", name: "Updates" },
-        { id: "forums", name: "Forums" },
-      ];
-      for (const cat of gmailCategories) {
-        if (!labels.some((l) => l.id === cat.id)) {
-          labels.push({
-            id: cat.id,
-            name: cat.name,
-            type: "system",
-            unreadCount: 0,
-          });
+      // Normalize Gmail category labels with friendly names
+      const gmailCategories: Record<string, string> = {
+        important: "Important",
+        promotions: "Promotions",
+        social: "Social",
+        updates: "Updates",
+        forums: "Forums",
+      };
+      for (const [id, name] of Object.entries(gmailCategories)) {
+        const existing = labels.findIndex((l) => l.id === id);
+        if (existing >= 0) {
+          // Fix casing (Gmail returns "IMPORTANT", we want "Important")
+          labels[existing].name = name;
+        } else {
+          labels.push({ id, name, type: "system", unreadCount: 0 });
         }
       }
 

@@ -120,8 +120,11 @@ export function AppLayout({ children }: AppLayoutProps) {
   const tabSettingsRef = useRef<HTMLDivElement>(null);
 
   const isGoogleConnected = (googleStatus.data?.accounts?.length ?? 0) > 0;
-  const pinnedLabels =
-    settings?.pinnedLabels ?? (isGoogleConnected ? ["important"] : []);
+  // Important is always on and always first when Google is connected
+  const userPinnedLabels = settings?.pinnedLabels ?? [];
+  const pinnedLabels = isGoogleConnected
+    ? ["important", ...userPinnedLabels.filter((id) => id !== "important")]
+    : userPinnedLabels;
   const labelAliases = settings?.labelAliases ?? {};
   const { data: inboxEmails = [], isLoading: emailsLoading } =
     useEmails("inbox");
@@ -1131,8 +1134,8 @@ function TabSettingsPopover({
     : systemViews;
 
   // Split labels into Gmail categories and regular user labels
+  // "important" is excluded — it's always on and not toggleable
   const gmailCategoryIds = new Set([
-    "important",
     "promotions",
     "social",
     "updates",
