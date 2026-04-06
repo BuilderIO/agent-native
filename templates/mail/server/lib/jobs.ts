@@ -3,6 +3,7 @@ import {
   getOAuthTokens,
   saveOAuthTokens,
   listOAuthAccounts,
+  listOAuthAccountsByOwner,
 } from "@agent-native/core/oauth-tokens";
 import { and, eq, inArray, lte } from "drizzle-orm";
 import { nanoid } from "nanoid";
@@ -99,13 +100,17 @@ async function getAccessToken(accountEmail: string): Promise<string | null> {
 
 async function getFirstAccountToken(
   preferEmail?: string,
+  ownerEmail?: string,
 ): Promise<{ email: string; accessToken: string } | null> {
   if (preferEmail) {
     const token = await getAccessToken(preferEmail);
     if (token) return { email: preferEmail, accessToken: token };
   }
 
-  const accounts = await listOAuthAccounts("google");
+  // Only return accounts owned by the given owner
+  const accounts = ownerEmail
+    ? await listOAuthAccountsByOwner("google", ownerEmail)
+    : await listOAuthAccounts("google");
   for (const account of accounts) {
     const token = await getAccessToken(account.accountId);
     if (token) return { email: account.accountId, accessToken: token };
@@ -148,7 +153,10 @@ async function fetchEmailSnapshot(
   preferredAccountEmail?: string,
 ): Promise<EmailMessage | null> {
   if (await isConnected(ownerEmail)) {
-    const account = await getFirstAccountToken(preferredAccountEmail);
+    const account = await getFirstAccountToken(
+      preferredAccountEmail,
+      ownerEmail,
+    );
     if (account) {
       const labelMap = await fetchLabelMap(account.accessToken);
       const message = await gmailGetMessage(
@@ -175,7 +183,7 @@ async function archiveThreadForSnooze(
   accountEmail?: string,
 ): Promise<void> {
   if (await isConnected(ownerEmail)) {
-    const account = await getFirstAccountToken(accountEmail);
+    const account = await getFirstAccountToken(accountEmail, ownerEmail);
     if (account) {
       await gmailModifyThread(account.accessToken, threadId, undefined, [
         "INBOX",
@@ -206,7 +214,7 @@ async function threadHasReplySinceSnooze(
   accountEmail?: string,
 ): Promise<boolean> {
   if (await isConnected(ownerEmail)) {
-    const account = await getFirstAccountToken(accountEmail);
+    const account = await getFirstAccountToken(accountEmail, ownerEmail);
     if (account) {
       const thread = await gmailGetThread(
         account.accessToken,
@@ -329,7 +337,7 @@ export async function resurfaceEmail(
   accountEmail?: string,
 ): Promise<void> {
   if (await isConnected(ownerEmail)) {
-    const account = await getFirstAccountToken(accountEmail);
+    const account = await getFirstAccountToken(accountEmail, ownerEmail);
     if (account) {
       if (threadId) {
         await gmailModifyThread(account.accessToken, threadId, ["INBOX"]);
@@ -473,11 +481,16 @@ export async function getSyntheticEmailsForView(
 export async function sendScheduledEmail(
   payload: SendLaterPayload,
   accountEmail?: string,
+  ownerEmail?: string,
 ): Promise<void> {
   const { to, cc, bcc, subject, body, from, replyToId, threadId } = payload;
+  const effectiveOwner = ownerEmail || accountEmail || from;
 
-  if (await isConnected(accountEmail || from)) {
-    const account = await getFirstAccountToken(accountEmail || from);
+  if (await isConnected(effectiveOwner)) {
+    const account = await getFirstAccountToken(
+      accountEmail || from,
+      effectiveOwner,
+    );
     if (account) {
       let inReplyTo: string | undefined;
       let references: string | undefined;
@@ -550,12 +563,12 @@ export async function sendScheduledEmail(
     }
   }
 
-  const ownerEmail = from || accountEmail || "local@localhost";
-  const emails = await readEmails(ownerEmail);
+  const fallbackOwner = ownerEmail || from || accountEmail || "local@localhost";
+  const emails = await readEmails(fallbackOwner);
   emails.push({
     id: `msg-${nanoid(8)}`,
     threadId: threadId || `thread-${nanoid(8)}`,
-    from: { name: ownerEmail, email: ownerEmail },
+    from: { name: fallbackOwner, email: fallbackOwner },
     to: to.split(",").map((item) => {
       const email = item.trim();
       return { name: email, email };
@@ -571,7 +584,7 @@ export async function sendScheduledEmail(
     isTrashed: false,
     labelIds: ["sent"],
   });
-  await writeEmails(ownerEmail, emails);
+  await writeEmails(fallbackOwner, emails);
 }
 
 export async function markJobCancelled(id: string): Promise<void> {

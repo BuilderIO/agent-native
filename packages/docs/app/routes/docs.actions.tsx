@@ -65,7 +65,7 @@ const args = parseArgs(["--name", "Steve", "--verbose", "--count=3"]);
         </Link>
         :
       </p>
-      <h3>view-screen</h3>
+      <h3 id="view-screen">view-screen</h3>
       <p>
         Reads the current navigation state, fetches contextual data, and returns
         a snapshot of what the user sees. The agent should always call this
@@ -88,7 +88,7 @@ export default async function main() {
 }`}
       />
       <CodeBlock code={`pnpm action view-screen`} lang="bash" />
-      <h3>navigate</h3>
+      <h3 id="navigate">navigate</h3>
       <p>
         Writes a one-shot navigation command to application-state. The UI reads
         it, navigates, and deletes the entry.

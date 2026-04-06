@@ -539,21 +539,19 @@ export function AgentPanel({
   const [cliPickerOpen, setCliPickerOpen] = useState(false);
 
   // Ref callback: scroll the active tab into view in the overflow container.
-  // Manually calculates scroll position to avoid scrollIntoView moving outer containers.
+  // Uses getBoundingClientRect for reliable positioning regardless of offsetParent.
   const activeTabRefCb = useCallback((el: HTMLDivElement | null) => {
     if (!el) return;
     const container = el.parentElement;
     if (!container) return;
     // Use rAF so layout is settled after React commit
     requestAnimationFrame(() => {
-      const tabLeft = el.offsetLeft;
-      const tabRight = tabLeft + el.offsetWidth;
-      const scrollLeft = container.scrollLeft;
-      const viewWidth = container.clientWidth;
-      if (tabLeft < scrollLeft) {
-        container.scrollLeft = tabLeft;
-      } else if (tabRight > scrollLeft + viewWidth) {
-        container.scrollLeft = tabRight - viewWidth;
+      const containerRect = container.getBoundingClientRect();
+      const tabRect = el.getBoundingClientRect();
+      if (tabRect.left < containerRect.left) {
+        container.scrollLeft += tabRect.left - containerRect.left;
+      } else if (tabRect.right > containerRect.right) {
+        container.scrollLeft += tabRect.right - containerRect.right;
       }
     });
   }, []);

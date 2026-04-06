@@ -65,8 +65,9 @@ export async function run(args: Record<string, string>): Promise<string> {
   const view = args.view ?? "all";
   const limit = args.limit ? parseInt(args.limit, 10) : 25;
   const compact = args.compact !== "false";
+  const ownerEmail = process.env.AGENT_USER_EMAIL || "local@localhost";
 
-  const clients = await getClients();
+  const clients = await getClients(ownerEmail);
   if (clients.length === 0) return "Error: No Google account connected.";
 
   const viewPrefix = VIEW_QUERIES[view] ?? `label:${view}`;
@@ -82,7 +83,11 @@ export async function run(args: Record<string, string>): Promise<string> {
     }),
   );
 
-  const { messages, errors } = await listGmailMessages(gmailQuery, limit);
+  const { messages, errors } = await listGmailMessages(
+    gmailQuery,
+    limit,
+    ownerEmail,
+  );
   if (errors.length > 0 && messages.length === 0) {
     return `Error: ${errors.map((e) => `${e.email}: ${e.error}`).join("; ")}`;
   }
@@ -127,12 +132,13 @@ export default async function main(): Promise<void> {
   const view = args.view ?? "all";
   const limit = args.limit ? parseInt(args.limit, 10) : 25;
   const compact = args.compact === "true";
+  const ownerEmail = process.env.AGENT_USER_EMAIL || "local@localhost";
 
   if (!query) {
     fatal("--q is required. Usage: pnpm action search-emails --q=meeting");
   }
 
-  const clients = await getClients();
+  const clients = await getClients(ownerEmail);
   if (clients.length === 0) {
     fatal("No Google account connected. Connect an account in the app first.");
   }
@@ -150,7 +156,11 @@ export default async function main(): Promise<void> {
     }),
   );
 
-  const { messages, errors } = await listGmailMessages(gmailQuery, limit);
+  const { messages, errors } = await listGmailMessages(
+    gmailQuery,
+    limit,
+    ownerEmail,
+  );
 
   if (errors.length > 0 && messages.length === 0) {
     fatal(

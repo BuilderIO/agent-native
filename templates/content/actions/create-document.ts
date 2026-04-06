@@ -33,7 +33,17 @@ export default async function main(args: string[]) {
   if (!title) fail("--title is required");
 
   const id = crypto.randomBytes(6).toString("hex");
-  const content = opts.content || "";
+  let content = opts.content || "";
+  // Strip leading H1 that duplicates the title (AI often generates "# Title" + title field)
+  if (title && content) {
+    const h1Match = content.match(/^#\s+(.+?)(\r?\n|$)/);
+    if (
+      h1Match &&
+      h1Match[1].trim().toLowerCase() === title.trim().toLowerCase()
+    ) {
+      content = content.slice(h1Match[0].length).trimStart();
+    }
+  }
   const parentId = opts.parentId || null;
   const icon = opts.icon || null;
   const now = new Date().toISOString();

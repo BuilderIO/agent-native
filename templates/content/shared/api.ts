@@ -56,7 +56,7 @@ export interface DocumentCreateRequest {
 export interface DocumentUpdateRequest {
   title?: string;
   content?: string;
-  icon?: string;
+  icon?: string | null;
   isFavorite?: boolean;
 }
 

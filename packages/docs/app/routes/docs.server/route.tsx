@@ -66,7 +66,7 @@ export default defineEventHandler(async () => {
 });`}
       />
 
-      <h3>Route naming conventions</h3>
+      <h3 id="route-naming-conventions">Route naming conventions</h3>
       <table>
         <thead>
           <tr>
@@ -97,7 +97,7 @@ export default defineEventHandler(async () => {
         </tbody>
       </table>
 
-      <h3>Accessing route parameters</h3>
+      <h3 id="accessing-route-parameters">Accessing route parameters</h3>
       <CodeBlock
         code={`import { defineEventHandler, getRouterParam, readBody, getQuery } from "h3";
 
@@ -165,7 +165,7 @@ const watcher = createFileWatcher("./data");
 // watcher emits "all" events: (eventName, filePath)`}
       />
 
-      <h3>Options</h3>
+      <h3 id="filewatcher-options">Options</h3>
       <table>
         <thead>
           <tr>
@@ -212,7 +212,7 @@ export default createSSEHandler(watcher, {
         <code>{`{ "type": "change", "path": "data/file.json" }`}</code>
       </p>
 
-      <h3>Options</h3>
+      <h3 id="ssehandler-options">Options</h3>
       <table>
         <thead>
           <tr>
@@ -286,7 +286,7 @@ const agent = createProductionAgentHandler({
 });`}
       />
 
-      <h3>Options</h3>
+      <h3 id="agent-handler-options">Options</h3>
       <table>
         <thead>
           <tr>

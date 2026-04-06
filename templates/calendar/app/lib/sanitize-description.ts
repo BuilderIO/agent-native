@@ -86,6 +86,12 @@ export function sanitizeHtml(html: string): string {
         }
       }
 
+      // Force all links to open in a new tab
+      if (tagLower === "a") {
+        safeAttrs.push('target="_blank"');
+        safeAttrs.push('rel="noopener noreferrer"');
+      }
+
       const selfClosing =
         match.endsWith("/>") ||
         tagLower === "br" ||

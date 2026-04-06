@@ -5,6 +5,8 @@ import {
   IconArrowLeft,
   IconSparkles,
   IconTrash,
+  IconEye,
+  IconCode,
 } from "@tabler/icons-react";
 import { cn } from "../utils.js";
 import { sendToAgentChat } from "../agent-chat.js";
@@ -366,6 +368,16 @@ export function ResourcesPanel() {
     null,
   );
   const [dragOver, setDragOver] = useState(false);
+  const [editorView, setEditorView] = useState<"visual" | "code">(() => {
+    try {
+      const v = localStorage.getItem("resource-editor-view");
+      if (v === "code") return "code";
+    } catch {}
+    return "visual";
+  });
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">(
+    "idle",
+  );
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const treeQuery = useResourceTree(scope);
@@ -516,7 +528,7 @@ export function ResourcesPanel() {
       {/* Toolbar */}
       <div className="flex shrink-0 items-center justify-between border-b border-border px-2 py-1.5">
         {isEditing ? (
-          /* Editor toolbar: back button + path */
+          /* Editor toolbar: back + path + view toggle + save status + delete */
           <>
             <div className="flex items-center gap-1.5 min-w-0">
               <button
@@ -531,6 +543,43 @@ export function ResourcesPanel() {
               )}
             </div>
             <div className="flex items-center gap-1 shrink-0">
+              {resourceQuery.data &&
+                (resourceQuery.data.mimeType === "text/markdown" ||
+                  resourceQuery.data.path.endsWith(".md")) && (
+                  <div className="flex items-center gap-0.5 mr-1">
+                    <button
+                      onClick={() => setEditorView("visual")}
+                      className={cn(
+                        "flex h-6 w-6 items-center justify-center rounded-md",
+                        editorView === "visual"
+                          ? "bg-accent text-foreground"
+                          : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                      )}
+                      title="Visual editor"
+                    >
+                      <IconEye className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={() => setEditorView("code")}
+                      className={cn(
+                        "flex h-6 w-6 items-center justify-center rounded-md",
+                        editorView === "code"
+                          ? "bg-accent text-foreground"
+                          : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                      )}
+                      title="Code editor"
+                    >
+                      <IconCode className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
+              <span className="text-[11px] text-muted-foreground/60 mr-1">
+                {saveStatus === "saving"
+                  ? "Saving..."
+                  : saveStatus === "saved"
+                    ? "Saved"
+                    : ""}
+              </span>
               <button
                 onClick={() => {
                   if (selectedResourceId) handleDelete(selectedResourceId);
@@ -607,6 +656,10 @@ export function ResourcesPanel() {
               <ResourceEditor
                 resource={resourceQuery.data}
                 onSave={handleSave}
+                view={editorView}
+                onViewChange={setEditorView}
+                onSaveStatusChange={setSaveStatus}
+                hideToolbar
               />
             </div>
           ) : resourceQuery.isError ? (

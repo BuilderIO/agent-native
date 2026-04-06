@@ -106,7 +106,7 @@ export default function FileSyncDocs() {
         </tbody>
       </table>
 
-      <h3>Denylist</h3>
+      <h3 id="denylist">Denylist</h3>
       <p>
         The sync engine always blocks sensitive files regardless of your
         patterns — <code>.env*</code>, <code>*.key</code>,{" "}
@@ -125,7 +125,7 @@ export default function FileSyncDocs() {
         <code>FILE_SYNC_BACKEND</code> in your <code>.env</code>:
       </p>
 
-      <h3>Firestore</h3>
+      <h3 id="firestore">Firestore</h3>
       <CodeBlock code={`pnpm add firebase-admin`} lang="bash" />
       <CodeBlock
         code={`FILE_SYNC_BACKEND=firestore
@@ -136,7 +136,7 @@ GOOGLE_APPLICATION_CREDENTIALS=./service-account.json`}
         The collection is created automatically — no additional setup needed.
       </p>
 
-      <h3>Supabase</h3>
+      <h3 id="supabase">Supabase</h3>
       <CodeBlock code={`pnpm add @supabase/supabase-js`} lang="bash" />
       <CodeBlock
         code={`FILE_SYNC_BACKEND=supabase
@@ -161,7 +161,7 @@ CREATE INDEX idx_files_app_owner ON files(app, owner_id);`}
         lang="sql"
       />
 
-      <h3>Convex</h3>
+      <h3 id="convex">Convex</h3>
       <CodeBlock code={`pnpm add convex`} lang="bash" />
       <CodeBlock
         code={`FILE_SYNC_BACKEND=convex

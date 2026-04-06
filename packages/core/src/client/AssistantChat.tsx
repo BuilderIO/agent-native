@@ -30,6 +30,7 @@ import ReactMarkdown from "react-markdown";
 import { createAgentChatAdapter } from "./agent-chat-adapter.js";
 import { type ContentPart, readSSEStreamRaw } from "./sse-event-processor.js";
 import { cn } from "./utils.js";
+import { AgentTaskCard } from "./AgentTaskCard.js";
 import {
   TiptapComposer,
   type TiptapComposerHandle,
@@ -225,6 +226,7 @@ function ToolCallFallback({
   const streamRef = useRef<HTMLDivElement>(null);
   const thread = useThread();
   const isRunning = result === undefined && thread.isRunning;
+
   const isAgentCall = toolName.startsWith("agent:");
   // Agent calls default to expanded; regular tools default to collapsed
   const [expanded, setExpanded] = useState(isAgentCall);
@@ -233,6 +235,46 @@ function ToolCallFallback({
   // For agent calls, argsText holds the streaming response text
   const agentStreamText = isAgentCall ? (argsText ?? "") : "";
   const hasStreamText = agentStreamText.length > 0;
+
+  // Auto-scroll streaming text to bottom as new content arrives
+  // NOTE: All hooks must be above any conditional returns
+  useEffect(() => {
+    if (isAgentCall && isRunning && streamRef.current) {
+      streamRef.current.scrollTop = streamRef.current.scrollHeight;
+    }
+  }, [agentStreamText, isAgentCall, isRunning]);
+
+  // Render spawn-task as AgentTaskCard
+  if (toolName === "spawn-task" && result !== undefined) {
+    try {
+      const resultStr =
+        typeof result === "string" ? result : JSON.stringify(result);
+      const parsed = JSON.parse(resultStr);
+      if (parsed.taskId && parsed.threadId) {
+        return (
+          <AgentTaskCard
+            taskId={parsed.taskId}
+            threadId={parsed.threadId}
+            description={
+              parsed.description ||
+              (args as Record<string, string>)?.task ||
+              "Sub-agent task"
+            }
+            onOpen={(tid) => {
+              window.dispatchEvent(
+                new CustomEvent("agent-task-open", {
+                  detail: { threadId: tid },
+                }),
+              );
+            }}
+          />
+        );
+      }
+    } catch {
+      // Fall through to default rendering
+    }
+  }
+
   const argsStr = isAgentCall
     ? ""
     : Object.entries(args as Record<string, unknown>)
@@ -252,13 +294,6 @@ function ToolCallFallback({
   // Agent calls expand only when there's text to show, toggleable when done
   const canExpand = isAgentCall ? hasStreamText : result !== undefined;
   const isExpanded = isAgentCall ? hasStreamText && expanded : expanded;
-
-  // Auto-scroll streaming text to bottom as new content arrives
-  useEffect(() => {
-    if (isAgentCall && isRunning && streamRef.current) {
-      streamRef.current.scrollTop = streamRef.current.scrollHeight;
-    }
-  }, [agentStreamText, isAgentCall, isRunning]);
 
   return (
     <div className="my-1 overflow-hidden">
@@ -329,6 +364,7 @@ function ReconnectStreamToolCall({
   args: Record<string, string>;
   result?: string;
 }) {
+  // NOTE: All hooks must be above any conditional returns
   const streamRef = useRef<HTMLDivElement>(null);
   const isRunning = result === undefined;
   const isAgentCall = toolName.startsWith("agent:");
@@ -361,6 +397,31 @@ function ReconnectStreamToolCall({
       streamRef.current.scrollTop = streamRef.current.scrollHeight;
     }
   }, [agentStreamText, isAgentCall, isRunning]);
+
+  // Render spawn-task as AgentTaskCard
+  if (toolName === "spawn-task" && result) {
+    try {
+      const parsed = JSON.parse(result);
+      if (parsed.taskId && parsed.threadId) {
+        return (
+          <AgentTaskCard
+            taskId={parsed.taskId}
+            threadId={parsed.threadId}
+            description={parsed.description || args?.task || "Sub-agent task"}
+            onOpen={(threadId) => {
+              window.dispatchEvent(
+                new CustomEvent("agent-task-open", {
+                  detail: { threadId },
+                }),
+              );
+            }}
+          />
+        );
+      }
+    } catch {
+      // Fall through
+    }
+  }
 
   return (
     <div className="my-1 overflow-hidden">
@@ -843,14 +904,17 @@ export interface AssistantChatProps {
   /** Callback when message count changes */
   onMessageCountChange?: (count: number) => void;
   /** Callback to save thread data to the server (provided by useChatThreads) */
-  onSaveThread?: (data: {
-    threadData: string;
-    title: string;
-    preview: string;
-    messageCount: number;
-  }) => void;
+  onSaveThread?: (
+    threadId: string,
+    data: {
+      threadData: string;
+      title: string;
+      preview: string;
+      messageCount: number;
+    },
+  ) => void;
   /** Callback to generate a title from the first user message */
-  onGenerateTitle?: (message: string) => void;
+  onGenerateTitle?: (threadId: string, message: string) => void;
   /** Optional content rendered just above the composer input */
   composerSlot?: React.ReactNode;
   /** When true, skip the restore skeleton (used for freshly created threads with no messages) */
@@ -864,6 +928,23 @@ export function clearChatStorage(tabId?: string) {
   try {
     sessionStorage.removeItem(`${CHAT_STORAGE_PREFIX}${tabId || "default"}`);
   } catch {}
+}
+
+/**
+ * Ensure all messages in a thread repository have `metadata: {}`.
+ * assistant-ui's _getMessageRuntime accesses `message.metadata.submittedFeedback`
+ * without null-checking, so server-constructed messages without metadata crash.
+ */
+function ensureMessageMetadata(repo: any): any {
+  if (!repo?.messages || !Array.isArray(repo.messages)) return repo;
+  for (const entry of repo.messages) {
+    // Handle both wrapped ({ message: { ... } }) and flat ({ role, ... }) formats
+    const msg = entry?.message ?? entry;
+    if (msg && !msg.metadata) {
+      msg.metadata = {};
+    }
+  }
+  return repo;
 }
 
 // Re-export for backwards compatibility
@@ -936,7 +1017,7 @@ const AssistantChatInner = forwardRef<
                 : data.threadData;
             if (repo?.messages?.length > 0) {
               titleGeneratedRef.current = true; // Don't re-generate for restored threads
-              threadRuntime.import(repo);
+              threadRuntime.import(ensureMessageMetadata(repo));
             }
           }
           // Also skip title generation if thread already has a title
@@ -1007,7 +1088,7 @@ const AssistantChatInner = forwardRef<
                           ? JSON.parse(refreshData.threadData)
                           : refreshData.threadData;
                       if (repo?.messages?.length > 0) {
-                        threadRuntime.import(repo);
+                        threadRuntime.import(ensureMessageMetadata(repo));
                       }
                     }
                   }
@@ -1034,7 +1115,7 @@ const AssistantChatInner = forwardRef<
         if (saved) {
           const repo = JSON.parse(saved);
           if (repo?.messages?.length > 0) {
-            threadRuntime.import(repo);
+            threadRuntime.import(ensureMessageMetadata(repo));
           }
         }
       } catch {}
@@ -1066,29 +1147,37 @@ const AssistantChatInner = forwardRef<
 
     if (!text.trim()) return;
     titleGeneratedRef.current = true;
-    onGenerateTitleRef.current?.(text.trim());
-  }, [messages]);
+    if (threadId) {
+      onGenerateTitleRef.current?.(threadId, text.trim());
+    }
+  }, [messages, threadId]);
 
-  // Save title/preview eagerly when messages change (even while agent is running)
-  // so that the history popover shows meaningful labels immediately.
+  // Periodically save thread data while the agent is running so refreshes
+  // don't lose messages. Saves every 5 seconds while running.
   const savedTitleRef = useRef("");
+  const lastSaveTimeRef = useRef(0);
   useEffect(() => {
     if (!hasRestoredRef.current) return;
+    if (!isRunning) return;
     if (messages.length === 0) return;
     if (!threadId || !onSaveThreadRef.current) return;
 
+    const now = Date.now();
+    const timeSinceLastSave = now - lastSaveTimeRef.current;
+    if (timeSinceLastSave < 5000) return;
+
     const repo = threadRuntime.export();
     const { title, preview } = extractThreadMeta(repo);
-    // Save full thread data while running so hot reloads don't lose messages
-    if (isRunning && title && title !== savedTitleRef.current) {
-      savedTitleRef.current = title;
-      onSaveThreadRef.current({
-        threadData: JSON.stringify(repo),
-        title,
-        preview,
-        messageCount: messages.length,
-      });
-    }
+    if (!title) return;
+
+    lastSaveTimeRef.current = now;
+    savedTitleRef.current = title;
+    onSaveThreadRef.current(threadId, {
+      threadData: JSON.stringify(repo),
+      title,
+      preview,
+      messageCount: messages.length,
+    });
   }, [messages, isRunning, threadId, threadRuntime]);
 
   // Persist full thread data after each completed response
@@ -1103,7 +1192,7 @@ const AssistantChatInner = forwardRef<
       // Save to server via the hook callback
       const { title, preview } = extractThreadMeta(repo);
       savedTitleRef.current = title;
-      onSaveThreadRef.current({
+      onSaveThreadRef.current(threadId, {
         threadData: JSON.stringify(repo),
         title,
         preview,

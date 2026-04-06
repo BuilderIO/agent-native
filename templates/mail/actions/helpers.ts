@@ -91,7 +91,7 @@ function pickFields(data: unknown, fields: string[]): unknown {
 // ---------------------------------------------------------------------------
 
 import {
-  listOAuthAccounts,
+  listOAuthAccountsByOwner,
   saveOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
 import {
@@ -139,13 +139,14 @@ async function resolveAccessToken(
 }
 
 /**
- * Get access tokens for all connected Google accounts.
+ * Get access tokens for the current user's connected Google accounts.
  * Returns an array of { email, accessToken } with refreshed tokens.
  */
 export async function getAccessTokens(): Promise<
   Array<{ email: string; accessToken: string }>
 > {
-  const accounts = await listOAuthAccounts("google");
+  const ownerEmail = process.env.AGENT_USER_EMAIL || "local@localhost";
+  const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
   const results: Array<{ email: string; accessToken: string }> = [];
 
   for (const account of accounts) {

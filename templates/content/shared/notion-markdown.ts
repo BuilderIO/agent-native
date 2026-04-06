@@ -182,16 +182,35 @@ function preserveEmptyLines(markdown: string): string {
   const lines = normalizeLineEndings(markdown).split("\n");
   const result: string[] = [];
   let inCodeFence = false;
+  // Track when the last push was an <empty-block/> converted from &nbsp;.
+  // The blank line that follows is just a markdown paragraph separator and
+  // must NOT be treated as an extra empty line — otherwise empty-block tags
+  // inflate exponentially on every save/load cycle.
+  let lastWasNbspBlock = false;
 
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trim();
-    if (CODE_FENCE_RE.test(trimmed)) inCodeFence = !inCodeFence;
+    if (CODE_FENCE_RE.test(trimmed)) {
+      inCodeFence = !inCodeFence;
+      result.push(lines[i]);
+      lastWasNbspBlock = false;
+      continue;
+    }
     if (inCodeFence) {
       result.push(lines[i]);
+      lastWasNbspBlock = false;
       continue;
     }
 
-    // A blank line that follows another blank line (or <empty-block/>) is extra spacing
+    // Skip the structural paragraph-separator blank line after an &nbsp;
+    // that was just converted to <empty-block/>
+    if (trimmed === "" && lastWasNbspBlock) {
+      lastWasNbspBlock = false;
+      continue;
+    }
+    lastWasNbspBlock = false;
+
+    // A blank line that follows another blank line is extra spacing
     if (trimmed === "" && i > 0) {
       const prevTrimmed =
         result.length > 0 ? result[result.length - 1].trim() : "";
@@ -204,6 +223,7 @@ function preserveEmptyLines(markdown: string): string {
     // &nbsp; used by editor for empty paragraphs → <empty-block/>
     if (trimmed === "&nbsp;") {
       result.push("<empty-block/>");
+      lastWasNbspBlock = true;
       continue;
     }
 
@@ -339,6 +359,32 @@ function inlineMarkdownToHtml(text: string): string {
   return result;
 }
 
+/**
+ * Count leading indentation in a line, treating each tab as 1 level
+ * and each pair of spaces as 1 level. Returns the indent count and
+ * the rest of the line after the whitespace.
+ */
+function countLineIndent(line: string): { indent: number; rest: string } {
+  let indent = 0;
+  let i = 0;
+  while (i < line.length) {
+    if (line[i] === "\t") {
+      indent++;
+      i++;
+    } else if (line[i] === " ") {
+      let spaces = 0;
+      while (i < line.length && line[i] === " ") {
+        spaces++;
+        i++;
+      }
+      indent += Math.floor(spaces / 2);
+    } else {
+      break;
+    }
+  }
+  return { indent, rest: line.slice(i) };
+}
+
 /** Convert NFM lines (tab-indented, with optional list markers) to HTML. */
 function nfmLinesToHtml(lines: string[]): string {
   const html: string[] = [];
@@ -348,8 +394,7 @@ function nfmLinesToHtml(lines: string[]): string {
   let baseIndent = Infinity;
   for (const line of lines) {
     if (!line.trim()) continue;
-    const m = line.match(/^(\t*)/);
-    if (m) baseIndent = Math.min(baseIndent, m[1].length);
+    baseIndent = Math.min(baseIndent, countLineIndent(line).indent);
   }
   if (!isFinite(baseIndent)) baseIndent = 0;
 
@@ -380,12 +425,9 @@ function nfmLinesToHtml(lines: string[]): string {
       continue;
     }
     if (inCodeFence) {
+      const tabPrefix = "\t".repeat(baseIndent);
       html.push(
-        escapeHtml(
-          line.startsWith("\t".repeat(baseIndent))
-            ? line.slice(baseIndent)
-            : line,
-        ),
+        escapeHtml(line.startsWith(tabPrefix) ? line.slice(baseIndent) : line),
       );
       continue;
     }
@@ -395,9 +437,9 @@ function nfmLinesToHtml(lines: string[]): string {
       continue;
     }
 
-    const indentMatch = line.match(/^(\t*)(.*)/);
-    const depth = (indentMatch ? indentMatch[1].length : 0) - baseIndent;
-    const content = (indentMatch ? indentMatch[2] : line).trim();
+    const { indent, rest } = countLineIndent(line);
+    const depth = indent - baseIndent;
+    const content = rest.trim();
 
     // HTML element tags (nested <details>, <summary>, <callout>, etc.)
     // Use [a-zA-Z] to avoid matching text like "<3"
@@ -425,7 +467,9 @@ function nfmLinesToHtml(lines: string[]): string {
         openLevels++;
       }
 
-      html.push(`<li>${inlineMarkdownToHtml(text)}`);
+      // Wrap text in <p> so TipTap's ListItem (content: 'paragraph block*')
+      // can properly parse the list item content.
+      html.push(`<li><p>${inlineMarkdownToHtml(text)}</p>`);
     } else {
       closeLists();
       // Plain text — use nested <blockquote> for indentation
@@ -481,8 +525,14 @@ function convertNfmBlocks(text: string): string {
     }
 
     // <empty-block/> → visible empty paragraph (preserves Notion's vertical spacing)
+    // Only add a leading blank line if the previous line isn't already blank,
+    // to avoid creating redundant blank lines between consecutive empty-blocks
+    // that inflate on the next save cycle.
     if (/^<empty-block\b[^>]*\/>$/.test(trimmed)) {
-      result.push("");
+      const prevLine = result.length > 0 ? result[result.length - 1] : "";
+      if (prevLine.trim() !== "") {
+        result.push("");
+      }
       result.push("&nbsp;");
       result.push("");
       continue;

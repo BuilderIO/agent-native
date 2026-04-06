@@ -98,24 +98,14 @@ Every template is forkable, open source, and designed to be customized. Try them
 
 ## Quick Start
 
-Pick a template and create your app:
-
 ```bash
-npx @agent-native/core create my-app --template mail
+npx @agent-native/core create my-app
 cd my-app
 pnpm install
 pnpm dev
 ```
 
-Replace `mail` with any template: `calendar`, `content`, `slides`, `video`, `analytics`, or `forms`.
-
-Or start from a blank canvas without the `--template` flag:
-
-```bash
-npx @agent-native/core create my-app
-```
-
-Browse the **[template gallery](https://agent-native.com/templates)** for live demos and detailed feature lists.
+The CLI walks you through picking a template interactively. Or browse the **[template gallery](https://agent-native.com/templates)** for live demos.
 
 ## The Best of Both Worlds
 

@@ -206,13 +206,13 @@ Usage:
   agent-native action <name>    Run an action from actions/
   agent-native script <name>    Run an action (deprecated alias for 'action')
   agent-native typecheck        Run TypeScript type checking
-  agent-native create <name>    Scaffold a new agent-native app
+  agent-native create [name]    Scaffold a new agent-native app (interactive)
   agent-native setup-agents     Create symlinks for all agent tools
 
 Options:
   -h, --help                    Show this help message
   -v, --version                 Show version number
-  --template <name>             Template to use with create (mail, calendar, analytics, etc.)
+  --template <name>             Skip template picker (mail, calendar, analytics, etc.)
                                 Or github:user/repo for community templates`);
     break;
 

@@ -136,15 +136,13 @@ async function getAccessToken(accountEmail: string): Promise<string | null> {
 }
 
 /**
- * Get access tokens for accounts. When `forEmail` is provided, returns only
- * that user's accounts (multi-user mode). Otherwise returns all (legacy).
+ * Get access tokens for accounts owned by the given user.
+ * Always requires forEmail to enforce per-user isolation.
  */
 async function getAccountTokens(
-  forEmail?: string,
+  forEmail: string,
 ): Promise<Array<{ email: string; accessToken: string }>> {
-  const accounts = forEmail
-    ? await listOAuthAccountsByOwner("google", forEmail)
-    : await listOAuthAccounts("google");
+  const accounts = await listOAuthAccountsByOwner("google", forEmail);
 
   const results: Array<{ email: string; accessToken: string }> = [];
 
@@ -156,6 +154,25 @@ async function getAccountTokens(
   }
 
   return results;
+}
+
+/**
+ * Validate that the given accountEmail is owned by the logged-in user.
+ * Returns the validated account email, or the user's own email as fallback.
+ */
+async function resolveAccountEmail(
+  requestAccountEmail: string | undefined,
+  ownerEmail: string,
+): Promise<string> {
+  if (!requestAccountEmail || requestAccountEmail === ownerEmail) {
+    return ownerEmail;
+  }
+  const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
+  const isOwned = accounts.some((a) => a.accountId === requestAccountEmail);
+  if (!isOwned) {
+    throw new Error("Account not owned by current user");
+  }
+  return requestAccountEmail;
 }
 
 /** Extract the logged-in user's email from the request session. */
@@ -511,7 +528,7 @@ export const markRead = defineEventHandler(async (event: H3Event) => {
   const { isRead, accountEmail } = body;
 
   if (await isConnected(email)) {
-    const acct = accountEmail || email;
+    const acct = await resolveAccountEmail(accountEmail, email);
     const accessToken = await getAccessToken(acct);
     if (!accessToken) {
       setResponseStatus(event, 401);
@@ -575,7 +592,7 @@ export const archiveEmail = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
   const body = await readBody(event);
   if (await isConnected(email)) {
-    const acct = body?.accountEmail || email;
+    const acct = await resolveAccountEmail(body?.accountEmail, email);
     const accessToken = await getAccessToken(acct);
     if (!accessToken) {
       setResponseStatus(event, 401);
@@ -644,7 +661,7 @@ export const unarchiveEmail = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
   const body = await readBody(event);
   if (await isConnected(email)) {
-    const acct = body?.accountEmail || email;
+    const acct = await resolveAccountEmail(body?.accountEmail, email);
     const accessToken = await getAccessToken(acct);
     if (!accessToken) {
       setResponseStatus(event, 401);
@@ -697,7 +714,7 @@ export const trashEmail = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
   const body = await readBody(event);
   if (await isConnected(email)) {
-    const acct = body?.accountEmail || email;
+    const acct = await resolveAccountEmail(body?.accountEmail, email);
     const accessToken = await getAccessToken(acct);
     if (!accessToken) {
       setResponseStatus(event, 401);
@@ -744,7 +761,7 @@ export const untrashEmail = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
   const body = await readBody(event);
   if (await isConnected(email)) {
-    const acct = body?.accountEmail || email;
+    const acct = await resolveAccountEmail(body?.accountEmail, email);
     const accessToken = await getAccessToken(acct);
     if (!accessToken) {
       setResponseStatus(event, 401);
@@ -802,7 +819,7 @@ export const reportSpam = defineEventHandler(async (event: H3Event) => {
   const { accountEmail, threadId: bodyThreadId } = body;
 
   if (await isConnected(email)) {
-    const acct = accountEmail || email;
+    const acct = await resolveAccountEmail(accountEmail, email);
     const accessToken = await getAccessToken(acct);
     if (!accessToken) {
       setResponseStatus(event, 401);
@@ -883,7 +900,7 @@ export const blockSender = defineEventHandler(async (event: H3Event) => {
 
   // If Gmail is connected, create a filter to auto-delete + report spam
   if (await isConnected(email)) {
-    const acct = accountEmail || email;
+    const acct = await resolveAccountEmail(accountEmail, email);
     const accessToken = await getAccessToken(acct);
     if (!accessToken) {
       setResponseStatus(event, 401);
@@ -984,7 +1001,7 @@ export const muteThread = defineEventHandler(async (event: H3Event) => {
   const { accountEmail } = body;
 
   if (await isConnected(email)) {
-    const acct = accountEmail || email;
+    const acct = await resolveAccountEmail(accountEmail, email);
     const accessToken = await getAccessToken(acct);
     if (!accessToken) {
       setResponseStatus(event, 401);
@@ -1059,7 +1076,10 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
     try {
       const accountTokens = await getAccountTokens(email);
       let selectedToken = accountTokens[0]?.accessToken;
-      let selectedEmail = accountEmail || accountTokens[0]?.email || "me";
+      let selectedEmail =
+        (await resolveAccountEmail(accountEmail, email)) ||
+        accountTokens[0]?.email ||
+        "me";
 
       let threadId: string | undefined;
       let inReplyTo: string | undefined;
@@ -1234,7 +1254,7 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
 
   // If Gmail is connected, create/update a Gmail draft
   if (await isConnected(email)) {
-    const acct = reqBody?.accountEmail || email;
+    const acct = await resolveAccountEmail(reqBody?.accountEmail, email);
     const accessToken = await getAccessToken(acct);
     if (!accessToken) {
       setResponseStatus(event, 401);
@@ -1545,7 +1565,7 @@ export const deleteDraft = defineEventHandler(async (event: H3Event) => {
 
   if (await isConnected(email)) {
     const body = await readBody(event).catch(() => ({}));
-    const acct = body?.accountEmail || email;
+    const acct = await resolveAccountEmail(body?.accountEmail, email);
     const accessToken = await getAccessToken(acct);
     if (!accessToken) {
       setResponseStatus(event, 401);
@@ -1875,7 +1895,7 @@ export const calendarRsvp = defineEventHandler(async (event: H3Event) => {
   }
 
   try {
-    const acct = accountEmail || email;
+    const acct = await resolveAccountEmail(accountEmail, email);
     const accessToken = await getAccessToken(acct);
     if (!accessToken) {
       setResponseStatus(event, 401);

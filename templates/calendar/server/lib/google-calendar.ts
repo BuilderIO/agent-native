@@ -126,26 +126,19 @@ export async function exchangeCode(
 }
 
 export async function getClient(
-  email?: string,
+  email: string | undefined,
 ): Promise<{ accessToken: string } | null> {
-  const accounts = await listOAuthAccounts("google");
+  if (!email) return null;
+  const accounts = await listOAuthAccountsByOwner("google", email);
   if (accounts.length === 0) return null;
 
-  let account: (typeof accounts)[number] | undefined;
-  if (email) {
-    account =
-      accounts.find((a) => a.accountId === email) ??
-      accounts.find((a) => a.owner === email);
-    if (!account) return null;
-  } else {
-    account = accounts[0];
-  }
+  const account = accounts.find((a) => a.accountId === email) ?? accounts[0];
 
   const tokens = account.tokens as unknown as GoogleTokens;
   const accessToken = await getValidAccessToken(
     account.accountId,
     tokens,
-    account.owner ?? account.accountId,
+    email,
   );
   return { accessToken };
 }
@@ -182,8 +175,12 @@ export async function isConnected(forEmail?: string): Promise<boolean> {
   return isOAuthConnected("google", forEmail);
 }
 
-export async function getConnectedAccounts(): Promise<string[]> {
-  const accounts = await listOAuthAccounts("google");
+export async function getConnectedAccounts(
+  forEmail?: string,
+): Promise<string[]> {
+  const accounts = forEmail
+    ? await listOAuthAccountsByOwner("google", forEmail)
+    : await listOAuthAccounts("google");
   return accounts.map((a) => a.accountId);
 }
 
@@ -294,8 +291,22 @@ export async function listEvents(
                     : undefined,
                 }
               : undefined,
+            attachments: event.attachments?.map((a: any) => ({
+              fileUrl: a.fileUrl,
+              title: a.title || "Untitled",
+              mimeType: a.mimeType || undefined,
+              iconLink: a.iconLink || undefined,
+              fileId: a.fileId || undefined,
+            })),
             visibility: event.visibility || undefined,
             status: event.status || undefined,
+            organizer: event.organizer
+              ? {
+                  email: event.organizer.email,
+                  displayName: event.organizer.displayName || undefined,
+                  self: event.organizer.self || undefined,
+                }
+              : undefined,
             createdAt: event.created || new Date().toISOString(),
             updatedAt: event.updated || new Date().toISOString(),
           };
@@ -445,11 +456,117 @@ export async function updateEvent(
 export async function deleteEvent(
   googleEventId: string,
   accountEmail?: string,
+  options?: {
+    scope?: "single" | "all" | "thisAndFollowing";
+    sendUpdates?: "all" | "none";
+  },
 ): Promise<void> {
   const client = await getClient(accountEmail);
   if (!client) return;
 
-  await calendarDeleteEvent(client.accessToken, "primary", googleEventId);
+  const scope = options?.scope || "single";
+  const sendUpdates = options?.sendUpdates;
+
+  if (scope === "single") {
+    await calendarDeleteEvent(
+      client.accessToken,
+      "primary",
+      googleEventId,
+      sendUpdates,
+    );
+    return;
+  }
+
+  // For "all" or "thisAndFollowing", find the master recurring event
+  const instance = await calendarGetEvent(
+    client.accessToken,
+    "primary",
+    googleEventId,
+  );
+  const recurringEventId = instance.recurringEventId || googleEventId;
+
+  if (scope === "all") {
+    await calendarDeleteEvent(
+      client.accessToken,
+      "primary",
+      recurringEventId,
+      sendUpdates,
+    );
+    return;
+  }
+
+  // "thisAndFollowing" — truncate the recurrence rule on the master event
+  if (recurringEventId === googleEventId) {
+    // This IS the master event, just delete the whole series
+    await calendarDeleteEvent(
+      client.accessToken,
+      "primary",
+      googleEventId,
+      sendUpdates,
+    );
+    return;
+  }
+
+  const instanceStart = instance.start?.dateTime || instance.start?.date || "";
+  const isAllDay = !instance.start?.dateTime;
+
+  // Compute UNTIL value (day before this instance)
+  const cutoff = new Date(instanceStart);
+  cutoff.setDate(cutoff.getDate() - 1);
+
+  let untilStr: string;
+  if (isAllDay) {
+    // All-day: UNTIL=YYYYMMDD
+    untilStr = cutoff.toISOString().slice(0, 10).replace(/-/g, "");
+  } else {
+    // Timed: UNTIL=YYYYMMDDTHHMMSSZ (end of the cutoff day in UTC)
+    cutoff.setUTCHours(23, 59, 59, 0);
+    untilStr = cutoff.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
+  }
+
+  // Get the master event's recurrence rules and truncate
+  const master = await calendarGetEvent(
+    client.accessToken,
+    "primary",
+    recurringEventId,
+  );
+  const recurrence: string[] = master.recurrence || [];
+  const updatedRecurrence = recurrence.map((rule: string) => {
+    if (rule.startsWith("RRULE:")) {
+      // Remove any existing UNTIL or COUNT
+      let updated = rule.replace(/;(UNTIL|COUNT)=[^;]*/g, "");
+      updated += `;UNTIL=${untilStr}`;
+      return updated;
+    }
+    return rule;
+  });
+
+  await calendarPatchEvent(
+    client.accessToken,
+    "primary",
+    recurringEventId,
+    { recurrence: updatedRecurrence },
+    sendUpdates,
+  );
+}
+
+/**
+ * Remove an event from the current user's calendar without deleting it for others.
+ * This declines the event (RSVPs as "declined") which removes it from the user's
+ * default calendar view.
+ */
+export async function removeEventFromCalendar(
+  googleEventId: string,
+  accountEmail: string,
+  options?: {
+    scope?: "single" | "all" | "thisAndFollowing";
+    sendUpdates?: "all" | "none";
+  },
+): Promise<void> {
+  const scope = options?.scope || "single";
+  const sendUpdates = options?.sendUpdates;
+
+  await rsvpEvent(googleEventId, "declined", accountEmail, scope, sendUpdates);
 }
 
 /**
@@ -460,6 +577,7 @@ async function rsvpSingleEvent(
   eventId: string,
   responseStatus: string,
   accountEmail: string,
+  sendUpdates?: string,
 ): Promise<void> {
   const existing = await calendarGetEvent(accessToken, "primary", eventId);
   const attendees = (existing.attendees ?? []).map(
@@ -471,7 +589,7 @@ async function rsvpSingleEvent(
     "primary",
     eventId,
     { attendees },
-    "none",
+    sendUpdates ?? "none",
   );
 }
 
@@ -484,6 +602,7 @@ export async function rsvpEvent(
   responseStatus: "accepted" | "declined" | "tentative",
   accountEmail: string,
   scope: "single" | "all" | "thisAndFollowing" = "single",
+  sendUpdates?: string,
 ): Promise<void> {
   const client = await getClient(accountEmail);
   if (!client) return;
@@ -494,6 +613,7 @@ export async function rsvpEvent(
       googleEventId,
       responseStatus,
       accountEmail,
+      sendUpdates,
     );
     return;
   }
@@ -514,6 +634,7 @@ export async function rsvpEvent(
       recurringEventId,
       responseStatus,
       accountEmail,
+      sendUpdates,
     );
     return;
   }
@@ -542,7 +663,13 @@ export async function rsvpEvent(
   // RSVP each instance (including the current one)
   await Promise.all(
     futureInstances.map((e: any) =>
-      rsvpSingleEvent(client.accessToken, e.id, responseStatus, accountEmail),
+      rsvpSingleEvent(
+        client.accessToken,
+        e.id,
+        responseStatus,
+        accountEmail,
+        sendUpdates,
+      ),
     ),
   );
 }

@@ -2,15 +2,13 @@
 
 The fastest way to get started is to pick a template and customize it. Templates are complete, production-ready apps — not starter kits. You get a working app in under a minute and start making it yours.
 
-## Start from a Template
-
-Pick a template and create your app:
+## Create Your App
 
 ```bash
-npx @agent-native/core create my-app --template mail
+npx @agent-native/core create my-app
 ```
 
-Then run it:
+The CLI walks you through picking a template — Mail, Calendar, Content, Slides, Video, Analytics, and more — or starting blank. Then run it:
 
 ```bash
 cd my-app
@@ -18,34 +16,11 @@ pnpm install
 pnpm dev
 ```
 
-That's it — you have a full email client running locally with an AI agent built in. Open the agent panel, ask it to do something, and watch it work.
+That's it — you have a full app running locally with an AI agent built in. Open the agent panel, ask it to do something, and watch it work.
 
 From here, use your AI coding tool (Claude Code, Cursor, Windsurf, etc.) to customize it. The agent instructions in `AGENTS.md` are already set up so any tool understands the codebase.
 
-## Choose a Template
-
-Each template is a complete app with UI, agent actions, database schema, and AI instructions ready to go:
-
-| Template      | Replaces                    | Command                                                     |
-| ------------- | --------------------------- | ----------------------------------------------------------- |
-| **Mail**      | Superhuman, Gmail           | `npx @agent-native/core create my-app --template mail`      |
-| **Calendar**  | Google Calendar, Calendly   | `npx @agent-native/core create my-app --template calendar`  |
-| **Content**   | Notion, Google Docs         | `npx @agent-native/core create my-app --template content`   |
-| **Slides**    | Google Slides, Pitch        | `npx @agent-native/core create my-app --template slides`    |
-| **Video**     | Video editing tools         | `npx @agent-native/core create my-app --template video`     |
-| **Analytics** | Amplitude, Mixpanel, Looker | `npx @agent-native/core create my-app --template analytics` |
-
 Browse the [template gallery](https://agent-native.com/templates) for live demos and detailed feature lists.
-
-## Start from Scratch
-
-If you want a blank canvas instead of a template, create a project without the `--template` flag:
-
-```bash
-npx @agent-native/core create my-app
-```
-
-This gives you the framework scaffolding — React frontend, Nitro backend, agent panel, and database — but no domain-specific code. Good for building something entirely new.
 
 ## Project Structure
 

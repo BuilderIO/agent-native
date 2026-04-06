@@ -98,7 +98,7 @@ const stripe = new ShellCliAdapter({
   env: { STRIPE_API_KEY: process.env.STRIPE_SECRET_KEY! },
 });`}
       />
-      <h3>Options</h3>
+      <h3 id="shell-adapter-options">Options</h3>
       <div className="overflow-x-auto">
         <table>
           <thead>

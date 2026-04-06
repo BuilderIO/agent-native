@@ -75,6 +75,24 @@ export type AgentChatEvent =
       status: "start" | "done" | "error";
     }
   | { type: "agent_call_text"; agent: string; text: string }
+  | {
+      type: "agent_task";
+      taskId: string;
+      threadId: string;
+      description: string;
+      status: "running" | "completed" | "errored";
+    }
+  | {
+      type: "agent_task_update";
+      taskId: string;
+      preview: string;
+      currentStep?: string;
+    }
+  | {
+      type: "agent_task_complete";
+      taskId: string;
+      summary: string;
+    }
   | { type: "done" }
   | { type: "error"; error: string }
   | { type: "missing_api_key" }

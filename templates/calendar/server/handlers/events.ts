@@ -154,6 +154,55 @@ export const getEvent = defineEventHandler(async (event: H3Event) => {
           source: "google",
           googleEventId: evt.id || undefined,
           accountEmail: acctEmail,
+          attendees: evt.attendees?.map((a: any) => ({
+            email: a.email,
+            displayName: a.displayName || undefined,
+            responseStatus: a.responseStatus || undefined,
+            organizer: a.organizer || undefined,
+            self: a.self || undefined,
+          })),
+          reminders: evt.reminders?.overrides?.map((r: any) => ({
+            method: r.method,
+            minutes: r.minutes,
+          })),
+          recurrence: evt.recurrence || undefined,
+          recurringEventId: evt.recurringEventId || undefined,
+          hangoutLink: evt.hangoutLink || undefined,
+          conferenceData: evt.conferenceData
+            ? {
+                entryPoints: evt.conferenceData.entryPoints?.map((ep: any) => ({
+                  entryPointType: ep.entryPointType,
+                  uri: ep.uri,
+                  label: ep.label || undefined,
+                  pin: ep.pin || undefined,
+                  passcode: ep.passcode || undefined,
+                })),
+                conferenceSolution: evt.conferenceData.conferenceSolution
+                  ? {
+                      name: evt.conferenceData.conferenceSolution.name,
+                      iconUri:
+                        evt.conferenceData.conferenceSolution.iconUri ||
+                        undefined,
+                    }
+                  : undefined,
+              }
+            : undefined,
+          attachments: evt.attachments?.map((a: any) => ({
+            fileUrl: a.fileUrl,
+            title: a.title || "Untitled",
+            mimeType: a.mimeType || undefined,
+            iconLink: a.iconLink || undefined,
+            fileId: a.fileId || undefined,
+          })),
+          visibility: evt.visibility || undefined,
+          status: evt.status || undefined,
+          organizer: evt.organizer
+            ? {
+                email: evt.organizer.email,
+                displayName: evt.organizer.displayName || undefined,
+                self: evt.organizer.self || undefined,
+              }
+            : undefined,
           createdAt: evt.created || new Date().toISOString(),
           updatedAt: evt.updated || new Date().toISOString(),
         };
@@ -266,13 +315,37 @@ export const deleteEvent = defineEventHandler(async (event: H3Event) => {
     }
 
     const query = getQuery(event);
+    const body = await readBody(event).catch(() => ({}));
+
     const accountEmail = await resolveAccountEmail(
-      query.accountEmail as string | undefined,
+      (body?.accountEmail || query.accountEmail) as string | undefined,
       email,
     );
 
+    const scope = (body?.scope || query.scope || "single") as
+      | "single"
+      | "all"
+      | "thisAndFollowing";
+    const sendUpdates = (body?.sendUpdates || query.sendUpdates || "none") as
+      | "all"
+      | "none";
+    const removeOnly = body?.removeOnly === true;
+
     try {
-      await googleCalendar.deleteEvent(googleEventId, accountEmail);
+      if (removeOnly) {
+        // Non-organizer: decline the event to remove from calendar
+        await googleCalendar.removeEventFromCalendar(
+          googleEventId,
+          accountEmail,
+          { scope, sendUpdates },
+        );
+      } else {
+        // Organizer: actually delete the event
+        await googleCalendar.deleteEvent(googleEventId, accountEmail, {
+          scope,
+          sendUpdates,
+        });
+      }
     } catch (error: any) {
       setResponseStatus(event, 500);
       return { error: `Failed to delete Google event: ${error.message}` };

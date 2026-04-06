@@ -7,6 +7,8 @@ export default {
   prerender: [
     "/",
     "/docs",
+    "/docs/what-is-agent-native",
+    "/docs/faq",
     "/docs/server",
     "/docs/client",
     "/docs/actions",

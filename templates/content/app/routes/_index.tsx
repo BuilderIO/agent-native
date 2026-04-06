@@ -20,10 +20,12 @@ export default function IndexRoute() {
   const navigate = useNavigate();
   const { data: documents } = useDocuments();
 
-  // Auto-select the first document if any exist
+  // Auto-select the first favorite, or the first document if no favorites
   useEffect(() => {
     if (documents && documents.length > 0) {
-      navigate(`/page/${documents[0].id}`, { replace: true });
+      const firstFavorite = documents.find((d) => d.isFavorite);
+      const target = firstFavorite ?? documents[0];
+      navigate(`/page/${target.id}`, { replace: true });
     }
   }, [documents, navigate]);
 

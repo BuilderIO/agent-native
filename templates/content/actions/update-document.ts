@@ -38,11 +38,25 @@ export default async function main(args: string[]) {
   // Verify document exists
   const client = getDbExec();
   const existing = await client.execute({
-    sql: "SELECT id FROM documents WHERE id = ?",
+    sql: "SELECT id, title FROM documents WHERE id = ?",
     args: [id],
   });
   if (!existing.rows || existing.rows.length === 0) {
     fail(`Document "${id}" not found`);
+  }
+
+  // Strip leading H1 that duplicates the title (AI often generates "# Title" + title field)
+  if (opts.content) {
+    const titleToCheck = opts.title || ((existing.rows[0] as any)?.title ?? "");
+    if (titleToCheck) {
+      const h1Match = opts.content.match(/^#\s+(.+?)(\r?\n|$)/);
+      if (
+        h1Match &&
+        h1Match[1].trim().toLowerCase() === titleToCheck.trim().toLowerCase()
+      ) {
+        opts.content = opts.content.slice(h1Match[0].length).trimStart();
+      }
+    }
   }
 
   // Build SET clause dynamically

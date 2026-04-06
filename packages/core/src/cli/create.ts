@@ -11,26 +11,75 @@ const REPO = "BuilderIO/agent-native";
 const TEMPLATES_DIR = "templates";
 
 /**
- * Known first-party templates hosted in the agent-native monorepo.
+ * Template definitions with descriptions for the interactive picker.
+ */
+const TEMPLATES = [
+  {
+    value: "blank",
+    label: "Blank",
+    hint: "Empty starter — build from scratch",
+  },
+  {
+    value: "mail",
+    label: "Mail",
+    hint: "AI-native Superhuman — email client with keyboard shortcuts and AI triage",
+  },
+  {
+    value: "calendar",
+    label: "Calendar",
+    hint: "AI-native Google Calendar — manage events, sync, and public booking",
+  },
+  {
+    value: "content",
+    label: "Content",
+    hint: "AI-native Notion/Google Docs — write and organize with agent assistance",
+  },
+  {
+    value: "slides",
+    label: "Slides",
+    hint: "AI-native Google Slides — generate and edit React presentations",
+  },
+  {
+    value: "videos",
+    label: "Video",
+    hint: "AI-native video editing with Remotion",
+  },
+  {
+    value: "analytics",
+    label: "Analytics",
+    hint: "AI-native Amplitude/Mixpanel — connect data sources, prompt for charts",
+  },
+  {
+    value: "forms",
+    label: "Forms",
+    hint: "AI-native form builder — create, edit, and manage forms",
+  },
+  {
+    value: "issues",
+    label: "Issues",
+    hint: "AI-native Jira — project management and issue tracking",
+  },
+  {
+    value: "recruiting",
+    label: "Recruiting",
+    hint: "AI-native Greenhouse — manage candidates and recruiting pipelines",
+  },
+] as const;
+
+/**
+ * Known first-party template names (for validation).
+ * Includes aliases like "video" → "videos" and "starter" for backwards compat.
  */
 const KNOWN_TEMPLATES = [
-  "analytics",
-  "calendar",
-  "content",
-  "forms",
-  "issues",
-  "mail",
-  "recruiting",
-  "slides",
-  "starter",
+  ...TEMPLATES.map((t) => t.value).filter((v) => v !== "blank"),
   "video",
-  "videos",
+  "starter",
 ];
 
 /**
  * Scaffold a new agent-native app.
  *
- * Without --template: uses the bundled default template.
+ * Interactive mode: prompts for app name and template if not provided.
  * With --template <name>: downloads the template from GitHub.
  * With --template github:user/repo: downloads from a custom GitHub repo.
  */
@@ -38,33 +87,81 @@ export async function createApp(
   name?: string,
   opts?: { template?: string },
 ): Promise<void> {
-  if (!name) {
-    console.error("Usage: agent-native create <app-name> [--template <name>]");
-    process.exit(1);
-  }
+  const clack = await import("@clack/prompts");
 
-  // Validate name
-  if (!/^[a-z][a-z0-9-]*$/.test(name)) {
-    console.error(
-      `Invalid app name "${name}". Use lowercase letters, numbers, and hyphens.`,
-    );
-    process.exit(1);
+  clack.intro("Create a new agent-native app");
+
+  // Prompt for name if not provided
+  if (!name) {
+    const nameResult = await clack.text({
+      message: "What is your app name?",
+      placeholder: "my-app",
+      validate(value) {
+        if (!value) return "App name is required";
+        if (!/^[a-z][a-z0-9-]*$/.test(value)) {
+          return "Use lowercase letters, numbers, and hyphens (must start with a letter)";
+        }
+        if (fs.existsSync(path.resolve(process.cwd(), value))) {
+          return `Directory "${value}" already exists`;
+        }
+      },
+    });
+    if (clack.isCancel(nameResult)) {
+      clack.cancel("Cancelled.");
+      process.exit(0);
+    }
+    name = nameResult;
+  } else {
+    // Validate provided name
+    if (!/^[a-z][a-z0-9-]*$/.test(name)) {
+      clack.cancel(
+        `Invalid app name "${name}". Use lowercase letters, numbers, and hyphens.`,
+      );
+      process.exit(1);
+    }
   }
 
   const targetDir = path.resolve(process.cwd(), name);
 
   if (fs.existsSync(targetDir)) {
-    console.error(`Directory "${name}" already exists.`);
+    clack.cancel(`Directory "${name}" already exists.`);
     process.exit(1);
   }
 
-  const template = opts?.template;
-
-  if (template) {
-    await createFromTemplate(name, targetDir, template);
-  } else {
-    createFromDefault(name, targetDir);
+  // Prompt for template if not provided
+  let template = opts?.template;
+  if (!template) {
+    const templateResult = await clack.select({
+      message: "Which template would you like to use?",
+      options: TEMPLATES.map((t) => ({
+        value: t.value,
+        label: t.label,
+        hint: t.hint,
+      })),
+    });
+    if (clack.isCancel(templateResult)) {
+      clack.cancel("Cancelled.");
+      process.exit(0);
+    }
+    template = templateResult as string;
   }
+
+  const s = clack.spinner();
+  s.start("Scaffolding your app...");
+
+  try {
+    if (template === "blank") {
+      createFromDefault(name, targetDir);
+    } else {
+      await createFromTemplate(name, targetDir, template);
+    }
+    s.stop("App created!");
+  } catch (err) {
+    s.stop("Failed to create app.");
+    throw err;
+  }
+
+  clack.outro(`Done! Next steps:\n\n  cd ${name}\n  pnpm install\n  pnpm dev`);
 }
 
 /**
@@ -81,7 +178,6 @@ function createFromDefault(name: string, targetDir: string): void {
     process.exit(1);
   }
 
-  console.log(`Creating ${name}...`);
   copyDir(templateDir, targetDir);
   postProcess(name, targetDir);
 }
@@ -105,11 +201,9 @@ async function createFromTemplate(
   if (resolvedTemplate.startsWith("github:")) {
     // Community template: github:user/repo
     const repo = resolvedTemplate.slice("github:".length);
-    console.log(`Creating ${name} from ${repo}...`);
     await downloadGitHubRepo(repo, targetDir);
   } else if (KNOWN_TEMPLATES.includes(resolvedTemplate)) {
     // First-party template from monorepo
-    console.log(`Creating ${name} from template "${resolvedTemplate}"...`);
     await downloadGitHubSubdir(
       REPO,
       `${TEMPLATES_DIR}/${resolvedTemplate}`,
@@ -284,25 +378,6 @@ function postProcess(name: string, targetDir: string): void {
 
   // Create symlinks for all agent tools (Claude, Cursor, Windsurf, etc.)
   setupAgentSymlinks(targetDir);
-
-  console.log(`\nDone! Created ${name} at ${targetDir}\n`);
-  console.log(`Next steps:`);
-  console.log(`  cd ${name}`);
-  console.log(`  pnpm install`);
-  console.log(
-    `  pnpm dev          # Start dev server at http://localhost:8080`,
-  );
-  console.log(`  pnpm build        # Build for production`);
-  console.log(`  pnpm start        # Start production server`);
-  console.log(``);
-  console.log(`Your app includes agent skills in .agents/skills/.`);
-  console.log(
-    `These teach the AI agent how to work within the framework's architecture.`,
-  );
-  console.log(``);
-  console.log(
-    `Need multi-user collaboration? See: https://agent-native.com/docs/file-sync`,
-  );
 }
 
 /**

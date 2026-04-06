@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { VisualEditor } from "./VisualEditor";
 import { DocumentToolbar } from "./DocumentToolbar";
+import { EmojiPicker } from "./EmojiPicker";
 import { useDocument, useUpdateDocument } from "@/hooks/use-documents";
 import { IconLoader2 } from "@tabler/icons-react";
 
@@ -143,13 +144,27 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
       {/* Scrollable document area */}
       <div className="flex-1 min-h-0 overflow-auto flex flex-col">
         {/* Title */}
-        <div className="shrink-0 px-16 pt-16 pb-2">
-          <div className="flex items-center gap-3 mb-2">
-            {document.icon && <span className="text-4xl">{document.icon}</span>}
+        <div className="shrink-0 px-16 pt-16 pb-2 group/title">
+          <div className="mb-1">
+            <EmojiPicker
+              icon={document.icon}
+              onSelect={(emoji) => {
+                updateDocument.mutate({ id: documentId, icon: emoji });
+              }}
+            />
           </div>
           <input
             value={localTitle}
             onChange={(e) => handleTitleChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                const pm = window.document.querySelector(
+                  ".ProseMirror",
+                ) as HTMLElement | null;
+                pm?.focus();
+              }
+            }}
             placeholder="Untitled"
             className="w-full text-4xl font-bold bg-transparent border-none outline-none text-foreground placeholder:text-muted-foreground/40"
           />

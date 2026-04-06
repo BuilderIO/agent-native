@@ -298,6 +298,188 @@ async function createCallAgentScriptEntry(): Promise<
   }
 }
 
+/**
+ * Creates agent team orchestration tools (spawn-task, task-status, read-task-result).
+ * These let the main agent spawn sub-agents and coordinate work.
+ */
+function createTeamTools(deps: {
+  getOwner: () => string;
+  getSystemPrompt: () => string;
+  getActions: () => Record<string, ActionEntry>;
+  getApiKey: () => string;
+  getModel: () => string;
+  getSend: () =>
+    | ((event: import("../agent/types.js").AgentChatEvent) => void)
+    | null;
+}): Record<string, ActionEntry> {
+  return {
+    "spawn-task": {
+      tool: {
+        description:
+          "Spawn a sub-agent to handle a task in the background. The sub-agent runs independently with its own conversation thread. Use this to delegate work so the main chat stays free for new requests. A live preview card will appear in the chat showing the sub-agent's progress.",
+        parameters: {
+          type: "object",
+          properties: {
+            task: {
+              type: "string",
+              description:
+                "Clear description of what the sub-agent should accomplish",
+            },
+            instructions: {
+              type: "string",
+              description:
+                "Optional additional instructions or context for the sub-agent",
+            },
+          },
+          required: ["task"],
+        },
+      },
+      run: async (args: Record<string, string>) => {
+        // Capture the send function NOW (at spawn time) so that
+        // concurrent runs don't clobber each other's send reference.
+        const capturedSend = deps.getSend();
+        const { spawnTask } = await import("./agent-teams.js");
+        const task = await spawnTask({
+          description: args.task,
+          instructions: args.instructions,
+          ownerEmail: deps.getOwner(),
+          systemPrompt: deps.getSystemPrompt(),
+          actions: deps.getActions(),
+          apiKey: deps.getApiKey(),
+          model: deps.getModel(),
+          parentSend: (event) => {
+            if (capturedSend) capturedSend(event);
+          },
+        });
+        return JSON.stringify({
+          taskId: task.taskId,
+          threadId: task.threadId,
+          status: task.status,
+          description: task.description,
+        });
+      },
+    },
+    "task-status": {
+      tool: {
+        description:
+          "Check the status of a sub-agent task. Returns current status, preview of output, and current step.",
+        parameters: {
+          type: "object",
+          properties: {
+            taskId: {
+              type: "string",
+              description: "The task ID returned by spawn-task",
+            },
+          },
+          required: ["taskId"],
+        },
+      },
+      run: async (args: Record<string, string>) => {
+        const { getTask } = await import("./agent-teams.js");
+        const task = await getTask(args.taskId);
+        if (!task) return JSON.stringify({ error: "Task not found" });
+        return JSON.stringify({
+          taskId: task.taskId,
+          threadId: task.threadId,
+          status: task.status,
+          description: task.description,
+          preview: task.preview,
+          currentStep: task.currentStep,
+          summary: task.summary,
+        });
+      },
+    },
+    "read-task-result": {
+      tool: {
+        description:
+          "Read the result of a completed sub-agent task. Returns the full output summary.",
+        parameters: {
+          type: "object",
+          properties: {
+            taskId: {
+              type: "string",
+              description: "The task ID returned by spawn-task",
+            },
+          },
+          required: ["taskId"],
+        },
+      },
+      run: async (args: Record<string, string>) => {
+        const { getTask } = await import("./agent-teams.js");
+        const task = await getTask(args.taskId);
+        if (!task) return JSON.stringify({ error: "Task not found" });
+        if (task.status === "running") {
+          return JSON.stringify({
+            status: "running",
+            preview: task.preview,
+            message: "Task is still running. Check back later.",
+          });
+        }
+        return JSON.stringify({
+          taskId: task.taskId,
+          status: task.status,
+          summary: task.summary,
+          preview: task.preview,
+        });
+      },
+    },
+    "send-to-task": {
+      tool: {
+        description:
+          "Send a message or update to a running sub-agent. Use this to redirect, add context, or give feedback to a sub-agent while it's working.",
+        parameters: {
+          type: "object",
+          properties: {
+            taskId: {
+              type: "string",
+              description: "The task ID returned by spawn-task",
+            },
+            message: {
+              type: "string",
+              description: "Message to send to the sub-agent",
+            },
+          },
+          required: ["taskId", "message"],
+        },
+      },
+      run: async (args: Record<string, string>) => {
+        const { sendToTask } = await import("./agent-teams.js");
+        const result = await sendToTask(args.taskId, args.message);
+        return JSON.stringify(result);
+      },
+    },
+    "list-tasks": {
+      tool: {
+        description:
+          "List all sub-agent tasks and their current status. Use this to see what's running, completed, or failed.",
+        parameters: {
+          type: "object",
+          properties: {},
+        },
+      },
+      run: async () => {
+        const { listTasks } = await import("./agent-teams.js");
+        const tasks = await listTasks();
+        if (tasks.length === 0) {
+          return "No sub-agent tasks.";
+        }
+        return JSON.stringify(
+          tasks.map((t) => ({
+            taskId: t.taskId,
+            threadId: t.threadId,
+            description: t.description,
+            status: t.status,
+            currentStep: t.currentStep,
+            hasResult: t.summary.length > 0,
+          })),
+          null,
+          2,
+        );
+      },
+    },
+  };
+}
+
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
 export interface AgentChatPluginOptions {
@@ -371,6 +553,27 @@ You can search and restore previous chat conversations:
 - \`open-chat\` — Open a chat thread in the UI as a new tab and focus it
 
 When the user asks to find a previous conversation, use \`search-chats\` first to find matching threads, then \`open-chat\` to restore the one they want.
+
+### Agent Teams — Orchestration
+
+You are an orchestrator. For complex or multi-step tasks, delegate to sub-agents:
+- \`spawn-task\` — Spawn a sub-agent for a task. It runs in its own thread while you stay available. A live preview card appears in the chat.
+- \`task-status\` — Check the progress of a running sub-agent.
+- \`read-task-result\` — Read the result when a sub-agent finishes.
+
+**When to delegate vs do directly:**
+- **Delegate** when the task involves multiple tool calls, research, content generation, or anything that takes more than a few seconds. Examples: "create a deck about X", "analyze the data and write a report", "look up Y and draft an email about it".
+- **Do directly** for quick single-step tasks like navigation, reading state, or answering simple questions.
+- **Spawn multiple sub-agents** when the user asks for multiple independent things — they'll run in parallel.
+
+**How to orchestrate:**
+1. When the user asks for something complex, spawn a sub-agent with a clear task description.
+2. Tell the user what you've started ("I'm having a sub-agent research that for you").
+3. You can keep chatting — sub-agents run independently.
+4. Use \`read-task-result\` to check results when needed, or the user can see live progress in the card.
+5. If the user's request has multiple steps, you can spawn one sub-agent per step, or chain them.
+
+The sub-agent has the same tools you do. Give it a specific, actionable task description — it will figure out which tools to use.
 `;
 
 const PROD_FRAMEWORK_PROMPT = `## Agent-Native Framework — Production Mode
@@ -893,7 +1096,9 @@ export function createAgentChatPlugin(
         if (!Array.isArray(repo.messages)) repo.messages = [];
 
         const lastMsg = repo.messages[repo.messages.length - 1];
-        if (lastMsg?.role === "assistant") {
+        // Check both wrapped ({ message: { role } }) and unwrapped ({ role }) formats
+        const lastRole = lastMsg?.message?.role ?? lastMsg?.role;
+        if (lastRole === "assistant") {
           // Frontend already saved the assistant response — just bump timestamp
           await updateThreadData(
             threadId,
@@ -905,7 +1110,17 @@ export function createAgentChatPlugin(
           return;
         }
 
-        repo.messages.push(assistantMsg);
+        // Determine if repo uses wrapped format ({ message, parentId }) or flat format
+        const isWrapped = lastMsg && "message" in lastMsg;
+        if (isWrapped) {
+          const parentId =
+            repo.messages.length > 0
+              ? (repo.messages[repo.messages.length - 1].message?.id ?? null)
+              : null;
+          repo.messages.push({ message: assistantMsg, parentId });
+        } else {
+          repo.messages.push(assistantMsg);
+        }
 
         const meta = extractThreadMeta(repo);
         await updateThreadData(
@@ -920,22 +1135,68 @@ export function createAgentChatPlugin(
       }
     };
 
-    // Always build the production handler (includes resource tools + call-agent)
-    const prodHandler = createProductionAgentHandler({
-      actions: {
+    // ─── Agent Teams: per-run send reference ─────────────────────────
+    // Team tools need to emit events to the parent chat's SSE stream.
+    // Each run gets its own send function, keyed by threadId so concurrent
+    // requests for different threads don't clobber each other.
+    const _runSendByThread = new Map<
+      string,
+      (event: import("../agent/types.js").AgentChatEvent) => void
+    >();
+    let _currentRunOwner = "local@localhost";
+    let _currentRunThreadId = "";
+    let _currentRunSystemPrompt = basePrompt;
+    const resolvedModel = options?.model ?? "claude-sonnet-4-6";
+
+    const teamTools = createTeamTools({
+      getOwner: () => _currentRunOwner,
+      getSystemPrompt: () => _currentRunSystemPrompt,
+      getActions: () => ({
         ...templateScripts,
         ...resourceScripts,
         ...chatScripts,
-        ...callAgentScript,
+      }),
+      getApiKey: () => options?.apiKey ?? process.env.ANTHROPIC_API_KEY ?? "",
+      getModel: () => resolvedModel,
+      getSend: () => {
+        // Return the send for the current run's thread
+        const send = _runSendByThread.get(_currentRunThreadId);
+        return send ?? null;
       },
+    });
+
+    // Hook into the run lifecycle to set/clear the send reference.
+    const prodActions = {
+      ...templateScripts,
+      ...resourceScripts,
+      ...chatScripts,
+      ...callAgentScript,
+      ...teamTools,
+    };
+
+    // Always build the production handler (includes resource tools + call-agent + team tools)
+    const prodHandler = createProductionAgentHandler({
+      actions: prodActions,
       systemPrompt: async (event: any) => {
         const owner = await getOwnerFromEvent(event);
+        _currentRunOwner = owner;
         const resources = await loadResourcesForPrompt(owner);
-        return basePrompt + resources;
+        _currentRunSystemPrompt = basePrompt + resources;
+        return _currentRunSystemPrompt;
       },
       model: options?.model,
       apiKey: options?.apiKey,
-      onRunComplete,
+      onRunStart: (
+        send: (event: import("../agent/types.js").AgentChatEvent) => void,
+        threadId: string,
+      ) => {
+        _runSendByThread.set(threadId, send);
+        _currentRunThreadId = threadId;
+      },
+      onRunComplete: async (run: any, threadId: string | undefined) => {
+        if (threadId) _runSendByThread.delete(threadId);
+        await onRunComplete(run, threadId);
+      },
     });
 
     // Build the dev handler (with filesystem/shell/db tools) if environment allows toggling
@@ -950,18 +1211,31 @@ export function createAgentChatPlugin(
         ...resourceScripts,
         ...chatScripts,
         ...callAgentScript,
+        ...teamTools,
         ...(await createDevScriptRegistry()),
       };
       devHandler = createProductionAgentHandler({
         actions: devActions,
         systemPrompt: async (event: any) => {
           const owner = await getOwnerFromEvent(event);
+          _currentRunOwner = owner;
           const resources = await loadResourcesForPrompt(owner);
-          return devPrompt + resources;
+          _currentRunSystemPrompt = devPrompt + resources;
+          return _currentRunSystemPrompt;
         },
         model: options?.model,
         apiKey: options?.apiKey,
-        onRunComplete,
+        onRunStart: (
+          send: (event: import("../agent/types.js").AgentChatEvent) => void,
+          threadId: string,
+        ) => {
+          _runSendByThread.set(threadId, send);
+          _currentRunThreadId = threadId;
+        },
+        onRunComplete: async (run: any, threadId: string | undefined) => {
+          if (threadId) _runSendByThread.delete(threadId);
+          await onRunComplete(run, threadId);
+        },
       });
     }
 
@@ -1424,7 +1698,10 @@ export function createAgentChatPlugin(
         const url = event.node?.req?.url || event.path || "";
 
         // Route: POST /runs/:id/abort
-        const abortMatch = url.match(/\/runs\/([^/?]+)\/abort/);
+        // Match both full URL (/runs/{id}/abort) and h3 prefix-stripped (/{id}/abort)
+        const abortMatch =
+          url.match(/\/runs\/([^/?]+)\/abort/) ||
+          url.match(/^\/([^/?]+)\/abort/);
         if (abortMatch && method === "POST") {
           const runId = decodeURIComponent(abortMatch[1]);
           abortRun(runId); // Aborts in-memory + marks aborted in SQL
@@ -1432,7 +1709,10 @@ export function createAgentChatPlugin(
         }
 
         // Route: GET /runs/:id/events?after=N
-        const eventsMatch = url.match(/\/runs\/([^/?]+)\/events/);
+        // Match both full URL (/runs/{id}/events) and h3 prefix-stripped (/{id}/events)
+        const eventsMatch =
+          url.match(/\/runs\/([^/?]+)\/events/) ||
+          url.match(/^\/([^/?]+)\/events/);
         if (eventsMatch && method === "GET") {
           const runId = decodeURIComponent(eventsMatch[1]);
           const query = getQuery(event);
