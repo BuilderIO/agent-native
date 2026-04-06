@@ -153,6 +153,7 @@ export type PipelineStage = {
 export type ScorecardStatus = {
   interview: GreenhouseScheduledInterview;
   candidateName: string;
+  candidateId: number;
   jobName: string;
   applicationId: number;
   scorecards: GreenhouseScorecard[];
@@ -174,6 +175,7 @@ export type StuckCandidate = {
 export type RecentScorecard = {
   scorecard: GreenhouseScorecard;
   candidateName: string;
+  candidateId: number;
   jobName: string;
   interviewName: string;
   applicationId: number;

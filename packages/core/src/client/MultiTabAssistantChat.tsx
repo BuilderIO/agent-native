@@ -180,6 +180,8 @@ interface ChatTab {
   status: "idle" | "running" | "completed";
   /** If this tab is a sub-agent, the parent thread ID */
   parentThreadId?: string;
+  /** Short name for sub-agent tabs (e.g. "Research", "Draft email") */
+  subAgentName?: string;
 }
 
 export interface MultiTabAssistantChatHeaderProps {
@@ -265,6 +267,25 @@ export function MultiTabAssistantChat({
       localStorage.setItem(PARENT_MAP_KEY, JSON.stringify(parentMap));
     } catch {}
   }, [parentMap]);
+
+  // Sub-agent display names — persisted to localStorage.
+  // Maps childThreadId → short name (e.g. "Research", "Draft email").
+  const SUB_AGENT_NAMES_KEY = "agent-chat-sub-agent-names";
+  const [subAgentNames, setSubAgentNames] = useState<Record<string, string>>(
+    () => {
+      try {
+        const saved = localStorage.getItem(SUB_AGENT_NAMES_KEY);
+        if (saved) return JSON.parse(saved);
+      } catch {}
+      return {};
+    },
+  );
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SUB_AGENT_NAMES_KEY, JSON.stringify(subAgentNames));
+    } catch {}
+  }, [subAgentNames]);
 
   // Open tabs — persisted to localStorage so they survive refresh.
   const OPEN_TABS_KEY = "agent-chat-open-tabs";
@@ -473,8 +494,13 @@ export function MultiTabAssistantChat({
       chatRefs.current.delete(tabId);
       pendingSends.current.delete(tabId);
       newThreadIds.current.delete(tabId);
-      // Clean up parent map entry
+      // Clean up parent map and sub-agent names
       setParentMap((prev) => {
+        if (!(tabId in prev)) return prev;
+        const { [tabId]: _, ...rest } = prev;
+        return rest;
+      });
+      setSubAgentNames((prev) => {
         if (!(tabId in prev)) return prev;
         const { [tabId]: _, ...rest } = prev;
         return rest;
@@ -497,8 +523,12 @@ export function MultiTabAssistantChat({
           newThreadIds.current.delete(key);
         }
       }
-      // Clean up parent map — only keep the entry for the surviving tab
+      // Clean up parent map and sub-agent names — only keep entries for the surviving tab
       setParentMap((prev) => {
+        if (tabId in prev) return { [tabId]: prev[tabId] };
+        return {};
+      });
+      setSubAgentNames((prev) => {
         if (tabId in prev) return { [tabId]: prev[tabId] };
         return {};
       });
@@ -516,6 +546,7 @@ export function MultiTabAssistantChat({
       chatRefs.current.clear();
       pendingSends.current.clear();
       setParentMap({});
+      setSubAgentNames({});
     }
   }, [createThread, switchThread]);
 
@@ -536,7 +567,8 @@ export function MultiTabAssistantChat({
   // Listen for agent-task-open events (from AgentTaskCard "Open" button)
   useEffect(() => {
     function handleOpenTask(e: Event) {
-      const threadId = (e as CustomEvent).detail?.threadId;
+      const detail = (e as CustomEvent).detail;
+      const threadId = detail?.threadId;
       if (!threadId) return;
       // The current active thread is the parent that spawned this sub-agent
       const parentId = activeThreadIdRef.current;
@@ -545,6 +577,13 @@ export function MultiTabAssistantChat({
           prev[threadId] === parentId
             ? prev
             : { ...prev, [threadId]: parentId },
+        );
+      }
+      // Store the sub-agent name/description for the tab label
+      const name = detail.name || detail.description || "";
+      if (name) {
+        setSubAgentNames((prev) =>
+          prev[threadId] === name ? prev : { ...prev, [threadId]: name },
         );
       }
       // Refresh thread list so the new sub-agent thread appears with its title
@@ -669,6 +708,7 @@ export function MultiTabAssistantChat({
             ? ("completed" as const)
             : ("idle" as const),
         parentThreadId: parentMap[id],
+        subAgentName: subAgentNames[id],
       };
     });
 
@@ -677,9 +717,10 @@ export function MultiTabAssistantChat({
     if (!tabs.some((t) => t.id === id)) {
       tabs.push({
         id,
-        label: "Sub-agent...",
+        label: subAgentNames[id] || "Sub-agent...",
         status: "running" as const,
         parentThreadId: parentMap[id],
+        subAgentName: subAgentNames[id],
       });
     }
   }
@@ -714,95 +755,156 @@ export function MultiTabAssistantChat({
             ".agent-tab-close{opacity:0}.agent-tab:hover .agent-tab-close{opacity:1}",
         }}
       />
-      {renderHeader ? (
-        renderHeader(headerProps)
-      ) : showTabBar ? (
-        <div className="flex items-center px-1 py-1 border-b border-border shrink-0 gap-0.5">
-          <div className="flex items-center gap-0.5 min-w-0 overflow-x-auto scrollbar-none flex-1">
-            {tabs.map((tab) => {
-              const isChild = !!tab.parentThreadId;
-              return (
-                <React.Fragment key={tab.id}>
-                  {isChild && (
-                    <span className="flex items-center shrink-0 text-muted-foreground/30 -mr-0.5">
-                      <svg
-                        width="10"
-                        height="16"
-                        viewBox="0 0 10 16"
-                        fill="none"
-                      >
-                        <path
-                          d="M1 0 L1 9 Q1 12 4 12 L10 12"
-                          stroke="currentColor"
-                          strokeWidth="1.5"
-                          fill="none"
-                        />
-                      </svg>
-                    </span>
-                  )}
-                  <button
-                    ref={tab.id === activeThreadId ? activeTabRefCb : undefined}
-                    onClick={() => switchThread(tab.id)}
-                    className={cn(
-                      "agent-tab relative flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] font-medium shrink-0 max-w-[130px]",
-                      tab.id === activeThreadId
-                        ? "bg-accent text-foreground"
-                        : "text-muted-foreground hover:text-foreground hover:bg-accent",
-                    )}
-                  >
-                    <span className="truncate pr-1">{tab.label}</span>
-                    {tab.status === "running" && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50 shrink-0 animate-pulse" />
-                    )}
-                    {openTabIds.length > 1 && (
-                      <span
-                        role="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          closeTab(tab.id);
-                        }}
-                        className="agent-tab-close flex items-center justify-end text-muted-foreground hover:!text-foreground"
-                        style={{
-                          position: "absolute",
-                          right: 0,
-                          top: 0,
-                          bottom: 0,
-                          width: 28,
-                          paddingRight: 6,
-                          borderRadius: "0 6px 6px 0",
-                          background:
-                            "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
-                        }}
-                      >
-                        <IconX size={8} />
-                      </span>
-                    )}
-                  </button>
-                </React.Fragment>
+      {renderHeader
+        ? renderHeader(headerProps)
+        : showTabBar
+          ? (() => {
+              const activeTab = tabs.find((t) => t.id === activeThreadId);
+              const focusParentId = activeTab?.parentThreadId || activeThreadId;
+              const childTabs = tabs.filter(
+                (t) => t.parentThreadId === focusParentId,
               );
-            })}
-          </div>
-          <div className="flex items-center gap-px shrink-0 ml-auto">
-            <button
-              onClick={addTab}
-              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent/50"
-              title="New chat"
-            >
-              <IconPlus size={12} />
-            </button>
-            <button
-              onClick={() => setShowHistory(!showHistory)}
-              className={cn(
-                "flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent/50",
-                showHistory && "bg-accent text-foreground",
-              )}
-              title="Chat history"
-            >
-              <IconHistory size={12} />
-            </button>
-          </div>
-        </div>
-      ) : null}
+              const hasSubTabs = childTabs.length > 0;
+              const mainTabs = tabs.filter((t) => !t.parentThreadId);
+
+              return (
+                <>
+                  <div className="flex items-center px-1 py-1 border-b border-border shrink-0 gap-0.5">
+                    <div className="flex items-center gap-0.5 min-w-0 overflow-x-auto scrollbar-none flex-1">
+                      {mainTabs.map((tab) => {
+                        const isActive =
+                          tab.id === activeThreadId ||
+                          (tab.id === focusParentId &&
+                            activeTab?.parentThreadId === tab.id);
+                        return (
+                          <button
+                            key={tab.id}
+                            ref={isActive ? activeTabRefCb : undefined}
+                            onClick={() => switchThread(tab.id)}
+                            className={cn(
+                              "agent-tab relative flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] font-medium shrink-0 max-w-[130px]",
+                              isActive
+                                ? "bg-accent text-foreground"
+                                : "text-muted-foreground hover:text-foreground hover:bg-accent",
+                            )}
+                          >
+                            <span className="truncate pr-1">{tab.label}</span>
+                            {tab.status === "running" && (
+                              <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50 shrink-0 animate-pulse" />
+                            )}
+                            {mainTabs.length > 1 && (
+                              <span
+                                role="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  closeTab(tab.id);
+                                }}
+                                className="agent-tab-close flex items-center justify-end text-muted-foreground hover:!text-foreground"
+                                style={{
+                                  position: "absolute",
+                                  right: 0,
+                                  top: 0,
+                                  bottom: 0,
+                                  width: 28,
+                                  paddingRight: 6,
+                                  borderRadius: "0 6px 6px 0",
+                                  background:
+                                    "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
+                                }}
+                              >
+                                <IconX size={8} />
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="flex items-center gap-px shrink-0 ml-auto">
+                      <button
+                        onClick={addTab}
+                        className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent/50"
+                        title="New chat"
+                      >
+                        <IconPlus size={12} />
+                      </button>
+                      <button
+                        onClick={() => setShowHistory(!showHistory)}
+                        className={cn(
+                          "flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent/50",
+                          showHistory && "bg-accent text-foreground",
+                        )}
+                        title="Chat history"
+                      >
+                        <IconHistory size={12} />
+                      </button>
+                    </div>
+                  </div>
+                  {hasSubTabs && (
+                    <div className="flex items-center px-1 py-0.5 border-b border-border shrink-0 gap-0.5 bg-muted/30">
+                      <div className="flex items-center gap-0.5 min-w-0 overflow-x-auto scrollbar-none flex-1">
+                        <button
+                          onClick={() => switchThread(focusParentId!)}
+                          className={cn(
+                            "flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium cursor-pointer",
+                            activeThreadId === focusParentId
+                              ? "bg-accent text-foreground"
+                              : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                          )}
+                        >
+                          Main
+                        </button>
+                        {childTabs.map((tab) => (
+                          <button
+                            key={tab.id}
+                            ref={
+                              tab.id === activeThreadId
+                                ? activeTabRefCb
+                                : undefined
+                            }
+                            onClick={() => switchThread(tab.id)}
+                            className={cn(
+                              "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium cursor-pointer max-w-[130px]",
+                              tab.id === activeThreadId
+                                ? "bg-accent text-foreground"
+                                : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                            )}
+                          >
+                            <span className="truncate pr-1">
+                              {tab.subAgentName || tab.label}
+                            </span>
+                            {tab.status === "running" && (
+                              <span className="w-1 h-1 rounded-full bg-muted-foreground/50 shrink-0 animate-pulse" />
+                            )}
+                            <span
+                              role="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                closeTab(tab.id);
+                              }}
+                              className="agent-tab-close flex items-center justify-end text-muted-foreground hover:!text-foreground"
+                              style={{
+                                position: "absolute",
+                                right: 0,
+                                top: 0,
+                                bottom: 0,
+                                width: 24,
+                                paddingRight: 4,
+                                borderRadius: "0 6px 6px 0",
+                                background:
+                                  "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
+                              }}
+                            >
+                              <IconX size={8} />
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              );
+            })()
+          : null}
 
       {/* Chat content with optional overlay */}
       <div className="relative flex-1 flex flex-col min-h-0">

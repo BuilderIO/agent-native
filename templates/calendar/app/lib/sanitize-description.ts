@@ -1,188 +1,288 @@
+const ALLOWED_TAGS = new Set([
+  "a",
+  "b",
+  "strong",
+  "i",
+  "em",
+  "u",
+  "p",
+  "br",
+  "hr",
+  "ul",
+  "ol",
+  "li",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "blockquote",
+  "pre",
+  "code",
+  "span",
+  "div",
+  "table",
+  "thead",
+  "tbody",
+  "tr",
+  "td",
+  "th",
+  "img",
+  "sub",
+  "sup",
+]);
+
+const ALLOWED_ATTRS = new Set([
+  "href",
+  "src",
+  "alt",
+  "title",
+  "width",
+  "height",
+  "class",
+  "id",
+  "colspan",
+  "rowspan",
+]);
+
+const SAFE_URL_RE = /^(?:https?:\/\/|mailto:|tel:|\/|#)/i;
+
+/** Recursively walk a DOM node, keeping only allowed tags/attrs. */
+function walkNode(node: Node, doc: Document): Node | null {
+  if (node.nodeType === 3 /* TEXT */) {
+    return doc.createTextNode(node.textContent ?? "");
+  }
+
+  if (node.nodeType !== 1 /* ELEMENT */) return null;
+
+  const el = node as Element;
+  const tag = el.tagName.toLowerCase();
+
+  // Drop <script> and <style> entirely (including children)
+  if (tag === "script" || tag === "style") return null;
+
+  // If the tag isn't allowed, promote its children directly
+  if (!ALLOWED_TAGS.has(tag)) {
+    const fragment = doc.createDocumentFragment();
+    for (const child of Array.from(el.childNodes)) {
+      const cleaned = walkNode(child, doc);
+      if (cleaned) fragment.appendChild(cleaned);
+    }
+    return fragment;
+  }
+
+  // Allowed tag — recreate with only allowed attrs
+  const out = doc.createElement(tag);
+
+  for (const attr of Array.from(el.attributes)) {
+    const name = attr.name.toLowerCase();
+    if (!ALLOWED_ATTRS.has(name)) continue;
+    if ((name === "href" || name === "src") && !SAFE_URL_RE.test(attr.value))
+      continue;
+    out.setAttribute(name, attr.value);
+  }
+
+  // Force links to open in new tab
+  if (tag === "a") {
+    out.setAttribute("target", "_blank");
+    out.setAttribute("rel", "noopener noreferrer");
+  }
+
+  // Recurse into children (skip for void elements)
+  for (const child of Array.from(el.childNodes)) {
+    const cleaned = walkNode(child, doc);
+    if (cleaned) out.appendChild(cleaned);
+  }
+
+  return out;
+}
+
 /**
- * Sanitize HTML using an allowlist approach.
+ * Sanitize HTML using an allowlist approach with DOMParser.
  * Only permits known-safe tags and attributes, stripping everything else.
  */
 export function sanitizeHtml(html: string): string {
-  const ALLOWED_TAGS = new Set([
-    "a",
-    "b",
-    "strong",
-    "i",
-    "em",
-    "u",
-    "p",
-    "br",
-    "hr",
-    "ul",
-    "ol",
-    "li",
-    "h1",
-    "h2",
-    "h3",
-    "h4",
-    "h5",
-    "h6",
-    "blockquote",
-    "pre",
-    "code",
-    "span",
-    "div",
-    "table",
-    "thead",
-    "tbody",
-    "tr",
-    "td",
-    "th",
-    "img",
-    "sub",
-    "sup",
-  ]);
-  const ALLOWED_ATTRS = new Set([
-    "href",
-    "src",
-    "alt",
-    "title",
-    "width",
-    "height",
-    "class",
-    "id",
-    "colspan",
-    "rowspan",
-  ]);
-  const SAFE_URL_PATTERN = /^(?:https?:\/\/|mailto:|tel:|\/|#)/i;
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const fragment = doc.createDocumentFragment();
 
-  // Strip script/style tags and their contents first
-  let result = html
-    .replace(/<script[\s\S]*?<\/script>/gi, "")
-    .replace(/<style[\s\S]*?<\/style>/gi, "");
+  for (const child of Array.from(doc.body.childNodes)) {
+    const cleaned = walkNode(child, doc);
+    if (cleaned) fragment.appendChild(cleaned);
+  }
 
-  // Process remaining tags
-  result = result.replace(
-    /<\/?([a-z][a-z0-9]*)\b([^>]*)?\/?>/gi,
-    (match, tag, attrs) => {
-      const tagLower = tag.toLowerCase();
-      if (!ALLOWED_TAGS.has(tagLower)) return "";
+  const wrapper = doc.createElement("div");
+  wrapper.appendChild(fragment);
+  return wrapper.innerHTML;
+}
 
-      // Closing tag
-      if (match.startsWith("</")) return `</${tagLower}>`;
+// ── GCal invite stripping ──────────────────────────────────────────────────
+// Google Calendar embeds invitation boilerplate (guest list, RSVP buttons,
+// "Invitation from Google Calendar" footer) into descriptions. We render
+// those natively, so strip them to avoid duplication.
 
-      // Filter attributes
-      const safeAttrs: string[] = [];
-      if (attrs) {
-        const attrRegex =
-          /([a-z][a-z0-9-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|(\S+))/gi;
-        let attrMatch;
-        while ((attrMatch = attrRegex.exec(attrs)) !== null) {
-          const attrName = attrMatch[1].toLowerCase();
-          const attrValue = attrMatch[2] ?? attrMatch[3] ?? attrMatch[4] ?? "";
-          if (!ALLOWED_ATTRS.has(attrName)) continue;
-          // Validate URL attributes
-          if (
-            (attrName === "href" || attrName === "src") &&
-            !SAFE_URL_PATTERN.test(attrValue)
-          )
-            continue;
-          safeAttrs.push(`${attrName}="${attrValue.replace(/"/g, "&quot;")}"`);
-        }
-      }
+const GCAL_STRIP_PATTERNS = [
+  /Reply\s+for/i,
+  /More\s+options/i,
+  /Invitation\s+from\s+Google\s+Calendar/i,
+  /You\s+are\s+receiving\s+this/i,
+  /View\s+all\s+guest\s+info/i,
+  /Joining\s+instructions/i,
+];
 
-      // Force all links to open in a new tab
-      if (tagLower === "a") {
-        safeAttrs.push('target="_blank"');
-        safeAttrs.push('rel="noopener noreferrer"');
-      }
+const GCAL_STRIP_BOLD = [
+  /^When$/i,
+  /^Join\s+Zoom\s+Meeting$/i,
+  /^Join\s+by\s+phone$/i,
+];
 
-      const selfClosing =
-        match.endsWith("/>") ||
-        tagLower === "br" ||
-        tagLower === "hr" ||
-        tagLower === "img";
-      const attrStr = safeAttrs.length > 0 ? " " + safeAttrs.join(" ") : "";
-      return selfClosing
-        ? `<${tagLower}${attrStr} />`
-        : `<${tagLower}${attrStr}>`;
-    },
-  );
+/** Check if a container element's text matches any of the boilerplate patterns */
+function isBoilerplateContainer(el: Element): boolean {
+  const text = el.textContent ?? "";
+  // Check if the element has Yes/No/Maybe buttons
+  if (/\bYes\b/.test(text) && /\bNo\b/.test(text) && /\bMaybe\b/.test(text)) {
+    return true;
+  }
+  return GCAL_STRIP_PATTERNS.some((re) => re.test(text));
+}
 
-  return result;
+/** Check if element is a <b> heading that starts a boilerplate section */
+function isBoilerplateSectionHeading(el: Element): boolean {
+  if (el.tagName !== "B" && el.tagName !== "STRONG") return false;
+  const text = (el.textContent ?? "").trim();
+  return GCAL_STRIP_BOLD.some((re) => re.test(text));
 }
 
 /**
  * Strip Google Calendar invitation boilerplate from event descriptions.
- * GCal embeds the full invitation HTML (guest list, RSVP buttons, "More options",
- * meeting details, "Invitation from Google Calendar" footer) into the description.
- * We render all of that natively, so strip it out to avoid ugly duplication.
  */
 export function stripGcalInviteHtml(html: string): string {
-  let cleaned = html;
+  const doc = new DOMParser().parseFromString(html, "text/html");
 
-  // Remove "Reply for <email>" section with Yes/No/Maybe buttons
-  cleaned = cleaned.replace(
-    /<(table|div)[^>]*>[\s\S]*?Reply\s+for[\s\S]*?<\/(table|div)>/gi,
-    "",
-  );
+  // Pass 1: Remove table/div containers that contain boilerplate text
+  for (const el of Array.from(doc.body.querySelectorAll("table, div"))) {
+    if (isBoilerplateContainer(el)) {
+      el.remove();
+    }
+  }
 
-  // Remove standalone Yes/No/Maybe buttons (various Google formats)
-  cleaned = cleaned.replace(
-    /<(table|div)[^>]*>[\s\S]*?(?:>Yes<|>No<|>Maybe<)[\s\S]*?<\/(table|div)>/gi,
-    "",
-  );
+  // Pass 2: Remove links that are boilerplate
+  for (const a of Array.from(doc.body.querySelectorAll("a"))) {
+    const text = (a.textContent ?? "").trim();
+    if (
+      /^More\s+options$/i.test(text) ||
+      /^View\s+all\s+guest\s+info$/i.test(text) ||
+      /^Joining\s+instructions$/i.test(text)
+    ) {
+      a.remove();
+    }
+  }
 
-  // Remove "More options" link/button
-  cleaned = cleaned.replace(/<a[^>]*>[\s]*More\s+options[\s]*<\/a>/gi, "");
-  cleaned = cleaned.replace(
-    /<(table|div)[^>]*>[\s\S]*?More\s+options[\s\S]*?<\/(table|div)>/gi,
-    "",
-  );
+  // Pass 3: Remove boilerplate content (Invitation from Google Calendar, etc.)
+  // Walk all elements and text nodes — check textContent which spans across children
+  const BOILERPLATE_RE = [
+    /Invitation\s+from\s+Google\s+Calendar/i,
+    /You\s+are\s+receiving\s+this/i,
+  ];
+  for (const child of Array.from(doc.body.querySelectorAll("*"))) {
+    const text = child.textContent ?? "";
+    if (BOILERPLATE_RE.some((re) => re.test(text))) {
+      child.remove();
+    }
+  }
+  // Also catch bare text nodes at the body level (e.g. "Invitation from " before <a>)
+  for (const child of Array.from(doc.body.childNodes)) {
+    if (child.nodeType === 3) {
+      const text = child.textContent ?? "";
+      if (
+        /Invitation\s+from/i.test(text) ||
+        /You\s+are\s+receiving/i.test(text)
+      ) {
+        child.parentNode?.removeChild(child);
+      }
+    }
+  }
 
-  // Remove "Invitation from Google Calendar" footer
-  cleaned = cleaned.replace(
-    /Invitation\s+from\s+<a[^>]*>Google\s+Calendar<\/a>/gi,
-    "",
-  );
-  cleaned = cleaned.replace(/Invitation\s+from\s+Google\s+Calendar/gi, "");
+  // Pass 4: Remove <b>When</b>/<b>Join Zoom Meeting</b> sections and everything
+  // until the next section heading or <hr>
+  for (const b of Array.from(doc.body.querySelectorAll("b, strong"))) {
+    if (!isBoilerplateSectionHeading(b)) continue;
+    // Remove siblings from this <b> until we hit another section or <hr>
+    const parent = b.parentElement;
+    if (!parent) continue;
+    // If the <b> is inside a <p>, remove from the parent level
+    const container =
+      parent.tagName === "P" || parent.tagName === "DIV" ? parent : b;
+    let sibling = container.nextSibling;
+    // Remove the heading element/container itself
+    container.remove();
+    // Remove following siblings until a boundary
+    while (sibling) {
+      const next = sibling.nextSibling;
+      const sEl = sibling.nodeType === 1 ? (sibling as Element) : null;
+      if (sEl?.tagName === "HR") break;
+      if (sEl?.querySelector("b, strong")) {
+        const inner = sEl.querySelector("b, strong")!;
+        if (isBoilerplateSectionHeading(inner)) break;
+        // Different heading — stop
+        const innerText = (inner.textContent ?? "").trim();
+        if (innerText.length > 0) break;
+      }
+      sibling.parentNode?.removeChild(sibling);
+      sibling = next;
+    }
+  }
 
-  // Remove "You are receiving this email" disclaimer
-  cleaned = cleaned.replace(/You\s+are\s+receiving\s+this[\s\S]*?$/gi, "");
+  // Pass 5: Remove empty elements and collapse excessive whitespace
+  for (const el of Array.from(doc.body.querySelectorAll("p, div, span"))) {
+    if ((el.textContent ?? "").trim() === "" && !el.querySelector("img")) {
+      el.remove();
+    }
+  }
 
-  // Remove "View all guest info" links
-  cleaned = cleaned.replace(
-    /<a[^>]*>[\s]*View\s+all\s+guest\s+info[\s]*<\/a>/gi,
-    "",
-  );
+  // Collapse multiple consecutive <hr> into one
+  let prevHr: Element | null = null;
+  for (const hr of Array.from(doc.body.querySelectorAll("hr"))) {
+    if (prevHr && hr.previousElementSibling === prevHr) {
+      hr.remove();
+    } else {
+      prevHr = hr;
+    }
+  }
 
-  // Remove the "When" / "Guests" sections that duplicate our native UI
-  cleaned = cleaned.replace(
-    /<b>When<\/b>[\s\S]*?(?=<b>|<hr|<br\s*\/?>[\s]*<br\s*\/?>|$)/gi,
-    "",
-  );
+  // Trim leading/trailing <br> and <hr> elements
+  while (doc.body.firstChild) {
+    const child = doc.body.firstChild;
+    if (child.nodeType === 3 && (child.textContent ?? "").trim() === "") {
+      child.remove();
+      continue;
+    }
+    if (child.nodeType === 1) {
+      const tag = (child as Element).tagName;
+      if (tag === "BR" || tag === "HR") {
+        child.remove();
+        continue;
+      }
+    }
+    break;
+  }
+  while (doc.body.lastChild) {
+    const child = doc.body.lastChild;
+    if (child.nodeType === 3 && (child.textContent ?? "").trim() === "") {
+      child.remove();
+      continue;
+    }
+    if (child.nodeType === 1) {
+      const tag = (child as Element).tagName;
+      if (tag === "BR" || tag === "HR") {
+        child.remove();
+        continue;
+      }
+    }
+    break;
+  }
 
-  // Remove "Join Zoom Meeting" / "Join by phone" blocks that duplicate our meeting link
-  cleaned = cleaned.replace(
-    /<b>Join\s+Zoom\s+Meeting<\/b>[\s\S]*?(?=<b>Joining\s+notes|<hr|<br\s*\/?>[\s]*<br\s*\/?>[\s]*<br|$)/gi,
-    "",
-  );
-  cleaned = cleaned.replace(
-    /<b>Join\s+by\s+phone<\/b>[\s\S]*?(?=<b>|<hr|$)/gi,
-    "",
-  );
-
-  // Remove "Joining instructions" links
-  cleaned = cleaned.replace(
-    /<a[^>]*>[\s]*Joining\s+instructions[\s]*<\/a>/gi,
-    "",
-  );
-
-  // Clean up leftover separators and whitespace
-  cleaned = cleaned.replace(/(<hr\s*\/?>[\s]*){2,}/gi, "<hr/>");
-  cleaned = cleaned.replace(/(<br\s*\/?>[\s]*){4,}/gi, "<br/><br/>");
-  cleaned = cleaned.replace(/([-─]{5,}[\s]*){2,}/g, "");
-
-  // Trim leading/trailing whitespace and empty elements
-  cleaned = cleaned.replace(/^[\s<br\/>]*(<hr\s*\/?>)?[\s<br\/>]*/i, "");
-  cleaned = cleaned.replace(/[\s<br\/>]*(<hr\s*\/?>)?[\s<br\/>]*$/i, "");
-
-  return cleaned.trim();
+  return doc.body.innerHTML.trim();
 }
 
 /** Check if a string looks like HTML */

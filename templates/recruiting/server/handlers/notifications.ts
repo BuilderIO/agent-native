@@ -1,5 +1,9 @@
 import { defineEventHandler, readBody, createError } from "h3";
-import { getSetting, putSetting } from "@agent-native/core/settings";
+import {
+  getSetting,
+  putSetting,
+  deleteSetting,
+} from "@agent-native/core/settings";
 import type { ActionItemsResponse } from "./action-items.js";
 
 type SlackConfig = {
@@ -53,7 +57,7 @@ export const saveNotificationConfigHandler = defineEventHandler(
 );
 
 export const deleteNotificationConfigHandler = defineEventHandler(async () => {
-  await putSetting(SETTING_KEY, null);
+  await deleteSetting(SETTING_KEY);
   return { success: true };
 });
 

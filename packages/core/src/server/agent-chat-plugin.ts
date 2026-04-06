@@ -331,6 +331,11 @@ function createTeamTools(deps: {
               description:
                 "Optional additional instructions or context for the sub-agent",
             },
+            name: {
+              type: "string",
+              description:
+                "Short name for the sub-agent tab (e.g. 'Research', 'Draft email'). If omitted, derived from the task.",
+            },
           },
           required: ["task"],
         },
@@ -357,6 +362,7 @@ function createTeamTools(deps: {
           threadId: task.threadId,
           status: task.status,
           description: task.description,
+          name: args.name || "",
         });
       },
     },

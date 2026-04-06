@@ -263,7 +263,14 @@ function ToolCallFallback({
             onOpen={(tid) => {
               window.dispatchEvent(
                 new CustomEvent("agent-task-open", {
-                  detail: { threadId: tid },
+                  detail: {
+                    threadId: tid,
+                    description:
+                      parsed.description ||
+                      (args as Record<string, string>)?.task ||
+                      "",
+                    name: parsed.name || "",
+                  },
                 }),
               );
             }}
@@ -411,7 +418,11 @@ function ReconnectStreamToolCall({
             onOpen={(threadId) => {
               window.dispatchEvent(
                 new CustomEvent("agent-task-open", {
-                  detail: { threadId },
+                  detail: {
+                    threadId,
+                    description: parsed.description || args?.task || "",
+                    name: parsed.name || "",
+                  },
                 }),
               );
             }}

@@ -582,306 +582,401 @@ export function AgentPanel({
           </div>
         </div>
         {/* Tab bar: always visible for chat and CLI */}
-        {(mode === "chat" || mode === "cli") && (
-          <div className="flex items-center px-2 py-1 border-b border-border gap-0.5">
-            <div className="flex items-center gap-0.5 min-w-0 overflow-x-auto scrollbar-none flex-1">
-              {mode === "chat"
-                ? tabs.map((tab) => (
-                    <div
-                      key={tab.id}
-                      role="button"
-                      tabIndex={0}
-                      ref={tab.id === activeTabId ? activeTabRefCb : undefined}
-                      onClick={() => setActiveTabId(tab.id)}
-                      className={cn(
-                        "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer max-w-[150px]",
-                        tab.id === activeTabId
-                          ? "bg-accent text-foreground"
-                          : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                      )}
-                    >
-                      <span className="truncate pr-1">{tab.label}</span>
-                      {tab.status === "running" && (
-                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/50 animate-pulse" />
-                      )}
-                      {tabs.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            closeTab(tab.id);
-                          }}
-                          className="agent-tab-close flex items-center justify-end text-muted-foreground hover:text-foreground"
-                          style={{
-                            position: "absolute",
-                            right: 0,
-                            top: 0,
-                            bottom: 0,
-                            width: 28,
-                            paddingRight: 6,
-                            borderRadius: "0 6px 6px 0",
-                            background:
-                              "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
-                          }}
-                        >
-                          <IconX size={10} />
-                        </button>
-                      )}
-                    </div>
-                  ))
-                : cliTabs.map((id, i) => (
-                    <div
-                      key={id}
-                      role="button"
-                      tabIndex={0}
-                      ref={id === activeCliTab ? activeTabRefCb : undefined}
-                      onClick={() => setActiveCliTab(id)}
-                      className={cn(
-                        "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer",
-                        id === activeCliTab
-                          ? "bg-accent text-foreground"
-                          : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                      )}
-                    >
-                      <span>Terminal {i + 1}</span>
-                      {cliTabs.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            closeCliTab(id);
-                          }}
-                          className="agent-tab-close flex items-center justify-end text-muted-foreground hover:text-foreground"
-                          style={{
-                            position: "absolute",
-                            right: 0,
-                            top: 0,
-                            bottom: 0,
-                            width: 28,
-                            paddingRight: 6,
-                            borderRadius: "0 6px 6px 0",
-                            background:
-                              "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
-                          }}
-                        >
-                          <IconX size={10} />
-                        </button>
-                      )}
-                    </div>
-                  ))}
-            </div>
-            <div className="flex items-center gap-0.5 shrink-0 ml-auto">
-              {mode === "chat" && (
-                <>
-                  <IconTooltip content="New chat">
-                    <button
-                      onClick={addTab}
-                      className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                    >
-                      <IconPlus size={14} />
-                    </button>
-                  </IconTooltip>
-                  {toggleHistory && (
-                    <IconTooltip content="Chat history">
-                      <button
-                        onClick={toggleHistory}
-                        className={cn(
-                          "flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
-                          showHistory && "bg-accent text-foreground",
-                        )}
-                      >
-                        <IconHistory size={14} />
-                      </button>
-                    </IconTooltip>
-                  )}
-                  <div className="relative">
-                    <IconTooltip content="Tab options">
-                      <button
-                        onClick={() =>
-                          setTabMenuOpen(
-                            tabMenuOpen === "__chat_global"
-                              ? null
-                              : "__chat_global",
-                          )
-                        }
-                        className={cn(
-                          "flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
-                          tabMenuOpen === "__chat_global" &&
-                            "bg-accent text-foreground",
-                        )}
-                      >
-                        <IconDotsVertical size={14} />
-                      </button>
-                    </IconTooltip>
-                    {tabMenuOpen === "__chat_global" && (
-                      <>
-                        <div
-                          className="fixed inset-0 z-40"
-                          onClick={() => setTabMenuOpen(null)}
-                        />
-                        <div className="absolute right-0 top-full mt-1 z-50 w-44 rounded-md border border-border bg-popover py-1 shadow-lg">
-                          <button
-                            className="flex w-full items-center justify-between px-3 py-1.5 text-xs text-foreground hover:bg-accent"
-                            onClick={() => {
-                              closeTab(activeTabId);
-                              setTabMenuOpen(null);
-                            }}
-                          >
-                            Close Tab
-                            <kbd className="text-[10px] text-muted-foreground">
-                              {"\u2318"}W
-                            </kbd>
-                          </button>
-                          <button
-                            className="flex w-full items-center px-3 py-1.5 text-xs text-foreground hover:bg-accent"
-                            onClick={() => {
-                              closeOtherTabs(activeTabId);
-                              setTabMenuOpen(null);
-                            }}
-                          >
-                            Close Other Tabs
-                          </button>
-                          <button
-                            className="flex w-full items-center px-3 py-1.5 text-xs text-foreground hover:bg-accent"
-                            onClick={() => {
-                              closeAllTabs();
-                              setTabMenuOpen(null);
-                            }}
-                          >
-                            Close All Tabs
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </>
-              )}
-              {mode === "cli" && (
-                <>
-                  <IconTooltip content="New terminal">
-                    <button
-                      onClick={addCliTab}
-                      className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                    >
-                      <IconPlus size={14} />
-                    </button>
-                  </IconTooltip>
-                  {availableClis.length > 0 && (
-                    <div className="relative">
-                      <IconTooltip content={`CLI: ${selectedLabel}`}>
-                        <button
-                          onClick={() => setCliPickerOpen(!cliPickerOpen)}
-                          className={cn(
-                            "flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
-                            cliPickerOpen && "bg-accent text-foreground",
-                          )}
-                        >
-                          <IconSettings size={14} />
-                        </button>
-                      </IconTooltip>
-                      {cliPickerOpen && (
-                        <>
+        {(mode === "chat" || mode === "cli") &&
+          (() => {
+            // Compute parent/child tab groups for the sub-tab bar
+            const activeTab = tabs.find((t) => t.id === activeTabId);
+            // The "focus parent" is the parent thread for the active context
+            const focusParentId = activeTab?.parentThreadId || activeTabId;
+            const childTabs = tabs.filter(
+              (t) => t.parentThreadId === focusParentId,
+            );
+            const hasSubTabs = childTabs.length > 0;
+            // Main row: only show top-level (non-child) tabs
+            const mainTabs = tabs.filter((t) => !t.parentThreadId);
+
+            return (
+              <>
+                <div className="flex items-center px-2 py-1 border-b border-border gap-0.5">
+                  <div className="flex items-center gap-0.5 min-w-0 overflow-x-auto scrollbar-none flex-1">
+                    {mode === "chat"
+                      ? mainTabs.map((tab) => {
+                          // Highlight the parent tab if a child is active
+                          const isActive =
+                            tab.id === activeTabId ||
+                            (tab.id === focusParentId &&
+                              activeTab?.parentThreadId === tab.id);
+                          return (
+                            <div
+                              key={tab.id}
+                              role="button"
+                              tabIndex={0}
+                              ref={isActive ? activeTabRefCb : undefined}
+                              onClick={() => setActiveTabId(tab.id)}
+                              className={cn(
+                                "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer max-w-[150px]",
+                                isActive
+                                  ? "bg-accent text-foreground"
+                                  : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                              )}
+                            >
+                              <span className="truncate pr-1">{tab.label}</span>
+                              {tab.status === "running" && (
+                                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/50 animate-pulse" />
+                              )}
+                              {mainTabs.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    closeTab(tab.id);
+                                  }}
+                                  className="agent-tab-close flex items-center justify-end text-muted-foreground hover:text-foreground"
+                                  style={{
+                                    position: "absolute",
+                                    right: 0,
+                                    top: 0,
+                                    bottom: 0,
+                                    width: 28,
+                                    paddingRight: 6,
+                                    borderRadius: "0 6px 6px 0",
+                                    background:
+                                      "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
+                                  }}
+                                >
+                                  <IconX size={10} />
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })
+                      : cliTabs.map((id, i) => (
                           <div
-                            className="fixed inset-0 z-40"
-                            onClick={() => setCliPickerOpen(false)}
-                          />
-                          <div className="absolute right-0 top-full mt-1 z-50 w-48 rounded-md border border-border bg-popover py-1 shadow-lg">
-                            {availableClis.map((cli) => (
+                            key={id}
+                            role="button"
+                            tabIndex={0}
+                            ref={
+                              id === activeCliTab ? activeTabRefCb : undefined
+                            }
+                            onClick={() => setActiveCliTab(id)}
+                            className={cn(
+                              "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer",
+                              id === activeCliTab
+                                ? "bg-accent text-foreground"
+                                : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                            )}
+                          >
+                            <span>Terminal {i + 1}</span>
+                            {cliTabs.length > 1 && (
                               <button
-                                key={cli.command}
-                                className={cn(
-                                  "flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent",
-                                  cli.command === selectedCli
-                                    ? "text-foreground font-medium"
-                                    : "text-muted-foreground",
-                                )}
-                                onClick={() => {
-                                  selectCli(cli.command);
-                                  setCliPickerOpen(false);
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  closeCliTab(id);
+                                }}
+                                className="agent-tab-close flex items-center justify-end text-muted-foreground hover:text-foreground"
+                                style={{
+                                  position: "absolute",
+                                  right: 0,
+                                  top: 0,
+                                  bottom: 0,
+                                  width: 28,
+                                  paddingRight: 6,
+                                  borderRadius: "0 6px 6px 0",
+                                  background:
+                                    "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
                                 }}
                               >
-                                {cli.command === selectedCli && (
-                                  <IconCheck size={12} className="shrink-0" />
-                                )}
-                                <span
-                                  className={
-                                    cli.command !== selectedCli ? "ml-5" : ""
-                                  }
-                                >
-                                  {cli.label}
-                                </span>
+                                <IconX size={10} />
                               </button>
-                            ))}
+                            )}
                           </div>
-                        </>
-                      )}
-                    </div>
-                  )}
-                  <div className="relative">
-                    <IconTooltip content="Tab options">
-                      <button
-                        onClick={() =>
-                          setTabMenuOpen(
-                            tabMenuOpen === "__cli_global"
-                              ? null
-                              : "__cli_global",
-                          )
-                        }
-                        className={cn(
-                          "flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
-                          tabMenuOpen === "__cli_global" &&
-                            "bg-accent text-foreground",
-                        )}
-                      >
-                        <IconDotsVertical size={14} />
-                      </button>
-                    </IconTooltip>
-                    {tabMenuOpen === "__cli_global" && (
+                        ))}
+                  </div>
+                  <div className="flex items-center gap-0.5 shrink-0 ml-auto">
+                    {mode === "chat" && (
                       <>
-                        <div
-                          className="fixed inset-0 z-40"
-                          onClick={() => setTabMenuOpen(null)}
-                        />
-                        <div className="absolute right-0 top-full mt-1 z-50 w-44 rounded-md border border-border bg-popover py-1 shadow-lg">
+                        <IconTooltip content="New chat">
                           <button
-                            className="flex w-full items-center justify-between px-3 py-1.5 text-xs text-foreground hover:bg-accent"
-                            onClick={() => {
-                              closeCliTab(activeCliTab);
-                              setTabMenuOpen(null);
-                            }}
+                            onClick={addTab}
+                            className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
                           >
-                            Close Tab
-                            <kbd className="text-[10px] text-muted-foreground">
-                              {"\u2318"}W
-                            </kbd>
+                            <IconPlus size={14} />
                           </button>
+                        </IconTooltip>
+                        {toggleHistory && (
+                          <IconTooltip content="Chat history">
+                            <button
+                              onClick={toggleHistory}
+                              className={cn(
+                                "flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                                showHistory && "bg-accent text-foreground",
+                              )}
+                            >
+                              <IconHistory size={14} />
+                            </button>
+                          </IconTooltip>
+                        )}
+                        <div className="relative">
+                          <IconTooltip content="Tab options">
+                            <button
+                              onClick={() =>
+                                setTabMenuOpen(
+                                  tabMenuOpen === "__chat_global"
+                                    ? null
+                                    : "__chat_global",
+                                )
+                              }
+                              className={cn(
+                                "flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                                tabMenuOpen === "__chat_global" &&
+                                  "bg-accent text-foreground",
+                              )}
+                            >
+                              <IconDotsVertical size={14} />
+                            </button>
+                          </IconTooltip>
+                          {tabMenuOpen === "__chat_global" && (
+                            <>
+                              <div
+                                className="fixed inset-0 z-40"
+                                onClick={() => setTabMenuOpen(null)}
+                              />
+                              <div className="absolute right-0 top-full mt-1 z-50 w-44 rounded-md border border-border bg-popover py-1 shadow-lg">
+                                <button
+                                  className="flex w-full items-center justify-between px-3 py-1.5 text-xs text-foreground hover:bg-accent"
+                                  onClick={() => {
+                                    closeTab(activeTabId);
+                                    setTabMenuOpen(null);
+                                  }}
+                                >
+                                  Close Tab
+                                  <kbd className="text-[10px] text-muted-foreground">
+                                    {"\u2318"}W
+                                  </kbd>
+                                </button>
+                                <button
+                                  className="flex w-full items-center px-3 py-1.5 text-xs text-foreground hover:bg-accent"
+                                  onClick={() => {
+                                    closeOtherTabs(activeTabId);
+                                    setTabMenuOpen(null);
+                                  }}
+                                >
+                                  Close Other Tabs
+                                </button>
+                                <button
+                                  className="flex w-full items-center px-3 py-1.5 text-xs text-foreground hover:bg-accent"
+                                  onClick={() => {
+                                    closeAllTabs();
+                                    setTabMenuOpen(null);
+                                  }}
+                                >
+                                  Close All Tabs
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </>
+                    )}
+                    {mode === "cli" && (
+                      <>
+                        <IconTooltip content="New terminal">
                           <button
-                            className="flex w-full items-center px-3 py-1.5 text-xs text-foreground hover:bg-accent"
-                            onClick={() => {
-                              closeOtherCliTabs(activeCliTab);
-                              setTabMenuOpen(null);
-                            }}
+                            onClick={addCliTab}
+                            className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
                           >
-                            Close Other Tabs
+                            <IconPlus size={14} />
                           </button>
-                          <button
-                            className="flex w-full items-center px-3 py-1.5 text-xs text-foreground hover:bg-accent"
-                            onClick={() => {
-                              closeAllCliTabs();
-                              setTabMenuOpen(null);
-                            }}
-                          >
-                            Close All Tabs
-                          </button>
+                        </IconTooltip>
+                        {availableClis.length > 0 && (
+                          <div className="relative">
+                            <IconTooltip content={`CLI: ${selectedLabel}`}>
+                              <button
+                                onClick={() => setCliPickerOpen(!cliPickerOpen)}
+                                className={cn(
+                                  "flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                                  cliPickerOpen && "bg-accent text-foreground",
+                                )}
+                              >
+                                <IconSettings size={14} />
+                              </button>
+                            </IconTooltip>
+                            {cliPickerOpen && (
+                              <>
+                                <div
+                                  className="fixed inset-0 z-40"
+                                  onClick={() => setCliPickerOpen(false)}
+                                />
+                                <div className="absolute right-0 top-full mt-1 z-50 w-48 rounded-md border border-border bg-popover py-1 shadow-lg">
+                                  {availableClis.map((cli) => (
+                                    <button
+                                      key={cli.command}
+                                      className={cn(
+                                        "flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent",
+                                        cli.command === selectedCli
+                                          ? "text-foreground font-medium"
+                                          : "text-muted-foreground",
+                                      )}
+                                      onClick={() => {
+                                        selectCli(cli.command);
+                                        setCliPickerOpen(false);
+                                      }}
+                                    >
+                                      {cli.command === selectedCli && (
+                                        <IconCheck
+                                          size={12}
+                                          className="shrink-0"
+                                        />
+                                      )}
+                                      <span
+                                        className={
+                                          cli.command !== selectedCli
+                                            ? "ml-5"
+                                            : ""
+                                        }
+                                      >
+                                        {cli.label}
+                                      </span>
+                                    </button>
+                                  ))}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        )}
+                        <div className="relative">
+                          <IconTooltip content="Tab options">
+                            <button
+                              onClick={() =>
+                                setTabMenuOpen(
+                                  tabMenuOpen === "__cli_global"
+                                    ? null
+                                    : "__cli_global",
+                                )
+                              }
+                              className={cn(
+                                "flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                                tabMenuOpen === "__cli_global" &&
+                                  "bg-accent text-foreground",
+                              )}
+                            >
+                              <IconDotsVertical size={14} />
+                            </button>
+                          </IconTooltip>
+                          {tabMenuOpen === "__cli_global" && (
+                            <>
+                              <div
+                                className="fixed inset-0 z-40"
+                                onClick={() => setTabMenuOpen(null)}
+                              />
+                              <div className="absolute right-0 top-full mt-1 z-50 w-44 rounded-md border border-border bg-popover py-1 shadow-lg">
+                                <button
+                                  className="flex w-full items-center justify-between px-3 py-1.5 text-xs text-foreground hover:bg-accent"
+                                  onClick={() => {
+                                    closeCliTab(activeCliTab);
+                                    setTabMenuOpen(null);
+                                  }}
+                                >
+                                  Close Tab
+                                  <kbd className="text-[10px] text-muted-foreground">
+                                    {"\u2318"}W
+                                  </kbd>
+                                </button>
+                                <button
+                                  className="flex w-full items-center px-3 py-1.5 text-xs text-foreground hover:bg-accent"
+                                  onClick={() => {
+                                    closeOtherCliTabs(activeCliTab);
+                                    setTabMenuOpen(null);
+                                  }}
+                                >
+                                  Close Other Tabs
+                                </button>
+                                <button
+                                  className="flex w-full items-center px-3 py-1.5 text-xs text-foreground hover:bg-accent"
+                                  onClick={() => {
+                                    closeAllCliTabs();
+                                    setTabMenuOpen(null);
+                                  }}
+                                >
+                                  Close All Tabs
+                                </button>
+                              </div>
+                            </>
+                          )}
                         </div>
                       </>
                     )}
                   </div>
-                </>
-              )}
-            </div>
-          </div>
-        )}
+                </div>
+                {/* Sub-agent tab row — shown when the active context has children */}
+                {mode === "chat" && hasSubTabs && (
+                  <div className="flex items-center px-2 py-0.5 border-b border-border gap-0.5 bg-muted/30">
+                    <div className="flex items-center gap-0.5 min-w-0 overflow-x-auto scrollbar-none flex-1">
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setActiveTabId(focusParentId)}
+                        className={cn(
+                          "flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium cursor-pointer",
+                          activeTabId === focusParentId
+                            ? "bg-accent text-foreground"
+                            : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                        )}
+                      >
+                        Main
+                      </div>
+                      {childTabs.map((tab) => (
+                        <div
+                          key={tab.id}
+                          role="button"
+                          tabIndex={0}
+                          ref={
+                            tab.id === activeTabId ? activeTabRefCb : undefined
+                          }
+                          onClick={() => setActiveTabId(tab.id)}
+                          className={cn(
+                            "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium cursor-pointer max-w-[140px]",
+                            tab.id === activeTabId
+                              ? "bg-accent text-foreground"
+                              : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                          )}
+                        >
+                          <span className="truncate pr-1">
+                            {tab.subAgentName || tab.label}
+                          </span>
+                          {tab.status === "running" && (
+                            <span className="h-1 w-1 shrink-0 rounded-full bg-muted-foreground/50 animate-pulse" />
+                          )}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              closeTab(tab.id);
+                            }}
+                            className="agent-tab-close flex items-center justify-end text-muted-foreground hover:text-foreground"
+                            style={{
+                              position: "absolute",
+                              right: 0,
+                              top: 0,
+                              bottom: 0,
+                              width: 24,
+                              paddingRight: 4,
+                              borderRadius: "0 6px 6px 0",
+                              background:
+                                "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
+                            }}
+                          >
+                            <IconX size={8} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            );
+          })()}
       </div>
     ),
     [

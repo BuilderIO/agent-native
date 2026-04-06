@@ -93,6 +93,7 @@ function DbSyncSetup() {
       qc.invalidateQueries({ queryKey: ["interviews"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
       qc.invalidateQueries({ queryKey: ["action-items"] });
+      qc.invalidateQueries({ queryKey: ["notification-status"] });
       qc.invalidateQueries({ queryKey: ["notes"] });
     },
   });

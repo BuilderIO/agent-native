@@ -10,6 +10,7 @@ import type {
 export type ScorecardStatus = {
   interview: GreenhouseScheduledInterview;
   candidateName: string;
+  candidateId: number;
   jobName: string;
   applicationId: number;
   scorecards: GreenhouseScorecard[];
@@ -33,6 +34,7 @@ export type StuckCandidate = {
 export type RecentScorecard = {
   scorecard: GreenhouseScorecard;
   candidateName: string;
+  candidateId: number;
   jobName: string;
   interviewName: string;
   applicationId: number;
@@ -150,6 +152,7 @@ export const getActionItemsHandler = defineEventHandler(
     const overdueScorecards: ScorecardStatus[] = [];
     const pendingScorecards: ScorecardStatus[] = [];
     const allRecentScorecards: RecentScorecard[] = [];
+    const seenScorecardIds = new Set<number>();
 
     for (const interview of pastInterviews) {
       const app = applications.get(interview.application_id);
@@ -173,6 +176,7 @@ export const getActionItemsHandler = defineEventHandler(
         const item: ScorecardStatus = {
           interview,
           candidateName,
+          candidateId: app.candidate_id,
           jobName,
           applicationId: interview.application_id,
           scorecards,
@@ -188,17 +192,22 @@ export const getActionItemsHandler = defineEventHandler(
         }
       }
 
-      // Collect recent scorecards (last 7 days)
+      // Collect recent scorecards (last 7 days), deduplicating by scorecard ID
+      // since multiple interviews for the same application share scorecards
       const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
       for (const sc of scorecards) {
         if (new Date(sc.submitted_at) > sevenDaysAgo) {
-          allRecentScorecards.push({
-            scorecard: sc,
-            candidateName,
-            jobName,
-            interviewName: sc.interview,
-            applicationId: interview.application_id,
-          });
+          if (!seenScorecardIds.has(sc.id)) {
+            seenScorecardIds.add(sc.id);
+            allRecentScorecards.push({
+              scorecard: sc,
+              candidateName,
+              candidateId: app.candidate_id,
+              jobName,
+              interviewName: sc.interview,
+              applicationId: interview.application_id,
+            });
+          }
         }
       }
     }

@@ -236,7 +236,7 @@ export function ActionItemsPage() {
                       key={`${item.interview.id}-overdue`}
                       className="flex items-center justify-between px-4 py-3 text-sm cursor-pointer hover:bg-accent/50"
                       onClick={() =>
-                        navigate(`/candidates/${item.interview.application_id}`)
+                        navigate(`/candidates/${item.candidateId}`)
                       }
                     >
                       <div className="flex items-center gap-3 min-w-0">
@@ -296,7 +296,7 @@ export function ActionItemsPage() {
                       key={`${item.interview.id}-pending`}
                       className="flex items-center justify-between px-4 py-3 text-sm cursor-pointer hover:bg-accent/50"
                       onClick={() =>
-                        navigate(`/candidates/${item.interview.application_id}`)
+                        navigate(`/candidates/${item.candidateId}`)
                       }
                     >
                       <div className="flex items-center gap-3 min-w-0">
@@ -356,7 +356,7 @@ export function ActionItemsPage() {
                       key={`${item.scorecard.id}-recent`}
                       className="flex items-center justify-between px-4 py-3 text-sm cursor-pointer hover:bg-accent/50"
                       onClick={() =>
-                        navigate(`/candidates/${item.scorecard.candidate_id}`)
+                        navigate(`/candidates/${item.candidateId}`)
                       }
                     >
                       <div className="flex items-center gap-3 min-w-0">

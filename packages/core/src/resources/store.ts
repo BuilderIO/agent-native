@@ -515,6 +515,22 @@ export async function resourceListAccessible(
   return rows.map(rowToMeta);
 }
 
+/**
+ * List all resources matching a path prefix across ALL owners.
+ * Used by the recurring jobs scheduler to find all job resources.
+ */
+export async function resourceListAllOwners(
+  pathPrefix: string,
+): Promise<Resource[]> {
+  await ensureTable();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM resources WHERE path LIKE ?`,
+    args: [pathPrefix + "%"],
+  });
+  return rows.map(rowToResource);
+}
+
 export async function resourceMove(
   id: string,
   newPath: string,
