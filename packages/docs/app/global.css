@@ -348,7 +348,7 @@ html.dark .shiki span {
 /* Home hero */
 .hero-section {
   text-align: center;
-  padding: 80px 0 64px;
+  padding: 80px 24px 64px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -363,7 +363,7 @@ html.dark .shiki span {
 @media (max-width: 767px) {
   .hero-section {
     text-align: left;
-    padding: 48px 0 48px;
+    padding: 48px 24px;
   }
 
   .hero-section .flex {
@@ -375,9 +375,19 @@ html.dark .shiki span {
     margin-right: 0;
   }
 
+  /* Constrain the hero content flex item so it can't exceed viewport width.
+     Without this, min-width: auto on the flex item lets the nowrap command
+     text push the item wider than the mobile viewport (the root overflow cause). */
+  .hero-content {
+    width: 100%;
+    min-width: 0;
+  }
+
   .hero-section button {
     margin-left: 0;
     margin-right: auto;
+    /* size to content but never wider than parent */
+    width: max-content;
     max-width: 100%;
     overflow: hidden;
   }

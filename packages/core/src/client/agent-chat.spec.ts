@@ -8,6 +8,7 @@ vi.stubGlobal("window", {
   addEventListener: vi.fn(),
   dispatchEvent: vi.fn(),
   postMessage: postMessageSpy,
+  location: { origin: "http://localhost:3000" },
 });
 
 const { sendToAgentChat, generateTabId } = await import("./agent-chat.js");

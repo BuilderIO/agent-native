@@ -237,6 +237,13 @@ export async function handleUpdateResource(event: any) {
     return { error: "Resource not found" };
   }
 
+  // Ownership check: only the owner (or shared resource editors) can update
+  const email = await resolveEmail(event);
+  if (existing.owner !== SHARED_OWNER && existing.owner !== email) {
+    setResponseStatus(event, 403);
+    return { error: "Forbidden" };
+  }
+
   const body = await readBody(event);
 
   // If path changed, move it
@@ -263,12 +270,20 @@ export async function handleDeleteResource(event: any) {
     return { error: "Resource ID is required" };
   }
 
-  const deleted = await resourceDelete(id);
-  if (!deleted) {
+  const existing = await resourceGet(id);
+  if (!existing) {
     setResponseStatus(event, 404);
     return { error: "Resource not found" };
   }
 
+  // Ownership check: only the owner (or shared resource editors) can delete
+  const email = await resolveEmail(event);
+  if (existing.owner !== SHARED_OWNER && existing.owner !== email) {
+    setResponseStatus(event, 403);
+    return { error: "Forbidden" };
+  }
+
+  await resourceDelete(id);
   return { ok: true };
 }
 
