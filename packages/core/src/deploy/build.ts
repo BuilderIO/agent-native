@@ -544,21 +544,49 @@ function copyDir(src: string, dest: string) {
   }
 }
 
+/**
+ * Build for any preset using Nitro's programmatic build API.
+ * This handles netlify, vercel, deno_deploy, aws-lambda, and all other
+ * presets that Nitro supports natively — no hardcoded platform logic.
+ */
+async function buildWithNitro() {
+  console.log(`[deploy] Building for preset "${preset}" via Nitro...`);
+
+  const { createNitro, prepare, copyPublicAssets, build } = await import(
+    "nitro/builder"
+  );
+
+  const nitro = await createNitro({
+    rootDir: cwd,
+    dev: false,
+    preset,
+    minify: true,
+    serverDir: "./server",
+  } as any);
+
+  await prepare(nitro);
+  await copyPublicAssets(nitro);
+  await build(nitro);
+
+  // Copy React Router's client build into Nitro's public output dir so the
+  // deployment includes static assets alongside the server function.
+  const clientDir = path.join(cwd, "build", "client");
+  const publicOutputDir = nitro.options.output.publicDir;
+  if (fs.existsSync(clientDir) && publicOutputDir) {
+    copyDir(clientDir, publicOutputDir);
+    console.log(
+      `[deploy] Copied client assets to ${path.relative(cwd, publicOutputDir)}`,
+    );
+  }
+
+  await nitro.close();
+  console.log(`[deploy] Nitro build complete for preset "${preset}".`);
+}
+
 // Main
-const SUPPORTED_PRESETS = ["cloudflare_pages"];
 
 if (preset === "node") {
   // No post-processing needed for Node.js target
-  process.exit(0);
-}
-
-if (!SUPPORTED_PRESETS.includes(preset)) {
-  // Nitro 3 handles most presets natively (netlify, vercel, deno_deploy, etc.)
-  // — only cloudflare_pages needs custom post-processing via this script.
-  // If we reach here, the preset may be handled by Nitro directly. Skip gracefully.
-  console.log(
-    `[deploy] Preset "${preset}" does not require custom post-processing (handled by Nitro). Skipping.`,
-  );
   process.exit(0);
 }
 
@@ -566,6 +594,14 @@ console.log(`[deploy] Building for ${preset}...`);
 
 switch (preset) {
   case "cloudflare_pages":
+    // Cloudflare Pages needs custom post-processing (createRequire patches,
+    // timer shims, node: prefix stripping) that Nitro's native preset
+    // doesn't handle. Keep this custom path until those issues are resolved.
     await buildCloudflarePages();
+    break;
+  default:
+    // All other presets (netlify, vercel, deno_deploy, aws-lambda, etc.)
+    // are handled natively by Nitro's build API.
+    await buildWithNitro();
     break;
 }
