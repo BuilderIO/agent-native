@@ -1646,7 +1646,7 @@ export function createAgentChatPlugin(
         // 4. Discovered peer agents
         try {
           const { discoverAgents } = await import("./agent-discovery.js");
-          const agents = discoverAgents(options?.appId);
+          const agents = await discoverAgents(options?.appId);
           for (const agent of agents) {
             items.push({
               id: `agent:${agent.id}`,

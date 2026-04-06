@@ -12,7 +12,7 @@ export const tool: ActionTool = {
       agent: {
         type: "string",
         description:
-          "Agent name or ID (e.g., 'analytics', 'mail', 'content', 'calendar', 'slides', 'videos', 'issues', 'forms', 'recruiting')",
+          "Agent name or ID. Includes built-in agents (e.g., 'analytics', 'mail', 'content') and any custom agents configured in resources.",
       },
       message: {
         type: "string",
@@ -32,11 +32,9 @@ export async function run(
   if (!agentIdOrName) return "Error: --agent is required";
   if (!message) return "Error: --message is required";
 
-  const agent = findAgent(agentIdOrName);
+  const agent = await findAgent(agentIdOrName);
   if (!agent) {
-    const available = discoverAgents()
-      .map((a) => a.name)
-      .join(", ");
+    const available = (await discoverAgents()).map((a) => a.name).join(", ");
     return `Error: Agent "${agentIdOrName}" not found. Available agents: ${available || "(none)"}`;
   }
 

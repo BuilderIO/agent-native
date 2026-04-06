@@ -42,12 +42,22 @@ async function resolveEmail(event: any): Promise<string> {
 // Tree building
 // ---------------------------------------------------------------------------
 
+interface JobMetadata {
+  schedule?: string;
+  scheduleDescription?: string;
+  enabled?: boolean;
+  lastStatus?: string;
+  lastRun?: string;
+  nextRun?: string;
+}
+
 interface TreeNode {
   name: string;
   path: string;
   type: "file" | "folder";
   children?: TreeNode[];
   resource?: ResourceMeta;
+  jobMeta?: JobMetadata;
 }
 
 function buildTree(resources: ResourceMeta[]): TreeNode[] {
@@ -138,7 +148,58 @@ export async function handleGetResourceTree(event: any) {
   }
 
   const tree = buildTree(resources);
+
+  // Enrich job files with parsed frontmatter metadata for status indicators
+  await enrichJobNodes(tree);
+
   return { tree };
+}
+
+/**
+ * Walk the tree and add jobMeta to files under jobs/.
+ */
+async function enrichJobNodes(nodes: TreeNode[]): Promise<void> {
+  let parseFn: typeof import("../jobs/scheduler.js").parseJobFrontmatter;
+  let describeFn: typeof import("../jobs/cron.js").describeCron;
+  try {
+    const scheduler = await import("../jobs/scheduler.js");
+    const cron = await import("../jobs/cron.js");
+    parseFn = scheduler.parseJobFrontmatter;
+    describeFn = cron.describeCron;
+  } catch {
+    return; // Jobs module not available
+  }
+
+  for (const node of nodes) {
+    if (node.type === "folder" && node.children) {
+      await enrichJobNodes(node.children);
+    }
+    if (
+      node.type === "file" &&
+      node.resource &&
+      node.resource.path.startsWith("jobs/") &&
+      node.resource.path.endsWith(".md")
+    ) {
+      try {
+        const full = await resourceGet(node.resource.id);
+        if (full?.content) {
+          const { meta } = parseFn(full.content);
+          node.jobMeta = {
+            schedule: meta.schedule,
+            scheduleDescription: meta.schedule
+              ? describeFn(meta.schedule)
+              : undefined,
+            enabled: meta.enabled,
+            lastStatus: meta.lastStatus,
+            lastRun: meta.lastRun,
+            nextRun: meta.nextRun,
+          };
+        }
+      } catch {
+        // Skip individual file errors
+      }
+    }
+  }
 }
 
 /** GET /_agent-native/resources/:id — get single resource with content.

@@ -256,6 +256,41 @@ async function _doEnsureTable(): Promise<void> {
       now,
     ],
   });
+
+  // Seed built-in agents as shared resources under agents/
+  try {
+    const { getBuiltinAgents } = await import("../server/agent-discovery.js");
+    const builtins = getBuiltinAgents();
+    for (const agent of builtins) {
+      const agentJson = JSON.stringify(
+        {
+          id: agent.id,
+          name: agent.name,
+          description: agent.description,
+          url: agent.url,
+          color: agent.color,
+        },
+        null,
+        2,
+      );
+      const agentSize = Buffer.byteLength(agentJson, "utf8");
+      await client.execute({
+        sql: seedSql,
+        args: [
+          crypto.randomUUID(),
+          `agents/${agent.id}.json`,
+          SHARED_OWNER,
+          agentJson,
+          "application/json",
+          agentSize,
+          now,
+          now,
+        ],
+      });
+    }
+  } catch {
+    // Agent discovery not available — skip seeding
+  }
 }
 
 const _personalSeeded = new Set<string>();
