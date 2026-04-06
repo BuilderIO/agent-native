@@ -169,11 +169,13 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
     runId,
     thread.id,
     async (send, signal) => {
-      const sendPreviewUpdate = (force = false) => {
+      const sendPreviewUpdate = async (force = false) => {
         const now = Date.now();
         if (!force && now - lastPreviewSent < PREVIEW_INTERVAL_MS) return;
         lastPreviewSent = now;
         task.preview = accumulatedText.slice(-800);
+        // Persist to SQL so task-status calls from other processes see live state
+        await saveTask(task);
         opts.parentSend({
           type: "agent_task_update",
           taskId,

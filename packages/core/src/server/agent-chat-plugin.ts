@@ -335,6 +335,9 @@ function createTeamTools(deps: {
         },
       },
       run: async (args: Record<string, string>) => {
+        // Capture the send function NOW (at spawn time) so that
+        // concurrent runs don't clobber each other's send reference.
+        const capturedSend = deps.getSend();
         const { spawnTask } = await import("./agent-teams.js");
         const task = await spawnTask({
           description: args.task,
@@ -345,8 +348,7 @@ function createTeamTools(deps: {
           apiKey: deps.getApiKey(),
           model: deps.getModel(),
           parentSend: (event) => {
-            const send = deps.getSend();
-            if (send) send(event);
+            if (capturedSend) capturedSend(event);
           },
         });
         return JSON.stringify({
