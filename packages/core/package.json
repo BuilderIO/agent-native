@@ -58,6 +58,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",
+    "@clack/prompts": "^1.2.0",
     "@libsql/client": "^0.15.0",
     "@radix-ui/react-select": "^2.2.6",
     "@radix-ui/react-tooltip": "^1.2.8",
@@ -88,10 +89,10 @@
     "tiptap-markdown": "^0.8.10"
   },
   "peerDependencies": {
-    "@tabler/icons-react": ">=3",
     "@assistant-ui/react": ">=0.12",
     "@assistant-ui/react-markdown": ">=0.12",
     "@supabase/supabase-js": ">=2",
+    "@tabler/icons-react": ">=3",
     "@tanstack/react-query": ">=5",
     "@vitejs/plugin-react-swc": ">=4",
     "@xterm/addon-fit": ">=0.10",
@@ -169,8 +170,8 @@
     "@assistant-ui/react-markdown": "^0.12.6",
     "@react-router/dev": "^7.13.1",
     "@react-router/fs-routes": "^7.13.1",
-    "@tabler/icons-react": "^3.40.0",
     "@supabase/supabase-js": "^2.49.0",
+    "@tabler/icons-react": "^3.40.0",
     "@tanstack/react-query": "^5.84.2",
     "@types/better-sqlite3": "^7.6.13",
     "@types/express": "^5.0.6",

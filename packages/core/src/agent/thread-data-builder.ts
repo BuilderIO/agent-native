@@ -18,7 +18,12 @@ interface ContentPart {
 export function buildAssistantMessage(
   events: RunEvent[],
   runId?: string,
-): { id: string; role: "assistant"; content: ContentPart[] } | null {
+): {
+  id: string;
+  role: "assistant";
+  content: ContentPart[];
+  metadata: Record<string, unknown>;
+} | null {
   const content: ContentPart[] = [];
   let toolCallCounter = 0;
 
@@ -76,6 +81,7 @@ export function buildAssistantMessage(
     id: `server-${runId ?? Date.now()}`,
     role: "assistant",
     content,
+    metadata: {},
   };
 }
 
@@ -93,7 +99,9 @@ export function extractThreadMeta(repo: any): {
 
   let title = "";
   let preview = "";
-  for (const msg of msgs) {
+  for (const entry of msgs) {
+    // Support both wrapped ({ message: { role, content } }) and flat ({ role, content }) formats
+    const msg = entry?.message ?? entry;
     if (msg.role !== "user") continue;
     const textParts = Array.isArray(msg.content)
       ? msg.content

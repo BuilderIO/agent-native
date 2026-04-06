@@ -76,7 +76,7 @@ node .output/server/index.mjs`}
         <code>3000</code>).
       </p>
 
-      <h3>Docker</h3>
+      <h3 id="docker">Docker</h3>
       <CodeBlock
         code={`FROM node:20-slim AS build
 WORKDIR /app

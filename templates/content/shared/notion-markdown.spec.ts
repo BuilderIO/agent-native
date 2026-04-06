@@ -102,7 +102,7 @@ describe("parseNfmForEditor", () => {
       expect(result).toContain("</details>");
     });
 
-    it("converts list items inside toggle to HTML lists", () => {
+    it("converts list items inside toggle to HTML lists with paragraph wrappers", () => {
       const input = [
         "<details>",
         "<summary>Toggle</summary>",
@@ -113,6 +113,25 @@ describe("parseNfmForEditor", () => {
       const result = parseNfmForEditor(input);
       expect(result).toContain("<ul>");
       expect(result).toContain("<li>");
+      // List items must have <p> wrappers for TipTap's ListItem to parse them
+      expect(result).toContain("<p>item 1</p>");
+      expect(result).toContain("<p>item 2</p>");
+    });
+
+    it("preserves nested list indentation inside toggle", () => {
+      const input = [
+        "<details>",
+        "<summary>Toggle</summary>",
+        "\t- parent",
+        "\t  - child",
+        "</details>",
+      ].join("\n");
+      const result = parseNfmForEditor(input);
+      // Should have nested <ul> structure
+      const ulCount = (result.match(/<ul>/g) || []).length;
+      expect(ulCount).toBeGreaterThanOrEqual(2);
+      expect(result).toContain("<p>parent</p>");
+      expect(result).toContain("<p>child</p>");
     });
 
     it("handles nested indentation inside toggle", () => {
@@ -312,6 +331,34 @@ describe("serializeEditorToNfm", () => {
       expect(editorMd).toContain("&nbsp;");
       const stored = serializeEditorToNfm(editorMd);
       expect(stored).toContain("<empty-block/>");
+    });
+
+    it("does not inflate empty-blocks on repeated save/load cycles", () => {
+      // Simulate editor output with 2 empty paragraphs between content
+      const editorMd = "Hello\n\n&nbsp;\n\n&nbsp;\n\nWorld";
+      const cycle1 = serializeEditorToNfm(editorMd);
+      const count1 = (cycle1.match(/<empty-block\/>/g) || []).length;
+      expect(count1).toBe(2);
+
+      // Second cycle: load → re-serialize must produce the same result
+      const loaded = parseNfmForEditor(cycle1);
+      const cycle2 = serializeEditorToNfm(loaded);
+      expect(cycle2).toBe(cycle1);
+
+      // Third cycle: still stable
+      const loaded2 = parseNfmForEditor(cycle2);
+      const cycle3 = serializeEditorToNfm(loaded2);
+      expect(cycle3).toBe(cycle1);
+    });
+
+    it("does not inflate single empty paragraph on round-trip", () => {
+      const editorMd = "above\n\n&nbsp;\n\nbelow";
+      const stored = serializeEditorToNfm(editorMd);
+      expect((stored.match(/<empty-block\/>/g) || []).length).toBe(1);
+
+      const loaded = parseNfmForEditor(stored);
+      const stored2 = serializeEditorToNfm(loaded);
+      expect(stored2).toBe(stored);
     });
   });
 });

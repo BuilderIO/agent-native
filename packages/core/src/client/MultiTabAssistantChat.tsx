@@ -178,6 +178,8 @@ interface ChatTab {
   id: string;
   label: string;
   status: "idle" | "running" | "completed";
+  /** If this tab is a sub-agent, the parent thread ID */
+  parentThreadId?: string;
 }
 
 export interface MultiTabAssistantChatHeaderProps {
@@ -231,15 +233,38 @@ export function MultiTabAssistantChat({
     saveThreadData,
     generateTitle,
     searchThreads,
+    refreshThreads,
   } = useChatThreads(apiUrl);
 
+  // Track which tabs have been focused at least once (lazy mount for sub-agent tabs)
+  const mountedTabsRef = useRef<Set<string>>(new Set());
   const activeThreadIdRef = useRef(activeThreadId);
   activeThreadIdRef.current = activeThreadId;
+  // Mark the active tab as mounted so it persists when switched away
+  if (activeThreadId) mountedTabsRef.current.add(activeThreadId);
   const chatRefs = useRef<Map<string, AssistantChatHandle>>(new Map());
   const pendingSends = useRef<Map<string, string>>(new Map());
   const [runningThreads, setRunningThreads] = useState<Set<string>>(new Set());
   const [showHistory, setShowHistory] = useState(false);
   const newThreadIds = useRef<Set<string>>(new Set());
+
+  // Parent-child thread mapping — persisted to localStorage.
+  // Maps childThreadId → parentThreadId for sub-agent tabs.
+  const PARENT_MAP_KEY = "agent-chat-parent-map";
+  const [parentMap, setParentMap] = useState<Record<string, string>>(() => {
+    try {
+      const saved = localStorage.getItem(PARENT_MAP_KEY);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return {};
+  });
+
+  // Persist parent map to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(PARENT_MAP_KEY, JSON.stringify(parentMap));
+    } catch {}
+  }, [parentMap]);
 
   // Open tabs — persisted to localStorage so they survive refresh.
   const OPEN_TABS_KEY = "agent-chat-open-tabs";
@@ -248,7 +273,11 @@ export function MultiTabAssistantChat({
       const saved = localStorage.getItem(OPEN_TABS_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Mark restored tabs as mounted
+          for (const id of parsed) mountedTabsRef.current.add(id);
+          return parsed;
+        }
       }
     } catch {}
     return [];
@@ -303,19 +332,18 @@ export function MultiTabAssistantChat({
   }, [activeThreadId]);
 
   // Ref callback: scroll the active tab into view in the overflow container.
+  // Uses getBoundingClientRect for reliable positioning regardless of offsetParent.
   const activeTabRefCb = useCallback((el: HTMLButtonElement | null) => {
     if (!el) return;
     const container = el.parentElement;
     if (!container) return;
     requestAnimationFrame(() => {
-      const tabLeft = el.offsetLeft;
-      const tabRight = tabLeft + el.offsetWidth;
-      const scrollLeft = container.scrollLeft;
-      const viewWidth = container.clientWidth;
-      if (tabLeft < scrollLeft) {
-        container.scrollLeft = tabLeft;
-      } else if (tabRight > scrollLeft + viewWidth) {
-        container.scrollLeft = tabRight - viewWidth;
+      const containerRect = container.getBoundingClientRect();
+      const tabRect = el.getBoundingClientRect();
+      if (tabRect.left < containerRect.left) {
+        container.scrollLeft += tabRect.left - containerRect.left;
+      } else if (tabRect.right > containerRect.right) {
+        container.scrollLeft += tabRect.right - containerRect.right;
       }
     });
   }, []);
@@ -445,6 +473,12 @@ export function MultiTabAssistantChat({
       chatRefs.current.delete(tabId);
       pendingSends.current.delete(tabId);
       newThreadIds.current.delete(tabId);
+      // Clean up parent map entry
+      setParentMap((prev) => {
+        if (!(tabId in prev)) return prev;
+        const { [tabId]: _, ...rest } = prev;
+        return rest;
+      });
     },
     [switchThread],
   );
@@ -463,6 +497,11 @@ export function MultiTabAssistantChat({
           newThreadIds.current.delete(key);
         }
       }
+      // Clean up parent map — only keep the entry for the surviving tab
+      setParentMap((prev) => {
+        if (tabId in prev) return { [tabId]: prev[tabId] };
+        return {};
+      });
     },
     [switchThread],
   );
@@ -476,6 +515,7 @@ export function MultiTabAssistantChat({
       // Clean up all old refs
       chatRefs.current.clear();
       pendingSends.current.clear();
+      setParentMap({});
     }
   }, [createThread, switchThread]);
 
@@ -492,6 +532,51 @@ export function MultiTabAssistantChat({
     },
     [openTabIds, switchThread],
   );
+
+  // Listen for agent-task-open events (from AgentTaskCard "Open" button)
+  useEffect(() => {
+    function handleOpenTask(e: Event) {
+      const threadId = (e as CustomEvent).detail?.threadId;
+      if (!threadId) return;
+      // The current active thread is the parent that spawned this sub-agent
+      const parentId = activeThreadIdRef.current;
+      if (parentId && parentId !== threadId) {
+        setParentMap((prev) =>
+          prev[threadId] === parentId
+            ? prev
+            : { ...prev, [threadId]: parentId },
+        );
+      }
+      // Refresh thread list so the new sub-agent thread appears with its title
+      refreshThreads();
+      // Open the sub-agent thread as a tab — insert after parent for visual grouping
+      if (!openTabIds.includes(threadId)) {
+        setOpenTabIds((prev) => {
+          if (parentId) {
+            const parentIdx = prev.indexOf(parentId);
+            if (parentIdx !== -1) {
+              // Insert after the parent (and any existing children of that parent)
+              const next = [...prev];
+              let insertIdx = parentIdx + 1;
+              // Skip past any existing children of the same parent
+              while (
+                insertIdx < next.length &&
+                parentMap[next[insertIdx]] === parentId
+              ) {
+                insertIdx++;
+              }
+              next.splice(insertIdx, 0, threadId);
+              return next;
+            }
+          }
+          return [...prev, threadId];
+        });
+      }
+      switchThread(threadId);
+    }
+    window.addEventListener("agent-task-open", handleOpenTask);
+    return () => window.removeEventListener("agent-task-open", handleOpenTask);
+  }, [openTabIds, switchThread, refreshThreads, parentMap]);
 
   // Watch for agent-issued chat-command in application-state
   const lastChatCommandRef = useRef(0);
@@ -539,35 +624,34 @@ export function MultiTabAssistantChat({
   }, [openTabIds, switchThread]);
 
   const handleGenerateTitle = useCallback(
-    (message: string) => {
-      if (activeThreadId) {
-        generateTitle(activeThreadId, message).then((title) => {
-          if (title && activeThreadId) {
-            // Persist the generated title to the server
-            saveThreadData(activeThreadId, {
-              threadData: "",
-              title,
-              preview: message.slice(0, 120),
-            });
-          }
-        });
-      }
+    (threadId: string, message: string) => {
+      generateTitle(threadId, message).then((title) => {
+        if (title) {
+          // Persist the generated title to the server
+          saveThreadData(threadId, {
+            threadData: "",
+            title,
+            preview: message.slice(0, 120),
+          });
+        }
+      });
     },
-    [activeThreadId, generateTitle, saveThreadData],
+    [generateTitle, saveThreadData],
   );
 
   const handleSaveThread = useCallback(
-    (data: {
-      threadData: string;
-      title: string;
-      preview: string;
-      messageCount: number;
-    }) => {
-      if (activeThreadId) {
-        saveThreadData(activeThreadId, data);
-      }
+    (
+      threadId: string,
+      data: {
+        threadData: string;
+        title: string;
+        preview: string;
+        messageCount: number;
+      },
+    ) => {
+      saveThreadData(threadId, data);
     },
-    [activeThreadId, saveThreadData],
+    [saveThreadData],
   );
 
   // Build tabs from open thread IDs
@@ -578,14 +662,27 @@ export function MultiTabAssistantChat({
       const t = threadMap.get(id);
       return {
         id,
-        label: t?.title || t?.preview?.slice(0, 20) || "New chat",
+        label: t?.title || t?.preview?.slice(0, 30) || "New chat",
         status: runningThreads.has(id)
           ? ("running" as const)
           : (messageCounts[id] ?? t?.messageCount ?? 0) > 0
             ? ("completed" as const)
             : ("idle" as const),
+        parentThreadId: parentMap[id],
       };
     });
+
+  // Include sub-agent tabs that aren't in threadMap yet (just created, not refreshed)
+  for (const id of openTabIds) {
+    if (!tabs.some((t) => t.id === id)) {
+      tabs.push({
+        id,
+        label: "Sub-agent...",
+        status: "running" as const,
+        parentThreadId: parentMap[id],
+      });
+    }
+  }
 
   const headerProps: MultiTabAssistantChatHeaderProps = {
     tabs,
@@ -622,47 +719,68 @@ export function MultiTabAssistantChat({
       ) : showTabBar ? (
         <div className="flex items-center px-1 py-1 border-b border-border shrink-0 gap-0.5">
           <div className="flex items-center gap-0.5 min-w-0 overflow-x-auto scrollbar-none flex-1">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                ref={tab.id === activeThreadId ? activeTabRefCb : undefined}
-                onClick={() => switchThread(tab.id)}
-                className={cn(
-                  "agent-tab relative flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] font-medium shrink-0 max-w-[130px]",
-                  tab.id === activeThreadId
-                    ? "bg-accent text-foreground"
-                    : "text-muted-foreground hover:text-foreground hover:bg-accent",
-                )}
-              >
-                <span className="truncate pr-1">{tab.label}</span>
-                {tab.status === "running" && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50 shrink-0 animate-pulse" />
-                )}
-                {openTabIds.length > 1 && (
-                  <span
-                    role="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      closeTab(tab.id);
-                    }}
-                    className="agent-tab-close flex items-center justify-end text-muted-foreground hover:!text-foreground"
-                    style={{
-                      position: "absolute",
-                      right: 0,
-                      top: 0,
-                      bottom: 0,
-                      width: 28,
-                      paddingRight: 6,
-                      borderRadius: "0 6px 6px 0",
-                      background:
-                        "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
-                    }}
+            {tabs.map((tab) => {
+              const isChild = !!tab.parentThreadId;
+              return (
+                <React.Fragment key={tab.id}>
+                  {isChild && (
+                    <span className="flex items-center shrink-0 text-muted-foreground/30 -mr-0.5">
+                      <svg
+                        width="10"
+                        height="16"
+                        viewBox="0 0 10 16"
+                        fill="none"
+                      >
+                        <path
+                          d="M1 0 L1 9 Q1 12 4 12 L10 12"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                          fill="none"
+                        />
+                      </svg>
+                    </span>
+                  )}
+                  <button
+                    ref={tab.id === activeThreadId ? activeTabRefCb : undefined}
+                    onClick={() => switchThread(tab.id)}
+                    className={cn(
+                      "agent-tab relative flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] font-medium shrink-0 max-w-[130px]",
+                      tab.id === activeThreadId
+                        ? "bg-accent text-foreground"
+                        : "text-muted-foreground hover:text-foreground hover:bg-accent",
+                    )}
                   >
-                    <IconX size={8} />
-                  </span>
-                )}
-              </button>
-            ))}
+                    <span className="truncate pr-1">{tab.label}</span>
+                    {tab.status === "running" && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50 shrink-0 animate-pulse" />
+                    )}
+                    {openTabIds.length > 1 && (
+                      <span
+                        role="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          closeTab(tab.id);
+                        }}
+                        className="agent-tab-close flex items-center justify-end text-muted-foreground hover:!text-foreground"
+                        style={{
+                          position: "absolute",
+                          right: 0,
+                          top: 0,
+                          bottom: 0,
+                          width: 28,
+                          paddingRight: 6,
+                          borderRadius: "0 6px 6px 0",
+                          background:
+                            "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
+                        }}
+                      >
+                        <IconX size={8} />
+                      </span>
+                    )}
+                  </button>
+                </React.Fragment>
+              );
+            })}
           </div>
           <div className="flex items-center gap-px shrink-0 ml-auto">
             <button
@@ -701,43 +819,46 @@ export function MultiTabAssistantChat({
           />
         )}
 
-        {/* Render all open tabs, hide inactive ones to preserve state */}
-        {[...new Set(openTabIds)].map((tabId) => (
-          <div
-            key={tabId}
-            className="flex-1 min-h-0"
-            style={{
-              display:
-                contentHidden || tabId !== activeThreadId ? "none" : "flex",
-            }}
-          >
-            <AssistantChat
-              {...props}
-              ref={(handle) => {
-                if (handle) {
-                  chatRefs.current.set(tabId, handle);
-                } else {
-                  chatRefs.current.delete(tabId);
-                }
+        {/* Render tabs that have been activated at least once, hide inactive ones to preserve state.
+            Sub-agent tabs are only mounted when first focused — prevents stale restore from running
+            while the component is display:none before the user switches to it. */}
+        {[...new Set(openTabIds)]
+          .filter(
+            (tabId) =>
+              tabId === activeThreadId || mountedTabsRef.current.has(tabId),
+          )
+          .map((tabId) => (
+            <div
+              key={tabId}
+              className="flex-1 min-h-0"
+              style={{
+                display:
+                  contentHidden || tabId !== activeThreadId ? "none" : "flex",
               }}
-              threadId={tabId}
-              tabId={tabId}
-              apiUrl={apiUrl}
-              isNewThread={newThreadIds.current.has(tabId)}
-              onMessageCountChange={(count) =>
-                setMessageCounts((prev) =>
-                  prev[tabId] === count ? prev : { ...prev, [tabId]: count },
-                )
-              }
-              onSaveThread={
-                tabId === activeThreadId ? handleSaveThread : undefined
-              }
-              onGenerateTitle={
-                tabId === activeThreadId ? handleGenerateTitle : undefined
-              }
-            />
-          </div>
-        ))}
+            >
+              <AssistantChat
+                {...props}
+                ref={(handle) => {
+                  if (handle) {
+                    chatRefs.current.set(tabId, handle);
+                  } else {
+                    chatRefs.current.delete(tabId);
+                  }
+                }}
+                threadId={tabId}
+                tabId={tabId}
+                apiUrl={apiUrl}
+                isNewThread={newThreadIds.current.has(tabId)}
+                onMessageCountChange={(count) =>
+                  setMessageCounts((prev) =>
+                    prev[tabId] === count ? prev : { ...prev, [tabId]: count },
+                  )
+                }
+                onSaveThread={handleSaveThread}
+                onGenerateTitle={handleGenerateTitle}
+              />
+            </div>
+          ))}
       </div>
     </div>
   );

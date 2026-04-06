@@ -1,4 +1,5 @@
 import { defineEventHandler, getQuery } from "h3";
+import { getSession } from "@agent-native/core/server";
 import { getClient } from "../../../lib/google-calendar.js";
 import { peopleSearchDirectoryPeople } from "../../../lib/google-api.js";
 
@@ -9,6 +10,9 @@ import { peopleSearchDirectoryPeople } from "../../../lib/google-api.js";
  * Returns { [email]: photoUrl } for any found.
  */
 export default defineEventHandler(async (event) => {
+  const session = await getSession(event);
+  const userEmail = session?.email ?? "local@localhost";
+
   const query = getQuery(event);
   const emailsParam = String(query.emails || "");
   if (!emailsParam) return {};
@@ -19,7 +23,7 @@ export default defineEventHandler(async (event) => {
     .filter(Boolean)
     .slice(0, 20);
 
-  const client = await getClient();
+  const client = await getClient(userEmail);
   if (!client) return {};
 
   const accessToken = client.accessToken;

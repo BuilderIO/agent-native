@@ -16,6 +16,13 @@ import type { Resource } from "./use-resources.js";
 export interface ResourceEditorProps {
   resource: Resource;
   onSave: (content: string) => void;
+  /** Controlled view mode — if provided, the editor won't manage its own view state */
+  view?: "visual" | "code";
+  onViewChange?: (v: "visual" | "code") => void;
+  /** Called whenever save status changes */
+  onSaveStatusChange?: (status: "idle" | "saving" | "saved") => void;
+  /** When true, the editor's internal toolbar row is hidden */
+  hideToolbar?: boolean;
 }
 
 const CONTROL_STYLE = { fontSize: 12, lineHeight: 1 } as const;
@@ -820,9 +827,19 @@ function VisualMarkdownEditor({
 
 // --- Main ResourceEditor ---
 
-export function ResourceEditor({ resource, onSave }: ResourceEditorProps) {
+export function ResourceEditor({
+  resource,
+  onSave,
+  view: controlledView,
+  onViewChange,
+  onSaveStatusChange,
+  hideToolbar,
+}: ResourceEditorProps) {
   const [content, setContent] = useState(resource.content);
-  const [view, setView] = useState<"visual" | "code">(getViewPref);
+  const [internalView, setInternalView] = useState<"visual" | "code">(
+    getViewPref,
+  );
+  const view = controlledView ?? internalView;
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">(
     "idle",
   );
@@ -834,28 +851,38 @@ export function ResourceEditor({ resource, onSave }: ResourceEditorProps) {
     if (prevIdRef.current !== resource.id) {
       setContent(resource.content);
       setSaveStatus("idle");
+      onSaveStatusChange?.("idle");
       prevIdRef.current = resource.id;
     }
-  }, [resource.id, resource.content]);
+  }, [resource.id, resource.content, onSaveStatusChange]);
 
   const handleChange = useCallback(
     (newContent: string) => {
       setContent(newContent);
       setSaveStatus("idle");
+      onSaveStatusChange?.("idle");
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => {
         setSaveStatus("saving");
+        onSaveStatusChange?.("saving");
         onSave(newContent);
-        setTimeout(() => setSaveStatus("saved"), 300);
+        setTimeout(() => {
+          setSaveStatus("saved");
+          onSaveStatusChange?.("saved");
+        }, 300);
       }, 1000);
     },
-    [onSave],
+    [onSave, onSaveStatusChange],
   );
 
-  const switchView = useCallback((v: "visual" | "code") => {
-    setView(v);
-    setViewPref(v);
-  }, []);
+  const switchView = useCallback(
+    (v: "visual" | "code") => {
+      setInternalView(v);
+      setViewPref(v);
+      onViewChange?.(v);
+    },
+    [onViewChange],
+  );
 
   // Cleanup debounce on unmount
   useEffect(() => {
@@ -888,41 +915,43 @@ export function ResourceEditor({ resource, onSave }: ResourceEditorProps) {
     return (
       <div className="flex h-full flex-col">
         <style>{editorStyles}</style>
-        <div className="flex items-center justify-between border-b border-border px-3 py-2">
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => switchView("visual")}
-              className={cn(
-                "rounded-md px-2 py-1.5 text-[12px] leading-none",
-                view === "visual"
-                  ? "bg-accent text-foreground"
-                  : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-              )}
-              style={CONTROL_STYLE}
-            >
-              Visual
-            </button>
-            <button
-              onClick={() => switchView("code")}
-              className={cn(
-                "rounded-md px-2 py-1.5 text-[12px] leading-none",
-                view === "code"
-                  ? "bg-accent text-foreground"
-                  : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-              )}
-              style={CONTROL_STYLE}
-            >
-              Code
-            </button>
+        {!hideToolbar && (
+          <div className="flex items-center justify-between border-b border-border px-3 py-2">
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => switchView("visual")}
+                className={cn(
+                  "rounded-md px-2 py-1.5 text-[12px] leading-none",
+                  view === "visual"
+                    ? "bg-accent text-foreground"
+                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                )}
+                style={CONTROL_STYLE}
+              >
+                Visual
+              </button>
+              <button
+                onClick={() => switchView("code")}
+                className={cn(
+                  "rounded-md px-2 py-1.5 text-[12px] leading-none",
+                  view === "code"
+                    ? "bg-accent text-foreground"
+                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                )}
+                style={CONTROL_STYLE}
+              >
+                Code
+              </button>
+            </div>
+            <span className="text-[11px] text-muted-foreground/60">
+              {saveStatus === "saving"
+                ? "Saving..."
+                : saveStatus === "saved"
+                  ? "Saved"
+                  : ""}
+            </span>
           </div>
-          <span className="text-[11px] text-muted-foreground/60">
-            {saveStatus === "saving"
-              ? "Saving..."
-              : saveStatus === "saved"
-                ? "Saved"
-                : ""}
-          </span>
-        </div>
+        )}
         {view === "visual" ? (
           <div
             className="flex-1 min-h-0 overflow-y-auto p-3"

@@ -6,8 +6,12 @@ export const NAV_SECTIONS: NavSection[] = [
     title: "Overview",
     items: [
       { label: "Getting Started", to: "/docs" as const },
-      { label: "Core Philosophy", to: "/docs/core-philosophy" as const },
+      {
+        label: "What Is Agent-Native?",
+        to: "/docs/what-is-agent-native" as const,
+      },
       { label: "Key Concepts", to: "/docs/key-concepts" as const },
+      { label: "FAQ", to: "/docs/faq" as const },
     ],
   },
   {

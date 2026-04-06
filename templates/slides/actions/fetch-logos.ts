@@ -1,24 +1,30 @@
-const API_KEY = process.env.BRANDFETCH_API_KEY;
+import { parseArgs } from "@agent-native/core";
 
-if (!API_KEY) {
-  console.error("BRANDFETCH_API_KEY environment variable is required");
-  process.exit(1);
-}
+export default async function (args: string[]) {
+  const { domains: domainsArg } = parseArgs(args);
 
-const brands = [
-  "greylock.com",
-  "microsoft.com",
-  "zapier.com",
-  "jcrew.com",
-  "panasonic.com",
-  "scale.com",
-  "ocbc.com",
-  "pendo.io",
-  "clickup.com",
-  "harrys.com",
-];
+  const API_KEY = process.env.BRANDFETCH_API_KEY;
+  if (!API_KEY) {
+    throw new Error(
+      "Missing BRANDFETCH_API_KEY env var. Set it in your .env file.",
+    );
+  }
 
-async function fetchLogos() {
+  const brands = domainsArg
+    ? (domainsArg as string).split(",").map((d: string) => d.trim())
+    : [
+        "greylock.com",
+        "microsoft.com",
+        "zapier.com",
+        "jcrew.com",
+        "panasonic.com",
+        "scale.com",
+        "ocbc.com",
+        "pendo.io",
+        "clickup.com",
+        "harrys.com",
+      ];
+
   const results: Record<
     string,
     { url: string; format: string; theme: string }
@@ -82,5 +88,3 @@ async function fetchLogos() {
   console.log("\n--- JSON OUTPUT ---");
   console.log(JSON.stringify(results, null, 2));
 }
-
-fetchLogos();

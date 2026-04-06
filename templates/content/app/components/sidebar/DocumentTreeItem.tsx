@@ -86,12 +86,20 @@ export function DocumentTreeItem({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-48">
-              <DropdownMenuItem onClick={() => onCreateChild(node.id)}>
+              <DropdownMenuItem
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCreateChild(node.id);
+                }}
+              >
                 <IconPlus size={14} className="mr-2" />
                 Add sub-page
               </DropdownMenuItem>
               <DropdownMenuItem
-                onClick={() => onToggleFavorite(node.id, !node.isFavorite)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleFavorite(node.id, !node.isFavorite);
+                }}
               >
                 <IconStar
                   size={14}
@@ -101,7 +109,10 @@ export function DocumentTreeItem({
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="text-destructive"
-                onClick={() => onDelete(node.id)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete(node.id);
+                }}
               >
                 <IconTrash size={14} className="mr-2" />
                 Delete

@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "agent-native dev --port 3000",
+    "generate-search-index": "tsx scripts/generate-search-index.ts",
     "build": "agent-native build",
     "start": "agent-native start",
     "typecheck": "agent-native typecheck",

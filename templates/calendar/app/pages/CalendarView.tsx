@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import {
   format,
   startOfMonth,
@@ -42,6 +42,7 @@ import { KeyboardShortcutsHelp } from "@/components/calendar/KeyboardShortcutsHe
 import { GoogleConnectBanner } from "@/components/calendar/GoogleConnectBanner";
 import { PeopleSearchDialog } from "@/components/calendar/PeopleSearchDialog";
 import { EventDetailPanel } from "@/components/calendar/EventDetailPanel";
+import { DeleteEventDialog } from "@/components/calendar/DeleteEventDialog";
 import { useCalendarContext } from "@/components/layout/AppLayout";
 import { useEvents, useUpdateEvent, useDeleteEvent } from "@/hooks/use-events";
 import { useOverlayPeople } from "@/hooks/use-overlay-people";
@@ -73,6 +74,8 @@ export default function CalendarView() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
+  const [deleteDialogEvent, setDeleteDialogEvent] =
+    useState<CalendarEvent | null>(null);
 
   const googleStatus = useGoogleAuthStatus();
   const { data: overlayPeople = [] } = useOverlayPeople();
@@ -114,19 +117,29 @@ export default function CalendarView() {
   const {
     data: rawEvents = [],
     error: eventsError,
-    isLoading: eventsLoading,
+    isLoading,
   } = useEvents(from, to, overlayEmails);
+
+  // Keep a ref of the last non-empty events so we never flash skeletons
+  // when refetching (e.g. window refocus after stale tab, query key change).
+  const lastEventsRef = useRef<typeof rawEvents>(rawEvents);
+  if (rawEvents.length > 0) lastEventsRef.current = rawEvents;
+  const displayEvents =
+    rawEvents.length > 0 ? rawEvents : lastEventsRef.current;
+
+  // Only show skeleton on the very first load when there's truly no data at all.
+  const eventsLoading = isLoading && displayEvents.length === 0;
 
   // Apply overlay colors to events
   const events = useMemo(() => {
     const colorMap = new Map(overlayPeople.map((p) => [p.email, p.color]));
-    return rawEvents.map((e) => {
+    return displayEvents.map((e) => {
       if (e.overlayEmail && colorMap.has(e.overlayEmail)) {
         return { ...e, color: colorMap.get(e.overlayEmail) };
       }
       return e;
     });
-  }, [rawEvents, overlayPeople]);
+  }, [displayEvents, overlayPeople]);
 
   // Filter events for day view
   const dayEvents = useMemo(
@@ -166,10 +179,10 @@ export default function CalendarView() {
   }
 
   function handleDeleteEvent(eventId: string) {
-    deleteEvent.mutate(eventId, {
-      onSuccess: () => toast.success("Event deleted"),
-      onError: () => toast.error("Failed to delete event"),
-    });
+    const ev = events.find((e) => e.id === eventId);
+    if (ev) {
+      setDeleteDialogEvent(ev);
+    }
   }
 
   // Move event to a new date (drag-and-drop from MonthView)
@@ -265,11 +278,10 @@ export default function CalendarView() {
       if (isTypingInInput(e)) return;
       if (createDialogOpen || shortcutsHelpOpen) return;
 
-      // Delete/Backspace — delete the selected sidebar event
+      // Delete/Backspace — open delete dialog for the selected sidebar event
       if ((e.key === "Delete" || e.key === "Backspace") && sidebarEvent) {
         e.preventDefault();
-        handleDeleteEvent(sidebarEvent.id);
-        setSidebarEvent(null);
+        setDeleteDialogEvent(sidebarEvent);
         return;
       }
 
@@ -571,6 +583,29 @@ export default function CalendarView() {
         <PeopleSearchDialog
           open={peopleSearchOpen}
           onOpenChange={setPeopleSearchOpen}
+        />
+        <DeleteEventDialog
+          event={deleteDialogEvent}
+          open={deleteDialogEvent !== null}
+          onClose={() => setDeleteDialogEvent(null)}
+          onConfirm={(options) => {
+            if (!deleteDialogEvent) return;
+            deleteEvent.mutate(
+              { id: deleteDialogEvent.id, ...options },
+              {
+                onSuccess: () => {
+                  const label = options.removeOnly ? "removed" : "deleted";
+                  toast.success(`Event ${label}`);
+                  setDeleteDialogEvent(null);
+                  if (sidebarEvent?.id === deleteDialogEvent.id) {
+                    setSidebarEvent(null);
+                  }
+                },
+                onError: () => toast.error("Failed to delete event"),
+              },
+            );
+          }}
+          isPending={deleteEvent.isPending}
         />
       </div>
     </TooltipProvider>

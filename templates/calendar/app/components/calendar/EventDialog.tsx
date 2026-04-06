@@ -31,6 +31,7 @@ interface EventDialogProps {
   event: CalendarEvent | null;
   open: boolean;
   onClose: () => void;
+  onDelete?: (eventId: string) => void;
 }
 
 function getEventColor(event: CalendarEvent) {
@@ -38,7 +39,12 @@ function getEventColor(event: CalendarEvent) {
   return event.source === "google" ? "#5085C0" : null;
 }
 
-export function EventDialog({ event, open, onClose }: EventDialogProps) {
+export function EventDialog({
+  event,
+  open,
+  onClose,
+  onDelete,
+}: EventDialogProps) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -78,7 +84,7 @@ export function EventDialog({ event, open, onClose }: EventDialogProps) {
       // Edit shortcut
       if (e.key === "e" && !editing && !isTyping(e)) {
         e.preventDefault();
-        if (!isGoogle) setEditing(true);
+        setEditing(true);
         return;
       }
       // Delete shortcut
@@ -88,7 +94,7 @@ export function EventDialog({ event, open, onClose }: EventDialogProps) {
         !isTyping(e)
       ) {
         e.preventDefault();
-        if (!isGoogle) handleDelete();
+        handleDelete();
         return;
       }
       // Save with Cmd/Ctrl+Enter when editing
@@ -132,13 +138,21 @@ export function EventDialog({ event, open, onClose }: EventDialogProps) {
 
   function handleDelete() {
     if (!event) return;
-    deleteEvent.mutate(event.id, {
-      onSuccess: () => {
-        toast.success("Event deleted");
-        onClose();
-      },
-      onError: () => toast.error("Failed to delete event"),
-    });
+    if (onDelete) {
+      onDelete(event.id);
+      onClose();
+    } else {
+      deleteEvent.mutate(
+        { id: event.id },
+        {
+          onSuccess: () => {
+            toast.success("Event deleted");
+            onClose();
+          },
+          onError: () => toast.error("Failed to delete event"),
+        },
+      );
+    }
   }
 
   return (
@@ -264,19 +278,17 @@ export function EventDialog({ event, open, onClose }: EventDialogProps) {
               })()}
 
             {/* Keyboard hint */}
-            {!isGoogle && (
-              <p className="text-xs text-muted-foreground/60">
-                Press{" "}
-                <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px]">
-                  E
-                </kbd>{" "}
-                to edit ·{" "}
-                <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px]">
-                  Del
-                </kbd>{" "}
-                to delete
-              </p>
-            )}
+            <p className="text-xs text-muted-foreground/60">
+              Press{" "}
+              <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px]">
+                E
+              </kbd>{" "}
+              to edit ·{" "}
+              <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px]">
+                Del
+              </kbd>{" "}
+              to delete
+            </p>
           </div>
         )}
 
@@ -300,29 +312,25 @@ export function EventDialog({ event, open, onClose }: EventDialogProps) {
             </>
           ) : (
             <>
-              {!isGoogle && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                  onClick={handleDelete}
-                  disabled={deleteEvent.isPending}
-                >
-                  <IconTrash className="mr-1.5 h-3.5 w-3.5" />
-                  Delete
-                </Button>
-              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                onClick={handleDelete}
+                disabled={deleteEvent.isPending}
+              >
+                <IconTrash className="mr-1.5 h-3.5 w-3.5" />
+                Delete
+              </Button>
               <div className="flex-1" />
-              {!isGoogle && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setEditing(true)}
-                >
-                  <IconEdit className="mr-1.5 h-3.5 w-3.5" />
-                  Edit
-                </Button>
-              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setEditing(true)}
+              >
+                <IconEdit className="mr-1.5 h-3.5 w-3.5" />
+                Edit
+              </Button>
               <Button variant="ghost" size="sm" onClick={onClose}>
                 <IconX className="mr-1.5 h-3.5 w-3.5" />
                 Close

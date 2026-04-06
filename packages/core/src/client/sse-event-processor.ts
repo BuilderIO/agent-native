@@ -21,6 +21,13 @@ export interface SSEEvent {
   seq?: number;
   agent?: string;
   status?: string;
+  // Agent task fields
+  taskId?: string;
+  threadId?: string;
+  description?: string;
+  preview?: string;
+  currentStep?: string;
+  summary?: string;
 }
 
 /**
@@ -137,6 +144,21 @@ export function processEvent(
       action: "yield",
       result: { content: [...content] } as ChatModelRunResult,
     };
+  }
+
+  // ─── Agent task events (sub-agent chips) ─────────────────────────
+  // These events are dispatched as CustomEvents so AgentTaskCard components
+  // can listen for updates to their specific taskId.
+  if (
+    ev.type === "agent_task" ||
+    ev.type === "agent_task_update" ||
+    ev.type === "agent_task_complete"
+  ) {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("agent-task-event", { detail: ev }));
+    }
+    // Don't add to content — the spawn-task tool call handles rendering
+    return { action: "continue" };
   }
 
   if (ev.type === "missing_api_key") {

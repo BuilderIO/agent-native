@@ -134,7 +134,7 @@ function App() {
 }`}
       />
 
-      <h3>Options</h3>
+      <h3 id="usedbsync-options">Options</h3>
       <table>
         <thead>
           <tr>

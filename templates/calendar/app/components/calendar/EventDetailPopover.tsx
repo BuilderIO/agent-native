@@ -11,6 +11,8 @@ import {
   IconBell,
   IconChevronRight,
   IconLayoutSidebarRight,
+  IconFileText,
+  IconExternalLink,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -409,6 +411,38 @@ export function EventDetailPopover({
               </>
             )}
 
+            {/* Attachments */}
+            {event.attachments && event.attachments.length > 0 && (
+              <>
+                <div className="mx-4 my-2 border-t border-border/50" />
+                <div className="px-4 py-1.5 space-y-1">
+                  {event.attachments.map((att, i) => (
+                    <a
+                      key={i}
+                      href={att.fileUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm hover:bg-muted/50 group"
+                    >
+                      {att.iconLink ? (
+                        <img
+                          src={att.iconLink}
+                          alt=""
+                          className="h-4 w-4 shrink-0"
+                        />
+                      ) : (
+                        <IconFileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      )}
+                      <span className="truncate text-foreground">
+                        {att.title}
+                      </span>
+                      <IconExternalLink className="ml-auto h-3 w-3 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" />
+                    </a>
+                  ))}
+                </div>
+              </>
+            )}
+
             {/* Location */}
             {event.location && !locationIsMeetingLink && (
               <>
@@ -529,8 +563,8 @@ export function EventDetailPopover({
             <div className="h-3" />
           </div>
 
-          {/* Actions — only for local events */}
-          {event.source !== "google" && !event.overlayEmail && (
+          {/* Actions */}
+          {!event.overlayEmail && (
             <div className="shrink-0 border-t border-border px-4 py-2.5 flex items-center gap-2">
               <Button
                 variant="ghost"

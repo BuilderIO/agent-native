@@ -94,7 +94,7 @@ pnpm install
 pnpm dev
 ```
 
-Or **[launch a template](https://agent-native.com/templates)** — no setup required.
+The CLI walks you through picking a template interactively. Or **[launch a template](https://agent-native.com/templates)** — no setup required.
 
 ## How It Works
 

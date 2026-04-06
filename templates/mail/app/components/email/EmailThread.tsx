@@ -81,7 +81,7 @@ export function EmailThread({
       queryKey: ["emails"],
     });
     for (const [, data] of queries) {
-      if (!data) continue;
+      if (!Array.isArray(data)) continue;
       for (const email of data) {
         if ((email.threadId || email.id) === threadId) {
           allCached.push(email);

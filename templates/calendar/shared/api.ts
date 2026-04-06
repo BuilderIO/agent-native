@@ -36,10 +36,27 @@ export interface CalendarEvent {
     }>;
     conferenceSolution?: { name: string; iconUri?: string };
   };
+  attachments?: Array<{
+    fileUrl: string;
+    title: string;
+    mimeType?: string;
+    iconLink?: string;
+    fileId?: string;
+  }>;
   visibility?: "default" | "public" | "private" | "confidential";
   status?: "confirmed" | "tentative" | "cancelled";
+  organizer?: { email: string; displayName?: string; self?: boolean };
   createdAt: string;
   updatedAt: string;
+}
+
+export type DeleteEventScope = "single" | "all" | "thisAndFollowing";
+
+export interface DeleteEventOptions {
+  scope?: DeleteEventScope;
+  sendUpdates?: "all" | "none";
+  /** When true and user is not the organizer, decline instead of deleting */
+  removeOnly?: boolean;
 }
 
 export interface OverlayPerson {

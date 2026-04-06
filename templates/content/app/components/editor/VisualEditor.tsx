@@ -33,17 +33,10 @@ import {
  *
  * On the parse side, the updateDOM hook strips &nbsp; from paragraphs
  * so TipTap creates truly empty paragraph nodes (no visible space).
- */
-/**
- * Override the paragraph node's markdown serialization so that empty
- * paragraphs survive round-trips. Without this, prosemirror-markdown
- * silently drops empty paragraphs and they disappear from the document.
  *
- * On the parse side, the updateDOM hook strips &nbsp; from paragraphs
- * so TipTap creates truly empty paragraph nodes (no visible space).
- *
- * Uses Extension (not Node) to avoid re-registering the paragraph schema
- * which would cause infinite recursion in ProseMirror's content matching.
+ * Directly patches the MarkdownSerializer instance's `nodes` getter
+ * rather than trying to modify extension storage, which is fragile
+ * across tiptap-markdown versions.
  */
 const EmptyLineParagraph = Extension.create({
   name: "emptyLineParagraph",
@@ -67,35 +60,142 @@ const EmptyLineParagraph = Extension.create({
       },
     };
   },
-  onBeforeCreate() {
-    // Patch the paragraph node's markdown storage after StarterKit registers it
-    const paragraph = this.editor.extensionManager.extensions.find(
-      (ext) => ext.name === "paragraph",
-    );
-    if (paragraph) {
-      const paragraphStorage = (paragraph as any).storage ?? {};
-      const markdownStorage = paragraphStorage.markdown ?? {};
-      if ((markdownStorage as any).__emptyLinePatched) return;
+  onCreate() {
+    // Patch the serializer's nodes getter directly on the instance.
+    // This is more robust than patching extension storage because
+    // tiptap-markdown's getMarkdownSpec merges default and instance
+    // specs in ways that can silently drop our override.
+    const serializer = (this.editor.storage as any).markdown?.serializer;
+    if (!serializer) return;
 
-      const origSerialize =
-        markdownStorage.serialize ?? defaultMarkdownSerializer.nodes.paragraph;
+    const proto = Object.getPrototypeOf(serializer);
+    const desc = Object.getOwnPropertyDescriptor(proto, "nodes");
+    if (!desc?.get) return;
 
-      markdownStorage.serialize = function (
-        state: any,
-        node: any,
-        parent: any,
-        index: number,
-      ) {
-        if (node.childCount === 0) {
-          state.write("&nbsp;");
-          state.closeBlock(node);
-        } else {
-          origSerialize(state, node, parent, index);
-        }
-      };
-      markdownStorage.__emptyLinePatched = true;
-      paragraphStorage.markdown = markdownStorage;
+    const origGet = desc.get;
+
+    Object.defineProperty(serializer, "nodes", {
+      get() {
+        const nodes = origGet.call(this);
+        const origParagraph = nodes.paragraph;
+        nodes.paragraph = (
+          state: any,
+          node: any,
+          parent: any,
+          index: number,
+        ) => {
+          if (node.childCount === 0) {
+            state.write("&nbsp;");
+            state.closeBlock(node);
+          } else if (origParagraph) {
+            origParagraph(state, node, parent, index);
+          } else {
+            defaultMarkdownSerializer.nodes.paragraph(
+              state,
+              node,
+              parent,
+              index,
+            );
+          }
+        };
+        return nodes;
+      },
+      configurable: true,
+    });
+  },
+});
+
+/**
+ * Detects whether plain text looks like markdown by checking for common
+ * markdown patterns (headings, lists, bold/italic, links, code blocks, etc.).
+ * When pasting, the clipboard often has both HTML and plain text — TipTap
+ * prefers the HTML, which renders markdown syntax literally. This regex-based
+ * heuristic lets us intercept and parse the plain text as markdown instead.
+ */
+const MARKDOWN_PATTERNS = [
+  /^#{1,6}\s+\S/m, // headings
+  /^\s*[-*+]\s+\S/m, // unordered lists
+  /^\s*\d+\.\s+\S/m, // ordered lists
+  /^\s*[-*_]{3,}\s*$/m, // horizontal rules
+  /^\s*>\s+\S/m, // blockquotes
+  /^\s*```/m, // code fences
+  /\*\*\S.*?\S\*\*/m, // bold
+  /\*\S.*?\S\*/m, // italic
+  /\[.+?\]\(.+?\)/m, // links
+  /^\s*- \[[ x]\]\s/m, // task lists
+  /\|.+\|.+\|/m, // tables
+];
+
+function looksLikeMarkdown(text: string): boolean {
+  // Need at least 2 matching patterns to avoid false positives
+  let matches = 0;
+  for (const pattern of MARKDOWN_PATTERNS) {
+    if (pattern.test(text)) {
+      matches++;
+      if (matches >= 2) return true;
     }
+  }
+  // Single heading at the start is a strong enough signal on its own
+  if (matches === 1 && /^#{1,6}\s+\S/m.test(text)) return true;
+  return false;
+}
+
+/**
+ * ProseMirror plugin that intercepts paste events and converts markdown
+ * plain text into rich editor content, similar to Notion's paste behavior.
+ * When the clipboard has HTML (e.g. from a code editor), TipTap normally
+ * uses that HTML — which renders markdown syntax literally. This plugin
+ * detects markdown in the plain text and parses it as rich content instead.
+ */
+const MarkdownPasteDetection = Extension.create({
+  name: "markdownPasteDetection",
+  addProseMirrorPlugins() {
+    const editor = this.editor;
+    return [
+      new Plugin({
+        key: new PluginKey("markdownPasteDetection"),
+        props: {
+          handlePaste(view, event) {
+            const clipboardData = event.clipboardData;
+            if (!clipboardData) return false;
+
+            const html = clipboardData.getData("text/html");
+            const plainText = clipboardData.getData("text/plain");
+
+            // Only intercept when there's both HTML and plain text,
+            // and the plain text looks like markdown. If there's no HTML,
+            // tiptap-markdown's transformPastedText handles it already.
+            if (!html || !plainText || !looksLikeMarkdown(plainText)) {
+              return false;
+            }
+
+            // Check if the HTML already has rich structure (from a rich text
+            // source like Google Docs) — if so, let TipTap handle it normally.
+            const div = document.createElement("div");
+            div.innerHTML = html;
+            const hasRichStructure = div.querySelector(
+              "h1, h2, h3, h4, h5, h6, ul, ol, blockquote, table",
+            );
+            // But allow interception if the HTML is just a code/pre wrapper
+            // (from code editors or terminals)
+            const isCodeWrapper =
+              div.querySelector("pre, code") !== null && !hasRichStructure;
+
+            if (hasRichStructure && !isCodeWrapper) {
+              return false;
+            }
+
+            // Prevent default paste and insert markdown as content —
+            // tiptap-markdown will parse it into rich nodes
+            event.preventDefault();
+            editor.commands.insertContent(
+              (editor.storage as any).markdown.parser.parse(plainText),
+            );
+            return true;
+          },
+        },
+      }),
+    ];
   },
 });
 
@@ -260,6 +360,7 @@ export function VisualEditor({
       EmptyLineParagraph,
       DragHandle,
       TypographyReplacements,
+      MarkdownPasteDetection,
       Markdown.configure({
         html: true,
         transformPastedText: true,
@@ -303,7 +404,16 @@ export function VisualEditor({
       // during navigation we must force content replacement
       if (editor.isFocused && !docChanged) return;
       isSettingContent.current = true;
-      editor.commands.setContent(nextEditorContent);
+      // Use addToHistory: false so cmd+z doesn't erase loaded content.
+      // External content changes (load, sync) should never be undoable.
+      editor
+        .chain()
+        .command(({ tr }) => {
+          tr.setMeta("addToHistory", false);
+          return true;
+        })
+        .setContent(nextEditorContent)
+        .run();
       isSettingContent.current = false;
     }
   }, [content, editor, documentId]);

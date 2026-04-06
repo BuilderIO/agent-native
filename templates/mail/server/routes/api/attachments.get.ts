@@ -7,8 +7,9 @@ import {
 import {
   getOAuthTokens,
   saveOAuthTokens,
-  listOAuthAccounts,
+  listOAuthAccountsByOwner,
 } from "@agent-native/core/oauth-tokens";
+import { getSession } from "@agent-native/core/server";
 import { isConnected } from "../../lib/google-auth.js";
 import {
   createOAuth2Client,
@@ -61,7 +62,10 @@ async function getAccessToken(accountEmail: string): Promise<string | null> {
 }
 
 export default defineEventHandler(async (event) => {
-  if (!(await isConnected())) {
+  const session = await getSession(event);
+  const userEmail = session?.email ?? "local@localhost";
+
+  if (!(await isConnected(userEmail))) {
     setResponseStatus(event, 404);
     return { error: "No Google account connected" };
   }
@@ -90,7 +94,7 @@ export default defineEventHandler(async (event) => {
       ? mimeType
       : "application/octet-stream";
 
-  const accounts = await listOAuthAccounts("google");
+  const accounts = await listOAuthAccountsByOwner("google", userEmail);
   for (const account of accounts) {
     try {
       const accessToken = await getAccessToken(account.accountId);

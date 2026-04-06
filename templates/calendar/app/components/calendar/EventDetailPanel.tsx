@@ -12,6 +12,7 @@ import {
   IconEdit,
   IconLayoutSidebarRightCollapse,
   IconExternalLink,
+  IconFileText,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -168,6 +169,35 @@ export function EventDetailPanel({
                     );
                   })()}
 
+                {/* Attachments */}
+                {event.attachments && event.attachments.length > 0 && (
+                  <div className="space-y-1">
+                    {event.attachments.map((att, i) => (
+                      <a
+                        key={i}
+                        href={att.fileUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm hover:bg-muted/50 group"
+                      >
+                        {att.iconLink ? (
+                          <img
+                            src={att.iconLink}
+                            alt=""
+                            className="h-4 w-4 shrink-0"
+                          />
+                        ) : (
+                          <IconFileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        )}
+                        <span className="truncate text-foreground">
+                          {att.title}
+                        </span>
+                        <IconExternalLink className="ml-auto h-3 w-3 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" />
+                      </a>
+                    ))}
+                  </div>
+                )}
+
                 {/* Attendees */}
                 {event.attendees && event.attendees.length > 0 && (
                   <EventAttendeesSection event={event} />
@@ -180,28 +210,26 @@ export function EventDetailPanel({
               </div>
 
               {/* Actions */}
-              {event.source !== "google" && (
-                <div className="shrink-0 border-t border-border px-4 py-3 flex items-center gap-2">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                    onClick={() => onDelete(event.id)}
-                  >
-                    <IconTrash className="mr-1.5 h-3.5 w-3.5" />
-                    Delete
-                  </Button>
-                  <div className="flex-1" />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => onEdit(event)}
-                  >
-                    <IconEdit className="mr-1.5 h-3.5 w-3.5" />
-                    Edit
-                  </Button>
-                </div>
-              )}
+              <div className="shrink-0 border-t border-border px-4 py-3 flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                  onClick={() => onDelete(event.id)}
+                >
+                  <IconTrash className="mr-1.5 h-3.5 w-3.5" />
+                  Delete
+                </Button>
+                <div className="flex-1" />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onEdit(event)}
+                >
+                  <IconEdit className="mr-1.5 h-3.5 w-3.5" />
+                  Edit
+                </Button>
+              </div>
             </>
           )}
         </div>
