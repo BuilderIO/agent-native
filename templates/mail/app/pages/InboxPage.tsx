@@ -165,7 +165,9 @@ export function InboxPage() {
   const googleStatus = useGoogleAuthStatus();
   const { activeAccounts } = useAccountFilter();
 
-  const pinnedLabels = settings?.pinnedLabels ?? [];
+  const isGoogleConnected = (googleStatus.data?.accounts?.length ?? 0) > 0;
+  const pinnedLabels =
+    settings?.pinnedLabels ?? (isGoogleConnected ? ["important"] : []);
   const pinnedUserLabels = pinnedLabels.filter(
     (id) => !["starred", "sent", "drafts", "archive", "trash"].includes(id),
   );

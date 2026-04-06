@@ -1844,6 +1844,26 @@ export const listLabels = defineEventHandler(async (_event: H3Event) => {
         ...l,
         unreadCount: 0,
       }));
+
+      // Add Gmail category labels as pinnable filters (if not already present)
+      const gmailCategories: { id: string; name: string }[] = [
+        { id: "important", name: "Important" },
+        { id: "promotions", name: "Promotions" },
+        { id: "social", name: "Social" },
+        { id: "updates", name: "Updates" },
+        { id: "forums", name: "Forums" },
+      ];
+      for (const cat of gmailCategories) {
+        if (!labels.some((l) => l.id === cat.id)) {
+          labels.push({
+            id: cat.id,
+            name: cat.name,
+            type: "system",
+            unreadCount: 0,
+          });
+        }
+      }
+
       return labels;
     } catch {}
   }

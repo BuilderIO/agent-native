@@ -570,18 +570,21 @@ export function gmailToEmailMessage(
     labelIds: labels
       .filter(
         (l: string) =>
-          ![
-            "UNREAD",
-            "STARRED",
-            "IMPORTANT",
-            "CATEGORY_PERSONAL",
-            "CATEGORY_SOCIAL",
-            "CATEGORY_UPDATES",
-            "CATEGORY_PROMOTIONS",
-            "CATEGORY_FORUMS",
-          ].includes(l),
+          // Only strip boolean-state labels (already captured as isRead/isStarred/etc.)
+          // Keep IMPORTANT and CATEGORY_* so they can be used as pinnable filters
+          !["UNREAD", "STARRED"].includes(l),
       )
       .map((l: string) => {
+        // Map Gmail category labels to friendly lowercase IDs
+        const categoryMap: Record<string, string> = {
+          IMPORTANT: "important",
+          CATEGORY_PERSONAL: "personal",
+          CATEGORY_SOCIAL: "social",
+          CATEGORY_UPDATES: "updates",
+          CATEGORY_PROMOTIONS: "promotions",
+          CATEGORY_FORUMS: "forums",
+        };
+        if (categoryMap[l]) return categoryMap[l];
         let name = labelMap?.get(l) || l;
         // Use last segment of nested labels (e.g. "[Superhuman]/AI/Respond" -> "Respond")
         const lastSlash = name.lastIndexOf("/");
