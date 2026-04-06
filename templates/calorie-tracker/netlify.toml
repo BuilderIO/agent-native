@@ -1,0 +1,43 @@
+[build]
+  command = "pnpm run build:client"
+  functions = "netlify/functions"
+  publish = "dist/spa"
+
+[functions]
+  node_bundler = "esbuild"
+  included_files = ["server/**"]
+
+# Ensure HTML is never cached - always fetch fresh
+[[headers]]
+  for = "/"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+# Cache hashed assets forever (immutable)
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[redirects]]
+  force = true
+  from = "/api/*"
+  status = 200
+  to = "/.netlify/functions/api/:splat"
+
+# SPA fallback - serves index.html for all routes except existing files
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+  force = false
