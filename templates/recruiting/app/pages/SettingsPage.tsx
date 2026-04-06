@@ -14,6 +14,7 @@ import {
   useOrgInvitations,
   useAcceptInvitation,
   useRemoveMember,
+  useSwitchOrg,
 } from "@/hooks/use-org";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import {
@@ -38,6 +39,7 @@ function OrgSection() {
   const inviteMember = useInviteMember();
   const acceptInvitation = useAcceptInvitation();
   const removeMember = useRemoveMember();
+  const switchOrg = useSwitchOrg();
   const [orgName, setOrgName] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -183,23 +185,53 @@ function OrgSection() {
     return null;
   };
 
+  const hasMultipleOrgs = (org.orgs?.length ?? 0) > 1;
+
   return (
     <div>
       <h2 className="text-sm font-medium text-foreground mb-4">Organization</h2>
       <div className="rounded-lg border border-border p-4 space-y-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-600/10">
-            <IconBuilding className="h-4.5 w-4.5 text-blue-600" />
-          </div>
-          <div>
-            <div className="text-sm font-medium text-foreground">
-              {org.orgName}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-600/10">
+              <IconBuilding className="h-4.5 w-4.5 text-blue-600" />
             </div>
-            <div className="text-xs text-muted-foreground">
-              {members.length} member{members.length !== 1 ? "s" : ""} · You are{" "}
-              {org.role}
+            <div>
+              <div className="text-sm font-medium text-foreground">
+                {org.orgName}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {members.length} member{members.length !== 1 ? "s" : ""} · You
+                are {org.role}
+              </div>
             </div>
           </div>
+          {hasMultipleOrgs && (
+            <select
+              value={org.orgId ?? ""}
+              onChange={async (e) => {
+                const newOrgId = e.target.value || null;
+                try {
+                  await switchOrg.mutateAsync(newOrgId);
+                  toast.success(
+                    newOrgId
+                      ? `Switched to ${org.orgs?.find((o) => o.orgId === newOrgId)?.orgName}`
+                      : "Switched to personal mode",
+                  );
+                } catch (err: any) {
+                  toast.error(err.message || "Failed to switch");
+                }
+              }}
+              disabled={switchOrg.isPending}
+              className="rounded-md border border-border bg-background px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-green-500"
+            >
+              {org.orgs?.map((o) => (
+                <option key={o.orgId} value={o.orgId}>
+                  {o.orgName}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
 
         {/* Members list */}

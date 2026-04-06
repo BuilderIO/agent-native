@@ -29,6 +29,12 @@ export const getStatus = defineEventHandler(async (event) => {
 
 export const saveKey = defineEventHandler(async (event) => {
   const ctx = await getOrgContext(event);
+  if (ctx.role !== "owner" && ctx.role !== "admin") {
+    throw createError({
+      statusCode: 403,
+      message: "Only owners and admins can manage the API key",
+    });
+  }
   const body = await readBody(event);
   const apiKey = body?.apiKey;
 
@@ -51,6 +57,12 @@ export const saveKey = defineEventHandler(async (event) => {
 
 export const deleteKey = defineEventHandler(async (event) => {
   const ctx = await getOrgContext(event);
+  if (ctx.role !== "owner" && ctx.role !== "admin") {
+    throw createError({
+      statusCode: 403,
+      message: "Only owners and admins can manage the API key",
+    });
+  }
   const key = greenhouseSettingsKey(ctx.orgId);
   await deleteSetting(key);
   return { connected: false };

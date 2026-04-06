@@ -18,11 +18,18 @@ function apiFetch(path: string, init?: RequestInit) {
   });
 }
 
+export type OrgSummary = {
+  orgId: string;
+  orgName: string;
+  role: string;
+};
+
 export type OrgInfo = {
   email: string;
   orgId: string | null;
   orgName: string | null;
   role: "owner" | "admin" | "member" | null;
+  orgs: OrgSummary[];
   pendingInvitations: {
     id: string;
     orgId: string;
@@ -124,6 +131,21 @@ export function useRemoveMember() {
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["org-members"] });
+    },
+  });
+}
+
+export function useSwitchOrg() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (orgId: string | null) =>
+      apiFetch("/api/org/switch", {
+        method: "PUT",
+        body: JSON.stringify({ orgId }),
+      }),
+    onSuccess: () => {
+      // Switching org changes everything — clear all cached data
+      qc.invalidateQueries();
     },
   });
 }

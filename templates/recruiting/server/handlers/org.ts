@@ -2,12 +2,30 @@ import { defineEventHandler, readBody, getRouterParam, createError } from "h3";
 import { eq, and } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { getSession } from "@agent-native/core/server";
+import { putUserSetting } from "@agent-native/core/settings";
 import { db, schema } from "../db/index.js";
 import { getOrgContext } from "../lib/org-context.js";
 
-/** GET /api/org/me — current user's org + role, plus any pending invitations */
+/** GET /api/org/me — current user's active org, all orgs, and pending invitations */
 export const getMyOrgHandler = defineEventHandler(async (event) => {
   const ctx = await getOrgContext(event);
+
+  // Get all orgs for this user
+  const allOrgs =
+    ctx.email !== "local@localhost"
+      ? await db
+          .select({
+            orgId: schema.orgMembers.orgId,
+            role: schema.orgMembers.role,
+            orgName: schema.organizations.name,
+          })
+          .from(schema.orgMembers)
+          .innerJoin(
+            schema.organizations,
+            eq(schema.orgMembers.orgId, schema.organizations.id),
+          )
+          .where(eq(schema.orgMembers.email, ctx.email))
+      : [];
 
   // Check for pending invitations
   const pendingInvitations =
@@ -37,6 +55,7 @@ export const getMyOrgHandler = defineEventHandler(async (event) => {
     orgId: ctx.orgId,
     orgName: ctx.orgName,
     role: ctx.role,
+    orgs: allOrgs,
     pendingInvitations,
   };
 });
@@ -49,19 +68,6 @@ export const createOrgHandler = defineEventHandler(async (event) => {
     throw createError({
       statusCode: 401,
       message: "Authentication required to create an organization",
-    });
-  }
-
-  // Check if user already belongs to an org
-  const existing = await db
-    .select()
-    .from(schema.orgMembers)
-    .where(eq(schema.orgMembers.email, email))
-    .limit(1);
-  if (existing.length > 0) {
-    throw createError({
-      statusCode: 409,
-      message: "You already belong to an organization",
     });
   }
 
@@ -91,6 +97,9 @@ export const createOrgHandler = defineEventHandler(async (event) => {
     role: "owner",
     joinedAt: now,
   });
+
+  // Auto-switch to the newly created org
+  await putUserSetting(email, "active-org-id", { orgId });
 
   return { id: orgId, name, role: "owner" };
 });
@@ -241,17 +250,36 @@ export const acceptInvitationHandler = defineEventHandler(async (event) => {
     });
   }
 
-  // Check if user already belongs to an org
+  // Check if already a member of this specific org
   const existingMembership = await db
     .select()
     .from(schema.orgMembers)
-    .where(eq(schema.orgMembers.email, email))
+    .where(
+      and(
+        eq(schema.orgMembers.orgId, invitation[0].orgId),
+        eq(schema.orgMembers.email, email),
+      ),
+    )
     .limit(1);
   if (existingMembership.length > 0) {
-    throw createError({
-      statusCode: 409,
-      message: "You already belong to an organization",
+    // Already a member — just mark invitation accepted and switch
+    await db
+      .update(schema.orgInvitations)
+      .set({ status: "accepted" })
+      .where(eq(schema.orgInvitations.id, invitationId));
+    await putUserSetting(email, "active-org-id", {
+      orgId: invitation[0].orgId,
     });
+    const org = await db
+      .select()
+      .from(schema.organizations)
+      .where(eq(schema.organizations.id, invitation[0].orgId))
+      .limit(1);
+    return {
+      orgId: invitation[0].orgId,
+      orgName: org[0]?.name ?? "",
+      role: existingMembership[0].role,
+    };
   }
 
   const inv = invitation[0];
@@ -271,6 +299,9 @@ export const acceptInvitationHandler = defineEventHandler(async (event) => {
     .update(schema.orgInvitations)
     .set({ status: "accepted" })
     .where(eq(schema.orgInvitations.id, invitationId));
+
+  // Auto-switch to the joined org
+  await putUserSetting(email, "active-org-id", { orgId: inv.orgId });
 
   // Get org name
   const org = await db
@@ -312,6 +343,24 @@ export const removeMemberHandler = defineEventHandler(async (event) => {
     });
   }
 
+  // Can't remove the org owner (privilege escalation prevention)
+  const targetMember = await db
+    .select()
+    .from(schema.orgMembers)
+    .where(
+      and(
+        eq(schema.orgMembers.orgId, ctx.orgId),
+        eq(schema.orgMembers.email, memberEmail),
+      ),
+    )
+    .limit(1);
+  if (targetMember[0]?.role === "owner") {
+    throw createError({
+      statusCode: 403,
+      message: "Cannot remove the organization owner",
+    });
+  }
+
   await db
     .delete(schema.orgMembers)
     .where(
@@ -322,4 +371,56 @@ export const removeMemberHandler = defineEventHandler(async (event) => {
     );
 
   return { success: true };
+});
+
+/** PUT /api/org/switch — switch the user's active organization */
+export const switchOrgHandler = defineEventHandler(async (event) => {
+  const session = await getSession(event);
+  const email = session?.email;
+  if (!email || email === "local@localhost") {
+    throw createError({ statusCode: 401, message: "Authentication required" });
+  }
+
+  const body = await readBody(event);
+  const orgId = body?.orgId;
+
+  if (!orgId) {
+    // Switch to solo mode (no org)
+    await putUserSetting(email, "active-org-id", { orgId: null });
+    return { orgId: null, orgName: null, role: null };
+  }
+
+  // Verify user is a member of the target org
+  const membership = await db
+    .select({
+      role: schema.orgMembers.role,
+      orgName: schema.organizations.name,
+    })
+    .from(schema.orgMembers)
+    .innerJoin(
+      schema.organizations,
+      eq(schema.orgMembers.orgId, schema.organizations.id),
+    )
+    .where(
+      and(
+        eq(schema.orgMembers.orgId, orgId),
+        eq(schema.orgMembers.email, email),
+      ),
+    )
+    .limit(1);
+
+  if (membership.length === 0) {
+    throw createError({
+      statusCode: 403,
+      message: "You are not a member of that organization",
+    });
+  }
+
+  await putUserSetting(email, "active-org-id", { orgId });
+
+  return {
+    orgId,
+    orgName: membership[0].orgName,
+    role: membership[0].role,
+  };
 });

@@ -47,6 +47,12 @@ export const getNotificationStatusHandler = defineEventHandler(
 export const saveNotificationConfigHandler = defineEventHandler(
   async (event) => {
     const ctx = await getOrgContext(event);
+    if (ctx.role !== "owner" && ctx.role !== "admin") {
+      throw createError({
+        statusCode: 403,
+        message: "Only owners and admins can manage Slack configuration",
+      });
+    }
     const body = await readBody(event);
     if (!body?.webhookUrl) {
       throw createError({
@@ -75,6 +81,12 @@ export const saveNotificationConfigHandler = defineEventHandler(
 export const deleteNotificationConfigHandler = defineEventHandler(
   async (event) => {
     const ctx = await getOrgContext(event);
+    if (ctx.role !== "owner" && ctx.role !== "admin") {
+      throw createError({
+        statusCode: 403,
+        message: "Only owners and admins can manage Slack configuration",
+      });
+    }
     await deleteSetting(slackSettingsKey(ctx.orgId));
     return { success: true };
   },

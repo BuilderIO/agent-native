@@ -1,12 +1,14 @@
 /**
- * Per-user data scoping for db-query / db-exec.
+ * Per-user and per-org data scoping for db-query / db-exec.
  *
  * In production mode, creates temporary views that shadow real tables so
- * that raw SQL only sees the current user's data.
+ * that raw SQL only sees the current user's (and org's) data.
  *
  * Convention:
  *   - Template tables use an `owner_email` column for user scoping.
+ *   - Template tables use an `org_id` column for org scoping.
  *   - Core tables have their own scoping patterns (key prefix, session_id, etc.).
+ *   - When both columns are present, both WHERE clauses are applied (AND).
  *
  * Temp views take precedence over real tables in both SQLite and Postgres,
  * so the user's SQL runs unmodified against the filtered views.
@@ -24,8 +26,9 @@ const CORE_TABLE_SCOPING: Record<
   sessions: { column: "email", mode: "exact" },
 };
 
-// The conventional column name for user ownership in template tables.
+// The conventional column names for user/org ownership in template tables.
 const OWNER_COLUMN = "owner_email";
+const ORG_COLUMN = "org_id";
 
 interface ScopedTable {
   name: string;
@@ -38,6 +41,10 @@ function isProd(): boolean {
 
 function getUserEmail(): string | null {
   return process.env.AGENT_USER_EMAIL || null;
+}
+
+function getOrgId(): string | null {
+  return process.env.AGENT_ORG_ID || null;
 }
 
 // ─── Schema introspection ───────────────────────────────────────────────────
@@ -87,6 +94,7 @@ function escapeSqlString(value: string): string {
 function buildScopedTables(
   allColumns: TableColumn[],
   userEmail: string,
+  orgId: string | null,
   isPostgres: boolean,
 ): ScopedTable[] {
   // Group columns by table
@@ -100,6 +108,7 @@ function buildScopedTables(
   const scoped: ScopedTable[] = [];
   const qualifiedPrefix = isPostgres ? "public." : "main.";
   const safeEmail = escapeSqlString(userEmail);
+  const safeOrgId = orgId ? escapeSqlString(orgId) : null;
 
   for (const [table, columns] of columnsByTable) {
     // Check core table scoping
@@ -126,12 +135,23 @@ function buildScopedTables(
       continue;
     }
 
-    // Check for owner_email convention column
-    if (columns.includes(OWNER_COLUMN)) {
+    // Build WHERE clauses for owner_email and org_id
+    const clauses: string[] = [];
+    const hasOwner = columns.includes(OWNER_COLUMN);
+    const hasOrg = columns.includes(ORG_COLUMN);
+
+    if (hasOwner) {
+      clauses.push(`"${OWNER_COLUMN}" = '${safeEmail}'`);
+    }
+    if (hasOrg && safeOrgId) {
+      clauses.push(`"${ORG_COLUMN}" = '${safeOrgId}'`);
+    }
+
+    if (clauses.length > 0) {
       const realTable = `${qualifiedPrefix}"${table}"`;
       scoped.push({
         name: table,
-        viewSql: `CREATE TEMPORARY VIEW "${table}" AS SELECT * FROM ${realTable} WHERE "${OWNER_COLUMN}" = '${safeEmail}'`,
+        viewSql: `CREATE TEMPORARY VIEW "${table}" AS SELECT * FROM ${realTable} WHERE ${clauses.join(" AND ")}`,
       });
     }
   }
@@ -150,8 +170,12 @@ export interface ScopingContext {
   active: boolean;
   /** The current user email (for INSERT injection in db-exec). */
   userEmail: string | null;
+  /** The current org ID (for INSERT injection in db-exec). */
+  orgId: string | null;
   /** Tables that have owner_email columns (for INSERT injection). */
   ownerEmailTables: Set<string>;
+  /** Tables that have org_id columns (for INSERT injection). */
+  orgIdTables: Set<string>;
 }
 
 /**
@@ -161,31 +185,26 @@ export interface ScopingContext {
 export async function buildScopingPostgres(
   pgSql: any,
 ): Promise<ScopingContext> {
-  if (!isProd()) {
-    return {
-      setup: [],
-      teardown: [],
-      active: false,
-      userEmail: null,
-      ownerEmailTables: new Set(),
-    };
-  }
+  const inactive: ScopingContext = {
+    setup: [],
+    teardown: [],
+    active: false,
+    userEmail: null,
+    orgId: null,
+    ownerEmailTables: new Set(),
+    orgIdTables: new Set(),
+  };
+
+  if (!isProd()) return inactive;
 
   const userEmail = getUserEmail();
-  if (!userEmail) {
-    return {
-      setup: [],
-      teardown: [],
-      active: false,
-      userEmail: null,
-      ownerEmailTables: new Set(),
-    };
-  }
+  if (!userEmail) return inactive;
 
+  const orgId = getOrgId();
   const allColumns = await discoverColumnsPostgres(pgSql);
-  const scoped = buildScopedTables(allColumns, userEmail, true);
+  const scoped = buildScopedTables(allColumns, userEmail, orgId, true);
 
-  // Track which tables have owner_email for INSERT injection
+  // Track which tables have owner_email / org_id for INSERT injection
   const columnsByTable = new Map<string, string[]>();
   for (const { table, column } of allColumns) {
     const cols = columnsByTable.get(table) || [];
@@ -193,8 +212,10 @@ export async function buildScopingPostgres(
     columnsByTable.set(table, cols);
   }
   const ownerEmailTables = new Set<string>();
+  const orgIdTables = new Set<string>();
   for (const [table, columns] of columnsByTable) {
     if (columns.includes(OWNER_COLUMN)) ownerEmailTables.add(table);
+    if (columns.includes(ORG_COLUMN)) orgIdTables.add(table);
   }
 
   return {
@@ -202,7 +223,9 @@ export async function buildScopingPostgres(
     teardown: scoped.map((s) => `DROP VIEW IF EXISTS "${s.name}"`),
     active: scoped.length > 0,
     userEmail,
+    orgId,
     ownerEmailTables,
+    orgIdTables,
   };
 }
 
@@ -211,29 +234,24 @@ export async function buildScopingPostgres(
  * Returns setup/teardown SQL to run before/after the user's query.
  */
 export async function buildScopingSqlite(client: any): Promise<ScopingContext> {
-  if (!isProd()) {
-    return {
-      setup: [],
-      teardown: [],
-      active: false,
-      userEmail: null,
-      ownerEmailTables: new Set(),
-    };
-  }
+  const inactive: ScopingContext = {
+    setup: [],
+    teardown: [],
+    active: false,
+    userEmail: null,
+    orgId: null,
+    ownerEmailTables: new Set(),
+    orgIdTables: new Set(),
+  };
+
+  if (!isProd()) return inactive;
 
   const userEmail = getUserEmail();
-  if (!userEmail) {
-    return {
-      setup: [],
-      teardown: [],
-      active: false,
-      userEmail: null,
-      ownerEmailTables: new Set(),
-    };
-  }
+  if (!userEmail) return inactive;
 
+  const orgId = getOrgId();
   const allColumns = await discoverColumnsSqlite(client);
-  const scoped = buildScopedTables(allColumns, userEmail, false);
+  const scoped = buildScopedTables(allColumns, userEmail, orgId, false);
 
   const columnsByTable = new Map<string, string[]>();
   for (const { table, column } of allColumns) {
@@ -242,8 +260,10 @@ export async function buildScopingSqlite(client: any): Promise<ScopingContext> {
     columnsByTable.set(table, cols);
   }
   const ownerEmailTables = new Set<string>();
+  const orgIdTables = new Set<string>();
   for (const [table, columns] of columnsByTable) {
     if (columns.includes(OWNER_COLUMN)) ownerEmailTables.add(table);
+    if (columns.includes(ORG_COLUMN)) orgIdTables.add(table);
   }
 
   return {
@@ -251,6 +271,8 @@ export async function buildScopingSqlite(client: any): Promise<ScopingContext> {
     teardown: scoped.map((s) => `DROP VIEW IF EXISTS "${s.name}"`),
     active: scoped.length > 0,
     userEmail,
+    orgId,
     ownerEmailTables,
+    orgIdTables,
   };
 }

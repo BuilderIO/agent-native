@@ -3,14 +3,14 @@ import type { ActionTool } from "@agent-native/core";
 
 export const tool: ActionTool = {
   description:
-    "Manage the organization: view org info, list members, invite new members.",
+    "Manage organizations: view info, list members, invite, create, or switch active org.",
   parameters: {
     type: "object",
     properties: {
       action: {
         type: "string",
         description: "Action to perform",
-        enum: ["info", "list-members", "invite", "create"],
+        enum: ["info", "list-members", "invite", "create", "switch"],
       },
       email: {
         type: "string",
@@ -19,6 +19,10 @@ export const tool: ActionTool = {
       name: {
         type: "string",
         description: "Organization name (for create action)",
+      },
+      orgId: {
+        type: "string",
+        description: "Organization ID to switch to (for switch action)",
       },
     },
     required: ["action"],
@@ -29,14 +33,15 @@ export async function run(args: Record<string, string>): Promise<string> {
   switch (args.action) {
     case "info": {
       const data = await localFetch<any>("/api/org/me");
-      if (!data.orgId) {
+      if (!data.orgId && (!data.orgs || data.orgs.length === 0)) {
         return "No organization set up. The user can create one in Settings, or use --action=create --name='Org Name'.";
       }
       return JSON.stringify(
         {
-          orgName: data.orgName,
-          orgId: data.orgId,
+          activeOrg: data.orgName,
+          activeOrgId: data.orgId,
           role: data.role,
+          allOrgs: data.orgs ?? [],
           pendingInvitations: data.pendingInvitations?.length ?? 0,
         },
         null,
@@ -79,7 +84,18 @@ export async function run(args: Record<string, string>): Promise<string> {
       return `Organization "${result.name}" created. You are the owner.`;
     }
 
+    case "switch": {
+      if (!args.orgId) {
+        return "Error: --orgId is required for switch action. Use --action=info to see available orgs.";
+      }
+      const result = await localFetch<any>("/api/org/switch", {
+        method: "PUT",
+        body: JSON.stringify({ orgId: args.orgId }),
+      });
+      return `Switched to organization "${result.orgName}" (${result.role}).`;
+    }
+
     default:
-      return `Unknown action: ${args.action}. Use info, list-members, invite, or create.`;
+      return `Unknown action: ${args.action}. Use info, list-members, invite, create, or switch.`;
   }
 }
