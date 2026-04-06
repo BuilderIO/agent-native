@@ -1848,6 +1848,7 @@ export const listLabels = defineEventHandler(async (_event: H3Event) => {
       // Normalize Gmail category labels with friendly names
       const gmailCategories: Record<string, string> = {
         important: "Important",
+        "note-to-self": "Note to Self",
         promotions: "Promotions",
         social: "Social",
         updates: "Updates",

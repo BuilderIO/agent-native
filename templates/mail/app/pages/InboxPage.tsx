@@ -165,7 +165,12 @@ export function InboxPage() {
   const googleStatus = useGoogleAuthStatus();
   const { activeAccounts } = useAccountFilter();
 
-  const isGoogleConnected = (googleStatus.data?.accounts?.length ?? 0) > 0;
+  const connectedAccounts = googleStatus.data?.accounts ?? [];
+  const isGoogleConnected = connectedAccounts.length > 0;
+  const connectedEmails = useMemo(
+    () => new Set(connectedAccounts.map((a) => a.email.toLowerCase())),
+    [connectedAccounts],
+  );
   const userPinnedLabels = settings?.pinnedLabels ?? [];
   const pinnedLabels = isGoogleConnected
     ? ["important", ...userPinnedLabels.filter((id) => id !== "important")]
@@ -173,9 +178,23 @@ export function InboxPage() {
   const pinnedUserLabels = pinnedLabels.filter(
     (id) => !["starred", "sent", "drafts", "archive", "trash"].includes(id),
   );
+  const hasNoteToSelf = pinnedLabels.includes("note-to-self");
 
   const emails = useMemo(() => {
-    let filtered = rawEmails;
+    // Augment emails with virtual labels:
+    // - Self-sent emails get "important" (or "note-to-self" if that tab is pinned)
+    let filtered = rawEmails.map((e) => {
+      if (!isGoogleConnected) return e;
+      const isSelfSent = connectedEmails.has(e.from.email.toLowerCase());
+      if (!isSelfSent) return e;
+      const virtualLabel = hasNoteToSelf ? "note-to-self" : "important";
+      if (e.labelIds.includes(virtualLabel)) return e;
+      // Add virtual label, remove "important" if routing to note-to-self
+      let labelIds = [...e.labelIds];
+      if (hasNoteToSelf) labelIds = labelIds.filter((l) => l !== "important");
+      if (!labelIds.includes(virtualLabel)) labelIds.push(virtualLabel);
+      return { ...e, labelIds };
+    });
 
     // Filter by active accounts (empty set = all accounts, no filtering)
     if (activeAccounts.size > 0) {
@@ -232,7 +251,16 @@ export function InboxPage() {
       );
     }
     return filtered;
-  }, [rawEmails, view, activeLabel, pinnedUserLabels, activeAccounts]);
+  }, [
+    rawEmails,
+    view,
+    activeLabel,
+    pinnedUserLabels,
+    activeAccounts,
+    isGoogleConnected,
+    connectedEmails,
+    hasNoteToSelf,
+  ]);
 
   // Clear multi-selection when navigating to a different view, thread, or label tab
   useEffect(() => setSelectedIds(new Set()), [view, threadId, activeLabel]);

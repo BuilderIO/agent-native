@@ -120,14 +120,33 @@ export function AppLayout({ children }: AppLayoutProps) {
   const tabSettingsRef = useRef<HTMLDivElement>(null);
 
   const isGoogleConnected = (googleStatus.data?.accounts?.length ?? 0) > 0;
+  const connectedEmails = useMemo(
+    () => new Set(accounts.map((a) => a.email.toLowerCase())),
+    [accounts],
+  );
   // Important is always on and always first when Google is connected
   const userPinnedLabels = settings?.pinnedLabels ?? [];
   const pinnedLabels = isGoogleConnected
     ? ["important", ...userPinnedLabels.filter((id) => id !== "important")]
     : userPinnedLabels;
+  const hasNoteToSelf = pinnedLabels.includes("note-to-self");
   const labelAliases = settings?.labelAliases ?? {};
-  const { data: inboxEmails = [], isLoading: emailsLoading } =
+  const { data: rawInboxEmails = [], isLoading: emailsLoading } =
     useEmails("inbox");
+  // Augment emails: self-sent → "important" (or "note-to-self" if pinned)
+  const inboxEmails = useMemo(() => {
+    if (!isGoogleConnected) return rawInboxEmails;
+    return rawInboxEmails.map((e) => {
+      const isSelfSent = connectedEmails.has(e.from.email.toLowerCase());
+      if (!isSelfSent) return e;
+      const virtualLabel = hasNoteToSelf ? "note-to-self" : "important";
+      if (e.labelIds.includes(virtualLabel)) return e;
+      let labelIds = [...e.labelIds];
+      if (hasNoteToSelf) labelIds = labelIds.filter((l) => l !== "important");
+      if (!labelIds.includes(virtualLabel)) labelIds.push(virtualLabel);
+      return { ...e, labelIds };
+    });
+  }, [rawInboxEmails, isGoogleConnected, connectedEmails, hasNoteToSelf]);
   const tabsLoading = labelsLoading || settingsLoading || emailsLoading;
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -1136,6 +1155,7 @@ function TabSettingsPopover({
   // Split labels into Gmail categories and regular user labels
   // "important" is excluded — it's always on and not toggleable
   const gmailCategoryIds = new Set([
+    "note-to-self",
     "promotions",
     "social",
     "updates",
