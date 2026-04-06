@@ -342,6 +342,22 @@ export function MultiTabAssistantChat({
     }
   }, [activeThreadId]);
 
+  // Ensure at least one tab is always open — auto-create if sidebar is empty
+  const autoCreatingRef = useRef(false);
+  useEffect(() => {
+    if (isLoading || autoCreatingRef.current) return;
+    if (openTabIds.length === 0) {
+      autoCreatingRef.current = true;
+      createThread().then((id) => {
+        autoCreatingRef.current = false;
+        if (id) {
+          newThreadIds.current.add(id);
+          setOpenTabIds([id]);
+        }
+      });
+    }
+  }, [isLoading, openTabIds, createThread]);
+
   // Focus the composer when switching tabs
   useEffect(() => {
     if (!activeThreadId) return;

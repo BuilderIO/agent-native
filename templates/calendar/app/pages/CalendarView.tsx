@@ -70,6 +70,7 @@ export default function CalendarView() {
     eventDetailSidebar,
     sidebarEvent,
     setSidebarEvent,
+    focusedEvent,
   } = useCalendarContext();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -178,10 +179,40 @@ export default function CalendarView() {
     setCreateDialogOpen(true);
   }
 
+  function handleDirectDelete(ev: CalendarEvent) {
+    const isOrganizer =
+      ev.organizer?.self ||
+      ev.attendees?.find((a) => a.self)?.organizer ||
+      !ev.attendees?.length;
+    const hasOtherAttendees =
+      ev.attendees && ev.attendees.filter((a) => !a.self).length > 0;
+    const removeOnly = !isOrganizer && !!hasOtherAttendees;
+
+    deleteEvent.mutate(
+      {
+        id: ev.id,
+        scope: "single",
+        sendUpdates: "none",
+        removeOnly,
+      },
+      {
+        onSuccess: () => {
+          toast.success(`Event ${removeOnly ? "removed" : "deleted"}`);
+          if (sidebarEvent?.id === ev.id) setSidebarEvent(null);
+        },
+        onError: () => toast.error("Failed to delete event"),
+      },
+    );
+  }
+
   function handleDeleteEvent(eventId: string) {
     const ev = events.find((e) => e.id === eventId);
-    if (ev) {
+    if (!ev) return;
+    const isRecurring = !!(ev.recurringEventId || ev.recurrence?.length);
+    if (isRecurring) {
       setDeleteDialogEvent(ev);
+    } else {
+      handleDirectDelete(ev);
     }
   }
 
@@ -278,10 +309,12 @@ export default function CalendarView() {
       if (isTypingInInput(e)) return;
       if (createDialogOpen || shortcutsHelpOpen) return;
 
-      // Delete/Backspace — open delete dialog for the selected sidebar event
-      if ((e.key === "Delete" || e.key === "Backspace") && sidebarEvent) {
+      // Delete/Backspace — delete the selected event
+      if (e.key === "Delete" || e.key === "Backspace") {
+        const targetEvent = sidebarEvent || focusedEvent;
+        if (!targetEvent) return;
         e.preventDefault();
-        setDeleteDialogEvent(sidebarEvent);
+        handleDeleteEvent(targetEvent.id);
         return;
       }
 
@@ -335,7 +368,10 @@ export default function CalendarView() {
     shortcutsHelpOpen,
     isTypingInInput,
     viewMode,
+    selectedDate,
     sidebarEvent,
+    focusedEvent,
+    events,
   ]);
 
   const headerLabel = (() => {

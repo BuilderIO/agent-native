@@ -182,17 +182,22 @@ export function EventDetailPopover({
   onDelete,
 }: EventDetailPopoverProps) {
   const [open, setOpen] = useState(false);
-  const { eventDetailSidebar, setEventDetailSidebar, setSidebarEvent } =
-    useCalendarContext();
+  const {
+    eventDetailSidebar,
+    setEventDetailSidebar,
+    setSidebarEvent,
+    setFocusedEvent,
+  } = useCalendarContext();
 
   const meetingLink = extractMeetingLink(event);
 
   // If in sidebar mode, clicking the trigger opens the sidebar instead of popover
   const handleTriggerClick = useCallback(() => {
+    setFocusedEvent(event);
     if (eventDetailSidebar) {
       setSidebarEvent(event);
     }
-  }, [eventDetailSidebar, event, setSidebarEvent]);
+  }, [eventDetailSidebar, event, setSidebarEvent, setFocusedEvent]);
 
   const handlePinToSidebar = useCallback(
     (e: React.MouseEvent) => {
