@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   Mark,
   Node,
@@ -109,7 +108,8 @@ function humanizeTag(tagName: string): string {
 }
 
 function ToggleView({ node, updateAttributes, editor, getPos }: NodeViewProps) {
-  const [open, setOpen] = useState(false);
+  const open = !!node.attrs.open;
+  const setOpen = (value: boolean) => updateAttributes({ open: value });
   const summary = (node.attrs.summary || "") as string;
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -310,6 +310,7 @@ export const NotionToggle = Node.create({
       summary: { default: "" },
       color: { default: null },
       headingLevel: { default: null },
+      open: { default: false },
     };
   },
 
@@ -323,6 +324,7 @@ export const NotionToggle = Node.create({
             summary: node.querySelector("summary")?.textContent?.trim() || "",
             color: node.getAttribute("color"),
             headingLevel: node.getAttribute("data-heading-level"),
+            open: node.hasAttribute("open"),
           };
         },
         contentElement: (element) => {
@@ -347,6 +349,7 @@ export const NotionToggle = Node.create({
             summary: node.getAttribute("data-summary") || "",
             color: node.getAttribute("data-color"),
             headingLevel: node.getAttribute("data-heading-level"),
+            open: node.getAttribute("data-open") === "true",
           };
         },
         contentElement: (element) =>
@@ -365,6 +368,7 @@ export const NotionToggle = Node.create({
         "data-summary": HTMLAttributes.summary || "",
         "data-color": HTMLAttributes.color || undefined,
         "data-heading-level": HTMLAttributes.headingLevel || undefined,
+        "data-open": HTMLAttributes.open ? "true" : undefined,
       }),
       [
         "div",
@@ -387,6 +391,7 @@ export const NotionToggle = Node.create({
           if (node.attrs.headingLevel) {
             attrs["data-heading-level"] = String(node.attrs.headingLevel);
           }
+          if (node.attrs.open) attrs.open = "";
           const inner = serializeInnerMarkdown((this as any).editor, node);
           const openTag = `<details${serializeTagAttributes(attrs)}>`;
           _state.write(openTag);

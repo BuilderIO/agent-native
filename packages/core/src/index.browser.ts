@@ -19,3 +19,6 @@ export {
 
 // Shared (isomorphic)
 export { agentChat } from "./shared/index.js";
+
+// Pure utilities (no Node.js deps — safe for browser and SSR)
+export { parseArgs, camelCaseArgs } from "./scripts/parse-args.js";

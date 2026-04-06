@@ -41,7 +41,7 @@ export function startRun(
     send: (event: AgentChatEvent) => void,
     signal: AbortSignal,
   ) => Promise<void>,
-  onComplete?: (run: ActiveRun) => void,
+  onComplete?: (run: ActiveRun) => void | Promise<void>,
 ): ActiveRun {
   // If there's already a run for this thread, abort it
   const existingRunId = threadToRun.get(threadId);
@@ -157,13 +157,18 @@ export function startRun(
         runId,
         run.status === "errored" ? "errored" : "completed",
       ).catch(() => {});
-      // Call completion callback (e.g. to save thread data)
+      // Call completion callback (e.g. to save thread data).
+      // onComplete may be async — handle the returned Promise so rejections
+      // don't go unobserved and the callback reliably runs to completion.
       if (onComplete) {
-        try {
-          onComplete(run);
-        } catch {
-          // Don't let callback errors break cleanup
-        }
+        Promise.resolve()
+          .then(() => onComplete(run))
+          .catch((err) => {
+            console.error(
+              "[run-manager] onComplete callback error:",
+              err instanceof Error ? err.message : err,
+            );
+          });
       }
       // Schedule in-memory cleanup
       setTimeout(() => {

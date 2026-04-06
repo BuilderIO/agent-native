@@ -64,10 +64,12 @@ export function AgentTaskCard({
   useEffect(() => {
     if (status !== "running") return;
     let stopped = false;
+    let pollCount = 0;
     const poll = async () => {
       while (!stopped) {
         await new Promise((r) => setTimeout(r, 3000));
         if (stopped) break;
+        pollCount++;
         try {
           const res = await fetch(
             `/_agent-native/application-state/agent-task:${taskId}`,
@@ -93,6 +95,37 @@ export function AgentTaskCard({
             if (task.preview) setPreview(task.preview);
             if (task.currentStep) setCurrentStep(task.currentStep);
           }
+
+          // Fallback: every 5th poll, check if the sub-agent's run is still
+          // active. If it's gone (completed without updating app-state), mark
+          // the task as completed so the card doesn't spin forever.
+          if (pollCount % 5 === 0) {
+            try {
+              const runRes = await fetch(
+                `/_agent-native/agent-chat/runs/active?threadId=${encodeURIComponent(threadId)}`,
+              );
+              if (runRes.ok) {
+                const runData = await runRes.json();
+                // null or non-running status means the run finished
+                if (
+                  !runData ||
+                  runData.status === "completed" ||
+                  runData.status === "errored"
+                ) {
+                  const finalStatus =
+                    runData?.status === "errored" ? "errored" : "completed";
+                  setStatus(finalStatus);
+                  setCurrentStep("");
+                  setSummary(
+                    (prev) => prev || task?.preview || "Task completed.",
+                  );
+                  break;
+                }
+              }
+            } catch {
+              // Fallback check failed — continue normal polling
+            }
+          }
         } catch {
           // Polling error — continue
         }
@@ -102,7 +135,7 @@ export function AgentTaskCard({
     return () => {
       stopped = true;
     };
-  }, [status, taskId]);
+  }, [status, taskId, threadId]);
 
   // Auto-scroll preview to bottom
   useEffect(() => {

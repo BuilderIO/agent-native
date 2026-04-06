@@ -995,7 +995,7 @@ const AssistantChatInner = forwardRef<
   const scrollRef = useRef<HTMLDivElement>(null);
   const thread = useThread();
   const threadRuntime = useThreadRuntime();
-  const isRunning = thread.isRunning;
+  const isRuntimeRunning = thread.isRunning;
   const messages = thread.messages;
   const [missingApiKey, setMissingApiKey] = useState(false);
   const [queuedMessages, setQueuedMessages] = useState<
@@ -1005,6 +1005,8 @@ const AssistantChatInner = forwardRef<
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [reconnectContent, setReconnectContent] = useState<ContentPart[]>([]);
   const reconnectRunIdRef = useRef<string | null>(null);
+  // Treat reconnecting to an active run the same as running for UI purposes
+  const isRunning = isRuntimeRunning || isReconnecting;
   const wasRunningRef = useRef(false);
   const tiptapRef = useRef<TiptapComposerHandle>(null);
 
@@ -1488,11 +1490,10 @@ const AssistantChatInner = forwardRef<
                 </button>
               </div>
             )}
-            {isRunning && <ThinkingIndicator />}
-            {isReconnecting && !isRunning && reconnectContent.length > 0 && (
+            {isReconnecting && reconnectContent.length > 0 && (
               <ReconnectStreamMessage content={reconnectContent} />
             )}
-            {isReconnecting && !isRunning && reconnectContent.length === 0 && (
+            {isRunning && !(isReconnecting && reconnectContent.length > 0) && (
               <ThinkingIndicator />
             )}
             {queuedMessages.map((msg, i) => (
@@ -1563,7 +1564,17 @@ const AssistantChatInner = forwardRef<
             actionButton={
               isRunning ? (
                 <button
-                  onClick={() => threadRuntime.cancelRun()}
+                  onClick={() => {
+                    if (isReconnecting && reconnectRunIdRef.current) {
+                      // Abort the server-side run directly
+                      fetch(
+                        `${apiUrl}/runs/${encodeURIComponent(reconnectRunIdRef.current)}/abort`,
+                        { method: "POST" },
+                      );
+                    } else {
+                      threadRuntime.cancelRun();
+                    }
+                  }}
                   className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90"
                   title="Stop generating"
                 >

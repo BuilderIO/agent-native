@@ -1,5 +1,6 @@
+// @ts-expect-error — nitro/runtime is a virtual module resolved by Nitro at build time
 import { defineTask } from "nitro/runtime";
-import { processJobs } from "../server/tasks/jobs/process.js";
+import { processJobs } from "./process.js";
 
 export default defineTask({
   meta: {

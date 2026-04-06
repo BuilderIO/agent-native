@@ -150,7 +150,9 @@ export function useChatThreads(apiUrl = "/_agent-native/agent-chat") {
                   ...t,
                   title: data.title,
                   preview: data.preview,
-                  messageCount: data.messageCount,
+                  ...(data.messageCount != null && {
+                    messageCount: data.messageCount,
+                  }),
                   updatedAt: Date.now(),
                 }
               : t,

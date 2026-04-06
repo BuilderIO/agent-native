@@ -131,9 +131,11 @@ async function ensureInitialized() {
  * Match a request path against the registered routes.
  * Uses prefix matching (like H3 v1's app.use behavior).
  */
-function matchRoute(
-  requestPath: string,
-): { handler: EventHandler; params: Record<string, string> } | null {
+function matchRoute(requestPath: string): {
+  handler: EventHandler;
+  params: Record<string, string>;
+  path: string;
+} | null {
   // Sort routes by specificity (longest path first)
   const sorted = [...routes].sort((a, b) => b.path.length - a.path.length);
 
@@ -158,7 +160,7 @@ function matchRoute(
     }
 
     if (matches) {
-      return { handler: route.handler, params };
+      return { handler: route.handler, params, path: route.path };
     }
   }
 
@@ -192,7 +194,25 @@ export async function handleFrameworkRequest(event: any): Promise<any> {
     if (event.context) {
       event.context.params = { ...event.context.params, ...match.params };
     }
-    return match.handler(event);
+    // Emulate H3 v1's app.use() behavior: strip the matched base path from
+    // event.path so handlers see a path relative to their mount point.
+    // Without this, handlers that inspect event.path (e.g. routers, thread
+    // handlers) would see the full URL and fail to route correctly.
+    // In H3 >=1.15, event.path is a getter-only property on the prototype,
+    // so we shadow it with an instance-level value property, then delete
+    // the shadow to restore the prototype getter.
+    const remainder = path.slice(match.path.length) || "/";
+    Object.defineProperty(event, "path", {
+      value: remainder,
+      configurable: true,
+      writable: true,
+    });
+    try {
+      return await match.handler(event);
+    } finally {
+      // Remove instance shadow to restore prototype getter
+      delete (event as any).path;
+    }
   }
 
   // No match — return 404
