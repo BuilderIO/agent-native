@@ -11,6 +11,7 @@
  *   --q        Search query (required) — supports Gmail search operators
  *   --view     Limit search to a view (default: all)
  *   --limit    Max results (default: 25)
+ *   --account  Filter to a specific account email (default: search all accounts)
  *   --compact  Output compact summary
  *   --fields   Comma-separated fields to include
  *   --grep     Further filter output by keyword
@@ -50,6 +51,11 @@ export const tool: ActionTool = {
         ],
       },
       limit: { type: "string", description: "Max results (default: 25)" },
+      account: {
+        type: "string",
+        description:
+          "Filter to a specific account email address. By default searches all connected accounts.",
+      },
       compact: {
         type: "string",
         description: "Set to 'true' for compact output",
@@ -65,6 +71,7 @@ export async function run(args: Record<string, string>): Promise<string> {
   const view = args.view ?? "all";
   const limit = args.limit ? parseInt(args.limit, 10) : 25;
   const compact = args.compact !== "false";
+  const accountFilter = args.account?.toLowerCase();
   const ownerEmail = process.env.AGENT_USER_EMAIL || "local@localhost";
 
   const clients = await getClients(ownerEmail);
@@ -92,13 +99,20 @@ export async function run(args: Record<string, string>): Promise<string> {
     return `Error: ${errors.map((e) => `${e.email}: ${e.error}`).join("; ")}`;
   }
 
-  const emails = messages
+  let emails = messages
     .map((m) => gmailToEmailMessage(m, m._accountEmail, labelMap))
     .sort(
       (a: any, b: any) =>
         new Date(b.date).getTime() - new Date(a.date).getTime(),
-    )
-    .slice(0, limit);
+    );
+
+  if (accountFilter) {
+    emails = emails.filter(
+      (e: any) => e.accountEmail?.toLowerCase() === accountFilter,
+    );
+  }
+
+  emails = emails.slice(0, limit);
 
   return JSON.stringify(compact ? toCompact(emails) : emails, null, 2);
 }
@@ -123,6 +137,7 @@ function toCompact(emails: any[]): any[] {
     snippet: e.snippet,
     date: e.date,
     isRead: e.isRead,
+    accountEmail: e.accountEmail,
   }));
 }
 
@@ -132,6 +147,7 @@ export default async function main(): Promise<void> {
   const view = args.view ?? "all";
   const limit = args.limit ? parseInt(args.limit, 10) : 25;
   const compact = args.compact === "true";
+  const accountFilter = args.account?.toLowerCase();
   const ownerEmail = process.env.AGENT_USER_EMAIL || "local@localhost";
 
   if (!query) {
@@ -168,13 +184,20 @@ export default async function main(): Promise<void> {
     );
   }
 
-  const emails = messages
+  let emails = messages
     .map((m) => gmailToEmailMessage(m, m._accountEmail, labelMap))
     .sort(
       (a: any, b: any) =>
         new Date(b.date).getTime() - new Date(a.date).getTime(),
-    )
-    .slice(0, limit);
+    );
+
+  if (accountFilter) {
+    emails = emails.filter(
+      (e: any) => e.accountEmail?.toLowerCase() === accountFilter,
+    );
+  }
+
+  emails = emails.slice(0, limit);
 
   console.error(`Found ${emails.length} result(s) for "${query}" in "${view}"`);
   output(compact ? toCompact(emails) : emails);

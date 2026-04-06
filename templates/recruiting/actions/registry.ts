@@ -63,6 +63,7 @@ import {
   tool as sendRecruiterUpdateTool,
   run as sendRecruiterUpdateRun,
 } from "./send-recruiter-update.js";
+import { tool as manageOrgTool, run as manageOrgRun } from "./manage-org.js";
 
 import type { ActionEntry } from "@agent-native/core";
 
@@ -100,4 +101,5 @@ export const actionRegistry: Record<string, ActionEntry> = {
     tool: sendRecruiterUpdateTool,
     run: sendRecruiterUpdateRun,
   },
+  "manage-org": { tool: manageOrgTool, run: manageOrgRun },
 };

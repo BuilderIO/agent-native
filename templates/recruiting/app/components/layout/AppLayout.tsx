@@ -5,6 +5,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { OnboardingScreen } from "@/components/recruiting/OnboardingScreen";
 import { CommandPalette } from "./CommandPalette";
 import { useGreenhouseStatus } from "@/hooks/use-greenhouse";
+import { useOrg, useAcceptInvitation } from "@/hooks/use-org";
 import { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";
 import {
   IconLayoutDashboard,
@@ -15,7 +16,9 @@ import {
   IconSearch,
   IconPlant2,
   IconAlertCircle,
+  IconLoader2,
 } from "@tabler/icons-react";
+import { toast } from "sonner";
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -49,6 +52,46 @@ const navItems = [
   },
   { id: "settings", label: "Settings", icon: IconSettings, path: "/settings" },
 ];
+
+function InvitationBanner() {
+  const { data: org } = useOrg();
+  const acceptInvitation = useAcceptInvitation();
+
+  if (!org?.pendingInvitations?.length) return null;
+
+  return (
+    <div className="border-b border-border bg-blue-50 dark:bg-blue-950/30 px-4 py-2.5">
+      {org.pendingInvitations.map((inv) => (
+        <div key={inv.id} className="flex items-center justify-between text-sm">
+          <span className="text-foreground">
+            <span className="font-medium">{inv.invitedBy}</span> invited you to
+            join <span className="font-medium">{inv.orgName}</span>
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={async () => {
+                try {
+                  await acceptInvitation.mutateAsync(inv.id);
+                  toast.success(`Joined ${inv.orgName}`);
+                } catch (err: any) {
+                  toast.error(err.message || "Failed to accept");
+                }
+              }}
+              disabled={acceptInvitation.isPending}
+              className="rounded-md bg-green-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50"
+            >
+              {acceptInvitation.isPending ? (
+                <IconLoader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                "Join"
+              )}
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export function AppLayout({ children }: AppLayoutProps) {
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -189,6 +232,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 
         {/* Main */}
         <main className="relative flex-1 overflow-auto">
+          <InvitationBanner />
           <div className="absolute right-3 top-3 z-10">
             <AgentToggleButton />
           </div>

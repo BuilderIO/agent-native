@@ -1,8 +1,8 @@
-import { defineEventHandler } from "h3";
 import type { DashboardStats } from "@shared/types";
 import * as gh from "../lib/greenhouse-api.js";
+import { defineOrgHandler } from "../lib/org-context.js";
 
-export const getDashboardHandler = defineEventHandler(
+export const getDashboardHandler = defineOrgHandler(
   async (): Promise<DashboardStats> => {
     const now = new Date();
     const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);

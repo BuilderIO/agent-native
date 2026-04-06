@@ -65,10 +65,11 @@ export async function createDevScriptRegistry(): Promise<
   let dbEntries: Record<string, ActionEntry> = {};
   try {
     // Dynamic imports — these are part of @agent-native/core
-    const [dbSchema, dbQuery, dbExec] = await Promise.all([
+    const [dbSchema, dbQuery, dbExec, dbCheckScoping] = await Promise.all([
       import("../db/schema.js"),
       import("../db/query.js"),
       import("../db/exec.js"),
+      import("../db/check-scoping.js"),
     ]);
 
     dbEntries = {
@@ -128,6 +129,29 @@ export async function createDevScriptRegistry(): Promise<
           },
         },
         dbExec.default,
+      ),
+      "db-check-scoping": wrapCliScript(
+        {
+          description:
+            "Validate that all template tables have owner_email and org_id columns for data scoping",
+          parameters: {
+            type: "object",
+            properties: {
+              "require-org": {
+                type: "string",
+                description:
+                  'Set to "true" to also require org_id columns (for multi-org apps)',
+                enum: ["true", "false"],
+              },
+              format: {
+                type: "string",
+                description: 'Output format: "json" or "text" (default: text)',
+                enum: ["json", "text"],
+              },
+            },
+          },
+        },
+        dbCheckScoping.default,
       ),
     };
   } catch {

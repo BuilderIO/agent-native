@@ -367,6 +367,25 @@ export async function resurfaceEmail(
   await writeEmails(ownerEmail, emails);
 }
 
+/**
+ * Get the set of thread IDs that are currently snoozed (pending snooze jobs).
+ * Used to filter snoozed emails out of inbox results.
+ */
+export async function getSnoozedThreadIds(
+  ownerEmail: string,
+): Promise<Set<string>> {
+  const jobs = await listPendingJobs(ownerEmail);
+  const ids = new Set<string>();
+  for (const job of jobs) {
+    if (job.type !== "snooze") continue;
+    const tid = getSnoozeThreadId(job);
+    if (tid) ids.add(tid);
+    // Also add emailId in case threadId is missing
+    if (job.emailId) ids.add(job.emailId);
+  }
+  return ids;
+}
+
 export function getSnoozeThreadId(job: ScheduledJobRecord): string | undefined {
   if (job.threadId) return job.threadId;
   const payload = JSON.parse(job.payload || "{}") as Partial<SnoozeJobPayload>;

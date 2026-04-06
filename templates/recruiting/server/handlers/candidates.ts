@@ -1,17 +1,12 @@
-import {
-  defineEventHandler,
-  getQuery,
-  getRouterParam,
-  readBody,
-  createError,
-} from "h3";
+import { getQuery, getRouterParam, readBody, createError } from "h3";
 import * as gh from "../lib/greenhouse-api.js";
+import { defineOrgHandler } from "../lib/org-context.js";
 import {
   mapCandidateListItem,
   searchCandidates,
 } from "../lib/candidate-search.js";
 
-export const listCandidatesHandler = defineEventHandler(async (event) => {
+export const listCandidatesHandler = defineOrgHandler(async (event) => {
   const query = getQuery(event) as {
     job_id?: string;
     search?: string;
@@ -53,14 +48,14 @@ export const listCandidatesHandler = defineEventHandler(async (event) => {
   return results.map(mapCandidateListItem);
 });
 
-export const getCandidateHandler = defineEventHandler(async (event) => {
+export const getCandidateHandler = defineOrgHandler(async (event) => {
   const id = Number(getRouterParam(event, "id"));
   if (!id)
     throw createError({ statusCode: 400, message: "Candidate ID required" });
   return gh.getCandidate(id);
 });
 
-export const createCandidateHandler = defineEventHandler(async (event) => {
+export const createCandidateHandler = defineOrgHandler(async (event) => {
   const body = await readBody(event);
   if (!body?.first_name || !body?.last_name) {
     throw createError({

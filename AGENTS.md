@@ -119,6 +119,52 @@ Agent-native apps are single-tenant. Each deployment serves one organization. Yo
 
 Per-user data isolation exists for multi-user organizations (via `owner_email` column convention and `AGENT_USER_EMAIL`), but large-scale multi-tenancy across organizations is not the architecture.
 
+## Data Scoping
+
+In production mode, the framework automatically restricts agent SQL queries (via `db-query` and `db-exec`) to the current user's data using temporary views. This is enforced at the SQL level — agents cannot bypass it.
+
+### Per-User Scoping (`owner_email`)
+
+Every template table that stores user-specific data **must** have an `owner_email` text column. The framework:
+
+1. Detects tables with `owner_email` via schema introspection
+2. Creates temp views with `WHERE owner_email = <current user>` before each query
+3. Auto-injects `owner_email` into INSERT statements
+
+The current user is resolved from `AGENT_USER_EMAIL` (set automatically from the session).
+
+### Per-Org Scoping (`org_id`)
+
+For multi-org apps (e.g., recruiting), tables can also include an `org_id` text column. When `AGENT_ORG_ID` is set:
+
+1. Tables with `org_id` get an additional `WHERE org_id = <current org>` clause
+2. When both `owner_email` and `org_id` are present, both filters apply (AND)
+3. `org_id` is auto-injected into INSERT statements
+
+Templates enable org scoping by providing a `resolveOrgId` callback in their agent-chat plugin:
+
+```ts
+createAgentChatPlugin({
+  resolveOrgId: async (event) => {
+    const ctx = await getOrgContext(event);
+    return ctx.orgId;
+  },
+});
+```
+
+### Schema Validation
+
+Run `pnpm action db-check-scoping` to verify all template tables have proper ownership columns. Use `--require-org` for multi-org apps. Tables without scoping columns are accessible to all users.
+
+### Column Conventions
+
+| Column        | Purpose                 | Required                        |
+| ------------- | ----------------------- | ------------------------------- |
+| `owner_email` | Per-user data isolation | Yes, for all user-facing tables |
+| `org_id`      | Per-org data isolation  | Yes, for multi-org apps         |
+
+**Hard rule: every new template table with user data must have `owner_email`.** Multi-org templates must also include `org_id`.
+
 ## A2A Protocol (Agent-to-Agent)
 
 Agents can call other agents using the A2A protocol. From the mail app, you can tag the analytics agent to query data and include results in a draft. An agent discovers what other agents are available, calls them over the protocol, and shows results in the UI.
@@ -300,11 +346,12 @@ Run with: `pnpm action my-action --name foo`
 
 ### Core Actions (available automatically)
 
-| Action      | Purpose                         | Example                                            |
-| ----------- | ------------------------------- | -------------------------------------------------- |
-| `db-schema` | Show all tables, columns, types | `pnpm action db-schema`                            |
-| `db-query`  | Run a SELECT query              | `pnpm action db-query --sql "SELECT * FROM forms"` |
-| `db-exec`   | Run INSERT/UPDATE/DELETE        | `pnpm action db-exec --sql "UPDATE forms SET ..."` |
+| Action             | Purpose                          | Example                                            |
+| ------------------ | -------------------------------- | -------------------------------------------------- |
+| `db-schema`        | Show all tables, columns, types  | `pnpm action db-schema`                            |
+| `db-query`         | Run a SELECT query               | `pnpm action db-query --sql "SELECT * FROM forms"` |
+| `db-exec`          | Run INSERT/UPDATE/DELETE         | `pnpm action db-exec --sql "UPDATE forms SET ..."` |
+| `db-check-scoping` | Validate ownership columns exist | `pnpm action db-check-scoping --require-org`       |
 
 Per-user data scoping is automatic in production mode via `AGENT_USER_EMAIL`.
 

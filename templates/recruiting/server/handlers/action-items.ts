@@ -1,5 +1,6 @@
-import { defineEventHandler, getQuery } from "h3";
+import { getQuery } from "h3";
 import * as gh from "../lib/greenhouse-api.js";
+import { defineOrgHandler } from "../lib/org-context.js";
 import type {
   GreenhouseScheduledInterview,
   GreenhouseScorecard,
@@ -76,7 +77,7 @@ async function batchFetch<T>(
   return results;
 }
 
-export const getActionItemsHandler = defineEventHandler(
+export const getActionItemsHandler = defineOrgHandler(
   async (event): Promise<ActionItemsResponse> => {
     const query = getQuery(event) as {
       overdue_hours?: string;

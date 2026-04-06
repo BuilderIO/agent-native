@@ -1,5 +1,6 @@
-import { defineEventHandler, getQuery, getRouterParam, createError } from "h3";
+import { getQuery, getRouterParam, createError } from "h3";
 import * as gh from "../lib/greenhouse-api.js";
+import { defineOrgHandler } from "../lib/org-context.js";
 import type { PipelineStage, GreenhouseCandidate } from "@shared/types";
 
 /** Fetch items in batches to avoid Greenhouse API rate limits (50 req/10s) */
@@ -25,7 +26,7 @@ async function batchFetch<T>(
   return results;
 }
 
-export const listJobsHandler = defineEventHandler(async (event) => {
+export const listJobsHandler = defineOrgHandler(async (event) => {
   const query = getQuery(event) as {
     status?: string;
     per_page?: string;
@@ -38,19 +39,19 @@ export const listJobsHandler = defineEventHandler(async (event) => {
   });
 });
 
-export const getJobHandler = defineEventHandler(async (event) => {
+export const getJobHandler = defineOrgHandler(async (event) => {
   const id = Number(getRouterParam(event, "id"));
   if (!id) throw createError({ statusCode: 400, message: "Job ID required" });
   return gh.getJob(id);
 });
 
-export const getJobStagesHandler = defineEventHandler(async (event) => {
+export const getJobStagesHandler = defineOrgHandler(async (event) => {
   const id = Number(getRouterParam(event, "id"));
   if (!id) throw createError({ statusCode: 400, message: "Job ID required" });
   return gh.getJobStages(id);
 });
 
-export const getJobPipelineHandler = defineEventHandler(async (event) => {
+export const getJobPipelineHandler = defineOrgHandler(async (event) => {
   const id = Number(getRouterParam(event, "id"));
   if (!id) throw createError({ statusCode: 400, message: "Job ID required" });
 

@@ -5,15 +5,15 @@ import {
   readBody,
   createError,
 } from "h3";
-import { eq, and } from "drizzle-orm";
+import { eq, and, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { db, schema } from "../db/index.js";
 import { getSession } from "@agent-native/core/server";
+import { getOrgContext } from "../lib/org-context.js";
 import type { AgentNote } from "@shared/types";
 
 export const listNotesHandler = defineEventHandler(async (event) => {
-  const session = await getSession(event);
-  const ownerEmail = session?.email ?? "local@localhost";
+  const ctx = await getOrgContext(event);
   const query = getQuery(event) as { candidate_id?: string };
   const candidateId = Number(query.candidate_id);
   if (!candidateId)
@@ -22,15 +22,19 @@ export const listNotesHandler = defineEventHandler(async (event) => {
       message: "candidate_id is required",
     });
 
-  const rows = await db
-    .select()
-    .from(schema.agentNotes)
-    .where(
-      and(
+  // If user is in an org, show all org notes. Otherwise show only their own.
+  const condition = ctx.orgId
+    ? and(
         eq(schema.agentNotes.candidateId, candidateId),
-        eq(schema.agentNotes.ownerEmail, ownerEmail),
-      ),
-    );
+        eq(schema.agentNotes.orgId, ctx.orgId),
+      )
+    : and(
+        eq(schema.agentNotes.candidateId, candidateId),
+        eq(schema.agentNotes.ownerEmail, ctx.email),
+        isNull(schema.agentNotes.orgId),
+      );
+
+  const rows = await db.select().from(schema.agentNotes).where(condition);
 
   return rows.map(
     (r): AgentNote => ({
@@ -39,6 +43,7 @@ export const listNotesHandler = defineEventHandler(async (event) => {
       content: r.content,
       type: r.type as AgentNote["type"],
       createdAt: new Date(r.createdAt).toISOString(),
+      authorEmail: r.ownerEmail ?? undefined,
     }),
   );
 });
@@ -52,7 +57,7 @@ export const createNoteHandler = defineEventHandler(async (event) => {
     });
   }
 
-  const session = await getSession(event);
+  const ctx = await getOrgContext(event);
   const id = nanoid();
   const now = Date.now();
 
@@ -62,7 +67,8 @@ export const createNoteHandler = defineEventHandler(async (event) => {
     content: body.content,
     type: body.type,
     createdAt: now,
-    ownerEmail: session?.email ?? null,
+    ownerEmail: ctx.email !== "local@localhost" ? ctx.email : null,
+    orgId: ctx.orgId,
   });
 
   return {
@@ -71,23 +77,25 @@ export const createNoteHandler = defineEventHandler(async (event) => {
     content: body.content,
     type: body.type,
     createdAt: new Date(now).toISOString(),
+    authorEmail: ctx.email,
   };
 });
 
 export const deleteNoteHandler = defineEventHandler(async (event) => {
-  const session = await getSession(event);
-  const ownerEmail = session?.email ?? "local@localhost";
+  const ctx = await getOrgContext(event);
   const id = getRouterParam(event, "id");
   if (!id) throw createError({ statusCode: 400, message: "Note ID required" });
 
-  await db
-    .delete(schema.agentNotes)
-    .where(
-      and(
+  // If in an org, any org member can delete notes (org-scoped).
+  // If solo, only the author can delete.
+  const condition = ctx.orgId
+    ? and(eq(schema.agentNotes.id, id), eq(schema.agentNotes.orgId, ctx.orgId))
+    : and(
         eq(schema.agentNotes.id, id),
-        eq(schema.agentNotes.ownerEmail, ownerEmail),
-      ),
-    );
+        eq(schema.agentNotes.ownerEmail, ctx.email),
+      );
+
+  await db.delete(schema.agentNotes).where(condition);
 
   return { success: true };
 });

@@ -218,4 +218,5 @@ export type AgentNote = {
   content: string;
   type: "resume_analysis" | "comparison" | "interview_prep" | "general";
   createdAt: string;
+  authorEmail?: string;
 };

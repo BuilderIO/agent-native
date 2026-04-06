@@ -38,7 +38,11 @@ import {
   listGmailMessages,
   gmailToEmailMessage,
 } from "../lib/google-auth.js";
-import { getSyntheticEmailsForView } from "../lib/jobs.js";
+import {
+  incrementSendFrequency,
+  getContactFrequencyMap,
+} from "../lib/contact-frequency.js";
+import { getSyntheticEmailsForView, getSnoozedThreadIds } from "../lib/jobs.js";
 
 // ---------------------------------------------------------------------------
 // Label map cache — avoids re-fetching label names from Gmail on every request
@@ -324,13 +328,24 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
           error: errors.map((e) => `${e.email}: ${e.error}`).join("; "),
         };
       }
-      const emails = messages.map((m) =>
+      let emails = messages.map((m) =>
         gmailToEmailMessage(m, undefined, labelMap),
       );
       emails.sort(
         (a: any, b: any) =>
           new Date(b.date).getTime() - new Date(a.date).getTime(),
       );
+
+      // Filter out snoozed emails (they may linger in Gmail due to eventual consistency)
+      if (view === "inbox" || view === "unread") {
+        const snoozedIds = await getSnoozedThreadIds(email);
+        if (snoozedIds.size > 0) {
+          emails = emails.filter(
+            (e) => !snoozedIds.has(e.threadId) && !snoozedIds.has(e.id),
+          );
+        }
+      }
+
       // If some accounts failed but others succeeded, add warning header
       if (errors.length > 0) {
         setResponseHeader(event, "X-Account-Errors", JSON.stringify(errors));
@@ -408,6 +423,16 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
         e.from.email.toLowerCase().includes(query) ||
         e.body.toLowerCase().includes(query),
     );
+  }
+
+  // Filter out snoozed emails
+  if (view === "inbox" || view === "unread") {
+    const snoozedIds = await getSnoozedThreadIds(email);
+    if (snoozedIds.size > 0) {
+      emails = emails.filter(
+        (e) => !snoozedIds.has(e.threadId) && !snoozedIds.has(e.id),
+      );
+    }
   }
 
   // Sort by date descending
@@ -1181,6 +1206,20 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
           },
         );
 
+        // Track contact frequency for all recipients
+        const allRecipients = [to, cc, bcc]
+          .filter(Boolean)
+          .flatMap((field: string) =>
+            field.split(",").map((r: string) => {
+              const match = r.trim().match(/^(.+?)\s*<(.+?)>$/);
+              return match
+                ? { email: match[2].trim(), name: match[1].trim() }
+                : { email: r.trim() };
+            }),
+          )
+          .filter((r) => r.email);
+        incrementSendFrequency(email, allRecipients).catch(() => {});
+
         setResponseStatus(event, 201);
         return {
           id: sent.id,
@@ -1742,9 +1781,19 @@ export const listContacts = defineEventHandler(async (event: H3Event) => {
         }
       }
 
-      const contacts = Array.from(contactMap.values()).sort(
-        (a, b) => b.count - a.count,
-      );
+      // Merge SQL-tracked send frequency into contact counts
+      let freqMap: Map<string, number>;
+      try {
+        freqMap = await getContactFrequencyMap(email);
+      } catch {
+        freqMap = new Map();
+      }
+      const contacts = Array.from(contactMap.values())
+        .map((c) => ({
+          ...c,
+          count: c.count + (freqMap.get(c.email.toLowerCase()) || 0) * 10,
+        }))
+        .sort((a, b) => b.count - a.count);
       contactCache.set(email, {
         data: contacts,
         expiresAt: Date.now() + CONTACT_CACHE_TTL,

@@ -520,6 +520,14 @@ export interface AgentChatPluginOptions {
         | Promise<Record<string, MentionProvider>>);
   /** App ID used to exclude self from agent discovery (e.g., "mail", "calendar") */
   appId?: string;
+  /**
+   * Optional callback to resolve the org ID for the current request.
+   * When provided, the resolved value is set as AGENT_ORG_ID env var so
+   * that db-query/db-exec automatically scope by org_id in addition to
+   * owner_email. Templates with org support (e.g., recruiting) should
+   * provide this.
+   */
+  resolveOrgId?: (event: any) => string | null | Promise<string | null>;
 }
 
 /**
@@ -1919,6 +1927,16 @@ export function createAgentChatPlugin(
         // created by users who authenticated via OAuth (e.g., Gmail).
         const owner = await getOwnerFromEvent(event);
         process.env.AGENT_USER_EMAIL = owner;
+
+        // Set AGENT_ORG_ID so db-query/db-exec scope by org_id when applicable.
+        if (options?.resolveOrgId) {
+          const orgId = await options.resolveOrgId(event);
+          if (orgId) {
+            process.env.AGENT_ORG_ID = orgId;
+          } else {
+            delete process.env.AGENT_ORG_ID;
+          }
+        }
 
         const handler = currentDevMode && devHandler ? devHandler : prodHandler;
         return handler(event);

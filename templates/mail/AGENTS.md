@@ -70,6 +70,14 @@ Resources support **personal** scope (per-user) and **shared** scope (visible to
 
 **When a Google account is connected**, emails come from the Gmail API — the app works with real emails. **When no account is connected**, the SQL settings store (`getSetting("local-emails")`) is used as a local store (starts empty).
 
+### Multiple Inboxes
+
+The user may have **multiple Google accounts connected** (e.g. personal and work). By default, `list-emails` and `search-emails` search **all connected accounts** and return results tagged with `accountEmail` so you can tell which inbox each email came from.
+
+- To search a specific account only, use `--account=user@example.com`
+- To see which accounts are connected, check the `accountEmail` field on returned emails
+- When the user says "search my work email" or "check my personal inbox", use `--account` to scope to the right account
+
 To check the current state:
 
 - Use `readAppState("navigation")` to see what view/thread/search/label the user is looking at
@@ -124,6 +132,7 @@ When the user asks you to **draft**, **compose**, or **write** an email, use `wr
   isArchived: boolean;
   isTrashed: boolean;
   labelIds: string[];       // e.g. ["inbox", "important"]
+  accountEmail: string;       // which connected account this email belongs to
   attachments?: { id, filename, mimeType, size }[];
 }
 ```
@@ -265,14 +274,14 @@ Scripts use `readAppState()` / `writeAppState()` from `@agent-native/core/applic
 
 ### Reading & Searching
 
-| Action          | Args                                                    | Purpose                                       |
-| --------------- | ------------------------------------------------------- | --------------------------------------------- |
-| `view-screen`   | `[--full]`                                              | See what the user is looking at right now     |
-| `view-composer` | `[--id=<draft-id>]`                                     | See all open compose drafts                   |
-| `list-emails`   | `--view <inbox\|unread\|starred\|sent\|...> --q <term>` | List and search emails (uses Gmail via API)   |
-| `search-emails` | `--q <term> [--view <name>]`                            | Search emails across all views (requires --q) |
-| `get-email`     | `--id <email-id>`                                       | Get a single email by ID                      |
-| `get-thread`    | `--id <thread-id> [--compact]`                          | Get all messages in a thread                  |
+| Action          | Args                                                                        | Purpose                                       |
+| --------------- | --------------------------------------------------------------------------- | --------------------------------------------- |
+| `view-screen`   | `[--full]`                                                                  | See what the user is looking at right now     |
+| `view-composer` | `[--id=<draft-id>]`                                                         | See all open compose drafts                   |
+| `list-emails`   | `--view <inbox\|unread\|starred\|sent\|...> --q <term> [--account <email>]` | List and search emails (uses Gmail via API)   |
+| `search-emails` | `--q <term> [--view <name>] [--account <email>]`                            | Search emails across all views (requires --q) |
+| `get-email`     | `--id <email-id>`                                                           | Get a single email by ID                      |
+| `get-thread`    | `--id <thread-id> [--compact]`                                              | Get all messages in a thread                  |
 
 ### Actions
 
