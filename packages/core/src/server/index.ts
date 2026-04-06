@@ -103,6 +103,12 @@ export {
 export { isOAuthConnected, getOAuthAccounts } from "./oauth-helpers.js";
 export { wrapWithAnalytics } from "./analytics.js";
 export {
+  handleFrameworkRequest,
+  registerFrameworkRoute,
+  registerFrameworkMiddleware,
+  getH3App,
+} from "./framework-request-handler.js";
+export {
   autoDiscoverActions,
   autoDiscoverScripts,
 } from "./action-discovery.js";

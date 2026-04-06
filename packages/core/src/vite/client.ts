@@ -2,7 +2,7 @@ import path from "path";
 import fs from "fs";
 import { createRequire } from "module";
 import type { Plugin, UserConfig } from "vite";
-import { devApiServer } from "./dev-api-server.js";
+import { nitro as nitroVitePlugin } from "nitro/vite";
 
 const require = createRequire(import.meta.url);
 
@@ -219,6 +219,26 @@ function baseRedirectGuard(): Plugin {
 }
 
 /**
+ * Expose the resolved Vite dev server port as process.env.PORT so that
+ * in-process scripts (which use localFetch → http://localhost:${PORT}/api/...)
+ * hit the right address even when Vite auto-increments the port.
+ */
+function portExposer(): Plugin {
+  return {
+    name: "agent-native-port-exposer",
+    apply: "serve",
+    configureServer(server) {
+      server.httpServer?.once("listening", () => {
+        const addr = server.httpServer?.address();
+        if (addr && typeof addr === "object" && addr.port) {
+          process.env.PORT = String(addr.port);
+        }
+      });
+    },
+  };
+}
+
+/**
  * Create the client Vite config with sensible agent-native defaults.
  * Supports two modes:
  * - Legacy SPA mode (default): React SWC plugin, client-only routing
@@ -273,7 +293,11 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     plugins: [
       autoReloadOnOptimizeDep(),
       baseRedirectGuard(),
-      devApiServer(),
+      portExposer(),
+      nitroVitePlugin({
+        serverDir: "./server",
+        ...(options.nitro ?? {}),
+      } as any),
       reactPluginInstance,
       ...(options.plugins ?? []),
     ].filter(Boolean),

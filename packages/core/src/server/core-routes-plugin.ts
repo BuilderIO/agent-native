@@ -1,3 +1,4 @@
+import { getH3App } from "./framework-request-handler.js";
 import {
   createRouter,
   defineEventHandler,
@@ -78,17 +79,17 @@ export function createCoreRoutesPlugin(
     const P = FRAMEWORK_ROUTE_PREFIX;
 
     // Polling
-    (nitroApp.h3App || nitroApp._h3).use(`${P}/poll`, createDefaultPollHandler());
+    getH3App(nitroApp).use(`${P}/poll`, createDefaultPollHandler());
 
     // SSE
     if (!options.disableSSE) {
       const sseRoute = options.sseRoute ?? `${P}/events`;
-      (nitroApp.h3App || nitroApp._h3).use(sseRoute, createDefaultSSEHandler());
+      getH3App(nitroApp).use(sseRoute, createDefaultSSEHandler());
     }
 
     // File sync status (deprecated but kept for backward compat)
     if (!options.disableFileSync) {
-      (nitroApp.h3App || nitroApp._h3).use(
+      getH3App(nitroApp).use(
         `${P}/file-sync/status`,
         defineEventHandler(() => defaultSyncStatusHandler()),
       );
@@ -96,7 +97,7 @@ export function createCoreRoutesPlugin(
 
     // Ping
     if (!options.disablePing) {
-      (nitroApp.h3App || nitroApp._h3).use(
+      getH3App(nitroApp).use(
         `${P}/ping`,
         defineEventHandler(() => ({
           message: process.env.PING_MESSAGE ?? "pong",
@@ -109,7 +110,7 @@ export function createCoreRoutesPlugin(
       const envKeys = options.envKeys;
       const allowedKeys = new Set(envKeys.map((k) => k.key));
 
-      (nitroApp.h3App || nitroApp._h3).use(
+      getH3App(nitroApp).use(
         `${P}/env-status`,
         defineEventHandler(() =>
           envKeys.map((cfg) => ({
@@ -121,7 +122,7 @@ export function createCoreRoutesPlugin(
         ),
       );
 
-      (nitroApp.h3App || nitroApp._h3).use(
+      getH3App(nitroApp).use(
         `${P}/env-vars`,
         defineEventHandler(async (event: H3Event) => {
           if (getMethod(event) !== "POST") {
@@ -176,7 +177,7 @@ export function createCoreRoutesPlugin(
         .get("/:id", getComposeDraft)
         .put("/:id", putComposeDraft)
         .delete("/:id", deleteComposeDraft);
-      (nitroApp.h3App || nitroApp._h3).use(
+      getH3App(nitroApp).use(
         `${P}/application-state/compose`,
         composeRouter.handler,
       );
@@ -186,7 +187,7 @@ export function createCoreRoutesPlugin(
         .get("/:key", getState)
         .put("/:key", putState)
         .delete("/:key", deleteState);
-      (nitroApp.h3App || nitroApp._h3).use(`${P}/application-state`, appStateRouter.handler);
+      getH3App(nitroApp).use(`${P}/application-state`, appStateRouter.handler);
     }
   };
 }
