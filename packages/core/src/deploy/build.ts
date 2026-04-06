@@ -366,6 +366,14 @@ async function buildCloudflarePages() {
     /import\s*["']node:([^"']+)["']/g,
     (_, mod) => `import"${mod}"`,
   );
+  // Patch createRequire(import.meta.url) — import.meta.url is undefined in CF Workers.
+  // React Router's server build uses createRequire for CJS compat. Replace it with a
+  // stub that returns our require shim (which is already injected via the banner).
+  workerCode = workerCode.replace(
+    /\bimport\s*\{\s*createRequire\s+as\s+(\w+)\s*\}\s*from\s*["']module["']\s*;/g,
+    "var $1 = function() { return function(m) { throw new Error('require not supported: ' + m); }; };",
+  );
+
   fs.writeFileSync(entryFile, workerCode);
 
   // Report size
