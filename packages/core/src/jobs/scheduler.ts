@@ -79,16 +79,14 @@ export function parseJobFrontmatter(content: string): {
   return { meta, body };
 }
 
-export function buildJobContent(
-  meta: JobFrontmatter,
-  body: string,
-): string {
+export function buildJobContent(meta: JobFrontmatter, body: string): string {
   const lines = [`---`];
   lines.push(`schedule: "${meta.schedule}"`);
   lines.push(`enabled: ${meta.enabled}`);
   if (meta.lastRun) lines.push(`lastRun: ${meta.lastRun}`);
   if (meta.lastStatus) lines.push(`lastStatus: ${meta.lastStatus}`);
-  if (meta.lastError) lines.push(`lastError: "${meta.lastError.replace(/"/g, '\\"')}"`);
+  if (meta.lastError)
+    lines.push(`lastError: "${meta.lastError.replace(/"/g, '\\"')}"`);
   if (meta.nextRun) lines.push(`nextRun: ${meta.nextRun}`);
   lines.push(`---`);
   lines.push("");
@@ -112,9 +110,7 @@ let _isRunning = false;
  * Process all due recurring jobs. Called every 60 seconds.
  * Sequential execution with 5-minute timeout per job.
  */
-export async function processRecurringJobs(
-  deps: SchedulerDeps,
-): Promise<void> {
+export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
   // Prevent concurrent runs
   if (_isRunning) return;
   _isRunning = true;
