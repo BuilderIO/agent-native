@@ -1162,12 +1162,31 @@ function TabSettingsPopover({
     "forums",
     "personal",
   ]);
+  // Ensure all known Gmail categories always appear (some are virtual, not from API)
+  const knownCategories: Label[] = [
+    {
+      id: "note-to-self",
+      name: "Note to Self",
+      type: "system",
+      unreadCount: 0,
+    },
+    { id: "promotions", name: "Promotions", type: "system", unreadCount: 0 },
+    { id: "social", name: "Social", type: "system", unreadCount: 0 },
+    { id: "updates", name: "Updates", type: "system", unreadCount: 0 },
+    { id: "forums", name: "Forums", type: "system", unreadCount: 0 },
+  ];
+  const apiCategories = userLabels.filter((l) => gmailCategoryIds.has(l.id));
+  const apiCategoryIds = new Set(apiCategories.map((l) => l.id));
+  const mergedCategories = [
+    ...apiCategories,
+    ...knownCategories.filter((c) => !apiCategoryIds.has(c.id)),
+  ];
   const allLabels = search
     ? userLabels.filter((l) => l.name.toLowerCase().includes(q))
     : userLabels;
-  const filteredCategories = allLabels.filter((l) =>
-    gmailCategoryIds.has(l.id),
-  );
+  const filteredCategories = search
+    ? mergedCategories.filter((l) => l.name.toLowerCase().includes(q))
+    : mergedCategories;
   const filteredLabels = allLabels.filter((l) => !gmailCategoryIds.has(l.id));
 
   // Sort: pinned first, then alphabetical
