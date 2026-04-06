@@ -39,9 +39,8 @@ packages/docs/app/components/searchIndex.ts
 build/
 .output/
 .deploy-tmp/
+deno.lock
 
-# Ralph Loop runtime state
-ralph-loop.local.md
 .builder/plans/
 
 # Local Netlify folder
