@@ -71,11 +71,18 @@ switch (command) {
   }
 
   case "build": {
-    // Nitro 3's Vite plugin handles client + SSR + server builds.
-    // Always use `vite build` — Nitro orchestrates all environments.
-    const vite = findViteBin();
-    console.log("Building...");
-    execSync(`${vite} build`, { stdio: "inherit" });
+    // React Router framework mode uses `react-router build` which
+    // internally runs `vite build` with proper environment orchestration.
+    // Legacy SPA mode uses `vite build` directly.
+    if (isReactRouterFramework()) {
+      const rr = findReactRouterBin();
+      console.log("Building (React Router framework mode)...");
+      execSync(`${rr} build`, { stdio: "inherit" });
+    } else {
+      const vite = findViteBin();
+      console.log("Building...");
+      execSync(`${vite} build`, { stdio: "inherit" });
+    }
 
     // Post-build: bundle for deployment target if NITRO_PRESET is set
     const preset = process.env.NITRO_PRESET;

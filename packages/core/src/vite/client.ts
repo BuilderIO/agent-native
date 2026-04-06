@@ -323,39 +323,20 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
       baseRedirectGuard(),
       portExposer(),
       rolldownInputFix(),
-      nitroVitePlugin({
-        serverDir: "./server",
-        output: {
-          publicDir: "build/client",
-          serverDir: "build/server",
-          dir: "build",
-        },
-        experimental: {
-          vite: {
-            // Tell Nitro about our SSR entry so it doesn't auto-detect
-            // React Router's virtual module (which it can't resolve)
-            services: {
-              ssr: {
-                entry: fs.existsSync(path.join(cwd, "ssr-entry.ts"))
-                  ? path.resolve(cwd, "ssr-entry.ts")
-                  : path.resolve(
-                      __dirname,
-                      "../templates/default/ssr-entry.ts",
-                    ),
-              },
-            },
-          },
-        },
-        ...(options.nitro ?? {}),
-      } as any),
+      // Nitro Vite plugin for dev-mode API route serving and HMR.
+      // Disabled during build — React Router's build handles production
+      // bundling, and deploy/build.ts handles deployment presets.
+      ...(process.argv.includes("build")
+        ? []
+        : [
+            nitroVitePlugin({
+              serverDir: "./server",
+              ...(options.nitro ?? {}),
+            } as any),
+          ]),
       reactPluginInstance,
       ...(options.plugins ?? []),
     ].filter(Boolean),
-    environments: {
-      client: {
-        build: { outDir: "build/client" },
-      },
-    },
     optimizeDeps: {
       include: [
         "@tabler/icons-react",
