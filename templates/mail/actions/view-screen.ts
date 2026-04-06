@@ -59,8 +59,9 @@ async function fetchEmailList(
   _label?: string,
 ): Promise<any[]> {
   try {
-    if (await isConnected()) {
-      const clients = await getClients();
+    const ownerEmail = process.env.AGENT_USER_EMAIL || "local@localhost";
+    if (await isConnected(ownerEmail)) {
+      const clients = await getClients(ownerEmail);
       const labelMap = new Map<string, string>();
       await Promise.all(
         clients.map(async ({ accessToken }) => {
@@ -76,6 +77,7 @@ async function fetchEmailList(
       const { messages } = await listGmailMessages(
         gmailQuery || "in:inbox",
         50,
+        ownerEmail,
       );
 
       return messages

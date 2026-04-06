@@ -154,6 +154,48 @@ export const getEvent = defineEventHandler(async (event: H3Event) => {
           source: "google",
           googleEventId: evt.id || undefined,
           accountEmail: acctEmail,
+          attendees: evt.attendees?.map((a: any) => ({
+            email: a.email,
+            displayName: a.displayName || undefined,
+            responseStatus: a.responseStatus || undefined,
+            organizer: a.organizer || undefined,
+            self: a.self || undefined,
+          })),
+          reminders: evt.reminders?.overrides?.map((r: any) => ({
+            method: r.method,
+            minutes: r.minutes,
+          })),
+          recurrence: evt.recurrence || undefined,
+          recurringEventId: evt.recurringEventId || undefined,
+          hangoutLink: evt.hangoutLink || undefined,
+          conferenceData: evt.conferenceData
+            ? {
+                entryPoints: evt.conferenceData.entryPoints?.map((ep: any) => ({
+                  entryPointType: ep.entryPointType,
+                  uri: ep.uri,
+                  label: ep.label || undefined,
+                  pin: ep.pin || undefined,
+                  passcode: ep.passcode || undefined,
+                })),
+                conferenceSolution: evt.conferenceData.conferenceSolution
+                  ? {
+                      name: evt.conferenceData.conferenceSolution.name,
+                      iconUri:
+                        evt.conferenceData.conferenceSolution.iconUri ||
+                        undefined,
+                    }
+                  : undefined,
+              }
+            : undefined,
+          attachments: evt.attachments?.map((a: any) => ({
+            fileUrl: a.fileUrl,
+            title: a.title || "Untitled",
+            mimeType: a.mimeType || undefined,
+            iconLink: a.iconLink || undefined,
+            fileId: a.fileId || undefined,
+          })),
+          visibility: evt.visibility || undefined,
+          status: evt.status || undefined,
           organizer: evt.organizer
             ? {
                 email: evt.organizer.email,

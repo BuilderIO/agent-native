@@ -292,7 +292,7 @@ export function calendarGetEvent(
   eventId: string,
 ) {
   return googleFetch(
-    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}${qs({ supportsAttachments: true })}`,
     accessToken,
   );
 }
@@ -327,7 +327,7 @@ export function calendarListEvents(
   } = {},
 ) {
   return googleFetch(
-    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events${qs(params)}`,
+    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events${qs({ ...params, supportsAttachments: true })}`,
     accessToken,
   );
 }

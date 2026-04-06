@@ -126,26 +126,19 @@ export async function exchangeCode(
 }
 
 export async function getClient(
-  email?: string,
+  email: string | undefined,
 ): Promise<{ accessToken: string } | null> {
-  const accounts = await listOAuthAccounts("google");
+  if (!email) return null;
+  const accounts = await listOAuthAccountsByOwner("google", email);
   if (accounts.length === 0) return null;
 
-  let account: (typeof accounts)[number] | undefined;
-  if (email) {
-    account =
-      accounts.find((a) => a.accountId === email) ??
-      accounts.find((a) => a.owner === email);
-    if (!account) return null;
-  } else {
-    account = accounts[0];
-  }
+  const account = accounts.find((a) => a.accountId === email) ?? accounts[0];
 
   const tokens = account.tokens as unknown as GoogleTokens;
   const accessToken = await getValidAccessToken(
     account.accountId,
     tokens,
-    account.owner ?? account.accountId,
+    email,
   );
   return { accessToken };
 }
@@ -182,8 +175,12 @@ export async function isConnected(forEmail?: string): Promise<boolean> {
   return isOAuthConnected("google", forEmail);
 }
 
-export async function getConnectedAccounts(): Promise<string[]> {
-  const accounts = await listOAuthAccounts("google");
+export async function getConnectedAccounts(
+  forEmail?: string,
+): Promise<string[]> {
+  const accounts = forEmail
+    ? await listOAuthAccountsByOwner("google", forEmail)
+    : await listOAuthAccounts("google");
   return accounts.map((a) => a.accountId);
 }
 
@@ -294,6 +291,13 @@ export async function listEvents(
                     : undefined,
                 }
               : undefined,
+            attachments: event.attachments?.map((a: any) => ({
+              fileUrl: a.fileUrl,
+              title: a.title || "Untitled",
+              mimeType: a.mimeType || undefined,
+              iconLink: a.iconLink || undefined,
+              fileId: a.fileId || undefined,
+            })),
             visibility: event.visibility || undefined,
             status: event.status || undefined,
             organizer: event.organizer

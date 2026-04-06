@@ -38,6 +38,7 @@ export async function processJobs(): Promise<{ result: string }> {
         await sendScheduledEmail(
           JSON.parse(job.payload) as SendLaterPayload,
           acctEmail,
+          ownerEmail || undefined,
         );
       }
       await markJobDone(job.id);

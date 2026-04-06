@@ -12,6 +12,7 @@ import {
   IconEdit,
   IconLayoutSidebarRightCollapse,
   IconExternalLink,
+  IconFileText,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -167,6 +168,35 @@ export function EventDetailPanel({
                       </p>
                     );
                   })()}
+
+                {/* Attachments */}
+                {event.attachments && event.attachments.length > 0 && (
+                  <div className="space-y-1">
+                    {event.attachments.map((att, i) => (
+                      <a
+                        key={i}
+                        href={att.fileUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm hover:bg-muted/50 group"
+                      >
+                        {att.iconLink ? (
+                          <img
+                            src={att.iconLink}
+                            alt=""
+                            className="h-4 w-4 shrink-0"
+                          />
+                        ) : (
+                          <IconFileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        )}
+                        <span className="truncate text-foreground">
+                          {att.title}
+                        </span>
+                        <IconExternalLink className="ml-auto h-3 w-3 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" />
+                      </a>
+                    ))}
+                  </div>
+                )}
 
                 {/* Attendees */}
                 {event.attendees && event.attendees.length > 0 && (

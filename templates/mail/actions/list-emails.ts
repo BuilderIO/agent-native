@@ -78,9 +78,10 @@ export async function run(args: Record<string, string>): Promise<string> {
   const query = args.q;
   const limit = args.limit ? parseInt(args.limit, 10) : 50;
   const compact = args.compact !== "false";
+  const ownerEmail = process.env.AGENT_USER_EMAIL || "local@localhost";
 
-  if (await isConnected()) {
-    const clients = await getClients();
+  if (await isConnected(ownerEmail)) {
+    const clients = await getClients(ownerEmail);
     const labelMap = new Map<string, string>();
     await Promise.all(
       clients.map(async ({ accessToken }) => {
@@ -96,6 +97,7 @@ export async function run(args: Record<string, string>): Promise<string> {
     const { messages, errors } = await listGmailMessages(
       gmailQuery || "in:inbox",
       limit,
+      ownerEmail,
     );
 
     if (errors.length > 0 && messages.length === 0) {
@@ -196,9 +198,10 @@ export default async function main(): Promise<void> {
   const query = args.q;
   const limit = args.limit ? parseInt(args.limit, 10) : 50;
   const compact = args.compact === "true";
+  const ownerEmail = process.env.AGENT_USER_EMAIL || "local@localhost";
 
-  if (await isConnected()) {
-    const clients = await getClients();
+  if (await isConnected(ownerEmail)) {
+    const clients = await getClients(ownerEmail);
     const labelMap = new Map<string, string>();
     await Promise.all(
       clients.map(async ({ accessToken }) => {
@@ -215,6 +218,7 @@ export default async function main(): Promise<void> {
     const { messages, errors } = await listGmailMessages(
       gmailQuery || "in:inbox",
       limit,
+      ownerEmail,
     );
 
     if (errors.length > 0 && messages.length === 0) {
