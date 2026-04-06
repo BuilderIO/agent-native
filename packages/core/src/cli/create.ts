@@ -379,9 +379,12 @@ function fetchLatestNpmVersion(pkgName: string): Promise<string | null> {
           res.on("end", () => {
             try {
               const tags: Record<string, string> = JSON.parse(data);
+              if (!Object.keys(tags).length) return resolve(null);
+              // Prefer the explicit "latest" tag — it always points to the
+              // stable release. Only fall back to numeric sorting when the
+              // registry omits it (rare, private registries).
+              if (tags["latest"]) return resolve(tags["latest"]);
               const versions = Object.values(tags);
-              if (!versions.length) return resolve(null);
-              // Pick the version with the highest major.minor.patch
               versions.sort((a, b) => {
                 const [aMaj, aMin, aPat] = a
                   .split("-")[0]
