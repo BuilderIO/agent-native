@@ -220,6 +220,15 @@ async function initClient(): Promise<void> {
     authToken: getDatabaseAuthToken(),
   });
 
+  // Enable WAL mode for local SQLite to prevent SQLITE_BUSY errors
+  // when multiple processes access the same database concurrently
+  if (url.startsWith("file:") || url.endsWith(".db")) {
+    try {
+      await client.execute("PRAGMA journal_mode = WAL");
+      await client.execute("PRAGMA busy_timeout = 5000");
+    } catch {}
+  }
+
   _exec = {
     async execute(sql) {
       if (typeof sql === "string") {
