@@ -55,7 +55,7 @@ export function useResources(scope: ResourceScope = "personal") {
       const data = await fetchJson<{ resources: ResourceMeta[] }>(
         `/_agent-native/resources?scope=${scope}`,
       );
-      return data.resources;
+      return data.resources ?? [];
     },
   });
 }
@@ -67,7 +67,7 @@ export function useResourceTree(scope: ResourceScope = "personal") {
       const data = await fetchJson<{ tree: TreeNode[] }>(
         `/_agent-native/resources/tree?scope=${scope}`,
       );
-      return data.tree;
+      return data.tree ?? [];
     },
   });
 }

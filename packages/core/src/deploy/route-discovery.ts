@@ -116,6 +116,7 @@ export const DEFAULT_PLUGIN_REGISTRY: Record<string, string> = {
   auth: "defaultAuthPlugin",
   "core-routes": "defaultCoreRoutesPlugin",
   "file-sync": "defaultFileSyncPlugin",
+  integrations: "defaultIntegrationsPlugin",
   resources: "defaultResourcesPlugin",
   terminal: "defaultTerminalPlugin",
 };

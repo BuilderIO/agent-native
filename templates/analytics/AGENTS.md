@@ -167,6 +167,14 @@ pnpm action hubspot-deals --grep="enterprise" --fields=dealname,amount,stageLabe
 3. **Update skills directly** when you discover new gotchas or patterns.
 4. **Learn from corrections** — capture in the relevant skill or LEARNINGS.md resource.
 
+## UI Components
+
+**Always use shadcn/ui components** from `app/components/ui/` for all standard UI patterns (dialogs, popovers, dropdowns, tooltips, buttons, etc). Never build custom modals or dropdowns with absolute/fixed positioning — use the shadcn primitives instead.
+
+**Always use Tabler Icons** (`@tabler/icons-react`) for all icons. Never use other icon libraries.
+
+**Never use browser dialogs** (`window.confirm`, `window.alert`, `window.prompt`) — use shadcn AlertDialog instead.
+
 ## TypeScript Everywhere
 
 All code must be TypeScript (`.ts`). Never create `.js`, `.cjs`, or `.mjs` files. Use ESM imports.

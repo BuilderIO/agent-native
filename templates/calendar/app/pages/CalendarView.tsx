@@ -44,11 +44,18 @@ import { PeopleSearchDialog } from "@/components/calendar/PeopleSearchDialog";
 import { EventDetailPanel } from "@/components/calendar/EventDetailPanel";
 import { DeleteEventDialog } from "@/components/calendar/DeleteEventDialog";
 import { useCalendarContext } from "@/components/layout/AppLayout";
-import { useEvents, useUpdateEvent, useDeleteEvent } from "@/hooks/use-events";
+import {
+  useEvents,
+  useCreateEvent,
+  useUpdateEvent,
+  useDeleteEvent,
+} from "@/hooks/use-events";
 import { useOverlayPeople } from "@/hooks/use-overlay-people";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
+import { useQueryClient } from "@tanstack/react-query";
 import { AgentToggleButton } from "@agent-native/core/client";
 import { toast } from "sonner";
+import { setUndoAction, runUndo } from "@/hooks/use-undo";
 import type { CalendarEvent } from "@shared/api";
 
 import type { ViewMode } from "@/components/layout/AppLayout";
@@ -73,11 +80,15 @@ export default function CalendarView() {
     focusedEvent,
   } = useCalendarContext();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [createDefaultStart, setCreateDefaultStart] = useState<string>();
+  const [createDefaultEnd, setCreateDefaultEnd] = useState<string>();
+  const [quickEditEventId, setQuickEditEventId] = useState<string | null>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
   const [deleteDialogEvent, setDeleteDialogEvent] =
     useState<CalendarEvent | null>(null);
 
+  const queryClient = useQueryClient();
   const googleStatus = useGoogleAuthStatus();
   const { data: overlayPeople = [] } = useOverlayPeople();
   const overlayEmails = useMemo(
@@ -85,6 +96,7 @@ export default function CalendarView() {
     [overlayPeople],
   );
   const isGoogleConnected = googleStatus.data?.connected ?? false;
+  const createEvent = useCreateEvent();
   const updateEvent = useUpdateEvent();
   const deleteEvent = useDeleteEvent();
 
@@ -182,6 +194,20 @@ export default function CalendarView() {
       ev.attendees && ev.attendees.filter((a) => !a.self).length > 0;
     const removeOnly = !isOrganizer && !!hasOtherAttendees;
 
+    // Snapshot for undo
+    const snapshot = { ...ev };
+    const undo = () => {
+      createEvent.mutate({
+        title: snapshot.title,
+        description: snapshot.description ?? "",
+        location: snapshot.location ?? "",
+        start: snapshot.start,
+        end: snapshot.end,
+        allDay: snapshot.allDay ?? false,
+        color: snapshot.color,
+      });
+    };
+
     deleteEvent.mutate(
       {
         id: ev.id,
@@ -191,8 +217,11 @@ export default function CalendarView() {
       },
       {
         onSuccess: () => {
-          toast.success(`Event ${removeOnly ? "removed" : "deleted"}`);
           if (sidebarEvent?.id === ev.id) setSidebarEvent(null);
+          setUndoAction(undo);
+          toast(`Event ${removeOnly ? "removed" : "deleted"}`, {
+            action: { label: "Undo", onClick: undo },
+          });
         },
         onError: () => toast.error("Failed to delete event"),
       },
@@ -215,6 +244,8 @@ export default function CalendarView() {
     const event = events.find((e) => e.id === eventId);
     if (!event) return;
 
+    const oldStartISO = event.start;
+    const oldEndISO = event.end;
     const originalStart = parseISO(event.start);
     const originalEnd = parseISO(event.end);
     const newStart = new Date(originalStart);
@@ -231,6 +262,10 @@ export default function CalendarView() {
       newDate.getDate(),
     );
 
+    const undo = () => {
+      updateEvent.mutate({ id: eventId, start: oldStartISO, end: oldEndISO });
+    };
+
     updateEvent.mutate(
       {
         id: eventId,
@@ -238,7 +273,12 @@ export default function CalendarView() {
         end: newEnd.toISOString(),
       },
       {
-        onSuccess: () => toast.success("Event moved"),
+        onSuccess: () => {
+          setUndoAction(undo);
+          toast("Event moved", {
+            action: { label: "Undo", onClick: undo },
+          });
+        },
         onError: () => toast.error("Failed to move event"),
       },
     );
@@ -252,13 +292,18 @@ export default function CalendarView() {
   ) {
     // Skip no-op drags (dropped back in same spot)
     const event = events.find((e) => e.id === eventId);
-    if (event) {
-      const oldStart = parseISO(event.start).getTime();
-      const oldEnd = parseISO(event.end).getTime();
-      if (oldStart === newStart.getTime() && oldEnd === newEnd.getTime()) {
-        return;
-      }
+    if (!event) return;
+    const oldStart = parseISO(event.start).getTime();
+    const oldEnd = parseISO(event.end).getTime();
+    if (oldStart === newStart.getTime() && oldEnd === newEnd.getTime()) {
+      return;
     }
+
+    const oldStartISO = event.start;
+    const oldEndISO = event.end;
+    const undo = () => {
+      updateEvent.mutate({ id: eventId, start: oldStartISO, end: oldEndISO });
+    };
 
     updateEvent.mutate(
       {
@@ -267,10 +312,75 @@ export default function CalendarView() {
         end: newEnd.toISOString(),
       },
       {
-        onSuccess: () => toast.success("Event updated"),
+        onSuccess: () => {
+          setUndoAction(undo);
+          toast("Event updated", {
+            action: { label: "Undo", onClick: undo },
+          });
+        },
         onError: () => toast.error("Failed to update event"),
       },
     );
+  }
+
+  function handleClickTimeSlot(
+    clickedDate: Date,
+    startTime: string,
+    endTime: string,
+  ) {
+    const dateStr = format(clickedDate, "yyyy-MM-dd");
+    const startISO = new Date(`${dateStr}T${startTime}:00`).toISOString();
+    const endISO = new Date(`${dateStr}T${endTime}:00`).toISOString();
+    const tempId = `temp-${Date.now()}`;
+
+    createEvent.mutate(
+      {
+        title: "(No title)",
+        description: "",
+        location: "",
+        start: startISO,
+        end: endISO,
+        allDay: false,
+        _tempId: tempId,
+      },
+      {
+        onSuccess: (result) => {
+          // Synchronously swap the optimistic temp event for the real one
+          // in the cache so the inline input stays mounted when we update
+          // quickEditEventId to the real ID.
+          const { _tempId, ...realEvent } = result;
+          queryClient.setQueriesData<CalendarEvent[]>(
+            { queryKey: ["events"] },
+            (old) =>
+              old?.map((e) => (e.id === _tempId ? { ...e, ...realEvent } : e)),
+          );
+          setQuickEditEventId(realEvent.id);
+        },
+        onError: () => {
+          setQuickEditEventId(null);
+          toast.error("Failed to create event");
+        },
+      },
+    );
+
+    // Immediately show inline editor on the optimistic event
+    setQuickEditEventId(tempId);
+  }
+
+  function handleQuickEditSave(eventId: string, title: string) {
+    setQuickEditEventId(null);
+    if (title.trim() && title.trim() !== "(No title)") {
+      updateEvent.mutate({ id: eventId, title: title.trim() });
+    }
+  }
+
+  function handleQuickEditCancel(eventId: string) {
+    setQuickEditEventId(null);
+    // Delete the event if title was never set
+    const ev = events.find((e) => e.id === eventId);
+    if (!ev || ev.title === "(No title)") {
+      deleteEvent.mutate({ id: eventId, scope: "single", sendUpdates: "none" });
+    }
   }
 
   // IconKeyboard shortcuts — don't fire when user is typing in an input
@@ -316,6 +426,10 @@ export default function CalendarView() {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
 
       switch (e.key) {
+        case "z":
+          e.preventDefault();
+          runUndo();
+          break;
         case "j":
         case "n":
           e.preventDefault();
@@ -343,6 +457,8 @@ export default function CalendarView() {
           break;
         case "c":
           e.preventDefault();
+          setCreateDefaultStart(undefined);
+          setCreateDefaultEnd(undefined);
           setCreateDialogOpen(true);
           break;
         case "/":
@@ -535,8 +651,16 @@ export default function CalendarView() {
 
               <CreateEventPopover
                 open={createDialogOpen}
-                onOpenChange={setCreateDialogOpen}
+                onOpenChange={(open) => {
+                  setCreateDialogOpen(open);
+                  if (!open) {
+                    setCreateDefaultStart(undefined);
+                    setCreateDefaultEnd(undefined);
+                  }
+                }}
                 defaultDate={selectedDate}
+                defaultStartTime={createDefaultStart}
+                defaultEndTime={createDefaultEnd}
               />
               <AgentToggleButton />
             </div>
@@ -563,6 +687,10 @@ export default function CalendarView() {
                 onEditEvent={handleEditEvent}
                 onDeleteEvent={handleDeleteEvent}
                 onEventTimeChange={handleEventTimeChange}
+                onClickTimeSlot={handleClickTimeSlot}
+                quickEditEventId={quickEditEventId}
+                onQuickEditSave={handleQuickEditSave}
+                onQuickEditCancel={handleQuickEditCancel}
                 isLoading={eventsLoading}
               />
             )}
@@ -573,6 +701,10 @@ export default function CalendarView() {
                 onEditEvent={handleEditEvent}
                 onDeleteEvent={handleDeleteEvent}
                 onEventTimeChange={handleEventTimeChange}
+                onClickTimeSlot={handleClickTimeSlot}
+                quickEditEventId={quickEditEventId}
+                onQuickEditSave={handleQuickEditSave}
+                onQuickEditCancel={handleQuickEditCancel}
                 isLoading={eventsLoading}
               />
             )}
@@ -620,16 +752,31 @@ export default function CalendarView() {
           onClose={() => setDeleteDialogEvent(null)}
           onConfirm={(options) => {
             if (!deleteDialogEvent) return;
+            const snapshot = { ...deleteDialogEvent };
+            const undo = () => {
+              createEvent.mutate({
+                title: snapshot.title,
+                description: snapshot.description ?? "",
+                location: snapshot.location ?? "",
+                start: snapshot.start,
+                end: snapshot.end,
+                allDay: snapshot.allDay ?? false,
+                color: snapshot.color,
+              });
+            };
             deleteEvent.mutate(
               { id: deleteDialogEvent.id, ...options },
               {
                 onSuccess: () => {
                   const label = options.removeOnly ? "removed" : "deleted";
-                  toast.success(`Event ${label}`);
                   setDeleteDialogEvent(null);
                   if (sidebarEvent?.id === deleteDialogEvent.id) {
                     setSidebarEvent(null);
                   }
+                  setUndoAction(undo);
+                  toast(`Event ${label}`, {
+                    action: { label: "Undo", onClick: undo },
+                  });
                 },
                 onError: () => toast.error("Failed to delete event"),
               },

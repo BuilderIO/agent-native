@@ -156,6 +156,14 @@ When generating outbound content (deck slides, marketing copy), consult **`data/
 | PUT    | `/api/decks/:id` | Update a deck     |
 | DELETE | `/api/decks/:id` | Delete a deck     |
 
+## UI Components
+
+**Always use shadcn/ui components** from `app/components/ui/` for all standard UI patterns (dialogs, popovers, dropdowns, tooltips, buttons, etc). Never build custom modals or dropdowns with absolute/fixed positioning — use the shadcn primitives instead.
+
+**Always use Tabler Icons** (`@tabler/icons-react`) for all icons. Never use other icon libraries.
+
+**Never use browser dialogs** (`window.confirm`, `window.alert`, `window.prompt`) — use shadcn AlertDialog instead.
+
 ## Development
 
 For code editing and development guidance, read `DEVELOPING.md`.

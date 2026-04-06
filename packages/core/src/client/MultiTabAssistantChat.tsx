@@ -305,14 +305,15 @@ export function MultiTabAssistantChat({
   });
   const initializedRef = useRef(false);
 
-  // Persist open tab IDs to localStorage
+  // Persist open tab IDs to localStorage (exclude sub-agent tabs — they're session-only)
   useEffect(() => {
-    if (openTabIds.length > 0) {
+    const mainTabs = openTabIds.filter((id) => !parentMap[id]);
+    if (mainTabs.length > 0) {
       try {
-        localStorage.setItem(OPEN_TABS_KEY, JSON.stringify(openTabIds));
+        localStorage.setItem(OPEN_TABS_KEY, JSON.stringify(mainTabs));
       } catch {}
     }
-  }, [openTabIds]);
+  }, [openTabIds, parentMap]);
 
   // Initialize open tabs once threads load — validate saved tabs still exist
   useEffect(() => {
@@ -320,16 +321,29 @@ export function MultiTabAssistantChat({
       return;
     initializedRef.current = true;
     const threadIds = new Set(threads.map((t) => t.id));
+
+    // If the active thread is a sub-agent, switch to its parent or the most recent main thread
+    if (parentMap[activeThreadId]) {
+      const parent = parentMap[activeThreadId];
+      if (parent && threadIds.has(parent)) {
+        switchThread(parent);
+      } else {
+        // Fall back to most recent main thread
+        const mainThread = threads.find((t) => !parentMap[t.id]);
+        if (mainThread) switchThread(mainThread.id);
+      }
+    }
+
     setOpenTabIds((prev) => {
-      // Filter out any saved tabs that no longer exist
-      const valid = prev.filter((id) => threadIds.has(id));
-      // Ensure active thread is included
-      if (!valid.includes(activeThreadId)) {
+      // Filter out any saved tabs that no longer exist, and any sub-agent tabs
+      const valid = prev.filter((id) => threadIds.has(id) && !parentMap[id]);
+      // Ensure active thread is included (only if it's not a sub-agent)
+      if (!parentMap[activeThreadId] && !valid.includes(activeThreadId)) {
         valid.push(activeThreadId);
       }
       return valid.length > 0 ? valid : [activeThreadId];
     });
-  }, [activeThreadId, threads]);
+  }, [activeThreadId, threads, parentMap, switchThread]);
 
   // Ensure active thread is always in open tabs.
   // Use functional update to check inside the setter — avoids race with the

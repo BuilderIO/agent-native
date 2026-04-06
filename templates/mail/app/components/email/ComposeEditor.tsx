@@ -6,10 +6,26 @@ import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import { ComposeImageNode } from "./extensions/ComposeImageNode";
 import { common, createLowlight } from "lowlight";
 import { Markdown } from "tiptap-markdown";
-import { useEffect, useRef, useImperativeHandle, forwardRef } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useImperativeHandle,
+  forwardRef,
+} from "react";
 import { ComposeSlashMenu } from "./ComposeSlashMenu";
 import { ComposeBubbleToolbar } from "./ComposeBubbleToolbar";
 import { CodeBlockLangPicker } from "./CodeBlockLangPicker";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 const lowlight = createLowlight(common);
 
@@ -129,6 +145,21 @@ export const ComposeEditor = forwardRef<
     }
   }, [content, editor]);
 
+  const [showLinkDialog, setShowLinkDialog] = useState(false);
+  const [linkUrl, setLinkUrl] = useState("");
+
+  const applyLink = () => {
+    if (!editor || !linkUrl.trim()) return;
+    editor
+      .chain()
+      .focus()
+      .extendMarkRange("link")
+      .setLink({ href: linkUrl.trim() })
+      .run();
+    setLinkUrl("");
+    setShowLinkDialog(false);
+  };
+
   useImperativeHandle(ref, () => ({
     toggleBold: () => {
       editor?.chain().focus().toggleBold().run();
@@ -142,15 +173,8 @@ export const ComposeEditor = forwardRef<
         editor.chain().focus().unsetLink().run();
         return;
       }
-      const url = window.prompt("Enter URL:");
-      if (url) {
-        editor
-          .chain()
-          .focus()
-          .extendMarkRange("link")
-          .setLink({ href: url })
-          .run();
-      }
+      setLinkUrl("");
+      setShowLinkDialog(true);
     },
     isActive: (name: string) => editor?.isActive(name) ?? false,
     getEditor: () => editor,
@@ -169,6 +193,35 @@ export const ComposeEditor = forwardRef<
       <ComposeSlashMenu editor={editor} onGenerate={onGenerate} />
       <CodeBlockLangPicker editor={editor} />
       <EditorContent editor={editor} />
+
+      <Dialog open={showLinkDialog} onOpenChange={setShowLinkDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Insert link</DialogTitle>
+            <DialogDescription>Enter the URL for the link.</DialogDescription>
+          </DialogHeader>
+          <Input
+            autoFocus
+            value={linkUrl}
+            onChange={(e) => setLinkUrl(e.target.value)}
+            placeholder="https://example.com"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                applyLink();
+              }
+            }}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowLinkDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={applyLink} disabled={!linkUrl.trim()}>
+              Apply
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 });

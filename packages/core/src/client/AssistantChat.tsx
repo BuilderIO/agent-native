@@ -27,6 +27,7 @@ import {
 } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { createAgentChatAdapter } from "./agent-chat-adapter.js";
 import { type ContentPart, readSSEStreamRaw } from "./sse-event-processor.js";
 import { cn } from "./utils.js";
@@ -98,7 +99,11 @@ function MarkdownText() {
     injectMarkdownStyles();
   }, []);
   return (
-    <MarkdownTextPrimitive smooth className="agent-markdown break-words" />
+    <MarkdownTextPrimitive
+      smooth
+      className="agent-markdown break-words"
+      remarkPlugins={[remarkGfm]}
+    />
   );
 }
 
@@ -342,7 +347,9 @@ function ToolCallFallback({
           ref={streamRef}
           className="mt-1 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground break-words max-h-48 overflow-y-auto agent-markdown prose prose-sm prose-invert max-w-none"
         >
-          <ReactMarkdown>{agentStreamText}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            {agentStreamText}
+          </ReactMarkdown>
         </div>
       )}
       {isExpanded && !isAgentCall && result !== undefined && (
@@ -472,7 +479,9 @@ function ReconnectStreamToolCall({
           ref={streamRef}
           className="mt-1 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground break-words max-h-48 overflow-y-auto agent-markdown prose prose-sm prose-invert max-w-none"
         >
-          <ReactMarkdown>{agentStreamText}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            {agentStreamText}
+          </ReactMarkdown>
         </div>
       )}
       {isExpanded && !isAgentCall && result !== undefined && (
@@ -763,10 +772,10 @@ function AssistantMessage() {
 // ─── Thinking Indicator ─────────────────────────────────────────────────────
 
 function ThinkingIndicator() {
-  const [dots, setDots] = useState(1);
+  const [dots, setDots] = useState(0);
   useEffect(() => {
     const interval = setInterval(() => {
-      setDots((d) => (d % 3) + 1);
+      setDots((d) => (d + 1) % 4);
     }, 400);
     return () => clearInterval(interval);
   }, []);
@@ -986,7 +995,7 @@ const AssistantChatInner = forwardRef<
   const scrollRef = useRef<HTMLDivElement>(null);
   const thread = useThread();
   const threadRuntime = useThreadRuntime();
-  const isRunning = thread.isRunning;
+  const isRuntimeRunning = thread.isRunning;
   const messages = thread.messages;
   const [missingApiKey, setMissingApiKey] = useState(false);
   const [queuedMessages, setQueuedMessages] = useState<
@@ -995,6 +1004,9 @@ const AssistantChatInner = forwardRef<
   const [showContinue, setShowContinue] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [reconnectContent, setReconnectContent] = useState<ContentPart[]>([]);
+  const reconnectRunIdRef = useRef<string | null>(null);
+  // Treat reconnecting to an active run the same as running for UI purposes
+  const isRunning = isRuntimeRunning || isReconnecting;
   const wasRunningRef = useRef(false);
   const tiptapRef = useRef<TiptapComposerHandle>(null);
 
@@ -1044,8 +1056,15 @@ const AssistantChatInner = forwardRef<
             if (runRes.ok) {
               const runInfo = await runRes.json();
               // Agent is still running — subscribe to live SSE stream
+              reconnectRunIdRef.current = runInfo.runId;
               setIsReconnecting(true);
               setReconnectContent([]);
+              // Signal tab running indicator
+              window.dispatchEvent(
+                new CustomEvent("builder.chatRunning", {
+                  detail: { isRunning: true, tabId: tabId || threadId },
+                }),
+              );
 
               const streamReconnect = async () => {
                 try {
@@ -1106,6 +1125,13 @@ const AssistantChatInner = forwardRef<
                 } catch {}
                 setReconnectContent([]);
                 setIsReconnecting(false);
+                reconnectRunIdRef.current = null;
+                // Signal tab stopped
+                window.dispatchEvent(
+                  new CustomEvent("builder.chatRunning", {
+                    detail: { isRunning: false, tabId: tabId || threadId },
+                  }),
+                );
               };
               streamReconnect();
             }
@@ -1464,11 +1490,10 @@ const AssistantChatInner = forwardRef<
                 </button>
               </div>
             )}
-            {isRunning && <ThinkingIndicator />}
-            {isReconnecting && !isRunning && reconnectContent.length > 0 && (
+            {isReconnecting && reconnectContent.length > 0 && (
               <ReconnectStreamMessage content={reconnectContent} />
             )}
-            {isReconnecting && !isRunning && reconnectContent.length === 0 && (
+            {isRunning && !(isReconnecting && reconnectContent.length > 0) && (
               <ThinkingIndicator />
             )}
             {queuedMessages.map((msg, i) => (
@@ -1539,7 +1564,17 @@ const AssistantChatInner = forwardRef<
             actionButton={
               isRunning ? (
                 <button
-                  onClick={() => threadRuntime.cancelRun()}
+                  onClick={() => {
+                    if (isReconnecting && reconnectRunIdRef.current) {
+                      // Abort the server-side run directly
+                      fetch(
+                        `${apiUrl}/runs/${encodeURIComponent(reconnectRunIdRef.current)}/abort`,
+                        { method: "POST" },
+                      );
+                    } else {
+                      threadRuntime.cancelRun();
+                    }
+                  }}
                   className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90"
                   title="Stop generating"
                 >

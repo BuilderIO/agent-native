@@ -1,5 +1,13 @@
-import { useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
 import type { CalendarEvent, DeleteEventScope } from "@shared/api";
 
 interface DeleteEventDialogProps {
@@ -21,25 +29,6 @@ export function DeleteEventDialog({
   onConfirm,
   isPending,
 }: DeleteEventDialogProps) {
-  // Close on Escape
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        e.stopPropagation();
-        onClose();
-      }
-    },
-    [onClose],
-  );
-
-  useEffect(() => {
-    if (open) {
-      window.addEventListener("keydown", handleKeyDown, true);
-      return () => window.removeEventListener("keydown", handleKeyDown, true);
-    }
-  }, [open, handleKeyDown]);
-
   if (!event || !open) return null;
 
   const isOrganizer = getIsOrganizer(event);
@@ -56,19 +45,17 @@ export function DeleteEventDialog({
   }
 
   return (
-    <>
-      {/* Transparent backdrop — click to dismiss */}
-      <div className="fixed inset-0 z-50" onClick={onClose} />
-
-      {/* Popover card */}
-      <div className="fixed left-1/2 top-1/2 z-50 w-[340px] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-popover p-5 shadow-xl animate-in fade-in-0 zoom-in-95">
-        <p className="mb-1 text-sm font-semibold text-foreground">
-          This is a recurring event
-        </p>
-        <p className="mb-4 text-sm text-muted-foreground">
-          Would you like to {isRemoveOnly ? "remove" : "delete"} just this
-          event, this and all following events, or all events in the series?
-        </p>
+    <AlertDialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+      <AlertDialogContent className="max-w-[340px]">
+        <AlertDialogHeader>
+          <AlertDialogTitle className="text-sm">
+            This is a recurring event
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            Would you like to {isRemoveOnly ? "remove" : "delete"} just this
+            event, this and all following events, or all events in the series?
+          </AlertDialogDescription>
+        </AlertDialogHeader>
 
         <div className="space-y-1.5">
           <Button
@@ -96,8 +83,12 @@ export function DeleteEventDialog({
             All events
           </Button>
         </div>
-      </div>
-    </>
+
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={isPending}>Cancel</AlertDialogCancel>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 

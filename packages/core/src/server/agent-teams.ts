@@ -175,12 +175,15 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
   let accumulatedText = "";
   let lastPreviewSent = 0;
   const PREVIEW_INTERVAL_MS = 300; // Throttle preview updates to every 300ms
+  // Gate to prevent sendPreviewUpdate from overwriting terminal status
+  let runFinished = false;
 
   startRun(
     runId,
     thread.id,
     async (send, signal) => {
       const sendPreviewUpdate = async (force = false) => {
+        if (runFinished) return; // Don't overwrite completed/errored status
         const now = Date.now();
         if (!force && now - lastPreviewSent < PREVIEW_INTERVAL_MS) return;
         lastPreviewSent = now;
@@ -224,6 +227,9 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
     },
     // onComplete callback — called when the run finishes (success or error)
     async (run) => {
+      // Prevent any in-flight sendPreviewUpdate from overwriting terminal status
+      runFinished = true;
+
       if (run.status === "errored") {
         task.status = "errored";
         task.summary = accumulatedText.slice(-500) || "Task failed.";
