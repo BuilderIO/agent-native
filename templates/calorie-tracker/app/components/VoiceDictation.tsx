@@ -1,14 +1,21 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { IconMicrophone, IconMicrophoneOff } from "@tabler/icons-react";
+import {
+  IconMicrophone,
+  IconMicrophoneOff,
+  IconLoader2,
+} from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { sendToAgentChat } from "@agent-native/core/client";
+import {
+  sendToAgentChat,
+  useAgentChatGenerating,
+} from "@agent-native/core/client";
 
 interface VoiceDictationProps {
   currentDate: Date;
 }
 
-type VoiceState = "idle" | "listening";
+type VoiceState = "idle" | "listening" | "processing";
 
 export function VoiceDictation({ currentDate }: VoiceDictationProps) {
   const [state, setState] = useState<VoiceState>("idle");
@@ -21,12 +28,25 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
     ("SpeechRecognition" in window ||
       "webkitSpeechRecognition" in (window as any));
 
+  const [isGenerating] = useAgentChatGenerating();
+
+  // When agent finishes processing a voice command, go back to idle
+  useEffect(() => {
+    if (state === "processing" && !isGenerating) {
+      setState("idle");
+      setTranscript("");
+    }
+  }, [isGenerating, state]);
+
   // Track sidebar open state to shift mic button out of the way
   const [sidebarOpen, setSidebarOpen] = useState(false);
   useEffect(() => {
     const check = () => {
-      const panel = document.querySelector(".agent-sidebar-panel");
-      setSidebarOpen(!!panel && panel.getBoundingClientRect().width > 0);
+      // Small delay so the sidebar has time to render/unmount
+      requestAnimationFrame(() => {
+        const panel = document.querySelector(".agent-sidebar-panel");
+        setSidebarOpen(!!panel && panel.getBoundingClientRect().width > 0);
+      });
     };
     check();
     window.addEventListener("agent-panel:toggle", check);
@@ -38,10 +58,13 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
   }, []);
 
   const processCommand = useCallback((text: string) => {
+    setState("processing");
     sendToAgentChat({ message: text, submit: true });
-    toast.success("Sent to assistant", { description: `"${text}"` });
-    setState("idle");
-    setTranscript("");
+    // Timeout fallback in case the chatRunning event never fires
+    setTimeout(() => {
+      setState((s) => (s === "processing" ? "idle" : s));
+      setTranscript("");
+    }, 30000);
   }, []);
 
   const startListening = useCallback(() => {
@@ -72,7 +95,7 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
 
     recognition.onstart = () => setState("listening");
 
-    recognition.onresult = (event) => {
+    recognition.onresult = (event: any) => {
       const current = event.resultIndex;
       const result = event.results[current];
       const transcriptText = result[0].transcript;
@@ -87,7 +110,7 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
       }
     };
 
-    recognition.onerror = (event) => {
+    recognition.onerror = (event: any) => {
       console.error("Speech recognition error:", event.error);
       if (!isProcessingRef.current) {
         setState("idle");
@@ -149,17 +172,23 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
         sidebarOpen ? "md:right-[400px]" : "md:right-6",
       )}
     >
-      {state === "listening" && (
+      {(state === "listening" || state === "processing") && (
         <div className="animate-in fade-in slide-in-from-bottom-2 duration-200">
           <div className="bg-card/95 backdrop-blur-xl border border-white/10 rounded-2xl px-4 py-3 shadow-2xl max-w-[300px] md:max-w-[250px]">
             <div className="flex items-center gap-2">
-              <div className="flex gap-1">
-                <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse" />
-                <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse delay-75" />
-                <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse delay-150" />
-              </div>
-              <span className="text-sm text-muted-foreground">
-                {transcript || "Listening..."}
+              {state === "listening" ? (
+                <div className="flex gap-1">
+                  <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse" />
+                  <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse delay-75" />
+                  <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse delay-150" />
+                </div>
+              ) : (
+                <IconLoader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
+              )}
+              <span className="text-sm text-muted-foreground truncate">
+                {state === "processing"
+                  ? `"${transcript}"`
+                  : transcript || "Listening..."}
               </span>
             </div>
           </div>
@@ -168,6 +197,7 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
 
       <button
         onClick={handleClick}
+        disabled={state === "processing"}
         className={cn(
           "relative flex items-center justify-center",
           "w-16 h-16 md:w-12 md:h-12 rounded-full",
@@ -178,6 +208,8 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
             "bg-gradient-to-br from-primary to-primary/80 hover:scale-105 active:scale-95",
           state === "listening" &&
             "bg-gradient-to-br from-red-500 to-red-600 scale-110",
+          state === "processing" &&
+            "bg-gradient-to-br from-primary/50 to-primary/30 cursor-wait",
         )}
       >
         {state === "listening" && (
@@ -191,6 +223,9 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
         )}
         {state === "listening" && (
           <IconMicrophoneOff className="h-7 w-7 md:h-5 md:w-5 text-white" />
+        )}
+        {state === "processing" && (
+          <IconLoader2 className="h-7 w-7 md:h-5 md:w-5 text-primary-foreground animate-spin" />
         )}
       </button>
 

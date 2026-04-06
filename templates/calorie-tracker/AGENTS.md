@@ -83,13 +83,18 @@ Always run `view-screen` first to understand what the user is looking at.
 
 ## Voice Commands
 
-When users speak via the microphone button, their transcribed text is sent to the agent chat. Parse their natural language to determine the action:
+Voice input comes from speech-to-text and is often imperfect. Be fast and direct:
 
-- **ADD**: "breakfast 400 calories", "ran for 30 min 300 calories", "I weigh 165"
-- **EDIT**: "change the salad to 700", "update breakfast to 500"
-- **DELETE**: "delete the pizza", "remove lunch"
+- **"lunch 550"** → just log it: `log-meal --name Lunch --calories 550`. Don't ask for clarification.
+- **"lunch 5:50"** or **"lunch 5 50"** → transcription artifact, means 550 calories. Colons/spaces in numbers are speech-to-text errors.
+- **"bagel 350"** → log it immediately as a meal.
+- **"ran 30 min 300 burned"** → `log-exercise --name Running --calories_burned 300 --duration_minutes 30`
+- **"I weigh 165"** → `log-weight --weight 165`
+- **Multiple items**: "lunch 500 and a run 300 burned" → log both.
+- **EDIT**: "change the salad to 700" → find it, update it.
+- **DELETE**: "delete the pizza" → find it, delete it.
 
-Handle multiple items in one command. For weight entries, require explicit weight-related keywords.
+**Rules**: Never ask for clarification on obvious intent. Respond with one short confirmation line, not a paragraph.
 
 ## UI Components
 
