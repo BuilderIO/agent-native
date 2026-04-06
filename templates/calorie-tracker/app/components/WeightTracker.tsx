@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { IconScale } from "@tabler/icons-react";
+import { IconScale, IconAlertTriangle } from "@tabler/icons-react";
 import { apiFetch } from "@/lib/api";
 import { formatLocalDate } from "@/lib/utils";
 import { AddWeightDialog } from "./AddWeightDialog";
@@ -30,7 +30,11 @@ export function WeightTracker({ currentDate }: WeightTrackerProps) {
     },
   });
 
-  const { data: weights, isLoading } = useQuery<Weight[]>({
+  const {
+    data: weights,
+    isLoading,
+    isError,
+  } = useQuery<Weight[]>({
     queryKey: ["weights", dateStr],
     queryFn: () => apiFetch(`/api/weights?date=${dateStr}`),
   });
@@ -61,6 +65,13 @@ export function WeightTracker({ currentDate }: WeightTrackerProps) {
       <div className="space-y-2">
         {isLoading ? (
           <Skeleton className="h-16 w-full rounded-xl" />
+        ) : isError ? (
+          <div className="flex flex-col items-center justify-center py-12 text-center rounded-2xl bg-red-500/[0.03] border border-dashed border-red-500/20">
+            <div className="p-3 rounded-full bg-red-500/10 mb-3">
+              <IconAlertTriangle className="h-5 w-5 text-red-400/70" />
+            </div>
+            <p className="text-sm text-red-400/80">Failed to load weight</p>
+          </div>
         ) : !todayWeight ? (
           <div className="flex flex-col items-center justify-center py-12 text-center rounded-2xl bg-white/[0.02] border border-dashed border-white/[0.06]">
             <div className="p-3 rounded-full bg-blue-500/10 mb-3">

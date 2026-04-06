@@ -111,7 +111,7 @@ importers:
         version: 10.2.5
       nitro:
         specifier: 3.0.260311-beta
-        version: 3.0.260311-beta(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@libsql/client@0.15.15)(better-sqlite3@12.8.0)(chokidar@4.0.3)(dotenv@17.4.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.8.0)(postgres@3.4.8))(giget@3.2.0)(ioredis@5.10.1)(jiti@1.21.7)(lru-cache@11.2.7)(rollup@4.60.1)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@1.21.7)(terser@5.46.1)(tsx@4.21.0))
+        version: 3.0.260311-beta(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@libsql/client@0.15.15)(better-sqlite3@12.8.0)(chokidar@4.0.3)(dotenv@17.4.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.8.0)(postgres@3.4.8))(ioredis@5.10.1)(jiti@1.21.7)(lru-cache@11.2.7)(rollup@4.60.1)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@1.21.7)(terser@5.46.1)(tsx@4.21.0))
       p-limit:
         specifier: ^7.3.0
         version: 7.3.0
@@ -9005,10 +9005,6 @@ packages:
     resolution: {integrity: sha512-VilgtJj/ALgGY77fiLam5iD336eSWi96Q15JSAG1zi8NRBysm3LXKdGnHb4m5cuyxvOLQQKWpBZAT6ni4FI2iQ==}
     engines: {node: '>=6'}
 
-  giget@3.2.0:
-    resolution: {integrity: sha512-GvHTWcykIR/fP8cj8dMpuMMkvaeJfPvYnhq0oW+chSeIr+ldX21ifU2Ms6KBoyKZQZmVaUAAhQ2EZ68KJF8a7A==}
-    hasBin: true
-
   github-from-package@0.0.0:
     resolution: {integrity: sha512-SyHy3T1v2NUXn29OsWdxmK6RwHD+vkj3v8en8AOBZ1wBQ/hCAQ5bAQTD02kW4W9tUp/3Qh6J8r9EvntiyCmOOw==}
 
@@ -12769,7 +12765,7 @@ snapshots:
       '@babel/types': 7.29.0
       '@jridgewell/gen-mapping': 0.3.13
       '@jridgewell/trace-mapping': 0.3.31
-      jsesc: 3.0.2
+      jsesc: 3.1.0
 
   '@babel/helper-annotate-as-pure@7.27.3':
     dependencies:
@@ -19973,9 +19969,6 @@ snapshots:
 
   getenv@2.0.0: {}
 
-  giget@3.2.0:
-    optional: true
-
   github-from-package@0.0.0: {}
 
   glob-parent@5.1.2:
@@ -21650,7 +21643,7 @@ snapshots:
 
   nf3@0.3.16: {}
 
-  nitro@3.0.260311-beta(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@libsql/client@0.15.15)(better-sqlite3@12.8.0)(chokidar@4.0.3)(dotenv@17.4.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.8.0)(postgres@3.4.8))(giget@3.2.0)(ioredis@5.10.1)(jiti@1.21.7)(lru-cache@11.2.7)(rollup@4.60.1)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@1.21.7)(terser@5.46.1)(tsx@4.21.0)):
+  nitro@3.0.260311-beta(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@libsql/client@0.15.15)(better-sqlite3@12.8.0)(chokidar@4.0.3)(dotenv@17.4.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.8.0)(postgres@3.4.8))(ioredis@5.10.1)(jiti@1.21.7)(lru-cache@11.2.7)(rollup@4.60.1)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@1.21.7)(terser@5.46.1)(tsx@4.21.0)):
     dependencies:
       consola: 3.4.2
       crossws: 0.4.4(srvx@0.11.15)
@@ -21668,7 +21661,6 @@ snapshots:
       unstorage: 2.0.0-alpha.7(chokidar@4.0.3)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.8.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.8.0)(postgres@3.4.8)))(ioredis@5.10.1)(lru-cache@11.2.7)(ofetch@2.0.0-alpha.3)
     optionalDependencies:
       dotenv: 17.4.0
-      giget: 3.2.0
       jiti: 1.21.7
       rollup: 4.60.1
       vite: 8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@1.21.7)(terser@5.46.1)(tsx@4.21.0)

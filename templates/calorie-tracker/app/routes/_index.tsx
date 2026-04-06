@@ -7,6 +7,7 @@ import {
   IconPlus,
   IconToolsKitchen2,
   IconBarbell,
+  IconAlertTriangle,
 } from "@tabler/icons-react";
 import { apiFetch } from "@/lib/api";
 import { formatLocalDate } from "@/lib/utils";
@@ -40,17 +41,23 @@ export default function IndexPage() {
     }).catch(() => {});
   }, [dateStr]);
 
-  const { data: meals, isLoading: mealsLoading } = useQuery<Meal[]>({
+  const {
+    data: meals,
+    isLoading: mealsLoading,
+    isError: mealsError,
+  } = useQuery<Meal[]>({
     queryKey: ["meals", dateStr],
     queryFn: () => apiFetch(`/api/meals?date=${dateStr}`),
   });
 
-  const { data: exercises, isLoading: exercisesLoading } = useQuery<Exercise[]>(
-    {
-      queryKey: ["exercises", dateStr],
-      queryFn: () => apiFetch(`/api/exercises?date=${dateStr}`),
-    },
-  );
+  const {
+    data: exercises,
+    isLoading: exercisesLoading,
+    isError: exercisesError,
+  } = useQuery<Exercise[]>({
+    queryKey: ["exercises", dateStr],
+    queryFn: () => apiFetch(`/api/exercises?date=${dateStr}`),
+  });
 
   const deleteMealMutation = useMutation({
     mutationFn: (id: number) =>
@@ -89,6 +96,7 @@ export default function IndexPage() {
 
   const GOAL_CALORIES = 2000;
   const isLoading = mealsLoading || exercisesLoading;
+  const hasError = mealsError || exercisesError;
 
   return (
     <div className="min-h-screen pb-32 relative z-10">
@@ -125,6 +133,20 @@ export default function IndexPage() {
 
         {/* Daily Summary Hero */}
         <section className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+          {hasError && (
+            <div className="mb-4 flex items-center gap-3 rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3">
+              <IconAlertTriangle className="h-5 w-5 shrink-0 text-red-400" />
+              <div>
+                <p className="text-sm font-medium text-red-400">
+                  Unable to load data
+                </p>
+                <p className="text-xs text-red-400/70">
+                  Could not connect to the database. Check your DATABASE_URL
+                  configuration.
+                </p>
+              </div>
+            </div>
+          )}
           {isLoading ? (
             <Skeleton className="h-[280px] w-full rounded-2xl" />
           ) : (
@@ -167,6 +189,15 @@ export default function IndexPage() {
                   <Skeleton className="h-16 w-full rounded-xl" />
                   <Skeleton className="h-16 w-full rounded-xl" />
                 </>
+              ) : mealsError ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center rounded-2xl bg-red-500/[0.03] border border-dashed border-red-500/20">
+                  <div className="p-3 rounded-full bg-red-500/10 mb-3">
+                    <IconAlertTriangle className="h-5 w-5 text-red-400/70" />
+                  </div>
+                  <p className="text-sm text-red-400/80">
+                    Failed to load meals
+                  </p>
+                </div>
               ) : meals?.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-center rounded-2xl bg-white/[0.02] border border-dashed border-white/[0.06]">
                   <div className="p-3 rounded-full bg-emerald-500/10 mb-3">
@@ -222,6 +253,15 @@ export default function IndexPage() {
             <div className="space-y-2">
               {isLoading ? (
                 <Skeleton className="h-16 w-full rounded-xl" />
+              ) : exercisesError ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center rounded-2xl bg-red-500/[0.03] border border-dashed border-red-500/20">
+                  <div className="p-3 rounded-full bg-red-500/10 mb-3">
+                    <IconAlertTriangle className="h-5 w-5 text-red-400/70" />
+                  </div>
+                  <p className="text-sm text-red-400/80">
+                    Failed to load exercises
+                  </p>
+                </div>
               ) : exercises?.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-center rounded-2xl bg-white/[0.02] border border-dashed border-white/[0.06]">
                   <div className="p-3 rounded-full bg-orange-500/10 mb-3">

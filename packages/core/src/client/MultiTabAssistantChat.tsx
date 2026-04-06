@@ -747,7 +747,7 @@ export function MultiTabAssistantChat({
     if (!tabs.some((t) => t.id === id)) {
       tabs.push({
         id,
-        label: subAgentNames[id] || "Sub-agent...",
+        label: subAgentNames[id] || (parentMap[id] ? "Sub-agent..." : "New chat"),
         status: "running" as const,
         parentThreadId: parentMap[id],
         subAgentName: subAgentNames[id],

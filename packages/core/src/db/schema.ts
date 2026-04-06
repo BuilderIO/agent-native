@@ -21,12 +21,14 @@ import {
   sqliteTable,
   text as sqliteText,
   integer as sqliteInteger,
+  real as sqliteReal,
 } from "drizzle-orm/sqlite-core";
 import {
   pgTable,
   text as pgText,
   integer as pgInteger,
   boolean as pgBoolean,
+  doublePrecision as pgDoublePrecision,
 } from "drizzle-orm/pg-core";
 import { getDialect } from "./client.js";
 
@@ -63,6 +65,15 @@ export const integer: typeof sqliteInteger = ((...args: any[]) => {
   }
   return pg() ? (pgInteger as any)(...args) : (sqliteInteger as any)(...args);
 }) as any;
+
+/**
+ * Real/float column.
+ * Maps to `real` on SQLite and `double precision` on Postgres.
+ */
+export const real: typeof sqliteReal = ((...args: any[]) =>
+  pg()
+    ? (pgDoublePrecision as any)(...args)
+    : (sqliteReal as any)(...args)) as any;
 
 /**
  * Dialect-agnostic "current timestamp" SQL expression.

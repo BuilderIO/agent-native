@@ -103,20 +103,6 @@ export const searchIndex: SearchEntry[] = [
   {
     "page": "A2A Protocol",
     "path": "/docs/a2a-protocol",
-    "section": "Agent mentions",
-    "sectionId": "agent-mentions",
-    "text": "You can @ -mention agents directly in the chat composer. When you mention an agent, the server makes an A2A call to that agent and weaves the response into your conversation context. This is the easiest way to use A2A — no code required, just type @ and select an agent. See Agent Mentions for..."
-  },
-  {
-    "page": "A2A Protocol",
-    "path": "/docs/a2a-protocol",
-    "section": "Messaging integrations",
-    "sectionId": "messaging-integrations",
-    "text": "Agents can also be reached from external messaging platforms like Slack, Telegram, and WhatsApp. Users send messages on those platforms and the agent responds in the same thread, using the same tools and actions as the web chat. See Integrations for setup details on each platform."
-  },
-  {
-    "page": "A2A Protocol",
-    "path": "/docs/a2a-protocol",
     "section": "Example: cross-agent query",
     "sectionId": "example",
     "text": "A mail agent needs analytics data. The analytics agent exposes a \"run-query\" skill via A2A: The analytics agent receives the message, runs the query via its handler, and returns the result. The mail agent's script gets the text response back. No shared database, no direct API calls — just..."
@@ -169,48 +155,6 @@ export const searchIndex: SearchEntry[] = [
     "section": "Utility Functions",
     "sectionId": "utility-functions",
     "text": "Function Returns Description > ))} ); }"
-  },
-  {
-    "page": "Agent Mentions",
-    "path": "/docs/agent-mentions",
-    "section": "Overview",
-    "sectionId": "overview",
-    "text": "The @ -mention system connects the chat composer to the broader agent ecosystem. When you type @ , a popover appears listing available agents, codebase files, and resources. Selecting an agent sends a cross-agent request via the A2A protocol , and the response is embedded directly in the..."
-  },
-  {
-    "page": "Agent Mentions",
-    "path": "/docs/agent-mentions",
-    "section": "Mentioning agents",
-    "sectionId": "mentioning-agents",
-    "text": "To mention an agent in the chat composer: Type @ to open the mention popover Browse or search the list of available agents Select an agent — it appears as a tag in your message Send the message — the server calls the mentioned agent via A2A and includes its response in the conversation context The..."
-  },
-  {
-    "page": "Agent Mentions",
-    "path": "/docs/agent-mentions",
-    "section": "How it works",
-    "sectionId": "how-it-works",
-    "text": "When a message containing an @ -mention is sent, the following happens on the server: The server extracts mention references from the message For each mentioned agent, an A2A call is made to that agent's endpoint The agent's response is wrapped in an &lt;agent-response&gt; XML block and injected..."
-  },
-  {
-    "page": "Agent Mentions",
-    "path": "/docs/agent-mentions",
-    "section": "Adding agents",
-    "sectionId": "adding-agents",
-    "text": "Agents become available for mentioning through several mechanisms: Auto-discovery — the framework automatically discovers agents running on known ports or configured URLs Resources panel — add agent manifests as agents/*.json files in the resources panel Environment variables — configure agent URLs..."
-  },
-  {
-    "page": "Agent Mentions",
-    "path": "/docs/agent-mentions",
-    "section": "Custom mention providers",
-    "sectionId": "custom-mention-providers",
-    "text": "Templates can register custom mention providers to add domain-specific mentionable items beyond agents and files. A mention provider implements the MentionProvider interface: ()); }, // Resolve a mention into context for the agent async resolve(id: string) ); return (\\$)\\`, }; }, };`} /> Register..."
-  },
-  {
-    "page": "Agent Mentions",
-    "path": "/docs/agent-mentions",
-    "section": "Referencing files",
-    "sectionId": "referencing-files",
-    "text": "The @ popover is not limited to agents. You can also reference: Codebase files — type @ and search for a filename. The file contents are included in the agent's context so it can read, analyze, or modify the file. Resources — reference resources defined in the resources panel. These can be data..."
   },
   {
     "page": "CLI Adapters",
@@ -652,76 +596,6 @@ export const searchIndex: SearchEntry[] = [
     "section": "How It Works",
     "sectionId": "how-it-works",
     "text": "The framework provides type-safe APIs so you never deal with raw messaging: Agent chat — use sendToAgentChat() to send messages to the agent Generation state — use useAgentChatGenerating() to track when the agent is running File watching — SSE endpoint keeps UI in sync when the agent modifies files..."
-  },
-  {
-    "page": "Integrations",
-    "path": "/docs/integrations",
-    "section": "Overview",
-    "sectionId": "overview",
-    "text": "Messaging integrations let users talk to their agent from the platforms they already use. Instead of opening the web UI, you send a message in Slack or Telegram and the agent responds right there. It has access to the same actions, the same database, and the same conversation history as the web..."
-  },
-  {
-    "page": "Integrations",
-    "path": "/docs/integrations",
-    "section": "How it works",
-    "sectionId": "how-it-works",
-    "text": "The flow for every platform follows the same pattern: A user sends a message on the external platform (Slack, Telegram, etc.) The platform delivers the message to your app via a webhook at /_agent-native/integrations/&lt;platform&gt;/webhook The integrations plugin validates the request, extracts..."
-  },
-  {
-    "page": "Integrations",
-    "path": "/docs/integrations",
-    "section": "Setup",
-    "sectionId": "setup",
-    "text": "The integrations plugin auto-mounts when no custom version exists in your template. To customize it, create a plugin file: The plugin registers webhook routes for each enabled platform under /_agent-native/integrations/ . Which platforms are active depends on which environment variables are..."
-  },
-  {
-    "page": "Integrations",
-    "path": "/docs/integrations",
-    "section": "Slack",
-    "sectionId": "slack",
-    "text": "1. Create a Slack app Go to api.slack.com/apps and create a new app. Under OAuth &amp; Permissions , add the following bot token scopes: chat:write — send messages app_mentions:read — receive @-mentions (optional) 2. Enable Event Subscriptions Under Event Subscriptions , set the Request URL to:..."
-  },
-  {
-    "page": "Integrations",
-    "path": "/docs/integrations",
-    "section": "Telegram",
-    "sectionId": "telegram",
-    "text": "1. Create a bot Message @BotFather on Telegram and use the /newbot command. You will receive a bot token. 2. Set environment variables 3. Register the webhook After deploying your app, call the setup endpoint to register the webhook with Telegram: You can also register the webhook manually using..."
-  },
-  {
-    "page": "Integrations",
-    "path": "/docs/integrations",
-    "section": "WhatsApp",
-    "sectionId": "whatsapp",
-    "text": "1. Set up the WhatsApp Cloud API Go to the Meta Developer Portal , create an app, and enable the WhatsApp product. Configure a phone number for your business. 2. Set environment variables The verify token is a string you choose — Meta uses it during webhook verification. The access token and phone..."
-  },
-  {
-    "page": "Integrations",
-    "path": "/docs/integrations",
-    "section": "Configuration",
-    "sectionId": "configuration",
-    "text": "Integrations can be managed from the settings UI in the sidebar. Each platform shows its connection status and webhook URL. You can enable/disable individual integrations without removing environment variables. The webhook URLs follow a consistent pattern:"
-  },
-  {
-    "page": "Integrations",
-    "path": "/docs/integrations",
-    "section": "Thread continuity",
-    "sectionId": "thread-continuity",
-    "text": "Conversations from external platforms are mapped to internal threads. Each Slack DM, Telegram chat, or WhatsApp conversation becomes a persistent thread in the agent-native database. This means: The agent retains context across messages in the same external conversation External conversations..."
-  },
-  {
-    "page": "Integrations",
-    "path": "/docs/integrations",
-    "section": "Custom adapters",
-    "sectionId": "custom-adapters",
-    "text": "To add support for a new messaging platform, implement the PlatformAdapter interface: Register your adapter in the integrations plugin config:"
-  },
-  {
-    "page": "Integrations",
-    "path": "/docs/integrations",
-    "section": "Security",
-    "sectionId": "security",
-    "text": "Every incoming webhook is verified before processing: Slack — HMAC-SHA256 signature verification using SLACK_SIGNING_SECRET . The X-Slack-Signature header is checked against the request body. Telegram — requests are validated by checking the secret token set during webhook registration via the..."
   },
   {
     "page": "Key Concepts",

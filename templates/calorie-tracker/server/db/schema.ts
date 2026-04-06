@@ -1,9 +1,4 @@
-import { table, text, integer } from "@agent-native/core/db/schema";
-import { real } from "drizzle-orm/sqlite-core";
-
-// NOTE: `real` from sqlite-core limits this schema to SQLite. This is acceptable
-// for local dev (the default). For Postgres deployments, use drizzle-kit push
-// with a Postgres-compatible schema or store decimals as integer (x10).
+import { table, text, integer, real } from "@agent-native/core/db/schema";
 
 export const meals = table("meals", {
   id: integer("id").primaryKey(),

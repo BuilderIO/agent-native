@@ -6,7 +6,10 @@ import {
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { sendToAgentChat } from "@agent-native/core/client";
+import {
+  sendToAgentChat,
+  useAgentChatGenerating,
+} from "@agent-native/core/client";
 
 interface VoiceDictationProps {
   currentDate: Date;
@@ -25,20 +28,53 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
     ("SpeechRecognition" in window ||
       "webkitSpeechRecognition" in (window as any));
 
-  const processCommand = useCallback(async (text: string) => {
-    setState("processing");
-    try {
-      // Send to agent chat - the agent will parse and execute
-      sendToAgentChat({ message: text, submit: true });
-      toast.success("Sent to assistant", { description: `"${text}"` });
-    } catch (error) {
-      console.error("Error sending voice command:", error);
-      toast.error("Failed to process voice command");
-    } finally {
+  const [isGenerating, sendToAgent] = useAgentChatGenerating();
+
+  // Track sidebar open state to shift mic button out of the way
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  useEffect(() => {
+    const check = () => {
+      const panel = document.querySelector(".agent-sidebar-panel");
+      setSidebarOpen(!!panel && panel.getBoundingClientRect().width > 0);
+    };
+    check();
+    window.addEventListener("agent-panel:toggle", check);
+    window.addEventListener("agent-panel:open", check);
+    return () => {
+      window.removeEventListener("agent-panel:toggle", check);
+      window.removeEventListener("agent-panel:open", check);
+    };
+  }, []);
+
+  // When agent finishes generating, go back to idle
+  useEffect(() => {
+    if (state === "processing" && !isGenerating) {
       setState("idle");
       setTranscript("");
+      toast.success("Done");
     }
-  }, []);
+  }, [isGenerating, state]);
+
+  const processCommand = useCallback(
+    async (text: string) => {
+      setState("processing");
+      try {
+        sendToAgent({ message: text, submit: true });
+        // Timeout fallback — if sidebar is closed or event never fires,
+        // don't leave the mic stuck in processing forever
+        setTimeout(() => {
+          setState((s) => (s === "processing" ? "idle" : s));
+          setTranscript((t) => (t ? "" : t));
+        }, 15000);
+      } catch (error) {
+        console.error("Error sending voice command:", error);
+        toast.error("Failed to process voice command");
+        setState("idle");
+        setTranscript("");
+      }
+    },
+    [sendToAgent],
+  );
 
   const startListening = useCallback(() => {
     if (!isSupported) {
@@ -139,7 +175,12 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
   if (!isSupported) return null;
 
   return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 md:left-auto md:right-6 md:translate-x-0 z-50 flex flex-col items-center gap-2">
+    <div
+      className={cn(
+        "fixed bottom-6 left-1/2 -translate-x-1/2 md:left-auto md:translate-x-0 z-50 flex flex-col items-center gap-2 transition-[right] duration-300",
+        sidebarOpen ? "md:right-[400px]" : "md:right-6",
+      )}
+    >
       {(state === "listening" || state === "processing") && (
         <div className="animate-in fade-in slide-in-from-bottom-2 duration-200">
           <div className="bg-card/95 backdrop-blur-xl border border-white/10 rounded-2xl px-4 py-3 shadow-2xl max-w-[300px] md:max-w-[250px]">

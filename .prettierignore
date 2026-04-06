@@ -6,5 +6,4 @@ pnpm-lock.yaml
 **/SKILL.md
 **/routeTree.gen.ts
 **/.react-router
-# Generated file — formatting flips between runs
 packages/docs/app/components/searchIndex.ts
