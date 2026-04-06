@@ -393,7 +393,8 @@ function nfmLinesToHtml(lines: string[]): string {
 
   let baseIndent = Infinity;
   for (const line of lines) {
-    if (!line.trim()) continue;
+    const t = line.trim();
+    if (!t || /^<empty-block\b[^>]*\/>$/.test(t)) continue;
     baseIndent = Math.min(baseIndent, countLineIndent(line).indent);
   }
   if (!isFinite(baseIndent)) baseIndent = 0;
@@ -433,7 +434,10 @@ function nfmLinesToHtml(lines: string[]): string {
     }
 
     if (!trimmed || /^<empty-block\b[^>]*\/>$/.test(trimmed)) {
-      closeLists();
+      // Skip blank/empty-block lines without closing open lists.
+      // The list closes when a non-list line appears (or at EOF).
+      // This prevents loose-list blank lines from splitting a single
+      // <ul> into multiple <ul> elements that degrade on each cycle.
       continue;
     }
 
@@ -463,7 +467,7 @@ function nfmLinesToHtml(lines: string[]): string {
         html.push("</li>");
       }
       while (openLevels < target) {
-        html.push("<ul>");
+        html.push('<ul data-tight="true">');
         openLevels++;
       }
 

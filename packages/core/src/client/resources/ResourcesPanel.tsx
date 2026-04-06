@@ -7,6 +7,8 @@ import {
   IconTrash,
   IconEye,
   IconCode,
+  IconRobot,
+  IconClock,
 } from "@tabler/icons-react";
 import { cn } from "../utils.js";
 import { sendToAgentChat } from "../agent-chat.js";
@@ -204,6 +206,124 @@ Keep the skill concise (under 500 lines) and actionable.`,
   );
 }
 
+// ─── New Job Popover ────────────────────────────────────────────────────────
+
+function NewJobPopover({ scope }: { scope: ResourceScope }) {
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState("");
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (open) {
+      setValue("");
+      const t = setTimeout(() => inputRef.current?.focus(), 50);
+      return () => clearTimeout(t);
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (
+        popoverRef.current &&
+        !popoverRef.current.contains(e.target as Node) &&
+        buttonRef.current &&
+        !buttonRef.current.contains(e.target as Node)
+      ) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [open]);
+
+  const submit = () => {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+
+    sendToAgentChat({
+      message: `Create a recurring job: ${trimmed}`,
+      context: `The user wants to create a recurring job. Their description: "${trimmed}"
+
+Use the create-job tool to create this. You need to:
+1. Derive a hyphen-case name from the description
+2. Convert the schedule to a cron expression (e.g., "every weekday at 9am" → "0 9 * * 1-5")
+3. Write clear, self-contained instructions for what the agent should do each time the job runs
+4. Create it in ${scope} scope
+
+The job will run automatically on the schedule. Make the instructions specific — include which actions to call and what to do with results.`,
+      submit: true,
+    });
+
+    setOpen(false);
+  };
+
+  return (
+    <div className="relative">
+      <button
+        ref={buttonRef}
+        onClick={() => setOpen(!open)}
+        className={cn(
+          "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50",
+          open && "bg-accent/50 text-foreground",
+        )}
+        title="Create a recurring job"
+      >
+        <IconClock className="h-3.5 w-3.5" />
+      </button>
+      {open && (
+        <div
+          ref={popoverRef}
+          className="absolute right-0 top-full mt-1.5 z-[220] rounded-lg border border-border bg-popover p-3 shadow-lg"
+          style={{ width: 280, fontSize: 13, lineHeight: "normal" }}
+        >
+          <label className="mb-1 block text-[11px] font-semibold text-foreground">
+            Recurring Job
+          </label>
+          <p className="mb-2 text-[10px] text-muted-foreground/60 leading-relaxed">
+            Describe what should happen and when.
+          </p>
+          <textarea
+            ref={inputRef}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                submit();
+              }
+              if (e.key === "Escape") setOpen(false);
+            }}
+            rows={3}
+            className="w-full resize-none rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+            placeholder="e.g. Every weekday at 9am, check for overdue scorecards and send a Slack update"
+          />
+          <div className="mt-2.5 flex justify-end">
+            <button
+              onClick={submit}
+              disabled={!value.trim()}
+              className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40 disabled:pointer-events-none"
+            >
+              Create
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── New File Popover ───────────────────────────────────────────────────────
 
 function NewFilePopover({ onSubmit }: { onSubmit: (name: string) => void }) {
@@ -300,6 +420,179 @@ function NewFilePopover({ onSubmit }: { onSubmit: (name: string) => void }) {
               className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40 disabled:pointer-events-none"
             >
               Create
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── New Agent Popover ─────────────────────────────────────────────────────
+
+function NewAgentPopover({
+  scope,
+  onCreated,
+}: {
+  scope: ResourceScope;
+  onCreated?: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [url, setUrl] = useState("");
+  const [description, setDescription] = useState("");
+  const nameRef = useRef<HTMLInputElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const createResource = useCreateResource();
+
+  useEffect(() => {
+    if (open) {
+      setName("");
+      setUrl("");
+      setDescription("");
+      const t = setTimeout(() => nameRef.current?.focus(), 50);
+      return () => clearTimeout(t);
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (
+        popoverRef.current &&
+        !popoverRef.current.contains(e.target as Node) &&
+        buttonRef.current &&
+        !buttonRef.current.contains(e.target as Node)
+      ) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [open]);
+
+  const submit = () => {
+    const trimmedName = name.trim();
+    const trimmedUrl = url.trim();
+    if (!trimmedName || !trimmedUrl) return;
+
+    const id = trimmedName.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+    const agentJson = JSON.stringify(
+      {
+        id,
+        name: trimmedName,
+        description: description.trim() || undefined,
+        url: trimmedUrl,
+        color: "#6B7280",
+      },
+      null,
+      2,
+    );
+
+    createResource.mutate({
+      path: `agents/${id}.json`,
+      content: agentJson,
+      shared: scope === "shared",
+    });
+
+    setOpen(false);
+    onCreated?.();
+  };
+
+  return (
+    <div className="relative">
+      <button
+        ref={buttonRef}
+        onClick={() => setOpen(!open)}
+        className={cn(
+          "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50",
+          open && "bg-accent/50 text-foreground",
+        )}
+        title="Add an agent"
+      >
+        <IconRobot className="h-3.5 w-3.5" />
+      </button>
+      {open && (
+        <div
+          ref={popoverRef}
+          className="absolute right-0 top-full mt-1.5 z-[220] rounded-lg border border-border bg-popover p-3 shadow-lg"
+          style={{
+            width: 280,
+            fontSize: 13,
+            lineHeight: "normal",
+          }}
+        >
+          <label className="mb-1 block text-[11px] font-semibold text-foreground">
+            Add Agent
+          </label>
+          <p className="mb-2 text-[10px] text-muted-foreground/60 leading-relaxed">
+            Add an agent you can @-mention and communicate with via A2A.
+          </p>
+          <div className="flex flex-col gap-2">
+            <div>
+              <label className="mb-0.5 block text-[10px] text-muted-foreground/60">
+                Name
+              </label>
+              <input
+                ref={nameRef}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") submit();
+                  if (e.key === "Escape") setOpen(false);
+                }}
+                className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+                placeholder="Analytics"
+              />
+            </div>
+            <div>
+              <label className="mb-0.5 block text-[10px] text-muted-foreground/60">
+                URL
+              </label>
+              <input
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") submit();
+                  if (e.key === "Escape") setOpen(false);
+                }}
+                className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+                placeholder="https://analytics.example.com"
+              />
+            </div>
+            <div>
+              <label className="mb-0.5 block text-[10px] text-muted-foreground/60">
+                Description (optional)
+              </label>
+              <input
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") submit();
+                  if (e.key === "Escape") setOpen(false);
+                }}
+                className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+                placeholder="Analytics dashboard agent"
+              />
+            </div>
+          </div>
+          <div className="mt-2.5 flex justify-end">
+            <button
+              onClick={submit}
+              disabled={!name.trim() || !url.trim()}
+              className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40 disabled:pointer-events-none"
+            >
+              Add
             </button>
           </div>
         </div>
@@ -621,6 +914,8 @@ export function ResourcesPanel() {
               </button>
             </div>
             <div className="flex items-center gap-1">
+              <NewJobPopover scope={scope} />
+              <NewAgentPopover scope={scope} />
               <NewSkillPopover scope={scope} />
               <NewFilePopover onSubmit={handleCreateFromToolbar} />
               <button

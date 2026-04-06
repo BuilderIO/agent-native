@@ -9,6 +9,7 @@ import type {
   DashboardStats,
   PipelineStage,
   AgentNote,
+  ActionItemsResponse,
 } from "@shared/types";
 
 function apiFetch(path: string, init?: RequestInit) {
@@ -230,6 +231,73 @@ export function useDashboard() {
     queryKey: ["dashboard"],
     queryFn: () => apiFetch("/api/dashboard"),
     staleTime: 30_000,
+  });
+}
+
+// --- Action Items ---
+
+export function useActionItems(params?: {
+  overdueHours?: number;
+  stuckDays?: number;
+}) {
+  return useQuery<ActionItemsResponse>({
+    queryKey: ["action-items", params],
+    queryFn: () => {
+      const qs = new URLSearchParams();
+      if (params?.overdueHours)
+        qs.set("overdue_hours", String(params.overdueHours));
+      if (params?.stuckDays) qs.set("stuck_days", String(params.stuckDays));
+      return apiFetch(`/api/action-items?${qs}`);
+    },
+    staleTime: 60_000,
+  });
+}
+
+// --- Notifications ---
+
+export function useNotificationStatus() {
+  return useQuery<{ configured: boolean; enabled: boolean }>({
+    queryKey: ["notification-status"],
+    queryFn: () => apiFetch("/api/notifications/status"),
+    staleTime: 60_000,
+  });
+}
+
+export function useSaveNotificationConfig() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { webhookUrl: string; enabled?: boolean }) =>
+      apiFetch("/api/notifications/config", {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["notification-status"] });
+    },
+  });
+}
+
+export function useDeleteNotificationConfig() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch("/api/notifications/config", { method: "DELETE" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["notification-status"] });
+    },
+  });
+}
+
+export function useSendRecruiterUpdate() {
+  return useMutation({
+    mutationFn: (data: {
+      actionItems: ActionItemsResponse;
+      customMessage?: string;
+    }) =>
+      apiFetch("/api/notifications/send", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
   });
 }
 

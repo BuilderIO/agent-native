@@ -58,6 +58,51 @@ export function AgentTaskCard({
     return () => window.removeEventListener("agent-task-event", handleEvent);
   }, [taskId]);
 
+  // Poll for task status when running — the main chat's SSE stream may close
+  // before the sub-agent completes, so SSE events alone aren't reliable.
+  useEffect(() => {
+    if (status !== "running") return;
+    let stopped = false;
+    const poll = async () => {
+      while (!stopped) {
+        await new Promise((r) => setTimeout(r, 3000));
+        if (stopped) break;
+        try {
+          const res = await fetch(
+            `/_agent-native/application-state/agent-task:${taskId}`,
+          );
+          if (!res.ok) continue;
+          const data = await res.json();
+          // The HTTP handler returns the value directly (not wrapped)
+          const task = data?.value ?? data;
+          if (!task || !task.status) continue;
+          if (task.status === "completed") {
+            setStatus("completed");
+            if (task.summary) setSummary(task.summary);
+            if (task.preview) setPreview(task.preview);
+            setCurrentStep("");
+            break;
+          } else if (task.status === "errored") {
+            setStatus("errored");
+            if (task.summary) setSummary(task.summary);
+            setCurrentStep("");
+            break;
+          } else {
+            // Still running — update preview from persisted state
+            if (task.preview) setPreview(task.preview);
+            if (task.currentStep) setCurrentStep(task.currentStep);
+          }
+        } catch {
+          // Polling error — continue
+        }
+      }
+    };
+    poll();
+    return () => {
+      stopped = true;
+    };
+  }, [status, taskId]);
+
   // Auto-scroll preview to bottom
   useEffect(() => {
     if (previewRef.current && status === "running") {

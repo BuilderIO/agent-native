@@ -106,7 +106,7 @@ The UI writes `navigation` on every route change:
 }
 ```
 
-Views: `dashboard`, `jobs`, `candidates`, `interviews`, `settings`.
+Views: `dashboard`, `action-items`, `jobs`, `candidates`, `interviews`, `settings`.
 
 **Do NOT write to `navigation`** — use `navigate` to control the UI.
 
@@ -122,16 +122,18 @@ Views: `dashboard`, `jobs`, `candidates`, `interviews`, `settings`.
 
 ### Reading & Searching
 
-| Action              | Args                             | Purpose                             |
-| ------------------- | -------------------------------- | ----------------------------------- |
-| `view-screen`       |                                  | See what the user sees (with data)  |
-| `list-jobs`         | `--status <open\|closed\|draft>` | List jobs with optional filter      |
-| `get-job`           | `--id <job-id>`                  | Get job detail + pipeline summary   |
-| `list-candidates`   | `--search <term> --jobId <id>`   | Search/filter candidates            |
-| `get-candidate`     | `--id <candidate-id>`            | Get full candidate details          |
-| `get-pipeline`      | `--jobId <id> [--compact]`       | Pipeline view (candidates by stage) |
-| `list-interviews`   | `[--compact]`                    | List upcoming interviews            |
-| `dashboard-summary` |                                  | Get dashboard statistics            |
+| Action              | Args                             | Purpose                                |
+| ------------------- | -------------------------------- | -------------------------------------- |
+| `view-screen`       |                                  | See what the user sees (with data)     |
+| `list-jobs`         | `--status <open\|closed\|draft>` | List jobs with optional filter         |
+| `get-job`           | `--id <job-id>`                  | Get job detail + pipeline summary      |
+| `list-candidates`   | `--search <term> --jobId <id>`   | Search/filter candidates               |
+| `get-candidate`     | `--id <candidate-id>`            | Get full candidate details             |
+| `get-pipeline`      | `--jobId <id> [--compact]`       | Pipeline view (candidates by stage)    |
+| `list-interviews`   | `[--compact]`                    | List upcoming interviews               |
+| `dashboard-summary` |                                  | Get dashboard statistics               |
+| `check-scorecards`  | `[--overdueHours] [--section]`   | Check overdue/pending/recent feedback  |
+| `pipeline-health`   | `[--stuckDays]`                  | Find stuck candidates, pipeline issues |
 
 ### Actions
 
@@ -144,26 +146,31 @@ Views: `dashboard`, `jobs`, `candidates`, `interviews`, `settings`.
 
 ### Notes & Navigation
 
-| Action         | Args                                                                    | Purpose               |
-| -------------- | ----------------------------------------------------------------------- | --------------------- |
-| `manage-notes` | `--action=create\|list\|delete --candidateId <id> [--content] [--type]` | CRUD for AI notes     |
-| `navigate`     | `--view <name> [--jobId <id>] [--candidateId <id>]`                     | Navigate the UI       |
-| `refresh-data` |                                                                         | Force UI data refresh |
+| Action                  | Args                                                                    | Purpose                    |
+| ----------------------- | ----------------------------------------------------------------------- | -------------------------- |
+| `manage-notes`          | `--action=create\|list\|delete --candidateId <id> [--content] [--type]` | CRUD for AI notes          |
+| `navigate`              | `--view <name> [--jobId <id>] [--candidateId <id>]`                     | Navigate the UI            |
+| `refresh-data`          |                                                                         | Force UI data refresh      |
+| `send-recruiter-update` | `[--customMessage <text>]`                                              | Send Slack pipeline update |
 
 ## Common Tasks
 
-| User request                   | What to do                                                    |
-| ------------------------------ | ------------------------------------------------------------- |
-| "What am I looking at?"        | `view-screen`                                                 |
-| "Show me open jobs"            | `list-jobs --status=open`                                     |
-| "Who's in the pipeline for X?" | `get-pipeline --jobId=<id> --compact`                         |
-| "Analyze this candidate"       | `get-candidate`, analyze, `manage-notes --action=create`      |
-| "Compare these candidates"     | `get-candidate` for each, compare, save notes                 |
-| "Generate interview questions" | `get-candidate` + `get-job`, generate questions, save as note |
-| "Move candidate to next stage" | `advance-candidate --applicationId=<id> --fromStageId=<id>`   |
-| "Reject this candidate"        | `reject-candidate --applicationId=<id>`                       |
-| "Add a new candidate"          | `create-candidate --firstName=... --lastName=... --email=...` |
-| "Go to candidates"             | `navigate --view=candidates`                                  |
+| User request                         | What to do                                                    |
+| ------------------------------------ | ------------------------------------------------------------- |
+| "What am I looking at?"              | `view-screen`                                                 |
+| "Show me open jobs"                  | `list-jobs --status=open`                                     |
+| "Who's in the pipeline for X?"       | `get-pipeline --jobId=<id> --compact`                         |
+| "Analyze this candidate"             | `get-candidate`, analyze, `manage-notes --action=create`      |
+| "Compare these candidates"           | `get-candidate` for each, compare, save notes                 |
+| "Generate interview questions"       | `get-candidate` + `get-job`, generate questions, save as note |
+| "Move candidate to next stage"       | `advance-candidate --applicationId=<id> --fromStageId=<id>`   |
+| "Reject this candidate"              | `reject-candidate --applicationId=<id>`                       |
+| "Add a new candidate"                | `create-candidate --firstName=... --lastName=... --email=...` |
+| "What's falling through the cracks?" | `check-scorecards` + `pipeline-health`                        |
+| "Who hasn't submitted feedback?"     | `check-scorecards --section=overdue`                          |
+| "Send an update to the recruiter"    | `send-recruiter-update`                                       |
+| "Any stuck candidates?"              | `pipeline-health --stuckDays=3`                               |
+| "Go to candidates"                   | `navigate --view=candidates`                                  |
 
 ### AI Analysis Tasks
 
@@ -179,27 +186,32 @@ Note types: `resume_analysis`, `comparison`, `interview_prep`, `general`
 
 ## API Routes
 
-| Method | Route                           | Description                  |
-| ------ | ------------------------------- | ---------------------------- |
-| GET    | `/api/greenhouse/status`        | Check API key status         |
-| PUT    | `/api/greenhouse/key`           | Save API key                 |
-| DELETE | `/api/greenhouse/key`           | Remove API key               |
-| GET    | `/api/jobs`                     | List jobs                    |
-| GET    | `/api/jobs/:id`                 | Get job detail               |
-| GET    | `/api/jobs/:id/stages`          | Get job stages               |
-| GET    | `/api/jobs/:id/pipeline`        | Get pipeline (apps by stage) |
-| GET    | `/api/candidates`               | List/search candidates       |
-| GET    | `/api/candidates/:id`           | Get candidate detail         |
-| POST   | `/api/candidates`               | Create candidate             |
-| GET    | `/api/applications/:id`         | Get application              |
-| PATCH  | `/api/applications/:id/advance` | Advance application          |
-| PATCH  | `/api/applications/:id/move`    | Move to stage                |
-| PATCH  | `/api/applications/:id/reject`  | Reject application           |
-| GET    | `/api/interviews`               | List interviews              |
-| GET    | `/api/dashboard`                | Dashboard stats              |
-| GET    | `/api/notes?candidate_id=X`     | List notes for candidate     |
-| POST   | `/api/notes`                    | Create note                  |
-| DELETE | `/api/notes/:id`                | Delete note                  |
+| Method | Route                           | Description                      |
+| ------ | ------------------------------- | -------------------------------- |
+| GET    | `/api/greenhouse/status`        | Check API key status             |
+| PUT    | `/api/greenhouse/key`           | Save API key                     |
+| DELETE | `/api/greenhouse/key`           | Remove API key                   |
+| GET    | `/api/jobs`                     | List jobs                        |
+| GET    | `/api/jobs/:id`                 | Get job detail                   |
+| GET    | `/api/jobs/:id/stages`          | Get job stages                   |
+| GET    | `/api/jobs/:id/pipeline`        | Get pipeline (apps by stage)     |
+| GET    | `/api/candidates`               | List/search candidates           |
+| GET    | `/api/candidates/:id`           | Get candidate detail             |
+| POST   | `/api/candidates`               | Create candidate                 |
+| GET    | `/api/applications/:id`         | Get application                  |
+| PATCH  | `/api/applications/:id/advance` | Advance application              |
+| PATCH  | `/api/applications/:id/move`    | Move to stage                    |
+| PATCH  | `/api/applications/:id/reject`  | Reject application               |
+| GET    | `/api/interviews`               | List interviews                  |
+| GET    | `/api/dashboard`                | Dashboard stats                  |
+| GET    | `/api/action-items`             | Action items (scorecards, stuck) |
+| GET    | `/api/notifications/status`     | Slack notification status        |
+| PUT    | `/api/notifications/config`     | Save Slack webhook               |
+| DELETE | `/api/notifications/config`     | Remove Slack webhook             |
+| POST   | `/api/notifications/send`       | Send recruiter Slack update      |
+| GET    | `/api/notes?candidate_id=X`     | List notes for candidate         |
+| POST   | `/api/notes`                    | Create note                      |
+| DELETE | `/api/notes/:id`                | Delete note                      |
 
 ## Keyboard Shortcuts
 
@@ -207,6 +219,7 @@ Note types: `resume_analysis`, `comparison`, `interview_prep`, `general`
 | ---------- | -------------------- |
 | `⌘K` / `/` | Open command palette |
 | `G then D` | Go to Dashboard      |
+| `G then A` | Go to Action Items   |
 | `G then J` | Go to Jobs           |
 | `G then C` | Go to Candidates     |
 | `G then I` | Go to Interviews     |

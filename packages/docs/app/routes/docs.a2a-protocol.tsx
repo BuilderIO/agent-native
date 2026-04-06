@@ -10,6 +10,8 @@ const TOC = [
   { id: "convenience-helper", label: "Convenience Helper" },
   { id: "task-lifecycle", label: "Task Lifecycle" },
   { id: "security", label: "Security" },
+  { id: "agent-mentions", label: "Agent Mentions" },
+  { id: "messaging-integrations", label: "Messaging Integrations" },
   { id: "example", label: "Example" },
 ];
 
@@ -293,6 +295,32 @@ const client = new A2AClient(url, process.env.A2A_API_KEY);`}
         discover capabilities. The <code>/a2a</code> JSON-RPC endpoint requires
         a valid bearer token when <code>apiKeyEnv</code> is set. In dev mode (no
         env var configured), auth is skipped.
+      </p>
+
+      <h2 id="agent-mentions">Agent mentions</h2>
+      <p>
+        You can <code>@</code>-mention agents directly in the chat composer.
+        When you mention an agent, the server makes an A2A call to that agent
+        and weaves the response into your conversation context. This is the
+        easiest way to use A2A — no code required, just type <code>@</code> and
+        select an agent.
+      </p>
+      <p>
+        See <a href="/docs/agent-mentions">Agent Mentions</a> for details on how
+        mentions work, how to add agents, and how to create custom mention
+        providers.
+      </p>
+
+      <h2 id="messaging-integrations">Messaging integrations</h2>
+      <p>
+        Agents can also be reached from external messaging platforms like Slack,
+        Telegram, and WhatsApp. Users send messages on those platforms and the
+        agent responds in the same thread, using the same tools and actions as
+        the web chat.
+      </p>
+      <p>
+        See <a href="/docs/integrations">Integrations</a> for setup details on
+        each platform.
       </p>
 
       <h2 id="example">Example: cross-agent query</h2>

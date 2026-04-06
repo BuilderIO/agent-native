@@ -111,7 +111,7 @@ describe("parseNfmForEditor", () => {
         "</details>",
       ].join("\n");
       const result = parseNfmForEditor(input);
-      expect(result).toContain("<ul>");
+      expect(result).toContain("<ul");
       expect(result).toContain("<li>");
       // List items must have <p> wrappers for TipTap's ListItem to parse them
       expect(result).toContain("<p>item 1</p>");
@@ -128,7 +128,7 @@ describe("parseNfmForEditor", () => {
       ].join("\n");
       const result = parseNfmForEditor(input);
       // Should have nested <ul> structure
-      const ulCount = (result.match(/<ul>/g) || []).length;
+      const ulCount = (result.match(/<ul\b/g) || []).length;
       expect(ulCount).toBeGreaterThanOrEqual(2);
       expect(result).toContain("<p>parent</p>");
       expect(result).toContain("<p>child</p>");
@@ -152,6 +152,44 @@ describe("parseNfmForEditor", () => {
       const result = parseNfmForEditor(input);
       expect(result).toContain("plain text");
       expect(result).toContain("more text");
+    });
+
+    it("keeps bullets in a single <ul> even with blank lines between items", () => {
+      const input = [
+        "<details>",
+        "<summary>Toggle</summary>",
+        "\t- item 1",
+        "",
+        "\t- item 2",
+        "</details>",
+      ].join("\n");
+      const result = parseNfmForEditor(input);
+      const ulCount = (result.match(/<ul\b/g) || []).length;
+      expect(ulCount).toBe(1);
+      expect(result).toContain("<p>item 1</p>");
+      expect(result).toContain("<p>item 2</p>");
+    });
+
+    it("marks lists as data-tight for TipTap tight-list handling", () => {
+      const input = [
+        "<details>",
+        "<summary>Toggle</summary>",
+        "\t- item 1",
+        "\t- item 2",
+        "</details>",
+      ].join("\n");
+      const result = parseNfmForEditor(input);
+      expect(result).toContain('data-tight="true"');
+    });
+
+    it("round-trips toggle with bullets stably", () => {
+      const nfm =
+        "<details>\n<summary>Toggle</summary>\n\t- item 1\n\t- item 2\n</details>";
+      const editorMd = parseNfmForEditor(nfm);
+      const stored = serializeEditorToNfm(editorMd);
+      const editorMd2 = parseNfmForEditor(stored);
+      const stored2 = serializeEditorToNfm(editorMd2);
+      expect(stored2).toBe(stored);
     });
   });
 

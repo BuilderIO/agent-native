@@ -23,6 +23,9 @@ interface CalendarContextValue {
   /** The currently selected event for the sidebar panel */
   sidebarEvent: CalendarEvent | null;
   setSidebarEvent: (event: CalendarEvent | null) => void;
+  /** The last-clicked/focused event (for keyboard shortcuts like Delete) */
+  focusedEvent: CalendarEvent | null;
+  setFocusedEvent: (event: CalendarEvent | null) => void;
 }
 
 const CalendarContext = createContext<CalendarContextValue>({
@@ -36,6 +39,8 @@ const CalendarContext = createContext<CalendarContextValue>({
   setEventDetailSidebar: () => {},
   sidebarEvent: null,
   setSidebarEvent: () => {},
+  focusedEvent: null,
+  setFocusedEvent: () => {},
 });
 
 export function useCalendarContext() {
@@ -58,6 +63,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const [peopleSearchOpen, setPeopleSearchOpen] = useState(false);
   const [eventDetailSidebar, setEventDetailSidebarState] = useState(false);
   const [sidebarEvent, setSidebarEvent] = useState<CalendarEvent | null>(null);
+  const [focusedEvent, setFocusedEvent] = useState<CalendarEvent | null>(null);
 
   // Load preference from localStorage
   useEffect(() => {
@@ -90,6 +96,8 @@ export function AppLayout({ children }: AppLayoutProps) {
         setEventDetailSidebar,
         sidebarEvent,
         setSidebarEvent,
+        focusedEvent,
+        setFocusedEvent,
       }}
     >
       <NavigationSync />

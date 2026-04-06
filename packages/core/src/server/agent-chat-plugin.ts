@@ -331,6 +331,11 @@ function createTeamTools(deps: {
               description:
                 "Optional additional instructions or context for the sub-agent",
             },
+            name: {
+              type: "string",
+              description:
+                "Short name for the sub-agent tab (e.g. 'Research', 'Draft email'). If omitted, derived from the task.",
+            },
           },
           required: ["task"],
         },
@@ -357,6 +362,7 @@ function createTeamTools(deps: {
           threadId: task.threadId,
           status: task.status,
           description: task.description,
+          name: args.name || "",
         });
       },
     },
@@ -575,6 +581,35 @@ You are an orchestrator. For complex or multi-step tasks, delegate to sub-agents
 5. If the user's request has multiple steps, you can spawn one sub-agent per step, or chain them.
 
 The sub-agent has the same tools you do. Give it a specific, actionable task description — it will figure out which tools to use.
+
+### Recurring Jobs
+
+You can create recurring jobs that run on a cron schedule. Jobs are resource files under \`jobs/\`. Each job has a cron schedule and instructions that the agent executes automatically.
+
+- \`create-job\` — Create a new recurring job with a cron schedule and instructions
+- \`list-jobs\` — List all recurring jobs and their status (schedule, last run, next run, errors)
+- \`update-job\` — Update a job's schedule, instructions, or toggle enabled/disabled
+- Delete a job with \`resource-delete --path jobs/<name>.md\`
+
+When the user asks for something recurring ("every morning", "daily at 9am", "weekly on Mondays"), create a job. Convert natural language to 5-field cron format:
+- "every morning" / "daily at 9am" → \`0 9 * * *\`
+- "every weekday at 9am" → \`0 9 * * 1-5\`
+- "every hour" → \`0 * * * *\`
+- "every 30 minutes" → \`*/30 * * * *\`
+- "every monday at 9am" → \`0 9 * * 1\`
+- "twice a day" / "morning and evening" → \`0 9,17 * * *\`
+
+Job instructions should be self-contained — include which actions to call, what conditions to check, and what to do with results. The agent executing the job has access to all the same tools you do.
+
+### Auto-Memory
+
+Proactively update \`LEARNINGS.md\` when you learn something important during conversations:
+- User corrects your approach → capture the correct way
+- User shares preferences (tone, style, workflow) → capture them
+- You discover a non-obvious pattern or gotcha → capture it
+- User provides personal context (contacts, team info, domain knowledge) → capture it
+
+**Don't ask permission — just save it.** Keep entries concise (one line each, grouped by category). Don't save things that are obvious from reading the code or that are temporary.
 `;
 
 const PROD_FRAMEWORK_PROMPT = `## Agent-Native Framework — Production Mode
@@ -1167,12 +1202,20 @@ export function createAgentChatPlugin(
     });
 
     // Hook into the run lifecycle to set/clear the send reference.
+    // Job management tools (create-job, list-jobs, update-job)
+    let jobTools: Record<string, ActionEntry> = {};
+    try {
+      const { createJobTools } = await import("../jobs/tools.js");
+      jobTools = createJobTools();
+    } catch {}
+
     const prodActions = {
       ...templateScripts,
       ...resourceScripts,
       ...chatScripts,
       ...callAgentScript,
       ...teamTools,
+      ...jobTools,
     };
 
     // Always build the production handler (includes resource tools + call-agent + team tools)
@@ -1213,6 +1256,7 @@ export function createAgentChatPlugin(
         ...chatScripts,
         ...callAgentScript,
         ...teamTools,
+        ...jobTools,
         ...(await createDevScriptRegistry()),
       };
       devHandler = createProductionAgentHandler({
@@ -1602,7 +1646,7 @@ export function createAgentChatPlugin(
         // 4. Discovered peer agents
         try {
           const { discoverAgents } = await import("./agent-discovery.js");
-          const agents = discoverAgents(options?.appId);
+          const agents = await discoverAgents(options?.appId);
           for (const agent of agents) {
             items.push({
               id: `agent:${agent.id}`,
@@ -1880,6 +1924,53 @@ export function createAgentChatPlugin(
         return handler(event);
       }),
     );
+
+    // ─── Recurring Jobs Scheduler ──────────────────────────────────────
+    // Poll every 60 seconds for due recurring jobs and execute them.
+    // Uses setInterval so it works in all deployment environments without
+    // requiring Nitro experimental tasks configuration.
+    const apiKey = options?.apiKey ?? process.env.ANTHROPIC_API_KEY;
+    if (apiKey) {
+      try {
+        const { processRecurringJobs } = await import("../jobs/scheduler.js");
+
+        const schedulerDeps = {
+          getActions: () => ({
+            ...templateScripts,
+            ...resourceScripts,
+            ...chatScripts,
+            ...jobTools,
+          }),
+          getSystemPrompt: async (owner: string) => {
+            const resources = await loadResourcesForPrompt(owner);
+            return basePrompt + resources;
+          },
+          getTools: (actions: Record<string, ActionEntry>) =>
+            Object.entries(actions).map(([name, entry]) => ({
+              name,
+              description: entry.tool.description,
+              input_schema: entry.tool.parameters ?? {
+                type: "object" as const,
+                properties: {},
+              },
+            })),
+          apiKey,
+          model: resolvedModel,
+        };
+
+        // Start after a 10-second delay to let the server fully initialize
+        setTimeout(() => {
+          setInterval(() => {
+            processRecurringJobs(schedulerDeps).catch((err) => {
+              console.error("[recurring-jobs] Scheduler error:", err?.message);
+            });
+          }, 60_000);
+          console.log("[recurring-jobs] Scheduler started (60s interval)");
+        }, 10_000);
+      } catch (err) {
+        // Jobs module not available — skip silently
+      }
+    }
   };
 }
 

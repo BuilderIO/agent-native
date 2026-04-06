@@ -783,6 +783,19 @@ export function useUpdateSettings() {
         method: "PATCH",
         body: JSON.stringify(data),
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["settings"] }),
+    onMutate: async (data) => {
+      // Optimistic update: immediately merge into cached settings
+      await qc.cancelQueries({ queryKey: ["settings"] });
+      const prev = qc.getQueryData<UserSettings>(["settings"]);
+      if (prev) {
+        qc.setQueryData(["settings"], { ...prev, ...data });
+      }
+      return { prev };
+    },
+    onError: (_err, _data, ctx) => {
+      // Rollback on error
+      if (ctx?.prev) qc.setQueryData(["settings"], ctx.prev);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["settings"] }),
   });
 }

@@ -253,6 +253,37 @@ Agent skills in `.agents/skills/` provide detailed guidance. Read the relevant s
 
 **Always use Tabler Icons** (`@tabler/icons-react`) for all icons. Never use other icon libraries.
 
+## Recurring Jobs
+
+The framework supports recurring jobs — scheduled tasks that the agent executes automatically on a cron schedule. Jobs are stored as resource files under `jobs/` with YAML frontmatter for scheduling metadata.
+
+### How it works
+
+1. User asks for something recurring via the agent chat
+2. Agent uses `create-job` tool to write a job file at `jobs/<name>.md`
+3. A scheduler polls every 60 seconds, finds due jobs, and executes them via `runAgentLoop`
+4. Job results are saved as chat threads
+
+### Job tools (built into the framework)
+
+| Tool         | Purpose                                                    |
+| ------------ | ---------------------------------------------------------- |
+| `create-job` | Create a recurring job (name, cron schedule, instructions) |
+| `list-jobs`  | List all jobs and their status                             |
+| `update-job` | Update schedule, instructions, or toggle enabled           |
+
+### Key files
+
+| File                                  | Purpose                                                  |
+| ------------------------------------- | -------------------------------------------------------- |
+| `packages/core/src/jobs/cron.ts`      | Cron parsing (nextOccurrence, isValidCron, describeCron) |
+| `packages/core/src/jobs/scheduler.ts` | Job execution engine (processRecurringJobs)              |
+| `packages/core/src/jobs/tools.ts`     | Agent tools (create-job, list-jobs, update-job)          |
+
+### Auto-Memory
+
+The agent proactively saves learnings to `LEARNINGS.md` when users correct it, share preferences, or reveal patterns. This is part of the system prompt in `agent-chat-plugin.ts` (FRAMEWORK_CORE section).
+
 ## Actions
 
 Create `actions/my-action.ts`:

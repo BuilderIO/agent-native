@@ -14,6 +14,7 @@ import {
   IconSettings,
   IconSearch,
   IconPlant2,
+  IconAlertCircle,
 } from "@tabler/icons-react";
 
 interface AppLayoutProps {
@@ -26,6 +27,12 @@ const navItems = [
     label: "Dashboard",
     icon: IconLayoutDashboard,
     path: "/dashboard",
+  },
+  {
+    id: "action-items",
+    label: "Action Items",
+    icon: IconAlertCircle,
+    path: "/action-items",
   },
   { id: "jobs", label: "Jobs", icon: IconBriefcase, path: "/jobs" },
   {
@@ -104,6 +111,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         clearTimeout(timeout);
         const map: Record<string, string> = {
           d: "/dashboard",
+          a: "/action-items",
           j: "/jobs",
           c: "/candidates",
           i: "/interviews",

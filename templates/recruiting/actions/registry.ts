@@ -51,6 +51,18 @@ import {
   tool as refreshDataTool,
   run as refreshDataRun,
 } from "./refresh-data.js";
+import {
+  tool as checkScorecardsTool,
+  run as checkScorecardsRun,
+} from "./check-scorecards.js";
+import {
+  tool as pipelineHealthTool,
+  run as pipelineHealthRun,
+} from "./pipeline-health.js";
+import {
+  tool as sendRecruiterUpdateTool,
+  run as sendRecruiterUpdateRun,
+} from "./send-recruiter-update.js";
 
 import type { ActionEntry } from "@agent-native/core";
 
@@ -82,4 +94,10 @@ export const actionRegistry: Record<string, ActionEntry> = {
   },
   "manage-notes": { tool: manageNotesTool, run: manageNotesRun },
   "refresh-data": { tool: refreshDataTool, run: refreshDataRun },
+  "check-scorecards": { tool: checkScorecardsTool, run: checkScorecardsRun },
+  "pipeline-health": { tool: pipelineHealthTool, run: pipelineHealthRun },
+  "send-recruiter-update": {
+    tool: sendRecruiterUpdateTool,
+    run: sendRecruiterUpdateRun,
+  },
 };

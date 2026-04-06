@@ -19,6 +19,8 @@ export default {
     "/docs/creating-templates",
     "/docs/cli-adapters",
     "/docs/database-adapters",
+    "/docs/agent-mentions",
+    "/docs/integrations",
     "/download",
     "/templates",
     "/templates/analytics",

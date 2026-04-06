@@ -1844,6 +1844,26 @@ export const listLabels = defineEventHandler(async (_event: H3Event) => {
         ...l,
         unreadCount: 0,
       }));
+
+      // Normalize Gmail category labels with friendly names
+      const gmailCategories: Record<string, string> = {
+        important: "Important",
+        "note-to-self": "Note to Self",
+        promotions: "Promotions",
+        social: "Social",
+        updates: "Updates",
+        forums: "Forums",
+      };
+      for (const [id, name] of Object.entries(gmailCategories)) {
+        const existing = labels.findIndex((l) => l.id === id);
+        if (existing >= 0) {
+          // Fix casing (Gmail returns "IMPORTANT", we want "Important")
+          labels[existing].name = name;
+        } else {
+          labels.push({ id, name, type: "system", unreadCount: 0 });
+        }
+      }
+
       return labels;
     } catch {}
   }

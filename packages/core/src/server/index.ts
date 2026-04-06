@@ -114,6 +114,19 @@ export {
 } from "./action-discovery.js";
 
 export {
+  createIntegrationsPlugin,
+  defaultIntegrationsPlugin,
+  slackAdapter,
+  telegramAdapter,
+  whatsappAdapter,
+  type PlatformAdapter,
+  type IncomingMessage,
+  type OutgoingMessage,
+  type IntegrationStatus,
+  type IntegrationsPluginOptions,
+} from "../integrations/index.js";
+
+export {
   isElectron,
   isMobile,
   getOrigin,
