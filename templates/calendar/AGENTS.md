@@ -161,3 +161,11 @@ The `--to` bound is exclusive, so use tomorrow's date for today's events.
 2. **Actions for backend logic** — anything the agent needs to execute goes through `pnpm action`.
 3. **Context-first** — always run `view-screen` before acting. Know what the user sees.
 4. **Always query Google Calendar** — use `list-events` or `search-events` for schedule questions. Never return empty results without running a script first.
+
+### UI Components
+
+**Always use shadcn/ui components** from `app/components/ui/` for all standard UI patterns (dialogs, popovers, dropdowns, tooltips, buttons, etc). Never build custom modals or dropdowns with absolute/fixed positioning — use the shadcn primitives instead.
+
+**Always use Tabler Icons** (`@tabler/icons-react`) for all icons. Never use other icon libraries.
+
+**Never use browser dialogs** (`window.confirm`, `window.alert`, `window.prompt`) — use shadcn AlertDialog instead.
