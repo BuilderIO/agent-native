@@ -332,19 +332,18 @@ export function MultiTabAssistantChat({
   }, [activeThreadId]);
 
   // Ref callback: scroll the active tab into view in the overflow container.
+  // Uses getBoundingClientRect for reliable positioning regardless of offsetParent.
   const activeTabRefCb = useCallback((el: HTMLButtonElement | null) => {
     if (!el) return;
     const container = el.parentElement;
     if (!container) return;
     requestAnimationFrame(() => {
-      const tabLeft = el.offsetLeft;
-      const tabRight = tabLeft + el.offsetWidth;
-      const scrollLeft = container.scrollLeft;
-      const viewWidth = container.clientWidth;
-      if (tabLeft < scrollLeft) {
-        container.scrollLeft = tabLeft;
-      } else if (tabRight > scrollLeft + viewWidth) {
-        container.scrollLeft = tabRight - viewWidth;
+      const containerRect = container.getBoundingClientRect();
+      const tabRect = el.getBoundingClientRect();
+      if (tabRect.left < containerRect.left) {
+        container.scrollLeft += tabRect.left - containerRect.left;
+      } else if (tabRect.right > containerRect.right) {
+        container.scrollLeft += tabRect.right - containerRect.right;
       }
     });
   }, []);

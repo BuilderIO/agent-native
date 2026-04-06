@@ -93,7 +93,7 @@ body {
   background: var(--selection);
 }
 
-.docs-content a:not([class*="text-"]) {
+.docs-content a:not([class*="text-"]):not(.heading-anchor) {
   color: var(--accent);
 }
 
@@ -170,29 +170,30 @@ h4 {
 }
 
 /* Heading anchor links */
-.docs-content h2,
-.docs-content h3 {
-  position: relative;
+.heading-anchor {
+  color: inherit;
+  text-decoration: none;
 }
 
-.heading-anchor {
+.heading-anchor:hover {
+  color: inherit;
+  text-decoration: none;
+}
+
+.heading-anchor-hash {
   margin-left: 8px;
   color: var(--fg-secondary);
   opacity: 0;
   font-weight: 400;
-  text-decoration: none;
   font-size: 0.85em;
 }
 
-.docs-content h2:hover .heading-anchor,
-.docs-content h3:hover .heading-anchor,
-.heading-anchor:focus {
+.heading-anchor:hover .heading-anchor-hash {
   opacity: 1;
 }
 
-.heading-anchor:hover {
+.heading-anchor-hash:hover {
   color: var(--accent);
-  text-decoration: none;
 }
 
 .docs-content p {

@@ -8,7 +8,23 @@ interface TocItem {
 
 export default function TableOfContents({ items }: { items: TocItem[] }) {
   const [activeId, setActiveId] = useState<string>("");
+  const [headingLevels, setHeadingLevels] = useState<Record<string, number>>(
+    {},
+  );
   const observerRef = useRef<IntersectionObserver | null>(null);
+
+  useEffect(() => {
+    // Detect heading levels for indentation
+    const levels: Record<string, number> = {};
+    for (const item of items) {
+      const el = document.getElementById(item.id);
+      if (el) {
+        const tag = el.tagName.toLowerCase();
+        levels[item.id] = tag === "h3" ? 1 : tag === "h4" ? 2 : 0;
+      }
+    }
+    setHeadingLevels(levels);
+  }, [items]);
 
   useEffect(() => {
     observerRef.current?.disconnect();
@@ -72,7 +88,11 @@ export default function TableOfContents({ items }: { items: TocItem[] }) {
               <a
                 href={`#${item.id}`}
                 className={`toc-link${activeId === item.id ? " is-active" : ""}`}
-                style={item.indent ? { paddingLeft: 12 } : undefined}
+                style={
+                  headingLevels[item.id] || item.indent
+                    ? { paddingLeft: 12 * (headingLevels[item.id] || 1) }
+                    : undefined
+                }
               >
                 {item.label}
               </a>

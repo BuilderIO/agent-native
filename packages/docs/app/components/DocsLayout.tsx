@@ -29,8 +29,15 @@ export default function DocsLayout({
       const anchor = document.createElement("a");
       anchor.href = `#${heading.id}`;
       anchor.className = "heading-anchor";
-      anchor.setAttribute("aria-label", `Link to ${heading.textContent}`);
-      anchor.textContent = "#";
+      // Move all children into the anchor
+      while (heading.firstChild) {
+        anchor.appendChild(heading.firstChild);
+      }
+      // Add the # indicator
+      const hash = document.createElement("span");
+      hash.className = "heading-anchor-hash";
+      hash.textContent = "#";
+      anchor.appendChild(hash);
       heading.appendChild(anchor);
     }
   }, [children]);
