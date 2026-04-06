@@ -73,8 +73,9 @@ export function AgentTaskCard({
           );
           if (!res.ok) continue;
           const data = await res.json();
-          const task = data?.value;
-          if (!task) continue;
+          // The HTTP handler returns the value directly (not wrapped)
+          const task = data?.value ?? data;
+          if (!task || !task.status) continue;
           if (task.status === "completed") {
             setStatus("completed");
             if (task.summary) setSummary(task.summary);
