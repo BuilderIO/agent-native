@@ -68,6 +68,13 @@ const ResourcesPanel = lazy(() =>
   })),
 );
 
+// Lazy-load IntegrationsPanel to avoid bundling when not needed
+const IntegrationsPanel = lazy(() =>
+  import("./integrations/IntegrationsPanel.js").then((m) => ({
+    default: m.IntegrationsPanel,
+  })),
+);
+
 const CLI_STORAGE_KEY = "agent-native-cli-command";
 const CLI_DEFAULT = "builder";
 const EXEC_MODE_KEY = "agent-native-exec-mode";
@@ -331,6 +338,11 @@ function AgentSettingsPopover({
                   if (nextIsDev !== isDevMode) onToggle();
                 }}
               />
+              <div className="border-t border-border pt-3 mt-3">
+                <Suspense fallback={null}>
+                  <IntegrationsPanel />
+                </Suspense>
+              </div>
             </div>
           </div>,
           document.body,

@@ -1,0 +1,223 @@
+import type { H3Event } from "h3";
+import { readBody, getHeader } from "h3";
+import type {
+  PlatformAdapter,
+  IncomingMessage,
+  OutgoingMessage,
+  IntegrationStatus,
+} from "../types.js";
+import type { EnvKeyConfig } from "../../server/create-server.js";
+
+/** Telegram's max message length */
+const TELEGRAM_MAX_LENGTH = 4096;
+
+/**
+ * Create a Telegram platform adapter.
+ *
+ * Required env vars:
+ * - TELEGRAM_BOT_TOKEN — Bot token from @BotFather
+ *
+ * Optional env vars:
+ * - TELEGRAM_WEBHOOK_SECRET — Secret token for webhook verification
+ */
+export function telegramAdapter(): PlatformAdapter {
+  return {
+    platform: "telegram",
+    label: "Telegram",
+
+    getRequiredEnvKeys(): EnvKeyConfig[] {
+      return [
+        {
+          key: "TELEGRAM_BOT_TOKEN",
+          label: "Telegram Bot Token",
+          required: true,
+        },
+        {
+          key: "TELEGRAM_WEBHOOK_SECRET",
+          label: "Telegram Webhook Secret",
+          required: false,
+        },
+      ];
+    },
+
+    async handleVerification(
+      _event: H3Event,
+    ): Promise<{ handled: boolean; response?: unknown }> {
+      // Telegram doesn't have a verification challenge — webhook is set via API call
+      return { handled: false };
+    },
+
+    async verifyWebhook(event: H3Event): Promise<boolean> {
+      const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
+      if (!secret) {
+        // No secret configured — accept all (Telegram recommends using a secret but doesn't require it)
+        return !!process.env.TELEGRAM_BOT_TOKEN;
+      }
+
+      const headerSecret = getHeader(event, "x-telegram-bot-api-secret-token");
+      if (!headerSecret) return false;
+
+      // Timing-safe comparison
+      try {
+        const crypto = await import("node:crypto");
+        return crypto.timingSafeEqual(
+          Buffer.from(secret),
+          Buffer.from(headerSecret),
+        );
+      } catch {
+        return false;
+      }
+    },
+
+    async parseIncomingMessage(
+      event: H3Event,
+    ): Promise<IncomingMessage | null> {
+      const body = await readBody(event);
+      if (!body) return null;
+
+      // Handle regular messages
+      const message = body.message || body.edited_message;
+      if (!message) return null;
+
+      // Only process text messages
+      const text = message.text?.trim();
+      if (!text) return null;
+
+      // Ignore bot commands that we don't handle (e.g., /start is fine)
+      // Remove /start command prefix if present
+      const cleanText =
+        text === "/start"
+          ? "Hello! I'm ready to chat."
+          : text.replace(/^\/\w+\s*/, "").trim() || text;
+
+      const chat = message.chat;
+      const from = message.from;
+
+      return {
+        platform: "telegram",
+        externalThreadId: String(chat.id),
+        text: cleanText,
+        senderName:
+          from?.first_name + (from?.last_name ? ` ${from.last_name}` : ""),
+        senderId: String(from?.id),
+        platformContext: {
+          chatId: chat.id,
+          chatType: chat.type,
+          messageId: message.message_id,
+          fromId: from?.id,
+          fromUsername: from?.username,
+        },
+        timestamp: message.date * 1000,
+      };
+    },
+
+    async sendResponse(
+      message: OutgoingMessage,
+      context: IncomingMessage,
+    ): Promise<void> {
+      const token = process.env.TELEGRAM_BOT_TOKEN;
+      if (!token) {
+        console.error("[telegram] TELEGRAM_BOT_TOKEN not configured");
+        return;
+      }
+
+      const chatId = context.platformContext.chatId;
+      const chunks = splitMessage(message.text, TELEGRAM_MAX_LENGTH);
+
+      for (const chunk of chunks) {
+        try {
+          const res = await fetch(
+            `https://api.telegram.org/bot${token}/sendMessage`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                chat_id: chatId,
+                text: chunk,
+                parse_mode: "Markdown",
+              }),
+            },
+          );
+          const data = (await res.json()) as {
+            ok: boolean;
+            description?: string;
+          };
+          if (!data.ok) {
+            // Retry without Markdown if parsing fails
+            if (data.description?.includes("parse")) {
+              await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  chat_id: chatId,
+                  text: chunk,
+                }),
+              });
+            } else {
+              console.error("[telegram] sendMessage error:", data.description);
+            }
+          }
+        } catch (err) {
+          console.error("[telegram] Failed to send message:", err);
+        }
+      }
+    },
+
+    formatAgentResponse(text: string): OutgoingMessage {
+      return { text, platformContext: { parse_mode: "Markdown" } };
+    },
+
+    async getStatus(_baseUrl?: string): Promise<IntegrationStatus> {
+      const hasToken = !!process.env.TELEGRAM_BOT_TOKEN;
+
+      let botName: string | undefined;
+      if (hasToken) {
+        try {
+          const res = await fetch(
+            `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/getMe`,
+          );
+          const data = (await res.json()) as {
+            ok: boolean;
+            result?: { username?: string };
+          };
+          if (data.ok) {
+            botName = data.result?.username;
+          }
+        } catch {}
+      }
+
+      return {
+        platform: "telegram",
+        label: "Telegram",
+        enabled: false, // overridden by plugin
+        configured: hasToken,
+        details: {
+          hasToken,
+          botUsername: botName,
+        },
+        error: !hasToken
+          ? "Set TELEGRAM_BOT_TOKEN in your environment"
+          : undefined,
+      };
+    },
+  };
+}
+
+/** Split a message into chunks that fit within the platform's limit */
+function splitMessage(text: string, maxLength: number): string[] {
+  if (text.length <= maxLength) return [text];
+  const chunks: string[] = [];
+  let remaining = text;
+  while (remaining.length > 0) {
+    if (remaining.length <= maxLength) {
+      chunks.push(remaining);
+      break;
+    }
+    let splitIdx = remaining.lastIndexOf("\n", maxLength);
+    if (splitIdx <= 0) splitIdx = remaining.lastIndexOf(" ", maxLength);
+    if (splitIdx <= 0) splitIdx = maxLength;
+    chunks.push(remaining.slice(0, splitIdx));
+    remaining = remaining.slice(splitIdx).trimStart();
+  }
+  return chunks;
+}
