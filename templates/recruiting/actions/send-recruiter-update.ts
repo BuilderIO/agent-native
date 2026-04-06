@@ -17,10 +17,19 @@ export const tool: ActionTool = {
 };
 
 export async function run(args: Record<string, string>): Promise<string> {
-  // First fetch the action items data
+  // Check Slack is configured before expensive Greenhouse API calls
+  const status = await localFetch<any>("/api/notifications/status");
+  if (!status.configured || !status.enabled) {
+    return JSON.stringify({
+      error:
+        "Slack notifications not configured. Go to Settings to add a webhook URL.",
+    });
+  }
+
+  // Fetch action items data (triggers multiple Greenhouse API calls)
   const actionItems = await localFetch<any>("/api/action-items");
 
-  // Then send the update
+  // Send the update
   const result = await localFetch<any>("/api/notifications/send", {
     method: "POST",
     body: JSON.stringify({

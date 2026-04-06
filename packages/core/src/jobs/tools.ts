@@ -9,7 +9,7 @@ import {
   resourcePut,
   resourceGet,
   resourceGetByPath,
-  resourceListAllOwners,
+  resourceList,
   SHARED_OWNER,
 } from "../resources/store.js";
 function getOwner(): string {
@@ -108,16 +108,22 @@ export function createJobTools(): Record<string, ActionEntry> {
         },
       },
       run: async (args) => {
-        const resources = await resourceListAllOwners("jobs/");
-        const jobs = resources
-          .filter((r) => r.path.endsWith(".md") && !r.path.endsWith(".keep"))
-          .filter((r) => {
-            if (args.scope === "personal") return r.owner !== SHARED_OWNER;
-            if (args.scope === "shared") return r.owner === SHARED_OWNER;
-            return true;
-          })
-          .map((r) => {
-            const { meta } = parseJobFrontmatter(r.content);
+        const owner = getOwner();
+        // Fetch only current user's and shared jobs (not other users')
+        const [personal, shared] = await Promise.all([
+          resourceList(owner, "jobs/"),
+          resourceList(SHARED_OWNER, "jobs/"),
+        ]);
+        let resources = [...personal, ...shared];
+        if (args.scope === "personal") resources = personal;
+        else if (args.scope === "shared") resources = shared;
+        const metas = resources.filter(
+          (r) => r.path.endsWith(".md") && !r.path.endsWith(".keep"),
+        );
+        const jobs = await Promise.all(
+          metas.map(async (r) => {
+            const full = await resourceGetByPath(r.owner, r.path);
+            const { meta } = parseJobFrontmatter(full?.content || "");
             return {
               name: r.path.replace(/^jobs\//, "").replace(/\.md$/, ""),
               path: r.path,
@@ -132,7 +138,8 @@ export function createJobTools(): Record<string, ActionEntry> {
               lastError: meta.lastError || null,
               nextRun: meta.nextRun || null,
             };
-          });
+          }),
+        );
 
         if (jobs.length === 0) {
           return "No recurring jobs configured. Use create-job to create one.";

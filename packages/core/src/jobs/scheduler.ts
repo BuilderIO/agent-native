@@ -176,6 +176,11 @@ async function executeJob(
   meta.lastError = undefined;
   await updateResource(resource, meta, body);
 
+  // Set owner context so all scoped operations (app-state, resources, etc.)
+  // operate on the correct user's data
+  const prevOwner = process.env.AGENT_USER_EMAIL;
+  process.env.AGENT_USER_EMAIL = resource.owner;
+
   try {
     const actions = deps.getActions();
     const systemPrompt = await deps.getSystemPrompt(resource.owner);
@@ -236,6 +241,13 @@ async function executeJob(
     await updateResource(resource, meta, body);
 
     console.error(`[recurring-jobs] Job "${jobName}" failed:`, err?.message);
+  } finally {
+    // Restore previous owner context
+    if (prevOwner !== undefined) {
+      process.env.AGENT_USER_EMAIL = prevOwner;
+    } else {
+      delete process.env.AGENT_USER_EMAIL;
+    }
   }
 }
 
