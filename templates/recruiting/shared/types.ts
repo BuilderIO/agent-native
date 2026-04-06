@@ -150,11 +150,55 @@ export type PipelineStage = {
   })[];
 };
 
+export type ScorecardStatus = {
+  interview: GreenhouseScheduledInterview;
+  candidateName: string;
+  jobName: string;
+  applicationId: number;
+  scorecards: GreenhouseScorecard[];
+  missingFrom: { id: number; name: string; email: string }[];
+  hoursSinceInterview: number;
+  status: "complete" | "overdue" | "pending";
+};
+
+export type StuckCandidate = {
+  applicationId: number;
+  candidateId: number;
+  candidateName: string;
+  jobName: string;
+  stageName: string;
+  daysInStage: number;
+  lastActivityAt: string;
+};
+
+export type RecentScorecard = {
+  scorecard: GreenhouseScorecard;
+  candidateName: string;
+  jobName: string;
+  interviewName: string;
+  applicationId: number;
+};
+
+export type ActionItemsResponse = {
+  overdueScorecards: ScorecardStatus[];
+  pendingScorecards: ScorecardStatus[];
+  recentScorecards: RecentScorecard[];
+  stuckCandidates: StuckCandidate[];
+  summary: {
+    overdueScorecardCount: number;
+    pendingScorecardCount: number;
+    recentScorecardCount: number;
+    stuckCandidateCount: number;
+    totalActionItems: number;
+  };
+};
+
 export type GreenhouseView =
   | "dashboard"
   | "jobs"
   | "candidates"
   | "interviews"
+  | "action-items"
   | "settings";
 
 export type NavigationState = {
