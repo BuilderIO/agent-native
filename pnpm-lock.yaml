@@ -273,6 +273,9 @@ importers:
       '@tailwindcss/vite':
         specifier: ^4.1.18
         version: 4.2.2(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0))
+      h3:
+        specifier: ^1.15.3
+        version: 1.15.11
       isbot:
         specifier: ^5.1.27
         version: 5.1.37

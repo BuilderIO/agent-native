@@ -1,0 +1,16 @@
+.react-router/
+node_modules
+dist
+dist-ssr
+*.local
+.DS_Store
+
+.config/
+.env
+.output/
+
+data/app.db
+data/app.db-wal
+data/app.db-shm
+
+build
