@@ -52,6 +52,7 @@ import {
 } from "@/hooks/use-events";
 import { useOverlayPeople } from "@/hooks/use-overlay-people";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
+import { useQueryClient } from "@tanstack/react-query";
 import { AgentToggleButton } from "@agent-native/core/client";
 import { toast } from "sonner";
 import type { CalendarEvent } from "@shared/api";
@@ -86,6 +87,7 @@ export default function CalendarView() {
   const [deleteDialogEvent, setDeleteDialogEvent] =
     useState<CalendarEvent | null>(null);
 
+  const queryClient = useQueryClient();
   const googleStatus = useGoogleAuthStatus();
   const { data: overlayPeople = [] } = useOverlayPeople();
   const overlayEmails = useMemo(
@@ -304,8 +306,16 @@ export default function CalendarView() {
       },
       {
         onSuccess: (result) => {
-          // Replace temp ID with real ID for quick-edit
-          setQuickEditEventId(result.id);
+          // Synchronously swap the optimistic temp event for the real one
+          // in the cache so the inline input stays mounted when we update
+          // quickEditEventId to the real ID.
+          const { _tempId, ...realEvent } = result;
+          queryClient.setQueriesData<CalendarEvent[]>(
+            { queryKey: ["events"] },
+            (old) =>
+              old?.map((e) => (e.id === _tempId ? { ...e, ...realEvent } : e)),
+          );
+          setQuickEditEventId(realEvent.id);
         },
         onError: () => {
           setQuickEditEventId(null);

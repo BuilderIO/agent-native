@@ -66,7 +66,7 @@ function QuickEditInput({
         }
         e.stopPropagation();
       }}
-      onBlur={() => onSave(eventId, value)}
+      onBlur={() => (value.trim() ? onSave(eventId, value) : onCancel(eventId))}
       placeholder="(No title)"
       className="w-full bg-transparent text-[11px] font-semibold text-foreground placeholder:text-foreground/40 outline-none leading-tight"
     />

@@ -1,4 +1,4 @@
-import { runMigrations } from "@agent-native/core/db";
+import { runMigrations, intType } from "@agent-native/core/db";
 
 export default runMigrations([
   {
@@ -46,9 +46,9 @@ export default runMigrations([
     owner_email TEXT NOT NULL,
     contact_email TEXT NOT NULL,
     contact_name TEXT NOT NULL DEFAULT '',
-    send_count INTEGER NOT NULL DEFAULT 0,
-    receive_count INTEGER NOT NULL DEFAULT 0,
-    last_contacted_at INTEGER NOT NULL
+    send_count ${intType()} NOT NULL DEFAULT 0,
+    receive_count ${intType()} NOT NULL DEFAULT 0,
+    last_contacted_at ${intType()} NOT NULL
   )`,
   },
 ]);
