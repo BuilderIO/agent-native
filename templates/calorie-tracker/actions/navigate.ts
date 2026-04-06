@@ -21,8 +21,8 @@ export async function run(args: Record<string, string>): Promise<string> {
   return output({ success: true, navigatedTo: view });
 }
 
-export default async function main() {
-  const args = parseArgs();
-  const result = await run(args);
+export default async function main(args?: string[]) {
+  const parsed = parseArgs(args);
+  const result = await run(parsed);
   console.log(result);
 }

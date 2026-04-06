@@ -39,12 +39,17 @@ export async function run(args: Record<string, string>): Promise<string> {
     }),
   });
 
+  if (!res.ok) {
+    const err = await res.text();
+    return output({ success: false, error: err });
+  }
+
   const data = await res.json();
   return output({ success: true, weight: data });
 }
 
-export default async function main() {
-  const args = parseArgs();
-  const result = await run(args);
+export default async function main(args?: string[]) {
+  const parsed = parseArgs(args);
+  const result = await run(parsed);
   console.log(result);
 }

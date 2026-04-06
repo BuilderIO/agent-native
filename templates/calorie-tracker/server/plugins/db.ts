@@ -1,5 +1,7 @@
 import { runMigrations } from "@agent-native/core/db";
 
+// These raw SQL migrations use SQLite syntax and only run on SQLite.
+// For Postgres deployments, use `drizzle-kit push` against the Drizzle schema instead.
 export default runMigrations([
   {
     version: 1,

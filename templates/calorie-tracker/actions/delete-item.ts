@@ -25,16 +25,24 @@ export async function run(args: Record<string, string>): Promise<string> {
         : "weights";
   const port = process.env.PORT || "8080";
 
-  await fetch(`http://localhost:${port}/api/${endpoint}/${args.id}`, {
-    method: "DELETE",
-    headers: { "X-Request-Source": "agent" },
-  });
+  const res = await fetch(
+    `http://localhost:${port}/api/${endpoint}/${args.id}`,
+    {
+      method: "DELETE",
+      headers: { "X-Request-Source": "agent" },
+    },
+  );
+
+  if (!res.ok) {
+    const err = await res.text();
+    return output({ success: false, error: err });
+  }
 
   return output({ success: true, deleted: { type: args.type, id: args.id } });
 }
 
-export default async function main() {
-  const args = parseArgs();
-  const result = await run(args);
+export default async function main(args?: string[]) {
+  const parsed = parseArgs(args);
+  const result = await run(parsed);
   console.log(result);
 }

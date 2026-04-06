@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format, addDays, subDays, isSameDay } from "date-fns";
 import {
@@ -31,6 +31,14 @@ export default function IndexPage() {
   const queryClient = useQueryClient();
 
   const dateStr = formatLocalDate(date);
+
+  // Sync current date to navigation state so the agent knows what day the user is viewing
+  useEffect(() => {
+    apiFetch("/_agent-native/application-state/navigation", {
+      method: "PUT",
+      body: JSON.stringify({ view: "entry", date: dateStr }),
+    }).catch(() => {});
+  }, [dateStr]);
 
   const { data: meals, isLoading: mealsLoading } = useQuery<Meal[]>({
     queryKey: ["meals", dateStr],

@@ -26,6 +26,11 @@ export async function run(args: Record<string, string>): Promise<string> {
       headers: { "X-Request-Source": "agent" },
     },
   );
+  if (!res.ok) {
+    const err = await res.text();
+    return output({ success: false, error: err });
+  }
+
   const exercises = await res.json();
 
   const totalBurned = exercises.reduce(
@@ -36,8 +41,8 @@ export async function run(args: Record<string, string>): Promise<string> {
   return output({ date, exercises, totalBurned, count: exercises.length });
 }
 
-export default async function main() {
-  const args = parseArgs();
-  const result = await run(args);
+export default async function main(args?: string[]) {
+  const parsed = parseArgs(args);
+  const result = await run(parsed);
   console.log(result);
 }

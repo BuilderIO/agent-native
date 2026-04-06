@@ -135,9 +135,7 @@ function matchRoute(
   requestPath: string,
 ): { handler: EventHandler; params: Record<string, string> } | null {
   // Sort routes by specificity (longest path first)
-  const sorted = [...routes].sort(
-    (a, b) => b.path.length - a.path.length,
-  );
+  const sorted = [...routes].sort((a, b) => b.path.length - a.path.length);
 
   for (const route of sorted) {
     // Handle parameterized paths like /_agent-native/application-state/:key

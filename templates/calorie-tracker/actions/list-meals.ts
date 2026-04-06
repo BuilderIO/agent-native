@@ -23,6 +23,11 @@ export async function run(args: Record<string, string>): Promise<string> {
   const res = await fetch(`http://localhost:${port}/api/meals?date=${date}`, {
     headers: { "X-Request-Source": "agent" },
   });
+  if (!res.ok) {
+    const err = await res.text();
+    return output({ success: false, error: err });
+  }
+
   const meals = await res.json();
 
   const totalCalories = meals.reduce(
@@ -52,8 +57,8 @@ export async function run(args: Record<string, string>): Promise<string> {
   });
 }
 
-export default async function main() {
-  const args = parseArgs();
-  const result = await run(args);
+export default async function main(args?: string[]) {
+  const parsed = parseArgs(args);
+  const result = await run(parsed);
   console.log(result);
 }
