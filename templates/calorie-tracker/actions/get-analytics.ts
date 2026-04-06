@@ -43,10 +43,8 @@ export async function run(args: Record<string, string>): Promise<string> {
   const avgCalories =
     calorieHistory.length > 0
       ? Math.round(
-          calorieHistory.reduce(
-            (s: number, d: any) => s + d.netCalories,
-            0,
-          ) / calorieHistory.length,
+          calorieHistory.reduce((s: number, d: any) => s + d.netCalories, 0) /
+            calorieHistory.length,
         )
       : 0;
 

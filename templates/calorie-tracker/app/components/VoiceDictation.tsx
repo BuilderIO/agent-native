@@ -17,18 +17,19 @@ type VoiceState = "idle" | "listening" | "processing";
 export function VoiceDictation({ currentDate }: VoiceDictationProps) {
   const [state, setState] = useState<VoiceState>("idle");
   const [transcript, setTranscript] = useState("");
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const recognitionRef = useRef<any>(null);
   const isProcessingRef = useRef(false);
 
   const isSupported =
     typeof window !== "undefined" &&
-    ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
+    ("SpeechRecognition" in window ||
+      "webkitSpeechRecognition" in (window as any));
 
   const processCommand = useCallback(async (text: string) => {
     setState("processing");
     try {
       // Send to agent chat - the agent will parse and execute
-      await sendToAgentChat(text);
+      sendToAgentChat({ message: text, submit: true });
       toast.success("Sent to assistant", { description: `"${text}"` });
     } catch (error) {
       console.error("Error sending voice command:", error);
@@ -56,9 +57,10 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
     setState("listening");
     setTranscript("");
 
-    const SpeechRecognition =
-      window.SpeechRecognition || window.webkitSpeechRecognition;
-    const recognition = new SpeechRecognition();
+    const SpeechRecognitionCtor =
+      (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition;
+    const recognition: any = new SpeechRecognitionCtor();
     recognition.continuous = false;
     recognition.interimResults = true;
     recognition.lang = "en-US";

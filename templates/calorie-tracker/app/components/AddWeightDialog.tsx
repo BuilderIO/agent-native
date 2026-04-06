@@ -42,8 +42,7 @@ export function AddWeightDialog({
   currentDate,
 }: AddWeightDialogProps) {
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
-  const open =
-    controlledOpen !== undefined ? controlledOpen : uncontrolledOpen;
+  const open = controlledOpen !== undefined ? controlledOpen : uncontrolledOpen;
   const setOpen =
     controlledOpen !== undefined
       ? (v: boolean) => onOpenChange?.(v)
@@ -52,12 +51,10 @@ export function AddWeightDialog({
   const isEditing = !!editingWeight;
 
   const form = useForm<FormData>({
-    resolver: zodResolver(formSchema),
+    resolver: zodResolver(formSchema) as any,
     defaultValues: {
       weight: editingWeight?.weight?.toString() || "",
-      date:
-        editingWeight?.date ||
-        formatLocalDate(currentDate || new Date()),
+      date: editingWeight?.date || formatLocalDate(currentDate || new Date()),
       notes: editingWeight?.notes || "",
     },
   });

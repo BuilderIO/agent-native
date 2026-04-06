@@ -37,12 +37,12 @@ export default function IndexPage() {
     queryFn: () => apiFetch(`/api/meals?date=${dateStr}`),
   });
 
-  const { data: exercises, isLoading: exercisesLoading } = useQuery<
-    Exercise[]
-  >({
-    queryKey: ["exercises", dateStr],
-    queryFn: () => apiFetch(`/api/exercises?date=${dateStr}`),
-  });
+  const { data: exercises, isLoading: exercisesLoading } = useQuery<Exercise[]>(
+    {
+      queryKey: ["exercises", dateStr],
+      queryFn: () => apiFetch(`/api/exercises?date=${dateStr}`),
+    },
+  );
 
   const deleteMealMutation = useMutation({
     mutationFn: (id: number) =>
@@ -69,14 +69,14 @@ export default function IndexPage() {
       carbs: acc.carbs + (meal.carbs || 0),
       fat: acc.fat + (meal.fat || 0),
     }),
-    { calories: 0, protein: 0, carbs: 0, fat: 0 }
+    { calories: 0, protein: 0, carbs: 0, fat: 0 },
   ) || { calories: 0, protein: 0, carbs: 0, fat: 0 };
 
   const exerciseTotals = exercises?.reduce(
     (acc, exercise) => ({
       burned: acc.burned + exercise.calories_burned,
     }),
-    { burned: 0 }
+    { burned: 0 },
   ) || { burned: 0 };
 
   const GOAL_CALORIES = 2000;

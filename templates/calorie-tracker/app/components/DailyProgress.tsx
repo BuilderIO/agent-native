@@ -376,11 +376,7 @@ export function DailyProgress({
                             stopColor="#fff"
                             stopOpacity={0.1}
                           />
-                          <stop
-                            offset="95%"
-                            stopColor="#fff"
-                            stopOpacity={0}
-                          />
+                          <stop offset="95%" stopColor="#fff" stopOpacity={0} />
                         </linearGradient>
                       </defs>
                       <XAxis dataKey="displayDate" hide />

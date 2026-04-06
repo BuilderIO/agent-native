@@ -162,15 +162,12 @@ export function WeeklyCaloriesChart({
   isLoading,
   dailyGoal = 2000,
 }: WeeklyCaloriesChartProps) {
-  if (isLoading)
-    return <Skeleton className="h-[300px] w-full rounded-xl" />;
+  if (isLoading) return <Skeleton className="h-[300px] w-full rounded-xl" />;
   if (!history || history.length === 0)
     return (
       <div className="h-[300px] flex flex-col items-center justify-center text-muted-foreground rounded-xl border border-dashed border-border/50 bg-secondary/20">
         <p className="text-sm">No data available yet</p>
-        <p className="text-xs mt-1">
-          Start logging meals to see weekly trends
-        </p>
+        <p className="text-xs mt-1">Start logging meals to see weekly trends</p>
       </div>
     );
 

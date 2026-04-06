@@ -1,5 +1,5 @@
 import { createCoreRoutesPlugin } from "@agent-native/core/server";
 
 export default createCoreRoutesPlugin({
-  envKeys: ["ANTHROPIC_API_KEY"],
+  envKeys: [{ key: "ANTHROPIC_API_KEY", label: "Anthropic API Key" }],
 });

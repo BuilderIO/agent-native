@@ -37,10 +37,7 @@ export async function run(args: Record<string, string>): Promise<string> {
     (sum: number, m: any) => sum + (m.carbs || 0),
     0,
   );
-  const totalFat = meals.reduce(
-    (sum: number, m: any) => sum + (m.fat || 0),
-    0,
-  );
+  const totalFat = meals.reduce((sum: number, m: any) => sum + (m.fat || 0), 0);
 
   return output({
     date,

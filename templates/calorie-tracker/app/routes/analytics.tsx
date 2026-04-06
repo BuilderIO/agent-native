@@ -43,7 +43,7 @@ export default function AnalyticsPage() {
       const endDate = formatLocalDate(new Date());
       const startDate = getStartDate(timeRange);
       return apiFetch(
-        `/api/meals/history?startDate=${startDate}&endDate=${endDate}`
+        `/api/meals/history?startDate=${startDate}&endDate=${endDate}`,
       );
     },
   });
@@ -56,7 +56,7 @@ export default function AnalyticsPage() {
       const endDate = formatLocalDate(new Date());
       const startDate = getStartDate(timeRange);
       return apiFetch(
-        `/api/weights/history?startDate=${startDate}&endDate=${endDate}`
+        `/api/weights/history?startDate=${startDate}&endDate=${endDate}`,
       );
     },
   });
@@ -72,7 +72,7 @@ export default function AnalyticsPage() {
             ? Math.round(
                 (weightHistory[weightHistory.length - 1].trendWeight -
                   weightHistory[0].trendWeight) *
-                  10
+                  10,
               ) / 10
             : 0,
         lowest:
@@ -100,7 +100,7 @@ export default function AnalyticsPage() {
         average:
           Math.round(
             history.reduce((sum, day) => sum + day.netCalories, 0) /
-              history.length
+              history.length,
           ) || 0,
         highest: Math.max(...history.map((day) => day.netCalories), 0),
         lowest: Math.min(...history.map((day) => day.netCalories), 0),
@@ -166,10 +166,7 @@ export default function AnalyticsPage() {
           <CardHeader className="pb-4">
             <CardTitle className="text-base font-medium">
               Calorie Trend (
-              {timeRange === "all"
-                ? "All Time"
-                : `Last ${timeRange} Days`}
-              )
+              {timeRange === "all" ? "All Time" : `Last ${timeRange} Days`})
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -276,10 +273,7 @@ export default function AnalyticsPage() {
           <CardHeader className="pb-4">
             <CardTitle className="text-base font-medium">
               Weekly Net Calories vs Goal (
-              {timeRange === "all"
-                ? "All Time"
-                : `Last ${timeRange} Days`}
-              )
+              {timeRange === "all" ? "All Time" : `Last ${timeRange} Days`})
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -296,10 +290,7 @@ export default function AnalyticsPage() {
           <CardHeader className="pb-4">
             <CardTitle className="text-base font-medium">
               Weight Trend (
-              {timeRange === "all"
-                ? "All Time"
-                : `Last ${timeRange} Days`}
-              )
+              {timeRange === "all" ? "All Time" : `Last ${timeRange} Days`})
             </CardTitle>
           </CardHeader>
           <CardContent>

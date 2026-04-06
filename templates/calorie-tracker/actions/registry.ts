@@ -11,10 +11,7 @@ import {
   tool as listExercisesTool,
   run as listExercisesRun,
 } from "./list-exercises.js";
-import {
-  tool as deleteItemTool,
-  run as deleteItemRun,
-} from "./delete-item.js";
+import { tool as deleteItemTool, run as deleteItemRun } from "./delete-item.js";
 import { tool as editItemTool, run as editItemRun } from "./edit-item.js";
 import {
   tool as getAnalyticsTool,

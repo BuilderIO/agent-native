@@ -54,8 +54,7 @@ export function AddMealDialog({
   currentDate = new Date(),
 }: AddMealDialogProps) {
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
-  const open =
-    controlledOpen !== undefined ? controlledOpen : uncontrolledOpen;
+  const open = controlledOpen !== undefined ? controlledOpen : uncontrolledOpen;
   const setOpen =
     controlledOpen !== undefined
       ? (v: boolean) => onOpenChange?.(v)
@@ -65,7 +64,7 @@ export function AddMealDialog({
   const isEditing = !!editingMeal;
 
   const form = useForm<FormData>({
-    resolver: zodResolver(formSchema),
+    resolver: zodResolver(formSchema) as any,
     defaultValues: {
       name: editingMeal?.name || "",
       calories: editingMeal?.calories.toString() || "",
@@ -152,9 +151,7 @@ export function AddMealDialog({
       )}
       <DialogContent className="sm:max-w-[425px] gap-6">
         <DialogHeader>
-          <DialogTitle>
-            {isEditing ? "Edit Meal" : "Add New Meal"}
-          </DialogTitle>
+          <DialogTitle>{isEditing ? "Edit Meal" : "Add New Meal"}</DialogTitle>
         </DialogHeader>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">

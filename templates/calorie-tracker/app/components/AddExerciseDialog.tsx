@@ -48,8 +48,7 @@ export function AddExerciseDialog({
   currentDate = new Date(),
 }: AddExerciseDialogProps) {
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
-  const open =
-    controlledOpen !== undefined ? controlledOpen : uncontrolledOpen;
+  const open = controlledOpen !== undefined ? controlledOpen : uncontrolledOpen;
   const setOpen =
     controlledOpen !== undefined
       ? (v: boolean) => onOpenChange?.(v)
@@ -58,7 +57,7 @@ export function AddExerciseDialog({
   const isEditing = !!editingExercise;
 
   const form = useForm<FormData>({
-    resolver: zodResolver(formSchema),
+    resolver: zodResolver(formSchema) as any,
     defaultValues: {
       name: editingExercise?.name || "",
       calories_burned: editingExercise?.calories_burned.toString() || "",
@@ -115,9 +114,7 @@ export function AddExerciseDialog({
   const onSubmit = (data: FormData) => {
     const exerciseData = {
       ...data,
-      date: isEditing
-        ? editingExercise!.date
-        : formatLocalDate(currentDate),
+      date: isEditing ? editingExercise!.date : formatLocalDate(currentDate),
     };
     if (isEditing) updateMutation.mutate(exerciseData);
     else createMutation.mutate(exerciseData);
