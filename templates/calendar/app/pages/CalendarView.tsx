@@ -82,7 +82,7 @@ export default function CalendarView() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [createDefaultStart, setCreateDefaultStart] = useState<string>();
   const [createDefaultEnd, setCreateDefaultEnd] = useState<string>();
-  const [quickEditEventId, setQuickEditEventId] = useState<string | null>(null);
+  // quickEditEventId removed — click-to-create now opens CreateEventPopover
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
   const [deleteDialogEvent, setDeleteDialogEvent] =
@@ -194,18 +194,10 @@ export default function CalendarView() {
       ev.attendees && ev.attendees.filter((a) => !a.self).length > 0;
     const removeOnly = !isOrganizer && !!hasOtherAttendees;
 
-    // Snapshot for undo
-    const snapshot = { ...ev };
+    // Snapshot for undo — preserve all event fields so undo recreates faithfully
+    const { id: _id, source: _source, ...snapshot } = ev;
     const undo = () => {
-      createEvent.mutate({
-        title: snapshot.title,
-        description: snapshot.description ?? "",
-        location: snapshot.location ?? "",
-        start: snapshot.start,
-        end: snapshot.end,
-        allDay: snapshot.allDay ?? false,
-        color: snapshot.color,
-      });
+      createEvent.mutate(snapshot);
     };
 
     deleteEvent.mutate(
@@ -328,59 +320,10 @@ export default function CalendarView() {
     startTime: string,
     endTime: string,
   ) {
-    const dateStr = format(clickedDate, "yyyy-MM-dd");
-    const startISO = new Date(`${dateStr}T${startTime}:00`).toISOString();
-    const endISO = new Date(`${dateStr}T${endTime}:00`).toISOString();
-    const tempId = `temp-${Date.now()}`;
-
-    createEvent.mutate(
-      {
-        title: "(No title)",
-        description: "",
-        location: "",
-        start: startISO,
-        end: endISO,
-        allDay: false,
-        _tempId: tempId,
-      },
-      {
-        onSuccess: (result) => {
-          // Synchronously swap the optimistic temp event for the real one
-          // in the cache so the inline input stays mounted when we update
-          // quickEditEventId to the real ID.
-          const { _tempId, ...realEvent } = result;
-          queryClient.setQueriesData<CalendarEvent[]>(
-            { queryKey: ["events"] },
-            (old) =>
-              old?.map((e) => (e.id === _tempId ? { ...e, ...realEvent } : e)),
-          );
-          setQuickEditEventId(realEvent.id);
-        },
-        onError: () => {
-          setQuickEditEventId(null);
-          toast.error("Failed to create event");
-        },
-      },
-    );
-
-    // Immediately show inline editor on the optimistic event
-    setQuickEditEventId(tempId);
-  }
-
-  function handleQuickEditSave(eventId: string, title: string) {
-    setQuickEditEventId(null);
-    if (title.trim() && title.trim() !== "(No title)") {
-      updateEvent.mutate({ id: eventId, title: title.trim() });
-    }
-  }
-
-  function handleQuickEditCancel(eventId: string) {
-    setQuickEditEventId(null);
-    // Delete the event if title was never set
-    const ev = events.find((e) => e.id === eventId);
-    if (!ev || ev.title === "(No title)") {
-      deleteEvent.mutate({ id: eventId, scope: "single", sendUpdates: "none" });
-    }
+    setSelectedDate(clickedDate);
+    setCreateDefaultStart(startTime);
+    setCreateDefaultEnd(endTime);
+    setCreateDialogOpen(true);
   }
 
   // IconKeyboard shortcuts — don't fire when user is typing in an input
@@ -688,9 +631,6 @@ export default function CalendarView() {
                 onDeleteEvent={handleDeleteEvent}
                 onEventTimeChange={handleEventTimeChange}
                 onClickTimeSlot={handleClickTimeSlot}
-                quickEditEventId={quickEditEventId}
-                onQuickEditSave={handleQuickEditSave}
-                onQuickEditCancel={handleQuickEditCancel}
                 isLoading={eventsLoading}
               />
             )}
@@ -702,9 +642,6 @@ export default function CalendarView() {
                 onDeleteEvent={handleDeleteEvent}
                 onEventTimeChange={handleEventTimeChange}
                 onClickTimeSlot={handleClickTimeSlot}
-                quickEditEventId={quickEditEventId}
-                onQuickEditSave={handleQuickEditSave}
-                onQuickEditCancel={handleQuickEditCancel}
                 isLoading={eventsLoading}
               />
             )}

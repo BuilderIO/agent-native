@@ -38,7 +38,6 @@ function QuickEditInput({
   onCancel: (eventId: string) => void;
 }) {
   const [value, setValue] = useState("");
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -49,18 +48,11 @@ function QuickEditInput({
     <input
       ref={inputRef}
       value={value}
-      onChange={(e) => {
-        setValue(e.target.value);
-        setConfirmDelete(false);
-      }}
+      onChange={(e) => setValue(e.target.value)}
       onKeyDown={(e) => {
         if (e.key === "Enter") {
           e.preventDefault();
-          if (confirmDelete) {
-            onCancel(eventId);
-          } else {
-            onSave(eventId, value);
-          }
+          onSave(eventId, value);
         } else if (e.key === "Escape") {
           e.preventDefault();
           onCancel(eventId);
@@ -70,20 +62,11 @@ function QuickEditInput({
         ) {
           e.preventDefault();
           onCancel(eventId);
-        } else if (e.key === "Delete" && value.trim()) {
-          e.preventDefault();
-          if (confirmDelete) {
-            onCancel(eventId);
-          } else {
-            setConfirmDelete(true);
-          }
         }
         e.stopPropagation();
       }}
       onBlur={() => (value.trim() ? onSave(eventId, value) : onCancel(eventId))}
-      placeholder={
-        confirmDelete ? "Press Delete or Enter to discard" : "(No title)"
-      }
+      placeholder="(No title)"
       className="w-full bg-transparent text-[11px] font-semibold text-foreground placeholder:text-foreground/40 outline-none leading-tight"
     />
   );
