@@ -1,4 +1,4 @@
-import { defineTask } from "nitropack/runtime";
+import { defineTask } from "nitro/runtime";
 import { processJobs } from "../server/tasks/jobs/process.js";
 
 export default defineTask({

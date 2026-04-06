@@ -247,15 +247,6 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     }
   }
 
-  // Nitro 3.0's Vite plugin (nitro/vite) uses a FetchableDevEnvironment
-  // that is incompatible with Vite 7/8's DevEnvironment API. Loading it
-  // crashes typecheck, build, and any Vite server creation. Nitro's
-  // file-based routes are handled by its runtime (via the server/routes/
-  // directory) independently of this plugin, so we skip it entirely.
-  // The Nitro plugin can be re-enabled once Nitro ships a Vite 7+ compatible
-  // release.
-  const nitroPlugin: any = null;
-
   const cwd = process.cwd();
 
   // Build the React transform plugin (only for legacy SPA mode)
@@ -284,7 +275,6 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
       baseRedirectGuard(),
       devApiServer(),
       reactPluginInstance,
-      nitroPlugin?.(),
       ...(options.plugins ?? []),
     ].filter(Boolean),
     optimizeDeps: {

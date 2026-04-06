@@ -27,7 +27,7 @@ export function createResourcesPlugin(): NitroPluginDef {
   return async (nitroApp: any) => {
     // Mount specific sub-routes BEFORE the catch-all
 
-    nitroApp.h3App.use(
+    (nitroApp.h3App || nitroApp._h3).use(
       "/_agent-native/resources/tree",
       defineEventHandler(async (event) => {
         if (getMethod(event) !== "GET") {
@@ -38,7 +38,7 @@ export function createResourcesPlugin(): NitroPluginDef {
       }),
     );
 
-    nitroApp.h3App.use(
+    (nitroApp.h3App || nitroApp._h3).use(
       "/_agent-native/resources/upload",
       defineEventHandler(async (event) => {
         if (getMethod(event) !== "POST") {
@@ -50,7 +50,7 @@ export function createResourcesPlugin(): NitroPluginDef {
     );
 
     // Catch-all for /_agent-native/resources and /_agent-native/resources/:id
-    nitroApp.h3App.use(
+    (nitroApp.h3App || nitroApp._h3).use(
       "/_agent-native/resources",
       defineEventHandler(async (event) => {
         const method = getMethod(event);

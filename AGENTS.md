@@ -213,7 +213,7 @@ All framework-level routes live under the `/_agent-native/` prefix to avoid coll
 
 **Hard rule: ALL framework routes go under `/_agent-native/`.** Templates own `/api/*` for their domain routes (e.g., `/api/emails`, `/api/forms`, `/api/events`). When adding new framework functionality — whether in core plugins, the auth system, resources, terminal, or any other framework feature — always use the `/_agent-native/` prefix. Never put framework routes under `/api/`. Never put template routes under `/_agent-native/`.
 
-The Vite dev middleware intercepts both `/api/` and `/_agent-native/` prefixes before react-router's SSR handler (see `dev-api-server.ts`). If you add a new framework route prefix, update that middleware too.
+The Nitro Vite plugin handles both `/api/` and `/_agent-native/` prefixes via file-based routing in `server/routes/`. If you add a new framework route prefix, add routes under the appropriate `server/routes/` directory.
 
 ## Project Structure
 

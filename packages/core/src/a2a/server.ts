@@ -22,7 +22,7 @@ export function mountA2A(
   routePrefix = "/_agent-native",
 ): void {
   // Public agent card endpoint (no auth required)
-  nitroApp.h3App.use(
+  (nitroApp.h3App || nitroApp._h3).use(
     "/.well-known/agent-card.json",
     defineEventHandler((event) => {
       if (getMethod(event) !== "GET") {
@@ -40,7 +40,7 @@ export function mountA2A(
   );
 
   // JSON-RPC A2A endpoint (with optional auth)
-  nitroApp.h3App.use(
+  (nitroApp.h3App || nitroApp._h3).use(
     `${routePrefix}/a2a`,
     defineEventHandler(async (event) => {
       if (getMethod(event) !== "POST") {

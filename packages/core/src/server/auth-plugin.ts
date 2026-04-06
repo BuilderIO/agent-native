@@ -6,7 +6,7 @@ type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
 export function createAuthPlugin(options?: AuthOptions): NitroPluginDef {
   return (nitroApp: any) => {
-    autoMountAuth(nitroApp.h3App, options);
+    autoMountAuth((nitroApp.h3App || nitroApp._h3), options);
   };
 }
 

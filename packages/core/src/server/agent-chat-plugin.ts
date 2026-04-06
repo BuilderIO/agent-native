@@ -1250,7 +1250,7 @@ export function createAgentChatPlugin(
     let currentDevMode = canToggle;
 
     // Mount mode endpoint — GET returns current mode, POST toggles it (localhost only)
-    nitroApp.h3App.use(
+    (nitroApp.h3App || nitroApp._h3).use(
       `${routePath}/mode`,
       defineEventHandler(async (event) => {
         if (getMethod(event) === "POST") {
@@ -1276,7 +1276,7 @@ export function createAgentChatPlugin(
 
     // Mount save-key BEFORE the prefix handler so it isn't shadowed
     // Only functional in Node.js environments (writes to .env file)
-    nitroApp.h3App.use(
+    (nitroApp.h3App || nitroApp._h3).use(
       `${routePath}/save-key`,
       defineEventHandler(async (event) => {
         if (getMethod(event) !== "POST") {
@@ -1313,7 +1313,7 @@ export function createAgentChatPlugin(
     );
 
     // Mount file search endpoint
-    nitroApp.h3App.use(
+    (nitroApp.h3App || nitroApp._h3).use(
       `${routePath}/files`,
       defineEventHandler(async (event) => {
         if (getMethod(event) !== "GET") {
@@ -1387,7 +1387,7 @@ export function createAgentChatPlugin(
     );
 
     // Mount skills listing endpoint
-    nitroApp.h3App.use(
+    (nitroApp.h3App || nitroApp._h3).use(
       `${routePath}/skills`,
       defineEventHandler(async (event) => {
         if (getMethod(event) !== "GET") {
@@ -1504,7 +1504,7 @@ export function createAgentChatPlugin(
     );
 
     // Mount unified mentions endpoint (files + resources + custom providers)
-    nitroApp.h3App.use(
+    (nitroApp.h3App || nitroApp._h3).use(
       `${routePath}/mentions`,
       defineEventHandler(async (event) => {
         if (getMethod(event) !== "GET") {
@@ -1633,7 +1633,7 @@ export function createAgentChatPlugin(
     );
 
     // ─── Generate thread title ──────────────────────────────────────────
-    nitroApp.h3App.use(
+    (nitroApp.h3App || nitroApp._h3).use(
       `${routePath}/generate-title`,
       defineEventHandler(async (event) => {
         if (getMethod(event) !== "POST") {
@@ -1688,7 +1688,7 @@ export function createAgentChatPlugin(
     // ─── Run management endpoints (for hot-reload resilience) ─────────────
 
     // GET /runs/active?threadId=X — check if there's an active run for a thread
-    nitroApp.h3App.use(
+    (nitroApp.h3App || nitroApp._h3).use(
       `${routePath}/runs`,
       defineEventHandler(async (event) => {
         // Auth check — ensure the user is authenticated
@@ -1761,7 +1761,7 @@ export function createAgentChatPlugin(
     // ─── Thread management endpoints ──────────────────────────────────────
     // Single handler for /threads and /threads/:id — h3's use() does prefix
     // matching so we can't reliably split them into separate handlers.
-    nitroApp.h3App.use(
+    (nitroApp.h3App || nitroApp._h3).use(
       `${routePath}/threads`,
       defineEventHandler(async (event) => {
         const owner = await getOwnerFromEvent(event);
@@ -1857,7 +1857,7 @@ export function createAgentChatPlugin(
     // This is mounted last because h3's use() is prefix-based, meaning /_agent-native/agent-chat
     // also matches /_agent-native/agent-chat/threads/... — we skip sub-path requests here so the
     // earlier-mounted handlers (mode, save-key, files, skills, mentions, threads) handle them.
-    nitroApp.h3App.use(
+    (nitroApp.h3App || nitroApp._h3).use(
       routePath,
       defineEventHandler(async (event) => {
         // Skip sub-path requests — they're handled by earlier-mounted handlers

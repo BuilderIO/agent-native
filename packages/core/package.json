@@ -80,7 +80,7 @@
     "h3": "^1.14.0",
     "isbot": "^5",
     "minimatch": "^10.0.0",
-    "nitropack": "^2.13.0",
+    "nitro": "3.0.260311-beta",
     "p-limit": "^7.3.0",
     "react-markdown": "^10.1.0",
     "react-router": "^7.13.1",
@@ -109,7 +109,7 @@
     "tailwindcss": ">=3",
     "tailwindcss-animate": ">=1",
     "typescript": ">=5",
-    "vite": ">=7",
+    "vite": ">=8",
     "ws": ">=8"
   },
   "peerDependenciesMeta": {

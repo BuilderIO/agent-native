@@ -545,10 +545,13 @@ if (preset === "node") {
 }
 
 if (!SUPPORTED_PRESETS.includes(preset)) {
-  console.error(
-    `[deploy] Unsupported preset: ${preset}. Supported: ${SUPPORTED_PRESETS.join(", ")}`,
+  // Nitro 3 handles most presets natively (netlify, vercel, deno_deploy, etc.)
+  // — only cloudflare_pages needs custom post-processing via this script.
+  // If we reach here, the preset may be handled by Nitro directly. Skip gracefully.
+  console.log(
+    `[deploy] Preset "${preset}" does not require custom post-processing (handled by Nitro). Skipping.`,
   );
-  process.exit(1);
+  process.exit(0);
 }
 
 console.log(`[deploy] Building for ${preset}...`);
