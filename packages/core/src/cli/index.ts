@@ -187,7 +187,12 @@ switch (command) {
     const nameArg = args.find(
       (a, i) => !a.startsWith("--") && !flagValueIndices.has(i),
     );
-    import("./create.js").then((m) => m.createApp(nameArg, template));
+    import("./create.js")
+      .then((m) => m.createApp(nameArg, template))
+      .catch((err: Error) => {
+        console.error(err.message);
+        process.exit(1);
+      });
     break;
   }
 

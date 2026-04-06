@@ -279,7 +279,7 @@ function downloadFile(url: string, dest: string): Promise<void> {
       file.close(() => reject(err));
     }
 
-    function get(u: string): void {
+    function get(u: string, redirects = 0): void {
       https
         .get(u, (res) => {
           if (res.statusCode === 301 || res.statusCode === 302) {
@@ -289,7 +289,11 @@ function downloadFile(url: string, dest: string): Promise<void> {
               fail(new Error("Redirect with no Location header"));
               return;
             }
-            get(location);
+            if (redirects >= 10) {
+              fail(new Error(`Too many redirects for ${url}`));
+              return;
+            }
+            get(location, redirects + 1);
             return;
           }
           if (res.statusCode !== 200) {
