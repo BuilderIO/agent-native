@@ -105,9 +105,11 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
     const threadData = JSON.stringify({
       messages: [
         {
-          id: `msg-${Date.now()}-user`,
-          role: "user",
-          content: [{ type: "text", text: opts.description }],
+          message: {
+            id: `msg-${Date.now()}-user`,
+            role: "user",
+            content: [{ type: "text", text: opts.description }],
+          },
         },
       ],
     });
@@ -319,7 +321,10 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
             ),
         );
 
-        const repo = { messages: filteredMessages };
+        // Wrap in assistant-ui's { message: ... } format
+        const repo = {
+          messages: filteredMessages.map((m: any) => ({ message: m })),
+        };
         const title = opts.description.slice(0, 100);
         const preview = accumulatedText.slice(0, 200);
         await updateThreadData(

@@ -904,14 +904,17 @@ export interface AssistantChatProps {
   /** Callback when message count changes */
   onMessageCountChange?: (count: number) => void;
   /** Callback to save thread data to the server (provided by useChatThreads) */
-  onSaveThread?: (data: {
-    threadData: string;
-    title: string;
-    preview: string;
-    messageCount: number;
-  }) => void;
+  onSaveThread?: (
+    threadId: string,
+    data: {
+      threadData: string;
+      title: string;
+      preview: string;
+      messageCount: number;
+    },
+  ) => void;
   /** Callback to generate a title from the first user message */
-  onGenerateTitle?: (message: string) => void;
+  onGenerateTitle?: (threadId: string, message: string) => void;
   /** Optional content rendered just above the composer input */
   composerSlot?: React.ReactNode;
   /** When true, skip the restore skeleton (used for freshly created threads with no messages) */
@@ -1127,29 +1130,37 @@ const AssistantChatInner = forwardRef<
 
     if (!text.trim()) return;
     titleGeneratedRef.current = true;
-    onGenerateTitleRef.current?.(text.trim());
-  }, [messages]);
+    if (threadId) {
+      onGenerateTitleRef.current?.(threadId, text.trim());
+    }
+  }, [messages, threadId]);
 
-  // Save title/preview eagerly when messages change (even while agent is running)
-  // so that the history popover shows meaningful labels immediately.
+  // Periodically save thread data while the agent is running so refreshes
+  // don't lose messages. Saves every 5 seconds while running.
   const savedTitleRef = useRef("");
+  const lastSaveTimeRef = useRef(0);
   useEffect(() => {
     if (!hasRestoredRef.current) return;
+    if (!isRunning) return;
     if (messages.length === 0) return;
     if (!threadId || !onSaveThreadRef.current) return;
 
+    const now = Date.now();
+    const timeSinceLastSave = now - lastSaveTimeRef.current;
+    if (timeSinceLastSave < 5000) return;
+
     const repo = threadRuntime.export();
     const { title, preview } = extractThreadMeta(repo);
-    // Save full thread data while running so hot reloads don't lose messages
-    if (isRunning && title && title !== savedTitleRef.current) {
-      savedTitleRef.current = title;
-      onSaveThreadRef.current({
-        threadData: JSON.stringify(repo),
-        title,
-        preview,
-        messageCount: messages.length,
-      });
-    }
+    if (!title) return;
+
+    lastSaveTimeRef.current = now;
+    savedTitleRef.current = title;
+    onSaveThreadRef.current(threadId, {
+      threadData: JSON.stringify(repo),
+      title,
+      preview,
+      messageCount: messages.length,
+    });
   }, [messages, isRunning, threadId, threadRuntime]);
 
   // Persist full thread data after each completed response
@@ -1164,7 +1175,7 @@ const AssistantChatInner = forwardRef<
       // Save to server via the hook callback
       const { title, preview } = extractThreadMeta(repo);
       savedTitleRef.current = title;
-      onSaveThreadRef.current({
+      onSaveThreadRef.current(threadId, {
         threadData: JSON.stringify(repo),
         title,
         preview,

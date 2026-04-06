@@ -58,27 +58,31 @@ function splitShellArgs(input: string): string[] {
   let current = "";
   let inDouble = false;
   let inSingle = false;
+  let wasQuoted = false;
 
   for (let i = 0; i < input.length; i++) {
     const ch = input[i];
     if (ch === '"' && !inSingle) {
       inDouble = !inDouble;
+      wasQuoted = true;
       continue;
     }
     if (ch === "'" && !inDouble) {
       inSingle = !inSingle;
+      wasQuoted = true;
       continue;
     }
     if ((ch === " " || ch === "\t") && !inDouble && !inSingle) {
-      if (current.length > 0 || tokens.length > 0) {
+      if (current.length > 0 || wasQuoted) {
         tokens.push(current);
         current = "";
+        wasQuoted = false;
       }
       continue;
     }
     current += ch;
   }
-  if (current.length > 0 || inDouble || inSingle) {
+  if (current.length > 0 || wasQuoted) {
     tokens.push(current);
   }
   return tokens;
