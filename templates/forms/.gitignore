@@ -23,6 +23,7 @@ dist-ssr
 
 .config/
 .env
+.output/
 
 # Auth sessions
 data/.sessions.json

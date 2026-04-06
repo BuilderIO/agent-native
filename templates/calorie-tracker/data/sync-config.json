@@ -1,0 +1,4 @@
+{
+  "tables": ["meals", "exercises", "weights"],
+  "pollInterval": 2000
+}

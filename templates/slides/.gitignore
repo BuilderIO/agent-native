@@ -27,6 +27,7 @@ dist-ssr
 
 .config/
 .env
+.output/
 
 # User uploads for prompt context
 data/uploads/

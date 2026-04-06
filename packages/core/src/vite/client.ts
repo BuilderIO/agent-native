@@ -2,9 +2,12 @@ import path from "path";
 import fs from "fs";
 import { createRequire } from "module";
 import type { Plugin, UserConfig } from "vite";
-import { devApiServer } from "./dev-api-server.js";
+import { nitro as nitroVitePlugin } from "nitro/vite";
+
+import { fileURLToPath } from "url";
 
 const require = createRequire(import.meta.url);
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /** Check if a package is installed in the project */
 function hasDep(pkg: string, cwd: string): boolean {
@@ -219,6 +222,51 @@ function baseRedirectGuard(): Plugin {
 }
 
 /**
+ * Work around a Rolldown bug where Nitro passes service entries as objects
+ * ({index: "path"}) but Rolldown expects strings. This plugin normalizes
+ * rollupOptions.input entries in the SSR environment.
+ */
+function rolldownInputFix(): Plugin {
+  return {
+    name: "agent-native-rolldown-input-fix",
+    configEnvironment(name, config) {
+      const input = config.build?.rollupOptions?.input;
+      if (!Array.isArray(input)) return;
+      // Flatten any object entries to just their string values
+      const fixed = input.map((entry: any) => {
+        if (typeof entry === "string") return entry;
+        if (typeof entry === "object" && entry !== null) {
+          const values = Object.values(entry);
+          return values[0] as string;
+        }
+        return entry;
+      });
+      config.build!.rollupOptions!.input = fixed;
+    },
+  };
+}
+
+/**
+ * Expose the resolved Vite dev server port as process.env.PORT so that
+ * in-process scripts (which use localFetch → http://localhost:${PORT}/api/...)
+ * hit the right address even when Vite auto-increments the port.
+ */
+function portExposer(): Plugin {
+  return {
+    name: "agent-native-port-exposer",
+    apply: "serve",
+    configureServer(server) {
+      server.httpServer?.once("listening", () => {
+        const addr = server.httpServer?.address();
+        if (addr && typeof addr === "object" && addr.port) {
+          process.env.PORT = String(addr.port);
+        }
+      });
+    },
+  };
+}
+
+/**
  * Create the client Vite config with sensible agent-native defaults.
  * Supports two modes:
  * - Legacy SPA mode (default): React SWC plugin, client-only routing
@@ -247,15 +295,6 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     }
   }
 
-  // Nitro 3.0's Vite plugin (nitro/vite) uses a FetchableDevEnvironment
-  // that is incompatible with Vite 7/8's DevEnvironment API. Loading it
-  // crashes typecheck, build, and any Vite server creation. Nitro's
-  // file-based routes are handled by its runtime (via the server/routes/
-  // directory) independently of this plugin, so we skip it entirely.
-  // The Nitro plugin can be re-enabled once Nitro ships a Vite 7+ compatible
-  // release.
-  const nitroPlugin: any = null;
-
   const cwd = process.cwd();
 
   // Build the React transform plugin (only for legacy SPA mode)
@@ -282,9 +321,20 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     plugins: [
       autoReloadOnOptimizeDep(),
       baseRedirectGuard(),
-      devApiServer(),
+      portExposer(),
+      rolldownInputFix(),
+      // Nitro Vite plugin for dev-mode API route serving and HMR.
+      // Disabled during build — React Router's build handles production
+      // bundling, and deploy/build.ts handles deployment presets.
+      ...(process.argv.includes("build")
+        ? []
+        : [
+            nitroVitePlugin({
+              serverDir: "./server",
+              ...(options.nitro ?? {}),
+            } as any),
+          ]),
       reactPluginInstance,
-      nitroPlugin?.(),
       ...(options.plugins ?? []),
     ].filter(Boolean),
     optimizeDeps: {

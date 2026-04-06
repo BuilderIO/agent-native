@@ -1,3 +1,4 @@
+import { getH3App } from "../server/framework-request-handler.js";
 import {
   defineEventHandler,
   readBody,
@@ -22,7 +23,7 @@ export function mountA2A(
   routePrefix = "/_agent-native",
 ): void {
   // Public agent card endpoint (no auth required)
-  nitroApp.h3App.use(
+  getH3App(nitroApp).use(
     "/.well-known/agent-card.json",
     defineEventHandler((event) => {
       if (getMethod(event) !== "GET") {
@@ -40,7 +41,7 @@ export function mountA2A(
   );
 
   // JSON-RPC A2A endpoint (with optional auth)
-  nitroApp.h3App.use(
+  getH3App(nitroApp).use(
     `${routePrefix}/a2a`,
     defineEventHandler(async (event) => {
       if (getMethod(event) !== "POST") {

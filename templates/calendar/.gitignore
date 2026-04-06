@@ -28,6 +28,7 @@ dist-ssr
 
 .config/
 .env
+.output/
 
 # Auth sessions (sensitive, never commit)
 data/.sessions.json

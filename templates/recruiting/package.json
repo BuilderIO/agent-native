@@ -68,6 +68,6 @@
     "tailwindcss-animate": "^1.0.7",
     "tsx": "^4.20.3",
     "typescript": "^5.9.2",
-    "vite": "^7.1.2"
+    "vite": "^8.0.0"
   }
 }
