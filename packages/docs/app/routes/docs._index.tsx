@@ -3,9 +3,8 @@ import CodeBlock from "../components/CodeBlock";
 import { templates } from "../components/TemplateCard";
 
 const TOC = [
-  { id: "start-from-a-template", label: "Start from a Template" },
-  { id: "choose-a-template", label: "Choose a Template" },
-  { id: "start-from-scratch", label: "Start from Scratch" },
+  { id: "create-your-app", label: "Create Your App" },
+  { id: "templates", label: "Templates" },
   { id: "project-structure", label: "Project Structure" },
   { id: "configuration", label: "Configuration" },
   { id: "architecture-principles", label: "Architecture Principles" },
@@ -23,18 +22,16 @@ export default function DocsIndex() {
         get a working app in under a minute and start making it yours.
       </p>
 
-      <h2 id="start-from-a-template">Start from a Template</h2>
-      <p>Pick a template and create your app:</p>
-      <CodeBlock
-        code="npx @agent-native/core create my-app --template mail"
-        lang="bash"
-      />
-      <p>Then run it:</p>
+      <h2 id="create-your-app">Create Your App</h2>
+      <CodeBlock code={`npx @agent-native/core create my-app`} lang="bash" />
+      <p>
+        The CLI walks you through picking a template — or starting blank. Then
+        run it:
+      </p>
       <CodeBlock code={`cd my-app\npnpm install\npnpm dev`} lang="bash" />
       <p>
-        That's it — you have a full email client running locally with an AI
-        agent built in. Open the agent panel, ask it to do something, and watch
-        it work.
+        That's it — you have a full app running locally with an AI agent built
+        in. Open the agent panel, ask it to do something, and watch it work.
       </p>
       <p>
         From here, use your AI coding tool (Claude Code, Cursor, Windsurf, etc.)
@@ -42,11 +39,10 @@ export default function DocsIndex() {
         already set up so any tool understands the codebase.
       </p>
 
-      <h2 id="choose-a-template">Choose a Template</h2>
+      <h2 id="templates">Templates</h2>
       <p>
         Each template is a complete app with UI, agent actions, database schema,
-        and AI instructions ready to go. Replace <code>mail</code> in the
-        command above with any template name:
+        and AI instructions ready to go:
       </p>
       <div className="overflow-x-auto">
         <table>
@@ -54,7 +50,6 @@ export default function DocsIndex() {
             <tr>
               <th>Template</th>
               <th>Replaces</th>
-              <th>Flag</th>
             </tr>
           </thead>
           <tbody>
@@ -69,9 +64,6 @@ export default function DocsIndex() {
                   </a>
                 </td>
                 <td>{t.replaces.replace(/^Replaces or augments /, "")}</td>
-                <td>
-                  <code>--template {t.slug}</code>
-                </td>
               </tr>
             ))}
           </tbody>
@@ -83,18 +75,6 @@ export default function DocsIndex() {
           template gallery
         </a>{" "}
         for live demos and detailed feature lists.
-      </p>
-
-      <h2 id="start-from-scratch">Start from Scratch</h2>
-      <p>
-        If you want a blank canvas instead of a template, create a project
-        without the <code>--template</code> flag:
-      </p>
-      <CodeBlock code="npx @agent-native/core create my-app" lang="bash" />
-      <p>
-        This gives you the framework scaffolding — React frontend, Nitro
-        backend, agent panel, and database — but no domain-specific code. Good
-        for building something entirely new.
       </p>
 
       <h2 id="project-structure">Project Structure</h2>
