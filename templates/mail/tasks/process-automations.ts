@@ -1,4 +1,4 @@
-import { defineTask } from "nitropack/runtime";
+import { defineTask } from "nitro/runtime";
 import { processAutomationRules } from "../server/tasks/automations/process.js";
 
 export default defineTask({

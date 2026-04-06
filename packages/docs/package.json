@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@agent-native/core": "workspace:*",
+    "h3": "^1.15.3",
     "@react-router/dev": "^7.6.1",
     "@react-router/fs-routes": "^7.6.1",
     "@tabler/icons-react": "^3.40.0",

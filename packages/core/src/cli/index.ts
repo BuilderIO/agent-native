@@ -71,9 +71,9 @@ switch (command) {
   }
 
   case "build": {
-    // Like `next build` — builds client + server
-    // React Router framework mode uses `react-router build`
-    // Legacy SPA mode uses `vite build`
+    // React Router framework mode uses `react-router build` which
+    // internally runs `vite build` with proper environment orchestration.
+    // Legacy SPA mode uses `vite build` directly.
     if (isReactRouterFramework()) {
       const rr = findReactRouterBin();
       console.log("Building (React Router framework mode)...");

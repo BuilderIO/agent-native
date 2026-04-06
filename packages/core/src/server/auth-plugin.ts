@@ -1,3 +1,4 @@
+import { getH3App } from "./framework-request-handler.js";
 import { autoMountAuth } from "./auth.js";
 import type { AuthOptions } from "./auth.js";
 import { createGoogleAuthPlugin } from "./google-auth-plugin.js";
@@ -6,7 +7,7 @@ type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
 export function createAuthPlugin(options?: AuthOptions): NitroPluginDef {
   return (nitroApp: any) => {
-    autoMountAuth(nitroApp.h3App, options);
+    autoMountAuth(getH3App(nitroApp), options);
   };
 }
 

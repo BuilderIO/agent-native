@@ -25,6 +25,7 @@ dist-ssr
 
 # Environment
 .env
+.output/
 .env.*
 !.env.example
 

@@ -1,0 +1,31 @@
+[build]
+  command = "pnpm --filter @agent-native/core build && pnpm --filter calorie-tracker build"
+  publish = "templates/calorie-tracker/build/client"
+
+[functions]
+  directory = "templates/calorie-tracker/netlify/functions"
+  node_bundler = "esbuild"
+
+# SSR catch-all redirect to the server function
+[[redirects]]
+  from = "/*"
+  to = "/.netlify/functions/server"
+  status = 200
+  force = false
+
+# Ensure HTML is never cached
+[[headers]]
+  for = "/"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+# Cache hashed assets forever (immutable)
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

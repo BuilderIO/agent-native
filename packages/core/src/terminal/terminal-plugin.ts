@@ -1,3 +1,4 @@
+import { getH3App } from "../server/framework-request-handler.js";
 /**
  * Nitro Plugin — Agent Terminal
  *
@@ -24,7 +25,7 @@ export interface TerminalPluginOptions {
 export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
   return async (nitroApp: any) => {
     // Always mount /_agent-native/available-clis so the client doesn't get 404s
-    nitroApp.h3App.use(
+    getH3App(nitroApp).use(
       "/_agent-native/available-clis",
       defineEventHandler(async () => {
         try {
@@ -61,7 +62,7 @@ export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
         "[terminal] Disabled in production (set AGENT_TERMINAL_ENABLED=true to enable)",
       );
       // Mount a disabled info endpoint
-      nitroApp.h3App.use(
+      getH3App(nitroApp).use(
         "/_agent-native/agent-terminal-info",
         defineEventHandler(() => ({ available: false })),
       );
@@ -74,7 +75,7 @@ export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
         "[terminal] FATAL: authCheck is required when enabling the terminal in production. " +
           "Pass an authCheck function to createTerminalPlugin().",
       );
-      nitroApp.h3App.use(
+      getH3App(nitroApp).use(
         "/_agent-native/agent-terminal-info",
         defineEventHandler(() => ({
           available: false,
@@ -90,7 +91,7 @@ export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
       console.log(
         `[terminal] PTY server already running on port ${existingPort}, skipping`,
       );
-      nitroApp.h3App.use(
+      getH3App(nitroApp).use(
         "/_agent-native/agent-terminal-info",
         defineEventHandler(() => ({
           available: true,
@@ -126,7 +127,7 @@ export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
       process.env.__AGENT_TERMINAL_RUNNING = "true";
 
       // Mount discovery endpoint
-      nitroApp.h3App.use(
+      getH3App(nitroApp).use(
         "/_agent-native/agent-terminal-info",
         defineEventHandler(() => ({
           available: true,
@@ -151,7 +152,7 @@ export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
       );
 
       // Mount a fallback info endpoint
-      nitroApp.h3App.use(
+      getH3App(nitroApp).use(
         "/_agent-native/agent-terminal-info",
         defineEventHandler(() => ({
           available: false,
