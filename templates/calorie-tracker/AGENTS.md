@@ -1,164 +1,111 @@
-# Fusion Starter
+# NutriTrack — Agent Guide
 
-A production-ready full-stack React application template with integrated Express server, featuring React Router 6 SPA mode, TypeScript, Vitest, Zod and modern tooling.
+This app follows the agent-native core philosophy: the agent and UI are equal partners. Everything the UI can do, the agent can do via actions. See the root AGENTS.md for full framework documentation.
 
-While the starter comes with a express server, only create endpoint when strictly neccesary, for example to encapsulate logic that must leave in the server, such as private keys handling, or certain DB operations, db...
+You are the AI assistant for NutriTrack, a calorie and nutrition tracking app. You help users log meals, exercises, and weight entries, and provide nutritional insights and analytics.
 
-## Tech Stack
-
-- **PNPM**: Prefer pnpm
-- **Frontend**: React 18 + React Router 6 (spa) + TypeScript + Vite + TailwindCSS 3
-- **Backend**: Express server integrated with Vite dev server
-- **Testing**: Vitest
-- **UI**: Radix UI + TailwindCSS 3 + Lucide React icons
-
-## Project Structure
+## Architecture
 
 ```
-client/                   # React SPA frontend
-├── pages/                # Route components (Index.tsx = home)
-├── components/ui/        # Pre-built UI component library
-├── App.tsx                # App entry point and with SPA routing setup
-└── global.css            # TailwindCSS 3 theming and global styles
-
-server/                   # Express API backend
-├── index.ts              # Main server setup (express config + routes)
-└── routes/               # API handlers
-
-shared/                   # Types used by both client & server
-└── api.ts                # Example of how to share api interfaces
+┌────────────────────┐     ┌────────────────────┐
+│  Frontend          │     │  Agent Chat        │
+│  (React + Vite)    │◄───►│  (AI agent)        │
+│                    │     │                    │
+│  - daily entry     │     │  - logs meals      │
+│  - analytics       │     │  - logs exercises  │
+│  - voice input     │     │  - logs weight     │
+└────────┬───────────┘     └──────────┬─────────┘
+         │                            │
+         └──────────┬─────────────────┘
+                    ▼
+            ┌───────────────┐
+            │  Backend      │
+            │  (Nitro/H3)   │
+            │               │
+            │  /api/meals   │
+            │  /api/exercises│
+            │  /api/weights │
+            └───────┬───────┘
+                    │
+                    ▼
+            ┌───────────────┐
+            │  SQL Database │
+            │  (Drizzle ORM)│
+            └───────────────┘
 ```
 
-## Key Features
+## Data Model
 
-## SPA Routing System
+All data is stored in SQL via Drizzle ORM.
 
-The routing system is powered by React Router 6:
+| Table       | Columns                                                              |
+| ----------- | -------------------------------------------------------------------- |
+| `meals`     | id, name, calories, protein, carbs, fat, date, image_url, notes      |
+| `exercises` | id, name, calories_burned, duration_minutes, date                    |
+| `weights`   | id, weight, date, notes                                              |
 
-- `client/pages/Index.tsx` represents the home page.
-- Routes are defined in `client/App.tsx` using the `react-router-dom` import
-- Route files are located in the `client/pages/` directory
+## Application State
 
-For example, routes can be defined with:
+| State Key    | Purpose                              | Direction                |
+| ------------ | ------------------------------------ | ------------------------ |
+| `navigation` | Current view (entry/analytics), date | UI → Agent (read-only)   |
+| `navigate`   | Navigate user to a view              | Agent → UI (one-shot)    |
 
-```typescript
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+## Actions
 
-<Routes>
-  <Route path="/" element={<Index />} />
-  {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-  <Route path="*" element={<NotFound />} />
-</Routes>;
-```
+Always run `view-screen` first to understand what the user is looking at.
 
-### Styling System
+| Action           | Args                                              | Purpose                        |
+| ---------------- | ------------------------------------------------- | ------------------------------ |
+| `view-screen`    |                                                   | See current navigation state   |
+| `navigate`       | `--view entry\|analytics`                         | Navigate UI                    |
+| `log-meal`       | `--name --calories [--protein --carbs --fat --date]` | Log a meal                  |
+| `log-exercise`   | `--name --calories_burned [--duration_minutes --date]` | Log exercise              |
+| `log-weight`     | `--weight [--date --notes]`                       | Log weight entry               |
+| `list-meals`     | `[--date]`                                        | List meals for a date          |
+| `list-exercises` | `[--date]`                                        | List exercises for a date      |
+| `delete-item`    | `--type meal\|exercise\|weight --id`              | Delete an item                 |
+| `edit-item`      | `--type --id [field args]`                        | Edit an existing item          |
+| `get-analytics`  | `[--days]`                                        | Get calorie/weight analytics   |
 
-- **Primary**: TailwindCSS 3 utility classes
-- **Theme and design tokens**: Configure in `client/global.css` 
-- **UI components**: Pre-built library in `client/components/ui/`
-- **Utility**: `cn()` function combines `clsx` + `tailwind-merge` for conditional classes
+## Common Tasks
 
-```typescript
-// cn utility usage
-className={cn(
-  "base-classes",
-  { "conditional-class": condition },
-  props.className  // User overrides
-)}
-```
+| User request                        | What to do                                               |
+| ----------------------------------- | -------------------------------------------------------- |
+| "What did I eat today?"             | `list-meals` with today's date                           |
+| "Log a chicken salad, 450 cal"      | `log-meal --name "Chicken Salad" --calories 450`         |
+| "I ran for 30 minutes"              | `log-exercise --name Running --calories_burned 300`      |
+| "I weigh 165"                       | `log-weight --weight 165`                                |
+| "Delete the pizza"                  | `list-meals`, find pizza ID, `delete-item --type meal`   |
+| "Change salad to 700 calories"      | `list-meals`, find salad ID, `edit-item --type meal`     |
+| "Show me my analytics"              | `navigate --view analytics`                              |
+| "How am I doing this month?"        | `get-analytics --days 30`                                |
 
-### Express Server Integration
+## Voice Commands
 
-- **Development**: Single port (8080) for both frontend/backend
-- **Hot reload**: Both client and server code
-- **API endpoints**: Prefixed with `/api/`
+When users speak via the microphone button, their transcribed text is sent to the agent chat. Parse their natural language to determine the action:
 
-#### Example API Routes
-- `GET /api/ping` - Simple ping api
-- `GET /api/demo` - Demo endpoint  
+- **ADD**: "breakfast 400 calories", "ran for 30 min 300 calories", "I weigh 165"
+- **EDIT**: "change the salad to 700", "update breakfast to 500"
+- **DELETE**: "delete the pizza", "remove lunch"
 
-### Shared Types
-Import consistent types in both client and server:
-```typescript
-import { DemoResponse } from '@shared/api';
-```
+Handle multiple items in one command. For weight entries, require explicit weight-related keywords.
 
-Path aliases:
-- `@shared/*` - Shared folder
-- `@/*` - Client folder
+## API Routes
 
-## Development Commands
-
-```bash
-pnpm dev        # Start dev server (client + server)
-pnpm build      # Production build
-pnpm start      # Start production server
-pnpm typecheck  # TypeScript validation
-pnpm test          # Run Vitest tests
-```
-
-## Adding Features
-
-### Add new colors to the theme
-
-Open `client/global.css` and `tailwind.config.ts` and add new tailwind colors.
-
-### New API Route
-1. **Optional**: Create a shared interface in `shared/api.ts`:
-```typescript
-export interface MyRouteResponse {
-  message: string;
-  // Add other response properties here
-}
-```
-
-2. Create a new route handler in `server/routes/my-route.ts`:
-```typescript
-import { RequestHandler } from "express";
-import { MyRouteResponse } from "@shared/api"; // Optional: for type safety
-
-export const handleMyRoute: RequestHandler = (req, res) => {
-  const response: MyRouteResponse = {
-    message: 'Hello from my endpoint!'
-  };
-  res.json(response);
-};
-```
-
-3. Register the route in `server/index.ts`:
-```typescript
-import { handleMyRoute } from "./routes/my-route";
-
-// Add to the createServer function:
-app.get("/api/my-endpoint", handleMyRoute);
-```
-
-4. Use in React components with type safety:
-```typescript
-import { MyRouteResponse } from '@shared/api'; // Optional: for type safety
-
-const response = await fetch('/api/my-endpoint');
-const data: MyRouteResponse = await response.json();
-```
-
-### New Page Route
-1. Create component in `client/pages/MyPage.tsx`
-2. Add route in `client/App.tsx`:
-```typescript
-<Route path="/my-page" element={<MyPage />} />
-```
-
-## Production Deployment
-
-- **Standard**: `pnpm build`
-- **Binary**: Self-contained executables (Linux, macOS, Windows)
-- **Cloud Deployment**: Use either Netlify or Vercel via their MCP integrations for easy deployment. Both providers work well with this starter template.
-
-## Architecture Notes
-
-- Single-port development with Vite + Express integration
-- TypeScript throughout (client, server, shared)
-- Full hot reload for rapid development
-- Production-ready with multiple deployment options
-- Comprehensive UI component library included
-- Type-safe API communication via shared interfaces
+| Method | Route                        | Description              |
+| ------ | ---------------------------- | ------------------------ |
+| GET    | `/api/meals?date=YYYY-MM-DD` | List meals for date      |
+| POST   | `/api/meals`                 | Create meal              |
+| PUT    | `/api/meals/:id`             | Update meal              |
+| DELETE | `/api/meals/:id`             | Delete meal              |
+| GET    | `/api/meals/history`         | Calorie history          |
+| GET    | `/api/exercises?date=...`    | List exercises           |
+| POST   | `/api/exercises`             | Create exercise          |
+| PUT    | `/api/exercises/:id`         | Update exercise          |
+| DELETE | `/api/exercises/:id`         | Delete exercise          |
+| GET    | `/api/weights?date=...`      | List weight entries      |
+| POST   | `/api/weights`               | Create weight entry      |
+| PUT    | `/api/weights/:id`           | Update weight            |
+| DELETE | `/api/weights/:id`           | Delete weight            |
+| GET    | `/api/weights/history`       | Weight trend history     |

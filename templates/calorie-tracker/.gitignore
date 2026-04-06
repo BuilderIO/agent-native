@@ -24,4 +24,8 @@ dist-ssr
 *.sw?
 
 .config/
-!.env
+.env
+build/
+.output/
+data/app.db
+.react-router/
