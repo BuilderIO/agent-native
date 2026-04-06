@@ -183,7 +183,9 @@ async function initClient(): Promise<void> {
       // Node.js: reuse connection pool
       _pgPool = postgres(url, {
         onnotice: () => {},
-        prepare: false, // Required for Supabase connection pooler
+        // Supabase's connection pooler (Transaction mode) requires prepare: false.
+        // Only disable for Supabase URLs to avoid degrading other Postgres deployments.
+        ...(url.includes("supabase") ? { prepare: false } : {}),
       });
       const pool = _pgPool;
 

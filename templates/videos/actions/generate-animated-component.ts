@@ -447,8 +447,6 @@ Examples:
   };
 }
 
-// Agent action entry point
-export default async function (args: string[]) {
-  const options = parseArgs();
-  generateComponent(options);
-}
+// Run generator
+const options = parseArgs();
+generateComponent(options);

@@ -490,12 +490,10 @@ class CompositionValidator {
   }
 }
 
-// Agent action entry point
-export default async function () {
-  const validator = new CompositionValidator();
-  const compositionsDir = path.join(process.cwd(), "app/remotion/compositions");
-  const result = validator.validate(compositionsDir);
-  validator.printResults(result);
+// Run validator
+const validator = new CompositionValidator();
+const compositionsDir = path.join(process.cwd(), "app/remotion/compositions");
+const result = validator.validate(compositionsDir);
+validator.printResults(result);
 
-  process.exit(result.passed ? 0 : 1);
-}
+process.exit(result.passed ? 0 : 1);

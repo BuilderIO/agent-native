@@ -40,6 +40,12 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
       setState("processing");
       try {
         sendToAgent({ message: text, submit: true });
+        // Timeout fallback: if sidebar is closed or event never fires,
+        // don't leave the mic stuck in processing forever
+        setTimeout(() => {
+          setState((s) => (s === "processing" ? "idle" : s));
+          setTranscript((t) => (t ? "" : t));
+        }, 15000);
       } catch (error) {
         console.error("Error sending voice command:", error);
         toast.error("Failed to process voice command");
