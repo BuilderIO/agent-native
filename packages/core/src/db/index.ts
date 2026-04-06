@@ -33,6 +33,7 @@ export {
   getDbExec,
   getDialect,
   isPostgres,
+  intType,
   closeDbExec,
   type DbExec,
   type Dialect,

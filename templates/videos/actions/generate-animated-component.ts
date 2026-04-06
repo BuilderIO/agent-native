@@ -1,7 +1,5 @@
-#!/usr/bin/env ts-node
-
 /**
- * Component Generator CLI
+ * Component Generator
  *
  * Generates a new Remotion composition with animated elements and boilerplate
  *
@@ -413,40 +411,36 @@ function generateComponent(options: GeneratorOptions): void {
   console.log(`   3. Open in Video Studio UI to configure animations\n`);
 }
 
-// Parse CLI arguments
-function parseArgs(): GeneratorOptions {
-  const args = process.argv.slice(2);
-
+export default async function (args: string[]) {
   if (args.length === 0 || args[0] === "--help") {
     console.log(`
 📦 Animated Component Generator
 
 Usage:
-  npm run generate:component <ComponentName> [options]
+  pnpm action generate-animated-component <ComponentName> [options]
 
 Options:
   --elements <Element1,Element2>   Comma-separated list of element types (default: Button,Card)
   --output <dir>                   Output directory (default: app/remotion/compositions)
 
 Examples:
-  npm run generate:component MyDashboard
-  npm run generate:component MyDashboard --elements Button,Card,Panel,Toggle
-  npm run generate:component MyApp --elements Hero,Feature,CTA --output src/components
+  pnpm action generate-animated-component MyDashboard
+  pnpm action generate-animated-component MyDashboard --elements Button,Card,Panel,Toggle
     `);
     return;
   }
 
   const name = args[0];
-  const elementsArg = args.find((arg, i) => args[i - 1] === "--elements");
-  const outputArg = args.find((arg, i) => args[i - 1] === "--output");
+  const elementsIdx = args.indexOf("--elements");
+  const elementsArg = elementsIdx >= 0 ? args[elementsIdx + 1] : undefined;
+  const outputIdx = args.indexOf("--output");
+  const outputArg = outputIdx >= 0 ? args[outputIdx + 1] : undefined;
 
-  return {
+  const options: GeneratorOptions = {
     name,
     elements: elementsArg ? elementsArg.split(",") : ["Button", "Card"],
     outputDir: outputArg || "app/remotion/compositions",
   };
-}
 
-// Run generator
-const options = parseArgs();
-generateComponent(options);
+  generateComponent(options);
+}

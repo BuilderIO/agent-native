@@ -2,6 +2,16 @@ import { useState, useEffect } from "react";
 import { IconAlertCircle, IconRefresh } from "@tabler/icons-react";
 import { useComposition } from "@/contexts/CompositionContext";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 /**
  * Visual indicator that appears when localStorage has user overrides.
@@ -38,47 +48,65 @@ export function LocalStorageIndicator() {
     setOverrideTypes(types);
   }, [compositionId]);
 
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+
   if (!hasOverrides) return null;
 
   const handleReset = () => {
+    setShowResetConfirm(true);
+  };
+
+  const confirmReset = () => {
     if (!compositionId) return;
-
-    const confirmed = window.confirm(
-      `Reset "${selected?.title}" to registry defaults?\n\n` +
-        `This will clear your local changes to: ${overrideTypes.join(", ")}\n\n` +
-        `The page will reload automatically.`,
-    );
-
-    if (!confirmed) return;
 
     localStorage.removeItem(`videos-tracks:${compositionId}`);
     localStorage.removeItem(`videos-props:${compositionId}`);
     localStorage.removeItem(`videos-comp-settings:${compositionId}`);
     localStorage.removeItem(`videos-tracks-version:${compositionId}`);
 
+    setShowResetConfirm(false);
     window.location.reload();
   };
 
   return (
-    <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 border border-amber-500/30 rounded-lg">
-      <IconAlertCircle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
-      <div className="flex-1 min-w-0">
-        <p className="text-xs text-amber-200/90 font-medium">
-          Using local overrides
-        </p>
-        <p className="text-[10px] text-amber-200/60">
-          {overrideTypes.join(", ")} modified
-        </p>
+    <>
+      <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+        <IconAlertCircle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
+        <div className="flex-1 min-w-0">
+          <p className="text-xs text-amber-200/90 font-medium">
+            Using local overrides
+          </p>
+          <p className="text-[10px] text-amber-200/60">
+            {overrideTypes.join(", ")} modified
+          </p>
+        </div>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={handleReset}
+          className="h-6 px-2 text-xs text-amber-200 hover:text-amber-100 hover:bg-amber-500/20"
+        >
+          <IconRefresh className="w-3 h-3 mr-1" />
+          Reset
+        </Button>
       </div>
-      <Button
-        size="sm"
-        variant="ghost"
-        onClick={handleReset}
-        className="h-6 px-2 text-xs text-amber-200 hover:text-amber-100 hover:bg-amber-500/20"
-      >
-        <IconRefresh className="w-3 h-3 mr-1" />
-        Reset
-      </Button>
-    </div>
+
+      <AlertDialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reset to defaults</AlertDialogTitle>
+            <AlertDialogDescription>
+              Reset "{selected?.title}" to registry defaults? This will clear
+              your local changes to: {overrideTypes.join(", ")}. The page will
+              reload automatically.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmReset}>Reset</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

@@ -93,6 +93,7 @@ export const deleteNoteHandler = defineEventHandler(async (event) => {
     : and(
         eq(schema.agentNotes.id, id),
         eq(schema.agentNotes.ownerEmail, ctx.email),
+        isNull(schema.agentNotes.orgId),
       );
 
   await db.delete(schema.agentNotes).where(condition);

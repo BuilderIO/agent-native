@@ -1,6 +1,27 @@
-import { parseArgs as coreParseArgs } from "@agent-native/core";
-
-export { coreParseArgs as parseArgs };
+/**
+ * Parse CLI-style arguments (--key value or --flag).
+ * Replaces the broken @agent-native/core parseArgs import.
+ */
+export function parseArgs(argv: string[]): Record<string, string | boolean> {
+  const values: Record<string, string | boolean> = {};
+  // Skip the first two entries if they look like node + script path
+  const args =
+    argv[0]?.startsWith("/") || argv[0] === "node" ? argv.slice(2) : argv;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg.startsWith("--")) {
+      const key = arg.slice(2);
+      const next = args[i + 1];
+      if (next !== undefined && !next.startsWith("--")) {
+        values[key] = next;
+        i++;
+      } else {
+        values[key] = true;
+      }
+    }
+  }
+  return values;
+}
 
 /**
  * Format an ISO date string to a human-readable date.

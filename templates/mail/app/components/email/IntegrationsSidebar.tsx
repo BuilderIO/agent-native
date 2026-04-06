@@ -4,8 +4,14 @@ import {
   IconCheck,
   IconSettings,
   IconChevronLeft,
+  IconArrowUp,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
 import { useSendToAgentChat } from "@agent-native/core/client";
 import {
   useIntegration,
@@ -285,25 +291,23 @@ function IntegrationSetup() {
 function AddIntegrationButton() {
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState("");
-  const ref = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { send, codeRequiredDialog } = useSendToAgentChat();
 
   useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node))
-        setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    if (open) {
+      setTimeout(() => textareaRef.current?.focus(), 50);
+    } else {
+      setValue("");
+    }
   }, [open]);
 
   const handleSubmit = () => {
-    const name = value.trim();
-    if (!name) return;
+    const prompt = value.trim();
+    if (!prompt) return;
     send({
-      message: `Add a ${name} integration to the sidebar`,
-      context: `The user wants to add a new integration for "${name}" to the contact sidebar. Look at the existing integrations in client/components/email/IntegrationsSidebar.tsx and the pattern in server/routes/ and client/hooks/use-integrations.ts. Add the new provider following the same pattern: server route, hook, sidebar section, and logo. Use the real brand logo SVG if possible.`,
+      message: `Add a new integration to the sidebar: ${prompt}`,
+      context: `The user wants to add a new integration to the contact sidebar. Their request: "${prompt}". Look at the existing integrations in client/components/email/IntegrationsSidebar.tsx and the pattern in server/routes/ and client/hooks/use-integrations.ts. Add the new provider following the same pattern: server route, hook, sidebar section, and logo. Use the real brand logo SVG if possible.`,
       submit: true,
       requiresCode: true,
     });
@@ -314,45 +318,69 @@ function AddIntegrationButton() {
   return (
     <>
       {codeRequiredDialog}
-      <div className="relative" ref={ref}>
-        <button
-          onClick={() => setOpen(!open)}
-          className="flex items-center gap-2 w-full py-1.5 text-[11px] text-muted-foreground/70 hover:text-muted-foreground transition-colors"
-        >
-          <div className="h-7 w-7 rounded-md border border-dashed border-border/40 flex items-center justify-center shrink-0">
-            <IconPlus className="h-3 w-3" />
-          </div>
-          <span>Add integration</span>
-        </button>
-
-        {open && (
-          <div className="absolute left-0 right-0 top-full mt-1 z-50 rounded-lg border border-border/50 bg-card shadow-xl p-2.5">
-            <p className="text-[11px] text-muted-foreground/60 mb-1.5">
-              What do you want to integrate?
-            </p>
-            <div className="flex gap-1.5">
-              <input
-                autoFocus
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleSubmit();
-                  if (e.key === "Escape") setOpen(false);
-                }}
-                placeholder="e.g. Salesforce, Intercom..."
-                className="flex-1 min-w-0 rounded-md border border-border bg-background px-2 py-1 text-[12px] outline-none focus:border-primary/50 placeholder:text-muted-foreground/40"
-              />
-              <button
-                onClick={handleSubmit}
-                disabled={!value.trim()}
-                className="shrink-0 rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
-              >
-                Go
-              </button>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button className="flex items-center gap-2 w-full py-1.5 text-[11px] text-muted-foreground/70 hover:text-muted-foreground transition-colors">
+            <div className="h-7 w-7 rounded-md border border-dashed border-border/40 flex items-center justify-center shrink-0">
+              <IconPlus className="h-3 w-3" />
             </div>
+            <span>Add integration</span>
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          side="left"
+          align="end"
+          sideOffset={8}
+          className="w-80 p-0 rounded-xl border-border/50 shadow-2xl shadow-black/40 overflow-hidden"
+          collisionPadding={12}
+        >
+          <div className="px-3.5 pt-3 pb-1.5">
+            <span className="text-[12px] font-medium text-foreground/80">
+              What do you want to integrate?
+            </span>
           </div>
-        )}
-      </div>
+
+          <div className="px-3.5 pb-2">
+            <textarea
+              ref={textareaRef}
+              value={value}
+              onChange={(e) => {
+                setValue(e.target.value);
+                const el = e.target;
+                el.style.height = "auto";
+                el.style.height = Math.min(el.scrollHeight, 200) + "px";
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  handleSubmit();
+                }
+              }}
+              placeholder="e.g. Salesforce CRM — show deal stage and recent activity for the contact"
+              className="w-full bg-transparent text-[12px] text-foreground/90 placeholder:text-muted-foreground/30 outline-none resize-none"
+              rows={3}
+              style={{ maxHeight: "200px" }}
+            />
+          </div>
+
+          <div className="px-3.5 py-2 flex items-center justify-end border-t border-border/30">
+            <button
+              onClick={handleSubmit}
+              disabled={!value.trim()}
+              className={cn(
+                "p-1.5 rounded-lg",
+                value.trim()
+                  ? "bg-primary hover:bg-primary/90 text-primary-foreground"
+                  : "bg-muted/50 text-muted-foreground/30 cursor-not-allowed",
+              )}
+              title="Submit (⌘↵)"
+              aria-label="Submit"
+            >
+              <IconArrowUp className="w-4 h-4" />
+            </button>
+          </div>
+        </PopoverContent>
+      </Popover>
     </>
   );
 }

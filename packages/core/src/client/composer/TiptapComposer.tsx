@@ -99,6 +99,10 @@ export function TiptapComposer({
     popoverStateRef.current = null;
   }, []);
 
+  // Persist draft to localStorage so hot-reloads don't lose the prompt
+  const DRAFT_KEY = "an-composer-draft";
+  const draftTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -124,6 +128,32 @@ export function TiptapComposer({
       MentionReference,
     ],
     editable: !disabled,
+    onCreate: ({ editor: ed }) => {
+      // Restore draft on mount
+      try {
+        const saved = localStorage.getItem(DRAFT_KEY);
+        if (saved) {
+          ed.commands.setContent(saved);
+          // Move cursor to end
+          ed.commands.focus("end");
+        }
+      } catch {}
+    },
+    onUpdate: ({ editor: ed }) => {
+      // Debounce-save draft to localStorage
+      clearTimeout(draftTimerRef.current);
+      draftTimerRef.current = setTimeout(() => {
+        try {
+          const html = ed.getHTML();
+          const isEmpty = !ed.state.doc.textContent.trim();
+          if (isEmpty) {
+            localStorage.removeItem(DRAFT_KEY);
+          } else {
+            localStorage.setItem(DRAFT_KEY, html);
+          }
+        } catch {}
+      }, 300);
+    },
     editorProps: {
       attributes: {
         class:
@@ -345,6 +375,9 @@ export function TiptapComposer({
       composerRuntime.send();
     }
     ed.commands.clearContent();
+    try {
+      localStorage.removeItem(DRAFT_KEY);
+    } catch {}
     closePopover();
   }, [closePopover, composerRuntime, editor, onSubmit, syncComposerState]);
 

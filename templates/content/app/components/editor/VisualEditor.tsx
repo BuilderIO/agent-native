@@ -10,7 +10,12 @@ import { TableCell } from "@tiptap/extension-table-cell";
 import { TableHeader } from "@tiptap/extension-table-header";
 import { Markdown } from "tiptap-markdown";
 import { defaultMarkdownSerializer } from "@tiptap/pm/markdown";
-import { Plugin, PluginKey } from "@tiptap/pm/state";
+import {
+  Plugin,
+  PluginKey,
+  TextSelection,
+  AllSelection,
+} from "@tiptap/pm/state";
 import { useEffect, useRef } from "react";
 import { BubbleToolbar } from "./BubbleToolbar";
 import { SlashCommandMenu } from "./SlashCommandMenu";
@@ -233,6 +238,62 @@ const TypographyReplacements = Extension.create({
   },
 });
 
+/**
+ * Two-stage Cmd+A: first press selects the current block,
+ * second press (when block is already fully selected) selects the whole document.
+ */
+const SelectAllBlock = Extension.create({
+  name: "selectAllBlock",
+  addKeyboardShortcuts() {
+    return {
+      "Mod-a": ({ editor }) => {
+        const { state } = editor;
+        const { selection, doc } = state;
+
+        // Find the nearest top-level block node containing the cursor
+        const $from = selection.$from;
+        let blockStart: number | null = null;
+        let blockEnd: number | null = null;
+
+        // Walk up to find the top-level (depth 1) block
+        for (let depth = $from.depth; depth >= 1; depth--) {
+          if (depth === 1) {
+            blockStart = $from.before(depth);
+            blockEnd = $from.after(depth);
+            break;
+          }
+        }
+
+        if (blockStart == null || blockEnd == null) {
+          // Fallback: select all
+          editor.commands.setTextSelection({ from: 0, to: doc.content.size });
+          return true;
+        }
+
+        // Check if the current block is already fully selected
+        const blockContentStart = blockStart + 1;
+        const blockContentEnd = blockEnd - 1;
+        const isBlockSelected =
+          selection.from <= blockContentStart &&
+          selection.to >= blockContentEnd;
+
+        if (isBlockSelected) {
+          // Second Cmd+A: select entire document
+          editor.commands.setTextSelection({ from: 0, to: doc.content.size });
+        } else {
+          // First Cmd+A: select current block content
+          editor.commands.setTextSelection({
+            from: blockContentStart,
+            to: blockContentEnd,
+          });
+        }
+
+        return true;
+      },
+    };
+  },
+});
+
 const CustomTable = BaseTable.extend({
   addStorage() {
     return {
@@ -361,6 +422,7 @@ export function VisualEditor({
       DragHandle,
       TypographyReplacements,
       MarkdownPasteDetection,
+      SelectAllBlock,
       Markdown.configure({
         html: true,
         transformPastedText: true,

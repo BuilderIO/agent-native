@@ -12,6 +12,16 @@ import { usePlayback } from "@/contexts/PlaybackContext";
 import { useUnsavedChanges } from "@/hooks/useUnsavedChanges";
 import { cn } from "@/lib/utils";
 import NewComposition from "@/pages/NewComposition";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 type CompositionViewProps = {
   onCameraKeyframeClick?: (trackType: "camera" | "cursor") => void;
@@ -61,6 +71,12 @@ export default function CompositionView({
 
   // Detect if there are unsaved changes in localStorage
   const hasUnsavedChanges = useUnsavedChanges();
+
+  // Dialog states for save confirmation and status alerts
+  const [showSaveConfirm, setShowSaveConfirm] = useState(false);
+  const [showSaveSuccess, setShowSaveSuccess] = useState(false);
+  const [showSaveError, setShowSaveError] = useState(false);
+  const [saveErrorMessage, setSaveErrorMessage] = useState("");
 
   // All hooks must be called before any early returns (React rules of hooks)
   const playerRef = useRef<VideoPlayerHandle>(null);
@@ -209,26 +225,19 @@ export default function CompositionView({
           console.log(`[Save] Saved "${composition.title}" to registry`);
 
           if (!silent) {
-            alert(
-              `Saved "${composition.title}" to registry!\n\nThe page will reload to pick up the changes.`,
-            );
+            setShowSaveSuccess(true);
+          } else {
+            // Reload to pick up fresh registry data
+            window.location.reload();
           }
-
-          // Reload to pick up fresh registry data
-          window.location.reload();
         } else if (lastError) {
           // Network error or server not available after all retries
           const errorMessage = lastError.message;
           console.error("[Save] Failed to save after retries:", errorMessage);
 
           if (!silent) {
-            alert(
-              `Failed to save to registry:\n\n${errorMessage}\n\n` +
-                `This usually means:\n` +
-                `- The dev server needs to be restarted\n` +
-                `- The API endpoint is not available\n\n` +
-                `Your changes are still saved in browser storage and will persist until you reload the page.`,
-            );
+            setSaveErrorMessage(errorMessage);
+            setShowSaveError(true);
           }
 
           throw lastError; // Re-throw to be caught by outer catch
@@ -242,17 +251,15 @@ export default function CompositionView({
   );
 
   // Manual save handler (shows confirmation)
-  const handleSaveAsDefault = useCallback(async () => {
+  const handleSaveAsDefault = useCallback(() => {
     if (!composition) return;
+    setShowSaveConfirm(true);
+  }, [composition]);
 
-    const confirmed = window.confirm(
-      `Save current settings as default for "${composition.title}"?\n\nThis will update the registry file with:\n- Current tracks and animations\n- Current properties\n- Current composition settings`,
-    );
-
-    if (!confirmed) return;
-
-    await performSave(false); // Not silent - show alerts
-  }, [composition, performSave]);
+  const confirmSave = useCallback(async () => {
+    setShowSaveConfirm(false);
+    await performSave(false); // Not silent - show dialogs
+  }, [performSave]);
 
   // Listen for auto-save events from AI generation
   useEffect(() => {
@@ -425,6 +432,66 @@ export default function CompositionView({
           isPlaying={isPlaying}
         />
       </div>
+
+      {/* Save confirmation dialog */}
+      <AlertDialog open={showSaveConfirm} onOpenChange={setShowSaveConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Save to registry</AlertDialogTitle>
+            <AlertDialogDescription>
+              Save current settings as default for "{composition.title}"? This
+              will update the registry file with current tracks, animations,
+              properties, and composition settings.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmSave}>Save</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Save success dialog */}
+      <AlertDialog
+        open={showSaveSuccess}
+        onOpenChange={(open) => {
+          setShowSaveSuccess(open);
+          if (!open) window.location.reload();
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Saved</AlertDialogTitle>
+            <AlertDialogDescription>
+              Saved "{composition.title}" to registry. The page will reload to
+              pick up the changes.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => window.location.reload()}>
+              OK
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Save error dialog */}
+      <AlertDialog open={showSaveError} onOpenChange={setShowSaveError}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Save failed</AlertDialogTitle>
+            <AlertDialogDescription>
+              Failed to save to registry: {saveErrorMessage}
+              {"\n\n"}This usually means the dev server needs to be restarted or
+              the API endpoint is not available. Your changes are still saved in
+              browser storage and will persist until you reload.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction>OK</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { runMigrations } from "@agent-native/core/db";
+import { runMigrations, intType } from "@agent-native/core/db";
 
 export default runMigrations([
   {
@@ -37,6 +37,18 @@ export default runMigrations([
     enabled INTEGER NOT NULL DEFAULT 1,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
+  )`,
+  },
+  {
+    version: 6,
+    sql: `CREATE TABLE IF NOT EXISTS contact_frequency (
+    id TEXT PRIMARY KEY,
+    owner_email TEXT NOT NULL,
+    contact_email TEXT NOT NULL,
+    contact_name TEXT NOT NULL DEFAULT '',
+    send_count ${intType()} NOT NULL DEFAULT 0,
+    receive_count ${intType()} NOT NULL DEFAULT 0,
+    last_contacted_at ${intType()} NOT NULL
   )`,
   },
 ]);

@@ -13,6 +13,16 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -119,6 +129,7 @@ function AliasRow({
   const updateAlias = useUpdateAlias();
   const deleteAlias = useDeleteAlias();
   const rowRef = useRef<HTMLDivElement>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   useEffect(() => {
     if (isEditing && rowRef.current) {
@@ -134,11 +145,12 @@ function AliasRow({
   };
 
   const handleDelete = () => {
-    if (
-      window.confirm(`Delete alias "${alias.name}"? This cannot be undone.`)
-    ) {
-      deleteAlias.mutate(alias.id);
-    }
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDelete = () => {
+    deleteAlias.mutate(alias.id);
+    setShowDeleteConfirm(false);
   };
 
   if (isEditing) {
@@ -155,50 +167,69 @@ function AliasRow({
   }
 
   return (
-    <div
-      ref={rowRef}
-      className="flex items-start gap-3 rounded-lg border border-border/30 bg-card px-4 py-3 group hover:border-border/60 transition-colors"
-    >
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-0.5">
-          <span className="text-[13px] font-semibold text-foreground">
-            {alias.name}
-          </span>
-          <span className="rounded-full bg-indigo-500/15 px-2 py-0.5 text-[11px] font-medium text-indigo-300">
-            {alias.emails.length}{" "}
-            {alias.emails.length === 1 ? "person" : "people"}
-          </span>
+    <>
+      <div
+        ref={rowRef}
+        className="flex items-start gap-3 rounded-lg border border-border/30 bg-card px-4 py-3 group hover:border-border/60"
+      >
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-0.5">
+            <span className="text-[13px] font-semibold text-foreground">
+              {alias.name}
+            </span>
+            <span className="rounded-full bg-indigo-500/15 px-2 py-0.5 text-[11px] font-medium text-indigo-300">
+              {alias.emails.length}{" "}
+              {alias.emails.length === 1 ? "person" : "people"}
+            </span>
+          </div>
+          <p className="text-[12px] text-muted-foreground truncate">
+            {alias.emails.join(", ")}
+          </p>
         </div>
-        <p className="text-[12px] text-muted-foreground truncate">
-          {alias.emails.join(", ")}
-        </p>
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 shrink-0">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onEdit}
+            className="h-7 w-7 p-0"
+            title="Edit alias"
+          >
+            <IconPencil className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={handleDelete}
+            disabled={deleteAlias.isPending}
+            className="h-7 w-7 p-0"
+            title="Delete alias"
+          >
+            {deleteAlias.isPending ? (
+              <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <IconTrash className="h-3.5 w-3.5" />
+            )}
+          </Button>
+        </div>
       </div>
-      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onEdit}
-          className="h-7 w-7 p-0"
-          title="Edit alias"
-        >
-          <IconPencil className="h-3.5 w-3.5" />
-        </Button>
-        <Button
-          variant="destructive"
-          size="sm"
-          onClick={handleDelete}
-          disabled={deleteAlias.isPending}
-          className="h-7 w-7 p-0"
-          title="Delete alias"
-        >
-          {deleteAlias.isPending ? (
-            <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <IconTrash className="h-3.5 w-3.5" />
-          )}
-        </Button>
-      </div>
-    </div>
+
+      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete alias</AlertDialogTitle>
+            <AlertDialogDescription>
+              Delete alias "{alias.name}"? This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 

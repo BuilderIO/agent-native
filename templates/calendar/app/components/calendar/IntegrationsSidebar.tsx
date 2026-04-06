@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState } from "react";
 import {
   IconPlus,
   IconCheck,
@@ -16,6 +16,17 @@ import {
 } from "@/hooks/use-integrations";
 import { useApolloPerson } from "@/hooks/use-apollo";
 import type { ApolloPersonResult } from "@shared/api";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 
 // ─── Integration definitions ────────────────────────────────────────────────
 
@@ -284,18 +295,7 @@ function IntegrationSetup() {
 function AddIntegrationButton() {
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState("");
-  const ref = useRef<HTMLDivElement>(null);
   const { send, codeRequiredDialog } = useSendToAgentChat();
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node))
-        setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
 
   const handleSubmit = () => {
     const name = value.trim();
@@ -313,45 +313,47 @@ function AddIntegrationButton() {
   return (
     <>
       {codeRequiredDialog}
-      <div className="relative" ref={ref}>
-        <button
-          onClick={() => setOpen(!open)}
-          className="flex items-center gap-2 w-full py-1.5 text-[11px] text-muted-foreground/40 hover:text-muted-foreground transition-colors"
-        >
-          <div className="h-7 w-7 rounded-md border border-dashed border-border/40 flex items-center justify-center shrink-0">
-            <IconPlus className="h-3 w-3" />
-          </div>
-          <span>Add integration</span>
-        </button>
-
-        {open && (
-          <div className="absolute left-0 right-0 top-full mt-1 z-50 rounded-lg border border-border/50 bg-card shadow-xl p-2.5">
-            <p className="text-[11px] text-muted-foreground/60 mb-1.5">
-              What do you want to integrate?
-            </p>
-            <div className="flex gap-1.5">
-              <input
-                autoFocus
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleSubmit();
-                  if (e.key === "Escape") setOpen(false);
-                }}
-                placeholder="e.g. Salesforce, Intercom..."
-                className="flex-1 min-w-0 rounded-md border border-border bg-background px-2 py-1 text-[12px] outline-none focus:border-primary/50 placeholder:text-muted-foreground/40"
-              />
-              <button
-                onClick={handleSubmit}
-                disabled={!value.trim()}
-                className="shrink-0 rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
-              >
-                Go
-              </button>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button className="flex items-center gap-2 w-full py-1.5 text-[11px] text-muted-foreground/40 hover:text-muted-foreground">
+            <div className="h-7 w-7 rounded-md border border-dashed border-border/40 flex items-center justify-center shrink-0">
+              <IconPlus className="h-3 w-3" />
             </div>
+            <span>Add integration</span>
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          side="left"
+          align="end"
+          sideOffset={8}
+          collisionPadding={12}
+          className="w-auto rounded-lg border-border/50 bg-card p-2.5 shadow-xl"
+        >
+          <p className="text-[11px] text-muted-foreground/60 mb-1.5">
+            What do you want to integrate?
+          </p>
+          <div className="flex gap-1.5">
+            <input
+              autoFocus
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleSubmit();
+                if (e.key === "Escape") setOpen(false);
+              }}
+              placeholder="e.g. Salesforce, Intercom..."
+              className="flex-1 min-w-0 rounded-md border border-border bg-background px-2 py-1 text-[12px] outline-none focus:border-primary/50 placeholder:text-muted-foreground/40"
+            />
+            <button
+              onClick={handleSubmit}
+              disabled={!value.trim()}
+              className="shrink-0 rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              Go
+            </button>
           </div>
-        )}
-      </div>
+        </PopoverContent>
+      </Popover>
     </>
   );
 }
@@ -366,21 +368,9 @@ function IntegrationRow({
   onConfigure: () => void;
 }) {
   const { disconnect } = useIntegration(def.id);
-  const [showDisconnect, setShowDisconnect] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!showDisconnect) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node))
-        setShowDisconnect(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [showDisconnect]);
 
   return (
-    <div ref={ref} className="flex items-center gap-2.5 py-1.5 group relative">
+    <div className="flex items-center gap-2.5 py-1.5 group">
       <div className="h-7 w-7 rounded-md overflow-hidden shrink-0 bg-accent/30 p-0.5">
         {def.logo}
       </div>
@@ -395,44 +385,44 @@ function IntegrationRow({
           <div className="h-5 w-5 rounded-full bg-emerald-500/20 flex items-center justify-center">
             <IconCheck className="h-3 w-3 text-emerald-400" />
           </div>
-          <button
-            onClick={() => setShowDisconnect(!showDisconnect)}
-            className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground/30 hover:text-muted-foreground transition-colors"
-            title="Settings"
-          >
-            <IconSettings className="h-3.5 w-3.5" />
-          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground/30 hover:text-muted-foreground"
+                title="Settings"
+              >
+                <IconSettings className="h-3.5 w-3.5" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              side="left"
+              align="start"
+              sideOffset={8}
+              collisionPadding={12}
+              className="w-36"
+            >
+              <DropdownMenuItem
+                onClick={onConfigure}
+                className="text-[12px] text-foreground/70"
+              >
+                Update key
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => disconnect.mutate()}
+                className="text-[12px] text-red-400/80"
+              >
+                Disconnect
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       ) : (
         <button
           onClick={onConfigure}
-          className="shrink-0 text-[11px] text-primary/70 hover:text-primary font-medium transition-colors"
+          className="shrink-0 text-[11px] text-primary/70 hover:text-primary font-medium"
         >
           Connect
         </button>
-      )}
-
-      {showDisconnect && (
-        <div className="absolute right-0 top-full mt-1 z-50 w-36 rounded-lg border border-border/50 bg-card shadow-lg py-1">
-          <button
-            onClick={() => {
-              setShowDisconnect(false);
-              onConfigure();
-            }}
-            className="w-full text-left px-3 py-1.5 text-[12px] text-foreground/70 hover:bg-accent/50"
-          >
-            Update key
-          </button>
-          <button
-            onClick={() => {
-              disconnect.mutate();
-              setShowDisconnect(false);
-            }}
-            className="w-full text-left px-3 py-1.5 text-[12px] text-red-400/80 hover:bg-accent/50"
-          >
-            Disconnect
-          </button>
-        </div>
       )}
     </div>
   );

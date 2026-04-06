@@ -8,11 +8,11 @@ export default defineConfig({
     },
     tasks: {
       "mail-jobs:process": {
-        handler: "./tasks/process-mail-jobs.ts",
+        handler: "./server/tasks/jobs/nitro-task.ts",
         description: "Process due mail snooze and scheduled-send jobs",
       },
       "automations:process": {
-        handler: "./tasks/process-automations.ts",
+        handler: "./server/tasks/automations/nitro-task.ts",
         description: "Process automation rules against new inbox emails",
       },
     },
