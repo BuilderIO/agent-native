@@ -1,9 +1,9 @@
 [build]
   command = "pnpm --filter @agent-native/core build && pnpm --filter calorie-tracker build"
-  publish = "build/client"
+  publish = "templates/calorie-tracker/build/client"
 
 [functions]
-  directory = "netlify/functions"
+  directory = "templates/calorie-tracker/netlify/functions"
   node_bundler = "esbuild"
 
 # SSR catch-all redirect to the server function
