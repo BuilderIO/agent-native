@@ -2,6 +2,7 @@ import { table, text, integer, real } from "@agent-native/core/db/schema";
 
 export const meals = table("meals", {
   id: integer("id").primaryKey(),
+  user_id: text("user_id"),
   name: text("name").notNull(),
   calories: integer("calories").notNull().default(0),
   protein: real("protein"),
@@ -17,6 +18,7 @@ export const meals = table("meals", {
 
 export const exercises = table("exercises", {
   id: integer("id").primaryKey(),
+  user_id: text("user_id"),
   name: text("name").notNull(),
   calories_burned: integer("calories_burned").notNull().default(0),
   duration_minutes: integer("duration_minutes"),
@@ -28,6 +30,7 @@ export const exercises = table("exercises", {
 
 export const weights = table("weights", {
   id: integer("id").primaryKey(),
+  user_id: text("user_id"),
   weight: real("weight").notNull(),
   date: text("date").notNull(),
   notes: text("notes"),
