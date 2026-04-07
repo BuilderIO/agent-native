@@ -1,6 +1,15 @@
 import crypto from "node:crypto";
-import fs from "node:fs";
 import path from "node:path";
+
+// Lazy fs — loaded via dynamic import() on first use.
+// Avoids static require() which crashes on CF Workers.
+let _fs: typeof import("fs") | undefined;
+async function getFs(): Promise<typeof import("fs")> {
+  if (!_fs) {
+    _fs = await import("node:fs");
+  }
+  return _fs;
+}
 import {
   defineEventHandler,
   readBody,
@@ -427,8 +436,9 @@ const TOKEN_LOGIN_HTML = `<!DOCTYPE html>
 // setAuthModeLocal — write AUTH_MODE=local to .env for the escape hatch
 // ---------------------------------------------------------------------------
 
-function setAuthModeLocal(): boolean {
+async function setAuthModeLocal(): Promise<boolean> {
   try {
+    const fs = await getFs();
     const envPath = path.resolve(process.cwd(), ".env");
     let content = "";
     try {
@@ -481,7 +491,7 @@ async function mountBetterAuthRoutes(
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
       }
-      const ok = setAuthModeLocal();
+      const ok = await setAuthModeLocal();
       if (!ok) {
         setResponseStatus(event, 500);
         return { error: "Failed to set AUTH_MODE=local in .env" };
