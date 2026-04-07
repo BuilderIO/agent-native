@@ -266,14 +266,13 @@ Auth is automatic and environment-driven via `autoMountAuth(app)`.
 
 ## Server Plugins
 
-6 default plugins auto-mount when your app doesn't have a custom version in `server/plugins/`:
+5 default plugins auto-mount when your app doesn't have a custom version in `server/plugins/`:
 
 | Plugin        | Default behavior                                  | Customize when                              |
 | ------------- | ------------------------------------------------- | ------------------------------------------- |
 | `agent-chat`  | Agent chat endpoints                              | Custom `mentionProviders` or `systemPrompt` |
 | `auth`        | Auth middleware                                   | Custom `publicPaths` or Google OAuth config |
 | `core-routes` | `/_agent-native/poll`, `/_agent-native/ping`, etc | Custom `envKeys` or `sseRoute`              |
-| `file-sync`   | DB sync polling                                   | Custom sync config                          |
 | `resources`   | Resource CRUD                                     | Rarely                                      |
 | `terminal`    | Terminal emulator                                 | Rarely                                      |
 

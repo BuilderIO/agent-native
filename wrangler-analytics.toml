@@ -1,7 +1,7 @@
-name = "agent-native-analytics"
-main = "templates/analytics/dist/_worker.js/index.js"
+name = "an-analytics"
 compatibility_date = "2025-01-01"
-compatibility_flags = ["nodejs_compat_v2"]
+compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = "./templates/analytics/dist"
 
 # Smart Placement: run the Worker near the D1 database to reduce latency
 [placement]
@@ -10,17 +10,8 @@ mode = "smart"
 [vars]
 GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
 
-[assets]
-directory = "templates/analytics/dist"
-
-# Stub native modules that can't run on Workers
-[alias]
-"better-sqlite3" = "./templates/analytics/dist/_worker.js/stubs/empty.js"
-"node-pty" = "./templates/analytics/dist/_worker.js/stubs/empty.js"
-"chokidar" = "./templates/analytics/dist/_worker.js/stubs/empty.js"
-"fsevents" = "./templates/analytics/dist/_worker.js/stubs/empty.js"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "agent-native-analytics"
+database_name = "an-analytics"
 database_id = "a323fbbc-aad3-4f77-bc53-9f9b2673e38a"

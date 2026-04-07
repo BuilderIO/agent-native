@@ -4,12 +4,7 @@ export {
   type CreateServerOptions,
   type EnvKeyConfig,
 } from "./create-server.js";
-export {
-  createFileWatcher,
-  createSSEHandler,
-  type FileWatcherOptions,
-  type SSEHandlerOptions,
-} from "./sse.js";
+export { createSSEHandler, type SSEHandlerOptions } from "./sse.js";
 export {
   mountAuthMiddleware,
   autoMountAuth,
@@ -39,13 +34,6 @@ export {
 export { createDevScriptRegistry } from "../scripts/dev/index.js";
 
 export {
-  getDefaultSSEEmitters,
-  setDefaultSyncResult,
-  createDefaultSSEHandler,
-  createDefaultPollHandler,
-  defaultSyncStatusHandler,
-} from "./default-watcher.js";
-export {
   createPollHandler,
   recordChange,
   getVersion,
@@ -70,10 +58,6 @@ export {
   type ChatThread,
   type ChatThreadSummary,
 } from "../chat-threads/store.js";
-export {
-  createFileSyncPlugin,
-  defaultFileSyncPlugin,
-} from "./file-sync-plugin.js";
 export {
   createResourcesPlugin,
   defaultResourcesPlugin,

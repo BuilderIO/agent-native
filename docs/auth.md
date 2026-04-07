@@ -96,7 +96,6 @@ This runs at server startup and configures auth based on the environment automat
 Sessions are stored in `data/.sessions.json` (file-backed, consistent with the files-as-database principle). This file is:
 
 - Gitignored in all templates
-- Excluded from file sync
 - Pruned on startup (expired sessions are removed)
 - Default session lifetime: 30 days
 

@@ -24,13 +24,11 @@ export {
 // Server
 export {
   createServer,
-  createFileWatcher,
   createSSEHandler,
   defineNitroPlugin,
   autoMountAuth,
   getSession,
   type CreateServerOptions,
-  type FileWatcherOptions,
   type SSEHandlerOptions,
   type AuthSession,
   type AuthOptions,

@@ -19,8 +19,10 @@
     "dev:electron:apps": "node scripts/dev-electron.ts --apps"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.31.0",
     "concurrently": "^9.1.0",
-    "prettier": "^3.6.2"
+    "prettier": "^3.6.2",
+    "wrangler": "^4.80.0"
   },
   "pnpm": {
     "overrides": {

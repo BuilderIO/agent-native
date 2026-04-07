@@ -11,7 +11,6 @@ export {
   type CodeRequiredDialogProps,
 } from "./components/CodeRequiredDialog.js";
 export { useDbSync, useFileWatcher } from "./use-db-sync.js";
-export { useFileSyncStatus } from "./use-file-sync-status.js";
 export { cn } from "./utils.js";
 export { ApiKeySettings } from "./components/ApiKeySettings.js";
 export { useSession, type AuthSession } from "./use-session.js";
