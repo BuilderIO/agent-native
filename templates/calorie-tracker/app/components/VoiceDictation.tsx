@@ -26,6 +26,27 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
     ("SpeechRecognition" in window ||
       "webkitSpeechRecognition" in (window as any));
 
+  // Track sidebar open state to shift mic button out of the way
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  useEffect(() => {
+    const check = () => {
+      setTimeout(() => {
+        const panel = document.querySelector(".agent-sidebar-panel");
+        setSidebarOpen(!!panel && panel.getBoundingClientRect().width > 0);
+      }, 100);
+    };
+    check();
+    window.addEventListener("agent-panel:toggle", check);
+    window.addEventListener("agent-panel:open", check);
+    const poll = setInterval(check, 500);
+    setTimeout(() => clearInterval(poll), 2000);
+    return () => {
+      window.removeEventListener("agent-panel:toggle", check);
+      window.removeEventListener("agent-panel:open", check);
+      clearInterval(poll);
+    };
+  }, []);
+
   // When agent finishes generating, transition back to idle
   useEffect(() => {
     if (!isGenerating && state === "processing") {
@@ -155,7 +176,12 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
   if (!isSupported) return null;
 
   return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 md:left-auto md:right-6 md:translate-x-0 z-50 flex flex-col items-center gap-2">
+    <div
+      className={cn(
+        "fixed bottom-6 left-1/2 -translate-x-1/2 md:left-auto md:translate-x-0 z-50 flex flex-col items-center gap-2 transition-[right] duration-300",
+        sidebarOpen ? "md:right-[400px]" : "md:right-6",
+      )}
+    >
       {(state === "listening" || state === "processing") && (
         <div className="animate-in fade-in slide-in-from-bottom-2 duration-200">
           <div className="bg-card/95 backdrop-blur-xl border border-white/10 rounded-2xl px-4 py-3 shadow-2xl max-w-[300px] md:max-w-[250px]">
