@@ -29,12 +29,8 @@ export default function CliAdaptersDocs() {
         its output.
       </p>
       <p>
-        CLI adapters solve this with a small interface — similar to{" "}
-        <a href="/docs/file-sync" className="text-[var(--accent)]">
-          file sync adapters
-        </a>{" "}
-        but for command-line tools. Each adapter wraps a single CLI (
-        <code>gh</code>, <code>ffmpeg</code>, <code>stripe</code>,{" "}
+        CLI adapters solve this with a small interface. Each adapter wraps a
+        single CLI (<code>gh</code>, <code>ffmpeg</code>, <code>stripe</code>,{" "}
         <code>aws</code>) and provides:
       </p>
       <ul className="list-disc space-y-1 pl-5">
