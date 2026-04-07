@@ -370,19 +370,38 @@ export async function pushDocumentToNotion(
   });
 }
 
+const lastRefreshAt = new Map<string, number>();
+const REFRESH_THROTTLE_MS = 10_000;
+
 export async function refreshDocumentSyncStatus(
   owner: string,
   documentId: string,
 ): Promise<DocumentSyncStatus> {
+  // Throttle Notion API calls per document (prevents excessive requests from
+  // multiple tabs or rapid polling).
+  const now = Date.now();
+  const lastCall = lastRefreshAt.get(documentId) ?? 0;
+  if (now - lastCall < REFRESH_THROTTLE_MS) {
+    const document = await getDocument(documentId);
+    const link = await getSyncLink(documentId);
+    const connection = await getNotionConnectionForOwner(owner);
+    return buildStatus({
+      connected: Boolean(connection),
+      documentId,
+      link,
+      documentUpdatedAt: document.updatedAt,
+    });
+  }
+  lastRefreshAt.set(documentId, now);
+
   const status = await getDocumentSyncStatus(owner, documentId);
-  if (
-    status.connected &&
-    status.pageId &&
-    status.remoteChanged &&
-    !status.localChanged &&
-    !status.hasConflict
-  ) {
-    return pullDocumentFromNotion(owner, documentId, true);
+  if (status.connected && status.pageId && !status.hasConflict) {
+    if (status.remoteChanged && !status.localChanged) {
+      return pullDocumentFromNotion(owner, documentId, true);
+    }
+    if (status.localChanged && !status.remoteChanged) {
+      return pushDocumentToNotion(owner, documentId, true);
+    }
   }
   return status;
 }

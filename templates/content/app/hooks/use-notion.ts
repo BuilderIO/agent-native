@@ -35,7 +35,10 @@ export function useNotionConnection() {
   });
 }
 
-export function useDocumentSyncStatus(documentId: string | null) {
+export function useDocumentSyncStatus(
+  documentId: string | null,
+  options?: { autoSync?: boolean },
+) {
   return useQuery({
     queryKey: ["document-sync", documentId],
     queryFn: () =>
@@ -46,7 +49,7 @@ export function useDocumentSyncStatus(documentId: string | null) {
         },
       ),
     enabled: !!documentId,
-    refetchInterval: 15_000,
+    refetchInterval: options?.autoSync ? 10_000 : 30_000,
   });
 }
 

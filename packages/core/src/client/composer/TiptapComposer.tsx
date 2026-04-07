@@ -20,7 +20,14 @@ import { MentionReference } from "./extensions/MentionReference.js";
 import { MentionPopover, type MentionPopoverRef } from "./MentionPopover.js";
 import { useMentionSearch } from "./use-mention-search.js";
 import { useSkills } from "./use-skills.js";
-import { IconArrowUp, IconPaperclip } from "@tabler/icons-react";
+import {
+  IconArrowUp,
+  IconPlus,
+  IconBolt,
+  IconBulb,
+  IconCheck,
+  IconChevronDown,
+} from "@tabler/icons-react";
 import type {
   MentionItem,
   SkillResult,
@@ -39,6 +46,8 @@ const BUILT_IN_COMMANDS: SlashCommand[] = [
   { name: "help", description: "Show available commands", icon: "help" },
 ];
 
+type ExecMode = "build" | "plan";
+
 interface TiptapComposerProps {
   placeholder?: string;
   disabled?: boolean;
@@ -51,6 +60,103 @@ interface TiptapComposerProps {
   attachButton?: React.ReactNode;
   /** Called when a slash command (e.g. /clear, /help) is executed */
   onSlashCommand?: (command: string) => void;
+  /** Current execution mode (build/plan) */
+  execMode?: ExecMode;
+  /** Callback to change execution mode */
+  onExecModeChange?: (mode: ExecMode) => void;
+}
+
+function ModeSelector({
+  mode,
+  onChange,
+}: {
+  mode: ExecMode;
+  onChange: (mode: ExecMode) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="shrink-0 flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent/50"
+      >
+        {mode === "build" ? (
+          <IconBolt className="h-3.5 w-3.5" />
+        ) : (
+          <IconBulb className="h-3.5 w-3.5" />
+        )}
+        {mode === "build" ? "Build" : "Plan"}
+        <IconChevronDown className="h-3 w-3 opacity-60" />
+      </button>
+      {open && (
+        <div
+          className="absolute bottom-full right-0 mb-1.5 w-64 rounded-lg border border-border bg-popover shadow-lg z-50 py-1"
+          style={{ fontSize: 13 }}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              onChange("build");
+              setOpen(false);
+            }}
+            className="flex w-full items-start gap-3 px-3 py-2 hover:bg-accent/50 text-left"
+          >
+            <IconBolt className="h-5 w-5 mt-0.5 shrink-0 text-muted-foreground" />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="font-medium text-foreground text-[13px]">
+                  Build
+                </span>
+                {mode === "build" && (
+                  <IconCheck className="h-3.5 w-3.5 text-blue-500" />
+                )}
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Generate and make edits directly
+              </p>
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onChange("plan");
+              setOpen(false);
+            }}
+            className="flex w-full items-start gap-3 px-3 py-2 hover:bg-accent/50 text-left"
+          >
+            <IconBulb className="h-5 w-5 mt-0.5 shrink-0 text-muted-foreground" />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="font-medium text-foreground text-[13px]">
+                  Plan
+                </span>
+                {mode === "plan" && (
+                  <IconCheck className="h-3.5 w-3.5 text-blue-500" />
+                )}
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Collaborate on an approach before taking action
+              </p>
+            </div>
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 type PopoverState = {
@@ -68,6 +174,8 @@ export function TiptapComposer({
   actionButton,
   attachButton,
   onSlashCommand,
+  execMode,
+  onExecModeChange,
 }: TiptapComposerProps) {
   const [popover, setPopover] = useState<PopoverState>(null);
   const popoverRef = useRef<MentionPopoverRef>(null);
@@ -80,6 +188,10 @@ export function TiptapComposer({
 
   // Refs for values accessed in handleKeyDown (ProseMirror doesn't re-bind)
   const popoverStateRef = useRef<PopoverState>(null);
+  const execModeRef = useRef(execMode);
+  execModeRef.current = execMode;
+  const onExecModeChangeRef = useRef(onExecModeChange);
+  onExecModeChangeRef.current = onExecModeChange;
 
   const { items: mentionItems, isLoading: mentionsLoading } = useMentionSearch(
     popover?.type === "@" ? popover.query : "",
@@ -187,7 +299,7 @@ export function TiptapComposer({
     editorProps: {
       attributes: {
         class:
-          "flex-1 resize-none bg-transparent text-sm text-foreground outline-none leading-[1.625rem] min-h-[1.625rem] max-h-[10rem] overflow-y-auto",
+          "flex-1 resize-none bg-transparent text-sm text-foreground outline-none leading-[1.625rem] min-h-[3.25rem] max-h-[10rem] overflow-y-auto",
       },
       handlePaste: (_view, event) => {
         const files = Array.from(event.clipboardData?.files ?? []).filter(
@@ -250,6 +362,17 @@ export function TiptapComposer({
             setPopover(null);
             return false;
           }
+        }
+
+        // Shift+Tab toggles build/plan mode
+        if (event.key === "Tab" && event.shiftKey) {
+          event.preventDefault();
+          const current = execModeRef.current;
+          const cb = onExecModeChangeRef.current;
+          if (current && cb) {
+            cb(current === "build" ? "plan" : "build");
+          }
+          return true;
         }
 
         // Submit on Enter (Shift+Enter for newline)
@@ -625,6 +748,22 @@ export function TiptapComposer({
 
   return (
     <>
+      <style>{`
+        .aui-composer .ProseMirror p.is-editor-empty:first-child::before {
+          content: attr(data-placeholder);
+          color: var(--color-muted-foreground);
+          opacity: 0.5;
+          float: left;
+          height: 0;
+          pointer-events: none;
+        }
+      `}</style>
+      <div className="px-2 pt-2 pb-1">
+        <EditorContent
+          editor={editor}
+          className="aui-composer flex-1 min-w-0 [&_.ProseMirror]:outline-none [&_.ProseMirror_p]:m-0 px-0.5"
+        />
+      </div>
       <div className="flex items-center gap-1 px-2 py-1.5">
         {attachButton ?? (
           <ComposerPrimitive.AddAttachment asChild>
@@ -633,30 +772,15 @@ export function TiptapComposer({
               className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50 disabled:opacity-30 disabled:cursor-not-allowed"
               title="Attach files"
             >
-              <IconPaperclip className="h-4 w-4" />
+              <IconPlus className="h-4 w-4" />
             </button>
           </ComposerPrimitive.AddAttachment>
         )}
-        <style>{`
-          .aui-composer .ProseMirror p.is-editor-empty:first-child::before {
-            content: attr(data-placeholder);
-            color: var(--color-muted-foreground);
-            opacity: 0.5;
-            float: left;
-            height: 0;
-            pointer-events: none;
-          }
-        `}</style>
-        <EditorContent
-          editor={editor}
-          className="aui-composer flex-1 min-w-0 [&_.ProseMirror]:outline-none [&_.ProseMirror_p]:m-0"
-        />
+        <div className="flex-1" />
         {actionButton ?? (
           <>
-            {!canSend && (
-              <kbd className="shrink-0 text-[11px] text-muted-foreground/40 font-medium border border-border/50 rounded px-1.5 py-0.5 leading-none pointer-events-none">
-                {isMac ? "⌘I" : "Ctrl+I"}
-              </kbd>
+            {execMode && onExecModeChange && (
+              <ModeSelector mode={execMode} onChange={onExecModeChange} />
             )}
             <button
               type="button"

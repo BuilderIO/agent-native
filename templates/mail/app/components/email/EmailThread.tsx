@@ -651,7 +651,11 @@ export function EmailThread({
         key: "u",
         handler: () => {
           if (!email) return;
-          markRead.mutate({ id: email.id, isRead: !email.isRead });
+          markRead.mutate({
+            id: email.id,
+            isRead: !email.isRead,
+            accountEmail: email.accountEmail,
+          });
         },
       },
       {
@@ -659,7 +663,11 @@ export function EmailThread({
         shift: true,
         handler: () => {
           if (!email) return;
-          markRead.mutate({ id: email.id, isRead: true });
+          markRead.mutate({
+            id: email.id,
+            isRead: true,
+            accountEmail: email.accountEmail,
+          });
         },
       },
       {
@@ -667,7 +675,11 @@ export function EmailThread({
         shift: true,
         handler: () => {
           if (!email) return;
-          markRead.mutate({ id: email.id, isRead: false });
+          markRead.mutate({
+            id: email.id,
+            isRead: false,
+            accountEmail: email.accountEmail,
+          });
         },
       },
     ],
@@ -699,7 +711,12 @@ export function EmailThread({
           handleForward();
           break;
         case "markUnread":
-          if (email) markRead.mutate({ id: email.id, isRead: false });
+          if (email)
+            markRead.mutate({
+              id: email.id,
+              isRead: false,
+              accountEmail: email.accountEmail,
+            });
           break;
         case "prev":
           goToSibling(-1);

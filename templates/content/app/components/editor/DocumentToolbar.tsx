@@ -10,6 +10,7 @@ import {
   IconFileText,
   IconPlus,
   IconHistory,
+  IconRefresh,
 } from "@tabler/icons-react";
 import { VersionHistoryPanel } from "./VersionHistoryPanel";
 import {
@@ -33,6 +34,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { useLocalStorage } from "@/hooks/use-local-storage";
 
 function NotionIcon({ className }: { className?: string }) {
   return (
@@ -52,8 +54,9 @@ interface DocumentToolbarProps {
 
 export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
   const queryClient = useQueryClient();
+  const [autoSync, setAutoSync] = useLocalStorage("notion-auto-sync", false);
   const { data: connection } = useNotionConnection();
-  const { data: syncStatus } = useDocumentSyncStatus(documentId);
+  const { data: syncStatus } = useDocumentSyncStatus(documentId, { autoSync });
   const linkDocument = useLinkDocumentToNotion(documentId);
   const unlinkDocument = useUnlinkDocumentFromNotion(documentId);
   const pullDocument = usePullDocumentFromNotion(documentId);
@@ -250,6 +253,11 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
                   className="absolute -right-1 -top-1 text-amber-500"
                 />
               </div>
+            ) : isLinked && autoSync ? (
+              <div className="relative">
+                <NotionIcon className="h-4 w-4" />
+                <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-emerald-500" />
+              </div>
             ) : (
               <NotionIcon className="h-4 w-4" />
             )}
@@ -286,6 +294,12 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
                   <span className="text-xs font-medium truncate">
                     Linked to Notion
                   </span>
+                  {autoSync && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">
+                      <IconRefresh size={9} />
+                      Auto
+                    </span>
+                  )}
                 </div>
                 {syncStatus?.lastSyncedAt && (
                   <p className="mt-1 text-[10px] text-muted-foreground">
@@ -354,6 +368,39 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
               )}
 
               <div className="p-1.5">
+                <button
+                  onClick={() => setAutoSync(!autoSync)}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent rounded-md"
+                >
+                  <IconRefresh
+                    size={12}
+                    className={
+                      autoSync ? "text-emerald-500" : "text-muted-foreground"
+                    }
+                  />
+                  <span
+                    className={
+                      autoSync
+                        ? "text-foreground font-medium"
+                        : "text-muted-foreground"
+                    }
+                  >
+                    Auto-sync
+                  </span>
+                  <span
+                    className={cn(
+                      "ml-auto h-4 w-7 rounded-full relative",
+                      autoSync ? "bg-emerald-500" : "bg-muted-foreground/30",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "absolute top-0.5 h-3 w-3 rounded-full bg-white",
+                        autoSync ? "right-0.5" : "left-0.5",
+                      )}
+                    />
+                  </span>
+                </button>
                 <button
                   onClick={handlePull}
                   disabled={isWorking}
