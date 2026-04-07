@@ -292,10 +292,18 @@ export function useThreadMessages(threadId: string | undefined) {
 export function useMarkRead() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, isRead }: { id: string; isRead: boolean }) =>
+    mutationFn: ({
+      id,
+      isRead,
+      accountEmail,
+    }: {
+      id: string;
+      isRead: boolean;
+      accountEmail?: string;
+    }) =>
       apiFetch(`/api/emails/${id}/read`, {
         method: "PATCH",
-        body: JSON.stringify({ isRead }),
+        body: JSON.stringify({ isRead, accountEmail }),
       }),
     onMutate: async ({ id, isRead }) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
@@ -320,19 +328,22 @@ export function useMarkRead() {
 
 export function useMarkThreadRead() {
   const qc = useQueryClient();
-  // Per-thread pending IDs — using a Map so concurrent mutations for different
-  // threads don't overwrite each other's pending IDs.
-  const pendingByThread = new Map<string, string[]>();
+  // Per-thread pending entries — using a Map so concurrent mutations for different
+  // threads don't overwrite each other's pending entries.
+  const pendingByThread = new Map<
+    string,
+    { id: string; accountEmail?: string }[]
+  >();
   return useMutation({
     mutationFn: async (threadId: string) => {
-      const ids = pendingByThread.get(threadId) ?? [];
+      const entries = pendingByThread.get(threadId) ?? [];
       pendingByThread.delete(threadId);
-      if (ids.length > 0) {
+      if (entries.length > 0) {
         await Promise.all(
-          ids.map((id) =>
+          entries.map(({ id, accountEmail }) =>
             apiFetch(`/api/emails/${id}/read`, {
               method: "PATCH",
-              body: JSON.stringify({ isRead: true }),
+              body: JSON.stringify({ isRead: true, accountEmail }),
             }),
           ),
         );
@@ -343,13 +354,14 @@ export function useMarkThreadRead() {
       const previous = qc.getQueriesData<InfiniteEmails>({
         queryKey: ["emails"],
       });
-      // Capture unread IDs BEFORE optimistic update
+      // Capture unread entries BEFORE optimistic update
       const allEmails =
         previous.flatMap(([, data]) => flattenInfiniteEmails(data)) ?? [];
-      const unreadIds = allEmails
+      const unreadEntries = allEmails
         .filter((e) => (e.threadId || e.id) === threadId && !e.isRead)
-        .map((e) => e.id);
-      pendingByThread.set(threadId, unreadIds);
+        .map((e) => ({ id: e.id, accountEmail: e.accountEmail }));
+      pendingByThread.set(threadId, unreadEntries);
+      const unreadIds = unreadEntries.map((e) => e.id);
       // Set overrides so refetches don't revert read state
       for (const id of unreadIds) {
         setOptimisticOverride(id, { isRead: true });

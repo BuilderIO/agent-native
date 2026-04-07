@@ -941,6 +941,10 @@ export interface AssistantChatProps {
   isNewThread?: boolean;
   /** Called when a slash command (e.g. /clear, /help) is executed */
   onSlashCommand?: (command: string) => void;
+  /** Current execution mode (build/plan) */
+  execMode?: "build" | "plan";
+  /** Callback to change execution mode */
+  onExecModeChange?: (mode: "build" | "plan") => void;
 }
 
 export const CHAT_STORAGE_PREFIX = "agent-chat:";
@@ -992,6 +996,8 @@ const AssistantChatInner = forwardRef<
     composerSlot,
     isNewThread,
     onSlashCommand,
+    execMode,
+    onExecModeChange,
   },
   ref,
 ) {
@@ -1008,6 +1014,7 @@ const AssistantChatInner = forwardRef<
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [reconnectContent, setReconnectContent] = useState<ContentPart[]>([]);
   const reconnectRunIdRef = useRef<string | null>(null);
+  const reconnectAbortRef = useRef<AbortController | null>(null);
   // Treat reconnecting to an active run the same as running for UI purposes
   const isRunning = isRuntimeRunning || isReconnecting;
   const wasRunningRef = useRef(false);
@@ -1093,9 +1100,12 @@ const AssistantChatInner = forwardRef<
                 );
 
                 const streamReconnect = async () => {
+                  const abortCtrl = new AbortController();
+                  reconnectAbortRef.current = abortCtrl;
                   try {
                     const sseRes = await fetch(
                       `${apiUrl}/runs/${encodeURIComponent(runInfo.runId)}/events?after=0`,
+                      { signal: abortCtrl.signal },
                     );
                     if (sseRes.ok && sseRes.body) {
                       const content: ContentPart[] = [];
@@ -1127,11 +1137,10 @@ const AssistantChatInner = forwardRef<
                       setReconnectContent([...content]);
                     }
                   } catch {
-                    // Stream error — fall through to re-fetch
+                    // Stream error or abort — fall through to re-fetch
                   }
 
-                  // Run finished — re-fetch thread data from server
-                  // (server now persists assistant response on completion)
+                  // Re-fetch thread data from server to load final state
                   try {
                     const refreshRes = await fetch(
                       `${apiUrl}/threads/${encodeURIComponent(threadId)}`,
@@ -1149,15 +1158,18 @@ const AssistantChatInner = forwardRef<
                       }
                     }
                   } catch {}
-                  setReconnectContent([]);
-                  setIsReconnecting(false);
-                  reconnectRunIdRef.current = null;
-                  // Signal tab stopped
-                  window.dispatchEvent(
-                    new CustomEvent("builder.chatRunning", {
-                      detail: { isRunning: false, tabId: tabId || threadId },
-                    }),
-                  );
+                  // Only clean up if the stop button hasn't already done it
+                  if (reconnectRunIdRef.current) {
+                    reconnectAbortRef.current = null;
+                    setReconnectContent([]);
+                    setIsReconnecting(false);
+                    reconnectRunIdRef.current = null;
+                    window.dispatchEvent(
+                      new CustomEvent("builder.chatRunning", {
+                        detail: { isRunning: false, tabId: tabId || threadId },
+                      }),
+                    );
+                  }
                 };
                 streamReconnect();
               } // end else (running)
@@ -1589,15 +1601,31 @@ const AssistantChatInner = forwardRef<
                 : undefined
             }
             onSlashCommand={onSlashCommand}
+            execMode={execMode}
+            onExecModeChange={onExecModeChange}
             actionButton={
               isRunning ? (
                 <button
                   onClick={() => {
                     if (isReconnecting && reconnectRunIdRef.current) {
-                      // Abort the server-side run directly
+                      // Abort the server-side run
                       fetch(
                         `${apiUrl}/runs/${encodeURIComponent(reconnectRunIdRef.current)}/abort`,
                         { method: "POST" },
+                      );
+                      // Abort the client-side SSE stream so we don't hang
+                      reconnectAbortRef.current?.abort();
+                      reconnectAbortRef.current = null;
+                      reconnectRunIdRef.current = null;
+                      setIsReconnecting(false);
+                      setReconnectContent([]);
+                      window.dispatchEvent(
+                        new CustomEvent("builder.chatRunning", {
+                          detail: {
+                            isRunning: false,
+                            tabId: tabId || threadId,
+                          },
+                        }),
                       );
                     } else {
                       threadRuntime.cancelRun();

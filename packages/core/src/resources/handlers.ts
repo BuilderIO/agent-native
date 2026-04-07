@@ -98,7 +98,19 @@ function buildTree(resources: ResourceMeta[]): TreeNode[] {
     }
   }
 
+  sortTree(root);
   return root;
+}
+
+/** Sort tree nodes: folders first, then files, alphabetically within each group */
+function sortTree(nodes: TreeNode[]): void {
+  nodes.sort((a, b) => {
+    if (a.type !== b.type) return a.type === "folder" ? -1 : 1;
+    return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+  });
+  for (const node of nodes) {
+    if (node.children) sortTree(node.children);
+  }
 }
 
 // ---------------------------------------------------------------------------

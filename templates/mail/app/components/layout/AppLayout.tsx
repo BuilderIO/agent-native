@@ -191,12 +191,21 @@ export function AppLayout({ children }: AppLayoutProps) {
       (e) => !e.labelIds.some((lid) => pinnedShorts.includes(lid)),
     ).length;
     // Count threads per pinned label: latest message must have that label
+    // For "important", exclude threads that belong to any other pinned tab
     for (let i = 0; i < pinnedLabels.length; i++) {
       const short = pinnedShorts[i];
       const full = pinnedLabels[i];
-      counts[full] = latestMessages.filter((e) =>
-        e.labelIds.some((lid) => lid === short || lid === full),
-      ).length;
+      const hasLabel = (e: (typeof filtered)[0]) =>
+        e.labelIds.some((lid) => lid === short || lid === full);
+      if (full === "important") {
+        const otherShorts = pinnedShorts.filter((_, j) => j !== i);
+        counts[full] = latestMessages.filter(
+          (e) =>
+            hasLabel(e) && !e.labelIds.some((lid) => otherShorts.includes(lid)),
+        ).length;
+      } else {
+        counts[full] = latestMessages.filter((e) => hasLabel(e)).length;
+      }
     }
     return counts;
   }, [inboxEmails, pinnedLabels, activeAccounts]);

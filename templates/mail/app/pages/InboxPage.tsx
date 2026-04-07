@@ -95,7 +95,11 @@ function ThreadListSidebar({
               key={email.id}
               onClick={() => {
                 if (!email.isRead)
-                  markRead.mutate({ id: email.id, isRead: true });
+                  markRead.mutate({
+                    id: email.id,
+                    isRead: true,
+                    accountEmail: email.accountEmail,
+                  });
                 navigate(
                   `/${view}/${email.threadId || email.id}${labelSuffix}`,
                 );
@@ -224,9 +228,32 @@ export function InboxPage() {
         }
       }
       // Keep threads whose latest message has the label
+      // For "important", exclude threads that belong to any other pinned tab
+      const otherPinnedShorts =
+        activeLabel === "important"
+          ? pinnedUserLabels
+              .filter((l) => l !== "important")
+              .map((l) =>
+                l.includes("/")
+                  ? l
+                      .slice(l.lastIndexOf("/") + 1)
+                      .replace(/_/g, " ")
+                      .toLowerCase()
+                  : l.toLowerCase(),
+              )
+          : [];
       const qualifiedThreadIds = new Set(
         [...latestByThread.entries()]
-          .filter(([, latest]) => hasLabel(latest))
+          .filter(([, latest]) => {
+            if (!hasLabel(latest)) return false;
+            // If viewing "important", skip threads that match another pinned tab
+            if (
+              otherPinnedShorts.length > 0 &&
+              latest.labelIds.some((lid) => otherPinnedShorts.includes(lid))
+            )
+              return false;
+            return true;
+          })
           .map(([threadId]) => threadId),
       );
       return filtered.filter((e) => qualifiedThreadIds.has(e.threadId || e.id));

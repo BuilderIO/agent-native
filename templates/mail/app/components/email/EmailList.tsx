@@ -410,22 +410,40 @@ export function EmailList({
     for (const id of ids) {
       const thread = threads.find((t) => t.latestMessage.id === id);
       if (!thread) continue;
-      markRead.mutate({ id, isRead: !thread.latestMessage.isRead });
+      markRead.mutate({
+        id,
+        isRead: !thread.latestMessage.isRead,
+        accountEmail: thread.latestMessage.accountEmail,
+      });
     }
     setSelectedIds(new Set());
   }, [threads, markRead, getActionIds, setSelectedIds]);
 
   const markFocusedRead = useCallback(() => {
     const ids = getActionIds();
-    for (const id of ids) markRead.mutate({ id, isRead: true });
+    for (const id of ids) {
+      const thread = threads.find((t) => t.latestMessage.id === id);
+      markRead.mutate({
+        id,
+        isRead: true,
+        accountEmail: thread?.latestMessage.accountEmail,
+      });
+    }
     setSelectedIds(new Set());
-  }, [markRead, getActionIds, setSelectedIds]);
+  }, [threads, markRead, getActionIds, setSelectedIds]);
 
   const markFocusedUnread = useCallback(() => {
     const ids = getActionIds();
-    for (const id of ids) markRead.mutate({ id, isRead: false });
+    for (const id of ids) {
+      const thread = threads.find((t) => t.latestMessage.id === id);
+      markRead.mutate({
+        id,
+        isRead: false,
+        accountEmail: thread?.latestMessage.accountEmail,
+      });
+    }
     setSelectedIds(new Set());
-  }, [markRead, getActionIds, setSelectedIds]);
+  }, [threads, markRead, getActionIds, setSelectedIds]);
 
   const starFocused = useCallback(() => {
     const ids = getActionIds();

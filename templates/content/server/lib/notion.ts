@@ -271,25 +271,33 @@ export async function notionFetch<T>(
   accessToken: string,
   init?: RequestInit,
 ): Promise<T> {
-  const response = await fetch(`${NOTION_API_BASE}${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Notion-Version": NOTION_API_VERSION,
-      "Content-Type": "application/json",
-      ...(init?.headers || {}),
-    },
-  });
-  const body = await response.json().catch(() => null);
-  if (!response.ok) {
-    throw new NotionApiError(
-      body?.message || `Notion request failed (${response.status})`,
-      response.status,
-      body?.code || null,
-      body,
-    );
+  const MAX_RETRIES = 2;
+  for (let attempt = 0; ; attempt++) {
+    const response = await fetch(`${NOTION_API_BASE}${path}`, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Notion-Version": NOTION_API_VERSION,
+        "Content-Type": "application/json",
+        ...(init?.headers || {}),
+      },
+    });
+    if (response.status === 429 && attempt < MAX_RETRIES) {
+      const retryAfter = Number(response.headers.get("retry-after")) || 1;
+      await new Promise((r) => setTimeout(r, Math.max(retryAfter, 1) * 1000));
+      continue;
+    }
+    const body = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new NotionApiError(
+        body?.message || `Notion request failed (${response.status})`,
+        response.status,
+        body?.code || null,
+        body,
+      );
+    }
+    return body as T;
   }
-  return body as T;
 }
 
 export async function fetchNotionPage(
