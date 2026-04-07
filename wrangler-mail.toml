@@ -1,6 +1,11 @@
 name = "agent-native-mail"
+main = "templates/mail/.output/server/index.mjs"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
+no_bundle = true
+
+[assets]
+directory = "templates/mail/.output/public"
 
 [vars]
 GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
