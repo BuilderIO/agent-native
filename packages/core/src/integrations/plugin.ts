@@ -253,8 +253,18 @@ export function createIntegrationsPlugin(
       }),
     );
 
-    // Mount the router
-    nitroApp.h3App.use(router);
+    // Mount the router — h3App may not exist when auto-mounted via the
+    // framework request handler's fake nitroApp shim.
+    const h3App = nitroApp.h3App ?? nitroApp.router ?? nitroApp;
+    if (typeof h3App?.use === "function") {
+      h3App.use(router);
+    } else {
+      // Fallback: register routes individually via the framework route registry
+      console.log(
+        "[integrations] h3App not available, skipping router mount (routes available via framework handler)",
+      );
+      return;
+    }
 
     console.log(
       `[integrations] Mounted integration routes for: ${adapters.map((a) => a.platform).join(", ")}`,
