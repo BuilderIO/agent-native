@@ -41,6 +41,7 @@ vi.mock("h3", () => ({
   setResponseStatus: (_event: any, code: number) => {
     lastStatus = code;
   },
+  setResponseHeader: vi.fn(),
   getMethod: (event: any) => event._method || "GET",
   readMultipartFormData: (event: any) =>
     Promise.resolve(event._multipart || null),
@@ -176,6 +177,8 @@ describe("resource handlers", () => {
     });
 
     it("serves raw content when ?raw query param is set", async () => {
+      const { setResponseHeader } = await import("h3");
+
       const resource = {
         id: "r1",
         path: "notes.md",
@@ -188,21 +191,20 @@ describe("resource handlers", () => {
       };
       mockResourceGet.mockResolvedValue(resource);
 
-      const setHeader = vi.fn();
-      const end = vi.fn();
       const event = {
         _params: { id: "r1" },
         _query: { raw: "" },
         context: {},
-        node: {
-          res: { setHeader, end },
-        },
       };
 
-      await handleGetResource(event);
+      const result = await handleGetResource(event);
 
-      expect(setHeader).toHaveBeenCalledWith("Content-Type", "text/markdown");
-      expect(end).toHaveBeenCalled();
+      expect(setResponseHeader).toHaveBeenCalledWith(
+        event,
+        "Content-Type",
+        "text/markdown",
+      );
+      expect(result).toBeInstanceOf(Response);
     });
   });
 

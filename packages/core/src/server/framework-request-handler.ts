@@ -30,18 +30,23 @@ import {
 import { defaultTerminalPlugin } from "../terminal/terminal-plugin.js";
 import { defaultIntegrationsPlugin } from "../integrations/plugin.js";
 
-const DEFAULT_PLUGIN_IMPLEMENTATIONS: Record<
+// Lazy getter to avoid circular dependency issues when bundled.
+// Module-level constants referencing re-exported functions can fail
+// if the bundler evaluates the object before the imports are initialized.
+function getDefaultPluginImplementations(): Record<
   string,
   (nitroApp: any) => void | Promise<void>
-> = {
-  "agent-chat": defaultAgentChatPlugin,
-  auth: defaultAuthPlugin,
-  "core-routes": defaultCoreRoutesPlugin,
-  "file-sync": defaultFileSyncPlugin,
-  integrations: defaultIntegrationsPlugin,
-  resources: defaultResourcesPlugin,
-  terminal: defaultTerminalPlugin,
-};
+> {
+  return {
+    "agent-chat": defaultAgentChatPlugin,
+    auth: defaultAuthPlugin,
+    "core-routes": defaultCoreRoutesPlugin,
+    "file-sync": defaultFileSyncPlugin,
+    integrations: defaultIntegrationsPlugin,
+    resources: defaultResourcesPlugin,
+    terminal: defaultTerminalPlugin,
+  };
+}
 
 /**
  * A fake "app" object that plugins can call .use() on.
@@ -110,7 +115,7 @@ async function ensureInitialized() {
     }
 
     for (const stem of missing) {
-      const impl = DEFAULT_PLUGIN_IMPLEMENTATIONS[stem];
+      const impl = getDefaultPluginImplementations()[stem];
       if (typeof impl === "function") {
         try {
           await impl(fakeNitroApp);

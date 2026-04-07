@@ -101,13 +101,58 @@ Ephemeral UI state lives in the `application_state` table. Both agent and UI rea
 
 ### Database Agnostic
 
-The framework supports all SQL databases via Drizzle ORM. Never write SQLite-only syntax (`INSERT OR REPLACE`, `AUTOINCREMENT`, `datetime('now')`). When writing docs, say "SQL database" — not "SQLite".
+The framework supports all SQL databases via Drizzle ORM. Templates must work with SQLite (the default when `DATABASE_URL` is unset) AND Postgres (when `DATABASE_URL` points to a Postgres instance) without any code changes.
+
+**Use the dialect-agnostic schema helpers** from `@agent-native/core/db/schema`:
+
+```ts
+import {
+  table,
+  text,
+  integer,
+  real,
+  now,
+  sql,
+} from "@agent-native/core/db/schema";
+
+export const meals = table("meals", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  calories: integer("calories").notNull(),
+  weight: real("weight"),
+  archived: integer("archived", { mode: "boolean" }).notNull().default(false),
+  createdAt: text("created_at").notNull().default(now()),
+});
+```
+
+Available helpers:
+
+| Helper    | Purpose                                                                                   |
+| --------- | ----------------------------------------------------------------------------------------- |
+| `table`   | Define a table — delegates to `pgTable` or `sqliteTable` based on dialect                 |
+| `text`    | Text column — works identically in both dialects, supports `{ enum: [...] }`              |
+| `integer` | Integer column — `{ mode: "boolean" }` maps to Postgres `boolean` automatically           |
+| `real`    | Float column — maps to `real` on SQLite, `double precision` on Postgres                   |
+| `now`     | Dialect-agnostic current timestamp — use with `.default(now())` on text timestamp columns |
+| `sql`     | Re-exported from `drizzle-orm` for raw SQL expressions                                    |
+
+**NEVER import from `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core` directly in template code.** These are internal to the framework's schema adapter. Always use `@agent-native/core/db/schema` instead.
+
+Other framework helpers for raw SQL:
+
+- `getDbExec()` — auto-converts `?` params to `$1` for Postgres
+- `isPostgres()` — runtime dialect check
+- `intType()` — returns correct integer type for the dialect
+
+Never write SQLite-only syntax (`INSERT OR REPLACE`, `AUTOINCREMENT`, `datetime('now')`). When writing docs, say "SQL database" — not "SQLite".
 
 ### Hosting Agnostic
 
-The server runs on **Nitro** with **H3** as the HTTP framework. It compiles to any deployment target: Node.js, Cloudflare Workers/Pages, Netlify, Vercel, Deno Deploy, AWS Lambda, Bun.
+The server runs on **Nitro** with **H3** as the HTTP framework. It compiles to any deployment target: Node.js, Cloudflare Workers/Pages, Netlify, Vercel, Deno Deploy, AWS Lambda, Bun. Templates must be deployable to any Nitro-supported target without code changes.
 
 **Never use Express.** All server code uses H3/Nitro — `defineEventHandler`, `readBody`, `getMethod`, `setResponseHeader`, etc. Express is not a dependency. If you see Express types or patterns anywhere, replace them with H3 equivalents.
+
+**Never put platform-specific config files inside templates.** Files like `netlify.toml`, `wrangler.toml`, `vercel.json`, and `netlify/functions/` do not belong in template source. Platform configuration lives in CI/hosting dashboards or in deployment-specific repos, not in the template.
 
 Never use Node-specific APIs (`fs`, `child_process`, `path`) in server routes and plugins. Use Nitro abstractions. Actions in `actions/` run in Node.js and can use Node APIs freely.
 

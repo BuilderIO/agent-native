@@ -38,4 +38,6 @@ const TABLE_INFO = `## BigQuery Tables
 - Blog metadata table has duplicates — deduplicate with REGEXP_EXTRACT(SUOHFYGIOG, r'/blog/([^/?#]+)') and ROW_NUMBER
 `;
 
-console.log(TABLE_INFO);
+export default async function () {
+  console.log(TABLE_INFO);
+}

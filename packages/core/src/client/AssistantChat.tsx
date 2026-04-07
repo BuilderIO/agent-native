@@ -1055,57 +1055,10 @@ const AssistantChatInner = forwardRef<
             );
             if (runRes.ok) {
               const runInfo = await runRes.json();
-              // Agent is still running — subscribe to live SSE stream
-              reconnectRunIdRef.current = runInfo.runId;
-              setIsReconnecting(true);
-              setReconnectContent([]);
-              // Signal tab running indicator
-              window.dispatchEvent(
-                new CustomEvent("builder.chatRunning", {
-                  detail: { isRunning: true, tabId: tabId || threadId },
-                }),
-              );
 
-              const streamReconnect = async () => {
-                try {
-                  const sseRes = await fetch(
-                    `${apiUrl}/runs/${encodeURIComponent(runInfo.runId)}/events?after=0`,
-                  );
-                  if (sseRes.ok && sseRes.body) {
-                    const content: ContentPart[] = [];
-                    const toolCallCounter = { value: 0 };
-
-                    // Throttle React state updates via requestAnimationFrame
-                    let rafPending = false;
-                    let latestSnapshot: ContentPart[] = [];
-                    const scheduleUpdate = (snapshot: ContentPart[]) => {
-                      latestSnapshot = snapshot;
-                      if (!rafPending) {
-                        rafPending = true;
-                        requestAnimationFrame(() => {
-                          rafPending = false;
-                          setReconnectContent(latestSnapshot);
-                        });
-                      }
-                    };
-
-                    await readSSEStreamRaw(
-                      sseRes.body,
-                      content,
-                      toolCallCounter,
-                      tabId,
-                      scheduleUpdate,
-                    );
-
-                    // Final update with complete content
-                    setReconnectContent([...content]);
-                  }
-                } catch {
-                  // Stream error — fall through to re-fetch
-                }
-
-                // Run finished — re-fetch thread data from server
-                // (server now persists assistant response on completion)
+              // If the run already completed, just re-fetch thread data
+              // (don't enter "Thinking." reconnection mode)
+              if (runInfo.status !== "running") {
                 try {
                   const refreshRes = await fetch(
                     `${apiUrl}/threads/${encodeURIComponent(threadId)}`,
@@ -1123,17 +1076,88 @@ const AssistantChatInner = forwardRef<
                     }
                   }
                 } catch {}
+                // Skip reconnection entirely
+              } else {
+                // Agent is still running — subscribe to live SSE stream
+                reconnectRunIdRef.current = runInfo.runId;
+                setIsReconnecting(true);
                 setReconnectContent([]);
-                setIsReconnecting(false);
-                reconnectRunIdRef.current = null;
-                // Signal tab stopped
+                // Signal tab running indicator
                 window.dispatchEvent(
                   new CustomEvent("builder.chatRunning", {
-                    detail: { isRunning: false, tabId: tabId || threadId },
+                    detail: { isRunning: true, tabId: tabId || threadId },
                   }),
                 );
-              };
-              streamReconnect();
+
+                const streamReconnect = async () => {
+                  try {
+                    const sseRes = await fetch(
+                      `${apiUrl}/runs/${encodeURIComponent(runInfo.runId)}/events?after=0`,
+                    );
+                    if (sseRes.ok && sseRes.body) {
+                      const content: ContentPart[] = [];
+                      const toolCallCounter = { value: 0 };
+
+                      // Throttle React state updates via requestAnimationFrame
+                      let rafPending = false;
+                      let latestSnapshot: ContentPart[] = [];
+                      const scheduleUpdate = (snapshot: ContentPart[]) => {
+                        latestSnapshot = snapshot;
+                        if (!rafPending) {
+                          rafPending = true;
+                          requestAnimationFrame(() => {
+                            rafPending = false;
+                            setReconnectContent(latestSnapshot);
+                          });
+                        }
+                      };
+
+                      await readSSEStreamRaw(
+                        sseRes.body,
+                        content,
+                        toolCallCounter,
+                        tabId,
+                        scheduleUpdate,
+                      );
+
+                      // Final update with complete content
+                      setReconnectContent([...content]);
+                    }
+                  } catch {
+                    // Stream error — fall through to re-fetch
+                  }
+
+                  // Run finished — re-fetch thread data from server
+                  // (server now persists assistant response on completion)
+                  try {
+                    const refreshRes = await fetch(
+                      `${apiUrl}/threads/${encodeURIComponent(threadId)}`,
+                    );
+                    if (refreshRes.ok) {
+                      const refreshData = await refreshRes.json();
+                      if (refreshData.threadData) {
+                        const repo =
+                          typeof refreshData.threadData === "string"
+                            ? JSON.parse(refreshData.threadData)
+                            : refreshData.threadData;
+                        if (repo?.messages?.length > 0) {
+                          threadRuntime.import(ensureMessageMetadata(repo));
+                        }
+                      }
+                    }
+                  } catch {}
+                  setReconnectContent([]);
+                  setIsReconnecting(false);
+                  reconnectRunIdRef.current = null;
+                  // Signal tab stopped
+                  window.dispatchEvent(
+                    new CustomEvent("builder.chatRunning", {
+                      detail: { isRunning: false, tabId: tabId || threadId },
+                    }),
+                  );
+                };
+                streamReconnect();
+              } // end else (running)
             }
           } catch {
             // No active run — nothing to reconnect to

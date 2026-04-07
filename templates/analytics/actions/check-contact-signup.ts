@@ -21,4 +21,4 @@ async function main() {
   output(result.rows);
 }
 
-main().catch(console.error);
+export default main;

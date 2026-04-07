@@ -324,8 +324,10 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
       portExposer(),
       rolldownInputFix(),
       // Nitro Vite plugin for dev-mode API route serving and HMR.
-      // Disabled during build — React Router's build handles production
-      // bundling, and deploy/build.ts handles deployment presets.
+      // Disabled during build — React Router's build expects client output at
+      // build/client/, but Nitro redirects it to .output/public/, breaking the
+      // SSR build step. Instead, `agent-native build` runs Nitro's build API
+      // as a post-process step (see cli/index.ts) to package for any preset.
       ...(process.argv.includes("build")
         ? []
         : [

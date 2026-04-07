@@ -328,7 +328,7 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
         maxAge: sessionMaxAge,
       });
       // Prevent token from leaking via Referer headers
-      event.node.res.setHeader("Referrer-Policy", "no-referrer");
+      setResponseHeader(event, "Referrer-Policy", "no-referrer");
       return { email, token: qToken };
     }
   }

@@ -1,5 +1,7 @@
+#!/usr/bin/env ts-node
+
 /**
- * Component Generator
+ * Component Generator CLI
  *
  * Generates a new Remotion composition with animated elements and boilerplate
  *
@@ -411,36 +413,42 @@ function generateComponent(options: GeneratorOptions): void {
   console.log(`   3. Open in Video Studio UI to configure animations\n`);
 }
 
-export default async function (args: string[]) {
+// Parse CLI arguments
+function parseArgs(): GeneratorOptions {
+  const args = process.argv.slice(2);
+
   if (args.length === 0 || args[0] === "--help") {
     console.log(`
 📦 Animated Component Generator
 
 Usage:
-  pnpm action generate-animated-component <ComponentName> [options]
+  npm run generate:component <ComponentName> [options]
 
 Options:
   --elements <Element1,Element2>   Comma-separated list of element types (default: Button,Card)
   --output <dir>                   Output directory (default: app/remotion/compositions)
 
 Examples:
-  pnpm action generate-animated-component MyDashboard
-  pnpm action generate-animated-component MyDashboard --elements Button,Card,Panel,Toggle
+  npm run generate:component MyDashboard
+  npm run generate:component MyDashboard --elements Button,Card,Panel,Toggle
+  npm run generate:component MyApp --elements Hero,Feature,CTA --output src/components
     `);
     return;
   }
 
   const name = args[0];
-  const elementsIdx = args.indexOf("--elements");
-  const elementsArg = elementsIdx >= 0 ? args[elementsIdx + 1] : undefined;
-  const outputIdx = args.indexOf("--output");
-  const outputArg = outputIdx >= 0 ? args[outputIdx + 1] : undefined;
+  const elementsArg = args.find((arg, i) => args[i - 1] === "--elements");
+  const outputArg = args.find((arg, i) => args[i - 1] === "--output");
 
-  const options: GeneratorOptions = {
+  return {
     name,
     elements: elementsArg ? elementsArg.split(",") : ["Button", "Card"],
     outputDir: outputArg || "app/remotion/compositions",
   };
+}
 
+// Agent action entry point
+export default async function () {
+  const options = parseArgs();
   generateComponent(options);
 }

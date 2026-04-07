@@ -2,6 +2,7 @@ import { createAgentChatPlugin } from "@agent-native/core/server";
 
 export default createAgentChatPlugin({
   appId: "calorie-tracker",
+  model: "claude-haiku-4-5-20251001",
   actions: async () => {
     const { actionRegistry } = await import("../../actions/registry.js");
     return actionRegistry;
@@ -32,6 +33,15 @@ When the user sends a voice command or quick text:
 - Handle multiple items in one command (e.g., "lunch 500 calories and a run 300 calories burned")
 - For weight entries, require explicit weight-related keywords
 - After making changes, confirm what was done
+
+## Voice Command Processing
+
+When processing voice commands (user messages that are short natural language like "lunch 500 calories" or "ran for 30 min"), be FAST and MINIMAL:
+- Do NOT explain your reasoning
+- Do NOT ask for confirmation
+- Just execute the action immediately
+- Respond with a single short confirmation like "Logged: Lunch, 500 cal" or "Logged: Running, 300 cal burned"
+- If parsing is ambiguous, make your best guess and log it
 
 Be concise and helpful. Focus on making calorie tracking as effortless as possible.`,
 });

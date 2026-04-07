@@ -32,6 +32,9 @@ node-compile-cache/
 # React Router generated types
 .react-router/
 
+# Generated at dev/build time
+packages/docs/app/components/searchIndex.ts
+
 # Build output
 build/
 .output/

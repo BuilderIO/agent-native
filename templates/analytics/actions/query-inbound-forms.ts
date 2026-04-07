@@ -33,4 +33,4 @@ LIMIT 100
   output(result.rows);
 }
 
-main().catch(console.error);
+export default main;
