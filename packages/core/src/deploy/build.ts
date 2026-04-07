@@ -59,67 +59,39 @@ if (fs.existsSync(clientDir) && publicOutputDir) {
 
 // Patch H3 for Web-standard runtimes (Netlify Functions v2, CF Workers).
 // H3 v2 beta internally accesses event.node.req but event.node is undefined
-// in Web runtimes. We patch the Nitro main.mjs onRequest hook to populate
-// event.node with a Node-like facade derived from event.web.request.
+// in Web runtimes. We patch the H3 lib to make all .node accesses safe.
 const serverOutputDir = nitro.options.output.serverDir;
 if (serverOutputDir) {
-  const mainMjs = path.join(serverOutputDir, "main.mjs");
-  if (fs.existsSync(mainMjs)) {
-    let code = fs.readFileSync(mainMjs, "utf-8");
-    if (
-      code.includes(".config.onRequest") &&
-      !code.includes("__h3_web_compat__")
-    ) {
-      // The onRequest hook pattern is: .config.onRequest=N=>E.callHook(...)
-      // We replace the arrow function body to first populate event.node,
-      // then call the original hook expression.
-      // Original: .config.onRequest=n=>e.callHook(`request`,n)?.catch?.(...)
-      // Patched:  .config.onRequest=n=>{SHIM;return e.callHook(`request`,n)?.catch?.(...)}
-      const shimBody = [
-        "/* __h3_web_compat__ */",
-        "if(!$1.node&&$1.web?.request){",
-        "var _r=$1.web.request,_u=new URL(_r.url),_h={};",
-        "_r.headers.forEach(function(v,k){_h[k]=v});",
-        "var _n=function(){};",
-        "$1.node={req:{method:_r.method,url:_u.pathname+_u.search,headers:_h,",
-        "originalUrl:_u.pathname+_u.search,socket:{remoteAddress:void 0},",
-        'connection:{encrypted:_u.protocol==="https:"},on:_n},',
-        "res:{statusCode:200,setHeader:function(){},getHeader:function(){},",
-        "writeHead:_n,write:_n,end:_n,headersSent:false}}}",
-      ].join("");
-      // Use string search instead of fragile regex on minified code.
-      // Find ".config.onRequest=" and extract the arrow function body
-      // by counting to the next ".config.onResponse".
-      const marker = ".config.onRequest=";
-      const endMarker = ".config.onResponse";
-      const startIdx = code.indexOf(marker);
-      const endIdx = code.indexOf(endMarker, startIdx);
-      let patched = code;
-      if (startIdx !== -1 && endIdx !== -1) {
-        const segment = code.slice(startIdx + marker.length, endIdx);
-        // segment is like: n=>e.callHook(`request`,n)?.catch?.(e=>{...}),n
-        // Split on => to get param and body
-        const arrowIdx = segment.indexOf("=>");
-        const param = segment.slice(0, arrowIdx);
-        // Body extends to the last comma before endMarker
-        const bodyWithTrailing = segment.slice(arrowIdx + 2);
-        const lastComma = bodyWithTrailing.lastIndexOf(",");
-        const body = bodyWithTrailing.slice(0, lastComma);
-        const trailing = bodyWithTrailing.slice(lastComma);
+  // Patch the H3 + srvx + ufo bundle
+  const libsDir = path.join(serverOutputDir, "_libs");
+  if (fs.existsSync(libsDir)) {
+    for (const file of fs.readdirSync(libsDir)) {
+      if (!file.includes("h3") || !file.endsWith(".mjs")) continue;
+      const filePath = path.join(libsDir, file);
+      let code = fs.readFileSync(filePath, "utf-8");
+      if (!code.includes(".node.req") || code.includes("__h3_web_compat__"))
+        continue;
 
-        const shimCode = shimBody.replace(/\$1/g, param);
-        const newSegment = `${param}=>{${shimCode};return ${body}}${trailing}`;
-        patched =
-          code.slice(0, startIdx + marker.length) +
-          newSegment +
-          code.slice(endIdx);
-      }
-      if (patched !== code) {
-        fs.writeFileSync(mainMjs, patched);
-        console.log(
-          "[deploy] Patched H3 for Web-standard runtime compatibility",
-        );
-      }
+      // Make all .node.req and .node.res accesses safe with optional chaining.
+      // Then prepend a helper that enriches events with a node shim on first access.
+      code = `/* __h3_web_compat__ */
+var __h3n=function(e){if(e&&!e.node&&e.web?.request){var r=e.web.request,u=new URL(r.url),h={};r.headers.forEach(function(v,k){h[k]=v});var n=function(){};e.node={req:{method:r.method,url:u.pathname+u.search,headers:h,originalUrl:u.pathname+u.search,socket:{remoteAddress:void 0},connection:{encrypted:u.protocol==="https:"},on:n,rawBody:void 0,body:void 0},res:{statusCode:200,setHeader:n,getHeader:function(){},writeHead:n,write:n,end:n,headersSent:false}}}};
+${code}`;
+      // Replace .node.req with safe access that auto-shims.
+      // Handle both `e.node.req` and `this._prop.node.req` patterns.
+      code = code.replace(
+        /((?:this\.\w+|\w+))\.node\.req\b/g,
+        "(__h3n($1),$1.node.req)",
+      );
+      code = code.replace(
+        /((?:this\.\w+|\w+))\.node\.res\b/g,
+        "(__h3n($1),$1.node.res)",
+      );
+
+      fs.writeFileSync(filePath, code);
+      console.log(
+        `[deploy] Patched ${file} for Web-standard runtime compatibility`,
+      );
     }
   }
 }
