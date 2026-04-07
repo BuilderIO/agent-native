@@ -42,18 +42,22 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   useEffect(() => {
     const check = () => {
-      // Small delay so the sidebar has time to render/unmount
-      requestAnimationFrame(() => {
+      // Delay to let React render the sidebar before measuring
+      setTimeout(() => {
         const panel = document.querySelector(".agent-sidebar-panel");
         setSidebarOpen(!!panel && panel.getBoundingClientRect().width > 0);
-      });
+      }, 100);
     };
     check();
     window.addEventListener("agent-panel:toggle", check);
     window.addEventListener("agent-panel:open", check);
+    // Also poll briefly on mount in case sidebar was already open
+    const initialCheck = setInterval(check, 500);
+    setTimeout(() => clearInterval(initialCheck), 2000);
     return () => {
       window.removeEventListener("agent-panel:toggle", check);
       window.removeEventListener("agent-panel:open", check);
+      clearInterval(initialCheck);
     };
   }, []);
 
