@@ -1,7 +1,7 @@
-name = "agent-native-mail"
-main = "templates/mail/dist/_worker.js/index.js"
+name = "an-mail"
 compatibility_date = "2025-01-01"
-compatibility_flags = ["nodejs_compat_v2"]
+compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = "./templates/mail/dist"
 
 # Smart Placement: run the Worker near the D1 database to reduce latency
 [placement]
@@ -10,20 +10,8 @@ mode = "smart"
 [vars]
 GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
 
-[assets]
-directory = "templates/mail/dist"
-
-# Stub native modules that can't run on Workers
-[alias]
-"better-sqlite3" = "./templates/mail/dist/_worker.js/stubs/empty.js"
-"node-pty" = "./templates/mail/dist/_worker.js/stubs/empty.js"
-"chokidar" = "./templates/mail/dist/_worker.js/stubs/empty.js"
-"fsevents" = "./templates/mail/dist/_worker.js/stubs/empty.js"
-
-[triggers]
-crons = ["* * * * *"]
 
 [[d1_databases]]
 binding = "DB"
-database_name = "agent-native-mail"
+database_name = "an-mail"
 database_id = "5cbb9720-f664-40f7-b38c-a24bfdba4fb8"

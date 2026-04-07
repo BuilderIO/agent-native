@@ -1,4 +1,5 @@
 import { getH3App } from "../server/framework-request-handler.js";
+import { isNodeRuntime } from "../shared/runtime.js";
 /**
  * Nitro Plugin — Agent Terminal
  *
@@ -24,6 +25,9 @@ export interface TerminalPluginOptions {
 
 export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
   return async (nitroApp: any) => {
+    // Terminal requires Node.js (PTY, child_process) — skip on edge runtimes
+    if (!isNodeRuntime()) return;
+
     // Always mount /_agent-native/available-clis so the client doesn't get 404s
     getH3App(nitroApp).use(
       "/_agent-native/available-clis",
@@ -36,7 +40,7 @@ export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
             results.push({
               command: cmd,
               label: entry.label,
-              available: commandExists(cmd),
+              available: await commandExists(cmd),
             });
           }
           return results;

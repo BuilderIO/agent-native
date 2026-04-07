@@ -27,8 +27,17 @@
  */
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { ActionTool } from "../agent/types.js";
-import fs from "node:fs";
 import nodePath from "node:path";
+
+// Lazy fs — loaded via dynamic import() on first use.
+// Avoids require() which bundlers convert to createRequire() that crashes on CF Workers.
+let _fs: typeof import("fs") | undefined;
+async function getFs(): Promise<typeof import("fs")> {
+  if (!_fs) {
+    _fs = await import("node:fs");
+  }
+  return _fs;
+}
 import { fileURLToPath } from "node:url";
 
 /** Files to skip during auto-discovery (no extension). */
@@ -174,25 +183,29 @@ function wrapDefaultExport(
  *   If the resolved directory doesn't exist, falls back to `../../scripts/` for
  *   backwards compatibility, then to `process.cwd() + "/actions"`.
  */
-function resolveActionsDir(from: string): string {
+async function resolveActionsDir(from: string): Promise<string> {
+  const fs = await getFs();
+  const exists = (p: string) => {
+    try {
+      return fs.existsSync(p);
+    } catch {
+      return false;
+    }
+  };
   if (from.startsWith("file://") || from.startsWith("file:///")) {
     const callerPath = fileURLToPath(from);
     const callerDir = nodePath.dirname(callerPath);
-    // Try actions/ first
     const actionsResolved = nodePath.resolve(callerDir, "../../actions");
-    if (fs.existsSync(actionsResolved)) return actionsResolved;
-    // Fall back to scripts/ for backwards compat
+    if (exists(actionsResolved)) return actionsResolved;
     const scriptsResolved = nodePath.resolve(callerDir, "../../scripts");
-    if (fs.existsSync(scriptsResolved)) return scriptsResolved;
-    // In bundled environments import.meta.url may not reflect the source layout.
-    // Fall back to cwd-based resolution.
+    if (exists(scriptsResolved)) return scriptsResolved;
     const cwdActions = nodePath.join(process.cwd(), "actions");
-    if (fs.existsSync(cwdActions)) return cwdActions;
+    if (exists(cwdActions)) return cwdActions;
     return nodePath.join(process.cwd(), "scripts");
   }
   if (from === "auto") {
     const cwdActions = nodePath.join(process.cwd(), "actions");
-    if (fs.existsSync(cwdActions)) return cwdActions;
+    if (exists(cwdActions)) return cwdActions;
     return nodePath.join(process.cwd(), "scripts");
   }
   return nodePath.resolve(from);
@@ -209,11 +222,12 @@ function resolveActionsDir(from: string): string {
 export async function autoDiscoverActions(
   from: string,
 ): Promise<Record<string, ActionEntry>> {
-  const actionsDir = resolveActionsDir(from);
+  const actionsDir = await resolveActionsDir(from);
   const registry: Record<string, ActionEntry> = {};
 
   let files: string[];
   try {
+    const fs = await getFs();
     files = fs.readdirSync(actionsDir);
   } catch (err: any) {
     console.warn(

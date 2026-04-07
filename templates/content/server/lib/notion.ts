@@ -517,7 +517,7 @@ export async function disconnectNotionForOwner(owner: string) {
         "@agent-native/core/server" as string
       );
       const envPath = path.join(process.cwd(), ".env");
-      (upsertEnvFile as Function)(envPath, [
+      await (upsertEnvFile as Function)(envPath, [
         { key: "NOTION_API_KEY", value: "" },
       ]);
     } catch {

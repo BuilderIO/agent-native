@@ -1,5 +1,14 @@
 import path from "path";
-import fs from "fs";
+
+// Lazy fs — loaded via dynamic import() on first use.
+// Avoids require() which bundlers convert to createRequire() that crashes on CF Workers.
+let _fs: typeof import("fs") | undefined;
+async function getFs(): Promise<typeof import("fs")> {
+  if (!_fs) {
+    _fs = await import("node:fs");
+  }
+  return _fs;
+}
 
 /**
  * Map a Nitro-style route file path to { method, route }.
@@ -45,19 +54,27 @@ export function parseRouteFile(relPath: string): {
 /**
  * Recursively discover all .ts files under a directory.
  */
-export function discoverFiles(dir: string, prefix = ""): string[] {
-  if (!fs.existsSync(dir)) return [];
-  const entries = fs.readdirSync(dir, { withFileTypes: true });
-  const files: string[] = [];
-  for (const entry of entries) {
-    const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
-    if (entry.isDirectory()) {
-      files.push(...discoverFiles(path.join(dir, entry.name), rel));
-    } else if (entry.name.endsWith(".ts") || entry.name.endsWith(".js")) {
-      files.push(rel);
+export async function discoverFiles(
+  dir: string,
+  prefix = "",
+): Promise<string[]> {
+  try {
+    const fs = await getFs();
+    if (!fs.existsSync(dir)) return [];
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    const files: string[] = [];
+    for (const entry of entries) {
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        files.push(...(await discoverFiles(path.join(dir, entry.name), rel)));
+      } else if (entry.name.endsWith(".ts") || entry.name.endsWith(".js")) {
+        files.push(rel);
+      }
     }
+    return files;
+  } catch {
+    return []; // Edge runtime — no filesystem
   }
-  return files;
 }
 
 export interface DiscoveredRoute {
@@ -72,12 +89,14 @@ export interface DiscoveredRoute {
 /**
  * Discover all API routes in a project's server/routes/ directory.
  */
-export function discoverApiRoutes(cwd: string): DiscoveredRoute[] {
+export async function discoverApiRoutes(
+  cwd: string,
+): Promise<DiscoveredRoute[]> {
   const apiDir = path.join(cwd, "server/routes/api");
   const agentNativeDir = path.join(cwd, "server/routes/_agent-native");
   const routeFiles = [
-    ...discoverFiles(apiDir, "api"),
-    ...discoverFiles(agentNativeDir, "_agent-native"),
+    ...(await discoverFiles(apiDir, "api")),
+    ...(await discoverFiles(agentNativeDir, "_agent-native")),
   ];
   const routes: DiscoveredRoute[] = [];
 
@@ -97,14 +116,19 @@ export function discoverApiRoutes(cwd: string): DiscoveredRoute[] {
 /**
  * Discover all server plugins in a project's server/plugins/ directory.
  */
-export function discoverPlugins(cwd: string): string[] {
-  const pluginsDir = path.join(cwd, "server/plugins");
-  if (!fs.existsSync(pluginsDir)) return [];
-  return fs
-    .readdirSync(pluginsDir)
-    .filter((f) => f.endsWith(".ts") || f.endsWith(".js"))
-    .sort()
-    .map((f) => path.join(pluginsDir, f));
+export async function discoverPlugins(cwd: string): Promise<string[]> {
+  try {
+    const fs = await getFs();
+    const pluginsDir = path.join(cwd, "server/plugins");
+    if (!fs.existsSync(pluginsDir)) return [];
+    return fs
+      .readdirSync(pluginsDir)
+      .filter((f) => f.endsWith(".ts") || f.endsWith(".js"))
+      .sort()
+      .map((f) => path.join(pluginsDir, f));
+  } catch {
+    return []; // Edge runtime — no filesystem
+  }
 }
 
 /**
@@ -115,7 +139,6 @@ export const DEFAULT_PLUGIN_REGISTRY: Record<string, string> = {
   "agent-chat": "defaultAgentChatPlugin",
   auth: "defaultAuthPlugin",
   "core-routes": "defaultCoreRoutesPlugin",
-  "file-sync": "defaultFileSyncPlugin",
   integrations: "defaultIntegrationsPlugin",
   resources: "defaultResourcesPlugin",
   terminal: "defaultTerminalPlugin",
@@ -124,16 +147,22 @@ export const DEFAULT_PLUGIN_REGISTRY: Record<string, string> = {
 /**
  * Returns the stems of default plugins that are missing from the project.
  */
-export function getMissingDefaultPlugins(cwd: string): string[] {
-  const pluginsDir = path.join(cwd, "server/plugins");
-  const existingStems = new Set(
-    fs.existsSync(pluginsDir)
-      ? fs
-          .readdirSync(pluginsDir)
-          .filter((f) => f.endsWith(".ts") || f.endsWith(".js"))
-          .map((f) => path.basename(f, path.extname(f)))
-      : [],
-  );
+export async function getMissingDefaultPlugins(cwd: string): Promise<string[]> {
+  let existingStems: Set<string>;
+  try {
+    const fs = await getFs();
+    const pluginsDir = path.join(cwd, "server/plugins");
+    existingStems = new Set(
+      fs.existsSync(pluginsDir)
+        ? fs
+            .readdirSync(pluginsDir)
+            .filter((f) => f.endsWith(".ts") || f.endsWith(".js"))
+            .map((f) => path.basename(f, path.extname(f)))
+        : [],
+    );
+  } catch {
+    existingStems = new Set(); // Edge runtime — all defaults will be auto-mounted
+  }
   return Object.keys(DEFAULT_PLUGIN_REGISTRY).filter(
     (stem) => !existingStems.has(stem),
   );

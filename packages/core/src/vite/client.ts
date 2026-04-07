@@ -86,14 +86,6 @@ function getCoreSourceAliases(
       coreSrc,
       "terminal/index.ts",
     ),
-    "@agent-native/core/adapters/sync": path.join(
-      coreSrc,
-      "adapters/sync/index.ts",
-    ),
-    "@agent-native/core/adapters/drizzle": path.join(
-      coreSrc,
-      "adapters/drizzle/index.ts",
-    ),
     "@agent-native/core/adapters/cli": path.join(
       coreSrc,
       "adapters/cli/index.ts",
@@ -321,16 +313,18 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
       // -webkit-backdrop-filter (required until Safari 18).
       cssTarget: ["es2020", "safari14"],
     },
+    // Bundle all non-Node.js deps into the SSR server build.
+    // Edge runtimes (CF Workers, Deno) don't have node_modules at runtime.
+    ssr: {
+      noExternal: /^(?!node:)/,
+    },
     plugins: [
       autoReloadOnOptimizeDep(),
       baseRedirectGuard(),
       portExposer(),
       rolldownInputFix(),
       // Nitro Vite plugin for dev-mode API route serving and HMR.
-      // Disabled during build — React Router's build expects client output at
-      // build/client/, but Nitro redirects it to .output/public/, breaking the
-      // SSR build step. Instead, `agent-native build` runs Nitro's build API
-      // as a post-process step (see cli/index.ts) to package for any preset.
+      // Disabled during build — React Router's build handles production.
       ...(process.argv.includes("build")
         ? []
         : [

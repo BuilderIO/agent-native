@@ -32,7 +32,6 @@ const preset = process.env.NITRO_PRESET || "node";
 /** Plugins that require Node.js runtime and cannot run on edge/serverless */
 const NODE_ONLY_PLUGINS = new Set([
   "terminal", // PTY requires child_process
-  "file-sync", // chokidar requires fs watchers
 ]);
 
 function isNodeOnlyPlugin(filePath: string): boolean {
@@ -224,9 +223,9 @@ async function buildCloudflarePages() {
   );
 
   // Discover routes and plugins
-  const routes = discoverApiRoutes(cwd);
-  const plugins = discoverPlugins(cwd);
-  const missingDefaults = getMissingDefaultPlugins(cwd);
+  const routes = await discoverApiRoutes(cwd);
+  const plugins = await discoverPlugins(cwd);
+  const missingDefaults = await getMissingDefaultPlugins(cwd);
 
   console.log(
     `[deploy] ${routes.length} API routes, ${plugins.length} plugins (${plugins.filter((p) => isNodeOnlyPlugin(p)).length} skipped as Node-only), ${missingDefaults.length} auto-mounted defaults`,
@@ -571,6 +570,11 @@ async function buildWithNitro() {
     alias: fs.existsSync(rrServerBuild)
       ? { "virtual:react-router/server-build": rrServerBuild }
       : {},
+    // For edge presets (cloudflare, deno), bundle all deps — node_modules
+    // aren't available at runtime. Netlify/Vercel/Node have node_modules.
+    ...(preset.startsWith("cloudflare") || preset.startsWith("deno")
+      ? { noExternals: true }
+      : {}),
   } as any);
 
   await prepare(nitro);
@@ -591,51 +595,359 @@ async function buildWithNitro() {
   // H3 v2 beta accesses event.node.req internally but event.node is undefined
   // in Web runtimes. Patch the Nitro main.mjs onRequest hook to populate
   // event.node with a Node-like facade derived from the Web Request.
+  // Find the Nitro server entry — varies by preset:
+  // netlify: .netlify/functions-internal/server/main.mjs
+  // cloudflare-pages: dist/_worker.js/index.js
   const serverOutputDir = nitro.options.output.serverDir;
-  if (serverOutputDir) {
-    const mainMjs = path.join(serverOutputDir, "main.mjs");
-    if (fs.existsSync(mainMjs)) {
-      let code = fs.readFileSync(mainMjs, "utf-8");
-      if (
-        code.includes(".config.onRequest") &&
-        !code.includes("__h3_web_compat__")
-      ) {
-        const marker = ".config.onRequest=";
-        const endMarker = ".config.onResponse";
-        const startIdx = code.indexOf(marker);
-        const endIdx = code.indexOf(endMarker, startIdx);
-        if (startIdx !== -1 && endIdx !== -1) {
-          const segment = code.slice(startIdx + marker.length, endIdx);
-          const arrowIdx = segment.indexOf("=>");
-          const param = segment.slice(0, arrowIdx);
-          const bodyWithTrailing = segment.slice(arrowIdx + 2);
-          const lastComma = bodyWithTrailing.lastIndexOf(",");
-          const body = bodyWithTrailing.slice(0, lastComma);
-          const trailing = bodyWithTrailing.slice(lastComma);
+  const entryFiles = [
+    serverOutputDir && path.join(serverOutputDir, "main.mjs"),
+    serverOutputDir && path.join(serverOutputDir, "index.js"),
+    path.join(cwd, "dist", "_worker.js", "index.js"),
+  ].filter(Boolean) as string[];
+  const mainMjs = entryFiles.find((f) => fs.existsSync(f));
+  if (mainMjs) {
+    let code = fs.readFileSync(mainMjs, "utf-8");
+    if (
+      code.includes(".config.onRequest") &&
+      !code.includes("__h3_web_compat__")
+    ) {
+      const marker = ".config.onRequest=";
+      const endMarker = ".config.onResponse";
+      const startIdx = code.indexOf(marker);
+      const endIdx = code.indexOf(endMarker, startIdx);
+      if (startIdx !== -1 && endIdx !== -1) {
+        const segment = code.slice(startIdx + marker.length, endIdx);
+        const arrowIdx = segment.indexOf("=>");
+        const param = segment.slice(0, arrowIdx);
+        const bodyWithTrailing = segment.slice(arrowIdx + 2);
+        const lastComma = bodyWithTrailing.lastIndexOf(",");
+        const body = bodyWithTrailing.slice(0, lastComma);
+        const trailing = bodyWithTrailing.slice(lastComma);
 
-          const shimBody = [
-            "/* __h3_web_compat__ */",
-            `if(!${param}.node&&(${param}.method||${param}.url||${param}.headers)){`,
-            `var _u,_h={},_n=function(){};`,
-            `try{_u=new URL(${param}.url||${param}.path||"/",${param}.headers?.get?.("host")?"https://"+${param}.headers.get("host"):"https://localhost")}catch(x){_u=new URL("https://localhost/")}`,
-            `if(${param}.headers?.forEach)${param}.headers.forEach(function(v,k){_h[k]=v});`,
-            `else if(${param}.headers)for(var _k in ${param}.headers)_h[_k]=${param}.headers[_k];`,
-            `var _nd={req:{method:${param}.method||"GET",url:_u.pathname+_u.search,headers:_h,originalUrl:_u.pathname+_u.search,socket:{remoteAddress:void 0},connection:{encrypted:_u.protocol==="https:"},on:_n,rawBody:void 0,body:void 0},res:{statusCode:200,setHeader:_n,getHeader:function(){},writeHead:_n,write:_n,end:_n,headersSent:false}};`,
-            `try{${param}.node=_nd}catch(x){Object.defineProperty(${param},"node",{value:_nd,writable:true,configurable:true})}}`,
-          ].join("");
+        const shimBody = [
+          "/* __h3_web_compat__ */",
+          `if(!${param}.node&&(${param}.method||${param}.url||${param}.headers)){`,
+          `var _u,_h={},_n=function(){};`,
+          `try{_u=new URL(${param}.url||${param}.path||"/",${param}.headers?.get?.("host")?"https://"+${param}.headers.get("host"):"https://localhost")}catch(x){_u=new URL("https://localhost/")}`,
+          `if(${param}.headers?.forEach)${param}.headers.forEach(function(v,k){_h[k]=v});`,
+          `else if(${param}.headers)for(var _k in ${param}.headers)_h[_k]=${param}.headers[_k];`,
+          `var _nd={req:{method:${param}.method||"GET",url:_u.pathname+_u.search,headers:_h,originalUrl:_u.pathname+_u.search,socket:{remoteAddress:void 0},connection:{encrypted:_u.protocol==="https:"},on:_n,rawBody:void 0,body:void 0},res:{statusCode:200,setHeader:_n,getHeader:function(){},writeHead:_n,write:_n,end:_n,headersSent:false}};`,
+          `try{${param}.node=_nd}catch(x){Object.defineProperty(${param},"node",{value:_nd,writable:true,configurable:true})}}`,
+        ].join("");
 
-          const newSegment = `${param}=>{${shimBody};return ${body}}${trailing}`;
-          const patched =
-            code.slice(0, startIdx + marker.length) +
-            newSegment +
-            code.slice(endIdx);
-          fs.writeFileSync(mainMjs, patched);
-          console.log(
-            "[deploy] Patched H3 for Web-standard runtime compatibility",
+        const newSegment = `${param}=>{${shimBody};return ${body}}${trailing}`;
+        const patched =
+          code.slice(0, startIdx + marker.length) +
+          newSegment +
+          code.slice(endIdx);
+        fs.writeFileSync(mainMjs, patched);
+        console.log(
+          "[deploy] Patched H3 for Web-standard runtime compatibility",
+        );
+      }
+    }
+  }
+
+  // Resolve remaining bare npm imports by bundling them into _libs/.
+  // Nitro sometimes leaves small packages as externals even with noExternals.
+  if (preset.startsWith("cloudflare") || preset.startsWith("deno")) {
+    const { execFileSync } = await import("child_process");
+    const { createRequire } = await import("module");
+    const esbuildBin = (() => {
+      try {
+        const _req = createRequire(cwd + "/");
+        const pkg = path.dirname(_req.resolve("esbuild/package.json"));
+        const bin = path.join(pkg, "bin", "esbuild");
+        if (fs.existsSync(bin)) return bin;
+      } catch {}
+      return "esbuild";
+    })();
+
+    // Scan all output files for bare npm imports
+    const outputDir =
+      nitro.options.output.serverDir || path.join(cwd, "dist", "_worker.js");
+    const bareImports = new Set<string>();
+    function scanForBareImports(dir: string) {
+      if (!fs.existsSync(dir)) return;
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          scanForBareImports(p);
+          continue;
+        }
+        if (!entry.name.endsWith(".mjs") && !entry.name.endsWith(".js"))
+          continue;
+        const code = fs.readFileSync(p, "utf-8");
+        const matches = code.matchAll(/from\s*["']([a-z@][a-z0-9._\-/]*)["']/g);
+        for (const m of matches) {
+          const mod = m[1];
+          if (mod.startsWith("node:")) continue;
+          // Skip Node builtins that are available via nodejs_compat
+          const builtins = new Set([
+            "fs",
+            "path",
+            "os",
+            "crypto",
+            "http",
+            "https",
+            "stream",
+            "url",
+            "util",
+            "events",
+            "buffer",
+            "net",
+            "tls",
+            "assert",
+            "timers",
+            "child_process",
+            "module",
+            "process",
+            "worker_threads",
+            "querystring",
+            "zlib",
+            "vm",
+            "string_decoder",
+            "diagnostics_channel",
+            "async_hooks",
+            "perf_hooks",
+            "inspector",
+          ]);
+          if (builtins.has(mod)) continue;
+          bareImports.add(mod);
+        }
+      }
+    }
+    scanForBareImports(outputDir);
+
+    // For each bare import, try to bundle it as a standalone module
+    if (bareImports.size > 0) {
+      const libsDir = path.join(outputDir, "_libs");
+      fs.mkdirSync(libsDir, { recursive: true });
+      for (const mod of bareImports) {
+        const outFile = path.join(libsDir, `${mod.replace(/[/@]/g, "_")}.mjs`);
+        try {
+          // Try resolving from both template dir and workspace root
+          const nodePaths = [
+            path.join(cwd, "node_modules"),
+            path.resolve(cwd, "../../node_modules"),
+          ].filter((p) => fs.existsSync(p));
+          // Resolve the module — check workspace node_modules and pnpm store
+          let resolvedMod = mod;
+          const _require = createRequire(cwd + "/");
+          try {
+            const resolved = _require.resolve(mod);
+            resolvedMod = resolved;
+          } catch {
+            // Try from workspace root
+            try {
+              const wsRequire = createRequire(
+                path.resolve(cwd, "../../package.json"),
+              );
+              resolvedMod = wsRequire.resolve(mod);
+            } catch {
+              // Will fail at esbuild
+            }
+          }
+          // Scan what named imports the consumer expects, then generate
+          // explicit re-exports to handle CJS modules properly.
+          const neededExports = new Set<string>();
+          function findNeededExports(dir: string) {
+            if (!fs.existsSync(dir)) return;
+            for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+              const p = path.join(dir, entry.name);
+              if (entry.isDirectory()) {
+                findNeededExports(p);
+                continue;
+              }
+              if (!entry.name.endsWith(".mjs") && !entry.name.endsWith(".js"))
+                continue;
+              const code = fs.readFileSync(p, "utf-8");
+              // Match: import{foo as bar,baz}from"<mod>"
+              const escaped = mod.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+              const re = new RegExp(
+                `import\\{([^}]+)\\}from["']${escaped}["']`,
+                "g",
+              );
+              for (const m2 of code.matchAll(re)) {
+                for (const part of m2[1].split(",")) {
+                  const name = part
+                    .trim()
+                    .split(/\s+as\s+/)[0]
+                    .trim();
+                  if (name && /^[a-zA-Z_$]/.test(name)) neededExports.add(name);
+                }
+              }
+            }
+          }
+          findNeededExports(outputDir);
+
+          const entryCode =
+            neededExports.size > 0
+              ? [
+                  `import _mod from "${resolvedMod}";`,
+                  `export default _mod;`,
+                  ...Array.from(neededExports).map(
+                    (n) =>
+                      `export const ${n} = _mod.${n} ?? _mod?.default?.${n};`,
+                  ),
+                ].join("\n")
+              : `export * from "${resolvedMod}"; export { default } from "${resolvedMod}";`;
+
+          execFileSync(
+            esbuildBin,
+            [
+              "--bundle",
+              `--outfile=${outFile}`,
+              "--format=esm",
+              "--platform=neutral",
+              "--target=es2022",
+              "--external:node:*",
+            ],
+            {
+              input: entryCode,
+              cwd,
+              stdio: ["pipe", "pipe", "pipe"],
+            },
+          );
+          // Rewrite imports in all files to point to the bundled module
+          function rewriteImports(dir: string) {
+            if (!fs.existsSync(dir)) return;
+            for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+              const p = path.join(dir, entry.name);
+              if (entry.isDirectory()) {
+                rewriteImports(p);
+                continue;
+              }
+              if (!entry.name.endsWith(".mjs") && !entry.name.endsWith(".js"))
+                continue;
+              let code = fs.readFileSync(p, "utf-8");
+              const relPath = path
+                .relative(path.dirname(p), outFile)
+                .replace(/\\/g, "/");
+              const importPath = relPath.startsWith(".")
+                ? relPath
+                : "./" + relPath;
+              const re = new RegExp(
+                `from["']${mod.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']`,
+                "g",
+              );
+              if (re.test(code)) {
+                code = code.replace(re, `from"${importPath}"`);
+                fs.writeFileSync(p, code);
+              }
+            }
+          }
+          rewriteImports(outputDir);
+          console.log(`[deploy] Bundled external: ${mod}`);
+        } catch {
+          console.warn(
+            `[deploy] Could not bundle: ${mod} (may not be needed at runtime)`,
           );
         }
       }
     }
+  }
+
+  // Cloudflare-specific post-build patches
+  if (preset.startsWith("cloudflare")) {
+    const serverDir2 = nitro.options.output.serverDir;
+    const scanDirs = [serverDir2];
+    if (serverDir2) {
+      const chunksDir = path.join(serverDir2, "_chunks");
+      const libsDir = path.join(serverDir2, "_libs");
+      if (fs.existsSync(chunksDir)) scanDirs.push(chunksDir);
+      if (fs.existsSync(libsDir)) scanDirs.push(libsDir);
+    }
+
+    for (const scanDir of scanDirs) {
+      if (!scanDir || !fs.existsSync(scanDir)) continue;
+      for (const file of fs.readdirSync(scanDir)) {
+        if (!file.endsWith(".mjs") && !file.endsWith(".js")) continue;
+        const filePath = path.join(scanDir, file);
+        let code = fs.readFileSync(filePath, "utf-8");
+        let changed = false;
+
+        // 1. Rewrite bare Node.js imports to node: prefixed.
+        // CF Workers requires the node: prefix for built-in modules.
+        const NODE_BUILTINS = [
+          "fs",
+          "path",
+          "os",
+          "crypto",
+          "http",
+          "https",
+          "stream",
+          "url",
+          "util",
+          "events",
+          "buffer",
+          "querystring",
+          "zlib",
+          "net",
+          "tls",
+          "assert",
+          "timers",
+          "child_process",
+          "module",
+          "process",
+          "worker_threads",
+          "string_decoder",
+          "diagnostics_channel",
+          "async_hooks",
+          "perf_hooks",
+          "inspector",
+          "vm",
+        ];
+        for (const mod of NODE_BUILTINS) {
+          // Match: from"fs" or from "fs" (but not from"node:fs")
+          const re = new RegExp(`from\\s*["']${mod}["']`, "g");
+          if (re.test(code)) {
+            code = code.replace(re, `from"node:${mod}"`);
+            changed = true;
+          }
+        }
+
+        // 2. Patch import.meta.url for createRequire().
+        // React Router's server build uses createRequire(import.meta.url)
+        // but import.meta.url is undefined on CF Workers.
+        if (code.includes("import.meta.url")) {
+          code = code.replace(/import\.meta\.url/g, '"file:///worker.mjs"');
+          changed = true;
+        }
+
+        // 3. Patch setInterval/setTimeout at global scope.
+        // CF Workers disallows timers in global scope.
+        if (code.includes("setInterval") && !code.includes("__timer_shim__")) {
+          const shim =
+            "/* __timer_shim__ */" +
+            "var __origSetInterval=globalThis.setInterval;" +
+            "globalThis.setInterval=function(){return{unref(){},ref(){},close(){}}};";
+          const restore =
+            ";(function(){if(typeof __origSetInterval!=='undefined')globalThis.setInterval=__origSetInterval})();";
+          code = shim + code + "\n" + restore;
+          changed = true;
+        }
+
+        if (changed) fs.writeFileSync(filePath, code);
+      }
+    }
+    // 3. Patch the route finder in index.js/main entry.
+    // Nitro's route finder does e.req.method and e.url.pathname but on CF
+    // Pages, e is a Web Request (no .req, .url is string not URL object).
+    if (mainMjs) {
+      let entryCode = fs.readFileSync(mainMjs, "utf-8");
+      if (entryCode.includes("e.req.method,e.url.pathname")) {
+        entryCode = entryCode.replace(
+          /e\.req\.method,e\.url\.pathname/g,
+          '(e.req?.method||e.method),(typeof e.url==="string"?new URL(e.url).pathname:e.url?.pathname||"/")',
+        );
+        fs.writeFileSync(mainMjs, entryCode);
+      }
+    }
+
+    console.log(
+      "[deploy] Patched bare Node imports, timer calls, and route finder for CF Workers",
+    );
   }
 
   await nitro.close();

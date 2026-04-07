@@ -1,30 +1,4 @@
-import { watch, type FSWatcher } from "chokidar";
-import { EventEmitter } from "events";
-import path from "path";
 import { defineEventHandler, createEventStream } from "h3";
-
-export type { FSWatcher } from "chokidar";
-
-export interface FileWatcherOptions {
-  /** Glob patterns or regex to ignore. */
-  ignored?: string | RegExp | string[];
-  /** Whether to emit events for the initial file scan. Default: false (ignoreInitial: true) */
-  emitInitial?: boolean;
-}
-
-/**
- * Create a chokidar file watcher for the given directory.
- * Returns a chokidar.FSWatcher that emits "all" events on file changes.
- */
-export function createFileWatcher(
-  dir: string | string[],
-  options: FileWatcherOptions = {},
-): FSWatcher {
-  return watch(dir, {
-    ignoreInitial: !options.emitInitial,
-    ignored: options.ignored,
-  });
-}
 
 /** Any object with on/off methods (compatible with EventEmitter, TypedEventEmitter, etc.). */
 interface EventLike {
@@ -37,26 +11,17 @@ interface EventLike {
 export interface SSEHandlerOptions {
   /** Additional EventEmitters to stream events from (e.g. DB change events). */
   extraEmitters?: Array<{ emitter: EventLike; event: string }>;
-  /** Optional file watcher for streaming file change events (e.g. code modifications). */
-  watcher?: FSWatcher;
-  /** Content root for computing relative paths. If provided, absolute paths are stripped. */
-  contentRoot?: string;
 }
 
 /**
  * Create an H3 event handler that streams Server-Sent Events.
  *
- * Streams events from DB change emitters (application state, settings)
- * and optionally from a file watcher.
+ * Streams events from DB change emitters (application state, settings).
  *
  * Usage:
  *   router.get("/_agent-native/events", createSSEHandler({ extraEmitters }));
  */
 export function createSSEHandler(options: SSEHandlerOptions = {}) {
-  const projectRoot = options.contentRoot
-    ? path.resolve(options.contentRoot, "..")
-    : null;
-
   return defineEventHandler(async (event) => {
     const stream = createEventStream(event);
 
@@ -93,20 +58,7 @@ export function createSSEHandler(options: SSEHandlerOptions = {}) {
       }
     };
 
-    // Subscribe to file watcher if provided
     const cleanups: Array<() => void> = [];
-
-    if (options.watcher) {
-      const watcher = options.watcher;
-      const onChange = (eventName: string, filePath: string) => {
-        const relPath = projectRoot
-          ? path.relative(projectRoot, filePath)
-          : filePath;
-        send({ source: "file", type: eventName, path: relPath });
-      };
-      watcher.on("all", onChange);
-      cleanups.push(() => watcher.off("all", onChange));
-    }
 
     // Subscribe to extra emitters (DB change events)
     for (const { emitter, event: evtName } of options.extraEmitters ?? []) {

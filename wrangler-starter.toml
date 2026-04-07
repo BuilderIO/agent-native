@@ -1,7 +1,7 @@
-name = "agent-native-starter"
-main = "templates/starter/dist/_worker.js/index.js"
+name = "an-starter"
 compatibility_date = "2025-01-01"
-compatibility_flags = ["nodejs_compat_v2"]
+compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = "./templates/starter/dist"
 
 # Smart Placement: run the Worker near the D1 database to reduce latency
 [placement]
@@ -10,17 +10,8 @@ mode = "smart"
 [vars]
 GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
 
-[assets]
-directory = "templates/starter/dist"
-
-# Stub native modules that can't run on Workers
-[alias]
-"better-sqlite3" = "./templates/starter/dist/_worker.js/stubs/empty.js"
-"node-pty" = "./templates/starter/dist/_worker.js/stubs/empty.js"
-"chokidar" = "./templates/starter/dist/_worker.js/stubs/empty.js"
-"fsevents" = "./templates/starter/dist/_worker.js/stubs/empty.js"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "agent-native-starter"
+database_name = "an-starter"
 database_id = "0871e970-55cf-482c-93a3-204725da8710"

@@ -1,7 +1,7 @@
-name = "agent-native-videos"
-main = "templates/videos/dist/_worker.js/index.js"
+name = "an-videos"
 compatibility_date = "2025-01-01"
-compatibility_flags = ["nodejs_compat_v2"]
+compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = "./templates/videos/dist"
 
 # Smart Placement: run the Worker near the D1 database to reduce latency
 [placement]
@@ -10,10 +10,8 @@ mode = "smart"
 [vars]
 GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
 
-[assets]
-directory = "templates/videos/dist"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "agent-native-videos"
+database_name = "an-videos"
 database_id = "a13415ec-0d2e-43da-8fce-5c616646fbce"

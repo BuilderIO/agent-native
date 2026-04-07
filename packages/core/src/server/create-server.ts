@@ -9,7 +9,6 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
-import fs from "fs";
 import path from "path";
 import { agentEnv } from "../shared/agent-env.js";
 
@@ -62,10 +61,10 @@ function parseEnvFile(content: string): Map<string, string> {
 /**
  * Upsert vars into a .env file, preserving existing structure.
  */
-export function upsertEnvFile(
+export async function upsertEnvFile(
   envPath: string,
   vars: Array<{ key: string; value: string }>,
-): void {
+): Promise<void> {
   // Sanitize: reject values that could inject additional env vars
   for (const { key, value } of vars) {
     if (/[\n\r\0]/.test(value)) {
@@ -74,6 +73,8 @@ export function upsertEnvFile(
       );
     }
   }
+
+  const fs = await import("fs");
 
   let content = "";
   try {
@@ -109,8 +110,12 @@ export function upsertEnvFile(
   let result = updated.join("\n");
   if (!result.endsWith("\n")) result += "\n";
 
-  fs.mkdirSync(path.dirname(envPath), { recursive: true });
-  fs.writeFileSync(envPath, result);
+  try {
+    fs.mkdirSync(path.dirname(envPath), { recursive: true });
+    fs.writeFileSync(envPath, result);
+  } catch {
+    // Edge runtimes don't have writable filesystem — skip silently
+  }
 }
 
 export interface CreateServerResult {
@@ -228,7 +233,7 @@ export function createServer(
 
         // Write to .env file
         const envPath = path.join(process.cwd(), ".env");
-        upsertEnvFile(envPath, filtered);
+        await upsertEnvFile(envPath, filtered);
 
         // Update process.env so the app picks up the new values immediately
         for (const { key, value } of filtered) {

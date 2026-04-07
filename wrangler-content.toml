@@ -1,7 +1,7 @@
-name = "agent-native-content"
-main = "templates/content/dist/_worker.js/index.js"
+name = "an-content"
 compatibility_date = "2025-01-01"
-compatibility_flags = ["nodejs_compat_v2"]
+compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = "./templates/content/dist"
 
 # Smart Placement: run the Worker near the D1 database to reduce latency
 [placement]
@@ -10,10 +10,8 @@ mode = "smart"
 [vars]
 GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
 
-[assets]
-directory = "templates/content/dist"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "agent-native-content"
+database_name = "an-content"
 database_id = "e9999bd0-a254-4d46-8f86-dae15228b1e0"

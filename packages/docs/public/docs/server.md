@@ -71,18 +71,17 @@ export default defineEventHandler(async (event) => {
 
 ## Server Plugins
 
-Cross-cutting concerns — auth, agent chat, polling, file sync — go in `server/plugins/`. The framework auto-discovers `.ts` files in this directory, sorts them alphabetically, and runs each one at startup.
+Cross-cutting concerns — auth, agent chat, polling — go in `server/plugins/`. The framework auto-discovers `.ts` files in this directory, sorts them alphabetically, and runs each one at startup.
 
 ### Default plugins (auto-mounted)
 
-The framework provides 6 default plugins that auto-mount when your app doesn't provide a custom version. You only need to create a plugin file if you want to customize it:
+The framework provides 5 default plugins that auto-mount when your app doesn't provide a custom version. You only need to create a plugin file if you want to customize it:
 
 | Plugin        | What it does                                                                | When to customize                           |
 | ------------- | --------------------------------------------------------------------------- | ------------------------------------------- |
 | `agent-chat`  | Agent chat endpoints                                                        | Custom `mentionProviders` or `systemPrompt` |
 | `auth`        | Authentication middleware                                                   | Custom `publicPaths` or Google OAuth config |
 | `core-routes` | `/_agent-native/poll`, `/_agent-native/events`, `/_agent-native/ping`, etc. | Custom `envKeys` or `sseRoute`              |
-| `file-sync`   | File watcher for sync events                                                | Custom sync configuration                   |
 | `resources`   | Resource CRUD endpoints                                                     | Rarely customized                           |
 | `terminal`    | Terminal emulator endpoints                                                 | Rarely customized                           |
 
@@ -145,24 +144,22 @@ export default createCoreRoutesPlugin({ sseRoute: "/_agent-native/sse" });
 
 #### Routes provided
 
-| Method | Path                              | Purpose                                           |
-| ------ | --------------------------------- | ------------------------------------------------- |
-| GET    | `/_agent-native/poll`             | Polling endpoint for change detection             |
-| GET    | `/_agent-native/events`           | SSE endpoint for real-time sync (configurable)    |
-| GET    | `/_agent-native/file-sync/status` | File sync status (deprecated, backward compat)    |
-| GET    | `/_agent-native/ping`             | Health check                                      |
-| GET    | `/_agent-native/env-status`       | Env key configuration status (requires `envKeys`) |
-| POST   | `/_agent-native/env-vars`         | Save env vars to `.env` file (requires `envKeys`) |
+| Method | Path                        | Purpose                                           |
+| ------ | --------------------------- | ------------------------------------------------- |
+| GET    | `/_agent-native/poll`       | Polling endpoint for change detection             |
+| GET    | `/_agent-native/events`     | SSE endpoint for real-time sync (configurable)    |
+| GET    | `/_agent-native/ping`       | Health check                                      |
+| GET    | `/_agent-native/env-status` | Env key configuration status (requires `envKeys`) |
+| POST   | `/_agent-native/env-vars`   | Save env vars to `.env` file (requires `envKeys`) |
 
 #### Options
 
-| Option            | Type             | Default                   | Description                            |
-| ----------------- | ---------------- | ------------------------- | -------------------------------------- |
-| `sseRoute`        | `string`         | `"/_agent-native/events"` | Path for the SSE endpoint              |
-| `disableSSE`      | `boolean`        | `false`                   | Disable the SSE endpoint entirely      |
-| `disableFileSync` | `boolean`        | `false`                   | Disable the file-sync status endpoint  |
-| `disablePing`     | `boolean`        | `false`                   | Disable the ping health check          |
-| `envKeys`         | `EnvKeyConfig[]` | —                         | Enables env-status and env-vars routes |
+| Option        | Type             | Default                   | Description                            |
+| ------------- | ---------------- | ------------------------- | -------------------------------------- |
+| `sseRoute`    | `string`         | `"/_agent-native/events"` | Path for the SSE endpoint              |
+| `disableSSE`  | `boolean`        | `false`                   | Disable the SSE endpoint entirely      |
+| `disablePing` | `boolean`        | `false`                   | Disable the ping health check          |
+| `envKeys`     | `EnvKeyConfig[]` | —                         | Enables env-status and env-vars routes |
 
 When new framework routes are added to `createCoreRoutesPlugin()`, all templates pick them up automatically on the next dependency update — no per-template file changes needed.
 
@@ -258,10 +255,10 @@ Each SSE message is JSON: `{ "type": "change", "path": "data/file.json" }`
 
 ### Options
 
-| Option          | Type                        | Description                                              |
-| --------------- | --------------------------- | -------------------------------------------------------- |
-| `extraEmitters` | `Array<{ emitter, event }>` | Additional EventEmitters to stream (e.g. from file sync) |
-| `contentRoot`   | `string`                    | Root directory used to relativize paths in events        |
+| Option          | Type                        | Description                                       |
+| --------------- | --------------------------- | ------------------------------------------------- |
+| `extraEmitters` | `Array<{ emitter, event }>` | Additional EventEmitters to stream                |
+| `contentRoot`   | `string`                    | Root directory used to relativize paths in events |
 
 ## createServer(options?)
 

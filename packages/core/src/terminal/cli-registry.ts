@@ -3,8 +3,6 @@
  * Used by the embedded terminal in the agent panel.
  */
 
-import { spawnSync } from "child_process";
-
 export interface CliEntry {
   /** Human-readable display name */
   label: string;
@@ -48,8 +46,9 @@ export function isAllowedCommand(cmd: string): boolean {
 }
 
 /** Check if a CLI command exists on PATH (safe — no shell interpolation) */
-export function commandExists(cmd: string): boolean {
+export async function commandExists(cmd: string): Promise<boolean> {
   try {
+    const { spawnSync } = await import("node:child_process");
     const result = spawnSync("which", [cmd], { stdio: "ignore" });
     return result.status === 0;
   } catch {

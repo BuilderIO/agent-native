@@ -8,7 +8,6 @@
  * module can be loaded in any runtime (Node.js, Cloudflare Workers, edge)
  * without failing on missing native deps.
  */
-import fs from "fs";
 import path from "path";
 
 // ---------------------------------------------------------------------------
@@ -208,6 +207,7 @@ async function initClient(): Promise<void> {
   // SQLite / libsql (default)
   if (url.startsWith("file:")) {
     try {
+      const fs = await import("fs");
       fs.mkdirSync(path.join(process.cwd(), "data"), { recursive: true });
     } catch {
       // Edge runtime — no filesystem

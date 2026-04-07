@@ -1,7 +1,7 @@
-name = "agent-native-calendar"
-main = "templates/calendar/dist/_worker.js/index.js"
+name = "an-calendar"
 compatibility_date = "2025-01-01"
-compatibility_flags = ["nodejs_compat_v2"]
+compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = "./templates/calendar/dist"
 
 # Smart Placement: run the Worker near the D1 database to reduce latency
 [placement]
@@ -10,10 +10,8 @@ mode = "smart"
 [vars]
 GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
 
-[assets]
-directory = "templates/calendar/dist"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "agent-native-calendar"
+database_name = "an-calendar"
 database_id = "26d5afaf-e324-40dc-b963-9417e26ee70c"

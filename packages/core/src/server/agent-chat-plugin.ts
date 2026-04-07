@@ -45,8 +45,18 @@ import {
   ensurePersonalDefaults,
   SHARED_OWNER,
 } from "../resources/store.js";
-import fs from "node:fs";
 import nodePath from "node:path";
+
+// Lazy fs — loaded via dynamic import() on first use.
+// This avoids require() which bundlers convert to createRequire(import.meta.url)
+// that crashes on CF Workers where import.meta.url is undefined.
+let _fs: typeof import("fs") | undefined;
+async function lazyFs(): Promise<typeof import("fs")> {
+  if (!_fs) {
+    _fs = await import("node:fs");
+  }
+  return _fs;
+}
 
 /**
  * Wraps a core CLI script (that writes to console.log) as a ActionEntry
@@ -741,12 +751,12 @@ function generateActionsPrompt(registry: Record<string, ActionEntry>): string {
  * });
  * ```
  */
-function collectFiles(
+async function collectFiles(
   dir: string,
   prefix: string,
   depth: number,
   results: Array<{ path: string; name: string; type: "file" | "folder" }>,
-): void {
+): Promise<void> {
   if (depth > 4 || results.length >= 500) return;
   const skip = new Set([
     "node_modules",
@@ -758,8 +768,9 @@ function collectFiles(
     ".turbo",
     "data",
   ]);
-  let entries: fs.Dirent[];
+  let entries: import("fs").Dirent[];
   try {
+    const fs = await lazyFs();
     entries = fs.readdirSync(dir, { withFileTypes: true });
   } catch {
     return;
@@ -775,7 +786,12 @@ function collectFiles(
       type: isDir ? "folder" : "file",
     });
     if (isDir)
-      collectFiles(nodePath.join(dir, entry.name), relPath, depth + 1, results);
+      await collectFiles(
+        nodePath.join(dir, entry.name),
+        relPath,
+        depth + 1,
+        results,
+      );
   }
 }
 
@@ -858,8 +874,9 @@ export function createAgentChatPlugin(
 
         for (const dir of ["actions", "scripts"]) {
           const actionsDir = pathMod.join(cwd, dir);
-          if (!fs.existsSync(actionsDir)) continue;
-          const files = fs
+          const _fs = await lazyFs();
+          if (!_fs.existsSync(actionsDir)) continue;
+          const files = _fs
             .readdirSync(actionsDir)
             .filter(
               (f: string) =>
@@ -1355,7 +1372,7 @@ export function createAgentChatPlugin(
           const path = await import("path");
           const { upsertEnvFile } = await import("./create-server.js");
           const envPath = path.join(process.cwd(), ".env");
-          upsertEnvFile(envPath, [
+          await upsertEnvFile(envPath, [
             { key: "ANTHROPIC_API_KEY", value: trimmedKey },
           ]);
         } catch {
@@ -1397,7 +1414,7 @@ export function createAgentChatPlugin(
             type: "file" | "folder";
           }> = [];
           try {
-            collectFiles(process.cwd(), "", 0, codebaseFiles);
+            await collectFiles(process.cwd(), "", 0, codebaseFiles);
           } catch {
             // Filesystem access failed — skip
           }
@@ -1463,8 +1480,9 @@ export function createAgentChatPlugin(
         // In dev mode, scan .agents/skills/ directory
         if (currentDevMode) {
           try {
+            const _fs = await lazyFs();
             const skillsDir = nodePath.join(process.cwd(), ".agents", "skills");
-            const entries = fs.readdirSync(skillsDir, {
+            const entries = _fs.readdirSync(skillsDir, {
               withFileTypes: true,
             });
             for (const entry of entries) {
@@ -1479,7 +1497,7 @@ export function createAgentChatPlugin(
                   entry.name,
                   "SKILL.md",
                 );
-                if (!fs.existsSync(candidate)) continue;
+                if (!_fs.existsSync(candidate)) continue;
                 skillFilePath = candidate;
                 skillRelPath = `.agents/skills/${entry.name}/SKILL.md`;
               } else if (entry.isFile() && entry.name.endsWith(".md")) {
@@ -1491,7 +1509,7 @@ export function createAgentChatPlugin(
               }
 
               try {
-                const content = fs.readFileSync(skillFilePath, "utf-8");
+                const content = _fs.readFileSync(skillFilePath, "utf-8");
                 const fm = parseSkillFrontmatter(content);
                 const skillName = fm.name || entry.name.replace(/\.md$/, "");
                 if (!seenNames.has(skillName)) {
@@ -1594,7 +1612,7 @@ export function createAgentChatPlugin(
             type: "file" | "folder";
           }> = [];
           try {
-            collectFiles(process.cwd(), "", 0, codebaseFiles);
+            await collectFiles(process.cwd(), "", 0, codebaseFiles);
           } catch {}
           for (const f of codebaseFiles) {
             items.push({

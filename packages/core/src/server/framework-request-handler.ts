@@ -23,7 +23,6 @@ import {
 import {
   defaultCoreRoutesPlugin,
   defaultResourcesPlugin,
-  defaultFileSyncPlugin,
   defaultAuthPlugin,
   defaultAgentChatPlugin,
 } from "./index.js";
@@ -41,7 +40,6 @@ function getDefaultPluginImplementations(): Record<
     "agent-chat": defaultAgentChatPlugin,
     auth: defaultAuthPlugin,
     "core-routes": defaultCoreRoutesPlugin,
-    "file-sync": defaultFileSyncPlugin,
     integrations: defaultIntegrationsPlugin,
     resources: defaultResourcesPlugin,
     terminal: defaultTerminalPlugin,
@@ -115,7 +113,7 @@ async function ensureInitialized() {
     getH3App(fakeNitroApp);
 
     // Auto-mount defaults for plugins the template doesn't provide
-    const missing = getMissingDefaultPlugins(cwd);
+    const missing = await getMissingDefaultPlugins(cwd);
     if (missing.length > 0) {
       console.log(
         `[agent-native] Auto-mounted ${missing.length} default plugin(s): ${missing.join(", ")}`,

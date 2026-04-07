@@ -12,25 +12,42 @@ import {
   type IncomingMessage,
   type Server as HttpServer,
 } from "http";
-import { execSync } from "child_process";
 import os from "os";
 import path from "path";
-import fs from "fs";
 import {
   CLI_REGISTRY,
   commandExists,
   isAllowedCommand,
 } from "./cli-registry.js";
 
+// Lazy singletons for Node-only modules (only available in Node.js)
+let _cp: typeof import("child_process") | undefined;
+async function getChildProcess(): Promise<typeof import("child_process")> {
+  if (!_cp) {
+    _cp = await import("node:child_process");
+  }
+  return _cp;
+}
+
+let _fs: typeof import("fs") | undefined;
+async function getFs(): Promise<typeof import("fs")> {
+  if (!_fs) {
+    _fs = await import("node:fs");
+  }
+  return _fs;
+}
+
 /**
  * Kill a process and all its descendants.
  * node-pty's kill() only sends a signal to the shell, but child processes
  * (like `builder`) may be in their own process group and survive as orphans.
  */
-function killProcessTree(pid: number, logPrefix: string): void {
+async function killProcessTree(pid: number, logPrefix: string): Promise<void> {
+  const cp = await getChildProcess();
+
   if (os.platform() === "win32") {
     try {
-      execSync(`taskkill /pid ${pid} /T /F`, { stdio: "ignore" });
+      cp.execSync(`taskkill /pid ${pid} /T /F`, { stdio: "ignore" });
     } catch {}
     return;
   }
@@ -39,10 +56,12 @@ function killProcessTree(pid: number, logPrefix: string): void {
   const descendants: number[] = [];
   function findDescendants(parentPid: number) {
     try {
-      const output = execSync(`pgrep -P ${parentPid}`, {
-        encoding: "utf-8",
-        stdio: ["pipe", "pipe", "ignore"],
-      }).trim();
+      const output = cp
+        .execSync(`pgrep -P ${parentPid}`, {
+          encoding: "utf-8",
+          stdio: ["pipe", "pipe", "ignore"],
+        })
+        .trim();
       if (output) {
         for (const line of output.split("\n")) {
           const childPid = parseInt(line, 10);
@@ -166,7 +185,7 @@ export async function createPtyWebSocketServer(
   // Track active PTY processes for cleanup
   const activePtys = new Set<ReturnType<typeof pty.spawn>>();
 
-  wss.on("connection", (ws: InstanceType<typeof WebSocket>, req) => {
+  wss.on("connection", async (ws: InstanceType<typeof WebSocket>, req) => {
     const url = new URL(req.url || "", `http://${req.headers.host}`);
     const command = url.searchParams.get("command") || defaultCommand;
     const extraFlags = url.searchParams.get("flags") || "";
@@ -197,7 +216,7 @@ export async function createPtyWebSocketServer(
 
     // Check if CLI is installed; if not, use npx to run it
     let useNpx = false;
-    if (!commandExists(command)) {
+    if (!(await commandExists(command))) {
       const registry = CLI_REGISTRY[command];
       if (registry?.installPackage) {
         console.log(`${logPrefix} ${command} CLI not found, will use npx`);
@@ -277,7 +296,7 @@ export async function createPtyWebSocketServer(
       }
     });
 
-    ws.on("message", (data: Buffer | string) => {
+    ws.on("message", async (data: Buffer | string) => {
       const str = typeof data === "string" ? data : data.toString();
 
       try {
@@ -300,6 +319,7 @@ export async function createPtyWebSocketServer(
             return true;
           });
 
+          const fs = await getFs();
           let lines: string[] = [];
           try {
             lines = fs.readFileSync(envPath, "utf-8").split("\n");
