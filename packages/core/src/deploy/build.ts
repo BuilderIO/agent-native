@@ -70,20 +70,52 @@ if (serverOutputDir) {
       code.includes(".config.onRequest") &&
       !code.includes("__h3_web_compat__")
     ) {
-      // Find: .config.onRequest=X=>  (Nitro's request hook assignment)
-      // Replace with a wrapper that populates event.node first
-      const patched = code.replace(
-        /\.config\.onRequest\s*=\s*(\w+)\s*=>/,
-        `.config.onRequest=$1=>{/* __h3_web_compat__ */if(!$1.node&&$1.web?.request){var _r=$1.web.request,_u=new URL(_r.url),_h={};_r.headers.forEach(function(v,k){_h[k]=v});var _n=function(){};$1.node={req:{method:_r.method,url:_u.pathname+_u.search,headers:_h,originalUrl:_u.pathname+_u.search,socket:{remoteAddress:void 0},connection:{encrypted:_u.protocol==="https:"},on:_n,rawBody:void 0,body:void 0},res:{statusCode:200,_headers:{},setHeader:function(k,v){this._headers[k]=v},getHeader:function(k){return this._headers[k]},writeHead:_n,write:_n,end:_n,headersSent:false}}}return(`,
-      );
+      // The onRequest hook pattern is: .config.onRequest=N=>E.callHook(...)
+      // We replace the arrow function body to first populate event.node,
+      // then call the original hook expression.
+      // Original: .config.onRequest=n=>e.callHook(`request`,n)?.catch?.(...)
+      // Patched:  .config.onRequest=n=>{SHIM;return e.callHook(`request`,n)?.catch?.(...)}
+      const shimBody = [
+        "/* __h3_web_compat__ */",
+        "if(!$1.node&&$1.web?.request){",
+        "var _r=$1.web.request,_u=new URL(_r.url),_h={};",
+        "_r.headers.forEach(function(v,k){_h[k]=v});",
+        "var _n=function(){};",
+        "$1.node={req:{method:_r.method,url:_u.pathname+_u.search,headers:_h,",
+        "originalUrl:_u.pathname+_u.search,socket:{remoteAddress:void 0},",
+        'connection:{encrypted:_u.protocol==="https:"},on:_n},',
+        "res:{statusCode:200,setHeader:function(){},getHeader:function(){},",
+        "writeHead:_n,write:_n,end:_n,headersSent:false}}}",
+      ].join("");
+      // Use string search instead of fragile regex on minified code.
+      // Find ".config.onRequest=" and extract the arrow function body
+      // by counting to the next ".config.onResponse".
+      const marker = ".config.onRequest=";
+      const endMarker = ".config.onResponse";
+      const startIdx = code.indexOf(marker);
+      const endIdx = code.indexOf(endMarker, startIdx);
+      let patched = code;
+      if (startIdx !== -1 && endIdx !== -1) {
+        const segment = code.slice(startIdx + marker.length, endIdx);
+        // segment is like: n=>e.callHook(`request`,n)?.catch?.(e=>{...}),n
+        // Split on => to get param and body
+        const arrowIdx = segment.indexOf("=>");
+        const param = segment.slice(0, arrowIdx);
+        // Body extends to the last comma before endMarker
+        const bodyWithTrailing = segment.slice(arrowIdx + 2);
+        const lastComma = bodyWithTrailing.lastIndexOf(",");
+        const body = bodyWithTrailing.slice(0, lastComma);
+        const trailing = bodyWithTrailing.slice(lastComma);
+
+        const shimCode = shimBody.replace(/\$1/g, param);
+        const newSegment = `${param}=>{${shimCode};return ${body}}${trailing}`;
+        patched =
+          code.slice(0, startIdx + marker.length) +
+          newSegment +
+          code.slice(endIdx);
+      }
       if (patched !== code) {
-        // Close the wrapper: find the pattern after onRequest assignment
-        // that transitions to onResponse, and add the closing paren
-        const finalCode = patched.replace(
-          /(\/\* __h3_web_compat__ \*\/.*?return\()(.*?\.catch\?\.\(.*?\))(,\s*\w+\.config\.onResponse)/,
-          "$1$2)$3",
-        );
-        fs.writeFileSync(mainMjs, finalCode);
+        fs.writeFileSync(mainMjs, patched);
         console.log(
           "[deploy] Patched H3 for Web-standard runtime compatibility",
         );
