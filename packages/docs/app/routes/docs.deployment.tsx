@@ -162,7 +162,6 @@ export default defineConfig({
           ))}
         </tbody>
       </table>
-
     </DocsLayout>
   );
 }

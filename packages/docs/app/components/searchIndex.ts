@@ -217,7 +217,7 @@ export const searchIndex: SearchEntry[] = [
     "path": "/docs/cli-adapters",
     "section": "Overview",
     "sectionId": "overview",
-    "text": "Agents are great at running CLI commands. But without structure, every script reinvents how to invoke a CLI, check if it's installed, and parse its output. CLI adapters solve this with a small interface. Each adapter wraps a single CLI ( gh..."
+    "text": "Agents are great at running CLI commands. But without structure, every script reinvents how to invoke a CLI, check if it's installed, and parse its output. CLI adapters solve this with a small interface. Each adapter wraps a single CLI ( gh , ffmpeg , stripe , aws ) and provides: Discovery — the..."
   },
   {
     "page": "CLI Adapters",
@@ -427,7 +427,7 @@ export const searchIndex: SearchEntry[] = [
     "path": "/docs/deployment",
     "section": "Environment Variables",
     "sectionId": "environment-variables",
-    "text": "Variable Description > ))}"
+    "text": "Variable Description > ))} ); }"
   },
   {
     "page": "FAQ",
