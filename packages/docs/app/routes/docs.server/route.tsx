@@ -111,20 +111,16 @@ export default defineEventHandler(async (event) => {
 
       <h2 id="server-plugins">Server Plugins</h2>
       <p>
-        Cross-cutting concerns — file watchers, file sync, scheduled jobs, auth
-        — go in <code>server/plugins/</code>. Nitro runs these at startup before
-        serving requests:
+        Cross-cutting concerns — file watchers, scheduled jobs, auth — go in{" "}
+        <code>server/plugins/</code>. Nitro runs these at startup before serving
+        requests:
       </p>
       <CodeBlock
-        code={`// server/plugins/file-sync.ts
+        code={`// server/plugins/setup.ts
 import { defineNitroPlugin } from "@agent-native/core";
-import { createFileSync } from "@agent-native/core/adapters/sync";
 
 export default defineNitroPlugin(async () => {
-  const result = await createFileSync({ contentRoot: "./data" });
-  if (result.status === "error") {
-    console.warn(\`[app] File sync failed: \${result.reason}\`);
-  }
+  console.log("[app] Server plugin initialized");
 });`}
       />
 
