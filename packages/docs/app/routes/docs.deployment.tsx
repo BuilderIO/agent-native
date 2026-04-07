@@ -11,7 +11,6 @@ const TOC = [
   { id: "aws-lambda", label: "AWS Lambda" },
   { id: "deno-deploy", label: "Deno Deploy" },
   { id: "environment-variables", label: "Environment Variables" },
-  { id: "file-sync", label: "File Sync in Production" },
 ];
 
 export default function DeploymentDocs() {
@@ -153,7 +152,6 @@ export default defineConfig({
             ["NITRO_PRESET", "Override build preset at build time"],
             ["ACCESS_TOKEN", "Enable auth gating for production mode"],
             ["ANTHROPIC_API_KEY", "API key for embedded production agent"],
-            ["FILE_SYNC_ENABLED", "Enable file sync for multi-instance"],
           ].map(([name, desc]) => (
             <tr key={name}>
               <td>
@@ -165,17 +163,6 @@ export default defineConfig({
         </tbody>
       </table>
 
-      <h2 id="file-sync">File Sync in Production</h2>
-      <p>
-        By default, agent-native apps store state in local files. For
-        multi-instance deployments (e.g., serverless or load-balanced), enable
-        file sync to keep instances in sync:
-      </p>
-      <CodeBlock code="FILE_SYNC_ENABLED=true" lang="bash" />
-      <p>
-        See <a href="/docs/file-sync">File Sync</a> for adapter configuration
-        (Firestore, Supabase, Convex).
-      </p>
     </DocsLayout>
   );
 }
