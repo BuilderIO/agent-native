@@ -57,6 +57,44 @@ if (fs.existsSync(clientDir) && publicOutputDir) {
   );
 }
 
+// Generate SPA fallback index.html by scanning client assets.
+// H3 v2 beta has a bug where event.node.req is accessed internally in Web
+// runtimes (Netlify, CF Workers), causing SSR to fail. This fallback ensures
+// the app works via client-side rendering until the H3 bug is fixed.
+if (
+  publicOutputDir &&
+  !fs.existsSync(path.join(publicOutputDir, "index.html"))
+) {
+  const assetsDir = path.join(publicOutputDir, "assets");
+  if (fs.existsSync(assetsDir)) {
+    const files = fs.readdirSync(assetsDir);
+    const css = files.filter((f) => f.endsWith(".css"));
+    const entry =
+      files.find((f) => f.startsWith("entry.client")) ||
+      files.find((f) => f.startsWith("client-")) ||
+      files.find((f) => f.startsWith("root-") && f.endsWith(".js"));
+
+    if (entry) {
+      const html = [
+        "<!DOCTYPE html>",
+        '<html lang="en">',
+        "<head>",
+        '<meta charset="utf-8" />',
+        '<meta name="viewport" content="width=device-width, initial-scale=1" />',
+        ...css.map((c) => `<link rel="stylesheet" href="/assets/${c}" />`),
+        "</head>",
+        "<body>",
+        '<div id="root"></div>',
+        `<script type="module" src="/assets/${entry}"></script>`,
+        "</body>",
+        "</html>",
+      ].join("\n");
+      fs.writeFileSync(path.join(publicOutputDir, "index.html"), html);
+      console.log("[deploy] Generated SPA fallback index.html");
+    }
+  }
+}
+
 await nitro.close();
 console.log(`[deploy] Nitro build complete for preset "${preset}".`);
 
