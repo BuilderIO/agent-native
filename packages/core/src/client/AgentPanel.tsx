@@ -406,8 +406,9 @@ function AgentsSection() {
         }),
       );
       setAgents(parsed.filter(Boolean));
-    } catch {}
-    setLoading(false);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -446,7 +447,11 @@ function AgentsSection() {
       const res = await fetch("/_agent-native/resources", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: `agents/${id}.json`, content: agentJson }),
+        body: JSON.stringify({
+          path: `agents/${id}.json`,
+          content: agentJson,
+          shared: true,
+        }),
       });
       if (res.ok) {
         setShowAdd(false);

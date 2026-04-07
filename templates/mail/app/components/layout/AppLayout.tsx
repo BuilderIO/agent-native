@@ -81,6 +81,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const view = pathSegments[0] || "inbox";
   const threadId = pathSegments[1] || undefined;
   const [searchParams] = useSearchParams();
+  const activeSearchQuery = searchParams.get("q");
   const activeLabel = searchParams.get("label");
   const { data: labels = [], isLoading: labelsLoading } = useLabels();
   const { data: settings, isLoading: settingsLoading } = useSettings();
@@ -626,130 +627,134 @@ export function AppLayout({ children }: AppLayoutProps) {
                 <IconMenu2 className="h-4 w-4" />
               </button>
 
-              {/* Visible tabs */}
-              {tabsLoading ? (
-                <nav className="flex items-center gap-2 overflow-x-auto hide-scrollbar">
-                  {[1, 2, 3].map((i) => (
-                    <span
-                      key={i}
-                      className="h-4 rounded bg-muted animate-pulse"
-                      style={{ width: `${48 + i * 12}px` }}
-                    />
-                  ))}
-                </nav>
-              ) : (
-                <nav className="flex items-center gap-0.5 overflow-x-auto hide-scrollbar">
-                  {visibleTabs.map((tab, idx) => {
-                    const count = getTotalCount(tab.id);
-                    const isDragging = dragPinnedId === tab.pinnedId;
-                    const canDrag =
-                      !!tab.pinnedId && tab.pinnedId !== "important";
-                    const showLeft =
-                      dropIndicator?.tabIndex === idx &&
-                      dropIndicator.side === "left";
-                    const showRight =
-                      dropIndicator?.tabIndex === idx &&
-                      dropIndicator.side === "right";
-                    return (
-                      <div
-                        key={tab.pinnedId || tab.id}
-                        className="relative flex items-center"
-                        onDragOver={(e) => handleTabDragOver(e, idx)}
-                        onDrop={handleTabDrop}
-                      >
-                        {showLeft && (
-                          <div className="absolute left-0 top-1.5 bottom-1.5 w-0.5 bg-primary rounded-full z-10" />
-                        )}
-                        <Link
-                          to={tab.href}
-                          draggable={canDrag}
-                          onDragStart={(e) =>
-                            canDrag &&
-                            tab.pinnedId &&
-                            handleTabDragStart(e, tab.pinnedId)
-                          }
-                          onDragEnd={handleTabDragEnd}
-                          className={cn(
-                            "flex items-center gap-1.5 whitespace-nowrap px-2.5 py-1 text-[13px] select-none",
-                            tab.isActive
-                              ? "text-foreground font-semibold"
-                              : "text-muted-foreground font-medium hover:text-foreground/80",
-                            isDragging && "opacity-40",
-                            canDrag && "cursor-grab",
-                          )}
-                        >
-                          {tab.color && (
-                            <span
-                              className="h-1.5 w-1.5 rounded-full shrink-0"
-                              style={{ backgroundColor: tab.color }}
-                            />
-                          )}
-                          {tab.label}
-                          {count > 0 && (
-                            <span
+              {/* Visible tabs — hidden during search */}
+              {!activeSearchQuery && (
+                <>
+                  {tabsLoading ? (
+                    <nav className="flex items-center gap-2 overflow-x-auto hide-scrollbar">
+                      {[1, 2, 3].map((i) => (
+                        <span
+                          key={i}
+                          className="h-4 rounded bg-muted animate-pulse"
+                          style={{ width: `${48 + i * 12}px` }}
+                        />
+                      ))}
+                    </nav>
+                  ) : (
+                    <nav className="flex items-center gap-0.5 overflow-x-auto hide-scrollbar">
+                      {visibleTabs.map((tab, idx) => {
+                        const count = getTotalCount(tab.id);
+                        const isDragging = dragPinnedId === tab.pinnedId;
+                        const canDrag =
+                          !!tab.pinnedId && tab.pinnedId !== "important";
+                        const showLeft =
+                          dropIndicator?.tabIndex === idx &&
+                          dropIndicator.side === "left";
+                        const showRight =
+                          dropIndicator?.tabIndex === idx &&
+                          dropIndicator.side === "right";
+                        return (
+                          <div
+                            key={tab.pinnedId || tab.id}
+                            className="relative flex items-center"
+                            onDragOver={(e) => handleTabDragOver(e, idx)}
+                            onDrop={handleTabDrop}
+                          >
+                            {showLeft && (
+                              <div className="absolute left-0 top-1.5 bottom-1.5 w-0.5 bg-primary rounded-full z-10" />
+                            )}
+                            <Link
+                              to={tab.href}
+                              draggable={canDrag}
+                              onDragStart={(e) =>
+                                canDrag &&
+                                tab.pinnedId &&
+                                handleTabDragStart(e, tab.pinnedId)
+                              }
+                              onDragEnd={handleTabDragEnd}
                               className={cn(
-                                "text-[11px] tabular-nums",
+                                "flex items-center gap-1.5 whitespace-nowrap px-2.5 py-1 text-[13px] select-none",
                                 tab.isActive
-                                  ? "text-foreground/60"
-                                  : "text-muted-foreground/70",
+                                  ? "text-foreground font-semibold"
+                                  : "text-muted-foreground font-medium hover:text-foreground/80",
+                                isDragging && "opacity-40",
+                                canDrag && "cursor-grab",
                               )}
                             >
-                              {count}
-                            </span>
-                          )}
-                        </Link>
-                        {showRight && (
-                          <div className="absolute right-0 top-1.5 bottom-1.5 w-0.5 bg-primary rounded-full z-10" />
-                        )}
-                      </div>
-                    );
-                  })}
+                              {tab.color && (
+                                <span
+                                  className="h-1.5 w-1.5 rounded-full shrink-0"
+                                  style={{ backgroundColor: tab.color }}
+                                />
+                              )}
+                              {tab.label}
+                              {count > 0 && (
+                                <span
+                                  className={cn(
+                                    "text-[11px] tabular-nums",
+                                    tab.isActive
+                                      ? "text-foreground/60"
+                                      : "text-muted-foreground/70",
+                                  )}
+                                >
+                                  {count}
+                                </span>
+                              )}
+                            </Link>
+                            {showRight && (
+                              <div className="absolute right-0 top-1.5 bottom-1.5 w-0.5 bg-primary rounded-full z-10" />
+                            )}
+                          </div>
+                        );
+                      })}
 
-                  {/* If navigated to an unpinned view (e.g. via keyboard shortcut), show it */}
-                  {currentInHidden && (
-                    <span className="flex items-center whitespace-nowrap px-2.5 py-1 text-[13px] text-foreground font-semibold">
-                      {collapsibleViews.find((v) => v.id === view)?.label}
-                    </span>
+                      {/* If navigated to an unpinned view (e.g. via keyboard shortcut), show it */}
+                      {currentInHidden && (
+                        <span className="flex items-center whitespace-nowrap px-2.5 py-1 text-[13px] text-foreground font-semibold">
+                          {collapsibleViews.find((v) => v.id === view)?.label}
+                        </span>
+                      )}
+                    </nav>
                   )}
-                </nav>
+
+                  {/* Tab settings cog */}
+                  <div
+                    className={cn("relative", tabsLoading && "invisible")}
+                    ref={tabSettingsRef}
+                  >
+                    <button
+                      onClick={() => setTabSettingsOpen(!tabSettingsOpen)}
+                      className={cn(
+                        "flex h-6 w-6 items-center justify-center rounded transition-colors",
+                        tabSettingsOpen
+                          ? "text-foreground bg-accent/50"
+                          : "text-muted-foreground/40 hover:text-muted-foreground hover:bg-accent/30",
+                      )}
+                      title="Configure tabs"
+                    >
+                      <IconSettings className="h-3.5 w-3.5" />
+                    </button>
+
+                    {tabSettingsOpen && (
+                      <TabSettingsPopover
+                        systemViews={collapsibleViews}
+                        userLabels={userLabels}
+                        pinnedLabels={pinnedLabels}
+                        labelAliases={labelAliases}
+                        search={labelSearch}
+                        onSearchChange={setLabelSearch}
+                        onToggle={togglePinned}
+                        onRename={(id, alias) => {
+                          const next = { ...labelAliases };
+                          if (alias) next[id] = alias;
+                          else delete next[id];
+                          updateSettings.mutate({ labelAliases: next });
+                        }}
+                      />
+                    )}
+                  </div>
+                </>
               )}
-
-              {/* Tab settings cog */}
-              <div
-                className={cn("relative", tabsLoading && "invisible")}
-                ref={tabSettingsRef}
-              >
-                <button
-                  onClick={() => setTabSettingsOpen(!tabSettingsOpen)}
-                  className={cn(
-                    "flex h-6 w-6 items-center justify-center rounded transition-colors",
-                    tabSettingsOpen
-                      ? "text-foreground bg-accent/50"
-                      : "text-muted-foreground/40 hover:text-muted-foreground hover:bg-accent/30",
-                  )}
-                  title="Configure tabs"
-                >
-                  <IconSettings className="h-3.5 w-3.5" />
-                </button>
-
-                {tabSettingsOpen && (
-                  <TabSettingsPopover
-                    systemViews={collapsibleViews}
-                    userLabels={userLabels}
-                    pinnedLabels={pinnedLabels}
-                    labelAliases={labelAliases}
-                    search={labelSearch}
-                    onSearchChange={setLabelSearch}
-                    onToggle={togglePinned}
-                    onRename={(id, alias) => {
-                      const next = { ...labelAliases };
-                      if (alias) next[id] = alias;
-                      else delete next[id];
-                      updateSettings.mutate({ labelAliases: next });
-                    }}
-                  />
-                )}
-              </div>
 
               <div className="flex-1" />
 
