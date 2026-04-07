@@ -1353,9 +1353,9 @@ export function AgentSidebar({
   );
 
   return (
-    <div className="flex min-w-0 flex-1 overflow-hidden">
+    <div className="flex min-w-0 flex-1 h-screen overflow-hidden">
       {isLeft && open ? sidebar : null}
-      <div className="flex flex-1 flex-col overflow-hidden min-w-0">
+      <div className="flex flex-1 flex-col overflow-auto min-w-0">
         {children}
       </div>
       {!isLeft && open ? sidebar : null}
