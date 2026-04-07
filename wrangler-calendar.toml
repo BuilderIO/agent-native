@@ -1,8 +1,7 @@
 name = "agent-native-calendar"
 main = "templates/calendar/dist/_worker.js/index.js"
 compatibility_date = "2025-01-01"
-compatibility_flags = ["nodejs_compat"]
-no_bundle = true
+compatibility_flags = ["nodejs_compat_v2"]
 
 [vars]
 GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
