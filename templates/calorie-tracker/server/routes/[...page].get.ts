@@ -19,7 +19,9 @@ export default defineEventHandler(async (event) => {
   if (pathname.startsWith("/.well-known/")) {
     return new Response(null, { status: 404 });
   }
-  const webReq = toWebRequest(event);
+  // Use event.web.request for Web-standard runtimes (Netlify, CF Workers),
+  // fall back to toWebRequest for Node.js where event.node exists
+  const webReq = (event as any).web?.request ?? toWebRequest(event);
   try {
     return await handler(webReq);
   } catch {
