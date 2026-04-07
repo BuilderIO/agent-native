@@ -57,6 +57,41 @@ if (fs.existsSync(clientDir) && publicOutputDir) {
   );
 }
 
+// Patch H3 for Web-standard runtimes (Netlify Functions v2, CF Workers).
+// H3 v2 beta internally accesses event.node.req but event.node is undefined
+// in Web runtimes. We patch the Nitro main.mjs onRequest hook to populate
+// event.node with a Node-like facade derived from event.web.request.
+const serverOutputDir = nitro.options.output.serverDir;
+if (serverOutputDir) {
+  const mainMjs = path.join(serverOutputDir, "main.mjs");
+  if (fs.existsSync(mainMjs)) {
+    let code = fs.readFileSync(mainMjs, "utf-8");
+    if (
+      code.includes(".config.onRequest") &&
+      !code.includes("__h3_web_compat__")
+    ) {
+      // Find: .config.onRequest=X=>  (Nitro's request hook assignment)
+      // Replace with a wrapper that populates event.node first
+      const patched = code.replace(
+        /\.config\.onRequest\s*=\s*(\w+)\s*=>/,
+        `.config.onRequest=$1=>{/* __h3_web_compat__ */if(!$1.node&&$1.web?.request){var _r=$1.web.request,_u=new URL(_r.url),_h={};_r.headers.forEach(function(v,k){_h[k]=v});var _n=function(){};$1.node={req:{method:_r.method,url:_u.pathname+_u.search,headers:_h,originalUrl:_u.pathname+_u.search,socket:{remoteAddress:void 0},connection:{encrypted:_u.protocol==="https:"},on:_n,rawBody:void 0,body:void 0},res:{statusCode:200,_headers:{},setHeader:function(k,v){this._headers[k]=v},getHeader:function(k){return this._headers[k]},writeHead:_n,write:_n,end:_n,headersSent:false}}}return(`,
+      );
+      if (patched !== code) {
+        // Close the wrapper: find the pattern after onRequest assignment
+        // that transitions to onResponse, and add the closing paren
+        const finalCode = patched.replace(
+          /(\/\* __h3_web_compat__ \*\/.*?return\()(.*?\.catch\?\.\(.*?\))(,\s*\w+\.config\.onResponse)/,
+          "$1$2)$3",
+        );
+        fs.writeFileSync(mainMjs, finalCode);
+        console.log(
+          "[deploy] Patched H3 for Web-standard runtime compatibility",
+        );
+      }
+    }
+  }
+}
+
 await nitro.close();
 console.log(`[deploy] Nitro build complete for preset "${preset}".`);
 
