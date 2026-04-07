@@ -81,7 +81,7 @@ Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and other runtime secrets in the
 
 **Edge runtime limitations** (automatically handled — no config needed):
 
-- Agent chat, terminal, and file sync are skipped (require Node.js)
+- Agent chat and terminal are skipped (require Node.js)
 - API routes, SSR, auth, and database all work
 
 ## Netlify
@@ -101,13 +101,3 @@ Deploy via `netlify deploy --prod` or connect your Git repo in the Netlify dashb
 | `DATABASE_AUTH_TOKEN` | Database auth token (Turso/Neon) |
 | `NITRO_PRESET`        | Edge target (build time only)    |
 | `ANTHROPIC_API_KEY`   | API key for production agent     |
-
-## File Sync
-
-For multi-instance deployments, enable file sync:
-
-```bash
-FILE_SYNC_ENABLED=true
-```
-
-See [File Sync](/docs/file-sync) for adapter configuration.

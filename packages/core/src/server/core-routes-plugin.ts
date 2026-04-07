@@ -8,11 +8,8 @@ import {
 } from "h3";
 import type { H3Event } from "h3";
 import path from "node:path";
-import {
-  createDefaultSSEHandler,
-  createDefaultPollHandler,
-  defaultSyncStatusHandler,
-} from "./default-watcher.js";
+import { createPollHandler } from "./poll.js";
+import { createSSEHandler } from "./sse.js";
 import { upsertEnvFile } from "./create-server.js";
 import type { EnvKeyConfig } from "./create-server.js";
 import {
@@ -40,8 +37,6 @@ export interface CoreRoutesPluginOptions {
   sseRoute?: string;
   /** Disable the SSE endpoint entirely. */
   disableSSE?: boolean;
-  /** Disable the deprecated file-sync status endpoint. */
-  disableFileSync?: boolean;
   /** Disable the /_agent-native/ping health check. */
   disablePing?: boolean;
   /** Disable the /_agent-native/application-state routes. */
@@ -59,7 +54,6 @@ export interface CoreRoutesPluginOptions {
  * Routes:
  *   GET    /_agent-native/poll                          — polling endpoint for change detection
  *   GET    /_agent-native/events (or custom)            — SSE endpoint for real-time sync
- *   GET    /_agent-native/file-sync/status              — (deprecated) file sync status
  *   GET    /_agent-native/ping                          — health check
  *   GET    /_agent-native/env-status                    — env key configuration status (when envKeys provided)
  *   POST   /_agent-native/env-vars                      — save env vars to .env (when envKeys provided)
@@ -79,20 +73,12 @@ export function createCoreRoutesPlugin(
     const P = FRAMEWORK_ROUTE_PREFIX;
 
     // Polling
-    getH3App(nitroApp).use(`${P}/poll`, createDefaultPollHandler());
+    getH3App(nitroApp).use(`${P}/poll`, createPollHandler());
 
     // SSE
     if (!options.disableSSE) {
       const sseRoute = options.sseRoute ?? `${P}/events`;
-      getH3App(nitroApp).use(sseRoute, createDefaultSSEHandler());
-    }
-
-    // File sync status (deprecated but kept for backward compat)
-    if (!options.disableFileSync) {
-      getH3App(nitroApp).use(
-        `${P}/file-sync/status`,
-        defineEventHandler(() => defaultSyncStatusHandler()),
-      );
+      getH3App(nitroApp).use(sseRoute, createSSEHandler());
     }
 
     // Ping
@@ -151,7 +137,7 @@ export function createCoreRoutesPlugin(
           // Write to .env file
           try {
             const envPath = path.join(process.cwd(), ".env");
-            upsertEnvFile(envPath, filtered);
+            await upsertEnvFile(envPath, filtered);
           } catch {
             // Edge runtime — skip file write
           }
