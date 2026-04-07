@@ -74,8 +74,11 @@ if (serverOutputDir) {
 
       // Make all .node.req and .node.res accesses safe with optional chaining.
       // Then prepend a helper that enriches events with a node shim on first access.
+      // In H3 v2, the event IS the Request — event.method, event.headers,
+      // event.url exist natively. There's no event.web.request.
+      // Detect Web runtime by: event.node is undefined AND event.method exists.
       code = `/* __h3_web_compat__ */
-var __h3n=function(e){if(e&&!e.node&&e.web?.request){var r=e.web.request,u=new URL(r.url),h={};r.headers.forEach(function(v,k){h[k]=v});var n=function(){};e.node={req:{method:r.method,url:u.pathname+u.search,headers:h,originalUrl:u.pathname+u.search,socket:{remoteAddress:void 0},connection:{encrypted:u.protocol==="https:"},on:n,rawBody:void 0,body:void 0},res:{statusCode:200,setHeader:n,getHeader:function(){},writeHead:n,write:n,end:n,headersSent:false}}}};
+var __h3n=function(e){if(e&&!e.node&&(e.method||e.url||e.headers)){var u,h={},n=function(){};try{u=new URL(e.url||e.path||"/",e.headers?.get?.("host")?"https://"+e.headers.get("host"):"https://localhost")}catch(x){u=new URL("https://localhost/")}if(e.headers?.forEach)e.headers.forEach(function(v,k){h[k]=v});else if(e.headers)for(var k in e.headers)h[k]=e.headers[k];e.node={req:{method:e.method||"GET",url:u.pathname+u.search,headers:h,originalUrl:u.pathname+u.search,socket:{remoteAddress:void 0},connection:{encrypted:u.protocol==="https:"},on:n,rawBody:void 0,body:void 0},res:{statusCode:200,setHeader:n,getHeader:function(){},writeHead:n,write:n,end:n,headersSent:false}}}};
 ${code}`;
       // Replace .node.req with safe access that auto-shims.
       // Handle both `e.node.req` and `this._prop.node.req` patterns.
