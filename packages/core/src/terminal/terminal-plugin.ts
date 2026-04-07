@@ -51,7 +51,7 @@ export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
     );
 
     // Skip if running inside a frame
-    if (process.env.FRAME_PORT || process.env.HARNESS_PORT) {
+    if (process.env.FRAME_PORT) {
       console.log("[terminal] Frame detected, skipping embedded terminal");
       return;
     }

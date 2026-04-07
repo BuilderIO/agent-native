@@ -28,11 +28,6 @@ export {
   enterStyleEditing,
   enterTextEditing,
   exitSelectionMode,
-  // Backward compatibility aliases
-  sendToHarness,
-  onHarnessMessage,
-  getHarnessOrigin,
-  isInHarness,
   type UserInfo,
 } from "./frame.js";
 export {
@@ -108,10 +103,6 @@ export type {
   AppToFrameMessage,
   FrameToAppMessage,
   FrameMessage,
-  // Backward compatibility aliases
-  AppToHarnessMessage,
-  HarnessToAppMessage,
-  HarnessMessage,
   CodeCompleteMessage,
   ChatRunningMessage,
 } from "./frame-protocol.js";

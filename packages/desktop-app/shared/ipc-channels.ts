@@ -30,8 +30,8 @@ export const IPC = {
   SET_ACTIVE_WEBVIEW: "webview:set-active-webview",
 
   /** Frame settings (renderer ↔ main) */
-  FRAME_LOAD: "harness:load", // Keep wire values for backward compat
-  FRAME_UPDATE: "harness:update",
+  FRAME_LOAD: "frame:load",
+  FRAME_UPDATE: "frame:update",
 } as const;
 
 export interface ActiveWebviewTarget {

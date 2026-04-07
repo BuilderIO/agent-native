@@ -52,12 +52,6 @@ export interface FrameSettings {
   prodUrl?: string;
 }
 
-/** @deprecated Use `FRAME_PORT` instead */
-export const HARNESS_PORT = FRAME_PORT;
-
-/** @deprecated Use `FrameSettings` instead */
-export type HarnessSettings = FrameSettings;
-
 export const DEFAULT_APPS: AppConfig[] = [
   {
     id: "mail",

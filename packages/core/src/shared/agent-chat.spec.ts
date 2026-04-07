@@ -34,7 +34,6 @@ describe("agentChat.call", () => {
   afterEach(() => {
     globalThis.fetch = originalFetch;
     delete process.env.FRAME_PORT;
-    delete process.env.HARNESS_PORT;
   });
 
   it("sends POST to frame and returns response", async () => {

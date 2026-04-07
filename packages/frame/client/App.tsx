@@ -114,7 +114,7 @@ export function App() {
     if (!iframe) return;
     function onLoad() {
       iframe!.contentWindow?.postMessage(
-        { type: "builder.harnessOrigin", origin: window.location.origin },
+        { type: "builder.frameOrigin", origin: window.location.origin },
         "*",
       );
       setTimeout(() => notifyIframe(frameMode, sidebarWidth, sidebarOpen), 500);

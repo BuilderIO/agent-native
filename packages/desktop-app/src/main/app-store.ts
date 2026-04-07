@@ -4,7 +4,7 @@ import path from "path";
 import { DEFAULT_APPS, type AppConfig } from "@agent-native/shared-app-config";
 
 const STORE_FILE = "app-config.json";
-const FRAME_STORE_FILE = "harness-config.json"; // Keep filename for backward compat with existing configs
+const FRAME_STORE_FILE = "frame-config.json";
 
 /** Settings for the local dev frame */
 export interface FrameSettings {
@@ -15,9 +15,6 @@ export interface FrameSettings {
   /** Production URL for the frame (if deployed) */
   prodUrl?: string;
 }
-
-/** @deprecated Use `FrameSettings` instead */
-export type HarnessSettings = FrameSettings;
 
 const DEFAULT_FRAME_SETTINGS: FrameSettings = {
   enabled: true,
@@ -50,12 +47,6 @@ export function saveFrameSettings(
   return updated;
 }
 
-/** @deprecated Use `loadFrameSettings` instead */
-export const loadHarnessSettings = loadFrameSettings;
-
-/** @deprecated Use `saveFrameSettings` instead */
-export const saveHarnessSettings = saveFrameSettings;
-
 function getStorePath(): string {
   return path.join(app.getPath("userData"), STORE_FILE);
 }
@@ -85,7 +76,7 @@ export function loadApps(): AppConfig[] {
     }
 
     for (const app of apps) {
-      // Migrate: useCliHarness → mode
+      // Migrate legacy useCliHarness field → mode
       if ((app as any).useCliHarness !== undefined) {
         app.mode = (app as any).useCliHarness ? "dev" : "prod";
         delete (app as any).useCliHarness;

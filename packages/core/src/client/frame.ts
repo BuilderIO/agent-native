@@ -54,19 +54,19 @@ export function onFrameMessage(
 // Frame Origin
 // ---------------------------------------------------------------------------
 
-let _harnessOrigin: string | null = null;
+let _frameOrigin: string | null = null;
 
 // Listen for frame origin message and cache it.
 // Only accept from the direct parent frame, and only set once.
 if (typeof window !== "undefined") {
   window.addEventListener("message", (event: MessageEvent) => {
     if (
-      event.data?.type === "builder.harnessOrigin" &&
+      event.data?.type === "builder.frameOrigin" &&
       event.data.origin &&
-      !_harnessOrigin &&
+      !_frameOrigin &&
       event.source === window.parent
     ) {
-      _harnessOrigin = event.data.origin;
+      _frameOrigin = event.data.origin;
     }
   });
 }
@@ -76,7 +76,7 @@ if (typeof window !== "undefined") {
  * Returns null if not running inside a frame iframe.
  */
 export function getFrameOrigin(): string | null {
-  return _harnessOrigin;
+  return _frameOrigin;
 }
 
 /**
@@ -84,7 +84,7 @@ export function getFrameOrigin(): string | null {
  * (local dev frame, Builder.io, or any compatible frame).
  */
 export function isInFrame(): boolean {
-  return _harnessOrigin !== null;
+  return _frameOrigin !== null;
 }
 
 /**
@@ -93,7 +93,7 @@ export function isInFrame(): boolean {
  */
 export function getCallbackOrigin(): string {
   return (
-    _harnessOrigin ||
+    _frameOrigin ||
     (typeof window !== "undefined" ? window.location.origin : "")
   );
 }
@@ -167,19 +167,3 @@ export function enterTextEditing(selector: string): void {
 export function exitSelectionMode(): void {
   sendToFrame("builder.exitSelectionMode");
 }
-
-// ---------------------------------------------------------------------------
-// Backward compatibility aliases
-// ---------------------------------------------------------------------------
-
-/** @deprecated Use `sendToFrame` instead */
-export const sendToHarness = sendToFrame;
-
-/** @deprecated Use `onFrameMessage` instead */
-export const onHarnessMessage = onFrameMessage;
-
-/** @deprecated Use `getFrameOrigin` instead */
-export const getHarnessOrigin = getFrameOrigin;
-
-/** @deprecated Use `isInFrame` instead */
-export const isInHarness = isInFrame;

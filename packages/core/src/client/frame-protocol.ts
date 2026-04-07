@@ -41,7 +41,7 @@ export type AppToFrameMessage =
 // ---------------------------------------------------------------------------
 
 export interface FrameOriginMessage {
-  type: "builder.harnessOrigin";
+  type: "builder.frameOrigin";
   origin: string;
 }
 
@@ -72,19 +72,3 @@ export type FrameToAppMessage =
 // ---------------------------------------------------------------------------
 
 export type FrameMessage = AppToFrameMessage | FrameToAppMessage;
-
-// ---------------------------------------------------------------------------
-// Backward compatibility aliases
-// ---------------------------------------------------------------------------
-
-/** @deprecated Use `AppToFrameMessage` instead */
-export type AppToHarnessMessage = AppToFrameMessage;
-
-/** @deprecated Use `FrameToAppMessage` instead */
-export type HarnessToAppMessage = FrameToAppMessage;
-
-/** @deprecated Use `FrameOriginMessage` instead */
-export type HarnessOriginMessage = FrameOriginMessage;
-
-/** @deprecated Use `FrameMessage` instead */
-export type HarnessMessage = FrameMessage;

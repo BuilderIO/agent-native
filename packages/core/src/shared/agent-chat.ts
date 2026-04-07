@@ -62,8 +62,6 @@ export interface AgentChatCallOptions {
   context?: string;
   timeout?: number;
   framePort?: number;
-  /** @deprecated Use `framePort` instead */
-  harnessPort?: number;
 }
 
 export interface AgentChatResponse {
@@ -87,10 +85,8 @@ async function call(
 
   const port =
     options?.framePort ??
-    options?.harnessPort ??
-    (typeof process !== "undefined" &&
-    (process.env.FRAME_PORT || process.env.HARNESS_PORT)
-      ? parseInt((process.env.FRAME_PORT || process.env.HARNESS_PORT)!, 10)
+    (typeof process !== "undefined" && process.env.FRAME_PORT
+      ? parseInt(process.env.FRAME_PORT, 10)
       : 3333);
   const timeout = options?.timeout ?? 300_000;
 
