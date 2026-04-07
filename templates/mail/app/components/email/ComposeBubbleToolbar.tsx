@@ -99,13 +99,21 @@ export function ComposeBubbleToolbar({
   }, [editor]);
 
   useEffect(() => {
+    const handleBlur = () => {
+      // Delay so focus can settle into link/AI inputs inside the toolbar
+      setTimeout(() => {
+        if (!toolbarRef.current?.contains(document.activeElement)) {
+          setVisible(false);
+        }
+      }, 0);
+    };
     editor.on("selectionUpdate", updateToolbar);
     editor.on("focus", updateToolbar);
-    editor.on("blur", () => setVisible(false));
+    editor.on("blur", handleBlur);
     return () => {
       editor.off("selectionUpdate", updateToolbar);
       editor.off("focus", updateToolbar);
-      editor.off("blur", () => setVisible(false));
+      editor.off("blur", handleBlur);
     };
   }, [editor, updateToolbar]);
 
