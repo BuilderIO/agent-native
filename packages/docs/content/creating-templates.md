@@ -143,10 +143,12 @@ export default defineEventHandler(async () => {
   await mkdir(dir, { recursive: true });
   const files = await readdir(dir);
   return Promise.all(
-    files.filter(f => f.endsWith(".json")).map(async f => {
-      const content = await readFile(path.join(dir, f), "utf-8");
-      return JSON.parse(content);
-    })
+    files
+      .filter((f) => f.endsWith(".json"))
+      .map(async (f) => {
+        const content = await readFile(path.join(dir, f), "utf-8");
+        return JSON.parse(content);
+      }),
   );
 });
 ```
@@ -164,7 +166,10 @@ import { writeFile, mkdir } from "node:fs/promises";
 
 export default async function importData(args: string[]) {
   const { url, name } = parseArgs(args);
-  if (!url) { console.error("--url is required"); process.exit(1); }
+  if (!url) {
+    console.error("--url is required");
+    process.exit(1);
+  }
 
   const res = await fetch(url);
   const data = await res.json();
@@ -172,7 +177,9 @@ export default async function importData(args: string[]) {
   const slug = name ?? "imported";
   await mkdir("./data/imports", { recursive: true });
   await writeFile(`./data/imports/${slug}.json`, JSON.stringify(data, null, 2));
-  console.log(`Imported ${Array.isArray(data) ? data.length + " records" : "data"} to data/imports/${slug}.json`);
+  console.log(
+    `Imported ${Array.isArray(data) ? data.length + " records" : "data"} to data/imports/${slug}.json`,
+  );
 }
 ```
 
@@ -234,6 +241,7 @@ data/            # File-based state
 ### Data Model
 
 Items are stored as `data/items/<id>.json`:
+
 ```json
 { "id": "...", "title": "...", "status": "active" }
 ```
@@ -257,14 +265,17 @@ For complex topics that don't fit in `AGENTS.md`, create skills in `.agents/skil
 ## BigQuery Integration
 
 ### Column Reference
+
 - `event_name` — The event type (string)
 - `event_timestamp` — Microsecond timestamp (int64)
 - `user_pseudo_id` — Anonymous user ID (string)
 
 ### Common Queries
+
 ...
 
 ### Gotchas
+
 - Always use `event_date` partition filter to avoid full table scans
 - Timestamps are in microseconds, not milliseconds
 ```

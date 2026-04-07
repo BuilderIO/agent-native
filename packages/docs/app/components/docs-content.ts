@@ -131,7 +131,10 @@ export function buildSearchIndex(): SearchEntry[] {
         path,
         section: section.label,
         sectionId: section.id,
-        text: text.length > 300 ? text.slice(0, 300).replace(/\s\S*$/, "...") : text,
+        text:
+          text.length > 300
+            ? text.slice(0, 300).replace(/\s\S*$/, "...")
+            : text,
       });
     }
   }

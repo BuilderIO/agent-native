@@ -31,14 +31,14 @@ sendToAgentChat({
 
 ### AgentChatMessage {#agentchatmessage}
 
-| Option | Type | Description |
-|--------|------|-------------|
-| `message` | `string` | The visible prompt sent to the chat |
-| `context` | `string?` | Hidden context appended (not shown in chat UI) |
-| `submit` | `boolean?` | true = auto-submit, false = prefill only |
-| `projectSlug` | `string?` | Optional project slug for structured context |
-| `preset` | `string?` | Optional preset name for downstream consumers |
-| `referenceImagePaths` | `string[]?` | Optional reference image paths |
+| Option                | Type        | Description                                    |
+| --------------------- | ----------- | ---------------------------------------------- |
+| `message`             | `string`    | The visible prompt sent to the chat            |
+| `context`             | `string?`   | Hidden context appended (not shown in chat UI) |
+| `submit`              | `boolean?`  | true = auto-submit, false = prefill only       |
+| `projectSlug`         | `string?`   | Optional project slug for structured context   |
+| `preset`              | `string?`   | Optional preset name for downstream consumers  |
+| `referenceImagePaths` | `string[]?` | Optional reference image paths                 |
 
 ## useAgentChatGenerating() {#useagentchatgenerating}
 
@@ -91,12 +91,12 @@ function App() {
 
 ### Options {#usedbsync-options}
 
-| Option | Type | Description |
-|--------|------|-------------|
-| `queryClient` | `QueryClient?` | React-query client for cache invalidation |
-| `queryKeys` | `string[]?` | Query key prefixes to invalidate. Default: `["file", "fileTree"]` |
-| `pollUrl` | `string?` | Poll endpoint URL. Default: `"/_agent-native/poll"` |
-| `onEvent` | `(data) => void` | Optional callback for each SSE event |
+| Option        | Type             | Description                                                       |
+| ------------- | ---------------- | ----------------------------------------------------------------- |
+| `queryClient` | `QueryClient?`   | React-query client for cache invalidation                         |
+| `queryKeys`   | `string[]?`      | Query key prefixes to invalidate. Default: `["file", "fileTree"]` |
+| `pollUrl`     | `string?`        | Poll endpoint URL. Default: `"/_agent-native/poll"`               |
+| `onEvent`     | `(data) => void` | Optional callback for each SSE event                              |
 
 ## cn(...inputs) {#cn}
 

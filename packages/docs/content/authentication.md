@@ -112,11 +112,11 @@ The session object returned by `getSession(event)` has this shape:
 
 ```typescript
 interface AuthSession {
-  email: string;      // User's email (primary identifier)
-  userId?: string;    // Better Auth user ID
-  token?: string;     // Session token
-  orgId?: string;     // Active organization ID
-  orgRole?: string;   // Role in active org (owner/admin/member)
+  email: string; // User's email (primary identifier)
+  userId?: string; // Better Auth user ID
+  token?: string; // Session token
+  orgId?: string; // Active organization ID
+  orgRole?: string; // Role in active org (owner/admin/member)
 }
 ```
 
@@ -135,15 +135,15 @@ function MyComponent() {
 
 ## Environment Variables {#environment-variables}
 
-| Variable | Purpose |
-|----------|---------|
-| `AUTH_MODE` | Set to `local` to disable auth |
-| `BETTER_AUTH_SECRET` | Signing key for Better Auth (auto-generated if not set) |
-| `GOOGLE_CLIENT_ID` | Enable Google OAuth |
-| `GOOGLE_CLIENT_SECRET` | Google OAuth secret |
-| `GITHUB_CLIENT_ID` | Enable GitHub OAuth |
-| `GITHUB_CLIENT_SECRET` | GitHub OAuth secret |
-| `ACCESS_TOKEN` | Simple shared token auth |
-| `ACCESS_TOKENS` | Comma-separated shared tokens |
-| `AUTH_DISABLED` | Set to `true` to skip auth (infrastructure-level auth) |
-| `A2A_SECRET` | Shared secret for JWT-signed A2A cross-app identity verification |
+| Variable               | Purpose                                                          |
+| ---------------------- | ---------------------------------------------------------------- |
+| `AUTH_MODE`            | Set to `local` to disable auth                                   |
+| `BETTER_AUTH_SECRET`   | Signing key for Better Auth (auto-generated if not set)          |
+| `GOOGLE_CLIENT_ID`     | Enable Google OAuth                                              |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth secret                                              |
+| `GITHUB_CLIENT_ID`     | Enable GitHub OAuth                                              |
+| `GITHUB_CLIENT_SECRET` | GitHub OAuth secret                                              |
+| `ACCESS_TOKEN`         | Simple shared token auth                                         |
+| `ACCESS_TOKENS`        | Comma-separated shared tokens                                    |
+| `AUTH_DISABLED`        | Set to `true` to skip auth (infrastructure-level auth)           |
+| `A2A_SECRET`           | Shared secret for JWT-signed A2A cross-app identity verification |

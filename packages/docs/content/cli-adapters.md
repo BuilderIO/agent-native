@@ -25,8 +25,8 @@ Every CLI adapter implements `CliAdapter`:
 import type { CliAdapter, CliResult } from "@agent-native/core/adapters/cli";
 
 interface CliAdapter {
-  name: string;           // "gh", "stripe", "ffmpeg"
-  description: string;    // What the agent sees during discovery
+  name: string; // "gh", "stripe", "ffmpeg"
+  description: string; // What the agent sees during discovery
   isAvailable(): Promise<boolean>;
   execute(args: string[]): Promise<CliResult>;
 }
@@ -65,14 +65,14 @@ const stripe = new ShellCliAdapter({
 
 ### Options {#shell-adapter-options}
 
-| Option | Type | Description |
-|--------|------|-------------|
-| `command` | string | Binary name or path (required) |
-| `description` | string | What the CLI does — shown to the agent (required) |
-| `name` | string | Display name (defaults to `command`) |
-| `env` | Record | Extra environment variables merged with process.env |
-| `cwd` | string | Working directory (defaults to process.cwd()) |
-| `timeoutMs` | number | Execution timeout (default: 30000) |
+| Option        | Type   | Description                                         |
+| ------------- | ------ | --------------------------------------------------- |
+| `command`     | string | Binary name or path (required)                      |
+| `description` | string | What the CLI does — shown to the agent (required)   |
+| `name`        | string | Display name (defaults to `command`)                |
+| `env`         | Record | Extra environment variables merged with process.env |
+| `cwd`         | string | Working directory (defaults to process.cwd())       |
+| `timeoutMs`   | number | Execution timeout (default: 30000)                  |
 
 ## Registry {#registry}
 
@@ -83,15 +83,19 @@ import { CliRegistry, ShellCliAdapter } from "@agent-native/core/adapters/cli";
 
 const cliRegistry = new CliRegistry();
 
-cliRegistry.register(new ShellCliAdapter({
-  command: "gh",
-  description: "GitHub CLI — manage repos, PRs, issues, and releases",
-}));
+cliRegistry.register(
+  new ShellCliAdapter({
+    command: "gh",
+    description: "GitHub CLI — manage repos, PRs, issues, and releases",
+  }),
+);
 
-cliRegistry.register(new ShellCliAdapter({
-  command: "ffmpeg",
-  description: "Audio/video processing and transcoding",
-}));
+cliRegistry.register(
+  new ShellCliAdapter({
+    command: "ffmpeg",
+    description: "Audio/video processing and transcoding",
+  }),
+);
 
 // List all registered CLIs
 cliRegistry.list();
@@ -122,11 +126,16 @@ import { execFile } from "node:child_process";
 
 export class DockerAdapter implements CliAdapter {
   name = "docker";
-  description = "Docker container management — build, run, and manage containers";
+  description =
+    "Docker container management — build, run, and manage containers";
 
   async isAvailable(): Promise<boolean> {
     try {
-      const result = await this.execute(["info", "--format", "{{.ServerVersion}}"]);
+      const result = await this.execute([
+        "info",
+        "--format",
+        "{{.ServerVersion}}",
+      ]);
       return result.exitCode === 0;
     } catch {
       return false;
@@ -135,17 +144,22 @@ export class DockerAdapter implements CliAdapter {
 
   async execute(args: string[]): Promise<CliResult> {
     return new Promise((resolve) => {
-      execFile("docker", args, {
-        timeout: 60_000,
-        maxBuffer: 10 * 1024 * 1024,
-        encoding: "utf-8",
-      }, (error, stdout, stderr) => {
-        resolve({
-          stdout: stdout ?? "",
-          stderr: stderr ?? "",
-          exitCode: (error as any)?.code ?? 0,
-        });
-      });
+      execFile(
+        "docker",
+        args,
+        {
+          timeout: 60_000,
+          maxBuffer: 10 * 1024 * 1024,
+          encoding: "utf-8",
+        },
+        (error, stdout, stderr) => {
+          resolve({
+            stdout: stdout ?? "",
+            stderr: stderr ?? "",
+            exitCode: (error as any)?.code ?? 0,
+          });
+        },
+      );
     });
   }
 }
@@ -163,10 +177,12 @@ import { CliRegistry, ShellCliAdapter } from "@agent-native/core/adapters/cli";
 const app = createServer();
 const cliRegistry = new CliRegistry();
 
-cliRegistry.register(new ShellCliAdapter({
-  command: "gh",
-  description: "GitHub CLI",
-}));
+cliRegistry.register(
+  new ShellCliAdapter({
+    command: "gh",
+    description: "GitHub CLI",
+  }),
+);
 
 // Discovery endpoint — agent can query this
 app.get("/api/cli", async (_req, res) => {
@@ -199,13 +215,18 @@ const gh = new ShellCliAdapter({
 });
 
 export default async function listPrs() {
-  if (!await gh.isAvailable()) {
+  if (!(await gh.isAvailable())) {
     console.error("GitHub CLI not installed. Run: brew install gh");
     process.exit(1);
   }
 
   const result = await gh.execute([
-    "pr", "list", "--json", "title,url,state", "--limit", "10"
+    "pr",
+    "list",
+    "--json",
+    "title,url,state",
+    "--limit",
+    "10",
   ]);
 
   if (result.exitCode !== 0) {

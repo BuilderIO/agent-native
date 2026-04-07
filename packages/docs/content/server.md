@@ -36,7 +36,9 @@ export default defineEventHandler(async () => {
   const items = await Promise.all(
     files
       .filter((f) => f.endsWith(".json"))
-      .map(async (f) => JSON.parse(await fs.readFile(`./data/items/${f}`, "utf-8"))),
+      .map(async (f) =>
+        JSON.parse(await fs.readFile(`./data/items/${f}`, "utf-8")),
+      ),
   );
   return items;
 });
@@ -44,14 +46,14 @@ export default defineEventHandler(async () => {
 
 ### Route naming conventions {#route-naming-conventions}
 
-| File name pattern | HTTP method | Example path |
-|-------------------|-------------|--------------|
-| `index.get.ts` | GET | `/api/items` |
-| `index.post.ts` | POST | `/api/items` |
-| `[id].get.ts` | GET | `/api/items/:id` |
-| `[id].patch.ts` | PATCH | `/api/items/:id` |
-| `[id].delete.ts` | DELETE | `/api/items/:id` |
-| `[...slug].get.ts` | GET | `/api/items/* (catch-all)` |
+| File name pattern  | HTTP method | Example path               |
+| ------------------ | ----------- | -------------------------- |
+| `index.get.ts`     | GET         | `/api/items`               |
+| `index.post.ts`    | POST        | `/api/items`               |
+| `[id].get.ts`      | GET         | `/api/items/:id`           |
+| `[id].patch.ts`    | PATCH       | `/api/items/:id`           |
+| `[id].delete.ts`   | DELETE      | `/api/items/:id`           |
+| `[...slug].get.ts` | GET         | `/api/items/* (catch-all)` |
 
 ### Accessing route parameters {#accessing-route-parameters}
 
@@ -93,7 +95,8 @@ import { createFileWatcher } from "@agent-native/core";
 import type { SSEHandlerOptions } from "@agent-native/core";
 
 export const watcher = createFileWatcher("./data");
-export const sseExtraEmitters: NonNullable<SSEHandlerOptions["extraEmitters"]> = [];
+export const sseExtraEmitters: NonNullable<SSEHandlerOptions["extraEmitters"]> =
+  [];
 
 export let syncResult: any = { status: "disabled" };
 export function setSyncResult(result: any) {
@@ -119,9 +122,9 @@ const watcher = createFileWatcher("./data");
 
 ### Options {#filewatcher-options}
 
-| Option | Type | Description |
-|--------|------|-------------|
-| `ignored` | any | Glob patterns or regex to ignore |
+| Option        | Type    | Description                                       |
+| ------------- | ------- | ------------------------------------------------- |
+| `ignored`     | any     | Glob patterns or regex to ignore                  |
 | `emitInitial` | boolean | Emit events for initial file scan. Default: false |
 
 ## createSSEHandler(watcher, options?) {#createssehandler}
@@ -143,10 +146,10 @@ Each SSE message is JSON: `{ "type": "change", "path": "data/file.json" }`
 
 ### Options {#ssehandler-options}
 
-| Option | Type | Description |
-|--------|------|-------------|
-| extraEmitters | `Array<{ emitter, event }>` | Additional EventEmitters to stream |
-| contentRoot | string | Root directory used to relativize paths in events |
+| Option        | Type                        | Description                                       |
+| ------------- | --------------------------- | ------------------------------------------------- |
+| extraEmitters | `Array<{ emitter, event }>` | Additional EventEmitters to stream                |
+| contentRoot   | string                      | Root directory used to relativize paths in events |
 
 ## createServer(options?) {#createserver}
 
@@ -189,9 +192,9 @@ const agent = createProductionAgentHandler({
 
 ### Options {#agent-handler-options}
 
-| Option | Type | Description |
-|--------|------|-------------|
-| `scripts` | `Record<string, ScriptEntry>` | Map of script name → { tool, run } entries |
-| `systemPrompt` | string | System prompt for the embedded agent |
-| `apiKey` | string | Anthropic API key. Default: ANTHROPIC_API_KEY env |
-| `model` | string | Model to use. Default: claude-sonnet-4-6 |
+| Option         | Type                          | Description                                       |
+| -------------- | ----------------------------- | ------------------------------------------------- |
+| `scripts`      | `Record<string, ScriptEntry>` | Map of script name → { tool, run } entries        |
+| `systemPrompt` | string                        | System prompt for the embedded agent              |
+| `apiKey`       | string                        | Anthropic API key. Default: ANTHROPIC_API_KEY env |
+| `model`        | string                        | Model to use. Default: claude-sonnet-4-6          |

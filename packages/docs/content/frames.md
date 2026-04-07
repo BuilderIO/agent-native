@@ -17,13 +17,13 @@ Agent-native apps run with an AI agent alongside the app UI. Locally, the agent 
 
 ## Supported CLIs {#supported-clis}
 
-| CLI | Command | Key Flags |
-|-----|---------|-----------|
-| Claude Code | `claude` | --dangerously-skip-permissions, --resume, --verbose |
-| Codex | `codex` | --full-auto, --quiet |
-| Gemini CLI | `gemini` | --sandbox |
-| OpenCode | `opencode` | — |
-| Builder.io | `builder` | — |
+| CLI         | Command    | Key Flags                                           |
+| ----------- | ---------- | --------------------------------------------------- |
+| Claude Code | `claude`   | --dangerously-skip-permissions, --resume, --verbose |
+| Codex       | `codex`    | --full-auto, --quiet                                |
+| Gemini CLI  | `gemini`   | --sandbox                                           |
+| OpenCode    | `opencode` | —                                                   |
+| Builder.io  | `builder`  | —                                                   |
 
 Switch between CLIs at any time from the agent panel settings. The terminal restarts with the selected CLI.
 

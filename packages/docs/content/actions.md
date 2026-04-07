@@ -60,7 +60,9 @@ export default async function main() {
   const screen: Record<string, unknown> = { navigation };
 
   if (navigation?.view === "inbox") {
-    const res = await fetch("http://localhost:3000/api/emails?label=" + navigation.label);
+    const res = await fetch(
+      "http://localhost:3000/api/emails?label=" + navigation.label,
+    );
     screen.emailList = await res.json();
   }
 
@@ -117,11 +119,11 @@ In the browser, messages are sent via `window.postMessage()`. In Node.js (action
 
 ## Utility Functions {#utility-functions}
 
-| Function | Returns | Description |
-|----------|---------|-------------|
-| `loadEnv(path?)` | `void` | Load .env from project root (or custom path) |
-| `camelCaseArgs(args)` | `Record` | Convert kebab-case keys to camelCase |
-| `isValidPath(p)` | `boolean` | Validate relative path (no traversal, no absolute) |
-| `isValidProjectPath(p)` | `boolean` | Validate project slug (e.g. "my-project") |
-| `ensureDir(dir)` | `void` | mkdir -p helper |
-| `fail(message)` | `never` | Print error to stderr and exit(1) |
+| Function                | Returns   | Description                                        |
+| ----------------------- | --------- | -------------------------------------------------- |
+| `loadEnv(path?)`        | `void`    | Load .env from project root (or custom path)       |
+| `camelCaseArgs(args)`   | `Record`  | Convert kebab-case keys to camelCase               |
+| `isValidPath(p)`        | `boolean` | Validate relative path (no traversal, no absolute) |
+| `isValidProjectPath(p)` | `boolean` | Validate project slug (e.g. "my-project")          |
+| `ensureDir(dir)`        | `void`    | mkdir -p helper                                    |
+| `fail(message)`         | `never`   | Print error to stderr and exit(1)                  |

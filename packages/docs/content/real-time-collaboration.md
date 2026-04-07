@@ -65,9 +65,12 @@ export default defineConfig({
   plugins: [reactRouter()],
   optimizeDeps: {
     include: [
-      "yjs", "y-protocols/awareness",
-      "@tiptap/core", "@tiptap/extension-collaboration",
-      "@tiptap/extension-collaboration-caret", "@tiptap/y-tiptap",
+      "yjs",
+      "y-protocols/awareness",
+      "@tiptap/core",
+      "@tiptap/extension-collaboration",
+      "@tiptap/extension-collaboration-caret",
+      "@tiptap/y-tiptap",
     ],
   },
 });
@@ -147,14 +150,14 @@ Templates can add a comments system with threaded discussions on documents. The 
 
 All collab routes are auto-mounted under `/_agent-native/collab/` by the collab plugin:
 
-| Route | Purpose |
-|-------|---------|
-| `GET /:docId/state` | Fetch full Y.Doc state (base64) |
-| `POST /:docId/update` | Apply client Yjs update |
-| `POST /:docId/text` | Apply full text replacement (diff-based) |
-| `POST /:docId/search-replace` | Surgical find/replace in Y.XmlFragment |
-| `POST /:docId/awareness` | Sync cursor/presence state |
-| `GET /:docId/users` | List active users on a document |
+| Route                         | Purpose                                  |
+| ----------------------------- | ---------------------------------------- |
+| `GET /:docId/state`           | Fetch full Y.Doc state (base64)          |
+| `POST /:docId/update`         | Apply client Yjs update                  |
+| `POST /:docId/text`           | Apply full text replacement (diff-based) |
+| `POST /:docId/search-replace` | Surgical find/replace in Y.XmlFragment   |
+| `POST /:docId/awareness`      | Sync cursor/presence state               |
+| `GET /:docId/users`           | List active users on a document          |
 
 ## Agent edit action {#edit-document}
 

@@ -40,7 +40,7 @@ export default defineNitroPlugin((nitro) => {
       },
     ],
     apiKeyEnv: "A2A_API_KEY", // env var name for bearer token
-    streaming: true,           // enable message/stream
+    streaming: true, // enable message/stream
   });
 });
 ```
@@ -83,12 +83,12 @@ The agent card is auto-generated from your config and served at `/.well-known/ag
 
 All methods are called via `POST /a2a` with JSON-RPC 2.0 format:
 
-| Method | Description | Key params |
-|--------|-------------|------------|
-| `message/send` | Send a message, get a completed task back | `message, contextId?` |
-| `message/stream` | Send a message, receive SSE task updates | `message, contextId?` |
-| `tasks/get` | Fetch a task by ID | `id` |
-| `tasks/cancel` | Cancel a running task | `id` |
+| Method           | Description                               | Key params            |
+| ---------------- | ----------------------------------------- | --------------------- |
+| `message/send`   | Send a message, get a completed task back | `message, contextId?` |
+| `message/stream` | Send a message, receive SSE task updates  | `message, contextId?` |
+| `tasks/get`      | Fetch a task by ID                        | `id`                  |
+| `tasks/cancel`   | Cancel a running task                     | `id`                  |
 
 Messages contain typed parts:
 
@@ -98,7 +98,10 @@ Messages contain typed parts:
   "parts": [
     { "type": "text", "text": "Show signups by source" },
     { "type": "data", "data": { "dateRange": "last-30d" } },
-    { "type": "file", "file": { "name": "report.csv", "mimeType": "text/csv", "bytes": "..." } }
+    {
+      "type": "file",
+      "file": { "name": "report.csv", "mimeType": "text/csv", "bytes": "..." }
+    }
   ]
 }
 ```
@@ -144,7 +147,7 @@ import { callAgent } from "@agent-native/core/a2a";
 const response = await callAgent(
   "https://analytics.example.com",
   "How many signups last week?",
-  { apiKey: process.env.ANALYTICS_API_KEY }
+  { apiKey: process.env.ANALYTICS_API_KEY },
 );
 console.log(response); // "There were 1,247 signups last week..."
 ```
@@ -155,13 +158,13 @@ Each message creates a task that moves through these states:
 
 `submitted` → `working` → `completed` | `failed` | `canceled`
 
-| State | Meaning |
-|-------|---------|
-| `submitted` | Task created, queued for processing |
-| `working` | Handler is processing the message |
-| `completed` | Handler finished successfully |
-| `failed` | Handler threw an error |
-| `canceled` | Task was canceled via tasks/cancel |
+| State            | Meaning                                        |
+| ---------------- | ---------------------------------------------- |
+| `submitted`      | Task created, queued for processing            |
+| `working`        | Handler is processing the message              |
+| `completed`      | Handler finished successfully                  |
+| `failed`         | Handler threw an error                         |
+| `canceled`       | Task was canceled via tasks/cancel             |
 | `input-required` | Handler needs more information from the caller |
 
 Tasks persist in the `a2a_tasks` SQL table and can be retrieved later via `tasks/get`.
@@ -174,7 +177,7 @@ Set `apiKeyEnv` in your config to the name of an environment variable containing
 // Config
 mountA2A(app, {
   // ...
-  apiKeyEnv: "A2A_API_KEY",  // reads process.env.A2A_API_KEY
+  apiKeyEnv: "A2A_API_KEY", // reads process.env.A2A_API_KEY
 });
 
 // Client calls with the matching key
@@ -203,11 +206,11 @@ A mail agent needs analytics data. The analytics agent exposes a "run-query" ski
 // In the mail agent's actions/get-analytics.ts
 import { callAgent } from "@agent-native/core/a2a";
 
-export default async function(args: string[]) {
+export default async function (args: string[]) {
   const response = await callAgent(
     "https://analytics.example.com",
     "How many emails were sent last week by category?",
-    { apiKey: process.env.ANALYTICS_API_KEY }
+    { apiKey: process.env.ANALYTICS_API_KEY },
   );
 
   console.log(response);

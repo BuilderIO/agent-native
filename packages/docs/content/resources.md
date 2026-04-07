@@ -69,7 +69,7 @@ There are two ways to add skills:
 
 Skills are Markdown files with optional YAML frontmatter for metadata:
 
-```text
+````text
 ---
 name: data-analysis
 description: BigQuery queries, data transforms, and visualization
@@ -89,8 +89,9 @@ Use this skill when the user asks about data, queries, or analytics.
 ```sql
 -- Standard BigQuery date filter
 WHERE DATE(created_at) BETWEEN @start_date AND @end_date
-```
-```
+````
+
+````
 
 ## @ File Tagging {#at-file-tagging}
 
@@ -160,4 +161,4 @@ pnpm action resource-write --path "notes/meeting.md" --content "# Meeting Notes.
 
 # Delete a resource
 pnpm action resource-delete --path "notes/old.md"
-```
+````
