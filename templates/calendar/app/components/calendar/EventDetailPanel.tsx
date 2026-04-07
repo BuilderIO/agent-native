@@ -1,3 +1,4 @@
+import { useState, useRef, useEffect } from "react";
 import {
   format,
   parseISO,
@@ -34,6 +35,7 @@ interface EventDetailPanelProps {
   onClose: () => void;
   onEdit: (event: CalendarEvent) => void;
   onDelete: (eventId: string) => void;
+  onTitleSave?: (eventId: string, title: string) => void;
 }
 
 function formatDuration(start: string, end: string): string {
@@ -54,10 +56,25 @@ export function EventDetailPanel({
   onClose,
   onEdit,
   onDelete,
+  onTitleSave,
 }: EventDetailPanelProps) {
   const { setEventDetailSidebar } = useCalendarContext();
   const isOpen = event !== null;
   const color = event ? getEventColor(event) : null;
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [editingTitle, setEditingTitle] = useState("");
+  const titleInputRef = useRef<HTMLInputElement>(null);
+
+  // Reset editing state when event changes
+  useEffect(() => {
+    setIsEditingTitle(false);
+  }, [event?.id]);
+
+  useEffect(() => {
+    if (isEditingTitle) {
+      requestAnimationFrame(() => titleInputRef.current?.focus());
+    }
+  }, [isEditingTitle]);
 
   const handleUnpin = () => {
     setEventDetailSidebar(false);
@@ -104,10 +121,47 @@ export function EventDetailPanel({
 
               {/* Content */}
               <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-                {/* Title */}
-                <h2 className="text-lg font-semibold text-foreground leading-tight">
-                  {event.title}
-                </h2>
+                {/* Title — click to edit */}
+                {isEditingTitle ? (
+                  <input
+                    ref={titleInputRef}
+                    value={editingTitle}
+                    onChange={(e) => setEditingTitle(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        const trimmed = editingTitle.trim();
+                        if (trimmed && trimmed !== event.title) {
+                          onTitleSave?.(event.id, trimmed);
+                        }
+                        setIsEditingTitle(false);
+                      } else if (e.key === "Escape") {
+                        e.preventDefault();
+                        setIsEditingTitle(false);
+                      }
+                      e.stopPropagation();
+                    }}
+                    onBlur={() => {
+                      const trimmed = editingTitle.trim();
+                      if (trimmed && trimmed !== event.title) {
+                        onTitleSave?.(event.id, trimmed);
+                      }
+                      setIsEditingTitle(false);
+                    }}
+                    placeholder="Add title"
+                    className="w-full text-lg font-semibold text-foreground leading-tight bg-transparent border-none outline-none placeholder:text-muted-foreground/50 focus:ring-0"
+                  />
+                ) : (
+                  <h2
+                    className="text-lg font-semibold text-foreground leading-tight cursor-text rounded px-0.5 -mx-0.5 hover:bg-muted/50"
+                    onClick={() => {
+                      setEditingTitle(event.title);
+                      setIsEditingTitle(true);
+                    }}
+                  >
+                    {event.title}
+                  </h2>
+                )}
 
                 {/* Time */}
                 <div className="flex items-start gap-2.5 text-sm text-muted-foreground">

@@ -1,11 +1,11 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { Link, useNavigate, useLocation } from "react-router";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { OnboardingScreen } from "@/components/recruiting/OnboardingScreen";
 import { CommandPalette } from "./CommandPalette";
 import { useGreenhouseStatus } from "@/hooks/use-greenhouse";
-import { useOrg, useAcceptInvitation } from "@/hooks/use-org";
+import { useOrg, useAcceptInvitation, useSwitchOrg } from "@/hooks/use-org";
 import { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";
 import {
   IconLayoutDashboard,
@@ -17,6 +17,9 @@ import {
   IconPlant2,
   IconAlertCircle,
   IconLoader2,
+  IconBuilding,
+  IconSelector,
+  IconCheck,
 } from "@tabler/icons-react";
 import { toast } from "sonner";
 
@@ -89,6 +92,70 @@ function InvitationBanner() {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+function OrgSwitcher() {
+  const { data: org } = useOrg();
+  const switchOrg = useSwitchOrg();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  if (!org?.orgId || !org.orgs || org.orgs.length < 2) return null;
+
+  return (
+    <div ref={ref} className="relative px-2 pb-1">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+      >
+        <IconBuilding className="h-4 w-4 flex-shrink-0" />
+        <span className="truncate flex-1 text-left">{org.orgName}</span>
+        <IconSelector className="h-3.5 w-3.5 flex-shrink-0 opacity-50" />
+      </button>
+      {open && (
+        <div className="absolute left-2 right-2 bottom-full mb-1 z-50 rounded-md border border-border bg-popover shadow-md py-1">
+          {org.orgs.map((o) => (
+            <button
+              key={o.orgId}
+              onClick={async () => {
+                if (o.orgId === org.orgId) {
+                  setOpen(false);
+                  return;
+                }
+                try {
+                  await switchOrg.mutateAsync(o.orgId);
+                  setOpen(false);
+                  toast.success(`Switched to ${o.orgName}`);
+                } catch (err: any) {
+                  toast.error(err.message || "Failed to switch");
+                }
+              }}
+              disabled={switchOrg.isPending}
+              className="flex w-full items-center gap-2 px-2.5 py-1.5 text-[13px] text-foreground hover:bg-accent disabled:opacity-50"
+            >
+              <IconBuilding className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+              <span className="truncate flex-1 text-left">{o.orgName}</span>
+              {o.orgId === org.orgId && (
+                <IconCheck className="h-3.5 w-3.5 flex-shrink-0 text-green-600" />
+              )}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -223,6 +290,9 @@ export function AppLayout({ children }: AppLayoutProps) {
               );
             })}
           </nav>
+
+          {/* Org Switcher */}
+          <OrgSwitcher />
 
           {/* Bottom */}
           <div className="flex items-center gap-1 border-t border-border px-3 py-2">

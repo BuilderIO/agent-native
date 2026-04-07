@@ -710,6 +710,9 @@ export default function CalendarView() {
             onClose={() => setSidebarEvent(null)}
             onEdit={handleEditEvent}
             onDelete={handleDeleteEvent}
+            onTitleSave={(eventId, title) =>
+              updateEvent.mutate({ id: eventId, title })
+            }
           />
         )}
 

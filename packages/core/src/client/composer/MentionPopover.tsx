@@ -16,14 +16,20 @@ import {
   IconUser,
   IconPresentation,
   IconMessageChatbot,
+  IconTrash,
+  IconPlus,
+  IconHelp,
+  IconHistory,
+  IconTerminal2,
 } from "@tabler/icons-react";
-import type { MentionItem, SkillResult } from "./types.js";
+import type { MentionItem, SkillResult, SlashCommand } from "./types.js";
 
 export interface MentionPopoverRef {
   moveUp: () => void;
   moveDown: () => void;
   getSelectedIndex: () => number;
   getSelectedMention: () => MentionItem | null;
+  getSelectedCommand: () => SlashCommand | null;
 }
 
 interface MentionPopoverProps {
@@ -31,11 +37,13 @@ interface MentionPopoverProps {
   position: { top: number; left: number } | null;
   mentionItems: MentionItem[];
   skills: SkillResult[];
+  commands?: SlashCommand[];
   hint?: string;
   isLoading: boolean;
   query: string;
   onSelectMention: (item: MentionItem) => void;
   onSelectSkill: (skill: SkillResult) => void;
+  onSelectCommand?: (command: SlashCommand) => void;
   onClose: () => void;
 }
 
@@ -61,6 +69,21 @@ function MentionItemIcon({ icon }: { icon?: string }) {
       return <IconFile {...iconProps} />;
     default:
       return <IconFile {...iconProps} />;
+  }
+}
+
+function CommandIcon({ icon }: { icon?: string }) {
+  switch (icon) {
+    case "clear":
+      return <IconTrash {...iconProps} />;
+    case "new":
+      return <IconPlus {...iconProps} />;
+    case "help":
+      return <IconHelp {...iconProps} />;
+    case "history":
+      return <IconHistory {...iconProps} />;
+    default:
+      return <IconTerminal2 {...iconProps} />;
   }
 }
 
@@ -110,18 +133,21 @@ export const MentionPopover = forwardRef<
     position,
     mentionItems,
     skills,
+    commands = [],
     hint,
     isLoading,
     query,
     onSelectMention,
     onSelectSkill,
+    onSelectCommand,
     onClose,
   } = props;
 
   const [selectedIndex, setSelectedIndex] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
 
-  const itemCount = type === "@" ? mentionItems.length : skills.length;
+  const itemCount =
+    type === "@" ? mentionItems.length : commands.length + skills.length;
 
   // Group mention items by section for @ popover
   const groupedMentions = React.useMemo(() => {
@@ -191,6 +217,10 @@ export const MentionPopover = forwardRef<
     },
     getSelectedIndex: () => selectedIndex,
     getSelectedMention: () => flatMentionItems[selectedIndex] ?? null,
+    getSelectedCommand: () => {
+      if (type !== "/" || selectedIndex >= commands.length) return null;
+      return commands[selectedIndex] ?? null;
+    },
   }));
 
   if (!position) return null;
@@ -262,30 +292,85 @@ export const MentionPopover = forwardRef<
                     </div>
                   ));
                 })()
-              : (skills as SkillResult[]).map((skill, i) => (
-                  <button
-                    key={skill.path}
-                    className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm ${
-                      i === selectedIndex
-                        ? "bg-accent text-accent-foreground"
-                        : "hover:bg-accent/50"
-                    }`}
-                    onMouseEnter={() => setSelectedIndex(i)}
-                    onClick={() => onSelectSkill(skill)}
-                  >
-                    <IconStack2 {...iconProps} />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm">
-                        {skill.name}
-                      </span>
-                      {skill.description && (
-                        <span className="block truncate text-xs text-muted-foreground">
-                          {skill.description}
-                        </span>
+              : (() => {
+                  let idx = 0;
+                  return (
+                    <>
+                      {commands.length > 0 && (
+                        <div>
+                          <div className="px-2 pt-2 pb-1 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
+                            Commands
+                          </div>
+                          {commands.map((cmd) => {
+                            const i = idx++;
+                            return (
+                              <button
+                                key={cmd.name}
+                                data-mention-index={i}
+                                className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm ${
+                                  i === selectedIndex
+                                    ? "bg-accent text-accent-foreground"
+                                    : "hover:bg-accent/50"
+                                }`}
+                                onMouseEnter={() => setSelectedIndex(i)}
+                                onClick={() => onSelectCommand?.(cmd)}
+                              >
+                                <CommandIcon icon={cmd.icon} />
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate text-sm">
+                                    /{cmd.name}
+                                  </span>
+                                  {cmd.description && (
+                                    <span className="block truncate text-xs text-muted-foreground">
+                                      {cmd.description}
+                                    </span>
+                                  )}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
                       )}
-                    </span>
-                  </button>
-                ))}
+                      {skills.length > 0 && (
+                        <div>
+                          {commands.length > 0 && (
+                            <div className="px-2 pt-2 pb-1 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
+                              Skills
+                            </div>
+                          )}
+                          {(skills as SkillResult[]).map((skill) => {
+                            const i = idx++;
+                            return (
+                              <button
+                                key={skill.path}
+                                data-mention-index={i}
+                                className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm ${
+                                  i === selectedIndex
+                                    ? "bg-accent text-accent-foreground"
+                                    : "hover:bg-accent/50"
+                                }`}
+                                onMouseEnter={() => setSelectedIndex(i)}
+                                onClick={() => onSelectSkill(skill)}
+                              >
+                                <IconStack2 {...iconProps} />
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate text-sm">
+                                    {skill.name}
+                                  </span>
+                                  {skill.description && (
+                                    <span className="block truncate text-xs text-muted-foreground">
+                                      {skill.description}
+                                    </span>
+                                  )}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
           </div>
         )}
       </div>

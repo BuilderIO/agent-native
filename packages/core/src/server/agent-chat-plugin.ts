@@ -14,6 +14,7 @@ import type {
   MentionProvider,
   MentionProviderItem,
 } from "../agent/types.js";
+import { discoverAgents } from "./agent-discovery.js";
 import {
   buildAssistantMessage,
   extractThreadMeta,
@@ -1633,7 +1634,7 @@ export function createAgentChatPlugin(
         const providerResults = await Promise.all(
           Object.entries(mentionProviders).map(async ([key, provider]) => {
             try {
-              const providerItems = await provider.search(q);
+              const providerItems = await provider.search(q, event);
               return providerItems.map((item) => ({
                 id: item.id,
                 label: item.label,
@@ -1645,7 +1646,11 @@ export function createAgentChatPlugin(
                 refId: item.refId,
                 section: provider.label,
               }));
-            } catch {
+            } catch (e) {
+              console.error(
+                `[agent-native] Mention provider "${key}" failed:`,
+                e,
+              );
               return [];
             }
           }),
@@ -1656,7 +1661,6 @@ export function createAgentChatPlugin(
 
         // 4. Discovered peer agents
         try {
-          const { discoverAgents } = await import("./agent-discovery.js");
           const agents = await discoverAgents(options?.appId);
           for (const agent of agents) {
             items.push({
@@ -1671,8 +1675,8 @@ export function createAgentChatPlugin(
               section: "Agents",
             });
           }
-        } catch {
-          // Agent discovery not available — skip
+        } catch (e) {
+          console.error("[agent-native] Agent discovery failed:", e);
         }
 
         // Filter by query and limit

@@ -71,7 +71,15 @@ let initPromise: Promise<void> | null = null;
  * This is the function ALL plugins should use to get the H3 instance.
  */
 export function getH3App(nitroApp: any): any {
-  const h3 = nitroApp.h3App || nitroApp.h3 || nitroApp._h3 || {};
+  // Check for an existing H3 app reference on the nitroApp
+  let h3 = nitroApp.h3App || nitroApp.h3 || nitroApp._h3;
+
+  // If none exists, create a shim object and store it on nitroApp so
+  // all plugins that call getH3App(nitroApp) get the same instance.
+  if (!h3) {
+    h3 = {};
+    nitroApp._h3 = h3;
+  }
 
   // If H3 v2 (no .use method), add our shim
   if (typeof h3.use !== "function") {
@@ -208,7 +216,11 @@ export async function handleFrameworkRequest(event: any): Promise<any> {
     // In H3 >=1.15, event.path is a getter-only property on the prototype,
     // so we shadow it with an instance-level value property, then delete
     // the shadow to restore the prototype getter.
-    const remainder = path.slice(match.path.length) || "/";
+    // Preserve the query string so getQuery(event) still works in H3 v1
+    // (which reads query params from event.path).
+    const queryIdx = url.indexOf("?");
+    const queryString = queryIdx !== -1 ? url.slice(queryIdx) : "";
+    const remainder = (path.slice(match.path.length) || "/") + queryString;
     Object.defineProperty(event, "path", {
       value: remainder,
       configurable: true,

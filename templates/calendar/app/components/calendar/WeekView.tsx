@@ -17,7 +17,6 @@ import {
 import { cn } from "@/lib/utils";
 import { getEventAutoColor } from "@/lib/event-colors";
 import { EventDetailPopover } from "./EventDetailPopover";
-import { QuickEditPopover } from "./QuickEditPopover";
 import type { CalendarEvent } from "@shared/api";
 import { useEventDrag } from "@/hooks/use-event-drag";
 
@@ -783,30 +782,15 @@ export function WeekView({
                       );
                     }
 
-                    // Quick-edit: wrap in title-edit popover
-                    if (
-                      quickEditEventId === event.id &&
-                      onQuickEditSave &&
-                      onQuickEditCancel
-                    ) {
-                      return (
-                        <QuickEditPopover
-                          key={event.id}
-                          eventId={event.id}
-                          onSave={onQuickEditSave}
-                          onCancel={onQuickEditCancel}
-                        >
-                          {eventButton}
-                        </QuickEditPopover>
-                      );
-                    }
-
                     return (
                       <EventDetailPopover
                         key={event.id}
                         event={event}
                         onEdit={onEditEvent}
                         onDelete={onDeleteEvent}
+                        defaultOpen={quickEditEventId === event.id}
+                        onTitleSave={onQuickEditSave}
+                        onDismissNew={onQuickEditCancel}
                       >
                         {eventButton}
                       </EventDetailPopover>

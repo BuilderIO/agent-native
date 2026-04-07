@@ -172,6 +172,60 @@ function HistoryPopover({
   );
 }
 
+// ─── Help Popover ────────────────────────────────────────────────────────────
+
+function HelpPopover({ onClose }: { onClose: () => void }) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  const commands = [
+    {
+      name: "/clear",
+      description: "Start a new chat (keeps current chat in history)",
+    },
+    { name: "/new", description: "Same as /clear" },
+    { name: "/history", description: "Browse and search past chats" },
+    { name: "/help", description: "Show this list of commands" },
+    { name: "@", description: "Mention files, agents, or resources" },
+  ];
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40" onClick={onClose} />
+      <div className="absolute right-2 top-0 z-50 w-72 rounded-lg border border-border bg-popover shadow-lg">
+        <div className="flex items-center justify-between px-3 py-2 border-b border-border">
+          <span className="text-xs font-medium text-foreground">
+            Available Commands
+          </span>
+          <button
+            onClick={onClose}
+            className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+          >
+            <IconX size={12} />
+          </button>
+        </div>
+        <div className="py-1">
+          {commands.map((cmd) => (
+            <div key={cmd.name} className="px-3 py-1.5">
+              <div className="text-xs font-medium text-foreground">
+                {cmd.name}
+              </div>
+              <div className="text-[11px] text-muted-foreground">
+                {cmd.description}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 interface ChatTab {
@@ -723,6 +777,27 @@ export function MultiTabAssistantChat({
     [saveThreadData],
   );
 
+  // ─── Slash command handler ──────────────────────────────────────────
+  const [helpVisible, setHelpVisible] = useState(false);
+
+  const handleSlashCommand = useCallback(
+    (command: string) => {
+      switch (command) {
+        case "clear":
+        case "new":
+          addTab();
+          break;
+        case "history":
+          setShowHistory(true);
+          break;
+        case "help":
+          setHelpVisible(true);
+          break;
+      }
+    },
+    [addTab],
+  );
+
   // Build tabs from open thread IDs
   const threadMap = new Map(threads.map((t) => [t.id, t]));
   const tabs: ChatTab[] = openTabIds
@@ -952,6 +1027,9 @@ export function MultiTabAssistantChat({
           />
         )}
 
+        {/* Help popover — shown by /help slash command */}
+        {helpVisible && <HelpPopover onClose={() => setHelpVisible(false)} />}
+
         {/* Render tabs that have been activated at least once, hide inactive ones to preserve state.
             Sub-agent tabs are only mounted when first focused — prevents stale restore from running
             while the component is display:none before the user switches to it. */}
@@ -989,6 +1067,7 @@ export function MultiTabAssistantChat({
                 }
                 onSaveThread={handleSaveThread}
                 onGenerateTitle={handleGenerateTitle}
+                onSlashCommand={handleSlashCommand}
               />
             </div>
           ))}
