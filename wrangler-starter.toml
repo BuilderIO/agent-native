@@ -1,14 +1,9 @@
 name = "agent-native-starter"
-main = "templates/starter/dist/_worker.js/index.js"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
-no_bundle = true
 
 [vars]
 GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
-
-[assets]
-directory = "templates/starter/dist"
 
 [[d1_databases]]
 binding = "DB"
