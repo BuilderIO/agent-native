@@ -54,6 +54,7 @@ import { useOverlayPeople } from "@/hooks/use-overlay-people";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 import { useQueryClient } from "@tanstack/react-query";
 import { AgentToggleButton } from "@agent-native/core/client";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { toast } from "sonner";
 import { setUndoAction, runUndo } from "@/hooks/use-undo";
 import type { CalendarEvent } from "@shared/api";
@@ -67,6 +68,7 @@ const viewModeLabels: Record<ViewMode, string> = {
 };
 
 export default function CalendarView() {
+  const isMobile = useIsMobile();
   const {
     selectedDate,
     setSelectedDate,
@@ -479,14 +481,20 @@ export default function CalendarView() {
   const headerLabel = (() => {
     switch (viewMode) {
       case "month":
-        return format(selectedDate, "MMMM yyyy");
+        return isMobile
+          ? format(selectedDate, "MMM yyyy")
+          : format(selectedDate, "MMMM yyyy");
       case "week": {
         const ws = startOfWeek(selectedDate);
         const we = endOfWeek(selectedDate);
-        return `${format(ws, "MMM d")} – ${format(we, "d, yyyy")}`;
+        return isMobile
+          ? `${format(ws, "MMM d")} – ${format(we, "d")}`
+          : `${format(ws, "MMM d")} – ${format(we, "d, yyyy")}`;
       }
       case "day":
-        return format(selectedDate, "EEEE, MMMM d, yyyy");
+        return isMobile
+          ? format(selectedDate, "EEE, MMM d")
+          : format(selectedDate, "EEEE, MMMM d, yyyy");
     }
   })();
 
@@ -511,15 +519,15 @@ export default function CalendarView() {
           )}
 
           {/* Top bar */}
-          <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-3">
+          <div className="flex h-12 shrink-0 items-center gap-1 border-b border-border px-2 sm:gap-3 sm:px-3">
             {/* Left: view mode dropdown */}
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="flex shrink-0 items-center">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-8 gap-1 px-2.5 text-sm font-semibold"
+                    className="h-8 gap-1 px-2 text-sm font-semibold sm:px-2.5"
                   >
                     {viewModeLabels[viewMode]}
                     <IconChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
@@ -549,14 +557,14 @@ export default function CalendarView() {
             </div>
 
             {/* Center: today, nav arrows, date label */}
-            <div className="flex min-w-0 flex-1 items-center justify-center gap-1">
+            <div className="flex min-w-0 flex-1 items-center justify-center gap-0.5 sm:gap-1">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={handleToday}
-                    className="h-7 px-2.5 text-xs font-medium"
+                    className="h-7 px-2 text-xs font-medium sm:px-2.5"
                   >
                     Today
                   </Button>
@@ -571,61 +579,37 @@ export default function CalendarView() {
                 </TooltipContent>
               </Tooltip>
 
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => handleNavigate("prev")}
-                    className="h-7 w-7"
-                  >
-                    <IconChevronLeft className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  <p>
-                    Previous{" "}
-                    <kbd className="ml-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
-                      K
-                    </kbd>
-                  </p>
-                </TooltipContent>
-              </Tooltip>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => handleNavigate("prev")}
+                className="h-8 w-8 sm:h-7 sm:w-7"
+              >
+                <IconChevronLeft className="h-4 w-4" />
+              </Button>
 
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => handleNavigate("next")}
-                    className="h-7 w-7"
-                  >
-                    <IconChevronRight className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  <p>
-                    Next{" "}
-                    <kbd className="ml-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
-                      J
-                    </kbd>
-                  </p>
-                </TooltipContent>
-              </Tooltip>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => handleNavigate("next")}
+                className="h-8 w-8 sm:h-7 sm:w-7"
+              >
+                <IconChevronRight className="h-4 w-4" />
+              </Button>
 
-              <span className="ml-1 min-w-0 flex-1 truncate whitespace-nowrap text-center text-sm font-semibold">
+              <span className="ml-0.5 min-w-0 flex-1 truncate whitespace-nowrap text-center text-xs font-semibold sm:ml-1 sm:text-sm">
                 {headerLabel}
               </span>
             </div>
 
             {/* Right: search, new event */}
-            <div className="flex shrink-0 items-center gap-1">
+            <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-7 w-7"
+                    className="h-8 w-8 sm:h-7 sm:w-7"
                     onClick={() => setCommandPaletteOpen(true)}
                   >
                     <IconSearch className="h-4 w-4" />
@@ -633,7 +617,7 @@ export default function CalendarView() {
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
                   <p>
-                    IconSearch{" "}
+                    Search{" "}
                     <kbd className="ml-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
                       /
                     </kbd>

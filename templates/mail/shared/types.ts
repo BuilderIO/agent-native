@@ -31,6 +31,15 @@ export type EmailMessage = {
   labelIds: string[];
   attachments?: Attachment[];
   accountEmail?: string;
+  /** Parsed List-Unsubscribe header info */
+  unsubscribe?: {
+    /** HTTPS URL for unsubscribe page */
+    url?: string;
+    /** mailto: address for unsubscribe */
+    mailto?: string;
+    /** Whether RFC 8058 one-click unsubscribe is supported */
+    oneClick?: boolean;
+  };
 };
 
 export type EmailThread = {

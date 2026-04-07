@@ -220,7 +220,7 @@ export default function ExplorerDashboardPage() {
     return (
       <div className="space-y-4">
         <Skeleton className="h-8 w-64" />
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Skeleton className="h-64" />
           <Skeleton className="h-64" />
         </div>
@@ -244,7 +244,7 @@ export default function ExplorerDashboardPage() {
               onChange={(e) => setNameInput(e.target.value)}
               onBlur={handleSaveName}
               onKeyDown={(e) => e.key === "Enter" && handleSaveName()}
-              className="h-8 w-64 text-lg font-semibold"
+              className="h-8 w-full sm:w-64 text-lg font-semibold"
               autoFocus
             />
           ) : (
@@ -317,7 +317,7 @@ export default function ExplorerDashboardPage() {
             items={dashboard.charts.map((c) => c.id)}
             strategy={rectSortingStrategy}
           >
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {dashboard.charts.map((chart) => (
                 <DashboardChartCard
                   key={chart.id}

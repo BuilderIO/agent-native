@@ -43,7 +43,8 @@ const templatePorts = templates.map((name) => {
 });
 
 // Kill any stale processes on our ports
-const allPorts = [DOCS_PORT, ...templatePorts.map((t) => t.port)];
+const FRAME_PORT = 3334;
+const allPorts = [DOCS_PORT, FRAME_PORT, ...templatePorts.map((t) => t.port)];
 
 function killPortProcesses(): boolean {
   let killed = false;
@@ -92,6 +93,11 @@ names.push("core");
 commands.push(
   "pnpm --filter @agent-native/core exec tsc --watch --preserveWatchOutput",
 );
+
+// Local Dev Frame
+names.push("frame");
+commands.push("pnpm --filter @agent-native/frame dev");
+console.log(`\x1b[36m[dev-all]\x1b[0m frame: http://localhost:3334`);
 
 // Docs site
 names.push("docs");

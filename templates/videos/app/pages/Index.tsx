@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useParams, Navigate } from "react-router";
 import { AgentSidebar } from "@agent-native/core/client";
 import { compositions } from "@/remotion/registry";
@@ -10,12 +10,23 @@ import { CurrentElementProvider } from "@/contexts/CurrentElementContext";
 import { CompositionProvider } from "@/contexts/CompositionContext";
 import { TimelineProvider } from "@/contexts/TimelineContext";
 import { PlaybackProvider } from "@/contexts/PlaybackContext";
+import { useIsMobile } from "@/hooks/use-mobile";
 import "@/utils/resetComposition"; // Make reset utility available in console
 
 // ─── Studio Container with Providers ──────────────────────────────────────────
 
 function StudioContent() {
+  const isMobile = useIsMobile();
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const initialSidebarSet = useRef(false);
+
+  useEffect(() => {
+    if (!initialSidebarSet.current && isMobile) {
+      setSidebarOpen(false);
+      initialSidebarSet.current = true;
+    }
+  }, [isMobile]);
+
   const [generatingComposition, setGeneratingComposition] = useState(false);
   const [cameraControlsTrigger, setCameraControlsTrigger] = useState(0);
   const [cursorControlsTrigger, setCursorControlsTrigger] = useState(0);
@@ -53,7 +64,7 @@ function StudioContent() {
             sidebarOpen={sidebarOpen}
             onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
           />
-          <div className="flex flex-1 min-h-0">
+          <div className="flex flex-1 min-h-0 relative">
             <Sidebar
               open={sidebarOpen}
               cameraControlsTrigger={cameraControlsTrigger}
@@ -123,7 +134,7 @@ export default function Studio() {
                 >
                   <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
                     <StudioHeader sidebarOpen onToggleSidebar={() => {}} />
-                    <div className="flex flex-1 min-h-0">
+                    <div className="flex flex-1 min-h-0 relative">
                       <Sidebar
                         open
                         cameraControlsTrigger={0}

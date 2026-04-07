@@ -10,7 +10,7 @@ const TOC = [
   { id: "agent-chat-bridge", label: "Agent Chat Bridge" },
   { id: "actions-system", label: "Actions System" },
   { id: "polling-sync", label: "Polling Sync" },
-  { id: "harnesses", label: "Harnesses" },
+  { id: "frames", label: "Frames" },
   { id: "context-awareness", label: "Context Awareness" },
   { id: "apis-and-clis", label: "APIs & CLIs, Not MCPs" },
   { id: "agent-modifies-code", label: "Agent Modifies Code" },
@@ -111,7 +111,7 @@ export default function KeyConceptsDocs() {
       <p>
         Every app includes an embedded agent panel with chat and optional CLI
         terminal. Locally, you run <code>pnpm dev</code> and the agent is right
-        there. In the cloud, Builder.io provides a managed harness with
+        there. In the cloud, Builder.io provides a managed frame with
         collaboration, visual editing, and managed infrastructure for teams.
       </p>
       <p>Six rules govern the architecture:</p>
@@ -323,7 +323,7 @@ useDbSync({
         watchers.
       </p>
 
-      <h2 id="harnesses">Harnesses</h2>
+      <h2 id="frames">Frames</h2>
       <p>
         Agent-native apps include an embedded agent panel that provides the AI
         agent alongside the app UI. This is what makes the architecture work:

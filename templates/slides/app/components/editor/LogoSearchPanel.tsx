@@ -121,7 +121,7 @@ export default function LogoSearchPanel({
         transform: "translate(-50%, -50%)",
         zIndex: 9999,
       }}
-      className="w-[460px] max-h-[560px] bg-[hsl(240,5%,10%)] border border-white/[0.1] rounded-xl shadow-2xl shadow-black/60 overflow-hidden flex flex-col"
+      className="w-[min(460px,calc(100vw-24px))] max-h-[560px] bg-[hsl(240,5%,10%)] border border-white/[0.1] rounded-xl shadow-2xl shadow-black/60 overflow-hidden flex flex-col"
     >
       <div className="px-4 pt-3 pb-2 flex items-center justify-between flex-shrink-0">
         <h3 className="text-sm font-semibold text-white/90">

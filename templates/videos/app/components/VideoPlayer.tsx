@@ -289,7 +289,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     return (
       <div
         ref={containerRef}
-        className="flex flex-col bg-black rounded-t-xl overflow-hidden border border-border"
+        className="flex flex-col bg-black rounded-t-xl overflow-hidden border border-border w-full"
       >
         {/* Player area */}
         <div className="relative w-full bg-black flex items-center justify-center overflow-hidden">
@@ -297,7 +297,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             className="w-full mx-auto"
             style={{
               aspectRatio: `${composition.width}/${composition.height}`,
-              maxHeight: "55vh",
+              maxHeight: "45vh",
               // Prevent layout thrashing
               contain: "layout style paint",
               // Hardware acceleration
@@ -342,10 +342,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         </div>
 
         {/* Controls */}
-        <div className="flex flex-col gap-2 px-4 py-3 bg-card/90 backdrop-blur-sm border-t border-border">
+        <div className="flex flex-col gap-2 px-2 sm:px-4 py-2 sm:py-3 bg-card/90 backdrop-blur-sm border-t border-border">
           {/* Progress bar — scoped to active range */}
           <div
-            className="group relative w-full h-1.5 bg-secondary rounded-full cursor-pointer hover:h-2.5 transition-all"
+            className="group relative w-full h-2 sm:h-1.5 bg-secondary rounded-full cursor-pointer hover:h-2.5"
             onClick={handleSeek}
           >
             <div
@@ -353,32 +353,32 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               style={{ width: `${rangeProgress * 100}%` }}
             />
             <div
-              className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
-              style={{ left: `calc(${rangeProgress * 100}% - 6px)` }}
+              className="absolute top-1/2 -translate-y-1/2 w-4 h-4 sm:w-3 sm:h-3 bg-white rounded-full opacity-100 sm:opacity-0 sm:group-hover:opacity-100 shadow-lg"
+              style={{ left: `calc(${rangeProgress * 100}% - 8px)` }}
             />
           </div>
 
           {/* Buttons + time */}
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-1">
             <div className="flex items-center gap-0.5">
               <button
                 onClick={restart}
                 title="Go to start"
                 aria-label="Go to start"
-                className="p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary transition-colors"
+                className="p-2.5 sm:p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary"
               >
-                <IconPlayerSkipBack size={15} />
+                <IconPlayerSkipBack size={16} />
               </button>
               <button
                 onClick={togglePlay}
                 title={playing ? "Pause" : "Play"}
                 aria-label={playing ? "Pause" : "Play"}
-                className="p-2 text-foreground hover:bg-secondary rounded-lg transition-colors"
+                className="p-2.5 sm:p-2 text-foreground hover:bg-secondary rounded-lg"
               >
                 {playing ? (
-                  <IconPlayerPause size={17} />
+                  <IconPlayerPause size={18} />
                 ) : (
-                  <IconPlayerPlay size={17} />
+                  <IconPlayerPlay size={18} />
                 )}
               </button>
               <button
@@ -386,18 +386,17 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 title={repeat ? "Loop: on" : "Loop: off"}
                 aria-label={repeat ? "Disable loop" : "Enable loop"}
                 className={cn(
-                  "p-2 rounded-lg transition-colors hover:bg-secondary",
+                  "p-2.5 sm:p-2 rounded-lg hover:bg-secondary",
                   repeat
                     ? "text-primary"
                     : "text-muted-foreground hover:text-foreground",
                 )}
               >
-                <IconRepeat size={14} />
+                <IconRepeat size={15} />
               </button>
             </div>
 
-            <div className="flex items-center gap-2">
-              {/* Time readout — clean and compact */}
+            <div className="flex items-center gap-1 sm:gap-2 flex-wrap justify-end">
               <span className="text-xs font-mono tabular-nums text-foreground/70">
                 {formatTime(currentTime)}
                 <span className="text-muted-foreground/40">
@@ -406,18 +405,16 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 </span>
               </span>
 
-              {/* Range pill — only shown when sub-range is active */}
               {isRanged && (
-                <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-md bg-primary/10 text-primary/70 border border-primary/20 tabular-nums">
+                <span className="hidden sm:inline text-[9px] font-mono px-1.5 py-0.5 rounded-md bg-primary/10 text-primary/70 border border-primary/20 tabular-nums">
                   {formatTime(rangeStartTime)}–{formatTime(rangeEndTime)}
                 </span>
               )}
 
-              <span className="text-[10px] px-2 py-1 rounded-md bg-blue-500/10 text-blue-400 border border-blue-500/30 font-mono tabular-nums">
+              <span className="hidden sm:inline text-[10px] px-2 py-1 rounded-md bg-blue-500/10 text-blue-400 border border-blue-500/30 font-mono tabular-nums">
                 Frame {currentFrame}
               </span>
 
-              {/* Playback speed dropdown */}
               <Select
                 value={String(playbackRate)}
                 onValueChange={(val) => onPlaybackRateChange?.(parseFloat(val))}
@@ -443,12 +440,12 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 onClick={toggleFullscreen}
                 title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
                 aria-label={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
-                className="p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary transition-colors"
+                className="p-2.5 sm:p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary"
               >
                 {isFullscreen ? (
-                  <IconArrowsMinimize size={13} />
+                  <IconArrowsMinimize size={14} />
                 ) : (
-                  <IconArrowsMaximize size={13} />
+                  <IconArrowsMaximize size={14} />
                 )}
               </button>
             </div>

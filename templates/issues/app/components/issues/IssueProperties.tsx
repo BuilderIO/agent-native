@@ -22,7 +22,7 @@ export function IssueProperties({ issue }: IssuePropertiesProps) {
   };
 
   return (
-    <div className="grid grid-cols-2 gap-x-6 gap-y-3 rounded-md border border-border/50 bg-muted/30 p-4">
+    <div className="grid grid-cols-1 gap-x-6 gap-y-3 rounded-md border border-border/50 bg-muted/30 p-3 sm:grid-cols-2 sm:p-4">
       {/* Status */}
       <PropertyCell label="Status">
         <div className="relative">
@@ -162,7 +162,7 @@ function PropertyCell({
   span2?: boolean;
 }) {
   return (
-    <div className={span2 ? "col-span-2" : ""}>
+    <div className={span2 ? "sm:col-span-2" : ""}>
       <div className="mb-0.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
         {label}
       </div>

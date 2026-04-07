@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import {
   IconX,
   IconPlus,
@@ -9,6 +9,12 @@ import {
 } from "@tabler/icons-react";
 import type { AppConfig } from "@shared/app-registry";
 import { generateAppId } from "@shared/app-registry";
+
+interface FrameSettings {
+  enabled: boolean;
+  mode: "dev" | "prod";
+  prodUrl?: string;
+}
 
 interface AppSettingsProps {
   apps: AppConfig[];
@@ -43,6 +49,30 @@ export default function AppSettings({
 }: AppSettingsProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [frameSettings, setFrameSettings] = useState<FrameSettings | null>(
+    null,
+  );
+
+  // Load frame settings
+  useEffect(() => {
+    if (window.electronAPI?.frame) {
+      window.electronAPI.frame.load().then(setFrameSettings);
+    }
+  }, []);
+
+  const handleFrameToggle = useCallback(async (enabled: boolean) => {
+    if (window.electronAPI?.frame) {
+      const updated = await window.electronAPI.frame.update({ enabled });
+      setFrameSettings(updated);
+    }
+  }, []);
+
+  const handleFrameModeToggle = useCallback(async (mode: "dev" | "prod") => {
+    if (window.electronAPI?.frame) {
+      const updated = await window.electronAPI.frame.update({ mode });
+      setFrameSettings(updated);
+    }
+  }, []);
 
   const handleToggle = useCallback(
     async (id: string, enabled: boolean) => {
@@ -114,6 +144,45 @@ export default function AppSettings({
         </div>
 
         <div className="settings-body">
+          {/* Local Dev Frame */}
+          {frameSettings && (
+            <div className="settings-section">
+              <h3>Local Dev Frame</h3>
+              <div className="settings-app-row">
+                <div className="settings-app-info">
+                  <span className="settings-app-name">Code editing frame</span>
+                  <span className="settings-app-url">
+                    Chat + CLI sidebar for code editing
+                  </span>
+                </div>
+                <div className="settings-app-actions">
+                  <div className="settings-mode-toggle">
+                    <button
+                      className={`settings-mode-btn${frameSettings.mode === "prod" ? " settings-mode-btn--active" : ""}`}
+                      onClick={() => handleFrameModeToggle("prod")}
+                    >
+                      Prod
+                    </button>
+                    <button
+                      className={`settings-mode-btn${frameSettings.mode === "dev" ? " settings-mode-btn--active" : ""}`}
+                      onClick={() => handleFrameModeToggle("dev")}
+                    >
+                      Dev
+                    </button>
+                  </div>
+                  <label className="settings-toggle">
+                    <input
+                      type="checkbox"
+                      checked={frameSettings.enabled}
+                      onChange={(e) => handleFrameToggle(e.target.checked)}
+                    />
+                    <span className="settings-toggle-track" />
+                  </label>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* App list */}
           <div className="settings-section">
             <h3>Installed Apps</h3>

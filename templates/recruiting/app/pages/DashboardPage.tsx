@@ -70,11 +70,11 @@ export function DashboardPage() {
   ];
 
   return (
-    <div className="mx-auto max-w-4xl px-6 py-8">
+    <div className="mx-auto max-w-4xl px-4 py-6 pt-14 sm:px-6 sm:py-8 md:pt-8">
       <h1 className="text-xl font-semibold text-foreground mb-6">Dashboard</h1>
 
       {/* Stats cards */}
-      <div className="grid grid-cols-3 gap-4 mb-8">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4 mb-8">
         {stats.map((stat) => (
           <button
             key={stat.label}
@@ -118,7 +118,7 @@ export function DashboardPage() {
                 <div
                   key={app.id}
                   onClick={() => navigate(`/candidates/${app.candidate_id}`)}
-                  className="flex items-center justify-between px-4 py-3 text-sm cursor-pointer hover:bg-accent/50"
+                  className="flex items-center justify-between gap-3 px-3 py-3 text-sm cursor-pointer hover:bg-accent/50 sm:px-4"
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <div
@@ -133,17 +133,20 @@ export function DashboardPage() {
                       <div className="font-medium text-foreground truncate">
                         {name}
                       </div>
-                      <div className="text-xs text-muted-foreground">
+                      <div className="text-xs text-muted-foreground truncate">
                         {app.jobs?.[0]?.name ?? "Unknown Job"}
                         {" · "}
                         {app.current_stage?.name ?? "No stage"}
                         {app.source?.public_name && (
-                          <span> · via {app.source.public_name}</span>
+                          <span className="hidden sm:inline">
+                            {" "}
+                            · via {app.source.public_name}
+                          </span>
                         )}
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-3 flex-shrink-0">
+                  <div className="flex items-center gap-2 flex-shrink-0 sm:gap-3">
                     <span
                       className={cn(
                         "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium",
@@ -156,7 +159,7 @@ export function DashboardPage() {
                     >
                       {app.status}
                     </span>
-                    <span className="text-xs text-muted-foreground tabular-nums">
+                    <span className="hidden text-xs text-muted-foreground tabular-nums sm:inline">
                       {formatRelativeDate(app.applied_at)}
                     </span>
                   </div>

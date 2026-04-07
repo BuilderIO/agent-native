@@ -175,7 +175,7 @@ export function CloudUpgrade({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose?.()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg w-[calc(100vw-1.5rem)] sm:w-full max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-center gap-2">
             <Cloud className="h-5 w-5 text-primary" />
@@ -191,7 +191,7 @@ export function CloudUpgrade({
               key={p.id}
               onClick={() => setSelectedProvider(p.id)}
               className={cn(
-                "flex flex-col items-start rounded-lg border px-3 py-2.5 text-left transition-colors",
+                "flex flex-col items-start rounded-lg border px-3 py-2.5 text-left min-h-[44px]",
                 selectedProvider === p.id
                   ? "border-primary bg-primary/5"
                   : "border-border hover:border-primary/30",
@@ -227,7 +227,7 @@ export function CloudUpgrade({
                   className="flex items-start gap-2 text-xs text-muted-foreground"
                 >
                   <ChevronRight className="mt-0.5 h-3 w-3 shrink-0" />
-                  <span className="font-mono">{step}</span>
+                  <span className="font-mono break-words">{step}</span>
                 </li>
               ))}
             </ol>

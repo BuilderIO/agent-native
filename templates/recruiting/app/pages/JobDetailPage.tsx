@@ -96,11 +96,11 @@ export function JobDetailPage() {
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="flex items-center gap-3 border-b border-border px-6 h-14 flex-shrink-0">
+      <div className="flex items-center gap-3 border-b border-border px-4 h-14 flex-shrink-0 sm:px-6">
         <button
           onClick={() => navigate("/jobs")}
           aria-label="Back to jobs"
-          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground flex-shrink-0"
         >
           <IconArrowLeft className="h-4 w-4" />
         </button>
@@ -108,16 +108,19 @@ export function JobDetailPage() {
           <h1 className="text-sm font-semibold text-foreground truncate">
             {job.name}
           </h1>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground truncate">
             {(job.departments || []).map((d) => d.name).join(", ")}
             {(job.offices || []).length > 0 && (
-              <span> &middot; {job.offices.map((o) => o.name).join(", ")}</span>
+              <span className="hidden sm:inline">
+                {" "}
+                &middot; {job.offices.map((o) => o.name).join(", ")}
+              </span>
             )}
           </div>
         </div>
         <span
           className={cn(
-            "ml-2 inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium",
+            "ml-auto inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium flex-shrink-0",
             job.status === "open"
               ? "bg-green-500/10 text-green-600"
               : job.status === "closed"
@@ -131,7 +134,7 @@ export function JobDetailPage() {
 
       {/* Pipeline board */}
       <div className="flex-1 overflow-x-auto">
-        <div className="flex h-full gap-3 p-4 min-w-max">
+        <div className="flex h-full gap-3 p-3 min-w-max sm:p-4">
           {pipeline.map((stage) => (
             <div
               key={stage.stage.id}

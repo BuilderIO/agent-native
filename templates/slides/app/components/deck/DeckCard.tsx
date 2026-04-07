@@ -40,15 +40,15 @@ export default function DeckCard({ deck, onDelete }: DeckCardProps) {
         </div>
       </Link>
 
-      {/* Menu Button */}
-      <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+      {/* Menu Button - always visible on touch devices */}
+      <div className="absolute top-2 right-2 sm:opacity-0 sm:group-hover:opacity-100">
         <button
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
             setShowMenu(!showMenu);
           }}
-          className="p-1.5 rounded-md bg-black/60 backdrop-blur-sm border border-white/10 hover:bg-black/80 transition-colors"
+          className="p-2 sm:p-1.5 rounded-md bg-black/60 backdrop-blur-sm border border-white/10 hover:bg-black/80"
           aria-label="Deck options"
         >
           <IconDots className="w-3.5 h-3.5 text-white/70" />
@@ -68,7 +68,7 @@ export default function DeckCard({ deck, onDelete }: DeckCardProps) {
                   onDelete(deck.id);
                   setShowMenu(false);
                 }}
-                className="flex items-center gap-2 w-full px-3 py-2 text-sm text-red-400 hover:bg-white/5 transition-colors"
+                className="flex items-center gap-2 w-full px-3 py-2.5 text-sm text-red-400 hover:bg-white/5"
               >
                 <IconTrash className="w-3.5 h-3.5" />
                 Delete

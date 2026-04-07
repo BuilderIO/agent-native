@@ -1,14 +1,24 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router";
 import { StudioHeader } from "@/components/StudioHeader";
 import { ComponentLibraryView } from "@/pages/ComponentLibraryView";
 import { ComponentLibrarySidebar } from "@/components/ComponentLibrarySidebar";
 import { libraryComponents } from "@/remotion/componentRegistry";
 import { CurrentElementProvider } from "@/contexts/CurrentElementContext";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 export default function ComponentLibrary() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const isMobile = useIsMobile();
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const initialSidebarSet = useRef(false);
+
+  useEffect(() => {
+    if (!initialSidebarSet.current && isMobile) {
+      setSidebarOpen(false);
+      initialSidebarSet.current = true;
+    }
+  }, [isMobile]);
 
   // Get component from URL param (?id=card) or default to first
   const componentIdFromUrl = searchParams.get("id");
@@ -65,7 +75,7 @@ export default function ComponentLibrary() {
           onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
         />
 
-        <div className="flex flex-1 min-h-0">
+        <div className="flex flex-1 min-h-0 relative">
           {/* Left Sidebar with Tabs */}
           <ComponentLibrarySidebar
             open={sidebarOpen}

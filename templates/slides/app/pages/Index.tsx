@@ -65,18 +65,18 @@ export default function Index() {
     <div className="min-h-screen bg-[hsl(240,6%,4%)]">
       {/* Header */}
       <header className="border-b border-white/[0.06]">
-        <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
           <span className="text-base font-semibold text-white/90 tracking-tight">
             Slides
           </span>
           <div className="flex items-center gap-2">
             <a
               href="/settings"
-              className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-white/50 hover:text-white/80 transition-all"
+              className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-white/50 hover:text-white/80"
               title="Settings"
               aria-label="Settings"
             >
-              <IconSettings className="w-3.5 h-3.5" />
+              <IconSettings className="w-4 h-4" />
             </a>
             <Button onClick={openNewDeck} size="sm">
               <IconPlus className="w-3.5 h-3.5" />
@@ -88,7 +88,7 @@ export default function Index() {
       </header>
 
       {/* Content */}
-      <main className="max-w-6xl mx-auto px-6 py-10">
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
         {loading ? (
           <div className="flex items-center justify-center min-h-[60vh]">
             <div className="text-sm text-white/30">Loading decks...</div>

@@ -1,18 +1,23 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import {
   defineEventHandler,
   readBody,
   getMethod,
   getQuery,
-  getRequestIP,
   setResponseHeader,
   setResponseStatus,
   getCookie,
   setCookie,
   deleteCookie,
+  toWebRequest,
 } from "h3";
 import type { App as H3App, H3Event } from "h3";
-import { getDbExec, isPostgres, intType, type DbExec } from "../db/client.js";
+import { getDbExec, isPostgres, intType } from "../db/client.js";
+import { getBetterAuth, getBetterAuthSync } from "./better-auth-instance.js";
+import type { BetterAuthConfig } from "./better-auth-instance.js";
+import { ONBOARDING_HTML } from "./onboarding-html.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -22,6 +27,10 @@ export interface AuthSession {
   email: string;
   userId?: string;
   token?: string;
+  /** Active organization ID (from Better Auth organization plugin) */
+  orgId?: string;
+  /** User's role in the active organization (owner/admin/member) */
+  orgRole?: string;
 }
 
 export interface AuthOptions {
@@ -29,7 +38,7 @@ export interface AuthOptions {
   maxAge?: number;
   /**
    * Custom getSession implementation (for BYOA — Auth.js, Clerk, etc.).
-   * When provided, the built-in token auth is bypassed entirely.
+   * When provided, Better Auth is bypassed entirely.
    */
   getSession?: (event: H3Event) => Promise<AuthSession | null>;
   /**
@@ -40,10 +49,14 @@ export interface AuthOptions {
   publicPaths?: string[];
   /**
    * Custom login page HTML. When provided, this HTML is served to
-   * unauthenticated page requests instead of the built-in token login form.
+   * unauthenticated page requests instead of the built-in login form.
    * Use this for custom login flows (e.g., "Sign in with Google" button).
    */
   loginHtml?: string;
+  /**
+   * Additional Better Auth configuration (social providers, plugins, etc.)
+   */
+  betterAuth?: BetterAuthConfig;
 }
 
 // ---------------------------------------------------------------------------
@@ -54,83 +67,63 @@ const COOKIE_NAME = "an_session";
 const DEFAULT_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 
 // ---------------------------------------------------------------------------
-// Rate limiting — in-memory, per-IP
+// AUTH_MODE detection
 // ---------------------------------------------------------------------------
 
-interface RateLimitEntry {
-  count: number;
-  resetAt: number;
-}
-
-const RATE_LIMIT_WINDOW = 15 * 60 * 1000; // 15 minutes
-const RATE_LIMIT_MAX = 10; // max attempts per window
-const rateLimitMap = new Map<string, RateLimitEntry>();
-
-// Prune stale entries every 5 minutes to prevent unbounded growth
-setInterval(
-  () => {
-    const now = Date.now();
-    for (const [key, entry] of rateLimitMap) {
-      if (now > entry.resetAt) rateLimitMap.delete(key);
-    }
-  },
-  5 * 60 * 1000,
-).unref();
-
-function getClientIp(event: H3Event): string {
-  // Prefer the actual socket remote address to prevent X-Forwarded-For spoofing.
-  // Only fall back to X-Forwarded-For if the direct connection is from a
-  // loopback address (i.e. behind a local reverse proxy).
-  const socketIp = event.node?.req?.socket?.remoteAddress;
-  const isFromProxy =
-    socketIp === "127.0.0.1" ||
-    socketIp === "::1" ||
-    socketIp === "::ffff:127.0.0.1";
-  if (isFromProxy) {
-    return (
-      getRequestIP(event, { xForwardedFor: true }) ?? socketIp ?? "unknown"
-    );
-  }
-  return socketIp ?? getRequestIP(event, { xForwardedFor: false }) ?? "unknown";
+/**
+ * Check if the app is in local-only mode (no auth).
+ *
+ * AUTH_MODE=local is the explicit escape hatch for solo local dev.
+ * It can be set in .env or toggled via the onboarding page.
+ */
+function isLocalMode(): boolean {
+  return process.env.AUTH_MODE === "local";
 }
 
 /**
- * Check rate limit for a given key (typically IP + route).
- * Returns null if allowed, or a response object if blocked.
+ * Check if we're in a development/test environment.
+ * Used for cookie security settings, not for auth bypass.
  */
-function checkRateLimit(
-  event: H3Event,
-  key: string,
-): { error: string; retryAfter: number } | null {
-  const now = Date.now();
-  const entry = rateLimitMap.get(key);
-
-  if (!entry || now > entry.resetAt) {
-    rateLimitMap.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW });
-    return null;
-  }
-
-  entry.count++;
-  if (entry.count > RATE_LIMIT_MAX) {
-    const retryAfter = Math.ceil((entry.resetAt - now) / 1000);
-    setResponseStatus(event, 429);
-    setResponseHeader(event, "Retry-After", retryAfter);
-    return {
-      error: "Too many attempts. Please try again later.",
-      retryAfter,
-    };
-  }
-
-  return null;
-}
-
-/** Reset rate limit on successful auth (so valid users aren't penalized). */
-function resetRateLimit(key: string): void {
-  rateLimitMap.delete(key);
+function isDevEnvironment(): boolean {
+  const env = process.env.NODE_ENV;
+  return env === "development" || env === "test";
 }
 
 // ---------------------------------------------------------------------------
-// Session store — SQL-backed
+// ACCESS_TOKEN resolution
+// ---------------------------------------------------------------------------
+
+function getAccessTokens(): string[] {
+  const single = process.env.ACCESS_TOKEN;
+  const multi = process.env.ACCESS_TOKENS;
+  const tokens: string[] = [];
+  if (single) tokens.push(single);
+  if (multi) {
+    for (const t of multi.split(",")) {
+      const trimmed = t.trim();
+      if (trimmed && !tokens.includes(trimmed)) tokens.push(trimmed);
+    }
+  }
+  return tokens;
+}
+
+function safeTokenMatch(input: string, tokens: string[]): boolean {
+  const inputBuf = Buffer.from(input);
+  for (const token of tokens) {
+    const tokenBuf = Buffer.from(token);
+    if (
+      inputBuf.length === tokenBuf.length &&
+      crypto.timingSafeEqual(inputBuf, tokenBuf)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// Legacy session store — kept for backward compat (addSession/getSessionEmail)
+// Used by google-oauth.ts for mobile deep linking session creation.
 // ---------------------------------------------------------------------------
 
 let _sessionInitPromise: Promise<void> | undefined;
@@ -147,30 +140,19 @@ async function ensureSessionTable(): Promise<void> {
           created_at ${intType()} NOT NULL
         )
       `);
-      // Migration: add email column to existing tables that lack it
       try {
         await client.execute(`ALTER TABLE sessions ADD COLUMN email TEXT`);
       } catch {
-        // Column already exists — ignore
+        // Column already exists
       }
     })();
   }
   return _sessionInitPromise;
 }
 
-async function pruneExpiredSessions(): Promise<void> {
-  await ensureSessionTable();
-  const client = getDbExec();
-  const cutoff = Date.now() - sessionMaxAge * 1000;
-  await client.execute({
-    sql: `DELETE FROM sessions WHERE created_at < ?`,
-    args: [cutoff],
-  });
-}
-
 /**
- * Create a new session. Optionally associate it with an email address
- * (used by Google OAuth and other identity-aware auth providers).
+ * Create a new session in the legacy sessions table.
+ * Used by google-oauth.ts for mobile deep linking.
  */
 export async function addSession(token: string, email?: string): Promise<void> {
   await ensureSessionTable();
@@ -183,7 +165,7 @@ export async function addSession(token: string, email?: string): Promise<void> {
   });
 }
 
-/** Remove a session by token. */
+/** Remove a session from the legacy sessions table. */
 export async function removeSession(token: string): Promise<void> {
   await ensureSessionTable();
   const client = getDbExec();
@@ -194,7 +176,7 @@ export async function removeSession(token: string): Promise<void> {
 }
 
 /**
- * Look up the email associated with a session token.
+ * Look up the email associated with a legacy session token.
  * Returns null if the session doesn't exist, is expired, or has no email.
  */
 export async function getSessionEmail(token: string): Promise<string | null> {
@@ -216,54 +198,6 @@ export async function getSessionEmail(token: string): Promise<string | null> {
   return (rows[0].email as string) ?? null;
 }
 
-async function hasSession(token: string): Promise<boolean> {
-  await ensureSessionTable();
-  const client = getDbExec();
-  const { rows } = await client.execute({
-    sql: `SELECT created_at FROM sessions WHERE token = ?`,
-    args: [token],
-  });
-  if (rows.length === 0) return false;
-  const createdAt = rows[0].created_at as number;
-  if (Date.now() - createdAt > sessionMaxAge * 1000) {
-    await client.execute({
-      sql: `DELETE FROM sessions WHERE token = ?`,
-      args: [token],
-    });
-    return false;
-  }
-  return true;
-}
-
-// ---------------------------------------------------------------------------
-// Token resolution — supports ACCESS_TOKEN (single) or ACCESS_TOKENS (multi)
-// ---------------------------------------------------------------------------
-
-function getAccessTokens(): string[] {
-  const single = process.env.ACCESS_TOKEN;
-  const multi = process.env.ACCESS_TOKENS;
-  const tokens: string[] = [];
-  if (single) tokens.push(single);
-  if (multi) {
-    for (const t of multi.split(",")) {
-      const trimmed = t.trim();
-      if (trimmed && !tokens.includes(trimmed)) tokens.push(trimmed);
-    }
-  }
-  return tokens;
-}
-
-// ---------------------------------------------------------------------------
-// Dev mode detection
-// ---------------------------------------------------------------------------
-
-function isDevMode(): boolean {
-  // On edge runtimes (e.g. CF Workers), NODE_ENV may not be set.
-  // Treat undefined as production — dev mode must be explicitly opted in.
-  const env = process.env.NODE_ENV;
-  return env === "development" || env === "test";
-}
-
 // ---------------------------------------------------------------------------
 // getSession — the auth contract
 // ---------------------------------------------------------------------------
@@ -272,21 +206,39 @@ let customGetSession: ((event: H3Event) => Promise<AuthSession | null>) | null =
   null;
 let authDisabledMode = false;
 
-const DEV_SESSION: AuthSession = { email: "local@localhost" };
+const LOCAL_SESSION: AuthSession = { email: "local@localhost" };
+
+/**
+ * Map a Better Auth session to our AuthSession type.
+ */
+function mapBetterAuthSession(baSession: {
+  user: { id: string; email: string };
+  session: { token: string; activeOrganizationId?: string };
+}): AuthSession {
+  return {
+    email: baSession.user.email,
+    userId: baSession.user.id,
+    token: baSession.session?.token,
+    orgId: baSession.session?.activeOrganizationId ?? undefined,
+  };
+}
 
 /**
  * Get the current auth session for a request.
  *
- * - In dev mode: checks for a session cookie first (e.g. from Google OAuth),
- *   so the real email is used when sharing a DB with production.
- *   Falls back to { email: "local@localhost" } if no session cookie.
- * - In production with built-in auth: returns session if cookie is valid
- * - With custom auth (BYOA): delegates to the custom getSession
+ * Resolution chain:
+ * 1. AUTH_MODE=local → local@localhost (explicit escape hatch)
+ * 2. AUTH_DISABLED=true → local@localhost (infrastructure auth)
+ * 3. ACCESS_TOKEN → check legacy cookie-based token sessions
+ * 4. BYOA custom getSession → delegate to template callback
+ * 5. Better Auth → check session via Better Auth API (cookie or Bearer)
+ * 6. Legacy cookie → check an_session cookie in legacy sessions table
+ * 7. Mobile _session query param → promote to cookie
  */
 export async function getSession(event: H3Event): Promise<AuthSession | null> {
-  if (isDevMode() || authDisabledMode) {
-    // Check for a real session cookie (created by Google OAuth callback)
-    // so dev and prod share the same identity on the same DB
+  // 1. AUTH_MODE=local — explicit local-only mode
+  if (isLocalMode() || authDisabledMode) {
+    // Check for a real session cookie first (e.g. from Google OAuth)
     try {
       const cookie = getCookie(event, COOKIE_NAME);
       if (cookie) {
@@ -294,16 +246,30 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
         if (email) return { email, token: cookie };
       }
     } catch {
-      // DB not ready yet — fall back to dev session
+      // DB not ready yet
     }
-    return DEV_SESSION;
+
+    // Also try Better Auth session (for users who created an account then went local)
+    try {
+      const ba = getBetterAuthSync();
+      if (ba) {
+        const baSession = await ba.api.getSession({
+          headers: event.headers,
+        });
+        if (baSession?.user?.email) {
+          return mapBetterAuthSession(baSession);
+        }
+      }
+    } catch {
+      // Better Auth not initialized yet
+    }
+
+    return LOCAL_SESSION;
   }
 
-  if (customGetSession) {
-    const session = await customGetSession(event);
-    if (session) return session;
-    // Fall through to _session query param check (mobile WebView bridge)
-  } else {
+  // 2. ACCESS_TOKEN check (programmatic/agent access)
+  const accessTokens = getAccessTokens();
+  if (accessTokens.length > 0) {
     const cookie = getCookie(event, COOKIE_NAME);
     if (cookie) {
       const email = await getSessionEmail(cookie);
@@ -311,23 +277,47 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
     }
   }
 
-  // Mobile WebViews have a separate cookie jar from Safari, so after OAuth
-  // completes in Safari the WebView won't have the session cookie.  The mobile
-  // app passes the token as a query parameter; if it's valid we promote it to
-  // an httpOnly cookie so subsequent requests work normally.
-  // This MUST run even with custom auth providers (e.g. createGoogleAuthPlugin).
+  // 3. BYOA custom getSession
+  if (customGetSession) {
+    const session = await customGetSession(event);
+    if (session) return session;
+    // Fall through to mobile _session check
+  } else {
+    // 4. Better Auth session (cookie or Bearer token)
+    try {
+      const ba = getBetterAuthSync();
+      if (ba) {
+        const baSession = await ba.api.getSession({
+          headers: event.headers,
+        });
+        if (baSession?.user?.email) {
+          return mapBetterAuthSession(baSession);
+        }
+      }
+    } catch {
+      // Better Auth not ready
+    }
+
+    // 5. Legacy cookie fallback (for sessions created before migration)
+    const cookie = getCookie(event, COOKIE_NAME);
+    if (cookie) {
+      const email = await getSessionEmail(cookie);
+      if (email) return { email, token: cookie };
+    }
+  }
+
+  // 6. Mobile WebView bridge — _session query param
   const qToken = getQuery(event)?._session as string | undefined;
   if (qToken) {
     const email = await getSessionEmail(qToken);
     if (email) {
       setCookie(event, COOKIE_NAME, qToken, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
+        secure: !isDevEnvironment(),
         sameSite: "lax",
         path: "/",
         maxAge: sessionMaxAge,
       });
-      // Prevent token from leaking via Referer headers
       setResponseHeader(event, "Referrer-Policy", "no-referrer");
       return { email, token: qToken };
     }
@@ -337,167 +327,19 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
 }
 
 // ---------------------------------------------------------------------------
-// Constant-time token comparison
+// Public path matching
 // ---------------------------------------------------------------------------
 
-function safeTokenMatch(input: string, tokens: string[]): boolean {
-  const inputBuf = Buffer.from(input);
-  for (const token of tokens) {
-    const tokenBuf = Buffer.from(token);
-    if (
-      inputBuf.length === tokenBuf.length &&
-      crypto.timingSafeEqual(inputBuf, tokenBuf)
-    ) {
-      return true;
-    }
-  }
-  return false;
+function isPublicPath(url: string, publicPaths: string[]): boolean {
+  const p = url.split("?")[0];
+  return publicPaths.some((pp) => p === pp || p.startsWith(pp + "/"));
 }
 
 // ---------------------------------------------------------------------------
-// Password hashing — Web Crypto PBKDF2 (works on Node.js + CF Workers)
+// Login page HTML (ACCESS_TOKEN mode)
 // ---------------------------------------------------------------------------
 
-const PBKDF2_ITERATIONS = 100_000;
-
-function toHex(buf: Uint8Array): string {
-  return Array.from(buf)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-function fromHex(hex: string): Uint8Array {
-  const bytes = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < hex.length; i += 2) {
-    bytes[i / 2] = parseInt(hex.slice(i, i + 2), 16);
-  }
-  return bytes;
-}
-
-async function hashPassword(password: string): Promise<string> {
-  const salt = crypto.getRandomValues(new Uint8Array(16));
-  const encoded = new TextEncoder().encode(password);
-  const keyMaterial = await globalThis.crypto.subtle.importKey(
-    "raw",
-    encoded.buffer as ArrayBuffer,
-    "PBKDF2",
-    false,
-    ["deriveBits"],
-  );
-  const derived = await globalThis.crypto.subtle.deriveBits(
-    {
-      name: "PBKDF2",
-      salt: salt.buffer as ArrayBuffer,
-      iterations: PBKDF2_ITERATIONS,
-      hash: "SHA-256",
-    },
-    keyMaterial,
-    256,
-  );
-  return `${PBKDF2_ITERATIONS}:${toHex(salt)}:${toHex(new Uint8Array(derived))}`;
-}
-
-async function verifyPassword(
-  password: string,
-  stored: string,
-): Promise<boolean> {
-  const [iterStr, saltHex, hashHex] = stored.split(":");
-  const iterations = parseInt(iterStr, 10);
-  const salt = fromHex(saltHex);
-  const expectedHash = fromHex(hashHex);
-
-  const encoded = new TextEncoder().encode(password);
-  const keyMaterial = await globalThis.crypto.subtle.importKey(
-    "raw",
-    encoded.buffer as ArrayBuffer,
-    "PBKDF2",
-    false,
-    ["deriveBits"],
-  );
-  const derived = new Uint8Array(
-    await globalThis.crypto.subtle.deriveBits(
-      {
-        name: "PBKDF2",
-        salt: salt.buffer as ArrayBuffer,
-        iterations,
-        hash: "SHA-256",
-      },
-      keyMaterial,
-      256,
-    ),
-  );
-
-  if (derived.length !== expectedHash.length) return false;
-  // Constant-time comparison
-  let diff = 0;
-  for (let i = 0; i < derived.length; i++) {
-    diff |= derived[i] ^ expectedHash[i];
-  }
-  return diff === 0;
-}
-
-// ---------------------------------------------------------------------------
-// Users table — email/password accounts
-// ---------------------------------------------------------------------------
-
-let _usersTableReady = false;
-
-async function ensureUsersTable(): Promise<void> {
-  if (_usersTableReady) return;
-  const client = getDbExec();
-  await client.execute(`
-    CREATE TABLE IF NOT EXISTS users (
-      email TEXT PRIMARY KEY,
-      password_hash TEXT NOT NULL,
-      created_at ${intType()} NOT NULL
-    )
-  `);
-  _usersTableReady = true;
-}
-
-async function createUser(
-  email: string,
-  password: string,
-): Promise<{ ok: boolean; error?: string }> {
-  await ensureUsersTable();
-  const client = getDbExec();
-
-  // Check if user already exists
-  const { rows } = await client.execute({
-    sql: `SELECT email FROM users WHERE email = ?`,
-    args: [email],
-  });
-  if (rows.length > 0) {
-    return { ok: false, error: "An account with this email already exists" };
-  }
-
-  const passwordHash = await hashPassword(password);
-  await client.execute({
-    sql: `INSERT INTO users (email, password_hash, created_at) VALUES (?, ?, ?)`,
-    args: [email, passwordHash, Date.now()],
-  });
-  return { ok: true };
-}
-
-async function authenticateUser(
-  email: string,
-  password: string,
-): Promise<boolean> {
-  await ensureUsersTable();
-  const client = getDbExec();
-  const { rows } = await client.execute({
-    sql: `SELECT password_hash FROM users WHERE email = ?`,
-    args: [email],
-  });
-  if (rows.length === 0) return false;
-  return verifyPassword(password, rows[0].password_hash as string);
-}
-
-// ---------------------------------------------------------------------------
-// Login page HTML
-// ---------------------------------------------------------------------------
-
-const LOGIN_HTML = `<!DOCTYPE html>
+const TOKEN_LOGIN_HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -533,7 +375,6 @@ const LOGIN_HTML = `<!DOCTYPE html>
     color: #e5e5e5;
     font-size: 0.9375rem;
     outline: none;
-    transition: border-color 0.15s;
   }
   input:focus { border-color: rgba(255,255,255,0.3); }
   button {
@@ -547,7 +388,6 @@ const LOGIN_HTML = `<!DOCTYPE html>
     font-size: 0.9375rem;
     font-weight: 500;
     cursor: pointer;
-    transition: opacity 0.15s;
   }
   button:hover { opacity: 0.85; }
   .error { margin-top: 0.75rem; font-size: 0.8125rem; color: #f87171; display: none; }
@@ -584,204 +424,137 @@ const LOGIN_HTML = `<!DOCTYPE html>
 </html>`;
 
 // ---------------------------------------------------------------------------
-// Email/password auth HTML — combined login + register page
+// setAuthModeLocal — write AUTH_MODE=local to .env for the escape hatch
 // ---------------------------------------------------------------------------
 
-const EMAIL_AUTH_HTML = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Sign in</title>
-<style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    background: #0a0a0a;
-    color: #e5e5e5;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 100vh;
-  }
-  .card {
-    width: 100%;
-    max-width: 380px;
-    padding: 2rem;
-    background: #141414;
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 12px;
-  }
-  .tabs {
-    display: inline-flex;
-    width: 100%;
-    padding: 4px;
-    margin-bottom: 1.5rem;
-    background: rgba(255,255,255,0.06);
-    border-radius: 8px;
-  }
-  .tab {
-    flex: 1;
-    padding: 0.5rem 0.75rem;
-    background: none;
-    border: none;
-    color: #888;
-    font-size: 0.8125rem;
-    font-weight: 500;
-    cursor: pointer;
-    border-radius: 6px;
-  }
-  .tab.active {
-    background: #1e1e1e;
-    color: #fff;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.3);
-  }
-  .tab:hover:not(.active) { color: #bbb; }
-  .form { display: none; }
-  .form.active { display: block; }
-  label { display: block; font-size: 0.8125rem; color: #888; margin-bottom: 0.375rem; }
-  input {
-    width: 100%;
-    padding: 0.5rem 0.75rem;
-    background: transparent;
-    border: 1px solid rgba(255,255,255,0.12);
-    border-radius: 6px;
-    color: #e5e5e5;
-    font-size: 0.875rem;
-    outline: none;
-    margin-bottom: 0.875rem;
-  }
-  input:focus { border-color: rgba(255,255,255,0.3); box-shadow: 0 0 0 1px rgba(255,255,255,0.1); }
-  input::placeholder { color: #555; }
-  button[type="submit"] {
-    width: 100%;
-    margin-top: 0.25rem;
-    padding: 0.5rem;
-    background: #fff;
-    color: #000;
-    border: none;
-    border-radius: 6px;
-    font-size: 0.875rem;
-    font-weight: 500;
-    cursor: pointer;
-  }
-  button[type="submit"]:hover { background: #e5e5e5; }
-  button[type="submit"]:disabled { opacity: 0.5; cursor: not-allowed; }
-  .msg { margin-top: 0.75rem; font-size: 0.8125rem; display: none; }
-  .msg.error { color: #f87171; }
-  .msg.success { color: #4ade80; }
-  .msg.show { display: block; }
-</style>
-</head>
-<body>
-<div class="card">
-  <div class="tabs">
-    <button class="tab active" data-tab="login">Sign in</button>
-    <button class="tab" data-tab="register">Create account</button>
-  </div>
-  <form id="login-form" class="form active">
-    <label for="l-email">Email</label>
-    <input id="l-email" type="email" autocomplete="email" autofocus placeholder="you@example.com" required />
-    <label for="l-pass">Password</label>
-    <input id="l-pass" type="password" autocomplete="current-password" placeholder="Enter password" required />
-    <button type="submit">Sign in</button>
-    <p class="msg error" id="l-err"></p>
-  </form>
-  <form id="register-form" class="form">
-    <label for="r-email">Email</label>
-    <input id="r-email" type="email" autocomplete="email" placeholder="you@example.com" required />
-    <label for="r-pass">Password</label>
-    <input id="r-pass" type="password" autocomplete="new-password" placeholder="At least 8 characters" required minlength="8" />
-    <label for="r-pass2">Confirm password</label>
-    <input id="r-pass2" type="password" autocomplete="new-password" placeholder="Confirm password" required minlength="8" />
-    <button type="submit">Create account</button>
-    <p class="msg" id="r-msg"></p>
-  </form>
-</div>
-<script>
-  const tabs = document.querySelectorAll('.tab');
-  const forms = document.querySelectorAll('.form');
-  tabs.forEach(t => t.addEventListener('click', () => {
-    tabs.forEach(x => x.classList.remove('active'));
-    forms.forEach(x => x.classList.remove('active'));
-    t.classList.add('active');
-    document.getElementById(t.dataset.tab + '-form').classList.add('active');
-  }));
+function setAuthModeLocal(): boolean {
+  try {
+    const envPath = path.resolve(process.cwd(), ".env");
+    let content = "";
+    try {
+      content = fs.readFileSync(envPath, "utf-8");
+    } catch {
+      // .env doesn't exist yet
+    }
 
-  document.getElementById('login-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const err = document.getElementById('l-err');
-    err.classList.remove('show');
-    const res = await fetch('/_agent-native/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: document.getElementById('l-email').value,
-        password: document.getElementById('l-pass').value,
-      }),
-    });
-    if (res.ok) {
-      window.location.reload();
+    if (content.includes("AUTH_MODE=")) {
+      content = content.replace(/AUTH_MODE=.*/g, "AUTH_MODE=local");
     } else {
-      const data = await res.json().catch(() => ({}));
-      err.textContent = data.error || 'Invalid email or password';
-      err.classList.add('show');
+      content = content.trimEnd() + "\nAUTH_MODE=local\n";
     }
-  });
-
-  document.getElementById('register-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const msg = document.getElementById('r-msg');
-    msg.classList.remove('show', 'error', 'success');
-    const pass = document.getElementById('r-pass').value;
-    const pass2 = document.getElementById('r-pass2').value;
-    if (pass !== pass2) {
-      msg.textContent = 'Passwords do not match';
-      msg.classList.add('show', 'error');
-      return;
-    }
-    const res = await fetch('/_agent-native/auth/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: document.getElementById('r-email').value,
-        password: pass,
-      }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (res.ok) {
-      msg.textContent = 'Account created — signing you in...';
-      msg.classList.add('show', 'success');
-      // Auto-login after registration
-      const loginRes = await fetch('/_agent-native/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: document.getElementById('r-email').value,
-          password: pass,
-        }),
-      });
-      if (loginRes.ok) {
-        window.location.reload();
-      }
-    } else {
-      msg.textContent = data.error || 'Registration failed';
-      msg.classList.add('show', 'error');
-    }
-  });
-</script>
-</body>
-</html>`;
+    fs.writeFileSync(envPath, content, "utf-8");
+    process.env.AUTH_MODE = "local";
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 // ---------------------------------------------------------------------------
-// mountEmailAuthRoutes — email/password registration + login
+// mountBetterAuthRoutes — Better Auth powered auth with backward-compat routes
 // ---------------------------------------------------------------------------
 
-function mountEmailAuthRoutes(app: H3App, publicPaths: string[] = []): void {
-  // Also support ACCESS_TOKEN login for backward compat (API callers, scripts)
+async function mountBetterAuthRoutes(
+  app: H3App,
+  options: AuthOptions,
+): Promise<void> {
+  const publicPaths = options.publicPaths ?? [];
   const accessTokens = getAccessTokens();
 
-  // POST /_agent-native/auth/register
+  // Initialize Better Auth
+  const auth = await getBetterAuth(options.betterAuth);
+
+  // Mount Better Auth catch-all handler at /_agent-native/auth/ba/*
+  app.use(
+    "/_agent-native/auth/ba",
+    defineEventHandler(async (event) => {
+      const response = await auth.handler(toWebRequest(event));
+      return response;
+    }),
+  );
+
+  // POST /_agent-native/auth/local-mode — switch to local mode (onboarding escape hatch)
+  app.use(
+    "/_agent-native/auth/local-mode",
+    defineEventHandler(async (event) => {
+      if (getMethod(event) !== "POST") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      const ok = setAuthModeLocal();
+      if (!ok) {
+        setResponseStatus(event, 500);
+        return { error: "Failed to set AUTH_MODE=local in .env" };
+      }
+      return { ok: true };
+    }),
+  );
+
+  // Backward-compat: POST /_agent-native/auth/login
+  app.use(
+    "/_agent-native/auth/login",
+    defineEventHandler(async (event) => {
+      if (getMethod(event) !== "POST") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+
+      const body = await readBody(event);
+
+      // Legacy ACCESS_TOKEN login
+      if (
+        body?.token &&
+        typeof body.token === "string" &&
+        accessTokens.length > 0
+      ) {
+        if (!safeTokenMatch(body.token, accessTokens)) {
+          setResponseStatus(event, 401);
+          return { error: "Invalid token" };
+        }
+        const sessionToken = crypto.randomBytes(32).toString("hex");
+        await addSession(sessionToken, "user");
+        setCookie(event, COOKIE_NAME, sessionToken, {
+          httpOnly: true,
+          secure: !isDevEnvironment(),
+          sameSite: "lax",
+          path: "/",
+          maxAge: sessionMaxAge,
+        });
+        return { ok: true };
+      }
+
+      // Email/password login via Better Auth
+      const email = body?.email?.trim?.()?.toLowerCase?.();
+      const password = body?.password;
+
+      if (!email || !password) {
+        setResponseStatus(event, 400);
+        return { error: "Email and password are required" };
+      }
+
+      try {
+        const result = await auth.api.signInEmail({
+          body: { email, password },
+        });
+        if (result?.token) {
+          setCookie(event, COOKIE_NAME, result.token, {
+            httpOnly: true,
+            secure: !isDevEnvironment(),
+            sameSite: "lax",
+            path: "/",
+            maxAge: sessionMaxAge,
+          });
+          await addSession(result.token, email);
+        }
+        return { ok: true };
+      } catch (e: any) {
+        setResponseStatus(event, 401);
+        return { error: e?.message || "Invalid email or password" };
+      }
+    }),
+  );
+
+  // Backward-compat: POST /_agent-native/auth/register
   app.use(
     "/_agent-native/auth/register",
     defineEventHandler(async (event) => {
@@ -789,10 +562,6 @@ function mountEmailAuthRoutes(app: H3App, publicPaths: string[] = []): void {
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
       }
-
-      const ip = getClientIp(event);
-      const limited = checkRateLimit(event, `register:${ip}`);
-      if (limited) return limited;
 
       const body = await readBody(event);
       const email = body?.email?.trim?.()?.toLowerCase?.();
@@ -807,92 +576,32 @@ function mountEmailAuthRoutes(app: H3App, publicPaths: string[] = []): void {
         return { error: "Password must be at least 8 characters" };
       }
 
-      const result = await createUser(email, password);
-      if (!result.ok) {
-        setResponseStatus(event, 409);
-        return { error: result.error };
-      }
-
-      resetRateLimit(`register:${ip}`);
-      return { ok: true };
-    }),
-  );
-
-  // POST /_agent-native/auth/login — email/password or legacy ACCESS_TOKEN
-  app.use(
-    "/_agent-native/auth/login",
-    defineEventHandler(async (event) => {
-      if (getMethod(event) !== "POST") {
-        setResponseStatus(event, 405);
-        return { error: "Method not allowed" };
-      }
-
-      const ip = getClientIp(event);
-      const rateLimitKey = `login:${ip}`;
-      const limited = checkRateLimit(event, rateLimitKey);
-      if (limited) return limited;
-
-      const body = await readBody(event);
-
-      // Legacy: ACCESS_TOKEN login (for API callers, scripts)
-      if (
-        body?.token &&
-        typeof body.token === "string" &&
-        accessTokens.length > 0
-      ) {
-        if (!safeTokenMatch(body.token, accessTokens)) {
-          setResponseStatus(event, 401);
-          return { error: "Invalid token" };
-        }
-        const sessionToken = crypto.randomBytes(32).toString("hex");
-        await addSession(sessionToken, "user");
-        setCookie(event, COOKIE_NAME, sessionToken, {
-          httpOnly: true,
-          secure: process.env.NODE_ENV === "production",
-          sameSite: "lax",
-          path: "/",
-          maxAge: sessionMaxAge,
+      try {
+        await auth.api.signUpEmail({
+          body: { email, password, name: email.split("@")[0] },
         });
-        resetRateLimit(rateLimitKey);
         return { ok: true };
+      } catch (e: any) {
+        setResponseStatus(event, 409);
+        return { error: e?.message || "Registration failed" };
       }
-
-      // Email/password login
-      const email = body?.email?.trim?.()?.toLowerCase?.();
-      const password = body?.password;
-
-      if (!email || !password) {
-        setResponseStatus(event, 400);
-        return { error: "Email and password are required" };
-      }
-
-      const valid = await authenticateUser(email, password);
-      if (!valid) {
-        setResponseStatus(event, 401);
-        return { error: "Invalid email or password" };
-      }
-
-      const sessionToken = crypto.randomBytes(32).toString("hex");
-      await addSession(sessionToken, email);
-      setCookie(event, COOKIE_NAME, sessionToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
-        path: "/",
-        maxAge: sessionMaxAge,
-      });
-      resetRateLimit(rateLimitKey);
-      return { ok: true };
     }),
   );
 
-  // POST /_agent-native/auth/logout
+  // Backward-compat: POST /_agent-native/auth/logout
   app.use(
     "/_agent-native/auth/logout",
     defineEventHandler(async (event) => {
       const cookie = getCookie(event, COOKIE_NAME);
       if (cookie) await removeSession(cookie);
       deleteCookie(event, COOKIE_NAME, { path: "/" });
+
+      try {
+        await auth.api.signOut({ headers: event.headers });
+      } catch {
+        // Ignore if no Better Auth session
+      }
+
       return { ok: true };
     }),
   );
@@ -911,17 +620,20 @@ function mountEmailAuthRoutes(app: H3App, publicPaths: string[] = []): void {
   );
 
   // Auth guard
-  const loginHtml = EMAIL_AUTH_HTML;
+  const loginHtml = options.loginHtml ?? ONBOARDING_HTML;
   app.use(
     defineEventHandler(async (event) => {
       const url = event.node?.req?.url ?? event.path ?? "/";
       const p = url.split("?")[0];
 
+      // Skip auth routes
       if (
         p === "/_agent-native/auth/login" ||
         p === "/_agent-native/auth/logout" ||
         p === "/_agent-native/auth/session" ||
-        p === "/_agent-native/auth/register"
+        p === "/_agent-native/auth/register" ||
+        p === "/_agent-native/auth/local-mode" ||
+        p.startsWith("/_agent-native/auth/ba/")
       ) {
         return;
       }
@@ -943,31 +655,14 @@ function mountEmailAuthRoutes(app: H3App, publicPaths: string[] = []): void {
 }
 
 // ---------------------------------------------------------------------------
-// mountAuthMiddleware — mounts login/logout/session routes + auth guard
+// mountTokenOnlyRoutes — ACCESS_TOKEN-only auth (no Better Auth)
 // ---------------------------------------------------------------------------
 
-/**
- * Mount auth middleware + login/logout/session routes onto an H3 app.
- *
- * @deprecated Use `autoMountAuth(app, options?)` instead for automatic
- * dev/prod behavior. This function is kept for backwards compatibility
- * when you need explicit control over the access token.
- */
-export function mountAuthMiddleware(app: H3App, accessToken: string): void {
-  mountAuthRoutes(app, [accessToken]);
-}
-
-function isPublicPath(url: string, publicPaths: string[]): boolean {
-  const p = url.split("?")[0];
-  return publicPaths.some((pp) => p === pp || p.startsWith(pp + "/"));
-}
-
-function mountAuthRoutes(
+function mountTokenOnlyRoutes(
   app: H3App,
   accessTokens: string[],
   publicPaths: string[] = [],
 ): void {
-  // POST /_agent-native/auth/login
   app.use(
     "/_agent-native/auth/login",
     defineEventHandler(async (event) => {
@@ -975,11 +670,6 @@ function mountAuthRoutes(
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
       }
-
-      const ip = getClientIp(event);
-      const rateLimitKey = `login:${ip}`;
-      const limited = checkRateLimit(event, rateLimitKey);
-      if (limited) return limited;
 
       const body = await readBody(event);
       if (
@@ -994,17 +684,15 @@ function mountAuthRoutes(
       await addSession(sessionToken, "user");
       setCookie(event, COOKIE_NAME, sessionToken, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
+        secure: !isDevEnvironment(),
         sameSite: "lax",
         path: "/",
         maxAge: sessionMaxAge,
       });
-      resetRateLimit(rateLimitKey);
       return { ok: true };
     }),
   );
 
-  // POST /_agent-native/auth/logout
   app.use(
     "/_agent-native/auth/logout",
     defineEventHandler(async (event) => {
@@ -1015,7 +703,6 @@ function mountAuthRoutes(
     }),
   );
 
-  // GET /_agent-native/auth/session — client session check
   app.use(
     "/_agent-native/auth/session",
     defineEventHandler(async (event) => {
@@ -1028,13 +715,10 @@ function mountAuthRoutes(
     }),
   );
 
-  // Auth guard — runs before all other handlers
   app.use(
     defineEventHandler(async (event) => {
       const url = event.node?.req?.url ?? event.path ?? "/";
       const p = url.split("?")[0];
-
-      // Skip auth routes
       if (
         p === "/_agent-native/auth/login" ||
         p === "/_agent-native/auth/logout" ||
@@ -1042,19 +726,11 @@ function mountAuthRoutes(
       ) {
         return;
       }
+      if (isPublicPath(url, publicPaths)) return;
 
-      // Skip public paths
-      if (isPublicPath(url, publicPaths)) {
-        return;
-      }
-
-      // Use getSession() so BYOA custom auth is respected
       const session = await getSession(event);
-      if (session) {
-        return; // Authenticated
-      }
+      if (session) return;
 
-      // Unauthenticated
       if (p.startsWith("/api/") || p.startsWith("/_agent-native/")) {
         setResponseStatus(event, 401);
         return { error: "Unauthorized" };
@@ -1062,8 +738,33 @@ function mountAuthRoutes(
 
       setResponseStatus(event, 200);
       setResponseHeader(event, "Content-Type", "text/html");
-      return LOGIN_HTML;
+      return TOKEN_LOGIN_HTML;
     }),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// mountLocalModeRoutes — stub routes for AUTH_MODE=local
+// ---------------------------------------------------------------------------
+
+function mountLocalModeRoutes(app: H3App): void {
+  app.use(
+    "/_agent-native/auth/session",
+    defineEventHandler(async (event) => {
+      if (getMethod(event) !== "GET") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      return await getSession(event);
+    }),
+  );
+  app.use(
+    "/_agent-native/auth/login",
+    defineEventHandler(() => ({ ok: true })),
+  );
+  app.use(
+    "/_agent-native/auth/logout",
+    defineEventHandler(() => ({ ok: true })),
   );
 }
 
@@ -1072,28 +773,21 @@ function mountAuthRoutes(
 // ---------------------------------------------------------------------------
 
 /**
- * Automatically configure auth based on the environment:
+ * Automatically configure auth based on environment and configuration:
  *
- * - **Dev mode** (`NODE_ENV !== "production"`): Auth is skipped entirely.
- *   `getSession()` returns `{ email: "local@localhost" }` for all requests.
- *
- * - **Production with ACCESS_TOKEN/ACCESS_TOKENS set**: Auth middleware is
- *   mounted. Unauthenticated requests see a login page. One env var is all
- *   you need.
- *
- * - **Production without tokens and AUTH_DISABLED !== "true"**: Refuses to
- *   start. Logs a clear error explaining what to do.
- *
- * - **Production with AUTH_DISABLED=true**: Auth is skipped (for apps behind
- *   infrastructure-level auth like Cloudflare Access or a VPN).
+ * - **AUTH_MODE=local**: Auth bypassed. `getSession()` returns `{ email: "local@localhost" }`.
+ *   This is the explicit escape hatch for solo local development.
+ * - **BYOA (custom getSession)**: Template-provided auth callback handles everything.
+ * - **AUTH_DISABLED=true**: Auth bypassed (for infrastructure-level auth like Cloudflare Access).
+ * - **ACCESS_TOKEN/ACCESS_TOKENS**: Simple token-based auth.
+ * - **Default**: Better Auth with email/password, social providers, organizations, and JWT.
+ *   Users see an onboarding page to create an account on first visit.
  *
  * Returns true if auth was mounted, false if skipped.
  */
 export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
-  // In Nitro 3.0 dev mode, the H3 app may not be available yet.
-  // In dev mode auth is bypassed anyway, so we can safely skip.
   if (!app) {
-    if (isDevMode()) {
+    if (isLocalMode() || isDevEnvironment()) {
       authDisabledMode = false;
       customGetSession = null;
       return false;
@@ -1103,7 +797,7 @@ export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
     );
   }
 
-  // Reset globals to avoid stale state from prior calls
+  // Reset globals
   customGetSession = null;
   authDisabledMode = false;
   sessionMaxAge = options.maxAge ?? DEFAULT_MAX_AGE;
@@ -1113,36 +807,17 @@ export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
     customGetSession = options.getSession;
   }
 
-  // Dev mode — skip auth entirely
-  if (isDevMode()) {
-    // Mount a session endpoint that checks for a real session first
-    app.use(
-      "/_agent-native/auth/session",
-      defineEventHandler(async (event) => {
-        if (getMethod(event) !== "GET") {
-          setResponseStatus(event, 405);
-          return { error: "Method not allowed" };
-        }
-        return await getSession(event);
-      }),
-    );
-
-    // Mount no-op login/logout so client code doesn't break
-    app.use(
-      "/_agent-native/auth/login",
-      defineEventHandler(() => ({ ok: true })),
-    );
-    app.use(
-      "/_agent-native/auth/logout",
-      defineEventHandler(() => ({ ok: true })),
-    );
-
+  // AUTH_MODE=local — explicit local-only mode (escape hatch)
+  if (isLocalMode()) {
+    mountLocalModeRoutes(app);
+    // Still init Better Auth in background so users can create accounts later
+    getBetterAuth(options.betterAuth).catch(() => {});
+    console.log("[agent-native] Auth mode: local (no auth required).");
     return false;
   }
 
-  // BYOA with custom getSession — skip token check, mount session/guard routes
+  // BYOA — custom getSession provider
   if (customGetSession) {
-    // Mount session endpoint
     app.use(
       "/_agent-native/auth/session",
       defineEventHandler(async (event) => {
@@ -1168,11 +843,9 @@ export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
       }),
     );
 
-    // Mount auth guard that delegates to custom getSession
-    const byoaLoginHtml = options.loginHtml ?? LOGIN_HTML;
+    const byoaLoginHtml = options.loginHtml ?? TOKEN_LOGIN_HTML;
     app.use(
       defineEventHandler(async (event) => {
-        // Use H3's getRequestURL for cross-platform compat (Node + Workers)
         const url = event.node?.req?.url ?? event.path ?? "/";
         const p = url.split("?")[0];
         if (
@@ -1182,10 +855,7 @@ export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
         ) {
           return;
         }
-        // Skip public paths
-        if (isPublicPath(url, publicPaths)) {
-          return;
-        }
+        if (isPublicPath(url, publicPaths)) return;
         const session = await getSession(event);
         if (session) return;
         if (p.startsWith("/api/") || p.startsWith("/_agent-native/")) {
@@ -1202,55 +872,45 @@ export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
     return true;
   }
 
-  // Production — check for tokens
+  // AUTH_DISABLED — skip auth (infrastructure-level auth)
+  if (process.env.AUTH_DISABLED === "true") {
+    authDisabledMode = true;
+    console.warn(
+      "[agent-native] AUTH_DISABLED=true — running without auth. " +
+        "Ensure this app is behind infrastructure-level auth (Cloudflare Access, VPN, etc.).",
+    );
+    mountLocalModeRoutes(app);
+    return false;
+  }
+
+  // ACCESS_TOKEN-only mode
   const tokens = getAccessTokens();
-
-  if (tokens.length === 0) {
-    // No tokens set — check if auth is explicitly disabled
-    if (process.env.AUTH_DISABLED === "true") {
-      authDisabledMode = true;
-      console.warn(
-        "[agent-native] AUTH_DISABLED=true — running in production without auth. " +
-          "Ensure this app is behind infrastructure-level auth (Cloudflare Access, VPN, etc.).",
-      );
-
-      // Mount session endpoint
-      app.use(
-        "/_agent-native/auth/session",
-        defineEventHandler(async (event) => {
-          if (getMethod(event) !== "GET") {
-            setResponseStatus(event, 405);
-            return { error: "Method not allowed" };
-          }
-          return await getSession(event);
-        }),
-      );
-      app.use(
-        "/_agent-native/auth/login",
-        defineEventHandler(() => ({ ok: true })),
-      );
-      app.use(
-        "/_agent-native/auth/logout",
-        defineEventHandler(() => ({ ok: true })),
-      );
-
-      return false;
-    }
-
-    // No access tokens set — enable email/password authentication
-    pruneExpiredSessions().catch(() => {});
-    mountEmailAuthRoutes(app, publicPaths);
-
-    console.log("[agent-native] Auth enabled — email/password authentication.");
+  if (tokens.length > 0) {
+    mountTokenOnlyRoutes(app, tokens, publicPaths);
+    console.log(
+      `[agent-native] Auth enabled — ${tokens.length} access token(s) configured.`,
+    );
     return true;
   }
 
-  // Production with tokens — mount auth
-  pruneExpiredSessions().catch(() => {});
-  mountAuthRoutes(app, tokens, publicPaths);
+  // Default: Better Auth (account-first)
+  mountBetterAuthRoutes(app, options).catch((err) => {
+    console.error("[agent-native] Failed to initialize Better Auth:", err);
+  });
 
   console.log(
-    `[agent-native] Auth enabled — ${tokens.length} access token(s) configured.`,
+    "[agent-native] Auth enabled — Better Auth (accounts + organizations).",
   );
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// Deprecated — kept for backward compat
+// ---------------------------------------------------------------------------
+
+/**
+ * @deprecated Use `autoMountAuth(app, options?)` instead.
+ */
+export function mountAuthMiddleware(app: H3App, accessToken: string): void {
+  mountTokenOnlyRoutes(app, [accessToken]);
 }

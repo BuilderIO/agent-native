@@ -126,7 +126,11 @@ export function CreateEventPopover({
           <span className="hidden sm:inline">New Event</span>
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" sideOffset={8} className="w-80 p-4">
+      <PopoverContent
+        align="end"
+        sideOffset={8}
+        className="w-[calc(100vw-2rem)] p-4 sm:w-80"
+      >
         <div className="mb-3 text-sm font-semibold">New Event</div>
         <form ref={formRef} onSubmit={handleSubmit} className="space-y-3">
           <div className="space-y-1.5">

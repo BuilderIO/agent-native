@@ -141,7 +141,10 @@ function TopPagesTable({
         <tbody>
           {rows.map((row) => (
             <tr key={row.path} className="border-b border-border/30">
-              <td className="py-2 pr-4 truncate max-w-[300px]" title={row.path}>
+              <td
+                className="py-2 pr-4 truncate max-w-[180px] sm:max-w-[300px]"
+                title={row.path}
+              >
                 {row.path}
               </td>
               <td className="py-2 px-4 text-right tabular-nums">
@@ -351,7 +354,7 @@ export default function GoogleAnalyticsDashboard() {
     return (
       <div className="space-y-6">
         <Skeleton className="h-8 w-48" />
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
           {Array.from({ length: 3 }).map((_, i) => (
             <Skeleton key={i} className="h-24 w-full rounded-xl" />
           ))}
@@ -389,13 +392,13 @@ export default function GoogleAnalyticsDashboard() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <h2 className="text-lg font-semibold">Google Analytics</h2>
         <DateRangePicker value={range} onChange={handleRangeChange} />
       </div>
 
       {/* Metric cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
         <MetricCard
           title="Active Users"
           value={activeUsers}

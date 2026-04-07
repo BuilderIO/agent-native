@@ -593,5 +593,35 @@ export function gmailToEmailMessage(
       }),
     attachments: attachments.length > 0 ? attachments : undefined,
     accountEmail: accountEmail || msg._accountEmail,
+    ...parseUnsubscribeHeaders(headers),
   };
+}
+
+/** Parse List-Unsubscribe and List-Unsubscribe-Post headers (RFC 2369 / RFC 8058) */
+function parseUnsubscribeHeaders(
+  headers: Array<{ name?: string | null; value?: string | null }>,
+): { unsubscribe?: { url?: string; mailto?: string; oneClick?: boolean } } {
+  const raw = getHeader(headers, "List-Unsubscribe");
+  if (!raw) return {};
+
+  const postHeader = getHeader(headers, "List-Unsubscribe-Post");
+  const oneClick = postHeader
+    .toLowerCase()
+    .includes("list-unsubscribe=one-click");
+
+  // Extract URLs from angle brackets: <https://...>, <mailto:...>
+  const entries = raw.match(/<[^>]+>/g) || [];
+  let url: string | undefined;
+  let mailto: string | undefined;
+  for (const entry of entries) {
+    const val = entry.slice(1, -1); // strip < >
+    if (val.startsWith("http://") || val.startsWith("https://")) {
+      url = val;
+    } else if (val.startsWith("mailto:")) {
+      mailto = val.slice(7); // strip "mailto:"
+    }
+  }
+
+  if (!url && !mailto) return {};
+  return { unsubscribe: { url, mailto, oneClick } };
 }

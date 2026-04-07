@@ -46,7 +46,7 @@ export function DocumentTreeItem({
     <div>
       <div
         className={cn(
-          "group flex items-center gap-1 px-2 py-1 rounded-md cursor-pointer text-sm min-h-[30px]",
+          "group flex items-center gap-1 px-2 py-1.5 rounded-md cursor-pointer text-sm min-h-[36px]",
           isActive
             ? "bg-accent text-accent-foreground"
             : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -56,7 +56,7 @@ export function DocumentTreeItem({
       >
         <button
           className={cn(
-            "flex-shrink-0 w-5 h-5 flex items-center justify-center rounded hover:bg-accent",
+            "flex-shrink-0 w-6 h-6 flex items-center justify-center rounded hover:bg-accent",
             !hasChildren && "invisible",
           )}
           onClick={(e) => {
@@ -82,7 +82,7 @@ export function DocumentTreeItem({
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
-                className="w-5 h-5 flex items-center justify-center rounded hover:bg-accent"
+                className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent"
                 onClick={(e) => e.stopPropagation()}
               >
                 <IconDots size={14} />
@@ -124,7 +124,7 @@ export function DocumentTreeItem({
           </DropdownMenu>
 
           <button
-            className="w-5 h-5 flex items-center justify-center rounded hover:bg-accent"
+            className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent"
             onClick={(e) => {
               e.stopPropagation();
               onCreateChild(node.id);

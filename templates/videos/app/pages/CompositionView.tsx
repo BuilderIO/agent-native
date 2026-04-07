@@ -318,49 +318,51 @@ export default function CompositionView({
   };
 
   return (
-    <div className="flex flex-col items-center p-4 lg:p-6 min-w-0 bg-background">
+    <div className="flex flex-col items-center p-2 sm:p-4 lg:p-6 min-w-0 bg-background">
       <div className="w-full max-w-5xl flex flex-col gap-0">
         {/* Composition info */}
         <div className="mb-2">
-          <h2 className="text-base font-semibold text-foreground/90">
+          <h2 className="text-sm sm:text-base font-semibold text-foreground/90">
             {composition.title}
           </h2>
-          <p className="text-sm text-muted-foreground mt-0.5 max-w-lg leading-relaxed">
+          <p className="text-xs sm:text-sm text-muted-foreground mt-0.5 max-w-lg leading-relaxed line-clamp-2 sm:line-clamp-none">
             {composition.description}
           </p>
         </div>
 
         {/* Camera toolbar with composition details */}
-        <div className="flex items-center gap-2 mb-2">
-          <CameraToolbar
-            currentFrame={currentFrameLocal}
-            fps={composition.fps}
-            tracks={tracks}
-            onUpdateTrack={onUpdateTrack}
-            onAddTrack={onAddTrack}
-            durationInFrames={composition.durationInFrames}
-            videoContainerRef={videoContainerRef}
-          />
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-2">
+          <div className="overflow-x-auto -mx-2 px-2 sm:mx-0 sm:px-0">
+            <CameraToolbar
+              currentFrame={currentFrameLocal}
+              fps={composition.fps}
+              tracks={tracks}
+              onUpdateTrack={onUpdateTrack}
+              onAddTrack={onAddTrack}
+              durationInFrames={composition.durationInFrames}
+              videoContainerRef={videoContainerRef}
+            />
+          </div>
 
           {/* Composition details */}
-          <div className="flex items-center gap-1.5 ml-auto flex-shrink-0">
+          <div className="flex items-center gap-1.5 sm:ml-auto flex-shrink-0 flex-wrap">
             <button
               onClick={onCompSettingsClick}
-              className="text-[10px] px-2 py-1 rounded-md bg-secondary/50 hover:bg-secondary text-muted-foreground hover:text-foreground border border-border/50 hover:border-border font-mono transition-colors cursor-pointer"
+              className="text-[10px] px-2 py-1 rounded-md bg-secondary/50 hover:bg-secondary text-muted-foreground hover:text-foreground border border-border/50 hover:border-border font-mono cursor-pointer"
               title="Click to edit output size"
             >
               {composition.width}x{composition.height}
             </button>
             <button
               onClick={onCompSettingsClick}
-              className="text-[10px] px-2 py-1 rounded-md bg-secondary/50 hover:bg-secondary text-muted-foreground hover:text-foreground border border-border/50 hover:border-border font-mono transition-colors cursor-pointer"
+              className="text-[10px] px-2 py-1 rounded-md bg-secondary/50 hover:bg-secondary text-muted-foreground hover:text-foreground border border-border/50 hover:border-border font-mono cursor-pointer"
               title="Click to edit frame rate"
             >
               {composition.fps}fps
             </button>
             <button
               onClick={onCompSettingsClick}
-              className="text-[10px] px-2 py-1 rounded-md bg-secondary/50 hover:bg-secondary text-muted-foreground hover:text-foreground border border-border/50 hover:border-border font-mono transition-colors cursor-pointer"
+              className="text-[10px] px-2 py-1 rounded-md bg-secondary/50 hover:bg-secondary text-muted-foreground hover:text-foreground border border-border/50 hover:border-border font-mono cursor-pointer"
               title="Click to edit duration"
             >
               {(composition.durationInFrames / composition.fps).toFixed(1)}s
@@ -369,7 +371,7 @@ export default function CompositionView({
               onClick={handleSaveAsDefault}
               disabled={!isDevMode}
               className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-colors text-xs font-medium",
+                "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium",
                 !isDevMode
                   ? "bg-secondary/30 text-muted-foreground/40 border border-border/30 cursor-not-allowed"
                   : hasUnsavedChanges

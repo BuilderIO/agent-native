@@ -63,8 +63,8 @@ export function IssueComments({ issueKey }: IssueCommentsProps) {
                 key={comment.id}
                 className="rounded-md border border-border/50 p-3"
               >
-                <div className="mb-2 flex items-center gap-2">
-                  <div className="flex h-5 w-5 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground">
+                <div className="mb-2 flex flex-wrap items-center gap-1.5 sm:gap-2">
+                  <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground">
                     {(comment.author?.displayName || "?")
                       .split(" ")
                       .map((n: string) => n[0])

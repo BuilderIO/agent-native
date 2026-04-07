@@ -50,6 +50,7 @@ import {
   IconPlugConnected,
   IconChevronLeft,
   IconCopy,
+  IconExternalLink,
 } from "@tabler/icons-react";
 import {
   MultiTabAssistantChat,
@@ -113,7 +114,7 @@ function useAvailableClis() {
     // Returns 404 gracefully when the plugin isn't loaded.
     fetch("/_agent-native/available-clis")
       .then((r) => (r.ok ? r.json() : []))
-      .then((data) => setClis(data))
+      .then((data) => setClis(Array.isArray(data) ? data : []))
       .catch(() => {});
   }, []);
   return clis;
@@ -247,9 +248,11 @@ function IconTooltip({
 function AgentSettingsPopover({
   isDevMode,
   onToggle,
+  devAppUrl,
 }: {
   isDevMode: boolean;
   onToggle: () => void;
+  devAppUrl?: string;
 }) {
   const [open, setOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -341,6 +344,17 @@ function AgentSettingsPopover({
                   if (nextIsDev !== isDevMode) onToggle();
                 }}
               />
+              {devAppUrl && (
+                <a
+                  href={devAppUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground mt-1"
+                >
+                  <IconExternalLink size={12} />
+                  Open app in new tab
+                </a>
+              )}
               <div className="border-t border-border pt-3 mt-3">
                 <Suspense fallback={null}>
                   <IntegrationsPanel />
@@ -689,6 +703,8 @@ export interface AgentPanelProps extends Omit<
   className?: string;
   /** Called when the user clicks the collapse button. If provided, a collapse button appears in the header. */
   onCollapse?: () => void;
+  /** URL of the app being developed (shown as "Open app in new tab" in settings). Set by frame. */
+  devAppUrl?: string;
 }
 
 function useClientOnly() {
@@ -705,6 +721,7 @@ export function AgentPanel({
   suggestions,
   showHeader = true,
   onCollapse,
+  devAppUrl,
 }: AgentPanelProps) {
   const mounted = useClientOnly();
   const [execMode, setExecMode] = useState<ExecMode>(() => {
@@ -743,6 +760,17 @@ export function AgentPanel({
   const switchMode = useCallback((m: "chat" | "cli" | "resources") => {
     startTransition(() => setMode(m));
   }, []);
+
+  // Listen for mode changes from the frame parent (via AgentSidebar)
+  useEffect(() => {
+    function handler(e: Event) {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.mode) switchMode(detail.mode);
+    }
+    window.addEventListener("agent-panel:set-mode", handler);
+    return () => window.removeEventListener("agent-panel:set-mode", handler);
+  }, [switchMode]);
+
   // CLI terminal tabs (ephemeral — not persisted to SQL)
   const [cliTabs, setCliTabs] = useState<string[]>(["cli-1"]);
   const [activeCliTab, setActiveCliTab] = useState("cli-1");
@@ -785,6 +813,20 @@ export function AgentPanel({
   const selectedLabel =
     availableClis.find((c) => c.command === selectedCli)?.label || selectedCli;
   const { isDevMode, canToggle, setDevMode } = useDevMode(apiUrl);
+
+  // Notify frame when dev mode changes
+  const prevIsDevMode = useRef(isDevMode);
+  useEffect(() => {
+    if (prevIsDevMode.current !== isDevMode) {
+      prevIsDevMode.current = isDevMode;
+      window.dispatchEvent(
+        new CustomEvent("agent-panel:dev-mode-change", {
+          detail: { isDevMode },
+        }),
+      );
+    }
+  }, [isDevMode]);
+
   const isLocalhost =
     mounted &&
     typeof window !== "undefined" &&
@@ -854,6 +896,7 @@ export function AgentPanel({
               <AgentSettingsPopover
                 isDevMode={isDevMode}
                 onToggle={() => setDevMode(!isDevMode)}
+                devAppUrl={devAppUrl}
               />
             </div>
           </IconTooltip>
@@ -1402,7 +1445,7 @@ export function AgentPanel({
             >
               <AgentTerminal
                 command={selectedCli}
-                hideInHarness={false}
+                hideInFrame={false}
                 className="h-full"
                 style={{ background: "transparent" }}
               />
@@ -1581,12 +1624,27 @@ export function AgentSidebar({
     [],
   );
 
+  // Track whether the frame is controlling the sidebar (code mode = frame active)
+  const [frameCodeMode, setFrameCodeMode] = useState(false);
+
   useEffect(() => {
     const toggleHandler = () => {
-      setOpenPersisted((prev) => !prev);
+      if (frameCodeMode && window.parent !== window) {
+        // Forward toggle to frame parent — the frame sidebar handles it
+        window.parent.postMessage({ type: "builder.toggleSidebar" }, "*");
+      } else {
+        setOpenPersisted((prev) => !prev);
+      }
     };
     const openHandler = () => {
-      setOpenPersisted(true);
+      if (frameCodeMode && window.parent !== window) {
+        window.parent.postMessage(
+          { type: "builder.toggleSidebar", data: { open: true } },
+          "*",
+        );
+      } else {
+        setOpenPersisted(true);
+      }
     };
     window.addEventListener("agent-panel:toggle", toggleHandler);
     window.addEventListener("agent-panel:open", openHandler);
@@ -1594,6 +1652,55 @@ export function AgentSidebar({
       window.removeEventListener("agent-panel:toggle", toggleHandler);
       window.removeEventListener("agent-panel:open", openHandler);
     };
+  }, [setOpenPersisted, frameCodeMode]);
+
+  // Listen for sidebar mode commands from the frame parent.
+  // When frame is in "code" mode, hide the app sidebar.
+  // When frame is in "app" mode, show the app sidebar, sync width and panel mode.
+  useEffect(() => {
+    if (window.parent === window) return; // Not in an iframe
+
+    function handleMessage(event: MessageEvent) {
+      if (event.data?.type !== "builder.sidebarMode") return;
+      const {
+        mode,
+        appMode,
+        width: frameWidth,
+        open: frameOpen,
+      } = event.data.data || {};
+      if (mode === "code") {
+        // Frame is showing its own sidebar — hide the app's
+        setFrameCodeMode(true);
+        setOpenPersisted(false);
+      } else if (mode === "app") {
+        // Frame deferred to the app — show and sync width + mode
+        setFrameCodeMode(false);
+        if (frameOpen !== false) {
+          setOpenPersisted(true);
+        }
+        if (
+          frameWidth &&
+          frameWidth >= SIDEBAR_MIN &&
+          frameWidth <= SIDEBAR_MAX
+        ) {
+          setWidth(frameWidth);
+        }
+        // Sync the panel mode from frame tab selection
+        if (
+          appMode === "cli" ||
+          appMode === "resources" ||
+          appMode === "chat"
+        ) {
+          window.dispatchEvent(
+            new CustomEvent("agent-panel:set-mode", {
+              detail: { mode: appMode },
+            }),
+          );
+        }
+      }
+    }
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
   }, [setOpenPersisted]);
 
   // Cmd+I / Ctrl+I to focus the agent chat

@@ -7,6 +7,7 @@ import {
   IconRotate,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
+import { useIsMobile } from "@/hooks/use-mobile";
 import type { AnimationTrack, EasingKey } from "@/types";
 import {
   frameToViewPct,
@@ -62,7 +63,8 @@ export type TimelineProps = {
 
 const RULER_HEIGHT = 24;
 const TRACK_HEIGHT = 32;
-const LABEL_WIDTH = 180;
+const LABEL_WIDTH_DESKTOP = 180;
+const LABEL_WIDTH_MOBILE = 100;
 const RANGE_BAR_HEIGHT = 12;
 
 // Expression-controlled accent (matches TrackPropertiesPanel)
@@ -477,6 +479,8 @@ export function Timeline({
   onCameraKeyframeClick,
   isPlaying = false,
 }: TimelineProps) {
+  const isMobile = useIsMobile();
+  const LABEL_WIDTH = isMobile ? LABEL_WIDTH_MOBILE : LABEL_WIDTH_DESKTOP;
   const barAreaRef = useRef<HTMLDivElement>(null);
   const isDraggingRef = useRef(false);
   const keyframeDragRef = useRef<KeyframeDragState | null>(null);

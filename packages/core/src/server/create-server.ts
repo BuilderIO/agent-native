@@ -240,7 +240,7 @@ export function createServer(
           process.env[key] = value;
         }
 
-        // Notify parent (Builder or harness) via postMessage
+        // Notify parent (Builder or frame) via postMessage
         agentEnv.setVars(filtered);
 
         return { saved: filtered.map((v) => v.key) };

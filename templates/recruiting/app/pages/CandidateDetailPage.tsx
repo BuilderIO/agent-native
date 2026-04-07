@@ -71,11 +71,11 @@ export function CandidateDetailPage() {
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="flex items-center gap-3 border-b border-border px-6 h-14 flex-shrink-0">
+      <div className="flex items-center gap-3 border-b border-border px-4 h-14 flex-shrink-0 sm:px-6">
         <button
           onClick={() => navigate("/candidates")}
           aria-label="Back to candidates"
-          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground flex-shrink-0"
         >
           <IconArrowLeft className="h-4 w-4" />
         </button>
@@ -97,10 +97,10 @@ export function CandidateDetailPage() {
       </div>
 
       <div className="flex-1 overflow-auto">
-        <div className="max-w-4xl mx-auto px-6 py-6">
-          <div className="grid grid-cols-3 gap-8">
+        <div className="max-w-4xl mx-auto px-4 py-6 sm:px-6">
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-3 md:gap-8">
             {/* Main content */}
-            <div className="col-span-2 space-y-6">
+            <div className="md:col-span-2 space-y-6">
               {/* Profile header */}
               <div className="flex items-start gap-4">
                 {candidate.photo_url ? (
@@ -187,14 +187,14 @@ export function CandidateDetailPage() {
                       key={app.id}
                       className="rounded-lg border border-border p-3"
                     >
-                      <div className="flex items-center justify-between">
-                        <div>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <span className="text-sm font-medium text-foreground">
                             {app.jobs?.[0]?.name ?? "Unknown Job"}
                           </span>
                           <span
                             className={cn(
-                              "ml-2 inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium",
+                              "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium",
                               app.status === "active"
                                 ? "bg-green-500/10 text-green-600"
                                 : app.status === "hired"

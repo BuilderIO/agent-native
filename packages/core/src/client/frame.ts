@@ -1,7 +1,7 @@
 /**
- * Harness Communication (browser)
+ * Frame Communication (browser)
  *
- * Utilities for communicating with the parent harness frame via postMessage.
+ * Utilities for communicating with the parent frame via postMessage.
  * Provides typed request/response patterns and message sending.
  */
 
@@ -10,35 +10,35 @@
 // ---------------------------------------------------------------------------
 
 /**
- * Send a typed message to the parent harness frame.
+ * Send a typed message to the parent frame.
  * No-op if running at top level (no parent frame).
  */
-export function sendToHarness(type: string, data?: any): void {
+export function sendToFrame(type: string, data?: any): void {
   if (typeof window === "undefined") return;
   const target = window.parent !== window ? window.parent : window;
-  const targetOrigin = getHarnessOrigin() || window.location.origin;
+  const targetOrigin = getFrameOrigin() || window.location.origin;
   target.postMessage({ type, data }, targetOrigin);
 }
 
 /**
- * Listen for a specific message type from the parent harness.
+ * Listen for a specific message type from the parent frame.
  * Returns a cleanup function.
  */
-export function onHarnessMessage(
+export function onFrameMessage(
   type: string,
   handler: (data: any) => void,
 ): () => void {
   if (typeof window === "undefined") return () => {};
 
   const listener = (event: MessageEvent) => {
-    // Validate origin: accept from harness origin, own origin, or same window
-    const harness = getHarnessOrigin();
+    // Validate origin: accept from frame origin, own origin, or same window
+    const frame = getFrameOrigin();
     const ownOrigin = window.location.origin;
     if (
       event.source !== window &&
       event.origin !== ownOrigin &&
-      harness &&
-      event.origin !== harness
+      frame &&
+      event.origin !== frame
     ) {
       return;
     }
@@ -51,12 +51,12 @@ export function onHarnessMessage(
 }
 
 // ---------------------------------------------------------------------------
-// Harness Origin
+// Frame Origin
 // ---------------------------------------------------------------------------
 
 let _harnessOrigin: string | null = null;
 
-// Listen for harness origin message and cache it.
+// Listen for frame origin message and cache it.
 // Only accept from the direct parent frame, and only set once.
 if (typeof window !== "undefined") {
   window.addEventListener("message", (event: MessageEvent) => {
@@ -72,15 +72,23 @@ if (typeof window !== "undefined") {
 }
 
 /**
- * Get the harness origin (e.g. "http://localhost:3334").
- * Returns null if not running inside a harness iframe.
+ * Get the frame origin (e.g. "http://localhost:3334").
+ * Returns null if not running inside a frame iframe.
  */
-export function getHarnessOrigin(): string | null {
+export function getFrameOrigin(): string | null {
   return _harnessOrigin;
 }
 
 /**
- * Get the best origin for OAuth callbacks — harness origin if available,
+ * Returns true if the app is running inside a frame iframe
+ * (local dev frame, Builder.io, or any compatible frame).
+ */
+export function isInFrame(): boolean {
+  return _harnessOrigin !== null;
+}
+
+/**
+ * Get the best origin for OAuth callbacks — frame origin if available,
  * otherwise the current window origin.
  */
 export function getCallbackOrigin(): string {
@@ -100,8 +108,8 @@ export interface UserInfo {
 }
 
 /**
- * Request user info (name + email) from the parent harness.
- * Falls back to empty object if harness doesn't respond within timeout.
+ * Request user info (name + email) from the parent frame.
+ * Falls back to empty object if frame doesn't respond within timeout.
  */
 export function requestUserInfo(timeoutMs = 1500): Promise<UserInfo> {
   return new Promise((resolve) => {
@@ -143,19 +151,35 @@ export function requestUserInfo(timeoutMs = 1500): Promise<UserInfo> {
  * Enter visual editing selection mode for a specific element.
  */
 export function enterStyleEditing(selector: string): void {
-  sendToHarness("builder.enterStyleEditing", { selector });
+  sendToFrame("builder.enterStyleEditing", { selector });
 }
 
 /**
  * Enter text editing mode for a specific element.
  */
 export function enterTextEditing(selector: string): void {
-  sendToHarness("builder.enterTextEditing", { selector });
+  sendToFrame("builder.enterTextEditing", { selector });
 }
 
 /**
  * Exit selection mode.
  */
 export function exitSelectionMode(): void {
-  sendToHarness("builder.exitSelectionMode");
+  sendToFrame("builder.exitSelectionMode");
 }
+
+// ---------------------------------------------------------------------------
+// Backward compatibility aliases
+// ---------------------------------------------------------------------------
+
+/** @deprecated Use `sendToFrame` instead */
+export const sendToHarness = sendToFrame;
+
+/** @deprecated Use `onFrameMessage` instead */
+export const onHarnessMessage = onFrameMessage;
+
+/** @deprecated Use `getFrameOrigin` instead */
+export const getHarnessOrigin = getFrameOrigin;
+
+/** @deprecated Use `isInFrame` instead */
+export const isInHarness = isInFrame;

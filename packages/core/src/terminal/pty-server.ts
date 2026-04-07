@@ -4,7 +4,7 @@
  * Creates an HTTP server with WebSocket support that spawns PTY processes
  * for AI CLI tools. Each WebSocket connection gets its own PTY.
  *
- * Used by both the embedded AgentTerminal component and the CLI harness.
+ * Used by both the embedded AgentTerminal component and the CLI frame.
  */
 
 import {

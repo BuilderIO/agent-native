@@ -48,12 +48,11 @@ export function IssueDetail({ issueKey, closePath }: IssueDetailProps) {
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-border px-4 py-3">
+      <div className="flex items-center justify-between border-b border-border px-3 py-2 sm:px-4 sm:py-3">
         <div className="flex items-center gap-2">
-          {/* Back button visible on mobile when list is hidden */}
           <Link
             to={closePath}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground lg:hidden"
+            className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground lg:hidden"
           >
             <IconArrowLeft className="h-4 w-4" />
           </Link>
@@ -62,10 +61,10 @@ export function IssueDetail({ issueKey, closePath }: IssueDetailProps) {
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <AgentToggleButton className="h-8 w-8 rounded-md border border-border bg-background" />
+          <AgentToggleButton className="h-9 w-9 rounded-md border border-border bg-background" />
           <Link
             to={closePath}
-            className="hidden lg:flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            className="hidden h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground lg:flex"
           >
             <IconX className="h-4 w-4" />
           </Link>
@@ -74,7 +73,7 @@ export function IssueDetail({ issueKey, closePath }: IssueDetailProps) {
 
       {/* Scrollable content */}
       <div className="flex-1 overflow-y-auto">
-        <div className="p-5">
+        <div className="p-3 sm:p-5">
           <h1 className="text-base font-semibold text-foreground leading-snug">
             {jiraIssue.fields.summary}
           </h1>
@@ -137,7 +136,7 @@ export function IssueDetail({ issueKey, closePath }: IssueDetailProps) {
               <button
                 onClick={() => setActiveTab("comments")}
                 className={cn(
-                  "flex items-center gap-1.5 border-b-2 px-1 pb-2 text-[13px] font-medium",
+                  "flex items-center gap-1.5 border-b-2 px-2 py-2 text-[13px] font-medium",
                   activeTab === "comments"
                     ? "border-foreground text-foreground"
                     : "border-transparent text-muted-foreground hover:text-foreground",
@@ -149,7 +148,7 @@ export function IssueDetail({ issueKey, closePath }: IssueDetailProps) {
               <button
                 onClick={() => setActiveTab("activity")}
                 className={cn(
-                  "flex items-center gap-1.5 border-b-2 px-1 pb-2 text-[13px] font-medium",
+                  "flex items-center gap-1.5 border-b-2 px-2 py-2 text-[13px] font-medium",
                   activeTab === "activity"
                     ? "border-foreground text-foreground"
                     : "border-transparent text-muted-foreground hover:text-foreground",

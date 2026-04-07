@@ -183,7 +183,7 @@ export function LeaderboardView() {
       {myStats && (
         <Card className="bg-gradient-to-r from-primary/10 to-primary/5 border-primary/20">
           <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="space-y-1">
                 <p className="text-sm text-muted-foreground">Your Stats</p>
                 <div className="flex items-center gap-4">
@@ -203,7 +203,7 @@ export function LeaderboardView() {
                   )}
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4 text-right">
+              <div className="grid grid-cols-2 gap-4 sm:text-right">
                 <div>
                   <p className="text-2xl font-semibold">
                     {myStats.contributionCount}
@@ -243,7 +243,7 @@ export function LeaderboardView() {
 
       {isLoading && (
         <div className="space-y-3">
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {[...Array(3)].map((_, i) => (
               <div key={i} className="h-64 bg-muted animate-pulse rounded-lg" />
             ))}
@@ -276,7 +276,7 @@ export function LeaderboardView() {
               <CardHeader>
                 <CardTitle>Full Rankings</CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>

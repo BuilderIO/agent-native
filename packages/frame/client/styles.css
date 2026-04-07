@@ -1,0 +1,69 @@
+@import "tailwindcss";
+
+/* Scan core package client components for Tailwind classes */
+@source "../../core/src/client/**/*.tsx";
+@source "../../core/src/client/**/*.ts";
+
+/* Theme tokens — shadcn/ui compatible HSL variable color system */
+@theme {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+}
+
+:root {
+  --background: 220 6% 6%;
+  --foreground: 0 0% 90%;
+  --card: 220 5% 6%;
+  --card-foreground: 0 0% 90%;
+  --popover: 220 5% 6%;
+  --popover-foreground: 0 0% 90%;
+  --primary: 0 0% 75%;
+  --primary-foreground: 220 6% 6%;
+  --secondary: 220 4% 12%;
+  --secondary-foreground: 0 0% 90%;
+  --muted: 220 4% 10%;
+  --muted-foreground: 220 4% 60%;
+  --accent: 220 4% 13%;
+  --accent-foreground: 0 0% 90%;
+  --destructive: 0 63% 51%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 220 4% 14%;
+  --input: 220 4% 14%;
+  --ring: 0 0% 60%;
+  --radius: 0.5rem;
+}
+
+body {
+  margin: 0;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}

@@ -3,18 +3,18 @@ import DocsLayout from "../components/DocsLayout";
 const TOC = [
   { id: "embedded-agent", label: "Embedded Agent Panel" },
   { id: "supported-clis", label: "Supported CLIs" },
-  { id: "cloud-harness", label: "Builder.io Cloud" },
+  { id: "cloud-frame", label: "Builder.io Cloud" },
   { id: "how-it-works", label: "How It Works" },
 ];
 
-export default function HarnessesDocs() {
+export default function FramesDocs() {
   return (
     <DocsLayout toc={TOC}>
-      <h1 className="mb-2 text-4xl font-semibold tracking-tight">Harnesses</h1>
+      <h1 className="mb-2 text-4xl font-semibold tracking-tight">Frames</h1>
       <p className="mb-4 text-base text-[var(--fg-secondary)]">
         Agent-native apps run with an AI agent alongside the app UI. Locally,
         the agent panel is embedded directly in your app. In the cloud,
-        Builder.io provides a managed harness with collaboration and visual
+        Builder.io provides a managed frame with collaboration and visual
         editing.
       </p>
 
@@ -75,7 +75,7 @@ export default function HarnessesDocs() {
         terminal restarts with the selected CLI.
       </p>
 
-      <h2 id="cloud-harness">
+      <h2 id="cloud-frame">
         <a
           href="https://www.builder.io"
           target="_blank"

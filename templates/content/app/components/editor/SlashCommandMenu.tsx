@@ -425,7 +425,10 @@ export function SlashCommandMenu({
           style={{
             position: "absolute",
             top: position.top,
-            left: Math.min(position.left, 400),
+            left: 0,
+            right: 0,
+            maxWidth: "min(300px, calc(100vw - 2rem))",
+            marginLeft: Math.min(position.left, 16),
             zIndex: 50,
           }}
         >
@@ -457,10 +460,10 @@ export function SlashCommandMenu({
             onClick={() => setGenerateOpen(false)}
           />
           <div
-            className="absolute z-50 w-80 rounded-xl border border-border bg-popover shadow-lg"
+            className="absolute z-50 w-[calc(100vw-2rem)] max-w-80 rounded-xl border border-border bg-popover shadow-lg"
             style={{
               top: generatePos.top,
-              left: Math.min(generatePos.left, 400),
+              left: Math.min(generatePos.left, 16),
             }}
           >
             <div className="p-4 pb-3">

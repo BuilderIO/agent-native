@@ -15,10 +15,12 @@ import {
   addMinutes,
 } from "date-fns";
 import { cn } from "@/lib/utils";
-import { getEventAutoColor } from "@/lib/event-colors";
+import { getEventAutoColor, allOtherDeclined } from "@/lib/event-colors";
+import { IconAlertTriangleFilled } from "@tabler/icons-react";
 import { EventDetailPopover } from "./EventDetailPopover";
 import type { CalendarEvent } from "@shared/api";
 import { useEventDrag } from "@/hooks/use-event-drag";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 interface WeekViewProps {
   events: CalendarEvent[];
@@ -57,7 +59,8 @@ const WEEK_SKELETONS: [number, number, number, number][][] = [
 const START_HOUR = 0;
 const END_HOUR = 24;
 const HOUR_HEIGHT = 60;
-const GUTTER_WIDTH = 60;
+const DESKTOP_GUTTER_WIDTH = 60;
+const MOBILE_GUTTER_WIDTH = 40;
 
 function getEventColor(event: CalendarEvent) {
   return getEventAutoColor(event);
@@ -179,6 +182,8 @@ export function WeekView({
   onQuickEditCancel,
   isLoading = false,
 }: WeekViewProps) {
+  const isMobile = useIsMobile();
+  const GUTTER_WIDTH = isMobile ? MOBILE_GUTTER_WIDTH : DESKTOP_GUTTER_WIDTH;
   const [now, setNow] = useState(new Date());
   const [focusedEventId, setFocusedEventId] = useState<string | null>(null);
   const currentTimeRef = useRef<HTMLDivElement>(null);
@@ -374,16 +379,16 @@ export function WeekView({
               key={day.toISOString()}
               onClick={() => onDateSelect(day)}
               className={cn(
-                "flex flex-1 cursor-pointer items-center justify-center gap-1.5 border-r border-border py-2.5 transition-colors last:border-r-0",
+                "flex flex-1 cursor-pointer flex-col items-center justify-center gap-0.5 border-r border-border py-1.5 sm:flex-row sm:gap-1.5 sm:py-2.5 last:border-r-0",
                 isToday(day) ? "bg-primary/5" : "hover:bg-accent/40",
               )}
             >
-              <span className="text-xs font-medium text-muted-foreground">
-                {format(day, "EEE")}
+              <span className="text-[10px] font-medium text-muted-foreground sm:text-xs">
+                {isMobile ? format(day, "EEEEE") : format(day, "EEE")}
               </span>
               <span
                 className={cn(
-                  "flex h-7 w-7 items-center justify-center rounded-full text-sm font-semibold",
+                  "flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold sm:h-7 sm:w-7 sm:text-sm",
                   isToday(day)
                     ? "bg-foreground text-background"
                     : "text-foreground",
@@ -438,7 +443,7 @@ export function WeekView({
                     onDelete={onDeleteEvent}
                   >
                     <button
-                      className="absolute truncate rounded px-2 py-0.5 text-left text-xs font-medium text-foreground transition-opacity hover:opacity-80"
+                      className="absolute flex items-center gap-1 truncate rounded px-2 py-0.5 text-left text-xs font-medium text-foreground transition-opacity hover:opacity-80"
                       style={{
                         top: `${rowIdx * allDayRowHeight + 4}px`,
                         left: `${leftPct}%`,
@@ -451,7 +456,13 @@ export function WeekView({
                         marginLeft: "2px",
                       }}
                     >
-                      {event.title}
+                      {allOtherDeclined(event) && (
+                        <IconAlertTriangleFilled
+                          size={10}
+                          className="shrink-0 text-current opacity-70"
+                        />
+                      )}
+                      <span className="truncate">{event.title}</span>
                     </button>
                   </EventDetailPopover>
                 );
@@ -479,8 +490,10 @@ export function WeekView({
                 style={{ height: `${HOUR_HEIGHT}px` }}
               >
                 {i > 0 && (
-                  <span className="absolute -top-[9px] right-2 text-[11px] font-medium text-muted-foreground">
-                    {format(hour, "h a")}
+                  <span className="absolute -top-[9px] right-1 text-[10px] font-medium text-muted-foreground sm:right-2 sm:text-[11px]">
+                    {isMobile
+                      ? format(hour, "ha").toLowerCase()
+                      : format(hour, "h a")}
                   </span>
                 )}
               </div>
@@ -632,6 +645,7 @@ export function WeekView({
                       : end;
                     const isPast = end < now;
                     const isDeclined = event.responseStatus === "declined";
+                    const allOthersOut = allOtherDeclined(event);
                     const canDrag = !!onEventTimeChange;
 
                     const eventButton = (
@@ -688,6 +702,12 @@ export function WeekView({
                       >
                         {durationMin <= 30 ? (
                           <div className="flex items-baseline gap-1 truncate">
+                            {allOthersOut && (
+                              <IconAlertTriangleFilled
+                                size={10}
+                                className="shrink-0 text-current opacity-70 relative top-[1px]"
+                              />
+                            )}
                             <span
                               className={cn(
                                 "truncate leading-tight",
@@ -720,7 +740,7 @@ export function WeekView({
                           <>
                             <div
                               className={cn(
-                                "mt-0.5 truncate leading-tight",
+                                "mt-0.5 flex items-center gap-1 truncate leading-tight",
                                 isPast || isDeclined
                                   ? "text-muted-foreground"
                                   : "text-foreground",
@@ -728,7 +748,13 @@ export function WeekView({
                                 !isPast && !isDeclined && "font-semibold",
                               )}
                             >
-                              {event.title}
+                              {allOthersOut && (
+                                <IconAlertTriangleFilled
+                                  size={10}
+                                  className="shrink-0 text-current opacity-70"
+                                />
+                              )}
+                              <span className="truncate">{event.title}</span>
                             </div>
                             <div
                               className={cn(

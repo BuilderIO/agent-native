@@ -75,20 +75,20 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     >
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Top nav */}
-        <header className="sticky top-0 z-20 bg-background/80 backdrop-blur-md border-b border-white/[0.08] px-4 py-3">
-          <div className="max-w-3xl lg:max-w-6xl mx-auto flex items-center justify-between">
+        <header className="sticky top-0 z-20 bg-background/80 backdrop-blur-md border-b border-white/[0.08] px-3 sm:px-4 py-2.5 sm:py-3">
+          <div className="max-w-3xl lg:max-w-6xl mx-auto flex items-center justify-between gap-2">
             {/* Logo */}
-            <span className="font-logo font-bold tracking-tight text-xl">
+            <span className="font-logo font-bold tracking-tight text-lg sm:text-xl">
               <span className="text-foreground">nutri</span>
               <span className="text-foreground/50">track</span>
             </span>
 
             {/* Tab Navigation */}
-            <nav className="absolute left-1/2 -translate-x-1/2 flex items-center p-1 rounded-lg bg-white/[0.02] border border-white/[0.06]">
+            <nav className="flex items-center p-1 rounded-lg bg-white/[0.02] border border-white/[0.06]">
               <Link to="/">
                 <button
                   className={cn(
-                    "px-4 py-1.5 text-sm font-medium rounded-md transition-all duration-200",
+                    "px-3 py-1.5 text-sm font-medium rounded-md sm:px-4",
                     isEntry
                       ? "text-foreground bg-white/[0.08] shadow-sm"
                       : "text-muted-foreground hover:text-foreground hover:bg-white/[0.02]",
@@ -100,7 +100,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               <Link to="/analytics">
                 <button
                   className={cn(
-                    "px-4 py-1.5 text-sm font-medium rounded-md transition-all duration-200",
+                    "px-3 py-1.5 text-sm font-medium rounded-md sm:px-4",
                     isAnalytics
                       ? "text-foreground bg-white/[0.08] shadow-sm"
                       : "text-muted-foreground hover:text-foreground hover:bg-white/[0.02]",

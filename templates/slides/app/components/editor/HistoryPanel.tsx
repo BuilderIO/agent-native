@@ -55,8 +55,12 @@ export default function HistoryPanel({
   if (!open || !anchorRef?.current) return null;
 
   const rect = anchorRef.current.getBoundingClientRect();
-  const panelWidth = 300;
-  const left = Math.max(8, rect.right - panelWidth);
+  const vw = window.innerWidth;
+  const panelWidth = Math.min(300, vw - 16);
+  const left = Math.max(
+    8,
+    Math.min(rect.right - panelWidth, vw - panelWidth - 8),
+  );
 
   return createPortal(
     <div

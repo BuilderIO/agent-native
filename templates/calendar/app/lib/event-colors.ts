@@ -76,6 +76,23 @@ export function classifyEvent(event: CalendarEvent): EventCategory {
   return "externalGroup"; // mixed = treat as external group
 }
 
+// ─── "All others declined" detection ─────────────────────────────────────────
+
+/**
+ * Returns true when every non-self attendee has declined the event,
+ * meaning nobody else is coming. Only triggers when there are 2+ attendees
+ * (i.e. at least one non-self attendee exists) and the user hasn't declined.
+ */
+export function allOtherDeclined(event: CalendarEvent): boolean {
+  const attendees = event.attendees;
+  if (!attendees || attendees.length < 2) return false;
+  // Don't warn if the user themselves declined
+  if (event.responseStatus === "declined") return false;
+  const others = attendees.filter((a) => !a.self);
+  if (others.length === 0) return false;
+  return others.every((a) => a.responseStatus === "declined");
+}
+
 // ─── Main color function ─────────────────────────────────────────────────────
 
 /**

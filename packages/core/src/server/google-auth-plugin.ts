@@ -1,6 +1,4 @@
-import { getCookie } from "h3";
 import { createAuthPlugin } from "./auth-plugin.js";
-import { getSessionEmail } from "./auth.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
@@ -104,6 +102,10 @@ const GOOGLE_LOGIN_HTML = `<!DOCTYPE html>
  * tied to the user's Google email. `getSession()` then returns `{ email }` for
  * all subsequent requests.
  *
+ * Better Auth handles Google OAuth internally when GOOGLE_CLIENT_ID and
+ * GOOGLE_CLIENT_SECRET are set. The template's callback route at
+ * /_agent-native/google/callback handles mobile deep linking.
+ *
  * Usage in a template's `server/plugins/auth.ts`:
  * ```ts
  * import { createGoogleAuthPlugin } from "@agent-native/core/server";
@@ -114,16 +116,10 @@ export function createGoogleAuthPlugin(
   options?: GoogleAuthPluginOptions,
 ): NitroPluginDef {
   return createAuthPlugin({
-    getSession: async (event) => {
-      const cookie = getCookie(event, "an_session");
-      if (!cookie) return null;
-      const email = await getSessionEmail(cookie);
-      if (!email) return null;
-      return { email, token: cookie };
-    },
     publicPaths: [
       "/_agent-native/google/callback",
       "/_agent-native/google/auth-url",
+      "/_agent-native/auth/ba",
       ...(options?.publicPaths ?? []),
     ],
     loginHtml: GOOGLE_LOGIN_HTML,

@@ -5,7 +5,7 @@ import {
   type AssistantChatProps,
   type AssistantChatHandle,
 } from "./AssistantChat.js";
-import { getHarnessOrigin } from "./harness.js";
+import { getFrameOrigin } from "./frame.js";
 import { cn } from "./utils.js";
 import { useChatThreads, type ChatThreadSummary } from "./use-chat-threads.js";
 
@@ -485,7 +485,7 @@ export function MultiTabAssistantChat({
     const handler = (event: MessageEvent) => {
       if (
         event.origin !== window.location.origin &&
-        event.origin !== getHarnessOrigin()
+        event.origin !== getFrameOrigin()
       ) {
         return;
       }

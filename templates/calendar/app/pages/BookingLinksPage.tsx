@@ -440,7 +440,7 @@ export default function BookingLinksPage({
   // If a link is selected, show the detail/edit view
   if (selectedId) {
     return (
-      <div className="mx-auto max-w-6xl space-y-6 p-6">
+      <div className="mx-auto max-w-6xl space-y-6 px-4 py-6 sm:p-6">
         {/* Top bar: back + save */}
         <div className="flex items-center justify-between">
           <button
@@ -749,7 +749,7 @@ export default function BookingLinksPage({
                           : "border-transparent bg-muted/60",
                       )}
                     >
-                      <div className="flex items-center gap-4 px-5 py-4">
+                      <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:gap-4 sm:px-5">
                         {/* Info — clickable to edit */}
                         <button
                           type="button"
@@ -784,7 +784,7 @@ export default function BookingLinksPage({
                                   e.stopPropagation();
                                   void copyPreviewUrl(link.slug);
                                 }}
-                                className="flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 text-sm font-medium text-foreground hover:bg-accent/60"
+                                className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent/60 sm:px-4 sm:text-sm"
                               >
                                 <IconLink className="h-3.5 w-3.5" />
                                 Copy link
@@ -795,7 +795,7 @@ export default function BookingLinksPage({
                                   e.stopPropagation();
                                   openPreview(link.slug);
                                 }}
-                                className="flex items-center justify-center rounded-full border border-border p-2 text-muted-foreground hover:text-foreground hover:bg-accent/60"
+                                className="flex h-9 w-9 items-center justify-center rounded-full border border-border text-muted-foreground hover:text-foreground hover:bg-accent/60"
                               >
                                 <IconExternalLink className="h-4 w-4" />
                               </button>
@@ -807,7 +807,7 @@ export default function BookingLinksPage({
                               <button
                                 type="button"
                                 onClick={(e) => e.stopPropagation()}
-                                className="flex items-center justify-center rounded-full border border-border p-2 text-muted-foreground hover:text-foreground hover:bg-accent/60"
+                                className="flex h-9 w-9 items-center justify-center rounded-full border border-border text-muted-foreground hover:text-foreground hover:bg-accent/60"
                               >
                                 <IconDotsVertical className="h-4 w-4" />
                               </button>
@@ -875,9 +875,9 @@ export default function BookingLinksPage({
                   return (
                     <div
                       key={key}
-                      className="flex flex-wrap items-center gap-4 rounded-lg border border-border px-4 py-3"
+                      className="flex flex-wrap items-center gap-3 rounded-lg border border-border px-3 py-3 sm:gap-4 sm:px-4"
                     >
-                      <div className="flex items-center gap-3 w-40">
+                      <div className="flex items-center gap-3 w-28 sm:w-40">
                         <Switch
                           checked={day.enabled}
                           onCheckedChange={(checked) =>
@@ -898,7 +898,7 @@ export default function BookingLinksPage({
                             onChange={(e) =>
                               updateDaySlot(key, "start", e.target.value)
                             }
-                            className="w-32"
+                            className="w-28 sm:w-32"
                           />
                           <span className="text-muted-foreground">to</span>
                           <Input
@@ -907,7 +907,7 @@ export default function BookingLinksPage({
                             onChange={(e) =>
                               updateDaySlot(key, "end", e.target.value)
                             }
-                            className="w-32"
+                            className="w-28 sm:w-32"
                           />
                         </div>
                       ) : (
@@ -930,7 +930,7 @@ export default function BookingLinksPage({
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label>Buffer between events (min)</Label>
                     <Input

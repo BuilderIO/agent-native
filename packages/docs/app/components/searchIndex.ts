@@ -213,6 +213,69 @@ export const searchIndex: SearchEntry[] = [
     "text": "The @ popover is not limited to agents. You can also reference: Codebase files — type @ and search for a filename. The file contents are included in the agent's context so it can read, analyze, or modify the file. Resources — reference resources defined in the resources panel. These can be data..."
   },
   {
+    "page": "Authentication",
+    "path": "/docs/authentication",
+    "section": "Overview",
+    "sectionId": "overview",
+    "text": "Auth is configured automatically via autoMountAuth(app) in the auth server plugin. The behavior depends on your environment: Default: Better Auth with email/password + social providers. Onboarding page shown on first visit. AUTH_MODE=local : No auth. Solo local development with local@localhost..."
+  },
+  {
+    "page": "Authentication",
+    "path": "/docs/authentication",
+    "section": "Better Auth (Default)",
+    "sectionId": "better-auth",
+    "text": "When no ACCESS_TOKEN or AUTH_MODE=local is set, Better Auth powers authentication. It provides: Email/password registration and login Social providers (Google, GitHub, and 35+ others) Organizations with roles and invitations JWT tokens for API and A2A access Bearer token support for programmatic..."
+  },
+  {
+    "page": "Authentication",
+    "path": "/docs/authentication",
+    "section": "Local Mode",
+    "sectionId": "local-mode",
+    "text": "For solo local development without auth, set AUTH_MODE=local in your .env file. This returns for all requests. You can also enable local mode from the onboarding page by clicking \"Use locally without an account\". This writes AUTH_MODE=local to your .env automatically. Local mode works in any..."
+  },
+  {
+    "page": "Authentication",
+    "path": "/docs/authentication",
+    "section": "Social Providers",
+    "sectionId": "social-providers",
+    "text": "Set environment variables to enable social login. Better Auth auto-detects them: Templates that use createGoogleAuthPlugin() show a \"Sign in with Google\" page. The Google OAuth callback handles mobile deep linking for native apps automatically."
+  },
+  {
+    "page": "Authentication",
+    "path": "/docs/authentication",
+    "section": "Organizations",
+    "sectionId": "organizations",
+    "text": "Better Auth's organization plugin is built into the framework. Every app supports: Creating organizations Inviting members with roles ( owner , admin , member ) Switching active organization Per-org data scoping via org_id columns The active organization flows automatically through the system:..."
+  },
+  {
+    "page": "Authentication",
+    "path": "/docs/authentication",
+    "section": "Access Tokens",
+    "sectionId": "access-tokens",
+    "text": "For simple deployments, set ACCESS_TOKEN (single) or ACCESS_TOKENS (comma-separated) as environment variables: When access tokens are configured, users see a token login page. Sessions are cookie-based with 30-day expiry."
+  },
+  {
+    "page": "Authentication",
+    "path": "/docs/authentication",
+    "section": "Bring Your Own Auth",
+    "sectionId": "byoa",
+    "text": "Pass a custom getSession callback to use any auth provider (Clerk, Auth0, Firebase, etc.):"
+  },
+  {
+    "page": "Authentication",
+    "path": "/docs/authentication",
+    "section": "Session API",
+    "sectionId": "session-api",
+    "text": "The session object returned by getSession(event) has this shape: On the client, use the useSession() hook:"
+  },
+  {
+    "page": "Authentication",
+    "path": "/docs/authentication",
+    "section": "Environment Variables",
+    "sectionId": "environment-variables",
+    "text": "Variable Purpose AUTH_MODE Set to local to disable auth BETTER_AUTH_SECRET Signing key for Better Auth (auto-generated if not set) GOOGLE_CLIENT_ID Enable Google OAuth GOOGLE_CLIENT_SECRET Google OAuth secret GITHUB_CLIENT_ID Enable GitHub OAuth GITHUB_CLIENT_SECRET GitHub OAuth secret ACCESS_TOKEN..."
+  },
+  {
     "page": "CLI Adapters",
     "path": "/docs/cli-adapters",
     "section": "Overview",
@@ -556,29 +619,29 @@ export const searchIndex: SearchEntry[] = [
     "text": "Yes. Run npx @agent-native/core create my-app without the --template flag. You get the framework scaffolding — React frontend, Nitro backend, agent panel, database — but no domain-specific code. See Getting Started . ); }"
   },
   {
-    "page": "Harnesses",
-    "path": "/docs/harnesses",
+    "page": "Frames",
+    "path": "/docs/frames",
     "section": "Embedded Agent Panel",
     "sectionId": "embedded-agent",
     "text": "Ships with @agent-native/core — no separate package needed Agent panel embedded directly in your app with chat and optional CLI terminal Supports multiple AI coding CLIs — switch between them from the settings panel Toggle between production mode (app tools only) and development mode (full..."
   },
   {
-    "page": "Harnesses",
-    "path": "/docs/harnesses",
+    "page": "Frames",
+    "path": "/docs/frames",
     "section": "Supported CLIs",
     "sectionId": "supported-clis",
     "text": "CLI Command Key Flags > ))} Switch between CLIs at any time from the agent panel settings. The terminal restarts with the selected CLI."
   },
   {
-    "page": "Harnesses",
-    "path": "/docs/harnesses",
+    "page": "Frames",
+    "path": "/docs/frames",
     "section": "Builder.io Cloud",
-    "sectionId": "cloud-harness",
+    "sectionId": "cloud-frame",
     "text": "Runs in the cloud Real-time collaboration — multiple users can watch/interact simultaneously Visual editing, roles and permissions Parallel agent execution for faster iteration Great for team use"
   },
   {
-    "page": "Harnesses",
-    "path": "/docs/harnesses",
+    "page": "Frames",
+    "path": "/docs/frames",
     "section": "How It Works",
     "sectionId": "how-it-works",
     "text": "The framework provides type-safe APIs so you never deal with raw messaging: Agent chat — use sendToAgentChat() to send messages to the agent Generation state — use useAgentChatGenerating() to track when the agent is running File watching — SSE endpoint keeps UI in sync when the agent modifies files..."
@@ -705,8 +768,8 @@ export const searchIndex: SearchEntry[] = [
   {
     "page": "Key Concepts",
     "path": "/docs/key-concepts",
-    "section": "Harnesses",
-    "sectionId": "harnesses",
+    "section": "Frames",
+    "sectionId": "frames",
     "text": "Agent-native apps include an embedded agent panel that provides the AI agent alongside the app UI. This is what makes the architecture work: the agent needs a computer (database, browser, code execution), and the app needs the agent for AI work. Embedded Agent Panel Chat and optional CLI terminal..."
   },
   {
@@ -750,6 +813,69 @@ export const searchIndex: SearchEntry[] = [
     "section": "Deep dives",
     "sectionId": "deep-dives",
     "text": "For detailed guidance on specific patterns: What Is Agent-Native? — the vision and philosophy Context Awareness — navigation state, view-screen, navigate commands Skills Guide — framework skills, domain skills, creating custom skills A2A Protocol — agent-to-agent communication ); }"
+  },
+  {
+    "page": "Real-Time Collaboration",
+    "path": "/docs/real-time-collaboration",
+    "section": "Overview",
+    "sectionId": "overview",
+    "text": "The framework provides a Yjs-based collaborative editing system in @agent-native/core/collab . Multiple users can edit the same document simultaneously with live cursor positions, and the AI agent can make surgical edits that appear in real-time without disrupting the user's cursor, selection, or..."
+  },
+  {
+    "page": "Real-Time Collaboration",
+    "path": "/docs/real-time-collaboration",
+    "section": "How it works",
+    "sectionId": "how-it-works",
+    "text": "The collaboration system has three layers: Yjs Y.Doc — stores the document as a Y.XmlFragment (ProseMirror node tree). This is the CRDT that enables conflict-free merging of concurrent edits. TipTap Collaboration extension — binds the editor to the Y.XmlFragment via ySyncPlugin . Remote changes are..."
+  },
+  {
+    "page": "Real-Time Collaboration",
+    "path": "/docs/real-time-collaboration",
+    "section": "Agent + human collaboration",
+    "sectionId": "agent-human-collab",
+    "text": "The agent and human users are equal participants in collaborative editing. The key insight is that both produce Yjs operations that merge cleanly: Human edits flow through TipTap → ySyncPlugin → Y.XmlFragment → server via HTTP Agent edits flow through the edit-document action → server..."
+  },
+  {
+    "page": "Real-Time Collaboration",
+    "path": "/docs/real-time-collaboration",
+    "section": "Enabling collaboration",
+    "sectionId": "enabling-collab",
+    "text": "Templates opt into collaboration with five steps: 1. Install dependencies 2. Add Vite optimizeDeps Prevents Vite from re-bundling TipTap in incompatible ways during dev: 3. Add the collab server plugin 4. Use the client hook 5. Add TipTap extensions"
+  },
+  {
+    "page": "Real-Time Collaboration",
+    "path": "/docs/real-time-collaboration",
+    "section": "Live cursors & presence",
+    "sectionId": "live-cursors",
+    "text": "The CollaborationCaret extension renders colored cursor lines with user name labels for each connected user. The useCollaborativeDoc hook provides an activeUsers array that can be used to render a presence bar with user avatars. User identity is derived from the session email. The framework..."
+  },
+  {
+    "page": "Real-Time Collaboration",
+    "path": "/docs/real-time-collaboration",
+    "section": "Comments",
+    "sectionId": "comments",
+    "text": "Templates can add a comments system with threaded discussions on documents. The content template includes a full implementation with: document_comments SQL table (threads, replies, resolved status) CRUD API routes at /api/comments Comments sidebar with threaded view and reply UI Resolve/unresolve..."
+  },
+  {
+    "page": "Real-Time Collaboration",
+    "path": "/docs/real-time-collaboration",
+    "section": "Collab routes",
+    "sectionId": "collab-routes",
+    "text": "All collab routes are auto-mounted under /_agent-native/collab/ by the collab plugin: Route Purpose GET /:docId/state Fetch full Y.Doc state (base64) POST /:docId/update Apply client Yjs update POST /:docId/text Apply full text replacement (diff-based) POST /:docId/search-replace Surgical..."
+  },
+  {
+    "page": "Real-Time Collaboration",
+    "path": "/docs/real-time-collaboration",
+    "section": "Agent edit action",
+    "sectionId": "edit-document",
+    "text": "The edit-document action is the primary way agents make changes to documents in collaborative mode: When collab state exists for the document, the action calls the server's search-replace endpoint via HTTP (not the collab module directly, since actions run in a separate process). The server walks..."
+  },
+  {
+    "page": "Real-Time Collaboration",
+    "path": "/docs/real-time-collaboration",
+    "section": "Common pitfalls",
+    "sectionId": "pitfalls",
+    "text": "TipTap version mismatch — All @tiptap/* packages must be the same version. The Collaboration extension requires editor.utils which was added in v3.22.2. Add @tiptap/core as an explicit dependency. Empty editor on first load — The Collaboration extension does NOT auto-seed from the content prop...."
   },
   {
     "page": "Resources & Skills",
@@ -848,6 +974,62 @@ export const searchIndex: SearchEntry[] = [
     "section": "Action API",
     "sectionId": "action-api",
     "text": "The agent uses these built-in actions. You can also call them from your own actions: ); }"
+  },
+  {
+    "page": "Security &amp; Data Scoping",
+    "path": "/docs/security",
+    "section": "Data Scoping",
+    "sectionId": "data-scoping",
+    "text": "Data scoping ensures each user only sees their own data. It works by creating temporary SQL views that filter tables before the agent's query runs. Two scoping dimensions are supported: owner_email &mdash; per-user data isolation (required for all user-facing tables) org_id &mdash; per-organization..."
+  },
+  {
+    "page": "Security &amp; Data Scoping",
+    "path": "/docs/security",
+    "section": "Per-User Scoping",
+    "sectionId": "per-user-scoping",
+    "text": "Every table with user-specific data must have an owner_email text column: The current user's email comes from AGENT_USER_EMAIL , which is automatically set from the auth session before any agent script runs."
+  },
+  {
+    "page": "Security &amp; Data Scoping",
+    "path": "/docs/security",
+    "section": "Per-Org Scoping",
+    "sectionId": "per-org-scoping",
+    "text": "For apps where teams share data within an organization, add an org_id column: When both columns are present, queries are scoped by both : WHERE owner_email = ? AND org_id = ? . The org_id is automatically resolved from the user's active organization in Better Auth. Templates can override this with..."
+  },
+  {
+    "page": "Security &amp; Data Scoping",
+    "path": "/docs/security",
+    "section": "How Scoping Works",
+    "sectionId": "how-scoping-works",
+    "text": "When an agent runs db-query or db-exec in production mode: The framework discovers all tables and their columns via schema introspection For each table with owner_email and/or org_id , a temporary view is created: The agent's query runs against the views (not the real tables) Views are dropped..."
+  },
+  {
+    "page": "Security &amp; Data Scoping",
+    "path": "/docs/security",
+    "section": "INSERT Auto-Injection",
+    "sectionId": "insert-auto-injection",
+    "text": "When an agent runs an INSERT via db-exec , the framework automatically injects ownership columns: This only happens when the columns aren't already present in the INSERT statement."
+  },
+  {
+    "page": "Security &amp; Data Scoping",
+    "path": "/docs/security",
+    "section": "A2A Identity Verification",
+    "sectionId": "a2a-identity",
+    "text": "When apps call each other via the A2A protocol, they can verify the caller's identity using JWT tokens signed with a shared secret: How it works: App A signs a JWT with A2A_SECRET containing sub: \"steve@example.com\" App B receives the call and verifies the JWT signature with the same secret App B..."
+  },
+  {
+    "page": "Security &amp; Data Scoping",
+    "path": "/docs/security",
+    "section": "Schema Validation",
+    "sectionId": "validation",
+    "text": "Run the scoping check to verify all tables have proper ownership columns: Tables without scoping columns are flagged. Core framework tables ( settings , application_state , sessions ) use their own scoping mechanisms and are excluded from the check."
+  },
+  {
+    "page": "Security &amp; Data Scoping",
+    "path": "/docs/security",
+    "section": "Production Checklist",
+    "sectionId": "production-checklist",
+    "text": "Every user-facing table has owner_email Multi-user tables also have org_id BETTER_AUTH_SECRET is set to a random 32+ character string A2A_SECRET is set on all apps that call each other AUTH_MODE is not set to local in production Run pnpm action db-check-scoping to validate schema Test with two user..."
   },
   {
     "page": "Skills Guide",

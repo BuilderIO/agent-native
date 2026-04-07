@@ -3,7 +3,7 @@
 
 /**
  * Validate that a message origin is allowed.
- * Used for postMessage security when communicating with harnesses.
+ * Used for postMessage security when communicating with frames.
  */
 export function isAllowedOrigin(
   origin: string,

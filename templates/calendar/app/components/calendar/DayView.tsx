@@ -10,7 +10,8 @@ import {
   addMinutes,
 } from "date-fns";
 import { cn } from "@/lib/utils";
-import { getEventAutoColor } from "@/lib/event-colors";
+import { getEventAutoColor, allOtherDeclined } from "@/lib/event-colors";
+import { IconAlertTriangleFilled } from "@tabler/icons-react";
 import { EventDetailPopover } from "./EventDetailPopover";
 import type { CalendarEvent } from "@shared/api";
 import { useEventDrag } from "@/hooks/use-event-drag";
@@ -212,7 +213,7 @@ export function DayView({
                   onDelete={onDeleteEvent}
                 >
                   <button
-                    className="block w-full rounded-md px-3 py-1.5 text-left text-sm font-medium text-foreground transition-all hover:brightness-110"
+                    className="flex w-full items-center gap-1.5 rounded-md px-3 py-1.5 text-left text-sm font-medium text-foreground transition-all hover:brightness-110"
                     style={
                       color
                         ? {
@@ -225,7 +226,13 @@ export function DayView({
                           }
                     }
                   >
-                    {event.title}
+                    {allOtherDeclined(event) && (
+                      <IconAlertTriangleFilled
+                        size={14}
+                        className="shrink-0 text-current opacity-70"
+                      />
+                    )}
+                    <span className="truncate">{event.title}</span>
                   </button>
                 </EventDetailPopover>
               );
@@ -242,7 +249,7 @@ export function DayView({
           isDragging && "select-none",
         )}
       >
-        <div className="grid grid-cols-[56px_1fr]">
+        <div className="grid grid-cols-[40px_1fr] sm:grid-cols-[56px_1fr]">
           {/* Hour labels + grid lines */}
           {hours.map((hour) => (
             <div key={hour.toISOString()} className="contents">
@@ -264,7 +271,7 @@ export function DayView({
 
         {/* Positioned events overlay */}
         <div
-          className="absolute inset-0 ml-[56px] mr-4"
+          className="absolute inset-0 ml-[40px] mr-2 sm:ml-[56px] sm:mr-4"
           onClick={(e) => {
             if ((e.target as HTMLElement).closest("button")) return;
             if (!onClickTimeSlot || isDragging || shouldSuppressClick()) return;
@@ -360,6 +367,7 @@ export function DayView({
                 : parseISO(event.end);
               const isPast = parseISO(event.end) < now;
               const isDeclined = event.responseStatus === "declined";
+              const allOthersOut = allOtherDeclined(event);
               const canDrag = !!onEventTimeChange;
 
               const eventButton = (
@@ -411,6 +419,12 @@ export function DayView({
                 >
                   {durationMin <= 30 ? (
                     <div className="flex items-baseline gap-1.5 truncate">
+                      {allOthersOut && (
+                        <IconAlertTriangleFilled
+                          size={12}
+                          className="shrink-0 text-current opacity-70 relative top-[1px]"
+                        />
+                      )}
                       <span
                         className={cn(
                           "truncate leading-tight",
@@ -441,7 +455,7 @@ export function DayView({
                     <>
                       <div
                         className={cn(
-                          "mt-0.5 truncate leading-tight",
+                          "mt-0.5 flex items-center gap-1 truncate leading-tight",
                           isPast || isDeclined
                             ? "text-muted-foreground"
                             : "text-foreground",
@@ -449,7 +463,13 @@ export function DayView({
                           !isPast && !isDeclined && "font-semibold",
                         )}
                       >
-                        {event.title}
+                        {allOthersOut && (
+                          <IconAlertTriangleFilled
+                            size={12}
+                            className="shrink-0 text-current opacity-70"
+                          />
+                        )}
+                        <span className="truncate">{event.title}</span>
                       </div>
                       <div
                         className={cn(

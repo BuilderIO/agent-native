@@ -37,11 +37,14 @@ export function SqlChartCard({
     transition,
     zIndex: isDragging ? 50 : undefined,
     opacity: isDragging ? 0.7 : 1,
-    gridColumn: panel.width === 2 ? "span 2" : "span 1",
   };
 
   return (
-    <div ref={setNodeRef} style={style} className="group relative">
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`group relative ${panel.width === 2 ? "md:col-span-2" : ""}`}
+    >
       <Card className="h-full">
         <CardHeader className="pb-2 flex flex-row items-center gap-2">
           <button

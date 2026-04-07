@@ -18,7 +18,7 @@ const isBrowser =
   typeof window !== "undefined" && typeof window.postMessage === "function";
 
 /**
- * Send env vars to the host (Builder cloud or Claude harness).
+ * Send env vars to the host (Builder cloud or Claude frame).
  * Automatically detects environment (browser vs Node.js) and uses the right transport.
  */
 function setVars(vars: EnvVar[]): void {

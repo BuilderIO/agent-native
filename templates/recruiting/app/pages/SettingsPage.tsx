@@ -363,12 +363,14 @@ export function SettingsPage() {
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="flex items-center border-b border-border px-6 h-14 flex-shrink-0">
-        <h1 className="text-sm font-semibold text-foreground">Settings</h1>
+      <div className="flex items-center border-b border-border px-4 h-14 flex-shrink-0 sm:px-6">
+        <h1 className="text-sm font-semibold text-foreground pl-10 md:pl-0">
+          Settings
+        </h1>
       </div>
 
       <div className="flex-1 overflow-auto">
-        <div className="max-w-lg mx-auto px-6 py-8 space-y-8">
+        <div className="max-w-lg mx-auto px-4 py-6 space-y-8 sm:px-6 sm:py-8">
           {/* Organization */}
           <OrgSection />
 
