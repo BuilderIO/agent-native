@@ -2,7 +2,7 @@ name = "agent-native-calendar"
 main = "templates/calendar/.output/server/index.mjs"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
-no_bundle = true
+find_additional_modules = true
 
 [assets]
 directory = "templates/calendar/.output/public"
