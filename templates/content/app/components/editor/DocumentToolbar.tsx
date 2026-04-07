@@ -54,7 +54,10 @@ interface DocumentToolbarProps {
 
 export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
   const queryClient = useQueryClient();
-  const [autoSync, setAutoSync] = useLocalStorage("notion-auto-sync", false);
+  const [autoSync, setAutoSync] = useLocalStorage(
+    `notion-auto-sync:${documentId}`,
+    false,
+  );
   const { data: connection } = useNotionConnection();
   const { data: syncStatus } = useDocumentSyncStatus(documentId, { autoSync });
   const linkDocument = useLinkDocumentToNotion(documentId);

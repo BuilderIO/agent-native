@@ -46,6 +46,8 @@ export function useDocumentSyncStatus(
         `/api/documents/${documentId}/notion/refresh`,
         {
           method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ autoSync: !!options?.autoSync }),
         },
       ),
     enabled: !!documentId,

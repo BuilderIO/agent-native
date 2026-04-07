@@ -376,9 +376,10 @@ const REFRESH_THROTTLE_MS = 10_000;
 export async function refreshDocumentSyncStatus(
   owner: string,
   documentId: string,
+  options?: { autoSync?: boolean },
 ): Promise<DocumentSyncStatus> {
   // Throttle Notion API calls per document (prevents excessive requests from
-  // multiple tabs or rapid polling).
+  // multiple tabs or rapid polling). Best-effort in serverless environments.
   const now = Date.now();
   const lastCall = lastRefreshAt.get(documentId) ?? 0;
   if (now - lastCall < REFRESH_THROTTLE_MS) {
@@ -399,7 +400,8 @@ export async function refreshDocumentSyncStatus(
     if (status.remoteChanged && !status.localChanged) {
       return pullDocumentFromNotion(owner, documentId, true);
     }
-    if (status.localChanged && !status.remoteChanged) {
+    // Only auto-push when the user has explicitly enabled auto-sync
+    if (options?.autoSync && status.localChanged && !status.remoteChanged) {
       return pushDocumentToNotion(owner, documentId, true);
     }
   }

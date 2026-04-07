@@ -23,11 +23,10 @@ import { useSkills } from "./use-skills.js";
 import {
   IconArrowUp,
   IconPlus,
-  IconBolt,
-  IconBulb,
   IconCheck,
   IconChevronDown,
 } from "@tabler/icons-react";
+import * as PopoverPrimitive from "@radix-ui/react-popover";
 import type {
   MentionItem,
   SkillResult,
@@ -74,37 +73,24 @@ function ModeSelector({
   onChange: (mode: ExecMode) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const handleClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [open]);
 
   return (
-    <div ref={ref} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className="shrink-0 flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent/50"
-      >
-        {mode === "build" ? (
-          <IconBolt className="h-3.5 w-3.5" />
-        ) : (
-          <IconBulb className="h-3.5 w-3.5" />
-        )}
-        {mode === "build" ? "Build" : "Plan"}
-        <IconChevronDown className="h-3 w-3 opacity-60" />
-      </button>
-      {open && (
-        <div
-          className="absolute bottom-full right-0 mb-1.5 w-64 rounded-lg border border-border bg-popover shadow-lg z-50 py-1"
+    <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
+      <PopoverPrimitive.Trigger asChild>
+        <button
+          type="button"
+          className="shrink-0 flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent/50"
+        >
+          {mode === "build" ? "Act" : "Plan"}
+          <IconChevronDown className="h-3 w-3 opacity-60" />
+        </button>
+      </PopoverPrimitive.Trigger>
+      <PopoverPrimitive.Portal>
+        <PopoverPrimitive.Content
+          side="top"
+          align="end"
+          sideOffset={6}
+          className="w-60 rounded-lg border border-border bg-popover shadow-lg z-50 py-1 animate-in fade-in-0 zoom-in-95"
           style={{ fontSize: 13 }}
         >
           <button
@@ -113,22 +99,19 @@ function ModeSelector({
               onChange("build");
               setOpen(false);
             }}
-            className="flex w-full items-start gap-3 px-3 py-2 hover:bg-accent/50 text-left"
+            className="flex w-full items-center gap-3 px-3 py-2 hover:bg-accent/50 text-left"
           >
-            <IconBolt className="h-5 w-5 mt-0.5 shrink-0 text-muted-foreground" />
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="font-medium text-foreground text-[13px]">
-                  Build
-                </span>
-                {mode === "build" && (
-                  <IconCheck className="h-3.5 w-3.5 text-blue-500" />
-                )}
-              </div>
+              <span className="font-medium text-foreground text-[13px]">
+                Act
+              </span>
               <p className="text-[11px] text-muted-foreground mt-0.5">
                 Generate and make edits directly
               </p>
             </div>
+            {mode === "build" && (
+              <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+            )}
           </button>
           <button
             type="button"
@@ -136,26 +119,23 @@ function ModeSelector({
               onChange("plan");
               setOpen(false);
             }}
-            className="flex w-full items-start gap-3 px-3 py-2 hover:bg-accent/50 text-left"
+            className="flex w-full items-center gap-3 px-3 py-2 hover:bg-accent/50 text-left"
           >
-            <IconBulb className="h-5 w-5 mt-0.5 shrink-0 text-muted-foreground" />
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="font-medium text-foreground text-[13px]">
-                  Plan
-                </span>
-                {mode === "plan" && (
-                  <IconCheck className="h-3.5 w-3.5 text-blue-500" />
-                )}
-              </div>
+              <span className="font-medium text-foreground text-[13px]">
+                Plan
+              </span>
               <p className="text-[11px] text-muted-foreground mt-0.5">
                 Collaborate on an approach before taking action
               </p>
             </div>
+            {mode === "plan" && (
+              <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+            )}
           </button>
-        </div>
-      )}
-    </div>
+        </PopoverPrimitive.Content>
+      </PopoverPrimitive.Portal>
+    </PopoverPrimitive.Root>
   );
 }
 
