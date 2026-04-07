@@ -2,19 +2,13 @@ name = "agent-native-starter"
 main = "templates/starter/dist/_worker.js/index.js"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat_v2"]
+no_bundle = true
 
 [vars]
 GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
 
 [assets]
 directory = "templates/starter/dist"
-
-# Stub native modules that can't run on Workers
-[alias]
-"better-sqlite3" = "./templates/starter/dist/_worker.js/stubs/empty.js"
-"node-pty" = "./templates/starter/dist/_worker.js/stubs/empty.js"
-"chokidar" = "./templates/starter/dist/_worker.js/stubs/empty.js"
-"fsevents" = "./templates/starter/dist/_worker.js/stubs/empty.js"
 
 [[d1_databases]]
 binding = "DB"
