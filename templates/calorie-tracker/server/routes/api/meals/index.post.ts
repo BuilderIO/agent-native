@@ -13,14 +13,13 @@ export default defineEventHandler(async (event) => {
     .insert(schema.meals)
     .values({
       name: body.name,
-      calories: body.calories || 0,
-      protein: body.protein || null,
-      carbs: body.carbs || null,
-      fat: body.fat || null,
+      calories: parseInt(body.calories) || 0,
+      protein: body.protein ? parseFloat(body.protein) : null,
+      carbs: body.carbs ? parseFloat(body.carbs) : null,
+      fat: body.fat ? parseFloat(body.fat) : null,
       date: String(body.date).split("T")[0],
       image_url: body.image_url || body.imageUrl || null,
       notes: body.notes || null,
-      created_at: new Date(),
     })
     .returning();
 

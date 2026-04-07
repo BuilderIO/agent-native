@@ -6,7 +6,7 @@ import {
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { sendToAgentChat } from "@agent-native/core/client";
+import { useAgentChatGenerating } from "@agent-native/core/client";
 
 interface VoiceDictationProps {
   currentDate: Date;
@@ -19,26 +19,69 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
   const [transcript, setTranscript] = useState("");
   const recognitionRef = useRef<any>(null);
   const isProcessingRef = useRef(false);
+  const [isGenerating, sendToAgent] = useAgentChatGenerating();
 
   const isSupported =
     typeof window !== "undefined" &&
     ("SpeechRecognition" in window ||
       "webkitSpeechRecognition" in (window as any));
 
-  const processCommand = useCallback(async (text: string) => {
-    setState("processing");
-    try {
-      // Send to agent chat - the agent will parse and execute
-      sendToAgentChat({ message: text, submit: true });
-      toast.success("Sent to assistant", { description: `"${text}"` });
-    } catch (error) {
-      console.error("Error sending voice command:", error);
-      toast.error("Failed to process voice command");
-    } finally {
+  // Track sidebar width to shift mic button out of the way
+  const [sidebarWidth, setSidebarWidth] = useState(0);
+  useEffect(() => {
+    const measure = () => {
+      const panel = document.querySelector(".agent-sidebar-panel");
+      const w = panel ? panel.getBoundingClientRect().width : 0;
+      setSidebarWidth(w);
+    };
+    // Use ResizeObserver to react to sidebar resize drags
+    const observer = new ResizeObserver(measure);
+    const startObserving = () => {
+      const panel = document.querySelector(".agent-sidebar-panel");
+      if (panel) observer.observe(panel);
+      else setSidebarWidth(0);
+    };
+    // Re-attach observer when sidebar opens/closes
+    const onToggle = () => setTimeout(startObserving, 100);
+    startObserving();
+    window.addEventListener("agent-panel:toggle", onToggle);
+    window.addEventListener("agent-panel:open", onToggle);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("agent-panel:toggle", onToggle);
+      window.removeEventListener("agent-panel:open", onToggle);
+    };
+  }, []);
+
+  // When agent finishes generating, transition back to idle
+  useEffect(() => {
+    if (!isGenerating && state === "processing") {
       setState("idle");
       setTranscript("");
+      toast.success("Done");
     }
-  }, []);
+  }, [isGenerating, state]);
+
+  const processCommand = useCallback(
+    (text: string) => {
+      setState("processing");
+      try {
+        sendToAgent({ message: text, submit: true });
+        // Timeout fallback: if sidebar is closed or event never fires,
+        // don't leave the mic stuck in processing forever
+        setTimeout(() => {
+          setState((s) => (s === "processing" ? "idle" : s));
+          setTranscript((t) => (t ? "" : t));
+        }, 15000);
+      } catch (error) {
+        console.error("Error sending voice command:", error);
+        toast.error("Failed to process voice command");
+        setState("idle");
+        setTranscript("");
+      }
+    },
+    [sendToAgent],
+  );
 
   const startListening = useCallback(() => {
     if (!isSupported) {
@@ -139,7 +182,10 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
   if (!isSupported) return null;
 
   return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 md:left-auto md:right-6 md:translate-x-0 z-50 flex flex-col items-center gap-2">
+    <div
+      className="fixed bottom-6 left-1/2 -translate-x-1/2 md:left-auto md:right-6 md:translate-x-0 z-50 flex flex-col items-center gap-2 transition-[right] duration-200"
+      style={sidebarWidth > 0 ? { right: `${sidebarWidth + 24}px` } : undefined}
+    >
       {(state === "listening" || state === "processing") && (
         <div className="animate-in fade-in slide-in-from-bottom-2 duration-200">
           <div className="bg-card/95 backdrop-blur-xl border border-white/10 rounded-2xl px-4 py-3 shadow-2xl max-w-[300px] md:max-w-[250px]">
@@ -159,7 +205,7 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
               <div className="flex items-center gap-2">
                 <IconLoader2 className="h-4 w-4 animate-spin text-primary" />
                 <span className="text-sm text-muted-foreground">
-                  Sending: &quot;{transcript}&quot;
+                  Processing: &quot;{transcript}&quot;
                 </span>
               </div>
             )}

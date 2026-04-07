@@ -183,6 +183,9 @@ async function initClient(): Promise<void> {
       // Node.js: reuse connection pool
       _pgPool = postgres(url, {
         onnotice: () => {},
+        // Supabase's connection pooler (Transaction mode) requires prepare: false.
+        // Only disable for Supabase URLs to avoid degrading other Postgres deployments.
+        ...(url.includes("supabase") ? { prepare: false } : {}),
       });
       const pool = _pgPool;
 
@@ -216,6 +219,15 @@ async function initClient(): Promise<void> {
     url,
     authToken: getDatabaseAuthToken(),
   });
+
+  // Enable WAL mode for local SQLite to prevent SQLITE_BUSY errors
+  // when multiple processes access the same database concurrently
+  if (url.startsWith("file:") || url.endsWith(".db")) {
+    try {
+      await client.execute("PRAGMA journal_mode = WAL");
+      await client.execute("PRAGMA busy_timeout = 5000");
+    } catch {}
+  }
 
   _exec = {
     async execute(sql) {

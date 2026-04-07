@@ -544,21 +544,107 @@ function copyDir(src: string, dest: string) {
   }
 }
 
-// Main
-const SUPPORTED_PRESETS = ["cloudflare_pages"];
+/**
+ * Build for any non-Cloudflare preset using Nitro's programmatic build API.
+ * Handles netlify, vercel, deno_deploy, aws-lambda, and all other targets.
+ */
+async function buildWithNitro() {
+  console.log(`[deploy] Building for preset "${preset}" via Nitro...`);
 
-if (preset === "node") {
-  // No post-processing needed for Node.js target
-  process.exit(0);
+  const {
+    createNitro,
+    prepare,
+    copyPublicAssets,
+    build: nitroBuild,
+  } = await import("nitro/builder");
+
+  // Resolve the React Router server build so the SSR catch-all route
+  // can import "virtual:react-router/server-build" in production.
+  const rrServerBuild = path.join(cwd, "build", "server", "index.js");
+
+  const nitro = await createNitro({
+    rootDir: cwd,
+    dev: false,
+    preset,
+    minify: true,
+    serverDir: "./server",
+    alias: fs.existsSync(rrServerBuild)
+      ? { "virtual:react-router/server-build": rrServerBuild }
+      : {},
+  } as any);
+
+  await prepare(nitro);
+  await copyPublicAssets(nitro);
+  await nitroBuild(nitro);
+
+  // Copy React Router's client build into Nitro's public output dir
+  const clientDir = path.join(cwd, "build", "client");
+  const publicOutputDir = nitro.options.output.publicDir;
+  if (fs.existsSync(clientDir) && publicOutputDir) {
+    copyDir(clientDir, publicOutputDir);
+    console.log(
+      `[deploy] Copied client assets to ${path.relative(cwd, publicOutputDir)}`,
+    );
+  }
+
+  // Patch H3 for Web-standard runtimes (Netlify Functions v2, etc.).
+  // H3 v2 beta accesses event.node.req internally but event.node is undefined
+  // in Web runtimes. Patch the Nitro main.mjs onRequest hook to populate
+  // event.node with a Node-like facade derived from the Web Request.
+  const serverOutputDir = nitro.options.output.serverDir;
+  if (serverOutputDir) {
+    const mainMjs = path.join(serverOutputDir, "main.mjs");
+    if (fs.existsSync(mainMjs)) {
+      let code = fs.readFileSync(mainMjs, "utf-8");
+      if (
+        code.includes(".config.onRequest") &&
+        !code.includes("__h3_web_compat__")
+      ) {
+        const marker = ".config.onRequest=";
+        const endMarker = ".config.onResponse";
+        const startIdx = code.indexOf(marker);
+        const endIdx = code.indexOf(endMarker, startIdx);
+        if (startIdx !== -1 && endIdx !== -1) {
+          const segment = code.slice(startIdx + marker.length, endIdx);
+          const arrowIdx = segment.indexOf("=>");
+          const param = segment.slice(0, arrowIdx);
+          const bodyWithTrailing = segment.slice(arrowIdx + 2);
+          const lastComma = bodyWithTrailing.lastIndexOf(",");
+          const body = bodyWithTrailing.slice(0, lastComma);
+          const trailing = bodyWithTrailing.slice(lastComma);
+
+          const shimBody = [
+            "/* __h3_web_compat__ */",
+            `if(!${param}.node&&(${param}.method||${param}.url||${param}.headers)){`,
+            `var _u,_h={},_n=function(){};`,
+            `try{_u=new URL(${param}.url||${param}.path||"/",${param}.headers?.get?.("host")?"https://"+${param}.headers.get("host"):"https://localhost")}catch(x){_u=new URL("https://localhost/")}`,
+            `if(${param}.headers?.forEach)${param}.headers.forEach(function(v,k){_h[k]=v});`,
+            `else if(${param}.headers)for(var _k in ${param}.headers)_h[_k]=${param}.headers[_k];`,
+            `var _nd={req:{method:${param}.method||"GET",url:_u.pathname+_u.search,headers:_h,originalUrl:_u.pathname+_u.search,socket:{remoteAddress:void 0},connection:{encrypted:_u.protocol==="https:"},on:_n,rawBody:void 0,body:void 0},res:{statusCode:200,setHeader:_n,getHeader:function(){},writeHead:_n,write:_n,end:_n,headersSent:false}};`,
+            `try{${param}.node=_nd}catch(x){Object.defineProperty(${param},"node",{value:_nd,writable:true,configurable:true})}}`,
+          ].join("");
+
+          const newSegment = `${param}=>{${shimBody};return ${body}}${trailing}`;
+          const patched =
+            code.slice(0, startIdx + marker.length) +
+            newSegment +
+            code.slice(endIdx);
+          fs.writeFileSync(mainMjs, patched);
+          console.log(
+            "[deploy] Patched H3 for Web-standard runtime compatibility",
+          );
+        }
+      }
+    }
+  }
+
+  await nitro.close();
+  console.log(`[deploy] Nitro build complete for preset "${preset}".`);
 }
 
-if (!SUPPORTED_PRESETS.includes(preset)) {
-  // Nitro 3 handles most presets natively (netlify, vercel, deno_deploy, etc.)
-  // — only cloudflare_pages needs custom post-processing via this script.
-  // If we reach here, the preset may be handled by Nitro directly. Skip gracefully.
-  console.log(
-    `[deploy] Preset "${preset}" does not require custom post-processing (handled by Nitro). Skipping.`,
-  );
+// Main
+
+if (preset === "node") {
   process.exit(0);
 }
 
@@ -566,6 +652,14 @@ console.log(`[deploy] Building for ${preset}...`);
 
 switch (preset) {
   case "cloudflare_pages":
+    // Cloudflare Workers require a single-file bundle that wrangler can deploy.
+    // Nitro's native presets produce split chunks that wrangler can't upload
+    // as multi-module Workers. Use the custom esbuild-based bundler.
     await buildCloudflarePages();
+    break;
+  default:
+    // All other presets (netlify, vercel, deno_deploy, aws-lambda, etc.)
+    // are handled natively by Nitro's build API.
+    await buildWithNitro();
     break;
 }
