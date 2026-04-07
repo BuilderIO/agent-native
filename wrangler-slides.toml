@@ -1,15 +1,20 @@
 name = "agent-native-slides"
-main = "templates/slides/.output/server/index.mjs"
+main = "templates/slides/dist/_worker.js/index.js"
 compatibility_date = "2025-01-01"
-compatibility_flags = ["nodejs_compat"]
-find_additional_modules = true
-no_bundle = true
-
-[assets]
-directory = "templates/slides/.output/public"
+compatibility_flags = ["nodejs_compat_v2"]
 
 [vars]
 GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
+
+[assets]
+directory = "templates/slides/dist"
+
+# Stub native modules that can't run on Workers
+[alias]
+"better-sqlite3" = "./templates/slides/dist/_worker.js/stubs/empty.js"
+"node-pty" = "./templates/slides/dist/_worker.js/stubs/empty.js"
+"chokidar" = "./templates/slides/dist/_worker.js/stubs/empty.js"
+"fsevents" = "./templates/slides/dist/_worker.js/stubs/empty.js"
 
 [[d1_databases]]
 binding = "DB"

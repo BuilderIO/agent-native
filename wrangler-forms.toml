@@ -1,15 +1,13 @@
 name = "agent-native-forms"
-main = "templates/forms/.output/server/index.mjs"
+main = "templates/forms/dist/_worker.js/index.js"
 compatibility_date = "2025-01-01"
-compatibility_flags = ["nodejs_compat"]
-find_additional_modules = true
-no_bundle = true
-
-[assets]
-directory = "templates/forms/.output/public"
+compatibility_flags = ["nodejs_compat_v2"]
 
 [vars]
 GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
+
+[assets]
+directory = "templates/forms/dist"
 
 [[d1_databases]]
 binding = "DB"
