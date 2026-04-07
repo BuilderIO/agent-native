@@ -3,6 +3,7 @@ main = "templates/starter/.output/server/index.mjs"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
 find_additional_modules = true
+no_bundle = true
 
 [assets]
 directory = "templates/starter/.output/public"
