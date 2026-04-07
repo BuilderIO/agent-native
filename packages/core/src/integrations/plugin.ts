@@ -1,30 +1,17 @@
-import {
-  createRouter,
-  defineEventHandler,
-  readBody,
-  setResponseStatus,
-  getMethod,
-} from "h3";
+import { defineEventHandler, setResponseStatus, getMethod } from "h3";
 import { FRAMEWORK_ROUTE_PREFIX } from "../server/core-routes-plugin.js";
+import { getH3App } from "../server/framework-request-handler.js";
 import type {
   PlatformAdapter,
   IntegrationsPluginOptions,
   IntegrationStatus,
 } from "./types.js";
 import { handleWebhook } from "./webhook-handler.js";
-import {
-  getIntegrationConfig,
-  saveIntegrationConfig,
-  deleteIntegrationConfig,
-} from "./config-store.js";
+import { getIntegrationConfig, saveIntegrationConfig } from "./config-store.js";
 import { slackAdapter } from "./adapters/slack.js";
 import { telegramAdapter } from "./adapters/telegram.js";
 import { whatsappAdapter } from "./adapters/whatsapp.js";
-import {
-  resourceList,
-  resourceGetByPath,
-  SHARED_OWNER,
-} from "../resources/store.js";
+import { resourceGetByPath, SHARED_OWNER } from "../resources/store.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
@@ -108,54 +95,21 @@ export function createIntegrationsPlugin(
     // Resolve actions
     const actions = options?.actions ?? {};
 
-    const router = createRouter();
+    const h3 = getH3App(nitroApp);
     const P = `${FRAMEWORK_ROUTE_PREFIX}/integrations`;
 
-    // ─── Webhook endpoint ──────────────────────────────────────────
-    router.post(
-      `${P}/:platform/webhook`,
-      defineEventHandler(async (event) => {
-        const platform = (event.context.params as any)?.platform;
-        const adapter = adapterMap.get(platform);
-        if (!adapter) {
-          setResponseStatus(event, 404);
-          return { error: `Unknown platform: ${platform}` };
-        }
-
-        // Check if integration is enabled
-        const config = await getIntegrationConfig(platform);
-        if (!config?.configData?.enabled) {
-          setResponseStatus(event, 404);
-          return { error: `Integration ${platform} is not enabled` };
-        }
-
-        // Build system prompt with resources
-        const owner = `integration@${platform}`;
-        const resources = await loadResourcesForPrompt(owner);
-        const systemPrompt = baseSystemPrompt + resources;
-
-        const result = await handleWebhook(event, {
-          adapter,
-          systemPrompt,
-          actions,
-          model,
-          apiKey: options?.apiKey ?? process.env.ANTHROPIC_API_KEY ?? "",
-        });
-
-        setResponseStatus(event, result.status);
-        return result.body;
-      }),
-    );
-
-    // ─── Status endpoints ──────────────────────────────────────────
-    router.get(
+    // ─── Status endpoint (all integrations) ───────────────────────
+    h3.use(
       `${P}/status`,
       defineEventHandler(async (event) => {
+        if (getMethod(event) !== "GET") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
         const baseUrl = getBaseUrl(event);
         const statuses: IntegrationStatus[] = [];
         for (const adapter of adapters) {
           const status = await adapter.getStatus(baseUrl);
-          // Check if explicitly enabled in config
           const config = await getIntegrationConfig(adapter.platform);
           status.enabled = !!config?.configData?.enabled;
           status.webhookUrl = `${baseUrl}${P}/${adapter.platform}/webhook`;
@@ -165,96 +119,117 @@ export function createIntegrationsPlugin(
       }),
     );
 
-    router.get(
-      `${P}/:platform/status`,
+    // ─── Per-platform catch-all ───────────────────────────────────
+    // Handles: webhook, status, enable, disable, setup for each platform
+    h3.use(
+      `${P}`,
       defineEventHandler(async (event) => {
-        const platform = (event.context.params as any)?.platform;
-        const adapter = adapterMap.get(platform);
-        if (!adapter) {
-          setResponseStatus(event, 404);
-          return { error: `Unknown platform: ${platform}` };
-        }
-        const baseUrl = getBaseUrl(event);
-        const status = await adapter.getStatus(baseUrl);
-        const config = await getIntegrationConfig(platform);
-        status.enabled = !!config?.configData?.enabled;
-        status.webhookUrl = `${baseUrl}${P}/${platform}/webhook`;
-        return status;
-      }),
-    );
+        const method = getMethod(event);
+        // event.path is stripped to the remainder after the mount prefix
+        const raw = (event.path || "/").split("?")[0].replace(/^\//, "");
+        const parts = raw.split("/").filter(Boolean);
 
-    // ─── Enable/disable endpoints ──────────────────────────────────
-    router.post(
-      `${P}/:platform/enable`,
-      defineEventHandler(async (event) => {
-        const platform = (event.context.params as any)?.platform;
-        const adapter = adapterMap.get(platform);
-        if (!adapter) {
-          setResponseStatus(event, 404);
-          return { error: `Unknown platform: ${platform}` };
-        }
-        await saveIntegrationConfig(platform, { enabled: true });
-        return { ok: true, platform, enabled: true };
-      }),
-    );
+        // Already handled by the dedicated /status route above
+        if (parts[0] === "status" && parts.length === 1) return;
 
-    router.post(
-      `${P}/:platform/disable`,
-      defineEventHandler(async (event) => {
-        const platform = (event.context.params as any)?.platform;
-        const adapter = adapterMap.get(platform);
-        if (!adapter) {
-          setResponseStatus(event, 404);
-          return { error: `Unknown platform: ${platform}` };
-        }
-        await saveIntegrationConfig(platform, { enabled: false });
-        return { ok: true, platform, enabled: false };
-      }),
-    );
+        const platform = parts[0];
+        const action = parts[1]; // webhook, status, enable, disable, setup
 
-    // ─── Setup endpoint (platform-specific) ────────────────────────
-    router.post(
-      `${P}/:platform/setup`,
-      defineEventHandler(async (event) => {
-        const platform = (event.context.params as any)?.platform;
+        if (!platform) {
+          setResponseStatus(event, 404);
+          return { error: "Platform required" };
+        }
+
         const adapter = adapterMap.get(platform);
         if (!adapter) {
           setResponseStatus(event, 404);
           return { error: `Unknown platform: ${platform}` };
         }
 
-        // Platform-specific setup (e.g., register Telegram webhook)
-        if (platform === "telegram") {
+        // Set params for handlers that read them
+        if (event.context) {
+          event.context.params = {
+            ...event.context.params,
+            platform,
+          };
+        }
+
+        // ─── GET /:platform/status ─────────────────────────────
+        if (action === "status" && method === "GET") {
           const baseUrl = getBaseUrl(event);
-          const webhookUrl = `${baseUrl}${P}/telegram/webhook`;
-          const token = process.env.TELEGRAM_BOT_TOKEN;
-          if (!token) {
-            setResponseStatus(event, 400);
-            return { error: "TELEGRAM_BOT_TOKEN not configured" };
-          }
-          try {
-            const res = await fetch(
-              `https://api.telegram.org/bot${token}/setWebhook`,
-              {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ url: webhookUrl }),
-              },
-            );
-            const data = await res.json();
-            return { ok: true, platform, webhookUrl, result: data };
-          } catch (err: any) {
-            setResponseStatus(event, 500);
-            return { error: err.message };
-          }
+          const status = await adapter.getStatus(baseUrl);
+          const config = await getIntegrationConfig(platform);
+          status.enabled = !!config?.configData?.enabled;
+          status.webhookUrl = `${baseUrl}${P}/${platform}/webhook`;
+          return status;
         }
 
-        return { ok: true, platform, message: "No setup required" };
+        // ─── POST /:platform/webhook ───────────────────────────
+        if (action === "webhook" && method === "POST") {
+          const config = await getIntegrationConfig(platform);
+          if (!config?.configData?.enabled) {
+            setResponseStatus(event, 404);
+            return { error: `Integration ${platform} is not enabled` };
+          }
+          const owner = `integration@${platform}`;
+          const resources = await loadResourcesForPrompt(owner);
+          const systemPrompt = baseSystemPrompt + resources;
+          const result = await handleWebhook(event, {
+            adapter,
+            systemPrompt,
+            actions,
+            model,
+            apiKey: options?.apiKey ?? process.env.ANTHROPIC_API_KEY ?? "",
+          });
+          setResponseStatus(event, result.status);
+          return result.body;
+        }
+
+        // ─── POST /:platform/enable ────────────────────────────
+        if (action === "enable" && method === "POST") {
+          await saveIntegrationConfig(platform, { enabled: true });
+          return { ok: true, platform, enabled: true };
+        }
+
+        // ─── POST /:platform/disable ───────────────────────────
+        if (action === "disable" && method === "POST") {
+          await saveIntegrationConfig(platform, { enabled: false });
+          return { ok: true, platform, enabled: false };
+        }
+
+        // ─── POST /:platform/setup ─────────────────────────────
+        if (action === "setup" && method === "POST") {
+          if (platform === "telegram") {
+            const baseUrl = getBaseUrl(event);
+            const webhookUrl = `${baseUrl}${P}/telegram/webhook`;
+            const token = process.env.TELEGRAM_BOT_TOKEN;
+            if (!token) {
+              setResponseStatus(event, 400);
+              return { error: "TELEGRAM_BOT_TOKEN not configured" };
+            }
+            try {
+              const res = await fetch(
+                `https://api.telegram.org/bot${token}/setWebhook`,
+                {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ url: webhookUrl }),
+                },
+              );
+              const data = await res.json();
+              return { ok: true, platform, webhookUrl, result: data };
+            } catch (err: any) {
+              setResponseStatus(event, 500);
+              return { error: err.message };
+            }
+          }
+          return { ok: true, platform, message: "No setup required" };
+        }
+
+        setResponseStatus(event, 404);
+        return { error: "Not found" };
       }),
     );
-
-    // Mount the router
-    nitroApp.h3App.use(router);
 
     console.log(
       `[integrations] Mounted integration routes for: ${adapters.map((a) => a.platform).join(", ")}`,
@@ -270,8 +245,13 @@ export const defaultIntegrationsPlugin = createIntegrationsPlugin();
 /** Extract base URL from the request */
 function getBaseUrl(event: any): string {
   try {
-    const proto = event.node?.req?.headers?.["x-forwarded-proto"] || "http";
-    const host = event.node?.req?.headers?.host || "localhost:3000";
+    const headers = event.node?.req?.headers || event.headers || {};
+    const getHeader = (name: string) =>
+      typeof headers.get === "function"
+        ? headers.get(name)
+        : (headers as Record<string, string>)[name];
+    const proto = getHeader("x-forwarded-proto") || "http";
+    const host = getHeader("host") || "localhost:3000";
     return `${proto}://${host}`;
   } catch {
     return "http://localhost:3000";

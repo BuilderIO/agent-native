@@ -6,7 +6,7 @@ import {
   IconPencil,
   IconTrash,
   IconLoader2,
-  IconRobot,
+  IconBolt,
   IconX,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
@@ -706,7 +706,7 @@ function AutomationsSection() {
         {/* Empty state */}
         {!isLoading && rules.length === 0 && !showNewForm && (
           <div className="rounded-lg border border-border/20 bg-card/50 py-12 text-center">
-            <IconRobot className="h-8 w-8 text-muted-foreground/20 mx-auto mb-3" />
+            <IconBolt className="h-8 w-8 text-muted-foreground/20 mx-auto mb-3" />
             <p className="text-[13px] text-muted-foreground/50 mb-1">
               No automation rules yet.
             </p>
@@ -745,7 +745,7 @@ const navItems: {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
 }[] = [
-  { id: "automations", label: "Automations", icon: IconRobot },
+  { id: "automations", label: "Automations", icon: IconBolt },
   { id: "aliases", label: "Aliases", icon: IconUsers },
 ];
 

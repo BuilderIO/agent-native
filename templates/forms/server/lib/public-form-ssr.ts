@@ -1,4 +1,4 @@
-import { setResponseHeader, setResponseStatus, type H3Event } from "h3";
+import type { H3Event } from "h3";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../db/index.js";
 import type { FormField, FormSettings } from "../../shared/types.js";
@@ -147,17 +147,14 @@ export async function renderPublicForm(event: H3Event) {
   const url = event.node.req.url ?? "";
   const { html, status } = await renderPublicFormHtml(url);
 
-  setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
-  if (status !== 200) {
-    setResponseStatus(event, status);
-  } else {
-    setResponseHeader(
-      event,
-      "Cache-Control",
-      "public, s-maxage=60, stale-while-revalidate=300",
-    );
+  const headers: Record<string, string> = {
+    "Content-Type": "text/html; charset=utf-8",
+  };
+  if (status === 200) {
+    headers["Cache-Control"] =
+      "public, s-maxage=60, stale-while-revalidate=300";
   }
-  return html;
+  return new Response(html, { status, headers });
 }
 
 // ---------------------------------------------------------------------------

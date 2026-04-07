@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { format, parseISO, differenceInMinutes } from "date-fns";
 import {
   IconX,
@@ -173,6 +173,12 @@ interface EventDetailPopoverProps {
   children: React.ReactNode;
   onEdit: (event: CalendarEvent) => void;
   onDelete: (eventId: string) => void;
+  /** When true, the popover opens immediately and title is focused for editing */
+  defaultOpen?: boolean;
+  /** Called when the title is changed and should be persisted */
+  onTitleSave?: (eventId: string, title: string) => void;
+  /** Called when the popover is dismissed for a new event (to clean up if no title was set) */
+  onDismissNew?: (eventId: string) => void;
 }
 
 export function EventDetailPopover({
@@ -180,8 +186,17 @@ export function EventDetailPopover({
   children,
   onEdit,
   onDelete,
+  defaultOpen = false,
+  onTitleSave,
+  onDismissNew,
 }: EventDetailPopoverProps) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
+  const [editingTitle, setEditingTitle] = useState(
+    defaultOpen ? event.title : "",
+  );
+  const [isEditingTitle, setIsEditingTitle] = useState(defaultOpen);
+  const isNewEventRef = useRef(defaultOpen);
+  const titleInputRef = useRef<HTMLInputElement>(null);
   const {
     eventDetailSidebar,
     setEventDetailSidebar,
@@ -189,12 +204,29 @@ export function EventDetailPopover({
     setFocusedEvent,
   } = useCalendarContext();
 
+  // When defaultOpen changes to true (new event created), open the popover
+  useEffect(() => {
+    if (defaultOpen) {
+      setOpen(true);
+      setIsEditingTitle(true);
+      isNewEventRef.current = true;
+      setEditingTitle(event.title === "(No title)" ? "" : event.title);
+    }
+  }, [defaultOpen]);
+
+  // Focus title input when editing starts
+  useEffect(() => {
+    if (isEditingTitle && open) {
+      requestAnimationFrame(() => titleInputRef.current?.focus());
+    }
+  }, [isEditingTitle, open]);
+
   const meetingLink = extractMeetingLink(event);
 
   // If in sidebar mode, clicking the trigger opens the sidebar instead of popover
   const handleTriggerClick = useCallback(() => {
     setFocusedEvent(event);
-    if (eventDetailSidebar) {
+    if (eventDetailSidebar && !isNewEventRef.current) {
       setSidebarEvent(event);
     }
   }, [eventDetailSidebar, event, setSidebarEvent, setFocusedEvent]);
@@ -248,8 +280,31 @@ export function EventDetailPopover({
   const offsetSign = offsetMinutes >= 0 ? "+" : "-";
   const tzLabel = `GMT${offsetSign}${offsetHours}`;
 
+  const handleOpenChange = useCallback(
+    (newOpen: boolean) => {
+      if (!newOpen && open) {
+        // Popover is closing — handle title save/dismiss
+        if (isEditingTitle) {
+          const trimmed = editingTitle.trim();
+          if (trimmed && trimmed !== "(No title)") {
+            onTitleSave?.(event.id, trimmed);
+          } else if (isNewEventRef.current && onDismissNew) {
+            onDismissNew(event.id);
+          }
+          setIsEditingTitle(false);
+        }
+        isNewEventRef.current = false;
+      }
+      setOpen(newOpen);
+    },
+    [open, isEditingTitle, editingTitle, event.id, onTitleSave, onDismissNew],
+  );
+
   return (
-    <Popover open={eventDetailSidebar ? false : open} onOpenChange={setOpen}>
+    <Popover
+      open={eventDetailSidebar && !isNewEventRef.current ? false : open}
+      onOpenChange={handleOpenChange}
+    >
       <PopoverTrigger asChild onClick={handleTriggerClick}>
         {children}
       </PopoverTrigger>
@@ -258,7 +313,12 @@ export function EventDetailPopover({
         align="start"
         sideOffset={8}
         className="w-[420px] max-h-[90vh] p-0 overflow-hidden flex flex-col"
-        onOpenAutoFocus={(e) => e.preventDefault()}
+        onOpenAutoFocus={(e) => {
+          e.preventDefault();
+          if (isEditingTitle) {
+            requestAnimationFrame(() => titleInputRef.current?.focus());
+          }
+        }}
         onInteractOutside={(e) => {
           // Don't close if clicking inside an Apollo popover (portaled to body)
           const target = e.target as HTMLElement;
@@ -294,7 +354,7 @@ export function EventDetailPopover({
                 variant="ghost"
                 size="icon"
                 className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                onClick={() => setOpen(false)}
+                onClick={() => handleOpenChange(false)}
               >
                 <IconX className="h-3.5 w-3.5" />
               </Button>
@@ -304,10 +364,66 @@ export function EventDetailPopover({
           {/* Content */}
           <div className="flex-1 overflow-y-auto">
             <div className="px-4 pt-4 pb-1">
-              {/* Title */}
-              <h2 className="text-lg font-semibold text-foreground leading-tight mb-4">
-                {event.title}
-              </h2>
+              {/* Title — always editable */}
+              {isEditingTitle ? (
+                <input
+                  ref={titleInputRef}
+                  value={editingTitle}
+                  onChange={(e) => setEditingTitle(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      const trimmed = editingTitle.trim();
+                      if (trimmed && trimmed !== "(No title)") {
+                        onTitleSave?.(event.id, trimmed);
+                        isNewEventRef.current = false;
+                      }
+                      setIsEditingTitle(false);
+                    } else if (e.key === "Escape") {
+                      e.preventDefault();
+                      if (isNewEventRef.current && onDismissNew) {
+                        handleOpenChange(false);
+                      } else {
+                        setEditingTitle(event.title);
+                        setIsEditingTitle(false);
+                      }
+                    } else if (
+                      (e.key === "Backspace" || e.key === "Delete") &&
+                      editingTitle === "" &&
+                      isNewEventRef.current &&
+                      onDismissNew
+                    ) {
+                      e.preventDefault();
+                      handleOpenChange(false);
+                    }
+                    e.stopPropagation();
+                  }}
+                  onBlur={() => {
+                    // Don't auto-close on blur — let popover dismiss handle save
+                    const trimmed = editingTitle.trim();
+                    if (
+                      trimmed &&
+                      trimmed !== "(No title)" &&
+                      trimmed !== event.title
+                    ) {
+                      onTitleSave?.(event.id, trimmed);
+                    }
+                    setIsEditingTitle(false);
+                  }}
+                  placeholder="Add title"
+                  className="w-full text-lg font-semibold text-foreground leading-tight mb-4 bg-transparent border-none outline-none placeholder:text-muted-foreground/50 focus:ring-0"
+                />
+              ) : (
+                <h2
+                  className="text-lg font-semibold text-foreground leading-tight mb-4 cursor-text rounded px-0.5 -mx-0.5 hover:bg-muted/50"
+                  onClick={() => {
+                    setEditingTitle(event.title);
+                    setIsEditingTitle(true);
+                  }}
+                >
+                  {event.title}
+                </h2>
+              )}
             </div>
 
             <div className="px-4 space-y-1">
@@ -577,7 +693,7 @@ export function EventDetailPopover({
                 className="text-destructive hover:text-destructive hover:bg-destructive/10 text-xs"
                 onClick={() => {
                   onDelete(event.id);
-                  setOpen(false);
+                  handleOpenChange(false);
                 }}
               >
                 Delete
@@ -589,7 +705,7 @@ export function EventDetailPopover({
                 className="text-xs"
                 onClick={() => {
                   onEdit(event);
-                  setOpen(false);
+                  handleOpenChange(false);
                 }}
               >
                 Edit

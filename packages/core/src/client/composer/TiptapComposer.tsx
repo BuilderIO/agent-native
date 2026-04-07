@@ -21,11 +21,23 @@ import { MentionPopover, type MentionPopoverRef } from "./MentionPopover.js";
 import { useMentionSearch } from "./use-mention-search.js";
 import { useSkills } from "./use-skills.js";
 import { IconArrowUp, IconPaperclip } from "@tabler/icons-react";
-import type { MentionItem, SkillResult, Reference } from "./types.js";
+import type {
+  MentionItem,
+  SkillResult,
+  Reference,
+  SlashCommand,
+} from "./types.js";
 
 export interface TiptapComposerHandle {
   focus(): void;
 }
+
+const BUILT_IN_COMMANDS: SlashCommand[] = [
+  { name: "clear", description: "Start a new chat", icon: "clear" },
+  { name: "new", description: "Start a new chat", icon: "new" },
+  { name: "history", description: "Browse chat history", icon: "history" },
+  { name: "help", description: "Show available commands", icon: "help" },
+];
 
 interface TiptapComposerProps {
   placeholder?: string;
@@ -37,6 +49,8 @@ interface TiptapComposerProps {
   actionButton?: React.ReactNode;
   /** Custom attachment button to render instead of ComposerPrimitive.AddAttachment. */
   attachButton?: React.ReactNode;
+  /** Called when a slash command (e.g. /clear, /help) is executed */
+  onSlashCommand?: (command: string) => void;
 }
 
 type PopoverState = {
@@ -53,6 +67,7 @@ export function TiptapComposer({
   onSubmit,
   actionButton,
   attachButton,
+  onSlashCommand,
 }: TiptapComposerProps) {
   const [popover, setPopover] = useState<PopoverState>(null);
   const popoverRef = useRef<MentionPopoverRef>(null);
@@ -77,6 +92,17 @@ export function TiptapComposer({
     isLoading: skillsLoading,
   } = useSkills(popover?.type === "/");
 
+  const filteredCommands = useMemo(() => {
+    if (!popover || popover.type !== "/") return BUILT_IN_COMMANDS;
+    const q = popover.query.toLowerCase();
+    if (!q) return BUILT_IN_COMMANDS;
+    return BUILT_IN_COMMANDS.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        c.description.toLowerCase().includes(q),
+    );
+  }, [popover]);
+
   const filteredSkills = useMemo(() => {
     if (!popover || popover.type !== "/") return skills;
     const q = popover.query.toLowerCase();
@@ -91,8 +117,12 @@ export function TiptapComposer({
   // Keep refs in sync with state
   const mentionItemsRef = useRef(mentionItems);
   mentionItemsRef.current = mentionItems;
+  const filteredCommandsRef = useRef(filteredCommands);
+  filteredCommandsRef.current = filteredCommands;
   const filteredSkillsRef = useRef(filteredSkills);
   filteredSkillsRef.current = filteredSkills;
+  const onSlashCommandRef = useRef(onSlashCommand);
+  onSlashCommandRef.current = onSlashCommand;
 
   const closePopover = useCallback(() => {
     setPopover(null);
@@ -191,12 +221,21 @@ export function TiptapComposer({
           if (event.key === "Enter") {
             event.preventDefault();
             const idx = popoverRef.current?.getSelectedIndex() ?? 0;
+            const currentCommands = filteredCommandsRef.current;
             const currentSkills = filteredSkillsRef.current;
             if (pop.type === "@") {
               const item = popoverRef.current?.getSelectedMention();
               if (item) selectMention(view, pop, item);
-            } else if (pop.type === "/" && currentSkills[idx]) {
-              selectSkill(view, pop, currentSkills[idx]);
+            } else if (pop.type === "/") {
+              const cmd = popoverRef.current?.getSelectedCommand();
+              if (cmd) {
+                executeCommand(view, pop, cmd);
+              } else {
+                const skillIdx = idx - currentCommands.length;
+                if (currentSkills[skillIdx]) {
+                  selectSkill(view, pop, currentSkills[skillIdx]);
+                }
+              }
             }
             return true;
           }
@@ -369,6 +408,22 @@ export function TiptapComposer({
     const { text, references } = syncComposerState();
     if (!text.trim() && references.length === 0) return;
 
+    // Intercept slash commands typed directly (e.g. "/clear" + Enter)
+    const trimmed = text.trim();
+    if (trimmed.startsWith("/") && references.length === 0) {
+      const cmdName = trimmed.slice(1).toLowerCase();
+      const matched = BUILT_IN_COMMANDS.find((c) => c.name === cmdName);
+      if (matched) {
+        ed.commands.clearContent();
+        try {
+          localStorage.removeItem(DRAFT_KEY);
+        } catch {}
+        closePopover();
+        onSlashCommandRef.current?.(matched.name);
+        return;
+      }
+    }
+
     if (onSubmit) {
       onSubmit(text, references);
     } else {
@@ -411,6 +466,21 @@ export function TiptapComposer({
       .run();
     popoverStateRef.current = null;
     setPopover(null);
+  }
+
+  function executeCommand(
+    view: any,
+    pop: NonNullable<PopoverState>,
+    command: SlashCommand,
+  ) {
+    const ed = editor;
+    if (!ed) return;
+    const currentPos = ed.state.selection.from;
+    const deleteFrom = Math.max(0, pop.startPos - 1);
+    ed.chain().focus().deleteRange({ from: deleteFrom, to: currentPos }).run();
+    popoverStateRef.current = null;
+    setPopover(null);
+    onSlashCommandRef.current?.(command.name);
   }
 
   function selectSkill(
@@ -461,6 +531,22 @@ export function TiptapComposer({
       closePopover();
     },
     [editor, popover, closePopover],
+  );
+
+  const handleSelectCommand = useCallback(
+    (command: SlashCommand) => {
+      if (!editor || !popover) return;
+      const currentPos = editor.state.selection.from;
+      const deleteFrom = Math.max(0, popover.startPos - 1);
+      editor
+        .chain()
+        .focus()
+        .deleteRange({ from: deleteFrom, to: currentPos })
+        .run();
+      closePopover();
+      onSlashCommand?.(command.name);
+    },
+    [editor, popover, closePopover, onSlashCommand],
   );
 
   const handleSelectSkill = useCallback(
@@ -590,11 +676,13 @@ export function TiptapComposer({
         position={popover?.position ?? null}
         mentionItems={mentionItems}
         skills={filteredSkills}
+        commands={filteredCommands}
         hint={hint}
         isLoading={popover?.type === "@" ? mentionsLoading : skillsLoading}
         query={popover?.query ?? ""}
         onSelectMention={handleSelectMention}
         onSelectSkill={handleSelectSkill}
+        onSelectCommand={handleSelectCommand}
         onClose={closePopover}
       />
     </>

@@ -1,5 +1,5 @@
 import { createRequestHandler } from "react-router";
-import { defineEventHandler, sendRedirect, toWebRequest } from "h3";
+import { defineEventHandler, toWebRequest } from "h3";
 
 const handler = createRequestHandler(
   // virtual module provided by React Router Vite plugin
@@ -17,9 +17,5 @@ export default defineEventHandler(async (event) => {
   }
 
   const webReq = toWebRequest(event);
-  try {
-    return await handler(webReq);
-  } catch {
-    return sendRedirect(event, "/");
-  }
+  return await handler(webReq);
 });

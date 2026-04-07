@@ -19,9 +19,14 @@ function getSnapshot(): number {
   return undoStack.length;
 }
 
+const MAX_UNDO_STACK = 20;
+
 /** Push an undo action onto the stack. */
 export function setUndoAction(action: UndoEntry) {
   undoStack.push(action);
+  if (undoStack.length > MAX_UNDO_STACK) {
+    undoStack.splice(0, undoStack.length - MAX_UNDO_STACK);
+  }
   notify();
 }
 

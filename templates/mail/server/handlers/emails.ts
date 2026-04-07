@@ -310,8 +310,10 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
       };
       let searchQuery: string;
       if (q) {
-        // Search across all mail, not scoped to current view
-        searchQuery = q;
+        // Search across all mail — include explicit from/to/cc matching
+        // so searching "joe" finds emails from/to someone named Joe,
+        // not just emails with "joe" in the body text
+        searchQuery = `{from:(${q}) to:(${q}) cc:(${q}) ${q}}`;
       } else {
         searchQuery = gmailQuery[view] ?? `label:${view}`;
       }

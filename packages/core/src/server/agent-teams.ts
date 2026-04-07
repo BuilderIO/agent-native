@@ -83,6 +83,8 @@ export interface SpawnTaskOptions {
   apiKey: string;
   /** Callback to emit events to the parent chat stream */
   parentSend: (event: AgentChatEvent) => void;
+  /** Parent thread ID — used to auto-respond when the sub-agent finishes */
+  parentThreadId?: string;
 }
 
 /**
@@ -344,6 +346,51 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
         );
       } catch {
         // Best effort — the in-memory replay path still works
+      }
+
+      // ─── Auto-follow-up on parent thread ────────────────────────────
+      // When the sub-agent finishes, start a short agent run on the
+      // parent thread so the user sees a recap without having to scroll
+      // up or manually check the sub-agent card.
+      if (opts.parentThreadId) {
+        try {
+          const { getActiveRunForThread } =
+            await import("../agent/run-manager.js");
+          // Only auto-respond if the parent thread is idle — don't
+          // interrupt an ongoing conversation.
+          const activeRun = getActiveRunForThread(opts.parentThreadId);
+          if (!activeRun || activeRun.status !== "running") {
+            const Anthropic = (await import("@anthropic-ai/sdk")).default;
+            const followUpClient = new Anthropic({ apiKey: opts.apiKey });
+            const followUpModel = opts.model ?? "claude-sonnet-4-6";
+
+            const statusEmoji = task.status === "errored" ? "!" : "done";
+            const notification =
+              `[Sub-agent ${statusEmoji}] The sub-agent task "${task.description}" has ${task.status === "errored" ? "failed" : "completed"}.\n\n` +
+              `Summary of what it did:\n${task.summary}\n\n` +
+              `Briefly let the user know the sub-agent finished and highlight any key results. Be concise — 1-2 sentences.`;
+
+            const followUpRunId = `run-followup-${taskId}`;
+            startRun(
+              followUpRunId,
+              opts.parentThreadId,
+              async (send, signal) => {
+                await runAgentLoop({
+                  client: followUpClient,
+                  model: followUpModel,
+                  systemPrompt: opts.systemPrompt,
+                  tools: [], // No tools needed for a recap
+                  messages: [{ role: "user", content: notification }],
+                  actions: {},
+                  send,
+                  signal,
+                });
+              },
+            );
+          }
+        } catch {
+          // Best effort — don't break the sub-agent completion
+        }
       }
     },
   );

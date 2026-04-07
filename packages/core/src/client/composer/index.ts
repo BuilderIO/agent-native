@@ -9,4 +9,5 @@ export type {
   SkillResult,
   MentionItem,
   Reference,
+  SlashCommand,
 } from "./types.js";

@@ -191,6 +191,74 @@ describe("parseNfmForEditor", () => {
       const stored2 = serializeEditorToNfm(editorMd2);
       expect(stored2).toBe(stored);
     });
+
+    it("handles 4-space nested bullets without producing invalid <ul><ul>", () => {
+      const input = [
+        "<details>",
+        "<summary>Toggle</summary>",
+        "- Item 1",
+        "- Item 2",
+        "    - Nested A",
+        "    - Nested B",
+        "- Item 3",
+        "</details>",
+      ].join("\n");
+      const result = parseNfmForEditor(input);
+      // Nested items should be siblings, not parent-child
+      expect(result).toContain("<p>Nested A</p>");
+      expect(result).toContain("<p>Nested B</p>");
+      // Must have valid HTML: no <ul> directly inside <ul>
+      const lines = result.split("\n");
+      for (let i = 0; i < lines.length - 1; i++) {
+        if (
+          lines[i].trim().startsWith("<ul") &&
+          lines[i + 1].trim().startsWith("<ul")
+        ) {
+          throw new Error(
+            "Invalid HTML: <ul> directly inside <ul> without <li> wrapper",
+          );
+        }
+      }
+      // Should have exactly 2 <ul> levels (outer + nested)
+      const ulCount = (result.match(/<ul\b/g) || []).length;
+      expect(ulCount).toBe(2);
+    });
+
+    it("handles numbered lists inside toggle", () => {
+      const input = [
+        "<details>",
+        "<summary>Toggle</summary>",
+        "\t1. First",
+        "\t2. Second",
+        "\t\t1. Nested first",
+        "\t3. Third",
+        "</details>",
+      ].join("\n");
+      const result = parseNfmForEditor(input);
+      expect(result).toContain("<ul");
+      expect(result).toContain("<p>First</p>");
+      expect(result).toContain("<p>Second</p>");
+      expect(result).toContain("<p>Nested first</p>");
+      expect(result).toContain("<p>Third</p>");
+    });
+
+    it("normalizes large indent gaps to consecutive nesting levels", () => {
+      const input = [
+        "<details>",
+        "<summary>Toggle</summary>",
+        "- Top",
+        "      - Deep",
+        "      - Also deep",
+        "- Back",
+        "</details>",
+      ].join("\n");
+      const result = parseNfmForEditor(input);
+      // Deep items should be at level 2, not level 4
+      const ulCount = (result.match(/<ul\b/g) || []).length;
+      expect(ulCount).toBe(2);
+      expect(result).toContain("<p>Deep</p>");
+      expect(result).toContain("<p>Also deep</p>");
+    });
   });
 
   describe("paragraph separation", () => {

@@ -194,18 +194,10 @@ export default function CalendarView() {
       ev.attendees && ev.attendees.filter((a) => !a.self).length > 0;
     const removeOnly = !isOrganizer && !!hasOtherAttendees;
 
-    // Snapshot for undo
-    const snapshot = { ...ev };
+    // Snapshot for undo — preserve all event fields so undo recreates faithfully
+    const { id: _id, source: _source, ...snapshot } = ev;
     const undo = () => {
-      createEvent.mutate({
-        title: snapshot.title,
-        description: snapshot.description ?? "",
-        location: snapshot.location ?? "",
-        start: snapshot.start,
-        end: snapshot.end,
-        allDay: snapshot.allDay ?? false,
-        color: snapshot.color,
-      });
+      createEvent.mutate(snapshot);
     };
 
     deleteEvent.mutate(
@@ -718,6 +710,9 @@ export default function CalendarView() {
             onClose={() => setSidebarEvent(null)}
             onEdit={handleEditEvent}
             onDelete={handleDeleteEvent}
+            onTitleSave={(eventId, title) =>
+              updateEvent.mutate({ id: eventId, title })
+            }
           />
         )}
 

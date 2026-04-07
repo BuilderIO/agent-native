@@ -32,3 +32,9 @@ export interface Reference {
   refType?: string;
   refId?: string;
 }
+
+export interface SlashCommand {
+  name: string;
+  description: string;
+  icon?: string;
+}

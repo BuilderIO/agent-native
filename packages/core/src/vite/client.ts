@@ -317,6 +317,9 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     },
     build: {
       outDir: options.outDir ?? "dist/spa",
+      // Include Safari 14+ so that esbuild's CSS minifier preserves
+      // -webkit-backdrop-filter (required until Safari 18).
+      cssTarget: ["es2020", "safari14"],
     },
     plugins: [
       autoReloadOnOptimizeDep(),

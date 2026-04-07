@@ -47,6 +47,8 @@ import {
   IconClockHour3,
   IconDotsVertical,
   IconHistory,
+  IconTrash,
+  IconPlugConnected,
 } from "@tabler/icons-react";
 import {
   MultiTabAssistantChat,
@@ -343,10 +345,226 @@ function AgentSettingsPopover({
                   <IntegrationsPanel />
                 </Suspense>
               </div>
+              <div className="border-t border-border pt-3 mt-3">
+                <AgentsSection />
+              </div>
             </div>
           </div>,
           document.body,
         )}
+    </div>
+  );
+}
+
+// ─── Agents Management Section ───────────────────────────────────────────────
+
+function AgentsSection() {
+  const [showAdd, setShowAdd] = useState(false);
+  const [name, setName] = useState("");
+  const [url, setUrl] = useState("");
+  const [description, setDescription] = useState("");
+  const nameRef = useRef<HTMLInputElement>(null);
+
+  // Fetch agents from resources
+  const [agents, setAgents] = useState<
+    {
+      id: string;
+      path: string;
+      name: string;
+      url: string;
+      description?: string;
+    }[]
+  >([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchAgents = useCallback(async () => {
+    try {
+      const res = await fetch("/_agent-native/resources?scope=all");
+      if (!res.ok) return;
+      const data = await res.json();
+      const agentResources = (data.resources ?? []).filter(
+        (r: { path: string }) =>
+          r.path.startsWith("agents/") && r.path.endsWith(".json"),
+      );
+      const parsed = await Promise.all(
+        agentResources.map(async (r: { id: string; path: string }) => {
+          try {
+            const detail = await fetch(`/_agent-native/resources/${r.id}`);
+            if (!detail.ok) return null;
+            const d = await detail.json();
+            const config = JSON.parse(d.content);
+            return {
+              id: r.id,
+              path: r.path,
+              name: config.name,
+              url: config.url,
+              description: config.description,
+            };
+          } catch {
+            return null;
+          }
+        }),
+      );
+      setAgents(parsed.filter(Boolean));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchAgents();
+  }, [fetchAgents]);
+
+  useEffect(() => {
+    if (showAdd) {
+      setName("");
+      setUrl("");
+      setDescription("");
+      const t = setTimeout(() => nameRef.current?.focus(), 50);
+      return () => clearTimeout(t);
+    }
+  }, [showAdd]);
+
+  const handleAdd = async () => {
+    const trimmedName = name.trim();
+    const trimmedUrl = url.trim();
+    if (!trimmedName || !trimmedUrl) return;
+
+    const id = trimmedName.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+    const agentJson = JSON.stringify(
+      {
+        id,
+        name: trimmedName,
+        description: description.trim() || undefined,
+        url: trimmedUrl,
+        color: "#6B7280",
+      },
+      null,
+      2,
+    );
+
+    try {
+      const res = await fetch("/_agent-native/resources", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: `agents/${id}.json`,
+          content: agentJson,
+          shared: true,
+        }),
+      });
+      if (res.ok) {
+        setShowAdd(false);
+        fetchAgents();
+      }
+    } catch {}
+  };
+
+  const handleDelete = async (agentId: string) => {
+    try {
+      const res = await fetch(`/_agent-native/resources/${agentId}`, {
+        method: "DELETE",
+      });
+      if (res.ok) fetchAgents();
+    } catch {}
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <label className="text-[11px] font-medium text-muted-foreground">
+          Agents
+        </label>
+        <button
+          onClick={() => setShowAdd(!showAdd)}
+          className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
+          title="Add agent"
+        >
+          {showAdd ? <IconX size={12} /> : <IconPlus size={12} />}
+        </button>
+      </div>
+
+      {showAdd && (
+        <div className="mb-2 flex flex-col gap-1.5 rounded-md border border-border bg-background p-2">
+          <input
+            ref={nameRef}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleAdd();
+              if (e.key === "Escape") setShowAdd(false);
+            }}
+            className="w-full rounded border border-border bg-background px-2 py-1 text-[12px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+            placeholder="Name"
+          />
+          <input
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleAdd();
+              if (e.key === "Escape") setShowAdd(false);
+            }}
+            className="w-full rounded border border-border bg-background px-2 py-1 text-[12px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+            placeholder="URL"
+          />
+          <input
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleAdd();
+              if (e.key === "Escape") setShowAdd(false);
+            }}
+            className="w-full rounded border border-border bg-background px-2 py-1 text-[12px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+            placeholder="Description (optional)"
+          />
+          <div className="flex justify-end">
+            <button
+              onClick={handleAdd}
+              disabled={!name.trim() || !url.trim()}
+              className="rounded bg-accent px-2.5 py-1 text-[11px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40 disabled:pointer-events-none"
+            >
+              Add
+            </button>
+          </div>
+        </div>
+      )}
+
+      {loading ? (
+        <p className="text-[11px] text-muted-foreground/50">Loading...</p>
+      ) : agents.length === 0 && !showAdd ? (
+        <p className="text-[11px] text-muted-foreground/50">
+          No agents configured. Add one to @-mention and communicate via A2A.
+        </p>
+      ) : (
+        <div className="flex flex-col gap-1">
+          {agents.map((agent) => (
+            <div
+              key={agent.id}
+              className="group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent/30"
+            >
+              <IconPlugConnected
+                size={13}
+                className="shrink-0 text-muted-foreground"
+              />
+              <div className="flex-1 min-w-0">
+                <div className="text-[12px] font-medium text-foreground truncate">
+                  {agent.name}
+                </div>
+                <div className="text-[10px] text-muted-foreground/60 truncate">
+                  {agent.url}
+                </div>
+              </div>
+              <button
+                onClick={() => handleDelete(agent.id)}
+                className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground/40 hover:text-red-400 opacity-0 group-hover:opacity-100"
+                title="Remove agent"
+              >
+                <IconTrash size={12} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,4 +1,3 @@
-import { BubbleMenu } from "@tiptap/react/menus";
 import type { Editor } from "@tiptap/react";
 import {
   IconBold,
@@ -10,7 +9,8 @@ import {
   IconLoader2,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+
 interface ComposeBubbleToolbarProps {
   editor: Editor;
   onFlush: () => Promise<unknown> | undefined;
@@ -22,16 +22,100 @@ interface ComposeBubbleToolbarProps {
   }) => void;
 }
 
+/**
+ * Custom bubble toolbar that avoids tiptap v3's BubbleMenu component.
+ * The @tiptap/react/menus BubbleMenu has an internal useEditorState that
+ * triggers infinite useSyncExternalStore re-render loops. This component
+ * listens to editor events directly and positions itself via the DOM
+ * selection API, avoiding the problematic subscription pattern.
+ */
 export function ComposeBubbleToolbar({
   editor,
   onFlush,
   isGenerating,
   sendToAgent,
 }: ComposeBubbleToolbarProps) {
+  const [visible, setVisible] = useState(false);
+  const [position, setPosition] = useState({ top: 0, left: 0 });
+  const [activeMarks, setActiveMarks] = useState({
+    bold: false,
+    italic: false,
+    strike: false,
+    code: false,
+    link: false,
+  });
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
   const [showAiInput, setShowAiInput] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
+  const toolbarRef = useRef<HTMLDivElement>(null);
+
+  const updateToolbar = useCallback(() => {
+    if (!editor.isFocused) {
+      setVisible(false);
+      return;
+    }
+    const { from, to } = editor.state.selection;
+    if (from === to) {
+      setVisible(false);
+      return;
+    }
+    const { selection } = editor.state;
+    if ((selection as any).node) {
+      setVisible(false);
+      return;
+    }
+
+    // Position above the selection
+    const editorEl = editor.view.dom.closest(
+      ".compose-editor-wrapper",
+    ) as HTMLElement | null;
+    if (!editorEl) return;
+
+    const domSelection = window.getSelection();
+    if (!domSelection || domSelection.rangeCount === 0) return;
+    const range = domSelection.getRangeAt(0);
+    const rect = range.getBoundingClientRect();
+    const parentRect = editorEl.getBoundingClientRect();
+
+    setPosition({
+      top: rect.top - parentRect.top - 40,
+      left:
+        rect.left -
+        parentRect.left +
+        rect.width / 2 -
+        (toolbarRef.current?.offsetWidth ?? 200) / 2,
+    });
+
+    setActiveMarks({
+      bold: editor.isActive("bold"),
+      italic: editor.isActive("italic"),
+      strike: editor.isActive("strike"),
+      code: editor.isActive("code"),
+      link: editor.isActive("link"),
+    });
+
+    setVisible(true);
+  }, [editor]);
+
+  useEffect(() => {
+    const handleBlur = () => {
+      // Delay so focus can settle into link/AI inputs inside the toolbar
+      setTimeout(() => {
+        if (!toolbarRef.current?.contains(document.activeElement)) {
+          setVisible(false);
+        }
+      }, 0);
+    };
+    editor.on("selectionUpdate", updateToolbar);
+    editor.on("focus", updateToolbar);
+    editor.on("blur", handleBlur);
+    return () => {
+      editor.off("selectionUpdate", updateToolbar);
+      editor.off("focus", updateToolbar);
+      editor.off("blur", handleBlur);
+    };
+  }, [editor, updateToolbar]);
 
   const handleSetLink = () => {
     if (linkUrl.trim()) {
@@ -77,58 +161,56 @@ export function ComposeBubbleToolbar({
     setShowAiInput(false);
   };
 
+  if (!visible) return null;
+
   const items = [
     {
       icon: IconBold,
       title: "Bold",
       action: () => editor.chain().focus().toggleBold().run(),
-      isActive: () => editor.isActive("bold"),
+      active: activeMarks.bold,
     },
     {
       icon: IconItalic,
       title: "Italic",
       action: () => editor.chain().focus().toggleItalic().run(),
-      isActive: () => editor.isActive("italic"),
+      active: activeMarks.italic,
     },
     {
       icon: IconStrikethrough,
       title: "Strikethrough",
       action: () => editor.chain().focus().toggleStrike().run(),
-      isActive: () => editor.isActive("strike"),
+      active: activeMarks.strike,
     },
     {
       icon: IconCode,
       title: "Code",
       action: () => editor.chain().focus().toggleCode().run(),
-      isActive: () => editor.isActive("code"),
+      active: activeMarks.code,
     },
     { type: "divider" as const },
     {
       icon: IconLink,
       title: "Link",
       action: toggleLink,
-      isActive: () => editor.isActive("link"),
+      active: activeMarks.link,
     },
   ];
 
   return (
-    <BubbleMenu
-      editor={editor}
+    <div
+      ref={toolbarRef}
       className="bubble-toolbar"
-      shouldShow={({ editor, state, from, to }) => {
-        if (!editor.isFocused) return false;
-        if (from === to) return false;
-        // Hide for node selections (images, etc.)
-        const { selection } = state;
-        if ((selection as any).node) return false;
-        return true;
+      style={{
+        position: "absolute",
+        top: position.top,
+        left: Math.max(0, position.left),
+        zIndex: 50,
       }}
+      onMouseDown={(e) => e.preventDefault()}
     >
       {showLinkInput ? (
-        <div
-          className="flex items-center gap-1 px-1"
-          onMouseDown={(e) => e.preventDefault()}
-        >
+        <div className="flex items-center gap-1 px-1">
           <input
             autoFocus
             type="url"
@@ -152,10 +234,7 @@ export function ComposeBubbleToolbar({
           </button>
         </div>
       ) : showAiInput || isGenerating ? (
-        <div
-          className="flex items-center gap-1 px-1"
-          onMouseDown={(e) => e.preventDefault()}
-        >
+        <div className="flex items-center gap-1 px-1">
           {isGenerating ? (
             <>
               <IconLoader2 size={14} className="animate-spin text-gray-400" />
@@ -194,10 +273,7 @@ export function ComposeBubbleToolbar({
           )}
         </div>
       ) : (
-        <div
-          className="flex items-center gap-0.5"
-          onMouseDown={(e) => e.preventDefault()}
-        >
+        <div className="flex items-center gap-0.5">
           {items.map((item, i) => {
             if ("type" in item && item.type === "divider") {
               return (
@@ -208,12 +284,12 @@ export function ComposeBubbleToolbar({
               icon: Icon,
               title,
               action,
-              isActive,
+              active,
             } = item as {
               icon: React.ElementType;
               title: string;
               action: () => void;
-              isActive: () => boolean;
+              active: boolean;
             };
             return (
               <button
@@ -222,7 +298,7 @@ export function ComposeBubbleToolbar({
                 title={title}
                 className={cn(
                   "p-1.5 rounded transition-colors",
-                  isActive()
+                  active
                     ? "bg-gray-600 text-white"
                     : "text-gray-300 hover:bg-gray-700 hover:text-white",
                 )}
@@ -246,6 +322,6 @@ export function ComposeBubbleToolbar({
           </button>
         </div>
       )}
-    </BubbleMenu>
+    </div>
   );
 }
