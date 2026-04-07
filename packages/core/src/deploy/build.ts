@@ -52,6 +52,11 @@ const clientDir = path.join(cwd, "build", "client");
 const publicOutputDir = nitro.options.output.publicDir;
 if (fs.existsSync(clientDir) && publicOutputDir) {
   copyDir(clientDir, publicOutputDir);
+  // Exclude _worker.js from static assets (CF Pages treats it as server code)
+  const assetsIgnore = path.join(publicOutputDir, ".assetsignore");
+  if (!fs.existsSync(assetsIgnore)) {
+    fs.writeFileSync(assetsIgnore, "_worker.js\n");
+  }
   console.log(
     `[deploy] Copied client assets to ${path.relative(cwd, publicOutputDir)}`,
   );
