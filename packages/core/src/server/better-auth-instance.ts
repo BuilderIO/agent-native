@@ -125,7 +125,7 @@ async function createBetterAuthInstance(
     process.env.BETTER_AUTH_SECRET ||
     process.env.GOOGLE_CLIENT_SECRET ||
     process.env.ACCESS_TOKEN ||
-    "agent-native-dev-secret";
+    "agent-native-local-dev-secret-k9x2m7q4w8";
 
   const appUrl =
     process.env.APP_URL ||

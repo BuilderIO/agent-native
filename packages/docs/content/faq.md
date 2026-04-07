@@ -15,7 +15,7 @@ Agent-native is a framework for building apps where the AI agent and the UI are 
 
 ### How is this different from adding AI to an existing app? {#how-is-this-different}
 
-Most apps bolt AI on as an afterthought — an autocomplete here, a chat sidebar there. The AI can't actually *do* things in the app. In an agent-native app, the agent is a first-class citizen. It can create emails, schedule events, build forms, generate slides, and modify the app's own code. The architecture is designed for this from the ground up.
+Most apps bolt AI on as an afterthought — an autocomplete here, a chat sidebar there. The AI can't actually _do_ things in the app. In an agent-native app, the agent is a first-class citizen. It can create emails, schedule events, build forms, generate slides, and modify the app's own code. The architecture is designed for this from the ground up.
 
 ### Do I need to know AI/ML? {#do-i-need-to-know-ai}
 
@@ -47,7 +47,7 @@ Anywhere. The server runs on Nitro, which compiles to any deployment target: Nod
 
 ### Can I migrate an existing app to agent-native? {#can-i-use-existing-code}
 
-You can, but agent-native works best when built from the ground up. The architecture — shared database, polling sync, actions, application state — needs to be integrated throughout. Starting from a template and customizing it is the recommended path. Think of it like the shift from desktop-first to mobile-first: you *can* retrofit, but building native is better.
+You can, but agent-native works best when built from the ground up. The architecture — shared database, polling sync, actions, application state — needs to be integrated throughout. Starting from a template and customizing it is the recommended path. Think of it like the shift from desktop-first to mobile-first: you _can_ retrofit, but building native is better.
 
 ## Architecture {#architecture}
 
@@ -61,7 +61,7 @@ AI is non-deterministic — you need conversation flow to give feedback and iter
 
 ### Why single-tenant? {#why-single-tenant}
 
-Because the agent can modify code. In a multi-tenant SaaS, you can't let one customer's agent change the source code — it would affect everyone. With single-tenant, each organization gets their own fork. The agent can safely evolve the code, add integrations, and customize the app because it's *your* app. Per-user data isolation still exists within an organization via the `owner_email` convention.
+Because the agent can modify code. In a multi-tenant SaaS, you can't let one customer's agent change the source code — it would affect everyone. With single-tenant, each organization gets their own fork. The agent can safely evolve the code, add integrations, and customize the app because it's _your_ app. Per-user data isolation still exists within an organization via the `owner_email` convention.
 
 ### Why is this a framework and not a library? {#why-framework-not-library}
 
