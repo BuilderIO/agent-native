@@ -1,5 +1,5 @@
 import { createRequestHandler } from "react-router";
-import { defineEventHandler, getRequestURL, sendRedirect } from "h3";
+import { defineEventHandler } from "h3";
 
 const handler = createRequestHandler(
   // In dev: Vite resolves this virtual module for HMR.
@@ -8,22 +8,23 @@ const handler = createRequestHandler(
 );
 
 export default defineEventHandler(async (event) => {
-  const url = getRequestURL(event);
+  // Get the Web Request directly — avoid H3 helpers like getRequestURL()
+  // and toWebRequest() which access event.node.req internally and crash
+  // on Web-standard runtimes (Netlify Functions v2, CF Workers).
+  const req: Request = (event as any).web?.request ?? (event as any)._request;
+  if (!req) {
+    // Node.js fallback — dynamically import toWebRequest only when needed
+    const { toWebRequest } = await import("h3");
+    const webReq = toWebRequest(event);
+    return handler(webReq);
+  }
+  const url = new URL(req.url);
   if (url.pathname.startsWith("/.well-known/")) {
     return new Response(null, { status: 404 });
   }
-  // Build a standard Web Request from the H3 event.
-  // Avoids toWebRequest() which crashes on Web-standard runtimes
-  // where event.node is undefined (Netlify Functions v2, CF Workers).
-  const webReq =
-    (event as any).web?.request ??
-    new Request(url.href, {
-      method: event.method,
-      headers: event.headers,
-    });
   try {
-    return await handler(webReq);
+    return await handler(req);
   } catch {
-    return sendRedirect(event, "/");
+    return Response.redirect(url.origin + "/", 302);
   }
 });
