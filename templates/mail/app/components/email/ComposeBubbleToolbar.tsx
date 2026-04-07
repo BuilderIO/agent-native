@@ -1,4 +1,5 @@
 import { BubbleMenu } from "@tiptap/react/menus";
+import { useEditorState } from "@tiptap/react";
 import type { Editor } from "@tiptap/react";
 import {
   IconBold,
@@ -77,37 +78,51 @@ export function ComposeBubbleToolbar({
     setShowAiInput(false);
   };
 
+  // Read active mark states via useEditorState so updates are properly
+  // batched with React's render cycle. Calling editor.isActive() directly
+  // inside the BubbleMenu render triggers useSyncExternalStore loops.
+  const activeStates = useEditorState({
+    editor,
+    selector: ({ editor: e }) => ({
+      bold: e.isActive("bold"),
+      italic: e.isActive("italic"),
+      strike: e.isActive("strike"),
+      code: e.isActive("code"),
+      link: e.isActive("link"),
+    }),
+  });
+
   const items = [
     {
       icon: IconBold,
       title: "Bold",
       action: () => editor.chain().focus().toggleBold().run(),
-      isActive: () => editor.isActive("bold"),
+      active: activeStates.bold,
     },
     {
       icon: IconItalic,
       title: "Italic",
       action: () => editor.chain().focus().toggleItalic().run(),
-      isActive: () => editor.isActive("italic"),
+      active: activeStates.italic,
     },
     {
       icon: IconStrikethrough,
       title: "Strikethrough",
       action: () => editor.chain().focus().toggleStrike().run(),
-      isActive: () => editor.isActive("strike"),
+      active: activeStates.strike,
     },
     {
       icon: IconCode,
       title: "Code",
       action: () => editor.chain().focus().toggleCode().run(),
-      isActive: () => editor.isActive("code"),
+      active: activeStates.code,
     },
     { type: "divider" as const },
     {
       icon: IconLink,
       title: "Link",
       action: toggleLink,
-      isActive: () => editor.isActive("link"),
+      active: activeStates.link,
     },
   ];
 
@@ -208,12 +223,12 @@ export function ComposeBubbleToolbar({
               icon: Icon,
               title,
               action,
-              isActive,
+              active,
             } = item as {
               icon: React.ElementType;
               title: string;
               action: () => void;
-              isActive: () => boolean;
+              active: boolean;
             };
             return (
               <button
@@ -222,7 +237,7 @@ export function ComposeBubbleToolbar({
                 title={title}
                 className={cn(
                   "p-1.5 rounded transition-colors",
-                  isActive()
+                  active
                     ? "bg-gray-600 text-white"
                     : "text-gray-300 hover:bg-gray-700 hover:text-white",
                 )}
