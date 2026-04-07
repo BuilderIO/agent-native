@@ -939,6 +939,8 @@ export interface AssistantChatProps {
   composerSlot?: React.ReactNode;
   /** When true, skip the restore skeleton (used for freshly created threads with no messages) */
   isNewThread?: boolean;
+  /** Called when a slash command (e.g. /clear, /help) is executed */
+  onSlashCommand?: (command: string) => void;
 }
 
 export const CHAT_STORAGE_PREFIX = "agent-chat:";
@@ -989,6 +991,7 @@ const AssistantChatInner = forwardRef<
     onGenerateTitle,
     composerSlot,
     isNewThread,
+    onSlashCommand,
   },
   ref,
 ) {
@@ -1585,6 +1588,7 @@ const AssistantChatInner = forwardRef<
                     )
                 : undefined
             }
+            onSlashCommand={onSlashCommand}
             actionButton={
               isRunning ? (
                 <button

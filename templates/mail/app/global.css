@@ -373,6 +373,7 @@
   padding: 4px 8px;
   background: hsl(0 0% 10% / 0.7);
   backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   border: 1px solid hsl(0 0% 100% / 0.1);
   border-radius: 5px;
   color: hsl(0 0% 92%);

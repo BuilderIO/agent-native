@@ -10,14 +10,22 @@ export default createAgentChatPlugin({
     emails: {
       label: "Emails",
       icon: "email",
-      search: async (query: string) => {
+      search: async (query: string, event?: any) => {
         try {
           const params = new URLSearchParams({ view: "inbox" });
           if (query) params.set("q", query);
-          const port = process.env.PORT || "8080";
-          const res = await fetch(
-            `http://localhost:${port}/api/emails?${params.toString()}`,
-          );
+          // Build URL from the incoming request's host to avoid port mismatches
+          const host =
+            event?.node?.req?.headers?.host ||
+            `localhost:${process.env.PORT || process.env.NITRO_PORT || "8080"}`;
+          const proto =
+            event?.node?.req?.headers?.["x-forwarded-proto"] || "http";
+          const url = `${proto}://${host}/api/emails?${params.toString()}`;
+          // Forward cookies so auth middleware passes
+          const cookie = event?.node?.req?.headers?.cookie || "";
+          const res = await fetch(url, {
+            headers: cookie ? { cookie } : {},
+          });
           if (!res.ok) return [];
           const body = await res.json();
           const emails = (body.emails ?? body) as Array<{
@@ -34,7 +42,8 @@ export default createAgentChatPlugin({
             refType: "email",
             refId: e.id,
           }));
-        } catch {
+        } catch (e) {
+          console.error("[mail] Email mention provider failed:", e);
           return [];
         }
       },

@@ -28,67 +28,6 @@ interface DayViewProps {
   isLoading?: boolean;
 }
 
-function QuickEditInput({
-  eventId,
-  onSave,
-  onCancel,
-}: {
-  eventId: string;
-  onSave: (eventId: string, title: string) => void;
-  onCancel: (eventId: string) => void;
-}) {
-  const [value, setValue] = useState("");
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    requestAnimationFrame(() => inputRef.current?.focus());
-  }, []);
-
-  return (
-    <input
-      ref={inputRef}
-      value={value}
-      onChange={(e) => {
-        setValue(e.target.value);
-        setConfirmDelete(false);
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          if (confirmDelete) {
-            onCancel(eventId);
-          } else {
-            onSave(eventId, value);
-          }
-        } else if (e.key === "Escape") {
-          e.preventDefault();
-          onCancel(eventId);
-        } else if (
-          (e.key === "Delete" || e.key === "Backspace") &&
-          value === ""
-        ) {
-          e.preventDefault();
-          onCancel(eventId);
-        } else if (e.key === "Delete" && value.trim()) {
-          e.preventDefault();
-          if (confirmDelete) {
-            onCancel(eventId);
-          } else {
-            setConfirmDelete(true);
-          }
-        }
-        e.stopPropagation();
-      }}
-      onBlur={() => (value.trim() ? onSave(eventId, value) : onCancel(eventId))}
-      placeholder={
-        confirmDelete ? "Press Delete or Enter to discard" : "(No title)"
-      }
-      className="w-full bg-transparent text-[11px] font-semibold text-foreground placeholder:text-foreground/40 outline-none leading-tight"
-    />
-  );
-}
-
 // [startHour, startMin, durationMin, widthPct]
 const DAY_SKELETONS: [number, number, number, number][] = [
   [9, 0, 60, 82],
@@ -470,21 +409,7 @@ export function DayView({
                     opacity: isBeingDragged && isDragging ? 0.9 : undefined,
                   }}
                 >
-                  {quickEditEventId === event.id &&
-                  onQuickEditSave &&
-                  onQuickEditCancel ? (
-                    <div className="flex flex-col justify-center flex-1 min-w-0 mt-0.5">
-                      <QuickEditInput
-                        eventId={event.id}
-                        onSave={onQuickEditSave}
-                        onCancel={onQuickEditCancel}
-                      />
-                      <div className="mt-0.5 truncate text-[10px] leading-tight text-foreground/60">
-                        {format(displayStart, "h:mm a")} –{" "}
-                        {format(displayEnd, "h:mm a")}
-                      </div>
-                    </div>
-                  ) : durationMin <= 30 ? (
+                  {durationMin <= 30 ? (
                     <div className="flex items-baseline gap-1.5 truncate">
                       <span
                         className={cn(
@@ -575,11 +500,8 @@ export function DayView({
                 </button>
               );
 
-              // Don't wrap in popover while dragging or quick-editing
-              if (
-                (isBeingDragged && isDragging) ||
-                quickEditEventId === event.id
-              ) {
+              // Don't wrap in popover while dragging
+              if (isBeingDragged && isDragging) {
                 return (
                   <div key={event.id} className="contents">
                     {eventButton}
@@ -593,6 +515,9 @@ export function DayView({
                   event={event}
                   onEdit={onEditEvent}
                   onDelete={onDeleteEvent}
+                  defaultOpen={quickEditEventId === event.id}
+                  onTitleSave={onQuickEditSave}
+                  onDismissNew={onQuickEditCancel}
                 >
                   {eventButton}
                 </EventDetailPopover>

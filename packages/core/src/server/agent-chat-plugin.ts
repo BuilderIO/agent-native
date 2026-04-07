@@ -14,6 +14,7 @@ import type {
   MentionProvider,
   MentionProviderItem,
 } from "../agent/types.js";
+import { discoverAgents } from "./agent-discovery.js";
 import {
   buildAssistantMessage,
   extractThreadMeta,
@@ -309,6 +310,7 @@ function createTeamTools(deps: {
   getActions: () => Record<string, ActionEntry>;
   getApiKey: () => string;
   getModel: () => string;
+  getParentThreadId: () => string;
   getSend: () =>
     | ((event: import("../agent/types.js").AgentChatEvent) => void)
     | null;
@@ -353,6 +355,7 @@ function createTeamTools(deps: {
           actions: deps.getActions(),
           apiKey: deps.getApiKey(),
           model: deps.getModel(),
+          parentThreadId: deps.getParentThreadId(),
           parentSend: (event) => {
             if (capturedSend) capturedSend(event);
           },
@@ -1202,6 +1205,7 @@ export function createAgentChatPlugin(
       }),
       getApiKey: () => options?.apiKey ?? process.env.ANTHROPIC_API_KEY ?? "",
       getModel: () => resolvedModel,
+      getParentThreadId: () => _currentRunThreadId,
       getSend: () => {
         // Return the send for the current run's thread
         const send = _runSendByThread.get(_currentRunThreadId);
@@ -1630,7 +1634,7 @@ export function createAgentChatPlugin(
         const providerResults = await Promise.all(
           Object.entries(mentionProviders).map(async ([key, provider]) => {
             try {
-              const providerItems = await provider.search(q);
+              const providerItems = await provider.search(q, event);
               return providerItems.map((item) => ({
                 id: item.id,
                 label: item.label,
@@ -1642,7 +1646,11 @@ export function createAgentChatPlugin(
                 refId: item.refId,
                 section: provider.label,
               }));
-            } catch {
+            } catch (e) {
+              console.error(
+                `[agent-native] Mention provider "${key}" failed:`,
+                e,
+              );
               return [];
             }
           }),
@@ -1653,7 +1661,6 @@ export function createAgentChatPlugin(
 
         // 4. Discovered peer agents
         try {
-          const { discoverAgents } = await import("./agent-discovery.js");
           const agents = await discoverAgents(options?.appId);
           for (const agent of agents) {
             items.push({
@@ -1668,8 +1675,8 @@ export function createAgentChatPlugin(
               section: "Agents",
             });
           }
-        } catch {
-          // Agent discovery not available — skip
+        } catch (e) {
+          console.error("[agent-native] Agent discovery failed:", e);
         }
 
         // Filter by query and limit

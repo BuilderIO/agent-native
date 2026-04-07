@@ -7,7 +7,6 @@ import {
   IconTrash,
   IconEye,
   IconCode,
-  IconRobot,
   IconClock,
 } from "@tabler/icons-react";
 import { cn } from "../utils.js";
@@ -25,28 +24,40 @@ import {
   type ResourceMeta,
 } from "./use-resources.js";
 
-// ─── New Skill Popover ──────────────────────────────────────────────────────
+// ─── Create Menu (unified + button) ────────────────────────────────────────
 
-function NewSkillPopover({
+type CreateMenuView = "menu" | "file" | "skill" | "job";
+
+function CreateMenu({
   scope,
+  onCreateFile,
   onCreated,
 }: {
   scope: ResourceScope;
+  onCreateFile: (name: string) => void;
   onCreated?: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [view, setView] = useState<CreateMenuView>("menu");
   const [value, setValue] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (open) {
+      setView("menu");
+      setValue("");
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (view !== "menu") {
       setValue("");
       const t = setTimeout(() => inputRef.current?.focus(), 50);
       return () => clearTimeout(t);
     }
-  }, [open]);
+  }, [view]);
 
   useEffect(() => {
     if (!open) return;
@@ -67,13 +78,27 @@ function NewSkillPopover({
   useEffect(() => {
     if (!open) return;
     function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") {
+        if (view !== "menu") {
+          setView("menu");
+        } else {
+          setOpen(false);
+        }
+      }
     }
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
-  }, [open]);
+  }, [open, view]);
 
-  const submit = () => {
+  const submitFile = () => {
+    const trimmed = value.trim();
+    if (trimmed) {
+      onCreateFile(trimmed);
+      setOpen(false);
+    }
+  };
+
+  const submitSkill = () => {
     const trimmed = value.trim();
     if (!trimmed) return;
 
@@ -147,108 +172,7 @@ Keep the skill concise (under 500 lines) and actionable.`,
     onCreated?.();
   };
 
-  return (
-    <div className="relative">
-      <button
-        ref={buttonRef}
-        onClick={() => setOpen(!open)}
-        className={cn(
-          "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50",
-          open && "bg-accent/50 text-foreground",
-        )}
-        title="Create a skill"
-      >
-        <IconSparkles className="h-3.5 w-3.5" />
-      </button>
-      {open && (
-        <div
-          ref={popoverRef}
-          className="absolute right-0 top-full mt-1.5 z-[220] rounded-lg border border-border bg-popover p-3 shadow-lg"
-          style={{
-            width: 280,
-            fontSize: 13,
-            lineHeight: "normal",
-          }}
-        >
-          <label className="mb-1 block text-[11px] font-semibold text-foreground">
-            Skill Creator
-          </label>
-          <p className="mb-2 text-[10px] text-muted-foreground/60 leading-relaxed">
-            Describe what kind of skill you want and the agent will create it.
-          </p>
-          <textarea
-            ref={inputRef as any}
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                submit();
-              }
-              if (e.key === "Escape") setOpen(false);
-            }}
-            rows={3}
-            className="w-full resize-none rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-            placeholder="e.g. A skill that reviews PRs for security issues and OWASP top 10 vulnerabilities"
-          />
-          <div className="mt-2.5 flex justify-end">
-            <button
-              onClick={submit}
-              disabled={!value.trim()}
-              className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40 disabled:pointer-events-none"
-            >
-              Create
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── New Job Popover ────────────────────────────────────────────────────────
-
-function NewJobPopover({ scope }: { scope: ResourceScope }) {
-  const [open, setOpen] = useState(false);
-  const [value, setValue] = useState("");
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-  const popoverRef = useRef<HTMLDivElement>(null);
-  const buttonRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    if (open) {
-      setValue("");
-      const t = setTimeout(() => inputRef.current?.focus(), 50);
-      return () => clearTimeout(t);
-    }
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    function handleClick(e: MouseEvent) {
-      if (
-        popoverRef.current &&
-        !popoverRef.current.contains(e.target as Node) &&
-        buttonRef.current &&
-        !buttonRef.current.contains(e.target as Node)
-      ) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("keydown", handleKey);
-    return () => document.removeEventListener("keydown", handleKey);
-  }, [open]);
-
-  const submit = () => {
+  const submitJob = () => {
     const trimmed = value.trim();
     if (!trimmed) return;
 
@@ -269,112 +193,31 @@ The job will run automatically on the schedule. Make the instructions specific �
     setOpen(false);
   };
 
-  return (
-    <div className="relative">
-      <button
-        ref={buttonRef}
-        onClick={() => setOpen(!open)}
-        className={cn(
-          "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50",
-          open && "bg-accent/50 text-foreground",
-        )}
-        title="Create a recurring job"
-      >
-        <IconClock className="h-3.5 w-3.5" />
-      </button>
-      {open && (
-        <div
-          ref={popoverRef}
-          className="absolute right-0 top-full mt-1.5 z-[220] rounded-lg border border-border bg-popover p-3 shadow-lg"
-          style={{ width: 280, fontSize: 13, lineHeight: "normal" }}
-        >
-          <label className="mb-1 block text-[11px] font-semibold text-foreground">
-            Recurring Job
-          </label>
-          <p className="mb-2 text-[10px] text-muted-foreground/60 leading-relaxed">
-            Describe what should happen and when.
-          </p>
-          <textarea
-            ref={inputRef}
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                submit();
-              }
-              if (e.key === "Escape") setOpen(false);
-            }}
-            rows={3}
-            className="w-full resize-none rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-            placeholder="e.g. Every weekday at 9am, check for overdue scorecards and send a Slack update"
-          />
-          <div className="mt-2.5 flex justify-end">
-            <button
-              onClick={submit}
-              disabled={!value.trim()}
-              className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40 disabled:pointer-events-none"
-            >
-              Create
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── New File Popover ───────────────────────────────────────────────────────
-
-function NewFilePopover({ onSubmit }: { onSubmit: (name: string) => void }) {
-  const [open, setOpen] = useState(false);
-  const [value, setValue] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
-  const popoverRef = useRef<HTMLDivElement>(null);
-  const buttonRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    if (open) {
-      setValue("");
-      const t = setTimeout(() => inputRef.current?.focus(), 50);
-      return () => clearTimeout(t);
-    }
-  }, [open]);
-
-  // Close on outside click
-  useEffect(() => {
-    if (!open) return;
-    function handleClick(e: MouseEvent) {
-      if (
-        popoverRef.current &&
-        !popoverRef.current.contains(e.target as Node) &&
-        buttonRef.current &&
-        !buttonRef.current.contains(e.target as Node)
-      ) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [open]);
-
-  // Close on Escape
-  useEffect(() => {
-    if (!open) return;
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("keydown", handleKey);
-    return () => document.removeEventListener("keydown", handleKey);
-  }, [open]);
-
-  const submit = () => {
-    const trimmed = value.trim();
-    if (trimmed) {
-      onSubmit(trimmed);
-      setOpen(false);
-    }
-  };
+  const menuItems: {
+    icon: React.ReactNode;
+    label: string;
+    desc: string;
+    action: () => void;
+  }[] = [
+    {
+      icon: <IconPlus className="h-3.5 w-3.5" />,
+      label: "Create File",
+      desc: "Add a new file at a path",
+      action: () => setView("file"),
+    },
+    {
+      icon: <IconSparkles className="h-3.5 w-3.5" />,
+      label: "Create Skill",
+      desc: "Teach the agent a new ability",
+      action: () => setView("skill"),
+    },
+    {
+      icon: <IconClock className="h-3.5 w-3.5" />,
+      label: "Scheduled Task",
+      desc: "Run something on a schedule",
+      action: () => setView("job"),
+    },
+  ];
 
   return (
     <div className="relative">
@@ -385,216 +228,145 @@ function NewFilePopover({ onSubmit }: { onSubmit: (name: string) => void }) {
           "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50",
           open && "bg-accent/50 text-foreground",
         )}
-        title="New resource"
+        title="Create new..."
       >
         <IconPlus className="h-3.5 w-3.5" />
       </button>
       {open && (
         <div
           ref={popoverRef}
-          className="absolute right-0 top-full mt-1.5 z-[220] rounded-lg border border-border bg-popover p-3 shadow-lg"
-          style={{
-            width: 240,
-            fontSize: 13,
-            lineHeight: "normal",
-          }}
+          className="absolute right-0 top-full mt-1.5 z-[220] rounded-lg border border-border bg-popover shadow-lg"
+          style={{ width: 260, fontSize: 13, lineHeight: "normal" }}
         >
-          <label className="mb-1.5 block text-[11px] font-medium text-muted-foreground">
-            File path
-          </label>
-          <input
-            ref={inputRef}
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") submit();
-              if (e.key === "Escape") setOpen(false);
-            }}
-            className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-            placeholder="notes/ideas.md"
-          />
-          <div className="mt-2.5 flex justify-end">
-            <button
-              onClick={submit}
-              disabled={!value.trim()}
-              className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40 disabled:pointer-events-none"
-            >
-              Create
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+          {view === "menu" && (
+            <div className="py-1">
+              {menuItems.map((item) => (
+                <button
+                  key={item.label}
+                  onClick={item.action}
+                  className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-accent/50"
+                >
+                  <span className="text-muted-foreground">{item.icon}</span>
+                  <div className="min-w-0">
+                    <div className="text-[12px] font-medium text-foreground">
+                      {item.label}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground/60">
+                      {item.desc}
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
 
-// ─── New Agent Popover ─────────────────────────────────────────────────────
-
-function NewAgentPopover({
-  scope,
-  onCreated,
-}: {
-  scope: ResourceScope;
-  onCreated?: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [name, setName] = useState("");
-  const [url, setUrl] = useState("");
-  const [description, setDescription] = useState("");
-  const nameRef = useRef<HTMLInputElement>(null);
-  const popoverRef = useRef<HTMLDivElement>(null);
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const createResource = useCreateResource();
-
-  useEffect(() => {
-    if (open) {
-      setName("");
-      setUrl("");
-      setDescription("");
-      const t = setTimeout(() => nameRef.current?.focus(), 50);
-      return () => clearTimeout(t);
-    }
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    function handleClick(e: MouseEvent) {
-      if (
-        popoverRef.current &&
-        !popoverRef.current.contains(e.target as Node) &&
-        buttonRef.current &&
-        !buttonRef.current.contains(e.target as Node)
-      ) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("keydown", handleKey);
-    return () => document.removeEventListener("keydown", handleKey);
-  }, [open]);
-
-  const submit = () => {
-    const trimmedName = name.trim();
-    const trimmedUrl = url.trim();
-    if (!trimmedName || !trimmedUrl) return;
-
-    const id = trimmedName.toLowerCase().replace(/[^a-z0-9-]/g, "-");
-    const agentJson = JSON.stringify(
-      {
-        id,
-        name: trimmedName,
-        description: description.trim() || undefined,
-        url: trimmedUrl,
-        color: "#6B7280",
-      },
-      null,
-      2,
-    );
-
-    createResource.mutate({
-      path: `agents/${id}.json`,
-      content: agentJson,
-      shared: scope === "shared",
-    });
-
-    setOpen(false);
-    onCreated?.();
-  };
-
-  return (
-    <div className="relative">
-      <button
-        ref={buttonRef}
-        onClick={() => setOpen(!open)}
-        className={cn(
-          "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50",
-          open && "bg-accent/50 text-foreground",
-        )}
-        title="Add an agent"
-      >
-        <IconRobot className="h-3.5 w-3.5" />
-      </button>
-      {open && (
-        <div
-          ref={popoverRef}
-          className="absolute right-0 top-full mt-1.5 z-[220] rounded-lg border border-border bg-popover p-3 shadow-lg"
-          style={{
-            width: 280,
-            fontSize: 13,
-            lineHeight: "normal",
-          }}
-        >
-          <label className="mb-1 block text-[11px] font-semibold text-foreground">
-            Add Agent
-          </label>
-          <p className="mb-2 text-[10px] text-muted-foreground/60 leading-relaxed">
-            Add an agent you can @-mention and communicate with via A2A.
-          </p>
-          <div className="flex flex-col gap-2">
-            <div>
-              <label className="mb-0.5 block text-[10px] text-muted-foreground/60">
-                Name
+          {view === "file" && (
+            <div className="p-3">
+              <label className="mb-1.5 block text-[11px] font-medium text-muted-foreground">
+                File path
               </label>
               <input
-                ref={nameRef}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
+                ref={inputRef as React.RefObject<HTMLInputElement>}
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") submit();
-                  if (e.key === "Escape") setOpen(false);
+                  if (e.key === "Enter") submitFile();
+                  if (e.key === "Escape") {
+                    e.stopPropagation();
+                    setView("menu");
+                  }
                 }}
                 className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-                placeholder="Analytics"
+                placeholder="notes/ideas.md"
               />
+              <div className="mt-2.5 flex justify-end">
+                <button
+                  onClick={submitFile}
+                  disabled={!value.trim()}
+                  className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40 disabled:pointer-events-none"
+                >
+                  Create
+                </button>
+              </div>
             </div>
-            <div>
-              <label className="mb-0.5 block text-[10px] text-muted-foreground/60">
-                URL
+          )}
+
+          {view === "skill" && (
+            <div className="p-3">
+              <label className="mb-1 block text-[11px] font-semibold text-foreground">
+                Create Skill
               </label>
-              <input
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
+              <p className="mb-2 text-[10px] text-muted-foreground/60 leading-relaxed">
+                Describe what kind of skill you want and the agent will create
+                it.
+              </p>
+              <textarea
+                ref={inputRef as React.RefObject<HTMLTextAreaElement>}
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") submit();
-                  if (e.key === "Escape") setOpen(false);
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    submitSkill();
+                  }
+                  if (e.key === "Escape") {
+                    e.stopPropagation();
+                    setView("menu");
+                  }
                 }}
-                className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-                placeholder="https://analytics.example.com"
+                rows={3}
+                className="w-full resize-none rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+                placeholder="e.g. A skill that reviews PRs for security issues and OWASP top 10 vulnerabilities"
               />
+              <div className="mt-2.5 flex justify-end">
+                <button
+                  onClick={submitSkill}
+                  disabled={!value.trim()}
+                  className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40 disabled:pointer-events-none"
+                >
+                  Create
+                </button>
+              </div>
             </div>
-            <div>
-              <label className="mb-0.5 block text-[10px] text-muted-foreground/60">
-                Description (optional)
+          )}
+
+          {view === "job" && (
+            <div className="p-3">
+              <label className="mb-1 block text-[11px] font-semibold text-foreground">
+                Scheduled Task
               </label>
-              <input
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
+              <p className="mb-2 text-[10px] text-muted-foreground/60 leading-relaxed">
+                Describe what should happen and when.
+              </p>
+              <textarea
+                ref={inputRef as React.RefObject<HTMLTextAreaElement>}
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") submit();
-                  if (e.key === "Escape") setOpen(false);
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    submitJob();
+                  }
+                  if (e.key === "Escape") {
+                    e.stopPropagation();
+                    setView("menu");
+                  }
                 }}
-                className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-                placeholder="Analytics dashboard agent"
+                rows={3}
+                className="w-full resize-none rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+                placeholder="e.g. Every weekday at 9am, check for overdue scorecards and send a Slack update"
               />
+              <div className="mt-2.5 flex justify-end">
+                <button
+                  onClick={submitJob}
+                  disabled={!value.trim()}
+                  className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40 disabled:pointer-events-none"
+                >
+                  Create
+                </button>
+              </div>
             </div>
-          </div>
-          <div className="mt-2.5 flex justify-end">
-            <button
-              onClick={submit}
-              disabled={!name.trim() || !url.trim()}
-              className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40 disabled:pointer-events-none"
-            >
-              Add
-            </button>
-          </div>
+          )}
         </div>
       )}
     </div>
@@ -885,7 +657,7 @@ export function ResourcesPanel() {
             </div>
           </>
         ) : (
-          /* Tree toolbar: scope toggle + new/upload */
+          /* Tree toolbar: scope toggle + create menu + upload */
           <>
             <div className="flex items-center gap-1">
               <button
@@ -914,10 +686,10 @@ export function ResourcesPanel() {
               </button>
             </div>
             <div className="flex items-center gap-1">
-              <NewJobPopover scope={scope} />
-              <NewAgentPopover scope={scope} />
-              <NewSkillPopover scope={scope} />
-              <NewFilePopover onSubmit={handleCreateFromToolbar} />
+              <CreateMenu
+                scope={scope}
+                onCreateFile={handleCreateFromToolbar}
+              />
               <button
                 onClick={() => fileInputRef.current?.click()}
                 className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"

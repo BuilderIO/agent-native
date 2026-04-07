@@ -370,7 +370,7 @@ async function buildCloudflarePages() {
   // React Router's server build uses createRequire for CJS compat. Replace it with a
   // stub that returns our require shim (which is already injected via the banner).
   workerCode = workerCode.replace(
-    /\bimport\s*\{\s*createRequire\s+as\s+(\w+)\s*\}\s*from\s*["']module["']\s*;/g,
+    /\bimport\s*\{\s*createRequire\s+as\s+([\w$]+)\s*\}\s*from\s*["']module["']\s*;/g,
     "var $1 = function() { return typeof require !== 'undefined' ? require : function(m) { throw new Error('require not supported: ' + m); }; };",
   );
 

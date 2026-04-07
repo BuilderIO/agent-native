@@ -46,6 +46,8 @@ export interface MentionProvider {
   icon?: string;
   search: (
     query: string,
+    /** The H3 event for the current request — use to make internal API calls */
+    event?: any,
   ) => MentionProviderItem[] | Promise<MentionProviderItem[]>;
 }
 
