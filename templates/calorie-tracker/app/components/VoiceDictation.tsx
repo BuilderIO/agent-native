@@ -26,24 +26,30 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
     ("SpeechRecognition" in window ||
       "webkitSpeechRecognition" in (window as any));
 
-  // Track sidebar open state to shift mic button out of the way
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Track sidebar width to shift mic button out of the way
+  const [sidebarWidth, setSidebarWidth] = useState(0);
   useEffect(() => {
-    const check = () => {
-      setTimeout(() => {
-        const panel = document.querySelector(".agent-sidebar-panel");
-        setSidebarOpen(!!panel && panel.getBoundingClientRect().width > 0);
-      }, 100);
+    const measure = () => {
+      const panel = document.querySelector(".agent-sidebar-panel");
+      const w = panel ? panel.getBoundingClientRect().width : 0;
+      setSidebarWidth(w);
     };
-    check();
-    window.addEventListener("agent-panel:toggle", check);
-    window.addEventListener("agent-panel:open", check);
-    const poll = setInterval(check, 500);
-    setTimeout(() => clearInterval(poll), 2000);
+    // Use ResizeObserver to react to sidebar resize drags
+    const observer = new ResizeObserver(measure);
+    const startObserving = () => {
+      const panel = document.querySelector(".agent-sidebar-panel");
+      if (panel) observer.observe(panel);
+      else setSidebarWidth(0);
+    };
+    // Re-attach observer when sidebar opens/closes
+    const onToggle = () => setTimeout(startObserving, 100);
+    startObserving();
+    window.addEventListener("agent-panel:toggle", onToggle);
+    window.addEventListener("agent-panel:open", onToggle);
     return () => {
-      window.removeEventListener("agent-panel:toggle", check);
-      window.removeEventListener("agent-panel:open", check);
-      clearInterval(poll);
+      observer.disconnect();
+      window.removeEventListener("agent-panel:toggle", onToggle);
+      window.removeEventListener("agent-panel:open", onToggle);
     };
   }, []);
 
@@ -177,10 +183,8 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
 
   return (
     <div
-      className={cn(
-        "fixed bottom-6 left-1/2 -translate-x-1/2 md:left-auto md:translate-x-0 z-50 flex flex-col items-center gap-2 transition-[right] duration-300",
-        sidebarOpen ? "md:right-[400px]" : "md:right-6",
-      )}
+      className="fixed bottom-6 left-1/2 -translate-x-1/2 md:left-auto md:right-6 md:translate-x-0 z-50 flex flex-col items-center gap-2 transition-[right] duration-200"
+      style={sidebarWidth > 0 ? { right: `${sidebarWidth + 24}px` } : undefined}
     >
       {(state === "listening" || state === "processing") && (
         <div className="animate-in fade-in slide-in-from-bottom-2 duration-200">
