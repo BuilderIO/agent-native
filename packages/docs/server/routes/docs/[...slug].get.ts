@@ -1,4 +1,11 @@
-import { createSSRRequestHandler } from "@agent-native/core/server";
+/**
+ * Catch-all route for /docs/* requests.
+ * Serves raw markdown for .md requests, SSR for everything else.
+ *
+ * Example: GET /docs/actions.md → raw markdown for the Actions page
+ *          GET /docs/actions    → SSR rendered page
+ */
+import { createSSRRequestHandler } from "@agent-native/core/server/ssr-handler";
 import { defineEventHandler, getRouterParam, setResponseHeader } from "h3";
 import fs from "node:fs";
 import path from "node:path";
