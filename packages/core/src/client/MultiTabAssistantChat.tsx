@@ -567,13 +567,14 @@ export function MultiTabAssistantChat({
     (tabId: string) => {
       setOpenTabIds((prev) => {
         if (prev.length <= 1) {
-          // Last tab — replace with a new one (acts as "clear")
+          // Last tab — create a new one and replace the old tab atomically
           createThread().then((newId) => {
             if (newId) {
               newThreadIds.current.add(newId);
+              setOpenTabIds([newId]);
             }
           });
-          return prev;
+          return prev; // Keep old tab until new one is ready
         }
         const next = prev.filter((id) => id !== tabId);
         if (tabId === activeThreadIdRef.current && next.length > 0) {
