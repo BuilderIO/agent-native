@@ -1,0 +1,17 @@
+name = "an-calorie-tracker"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = "./templates/calorie-tracker/dist"
+
+# Smart Placement: run the Worker near the D1 database to reduce latency
+[placement]
+mode = "smart"
+
+[vars]
+GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
+
+
+[[d1_databases]]
+binding = "DB"
+database_name = "an-calorie-tracker"
+database_id = "af64b871-0fd7-4e48-bb0e-4dd5535d90a6"

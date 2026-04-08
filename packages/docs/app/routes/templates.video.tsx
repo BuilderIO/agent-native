@@ -130,7 +130,7 @@ export default function VideoTemplate() {
 
             <div className="mb-8 flex flex-wrap items-center gap-3">
               <a
-                href="https://video.agent-native.com"
+                href="https://videos.agent-native.com"
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={() =>
