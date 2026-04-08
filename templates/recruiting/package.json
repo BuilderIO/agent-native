@@ -15,12 +15,14 @@
   },
   "dependencies": {
     "@agent-native/core": "workspace:*",
+    "@anthropic-ai/sdk": "^0.80.0",
     "@libsql/client": "^0.15.0",
     "@tabler/icons-react": "^3.40.0",
     "drizzle-orm": "^0.44.0",
     "h3": "^1.13.0",
     "isbot": "^5",
     "nanoid": "^4.0.2",
+    "pdf-parse": "^2.4.5",
     "zod": "^3.25.76"
   },
   "devDependencies": {

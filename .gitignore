@@ -54,6 +54,7 @@ ralph-loop.local.md
 templates/*/wrangler.toml
 wrangler.toml
 .claude/scheduled_tasks.lock
+.claude/worktrees/
 
 # Shell `script` command log artifacts
 db-exec

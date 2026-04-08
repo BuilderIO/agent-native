@@ -66,7 +66,7 @@ export const templates = [
     slug: "video",
     replaces: "Replaces or augments video editing",
     cliCommand: "npx @agent-native/core create my-video-app",
-    demoUrl: "https://video.agent-native.com",
+    demoUrl: "https://videos.agent-native.com",
     description:
       "Build React-based video compositions with Remotion. Keyframe animation, 30+ easing curves, camera controls, and agent-assisted editing.",
     color: "#ec4899",
