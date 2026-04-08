@@ -43,6 +43,8 @@ export interface UseCollaborativeDocResult {
   isSynced: boolean;
   /** Active users on this document (from awareness). */
   activeUsers: CollabUser[];
+  /** True briefly when the AI agent makes an edit (for presence indicator). */
+  agentActive: boolean;
 }
 
 // Consistent color palette for user cursors
@@ -118,6 +120,8 @@ export function useCollaborativeDoc(
   const [isLoading, setIsLoading] = useState(!!docId);
   const [isSynced, setIsSynced] = useState(false);
   const [activeUsers, setActiveUsers] = useState<CollabUser[]>([]);
+  const [agentActive, setAgentActive] = useState(false);
+  const agentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollVersionRef = useRef(0);
 
   // Set local awareness state (user info for cursor labels)
@@ -247,6 +251,16 @@ export function useCollaborativeDoc(
           if (evt.source === "collab" && evt.docId === docId && evt.update) {
             if (requestSource && evt.requestSource === requestSource) continue;
             Y.applyUpdate(ydoc, base64ToUint8Array(evt.update), "remote");
+
+            // Show agent presence indicator briefly
+            if (evt.requestSource === "agent") {
+              setAgentActive(true);
+              if (agentTimerRef.current) clearTimeout(agentTimerRef.current);
+              agentTimerRef.current = setTimeout(
+                () => setAgentActive(false),
+                3000,
+              );
+            }
           }
         }
 
@@ -305,5 +319,5 @@ export function useCollaborativeDoc(
     };
   }, [ydoc, awareness, docId, pollInterval, requestSource, baseUrl]);
 
-  return { ydoc, awareness, isLoading, isSynced, activeUsers };
+  return { ydoc, awareness, isLoading, isSynced, activeUsers, agentActive };
 }

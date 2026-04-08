@@ -927,6 +927,7 @@ export function AgentPanel({
 
   const [tabMenuOpen, setTabMenuOpen] = useState<string | null>(null);
   const [cliPickerOpen, setCliPickerOpen] = useState(false);
+  const cliPickerBtnRef = useRef<HTMLButtonElement>(null);
 
   // Ref callback: scroll the active tab into view in the overflow container.
   // Uses getBoundingClientRect for reliable positioning regardless of offsetParent.
@@ -1183,6 +1184,7 @@ export function AgentPanel({
                           <div className="relative">
                             <IconTooltip content={`CLI: ${selectedLabel}`}>
                               <button
+                                ref={cliPickerBtnRef}
                                 onClick={() => setCliPickerOpen(!cliPickerOpen)}
                                 className={cn(
                                   "flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
@@ -1192,47 +1194,60 @@ export function AgentPanel({
                                 <IconSettings size={14} />
                               </button>
                             </IconTooltip>
-                            {cliPickerOpen && (
-                              <>
-                                <div
-                                  className="fixed inset-0 z-40"
-                                  onClick={() => setCliPickerOpen(false)}
-                                />
-                                <div className="absolute right-0 top-full mt-1 z-50 w-48 rounded-md border border-border bg-popover py-1 shadow-lg">
-                                  {availableClis.map((cli) => (
-                                    <button
-                                      key={cli.command}
-                                      className={cn(
-                                        "flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent",
-                                        cli.command === selectedCli
-                                          ? "text-foreground font-medium"
-                                          : "text-muted-foreground",
-                                      )}
-                                      onClick={() => {
-                                        selectCli(cli.command);
-                                        setCliPickerOpen(false);
-                                      }}
-                                    >
-                                      {cli.command === selectedCli && (
-                                        <IconCheck
-                                          size={12}
-                                          className="shrink-0"
-                                        />
-                                      )}
-                                      <span
-                                        className={
-                                          cli.command !== selectedCli
-                                            ? "ml-5"
-                                            : ""
-                                        }
+                            {cliPickerOpen &&
+                              ReactDOM.createPortal(
+                                <>
+                                  <div
+                                    className="fixed inset-0 z-[9980]"
+                                    onClick={() => setCliPickerOpen(false)}
+                                  />
+                                  <div
+                                    className="fixed z-[9990] w-48 rounded-md border border-border bg-popover py-1 shadow-lg"
+                                    style={(() => {
+                                      const r =
+                                        cliPickerBtnRef.current?.getBoundingClientRect();
+                                      if (!r) return { top: 0, right: 0 };
+                                      return {
+                                        top: r.bottom + 4,
+                                        right: window.innerWidth - r.right,
+                                      };
+                                    })()}
+                                  >
+                                    {availableClis.map((cli) => (
+                                      <button
+                                        key={cli.command}
+                                        className={cn(
+                                          "flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent",
+                                          cli.command === selectedCli
+                                            ? "text-foreground font-medium"
+                                            : "text-muted-foreground",
+                                        )}
+                                        onClick={() => {
+                                          selectCli(cli.command);
+                                          setCliPickerOpen(false);
+                                        }}
                                       >
-                                        {cli.label}
-                                      </span>
-                                    </button>
-                                  ))}
-                                </div>
-                              </>
-                            )}
+                                        {cli.command === selectedCli && (
+                                          <IconCheck
+                                            size={12}
+                                            className="shrink-0"
+                                          />
+                                        )}
+                                        <span
+                                          className={
+                                            cli.command !== selectedCli
+                                              ? "ml-5"
+                                              : ""
+                                          }
+                                        >
+                                          {cli.label}
+                                        </span>
+                                      </button>
+                                    ))}
+                                  </div>
+                                </>,
+                                document.body,
+                              )}
                           </div>
                         )}
                         <div className="relative">

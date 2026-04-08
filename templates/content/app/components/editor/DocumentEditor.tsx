@@ -11,7 +11,7 @@ import {
   useSession,
   type CollabUser,
 } from "@agent-native/core/client";
-import { IconLoader2 } from "@tabler/icons-react";
+import { IconLoader2, IconSparkles } from "@tabler/icons-react";
 import { CommentsSidebar } from "./CommentsSidebar";
 import {
   Tooltip,

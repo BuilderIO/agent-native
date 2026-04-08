@@ -115,25 +115,50 @@ export default async function main(args: string[]) {
   });
 
   // Push edits through Yjs for live collaborative sync.
-  // Uses the server's HTTP endpoint (not the module directly) because actions
-  // run in a separate process — the in-memory EventEmitter won't reach
-  // the server's poll system.
+  // Try the server's HTTP endpoint to emit updates to connected clients.
+  // Actions run in a separate process so the in-memory EventEmitter won't work.
   const collabEnabled = await hasCollabState(id);
   if (collabEnabled) {
-    const origin =
-      process.env.ORIGIN || `http://localhost:${process.env.PORT || 8080}`;
-    for (const edit of edits!) {
-      await fetch(`${origin}/_agent-native/collab/${id}/search-replace`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          find: edit.find,
-          replace: edit.replace,
-          requestSource: "agent",
-        }),
-      }).catch(() => {
-        // Server might not be running (CLI mode) — SQL update is sufficient
-      });
+    // Discover server origin — try ORIGIN env, then probe common ports
+    const tryOrigins = [
+      process.env.ORIGIN,
+      process.env.PORT ? `http://localhost:${process.env.PORT}` : null,
+      "http://localhost:8080",
+      "http://localhost:8081",
+      "http://localhost:8082",
+      "http://localhost:8083",
+    ].filter(Boolean) as string[];
+
+    let serverOrigin: string | null = null;
+    for (const origin of tryOrigins) {
+      try {
+        const res = await fetch(`${origin}/_agent-native/ping`, {
+          signal: AbortSignal.timeout(500),
+        });
+        if (res.ok) {
+          serverOrigin = origin;
+          break;
+        }
+      } catch {
+        // Try next
+      }
+    }
+
+    if (serverOrigin) {
+      for (const edit of edits!) {
+        await fetch(
+          `${serverOrigin}/_agent-native/collab/${id}/search-replace`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              find: edit.find,
+              replace: edit.replace,
+              requestSource: "agent",
+            }),
+          },
+        ).catch(() => {});
+      }
     }
   }
 

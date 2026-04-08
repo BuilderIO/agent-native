@@ -560,7 +560,6 @@ export function MultiTabAssistantChat({
     const id = await createThread();
     if (id) {
       newThreadIds.current.add(id);
-      setOpenTabIds((prev) => [...prev, id]);
     }
   }, [createThread]);
 

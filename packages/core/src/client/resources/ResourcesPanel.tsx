@@ -722,22 +722,6 @@ export function ResourcesPanel() {
         ) : (
           <div className="flex-1 min-h-0 overflow-y-auto">
             <ResourceTree
-              tree={sharedTreeQuery.data ?? []}
-              selectedId={selectedResourceId}
-              onSelect={handleSelect}
-              onCreateFile={(parentPath, name) =>
-                handleCreateFile(parentPath, name, "shared")
-              }
-              onCreateFolder={(parentPath, name) =>
-                handleCreateFolder(parentPath, name, "shared")
-              }
-              onDelete={handleDelete}
-              onRename={handleRename}
-              onDrop={handleUploadFiles}
-              title="Shared"
-              titleTooltip="Files shared across the organization"
-            />
-            <ResourceTree
               tree={personalTreeQuery.data ?? []}
               selectedId={selectedResourceId}
               onSelect={handleSelect}
@@ -752,6 +736,22 @@ export function ResourcesPanel() {
               onDrop={handleUploadFiles}
               title="Personal"
               titleTooltip="Files visible only to you"
+            />
+            <ResourceTree
+              tree={sharedTreeQuery.data ?? []}
+              selectedId={selectedResourceId}
+              onSelect={handleSelect}
+              onCreateFile={(parentPath, name) =>
+                handleCreateFile(parentPath, name, "shared")
+              }
+              onCreateFolder={(parentPath, name) =>
+                handleCreateFolder(parentPath, name, "shared")
+              }
+              onDelete={handleDelete}
+              onRename={handleRename}
+              onDrop={handleUploadFiles}
+              title="Shared"
+              titleTooltip="Files shared across the organization"
             />
           </div>
         )}

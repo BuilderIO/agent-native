@@ -1924,6 +1924,7 @@ export function createAgentChatPlugin(
         if (method === "POST") {
           const body = await readBody(event);
           const thread = await createThread(owner, {
+            id: body?.id,
             title: body?.title ?? "",
           });
           return thread;
