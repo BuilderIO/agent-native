@@ -11,7 +11,7 @@ import {
   useSession,
   type CollabUser,
 } from "@agent-native/core/client";
-import { IconLoader2, IconMessageCircle } from "@tabler/icons-react";
+import { IconLoader2 } from "@tabler/icons-react";
 import { CommentsSidebar } from "./CommentsSidebar";
 import {
   Tooltip,
@@ -158,46 +158,42 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
   return (
     <div className="flex-1 flex min-h-0">
       <div className="flex-1 flex flex-col min-h-0">
-        <DocumentToolbar documentId={documentId} />
+        <DocumentToolbar
+          documentId={documentId}
+          showComments={showComments}
+          onToggleComments={() => setShowComments(!showComments)}
+        />
 
-        <div className="absolute top-12 right-4 flex items-center gap-2 z-10">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={() => setShowComments(!showComments)}
-                className={`p-2 rounded-md hover:bg-accent ${showComments ? "text-primary bg-accent" : "text-muted-foreground"}`}
-              >
-                <IconMessageCircle size={16} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">Comments</TooltipContent>
-          </Tooltip>
-          {activeUsers.length > 0 && (
-            <div className="flex -space-x-2">
-              {activeUsers.map((u, i) => (
-                <Tooltip key={`${u.email}-${i}`}>
-                  <TooltipTrigger asChild>
-                    <div
-                      className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-medium text-white border-2 border-background cursor-default"
-                      style={{ backgroundColor: u.color }}
-                    >
-                      {u.name.charAt(0).toUpperCase()}
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">
-                    <span>{u.name}</span>
-                  </TooltipContent>
-                </Tooltip>
-              ))}
-            </div>
-          )}
-          {isSaving && (
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <IconLoader2 size={12} className="animate-spin" />
-              Saving...
-            </div>
-          )}
-        </div>
+        {/* Save indicator + Presence bar */}
+        {(isSaving || activeUsers.length > 0) && (
+          <div className="absolute top-12 right-4 flex items-center gap-2 z-10">
+            {activeUsers.length > 0 && (
+              <div className="flex -space-x-2">
+                {activeUsers.map((u, i) => (
+                  <Tooltip key={`${u.email}-${i}`}>
+                    <TooltipTrigger asChild>
+                      <div
+                        className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-medium text-white border-2 border-background cursor-default"
+                        style={{ backgroundColor: u.color }}
+                      >
+                        {u.name.charAt(0).toUpperCase()}
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">
+                      <span>{u.name}</span>
+                    </TooltipContent>
+                  </Tooltip>
+                ))}
+              </div>
+            )}
+            {isSaving && (
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <IconLoader2 size={12} className="animate-spin" />
+                Saving...
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="flex-1 min-h-0 overflow-auto flex flex-col">
           <div className="shrink-0 px-4 pt-14 pb-2 sm:px-8 md:px-16 md:pt-16 group/title">

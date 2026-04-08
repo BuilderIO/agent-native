@@ -11,6 +11,7 @@ import {
   IconPlus,
   IconHistory,
   IconRefresh,
+  IconMessageCircle,
 } from "@tabler/icons-react";
 import { VersionHistoryPanel } from "./VersionHistoryPanel";
 import {
@@ -50,9 +51,15 @@ function NotionIcon({ className }: { className?: string }) {
 
 interface DocumentToolbarProps {
   documentId: string;
+  showComments?: boolean;
+  onToggleComments?: () => void;
 }
 
-export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
+export function DocumentToolbar({
+  documentId,
+  showComments,
+  onToggleComments,
+}: DocumentToolbarProps) {
   const queryClient = useQueryClient();
   const [autoSync, setAutoSync] = useLocalStorage(
     `notion-auto-sync:${documentId}`,
@@ -549,6 +556,21 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
           )}
         </PopoverContent>
       </Popover>
+
+      {onToggleComments && (
+        <button
+          onClick={onToggleComments}
+          className={cn(
+            "flex h-9 w-9 items-center justify-center rounded-lg hover:bg-accent",
+            showComments
+              ? "text-primary bg-accent"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+          title="Comments"
+        >
+          <IconMessageCircle size={16} />
+        </button>
+      )}
 
       <AgentToggleButton />
     </div>
