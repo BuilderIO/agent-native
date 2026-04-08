@@ -1,4 +1,4 @@
-import { createSSRRequestHandler } from "@agent-native/core/server";
+import { createSSRRequestHandler } from "@agent-native/core/server/ssr-handler";
 import { defineEventHandler, getRequestURL } from "h3";
 import { renderPublicForm } from "../lib/public-form-ssr.js";
 
