@@ -566,7 +566,15 @@ export function MultiTabAssistantChat({
   const closeTab = useCallback(
     (tabId: string) => {
       setOpenTabIds((prev) => {
-        if (prev.length <= 1) return prev;
+        if (prev.length <= 1) {
+          // Last tab — replace with a new one (acts as "clear")
+          createThread().then((newId) => {
+            if (newId) {
+              newThreadIds.current.add(newId);
+            }
+          });
+          return prev;
+        }
         const next = prev.filter((id) => id !== tabId);
         if (tabId === activeThreadIdRef.current && next.length > 0) {
           const idx = prev.indexOf(tabId);
@@ -589,7 +597,7 @@ export function MultiTabAssistantChat({
         return rest;
       });
     },
-    [switchThread],
+    [switchThread, createThread],
   );
 
   const closeOtherTabs = useCallback(
@@ -897,29 +905,27 @@ export function MultiTabAssistantChat({
                             {tab.status === "running" && (
                               <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50 shrink-0 animate-pulse" />
                             )}
-                            {mainTabs.length > 1 && (
-                              <span
-                                role="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  closeTab(tab.id);
-                                }}
-                                className="agent-tab-close flex items-center justify-end text-muted-foreground hover:!text-foreground"
-                                style={{
-                                  position: "absolute",
-                                  right: 0,
-                                  top: 0,
-                                  bottom: 0,
-                                  width: 28,
-                                  paddingRight: 6,
-                                  borderRadius: "0 6px 6px 0",
-                                  background:
-                                    "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
-                                }}
-                              >
-                                <IconX size={8} />
-                              </span>
-                            )}
+                            <span
+                              role="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                closeTab(tab.id);
+                              }}
+                              className="agent-tab-close flex items-center justify-end text-muted-foreground hover:!text-foreground"
+                              style={{
+                                position: "absolute",
+                                right: 0,
+                                top: 0,
+                                bottom: 0,
+                                width: 28,
+                                paddingRight: 6,
+                                borderRadius: "0 6px 6px 0",
+                                background:
+                                  "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
+                              }}
+                            >
+                              <IconX size={8} />
+                            </span>
                           </button>
                         );
                       })}

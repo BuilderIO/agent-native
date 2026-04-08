@@ -795,7 +795,12 @@ export function AgentPanel({
   const closeCliTab = useCallback(
     (id: string) => {
       setCliTabs((prev) => {
-        if (prev.length <= 1) return prev;
+        if (prev.length <= 1) {
+          // Last tab — replace with a new one (acts as "clear")
+          const newId = `cli-${++cliCounter.current}`;
+          setActiveCliTab(newId);
+          return [newId];
+        }
         const next = prev.filter((t) => t !== id);
         if (id === activeCliTab) {
           const idx = prev.indexOf(id);
@@ -824,7 +829,9 @@ export function AgentPanel({
     availableClis.find((c) => c.command === selectedCli)?.label || selectedCli;
   const { isDevMode, canToggle, setDevMode } = useDevMode(apiUrl);
 
-  // Notify frame when dev mode changes
+  // Notify frame when dev mode changes — use both a local CustomEvent (for
+  // when AgentPanel is rendered directly in the frame) AND postMessage (for
+  // when AgentPanel is inside the iframe and needs to cross the boundary).
   const prevIsDevMode = useRef(isDevMode);
   useEffect(() => {
     if (prevIsDevMode.current !== isDevMode) {
@@ -834,6 +841,13 @@ export function AgentPanel({
           detail: { isDevMode },
         }),
       );
+      // Cross iframe boundary to the frame parent
+      if (window.parent !== window) {
+        window.parent.postMessage(
+          { type: "builder.devModeChange", data: { isDevMode } },
+          "*",
+        );
+      }
     }
   }, [isDevMode]);
 
@@ -1668,8 +1682,12 @@ export function AgentSidebar({
     [],
   );
 
-  // Track whether the frame is controlling the sidebar (code mode = frame active)
-  const [frameCodeMode, setFrameCodeMode] = useState(false);
+  // Track whether the frame is controlling the sidebar (code mode = frame active).
+  // Default to true when inside an iframe — assume the frame sidebar is active
+  // until told otherwise. This prevents both sidebars flashing after hot reloads.
+  const [frameCodeMode, setFrameCodeMode] = useState(
+    () => typeof window !== "undefined" && window.parent !== window,
+  );
 
   useEffect(() => {
     const toggleHandler = () => {

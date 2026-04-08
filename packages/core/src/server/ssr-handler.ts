@@ -28,7 +28,12 @@ function toRequest(event: any): Request {
  * all other routes through React Router.
  */
 export const ssrHandler = defineEventHandler(async (event: any) => {
-  if (event.url.pathname.startsWith("/.well-known/")) {
+  const p = event.url.pathname;
+  if (
+    p.startsWith("/.well-known/") ||
+    p === "/favicon.ico" ||
+    p === "/favicon.png"
+  ) {
     return new Response(null, { status: 404 });
   }
 

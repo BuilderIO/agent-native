@@ -108,7 +108,21 @@ export function EmailThread({
   } = useThreadMessages(threadId);
 
   // Use full thread when loaded, otherwise show what we have from the list cache
-  const messages = threadMessages ?? cachedMessages;
+  const allMessages = threadMessages ?? cachedMessages;
+  // Hide Superhuman reminder messages — they're noise in the thread view
+  const messages = useMemo(
+    () =>
+      allMessages.filter(
+        (m) =>
+          !(
+            m.from.name === "Reminder" &&
+            (m.snippet || m.body || "")
+              .toLowerCase()
+              .includes("reminder from superhuman")
+          ),
+      ),
+    [allMessages],
+  );
   const isHydratingThread =
     !!threadId && !threadMessages && (isThreadLoading || isThreadFetching);
 

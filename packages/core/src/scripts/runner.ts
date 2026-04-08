@@ -14,6 +14,7 @@ import path from "path";
 import fs from "fs";
 import { pathToFileURL } from "url";
 import { coreScripts, getCoreScriptNames } from "./core-scripts.js";
+import { closeDbExec } from "../db/client.js";
 
 /**
  * Run the action dispatcher. Call this from your app's actions/run.ts (or scripts/run.ts):
@@ -119,8 +120,10 @@ export async function runScript(): Promise<void> {
         );
         process.exit(1);
       }
+      await closeDbExec();
       return;
     } catch (err: any) {
+      await closeDbExec().catch(() => {});
       console.error(`Action "${actionName}" failed:`, err.message || err);
       process.exit(1);
     }
@@ -131,8 +134,10 @@ export async function runScript(): Promise<void> {
   if (coreScript) {
     try {
       await coreScript(args);
+      await closeDbExec();
       return;
     } catch (err: any) {
+      await closeDbExec().catch(() => {});
       console.error(`Core action "${actionName}" failed:`, err.message || err);
       process.exit(1);
     }
