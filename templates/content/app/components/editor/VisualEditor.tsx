@@ -542,15 +542,13 @@ export function VisualEditor({
     const normalizedNext = serializeEditorToNfm(nextEditorContent);
     if (currentMd === normalizedNext) return;
 
-    // When collab is active, only sync if this is a truly external change
-    // (not content we just emitted ourselves via onChange)
-    if (ydoc) {
-      const normalizedEmitted = serializeEditorToNfm(lastEmittedRef.current);
-      if (normalizedNext === normalizedEmitted) return;
-    } else {
-      // Without collab, skip sync when editor is focused UNLESS doc changed
-      if (editor.isFocused && !docChanged) return;
-    }
+    // When collab is active, external changes must flow through the Yjs CRDT
+    // (via the collab search-replace endpoint), not setContent — which would
+    // replace the entire Y.XmlFragment, destroying cursors and undo history.
+    if (ydoc) return;
+
+    // Without collab, skip sync when editor is focused UNLESS doc changed
+    if (editor.isFocused && !docChanged) return;
 
     isSettingContent.current = true;
     // Use addToHistory: false so cmd+z doesn't erase loaded content.
