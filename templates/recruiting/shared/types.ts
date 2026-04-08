@@ -195,20 +195,6 @@ export type ActionItemsResponse = {
   };
 };
 
-export type FilterResult = {
-  candidateId: number;
-  name: string;
-  match: boolean;
-  reasoning: string;
-  confidence: "high" | "medium" | "low";
-};
-
-export type FilterResponse = {
-  prompt: string;
-  results: FilterResult[];
-  totalEvaluated: number;
-};
-
 export type GreenhouseView =
   | "dashboard"
   | "jobs"

@@ -10,8 +10,6 @@ import type {
   PipelineStage,
   AgentNote,
   ActionItemsResponse,
-  FilterResult,
-  FilterResponse,
 } from "@shared/types";
 
 function apiFetch(path: string, init?: RequestInit) {
@@ -329,22 +327,6 @@ export function useCreateNote() {
     onSuccess: (_, vars) => {
       qc.invalidateQueries({ queryKey: ["notes", vars.candidateId] });
     },
-  });
-}
-
-// --- AI Filter ---
-
-export function useFilterCandidates() {
-  return useMutation<
-    FilterResponse,
-    Error,
-    { prompt: string; jobId?: number; limit?: number }
-  >({
-    mutationFn: (data) =>
-      apiFetch("/api/candidates/filter", {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
   });
 }
 
