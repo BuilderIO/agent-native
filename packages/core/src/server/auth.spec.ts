@@ -87,7 +87,7 @@ describe("server/auth", () => {
       const allLogs = logSpy.mock.calls.map((c) => c[0]).join(" ");
       expect(
         allLogs.includes("Better Auth") ||
-          allLogs.includes("auth guard registered"),
+          allLogs.includes("Auth guard registered"),
       ).toBe(true);
       logSpy.mockRestore();
       errorSpy.mockRestore();
