@@ -74,7 +74,7 @@ Each deck's `data` column contains a JSON object with `title` and `slides` array
 
 ## Agent Operations
 
-**Always run `pnpm action view-screen` first** before taking any action. This shows what the user is looking at and provides deck/slide context. Don't skip this step.
+The current screen state (including deck/slide context) is automatically included with each message as a `<current-screen>` block. You don't need to call `view-screen` before every action — use it only when you need a refreshed snapshot mid-conversation.
 
 **Always use `pnpm action <name>` for operations** -- never curl or raw HTTP.
 

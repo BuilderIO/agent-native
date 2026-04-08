@@ -11,7 +11,7 @@ export default createAgentChatPlugin({
 
 ## Context Awareness
 
-ALWAYS run view-screen first before taking any action. This shows what date the user is viewing and their current daily totals.
+The current screen state is automatically included with each message as a \`<current-screen>\` block, showing what date the user is viewing and their current daily totals. You don't need to call view-screen before every action — use it only when you need a refreshed snapshot mid-conversation.
 
 ## Available Operations
 

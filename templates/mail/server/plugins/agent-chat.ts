@@ -69,7 +69,7 @@ Available operations:
 - Compose and send emails
 - Navigate the UI to specific views or threads
 
-Always use view-screen first to understand what the user is looking at before taking action.
+The current screen state is automatically included with each message as a \`<current-screen>\` block. You don't need to call view-screen before every action — use it only when you need a refreshed snapshot mid-conversation.
 After any change (archive, trash, star, mark-read, send), run refresh-list to update the UI.
 
 When the user asks to "show" a view (sent, starred, drafts, etc.), ALWAYS navigate the UI to that view using the \`navigate\` action, then list the emails. Don't just list emails in chat without navigating.

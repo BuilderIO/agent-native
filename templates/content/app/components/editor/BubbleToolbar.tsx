@@ -16,7 +16,7 @@ import { useState } from "react";
 
 interface BubbleToolbarProps {
   editor: Editor;
-  onComment?: (quotedText: string) => void;
+  onComment?: (quotedText: string, offsetTop: number) => void;
 }
 
 export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
@@ -108,7 +108,20 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
             action: () => {
               const { from, to } = editor.state.selection;
               const text = editor.state.doc.textBetween(from, to, " ");
-              if (text.trim()) onComment(text.trim());
+              if (!text.trim()) return;
+              // Get the Y position of the selection relative to the scroll container
+              const coords = editor.view.coordsAtPos(from);
+              const scrollContainer = editor.view.dom.closest(
+                ".flex-1.min-h-0.overflow-auto",
+              );
+              const containerTop = scrollContainer
+                ? scrollContainer.getBoundingClientRect().top
+                : 0;
+              const scrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
+              const offsetTop = coords.top - containerTop + scrollTop;
+              // Clear selection so bubble toolbar hides
+              editor.commands.setTextSelection(from);
+              onComment(text.trim(), offsetTop);
             },
             isActive: () => false,
           },

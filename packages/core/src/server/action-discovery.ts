@@ -192,6 +192,13 @@ async function resolveActionsDir(from: string): Promise<string> {
       return false;
     }
   };
+  // On edge runtimes (e.g. Cloudflare Workers), import.meta.url may be
+  // undefined after bundling. Fall back to cwd-based discovery.
+  if (!from) {
+    const cwdActions = nodePath.join(process.cwd(), "actions");
+    if (exists(cwdActions)) return cwdActions;
+    return nodePath.join(process.cwd(), "scripts");
+  }
   if (from.startsWith("file://") || from.startsWith("file:///")) {
     const callerPath = fileURLToPath(from);
     const callerDir = nodePath.dirname(callerPath);

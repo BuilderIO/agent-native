@@ -371,7 +371,7 @@ interface VisualEditorProps {
   user?: { name: string; color: string };
   editable?: boolean;
   /** Called when user selects text and clicks "Comment" in bubble toolbar. */
-  onComment?: (quotedText: string) => void;
+  onComment?: (quotedText: string, offsetTop: number) => void;
 }
 
 export function VisualEditor({

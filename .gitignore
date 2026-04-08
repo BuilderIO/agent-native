@@ -49,6 +49,10 @@ ralph-loop.local.md
 
 # Wrangler local state
 .wrangler
+
+# Wrangler configs copied at deploy time (from top-level wrangler-*.toml)
+templates/*/wrangler.toml
+wrangler.toml
 .claude/scheduled_tasks.lock
 
 # Shell `script` command log artifacts

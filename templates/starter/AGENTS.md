@@ -35,7 +35,7 @@ Ephemeral UI state is stored in the SQL `application_state` table, accessed via 
 
 ## Agent Operations
 
-**Always run `pnpm action view-screen` first** before taking any action.
+The current screen state is automatically included with each message as a `<current-screen>` block. You don't need to call `view-screen` before every action — use it only when you need a refreshed snapshot mid-conversation.
 
 ### Actions
 
