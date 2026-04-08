@@ -78,7 +78,14 @@ const GOOGLE_LOGIN_HTML = `<!DOCTYPE html>
       var data = await res.json();
       if (data.url) {
         try { sessionStorage.setItem('__an_signin', '1'); } catch(e) {}
-        window.top.location.href = data.url;
+        window.open(data.url, '_blank');
+        btn.disabled = false;
+        btn.textContent = 'Waiting for sign-in…';
+        var poll = setInterval(function() {
+          fetch('/_agent-native/auth/session').then(function(r) { return r.json(); }).then(function(s) {
+            if (s && s.email) { clearInterval(poll); window.location.reload(); }
+          }).catch(function() {});
+        }, 1500);
       } else {
         err.textContent = data.message || 'Google OAuth is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.';
         err.classList.add('show');

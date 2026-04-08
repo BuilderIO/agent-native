@@ -11,7 +11,7 @@
  *   --cc          CC email(s), comma-separated
  *   --bcc         BCC email(s), comma-separated
  *   --subject     Email subject (required)
- *   --body        Email body text (required)
+ *   --body        Email body in markdown (use [text](url) for links, **bold**, etc.) (required)
  *   --replyToId   Message ID being replied to (for threading)
  *   --account     Specific account to send from (optional)
  */
@@ -35,7 +35,11 @@ export const tool: ActionTool = {
         description: "Recipient email(s), comma-separated",
       },
       subject: { type: "string", description: "Email subject" },
-      body: { type: "string", description: "Email body text" },
+      body: {
+        type: "string",
+        description:
+          "Email body in markdown. Use [text](url) for links, **bold**, *italic*, - lists, etc.",
+      },
       cc: { type: "string", description: "CC email(s), comma-separated" },
       bcc: { type: "string", description: "BCC email(s), comma-separated" },
       replyToId: {
