@@ -19,6 +19,7 @@
     },
     "./vite": "./dist/vite/index.js",
     "./server": "./dist/server/index.js",
+    "./server/ssr-handler": "./dist/server/ssr-handler.js",
     "./db": "./dist/db/index.js",
     "./db/schema": "./dist/db/schema.js",
     "./client": "./dist/client/index.js",
