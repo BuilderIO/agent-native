@@ -25,6 +25,7 @@ import { CommandPalette } from "./CommandPalette";
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(true);
   const [boardsOpen, setBoardsOpen] = useState(true);
   const [cmdOpen, setCmdOpen] = useState(false);
@@ -35,7 +36,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   useNavigationState();
 
-  // Cmd+K handler
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [location.pathname]);
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
@@ -54,10 +58,20 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      {/* Left sidebar */}
+      {mobileMenuOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 md:hidden"
+          onClick={() => setMobileMenuOpen(false)}
+        />
+      )}
+
       <aside
         className={cn(
           "flex flex-col border-r border-border bg-sidebar-background",
+          "fixed inset-y-0 left-0 z-50 md:static",
+          mobileMenuOpen
+            ? "translate-x-0"
+            : "-translate-x-full md:translate-x-0",
           sidebarCollapsed ? "w-12" : "w-56",
         )}
       >
@@ -179,14 +193,26 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       </aside>
 
       <AgentSidebar>
-        {/* Main content */}
-        <main className="flex min-w-0 flex-1 overflow-hidden">
-          {isConnected || isActive("/settings") ? (
-            children
-          ) : (
-            <JiraConnectBanner />
-          )}
-        </main>
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <div className="flex h-12 items-center gap-2 border-b border-border px-3 md:hidden">
+            <button
+              onClick={() => setMobileMenuOpen(true)}
+              className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <IconLayoutSidebar className="h-5 w-5" />
+            </button>
+            <span className="text-sm font-semibold text-foreground">
+              Issues
+            </span>
+          </div>
+          <main className="flex min-w-0 flex-1 overflow-hidden">
+            {isConnected || isActive("/settings") ? (
+              children
+            ) : (
+              <JiraConnectBanner />
+            )}
+          </main>
+        </div>
       </AgentSidebar>
 
       {/* Command palette */}
@@ -212,7 +238,7 @@ function NavItem({
     <Link
       to={to}
       className={cn(
-        "flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] font-medium",
+        "flex items-center gap-2.5 rounded-md px-2 py-2 text-[13px] font-medium",
         active
           ? "bg-accent text-foreground"
           : "text-muted-foreground hover:bg-accent hover:text-foreground",

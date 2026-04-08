@@ -1,2 +1,2 @@
-# Markdown docs aliases - /docs.md serves getting-started
-/docs.md /docs/getting-started.md 200
+# SPA fallback — let React Router handle all unmatched routes
+/*  /index.html  200

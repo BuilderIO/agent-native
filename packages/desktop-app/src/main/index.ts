@@ -16,7 +16,7 @@ import {
   type ActiveWebviewTarget,
   type InterAppMessage,
 } from "@shared/ipc-channels";
-import { HARNESS_PORT } from "@shared/app-registry";
+import { FRAME_PORT } from "@shared/app-registry";
 import type { AppConfig } from "@shared/app-registry";
 import * as AppStore from "./app-store";
 
@@ -265,6 +265,19 @@ ipcMain.handle(IPC.APPS_RESET, (): AppConfig[] => {
   return AppStore.resetToDefaults();
 });
 
+// ---------- IPC: Frame settings ----------
+
+ipcMain.handle(IPC.FRAME_LOAD, () => {
+  return AppStore.loadFrameSettings();
+});
+
+ipcMain.handle(
+  IPC.FRAME_UPDATE,
+  (_event: IpcMainInvokeEvent, settings: Partial<AppStore.FrameSettings>) => {
+    return AppStore.saveFrameSettings(settings);
+  },
+);
+
 // ---------- IPC: Inter-app message relay ----------
 // Routes messages from one app to all renderer windows so webviews can forward them.
 
@@ -447,11 +460,11 @@ app.whenReady().then(() => {
     });
   }
 
-  // Intercept OAuth callbacks on the harness port and redirect to the app's server.
-  // Google redirects to localhost:3334/api/google/... but the harness doesn't
+  // Intercept OAuth callbacks on the frame port and redirect to the app's server.
+  // Google redirects to localhost:3334/api/google/... but the frame doesn't
   // serve API routes — the actual app server runs on a different port.
   session.defaultSession.webRequest.onBeforeRequest(
-    { urls: [`http://localhost:${HARNESS_PORT}/api/google/*`] },
+    { urls: [`http://localhost:${FRAME_PORT}/api/google/*`] },
     (details, callback) => {
       // Route to the correct app's server based on the callback path
       const apps = AppStore.loadApps();
@@ -461,7 +474,7 @@ app.whenReady().then(() => {
         apps.find((a) => a.id === "calendar");
       if (app) {
         const appUrl = details.url.replace(
-          `http://localhost:${HARNESS_PORT}`,
+          `http://localhost:${FRAME_PORT}`,
           `http://localhost:${app.devPort}`,
         );
         callback({ redirectURL: appUrl });

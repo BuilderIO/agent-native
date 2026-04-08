@@ -23,7 +23,7 @@ export function IssueDescription({ description }: IssueDescriptionProps) {
 
   return (
     <div
-      className="adf-content"
+      className="adf-content overflow-x-auto"
       dangerouslySetInnerHTML={{ __html: sanitizeHtml(html) }}
     />
   );

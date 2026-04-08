@@ -40,7 +40,7 @@ export function KanbanColumn({
   return (
     <div
       className={cn(
-        "kanban-column flex w-64 shrink-0 flex-col rounded-lg bg-muted/30",
+        "kanban-column flex w-[72vw] shrink-0 flex-col rounded-lg bg-muted/30 sm:w-64",
         dragOver && "drag-over",
       )}
       onDragOver={handleDragOver}

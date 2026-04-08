@@ -2,7 +2,7 @@
 export { mountA2A } from "./server.js";
 
 // Client
-export { A2AClient, callAgent } from "./client.js";
+export { A2AClient, callAgent, signA2AToken } from "./client.js";
 
 // Types
 export type {

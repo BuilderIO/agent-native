@@ -1,0 +1,33 @@
+{
+  "name": "@agent-native/frame",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local dev frame — agent chat + CLI sidebar with app iframe",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "server": "tsx src/server.ts"
+  },
+  "dependencies": {
+    "@agent-native/core": "workspace:*",
+    "@agent-native/shared-app-config": "workspace:*",
+    "@tanstack/react-query": "^5.84.2",
+    "@tabler/icons-react": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "h3": "catalog:",
+    "listhen": "catalog:"
+  },
+  "devDependencies": {
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "tsx": "catalog:",
+    "tailwindcss": "catalog:",
+    "@tailwindcss/vite": "catalog:"
+  }
+}

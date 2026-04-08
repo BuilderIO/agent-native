@@ -29,14 +29,16 @@ export function Header() {
   const { actions } = useHeaderActions();
 
   return (
-    <header className="flex h-14 lg:h-[60px] items-center gap-4 border-b bg-background px-6">
-      <div className="flex items-center gap-4 flex-1">
-        <h1 className="font-semibold text-lg">{title}</h1>
-        {actions}
+    <header className="flex h-14 lg:h-[60px] items-center gap-4 border-b bg-background px-4 md:px-6">
+      <div className="flex items-center gap-3 flex-1 min-w-0">
+        <h1 className="font-semibold text-lg truncate">{title}</h1>
+        <div className="hidden sm:flex items-center gap-2">{actions}</div>
       </div>
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 shrink-0">
         {auth && (
-          <span className="text-sm text-muted-foreground">{auth.email}</span>
+          <span className="text-sm text-muted-foreground hidden sm:inline truncate max-w-[200px]">
+            {auth.email}
+          </span>
         )}
       </div>
     </header>

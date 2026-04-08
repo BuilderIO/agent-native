@@ -12,6 +12,7 @@ import {
   IconPlus,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -133,6 +134,7 @@ export function ComposeModal({
   onFlush,
   onReopen,
 }: ComposeModalProps) {
+  const isMobile = useIsMobile();
   const [minimized, setMinimized] = useState(false);
   const [generateOpen, setGenerateOpen] = useState(false);
   const [generatePrompt, setGeneratePrompt] = useState("");
@@ -404,14 +406,14 @@ export function ComposeModal({
     <div
       ref={composeRef}
       className={cn(
-        "compose-window fixed bottom-0 z-50 flex w-[540px] flex-col rounded-t-xl bg-card",
-        minimized ? "h-11" : "h-[520px]",
+        "compose-window fixed bottom-0 z-50 flex w-full sm:w-[540px] flex-col sm:rounded-t-xl bg-card",
+        minimized ? "h-11 rounded-t-xl" : "h-[100dvh] sm:h-[520px]",
       )}
-      style={{ right: sidebarRight }}
+      style={{ right: isMobile ? 0 : sidebarRight }}
       onKeyDown={handleKeyDown}
     >
       {/* Title bar with inline tabs */}
-      <div className="flex h-11 shrink-0 items-center rounded-t-xl px-2 gap-0">
+      <div className="flex h-11 shrink-0 items-center sm:rounded-t-xl px-2 gap-0">
         {/* Left side: tabs (or single title) */}
         <div className="flex flex-1 items-center min-w-0 overflow-x-auto hide-scrollbar gap-0.5">
           {drafts.length <= 1 ? (

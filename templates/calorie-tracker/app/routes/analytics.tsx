@@ -117,12 +117,14 @@ export default function AnalyticsPage() {
 
   return (
     <div className="min-h-screen pb-20 relative z-10">
-      <div className="max-w-2xl lg:max-w-4xl mx-auto px-4 py-8 space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold tracking-tight">Analytics</h1>
+      <div className="max-w-2xl lg:max-w-4xl mx-auto px-3 sm:px-4 py-6 sm:py-8 space-y-6 sm:space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight">
+            Analytics
+          </h1>
           <Select value={timeRange} onValueChange={setTimeRange}>
-            <SelectTrigger className="w-[140px] bg-card/40 border-border/30 h-9 text-xs">
-              <IconCalendar className="w-3.5 h-3.5 mr-2 opacity-50" />
+            <SelectTrigger className="w-[130px] sm:w-[140px] bg-card/40 border-border/30 h-9 text-xs shrink-0">
+              <IconCalendar className="w-3.5 h-3.5 mr-1.5 sm:mr-2 opacity-50" />
               <SelectValue placeholder="Select range" />
             </SelectTrigger>
             <SelectContent className="bg-zinc-900 border-white/10">
@@ -144,13 +146,13 @@ export default function AnalyticsPage() {
           ].map((stat) => (
             <div
               key={stat.label}
-              className="p-4 rounded-xl bg-card/40 border border-border/30"
+              className="p-3 sm:p-4 rounded-xl bg-card/40 border border-border/30"
             >
-              <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-medium mb-2">
+              <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-medium mb-1.5 sm:mb-2">
                 {stat.label}
               </p>
               <div className="flex items-baseline gap-1">
-                <span className="text-2xl font-bold text-foreground">
+                <span className="text-xl sm:text-2xl font-bold text-foreground">
                   {stat.value}
                 </span>
                 <span className="text-xs text-muted-foreground">
@@ -171,7 +173,7 @@ export default function AnalyticsPage() {
           </CardHeader>
           <CardContent>
             <Tabs defaultValue="net" className="w-full">
-              <TabsList className="grid w-full grid-cols-3 mb-6 bg-secondary/40">
+              <TabsList className="grid w-full grid-cols-3 mb-4 sm:mb-6 bg-secondary/40">
                 <TabsTrigger value="net">Net</TabsTrigger>
                 <TabsTrigger value="consumed">Consumed</TabsTrigger>
                 <TabsTrigger value="burned">Burned</TabsTrigger>
@@ -179,9 +181,9 @@ export default function AnalyticsPage() {
               {["net", "consumed", "burned"].map((tab) => (
                 <TabsContent key={tab} value={tab} className="mt-0">
                   {isLoading ? (
-                    <Skeleton className="h-[300px] w-full rounded-xl" />
+                    <Skeleton className="h-[250px] w-full rounded-xl" />
                   ) : history && history.length > 0 ? (
-                    <ResponsiveContainer width="100%" height={300}>
+                    <ResponsiveContainer width="100%" height={250}>
                       <LineChart
                         data={history}
                         margin={{ top: 5, right: 5, bottom: 5, left: -20 }}
@@ -258,7 +260,7 @@ export default function AnalyticsPage() {
                       </LineChart>
                     </ResponsiveContainer>
                   ) : (
-                    <div className="h-[300px] flex flex-col items-center justify-center text-muted-foreground rounded-xl border border-dashed border-border/50 bg-secondary/20">
+                    <div className="h-[250px] flex flex-col items-center justify-center text-muted-foreground rounded-xl border border-dashed border-border/50 bg-secondary/20">
                       <p className="text-sm">No data available yet</p>
                     </div>
                   )}
@@ -294,7 +296,7 @@ export default function AnalyticsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3 mb-4 sm:mb-6">
               {[
                 { label: "Current", value: weightStats.current },
                 {
@@ -334,14 +336,14 @@ export default function AnalyticsPage() {
             </div>
 
             <Tabs defaultValue="trend" className="w-full">
-              <TabsList className="grid w-full grid-cols-2 mb-6 bg-secondary/40">
+              <TabsList className="grid w-full grid-cols-2 mb-4 sm:mb-6 bg-secondary/40">
                 <TabsTrigger value="trend">Trend View</TabsTrigger>
                 <TabsTrigger value="actual">Actual Weight</TabsTrigger>
               </TabsList>
               {["trend", "actual"].map((tab) => (
                 <TabsContent key={tab} value={tab} className="mt-0">
                   {weightLoading ? (
-                    <Skeleton className="h-[300px] w-full rounded-xl" />
+                    <Skeleton className="h-[250px] w-full rounded-xl" />
                   ) : weightHistory && weightHistory.length > 0 ? (
                     <div className="space-y-2">
                       {tab === "trend" && (
@@ -350,7 +352,7 @@ export default function AnalyticsPage() {
                           show your overall progress.
                         </p>
                       )}
-                      <ResponsiveContainer width="100%" height={300}>
+                      <ResponsiveContainer width="100%" height={250}>
                         <LineChart
                           data={weightHistory}
                           margin={{
@@ -444,7 +446,7 @@ export default function AnalyticsPage() {
                       </ResponsiveContainer>
                     </div>
                   ) : (
-                    <div className="h-[300px] flex flex-col items-center justify-center text-muted-foreground rounded-xl border border-dashed border-border/50 bg-secondary/20">
+                    <div className="h-[250px] flex flex-col items-center justify-center text-muted-foreground rounded-xl border border-dashed border-border/50 bg-secondary/20">
                       <p className="text-sm">No weight data available yet</p>
                       <p className="text-xs mt-1">
                         Start logging your weight to see trends

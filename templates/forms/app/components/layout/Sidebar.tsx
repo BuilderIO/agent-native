@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import { ArrowUp, Plus } from "lucide-react";
+import { ArrowUp, Plus, Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -12,6 +12,7 @@ import {
 import { useForms, useCreateForm } from "@/hooks/use-forms";
 import { useSendToAgentChat } from "@agent-native/core/client";
 import { Textarea } from "@/components/ui/textarea";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 
 const statusDots: Record<string, string> = {
@@ -29,6 +30,8 @@ export function Sidebar() {
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [prompt, setPrompt] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const isMobile = useIsMobile();
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
     if (popoverOpen) {
@@ -57,7 +60,7 @@ export function Sidebar() {
 
   const newFormButton = (
     <PopoverTrigger asChild>
-      <button className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground">
+      <button className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground min-h-[44px]">
         <Plus size={14} className="shrink-0" />
         <span>New form</span>
       </button>
@@ -114,16 +117,32 @@ export function Sidebar() {
     </PopoverContent>
   );
 
-  return (
-    <div className="flex h-screen w-60 flex-col border-r border-border bg-muted/30">
+  const sidebarContent = (
+    <div
+      className={cn(
+        "flex h-screen w-60 flex-col border-r border-border bg-muted/30",
+        isMobile && "w-full",
+      )}
+    >
       {/* Header */}
-      <div className="flex h-12 items-center border-b border-border px-4">
+      <div className="flex h-12 items-center justify-between border-b border-border px-4">
         <Link
           to="/forms"
           className="text-base font-semibold tracking-tight text-foreground hover:text-foreground/80"
+          onClick={() => isMobile && setMobileOpen(false)}
         >
           Forms
         </Link>
+        {isMobile && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => setMobileOpen(false)}
+          >
+            <X size={18} />
+          </Button>
+        )}
       </div>
 
       <ScrollArea className="flex-1">
@@ -136,8 +155,9 @@ export function Sidebar() {
               <Link
                 key={form.id}
                 to={`/forms/${form.id}`}
+                onClick={() => isMobile && setMobileOpen(false)}
                 className={cn(
-                  "flex w-full items-center gap-2.5 rounded-md px-3 py-1.5 text-sm",
+                  "flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm min-h-[44px]",
                   isActive
                     ? "bg-accent text-accent-foreground"
                     : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -156,7 +176,6 @@ export function Sidebar() {
             );
           })}
 
-          {/* New form button — under the list */}
           <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
             {newFormButton}
             {newFormPopover}
@@ -170,4 +189,33 @@ export function Sidebar() {
       </div>
     </div>
   );
+
+  if (isMobile) {
+    return (
+      <>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="fixed top-2 left-2 z-40 h-10 w-10 md:hidden"
+          onClick={() => setMobileOpen(true)}
+          aria-label="Open sidebar"
+        >
+          <Menu size={20} />
+        </Button>
+        {mobileOpen && (
+          <>
+            <div
+              className="fixed inset-0 z-40 bg-black/40"
+              onClick={() => setMobileOpen(false)}
+            />
+            <div className="fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw]">
+              {sidebarContent}
+            </div>
+          </>
+        )}
+      </>
+    );
+  }
+
+  return sidebarContent;
 }

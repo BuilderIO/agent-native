@@ -58,7 +58,6 @@ export function DashboardChartCard({
     transition,
     zIndex: isDragging ? 50 : undefined,
     opacity: isDragging ? 0.7 : 1,
-    gridColumn: chart.width === 2 ? "span 2" : "span 1",
   };
 
   const { data: config } = useQuery({
@@ -78,7 +77,11 @@ export function DashboardChartCard({
   const isLoading = !config || queryLoading;
 
   return (
-    <div ref={setNodeRef} style={style} className="group relative">
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`group relative ${chart.width === 2 ? "md:col-span-2" : ""}`}
+    >
       <Card className="h-full">
         <CardHeader className="pb-2 flex flex-row items-center gap-2">
           <button

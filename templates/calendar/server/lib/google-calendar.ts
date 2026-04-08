@@ -444,6 +444,13 @@ export async function updateEvent(
       ? { date: event.end.split("T")[0] }
       : { dateTime: event.end };
   }
+  if (event.attendees !== undefined) {
+    requestBody.attendees = event.attendees.map((a) => ({
+      email: a.email,
+      ...(a.displayName ? { displayName: a.displayName } : {}),
+      ...(a.responseStatus ? { responseStatus: a.responseStatus } : {}),
+    }));
+  }
 
   await calendarPatchEvent(
     client.accessToken,

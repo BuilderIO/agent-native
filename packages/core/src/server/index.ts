@@ -73,6 +73,10 @@ export {
   defaultTerminalPlugin,
   type TerminalPluginOptions,
 } from "../terminal/terminal-plugin.js";
+export {
+  createCollabPlugin,
+  type CollabPluginOptions,
+} from "./collab-plugin.js";
 
 export {
   spawnTask,

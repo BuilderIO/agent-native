@@ -1,15 +1,16 @@
-import { useState, createElement } from "react";
+import { useState, useEffect, useCallback, createElement } from "react";
 import { sendToAgentChat, type AgentChatMessage } from "./agent-chat.js";
 import { useAgentChatGenerating } from "./use-agent-chat.js";
-import { useDevMode } from "./use-dev-mode.js";
+import { isInFrame } from "./frame.js";
 import { CodeRequiredDialog } from "./components/CodeRequiredDialog.js";
 
 /**
- * Wraps sendToAgentChat with production-mode gating.
+ * Wraps sendToAgentChat with code-request gating.
  *
- * When `requiresCode: true` is passed and the app is in production mode,
- * the dialog is shown instead of sending the message. In dev mode,
- * messages are sent normally.
+ * When a message has `type: "code"` (or `requiresCode: true`) and no
+ * frame is connected, shows a dialog explaining code changes need a
+ * dev frame. When a frame IS connected, the message is sent to the
+ * frame and a code-agent indicator is shown.
  *
  * Returns a `codeRequiredDialog` React element that must be rendered
  * somewhere in the consumer's JSX tree.
@@ -17,21 +18,47 @@ import { CodeRequiredDialog } from "./components/CodeRequiredDialog.js";
 export function useSendToAgentChat(): {
   send: (opts: AgentChatMessage) => string | null;
   isGenerating: boolean;
+  /** True when a code request is being processed by the frame */
+  isCodeAgentWorking: boolean;
   codeRequiredDialog: React.ReactNode;
 } {
-  const { isDevMode } = useDevMode();
   const [agentGenerating] = useAgentChatGenerating();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [featureLabel, setFeatureLabel] = useState<string | undefined>();
+  const [codeAgentWorking, setCodeAgentWorking] = useState(false);
 
-  function send(opts: AgentChatMessage): string | null {
-    if (opts.requiresCode && !isDevMode) {
+  // Listen for code completion from frame
+  useEffect(() => {
+    if (!codeAgentWorking) return;
+    function handler(event: MessageEvent) {
+      if (
+        event.data?.type === "builder.codeComplete" ||
+        (event.data?.type === "builder.chatRunning" &&
+          !event.data?.detail?.isRunning)
+      ) {
+        setCodeAgentWorking(false);
+      }
+    }
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, [codeAgentWorking]);
+
+  const send = useCallback((opts: AgentChatMessage): string | null => {
+    const isCodeRequest = opts.type === "code" || opts.requiresCode === true;
+
+    if (isCodeRequest && !isInFrame()) {
       setFeatureLabel(opts.message?.slice(0, 80));
       setDialogOpen(true);
       return null;
     }
+
+    if (isCodeRequest) {
+      setCodeAgentWorking(true);
+      opts = { ...opts, type: "code" };
+    }
+
     return sendToAgentChat(opts);
-  }
+  }, []);
 
   const dialog = createElement(CodeRequiredDialog, {
     open: dialogOpen,
@@ -42,6 +69,7 @@ export function useSendToAgentChat(): {
   return {
     send,
     isGenerating: agentGenerating,
+    isCodeAgentWorking: codeAgentWorking,
     codeRequiredDialog: dialog,
   };
 }

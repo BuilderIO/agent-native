@@ -53,15 +53,20 @@ export default function ImageOverlay({
   }, [onClose]);
 
   const menuWidth = 180;
-  // Position to the left of the image, vertically centered
-  let left = anchorRect.left - menuWidth - 8;
-  let top = anchorRect.top + anchorRect.height / 2 - 100;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  let left: number;
+  let top: number;
 
-  // If not enough room on the left, clamp to left edge
-  if (left < 8) {
-    left = 8;
+  if (vw < 640) {
+    left = Math.max(8, (vw - menuWidth) / 2);
+    top = Math.min(anchorRect.bottom + 8, vh - 260);
+  } else {
+    left = anchorRect.left - menuWidth - 8;
+    top = anchorRect.top + anchorRect.height / 2 - 100;
+    if (left < 8) left = 8;
   }
-  top = Math.max(8, Math.min(top, window.innerHeight - 220));
+  top = Math.max(8, Math.min(top, vh - 220));
 
   return createPortal(
     <div

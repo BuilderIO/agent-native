@@ -2,7 +2,7 @@
  * AgentTerminal — Embeddable CLI terminal component
  *
  * Renders an xterm.js terminal connected to a PTY WebSocket server.
- * When running inside a harness, renders nothing (the harness manages the terminal).
+ * When running inside a frame, renders nothing (the frame manages the terminal).
  *
  * Usage:
  *   import { AgentTerminal } from "@agent-native/core/terminal";
@@ -16,7 +16,7 @@ import React, {
   useCallback,
   type CSSProperties,
 } from "react";
-import { getHarnessOrigin } from "../harness.js";
+import { getFrameOrigin } from "../frame.js";
 
 export interface AgentTerminalProps {
   /** CLI command to run. Default: 'builder' */
@@ -25,8 +25,8 @@ export interface AgentTerminalProps {
   flags?: string;
   /** Custom WebSocket URL (overrides auto-discovery) */
   wsUrl?: string;
-  /** Hide when running inside harness. Default: true */
-  hideInHarness?: boolean;
+  /** Hide when running inside frame. Default: true */
+  hideInFrame?: boolean;
   /** Terminal theme overrides */
   theme?: Record<string, string>;
   /** Font size. Default: 12 */
@@ -120,7 +120,7 @@ export function AgentTerminal({
   command,
   flags,
   wsUrl: wsUrlProp,
-  hideInHarness = true,
+  hideInFrame = true,
   theme,
   fontSize = 12,
   className,
@@ -131,19 +131,19 @@ export function AgentTerminal({
   const termRef = useRef<HTMLDivElement>(null);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [inHarness, setInHarness] = useState(false);
+  const [inFrame, setInFrame] = useState(false);
 
-  // Check harness state after mount (postMessage is async)
+  // Check frame state after mount (postMessage is async)
   useEffect(() => {
-    if (!hideInHarness) return;
+    if (!hideInFrame) return;
     // Check immediately and also after a short delay for the postMessage to arrive
     const check = () => {
-      if (getHarnessOrigin()) setInHarness(true);
+      if (getFrameOrigin()) setInFrame(true);
     };
     check();
     const timer = setTimeout(check, 500);
     return () => clearTimeout(timer);
-  }, [hideInHarness]);
+  }, [hideInFrame]);
 
   // Notify parent of connection changes
   useEffect(() => {
@@ -153,7 +153,7 @@ export function AgentTerminal({
   // Main terminal setup
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (hideInHarness && inHarness) return;
+    if (hideInFrame && inFrame) return;
 
     const container = termRef.current;
     if (!container) return;
@@ -351,10 +351,10 @@ export function AgentTerminal({
 
       // Chat bridge integration — listen for sendToAgentChat messages
       const messageHandler = (event: MessageEvent) => {
-        // Only accept messages from same origin or known harness
+        // Only accept messages from same origin or known frame
         if (
           event.origin !== window.location.origin &&
-          event.origin !== getHarnessOrigin()
+          event.origin !== getFrameOrigin()
         ) {
           return;
         }
@@ -398,9 +398,9 @@ export function AgentTerminal({
       cleanupMessageHandler?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hideInHarness, inHarness, command]);
+  }, [hideInFrame, inFrame, command]);
 
-  if (hideInHarness && inHarness) {
+  if (hideInFrame && inFrame) {
     return null;
   }
 

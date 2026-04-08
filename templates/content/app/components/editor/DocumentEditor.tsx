@@ -3,7 +3,26 @@ import { VisualEditor } from "./VisualEditor";
 import { DocumentToolbar } from "./DocumentToolbar";
 import { EmojiPicker } from "./EmojiPicker";
 import { useDocument, useUpdateDocument } from "@/hooks/use-documents";
-import { IconLoader2 } from "@tabler/icons-react";
+import {
+  useCollaborativeDoc,
+  generateTabId,
+  emailToColor,
+  emailToName,
+  useSession,
+  type CollabUser,
+} from "@agent-native/core/client";
+import { IconLoader2, IconSparkles } from "@tabler/icons-react";
+import { CommentsSidebar } from "./CommentsSidebar";
+import { useComments } from "@/hooks/use-comments";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
+
+const TAB_ID = generateTabId();
 
 interface DocumentEditorProps {
   documentId: string;
@@ -24,15 +43,35 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
   const localContentRef = useRef(localContent);
   localContentRef.current = localContent;
 
+  // Current user info for cursor labels
+  const { session } = useSession();
+  const currentUser: CollabUser | undefined = session?.email
+    ? {
+        name: emailToName(session.email),
+        email: session.email,
+        color: emailToColor(session.email),
+      }
+    : undefined;
+
+  // Collaborative editing — stable Y.Doc per document, always-on
+  const {
+    ydoc,
+    awareness,
+    isLoading: collabLoading,
+    activeUsers,
+    agentActive,
+  } = useCollaborativeDoc({
+    docId: documentId,
+    requestSource: TAB_ID,
+    user: currentUser,
+  });
+
   // Initialize from fetched document, reset on document switch
   useEffect(() => {
     if (!document) return;
-    // When documentId changes, clear stale state from the previous document
     if (prevDocIdRef.current !== documentId) {
       prevDocIdRef.current = documentId;
       isInitializedRef.current = false;
-      // Cancel any pending debounced save — it would corrupt lastSavedRef
-      // with the old document's values after we've moved on
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
         saveTimeoutRef.current = null;
@@ -49,31 +88,18 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
     }
   }, [document, documentId]);
 
-  // Pick up external changes (e.g. Notion pull) — if the server content
-  // diverges from what we last saved, an external source changed it.
+  // Pick up external title changes (e.g. Notion pull)
   useEffect(() => {
     if (!document || !isInitializedRef.current) return;
     const serverTitle = document.title;
-    const serverContent = document.content;
     const lastSaved = lastSavedRef.current;
-
-    // If the server state differs from what we last saved, something
-    // external (like a Notion pull) updated the document — re-sync.
-    if (
-      serverTitle !== lastSaved.title ||
-      serverContent !== lastSaved.content
-    ) {
-      // Only apply if the local state hasn't diverged from what was saved
-      // (i.e. the user hasn't typed new changes since the last save).
-      const localMatchesSaved =
-        localTitle === lastSaved.title && localContent === lastSaved.content;
-      if (localMatchesSaved) {
+    if (serverTitle !== lastSaved.title) {
+      if (localTitle === lastSaved.title) {
         setLocalTitle(serverTitle);
-        setLocalContent(serverContent);
-        lastSavedRef.current = { title: serverTitle, content: serverContent };
+        lastSavedRef.current = { ...lastSavedRef.current, title: serverTitle };
       }
     }
-  }, [document, localTitle, localContent]);
+  }, [document, localTitle]);
 
   const debouncedSave = useCallback(
     (title: string, content: string) => {
@@ -112,7 +138,20 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
     [debouncedSave],
   );
 
-  if (isLoading) {
+  // Comments state — pending comment from text selection
+  const [pendingQuotedText, setPendingQuotedText] = useState<string | null>(
+    null,
+  );
+  const { data: threads } = useComments(documentId);
+  const hasComments =
+    (threads?.some((t) => !t.resolved) ?? false) || !!pendingQuotedText;
+  const isMobile = useIsMobile();
+
+  const handleComment = useCallback((quotedText: string) => {
+    setPendingQuotedText(quotedText);
+  }, []);
+
+  if (isLoading || collabLoading) {
     return (
       <div className="flex items-center justify-center h-full">
         <IconLoader2 className="w-6 h-6 animate-spin text-muted-foreground" />
@@ -128,70 +167,135 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
     );
   }
 
+  const sidebar = (
+    <CommentsSidebar
+      documentId={documentId}
+      pendingQuotedText={pendingQuotedText}
+      onPendingDone={() => setPendingQuotedText(null)}
+    />
+  );
+
   return (
-    <div className="flex-1 flex flex-col min-h-0">
-      {/* Toolbar: Notion sync + Chat toggle */}
-      <DocumentToolbar documentId={documentId} />
+    <div className="flex-1 flex min-h-0">
+      <div className="flex-1 flex flex-col min-h-0">
+        <DocumentToolbar documentId={documentId} />
 
-      {/* Save indicator */}
-      {isSaving && (
-        <div className="absolute top-12 right-4 flex items-center gap-1.5 text-xs text-muted-foreground z-10">
-          <IconLoader2 size={12} className="animate-spin" />
-          Saving...
-        </div>
-      )}
+        {/* Save indicator + Agent presence + User presence */}
+        {(() => {
+          const otherUsers = activeUsers.filter(
+            (u) => u.email !== session?.email,
+          );
+          return isSaving || otherUsers.length > 0 || agentActive ? (
+            <div className="absolute top-12 right-4 flex items-center gap-2 z-10">
+              {/* Agent editing indicator */}
+              {agentActive && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium animate-pulse">
+                      <IconSparkles size={14} />
+                      AI editing
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    The AI agent is making changes
+                  </TooltipContent>
+                </Tooltip>
+              )}
+              {otherUsers.length > 0 && (
+                <div className="flex -space-x-2">
+                  {otherUsers.map((u, i) => (
+                    <Tooltip key={`${u.email}-${i}`}>
+                      <TooltipTrigger asChild>
+                        <div
+                          className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-medium text-white border-2 border-background cursor-default"
+                          style={{ backgroundColor: u.color }}
+                        >
+                          {u.name.charAt(0).toUpperCase()}
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom">
+                        <span>{u.name}</span>
+                      </TooltipContent>
+                    </Tooltip>
+                  ))}
+                </div>
+              )}
+              {isSaving && (
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <IconLoader2 size={12} className="animate-spin" />
+                  Saving...
+                </div>
+              )}
+            </div>
+          ) : null;
+        })()}
 
-      {/* Scrollable document area */}
-      <div className="flex-1 min-h-0 overflow-auto flex flex-col">
-        {/* Title */}
-        <div className="shrink-0 px-16 pt-16 pb-2 group/title">
-          <div className="mb-1">
-            <EmojiPicker
-              icon={document.icon}
-              onSelect={(emoji) => {
-                updateDocument.mutate({ id: documentId, icon: emoji });
+        <div className="flex-1 min-h-0 overflow-auto flex flex-col">
+          <div className="shrink-0 px-4 pt-14 pb-2 sm:px-8 md:px-16 md:pt-16 group/title">
+            <div className="mb-1">
+              <EmojiPicker
+                icon={document.icon}
+                onSelect={(emoji) => {
+                  updateDocument.mutate({ id: documentId, icon: emoji });
+                }}
+              />
+            </div>
+            <input
+              value={localTitle}
+              onChange={(e) => handleTitleChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  const pm = window.document.querySelector(
+                    ".ProseMirror",
+                  ) as HTMLElement | null;
+                  pm?.focus();
+                }
               }}
+              placeholder="Untitled"
+              className="w-full text-3xl font-bold bg-transparent border-none outline-none text-foreground placeholder:text-muted-foreground/40 md:text-4xl"
             />
           </div>
-          <input
-            value={localTitle}
-            onChange={(e) => handleTitleChange(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                const pm = window.document.querySelector(
+
+          <div
+            className="flex-1 px-4 pb-16 cursor-text sm:px-8 md:px-16"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) {
+                const pm = e.currentTarget.querySelector(
                   ".ProseMirror",
                 ) as HTMLElement | null;
                 pm?.focus();
               }
             }}
-            placeholder="Untitled"
-            className="w-full text-4xl font-bold bg-transparent border-none outline-none text-foreground placeholder:text-muted-foreground/40"
-          />
-        </div>
-
-        {/* Editor */}
-        <div
-          className="flex-1 px-16 pb-16 cursor-text"
-          onClick={(e) => {
-            // If click is on the wrapper itself (empty space below content),
-            // focus the editor at the end — like Notion/Google Docs
-            if (e.target === e.currentTarget) {
-              const pm = e.currentTarget.querySelector(
-                ".ProseMirror",
-              ) as HTMLElement | null;
-              pm?.focus();
-            }
-          }}
-        >
-          <VisualEditor
-            documentId={documentId}
-            content={localContent}
-            onChange={handleContentChange}
-            editable
-          />
+          >
+            <VisualEditor
+              key={documentId}
+              documentId={documentId}
+              content={document.content}
+              onChange={handleContentChange}
+              ydoc={ydoc}
+              user={currentUser}
+              editable
+              onComment={handleComment}
+            />
+          </div>
         </div>
       </div>
+
+      {isMobile ? (
+        <Sheet
+          open={hasComments}
+          onOpenChange={(open) => {
+            if (!open) setPendingQuotedText(null);
+          }}
+        >
+          <SheetContent side="right" className="w-[85vw] max-w-sm p-0">
+            {sidebar}
+          </SheetContent>
+        </Sheet>
+      ) : (
+        hasComments && sidebar
+      )}
     </div>
   );
 }

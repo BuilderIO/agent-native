@@ -13,7 +13,7 @@ import type { ScriptTool } from "@agent-native/core";
 
 export const tool: ScriptTool = {
   description:
-    "See what the user is currently looking at on screen. Returns the current navigation state. Always call this first before taking any action.",
+    "See what the user is currently looking at on screen. Returns the current navigation state. Note: basic screen context is auto-included with each message — use this tool only when you need a detailed or refreshed snapshot.",
   parameters: {
     type: "object",
     properties: {},

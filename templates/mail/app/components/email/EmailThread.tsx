@@ -36,6 +36,7 @@ import {
   IconChevronUp,
   IconChevronDown,
   IconExternalLink,
+  IconMailOff,
   IconX,
   IconArrowBackUp,
   IconArrowForwardUp,
@@ -751,6 +752,79 @@ export function EmailThread({
     return null;
   }, [messages]);
 
+  // Extract unsubscribe info from thread messages (use the most recent with the header)
+  const unsubscribeInfo = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const unsub = messages[i].unsubscribe;
+      if (unsub && (unsub.url || unsub.mailto)) {
+        return {
+          ...unsub,
+          messageId: messages[i].id,
+          accountEmail: messages[i].accountEmail,
+        };
+      }
+    }
+    // Fallback: scan HTML body for unsubscribe links
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const html = messages[i].bodyHtml;
+      if (!html) continue;
+      const match = html.match(
+        /<a\s[^>]*href=["']([^"']+)["'][^>]*>[^<]*unsubscribe[^<]*<\/a>/i,
+      );
+      if (match) return { url: match[1], bodyFallback: true } as const;
+    }
+    return null;
+  }, [messages]);
+
+  const [unsubscribing, setUnsubscribing] = useState(false);
+
+  const handleUnsubscribe = useCallback(async () => {
+    if (!unsubscribeInfo) return;
+
+    // If we only found a link in the body (no header), just open it
+    if (!("messageId" in unsubscribeInfo)) {
+      if (unsubscribeInfo.url) window.open(unsubscribeInfo.url, "_blank");
+      return;
+    }
+
+    setUnsubscribing(true);
+    try {
+      const res = await fetch(
+        `/api/emails/${unsubscribeInfo.messageId}/unsubscribe`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            accountEmail: unsubscribeInfo.accountEmail,
+          }),
+        },
+      );
+      const data = await res.json();
+
+      if (data.ok) {
+        toast.success("Unsubscribe request sent");
+        // Also open the URL so user can confirm if needed
+        if (data.url || unsubscribeInfo.url) {
+          window.open(data.url || unsubscribeInfo.url, "_blank");
+        }
+      } else {
+        // Fallback: open the unsubscribe URL directly
+        if (unsubscribeInfo.url) {
+          window.open(unsubscribeInfo.url, "_blank");
+        } else {
+          toast.error("Could not unsubscribe");
+        }
+      }
+    } catch {
+      // Fallback: open URL directly
+      if (unsubscribeInfo.url) {
+        window.open(unsubscribeInfo.url, "_blank");
+      }
+    } finally {
+      setUnsubscribing(false);
+    }
+  }, [unsubscribeInfo]);
+
   if (!threadId) return null;
 
   if (!email) {
@@ -785,11 +859,11 @@ export function EmailThread({
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       {/* Thread header */}
-      <div className="shrink-0 px-5 pt-5 pb-3">
-        <div className="flex items-start gap-3">
+      <div className="shrink-0 px-3 sm:px-5 pt-4 sm:pt-5 pb-3">
+        <div className="flex items-start gap-2 sm:gap-3">
           <button
             onClick={goBack}
-            className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+            className="mt-0.5 flex h-9 w-9 sm:h-7 sm:w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
             title="Back (Esc)"
           >
             <IconArrowLeft className="h-[14px] w-[14px]" />
@@ -797,7 +871,7 @@ export function EmailThread({
 
           <div className="flex-1 min-w-0">
             <div className="flex items-start gap-2 flex-wrap">
-              <h1 className="text-lg font-semibold leading-tight text-foreground">
+              <h1 className="text-base sm:text-lg font-semibold leading-tight text-foreground">
                 {threadSubject}
               </h1>
               {isHydratingThread && (
@@ -812,7 +886,7 @@ export function EmailThread({
                 </span>
               ))}
               {/* Action bar */}
-              <div className="flex items-center gap-0.5 ml-auto shrink-0">
+              <div className="hidden sm:flex items-center gap-0.5 ml-auto shrink-0">
                 <button
                   onClick={handleArchive}
                   className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
@@ -834,27 +908,40 @@ export function EmailThread({
                 </button>
               </div>
             </div>
-            {githubPrUrl && (
-              <div className="mt-1.5">
-                <a
-                  href={githubPrUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="group relative inline-flex items-center gap-1.5 text-[12px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
-                  title="View Pull Request (⌘O)"
-                >
-                  <IconExternalLink className="h-3 w-3" />
-                  View Pull Request
-                  <span className="pointer-events-none absolute left-0 top-full mt-1 z-50 hidden group-hover:flex items-center gap-1.5 rounded-md border border-border/50 bg-popover px-2.5 py-1.5 text-[12px] font-medium text-foreground shadow-lg whitespace-nowrap">
+            {(githubPrUrl || unsubscribeInfo) && (
+              <div className="mt-1.5 flex items-center gap-3">
+                {githubPrUrl && (
+                  <a
+                    href={githubPrUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="group relative inline-flex items-center gap-1.5 text-[12px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+                    title="View Pull Request (⌘O)"
+                  >
+                    <IconExternalLink className="h-3 w-3" />
                     View Pull Request
-                    <kbd className="flex items-center justify-center rounded border border-border/60 bg-muted px-1 text-[10px] text-muted-foreground">
-                      ⌘
-                    </kbd>
-                    <kbd className="flex items-center justify-center rounded border border-border/60 bg-muted px-1.5 text-[10px] text-muted-foreground">
-                      O
-                    </kbd>
-                  </span>
-                </a>
+                    <span className="pointer-events-none absolute left-0 top-full mt-1 z-50 hidden group-hover:flex items-center gap-1.5 rounded-md border border-border/50 bg-popover px-2.5 py-1.5 text-[12px] font-medium text-foreground shadow-lg whitespace-nowrap">
+                      View Pull Request
+                      <kbd className="flex items-center justify-center rounded border border-border/60 bg-muted px-1 text-[10px] text-muted-foreground">
+                        ⌘
+                      </kbd>
+                      <kbd className="flex items-center justify-center rounded border border-border/60 bg-muted px-1.5 text-[10px] text-muted-foreground">
+                        O
+                      </kbd>
+                    </span>
+                  </a>
+                )}
+                {unsubscribeInfo && (
+                  <button
+                    onClick={handleUnsubscribe}
+                    disabled={unsubscribing}
+                    className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground/50 hover:text-muted-foreground transition-colors disabled:opacity-50"
+                    title="Unsubscribe from this mailing list"
+                  >
+                    <IconMailOff className="h-3 w-3" />
+                    {unsubscribing ? "Unsubscribing..." : "Unsubscribe"}
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -885,7 +972,7 @@ export function EmailThread({
       {/* Thread messages */}
       <div
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto px-5 pb-4"
+        className="flex-1 overflow-y-auto px-3 sm:px-5 pb-4"
       >
         <div className="max-w-3xl mx-auto pt-1.5 space-y-1.5">
           {isHydratingThread && messages.length > 0 && (
@@ -1001,7 +1088,7 @@ export function EmailThread({
             </div>
           ) : (
             <div
-              className="flex items-center rounded-lg bg-accent/40 px-4 py-2.5 cursor-text hover:bg-accent/60 transition-colors mt-3"
+              className="flex items-center rounded-lg bg-accent/40 px-4 py-3 sm:py-2.5 cursor-text hover:bg-accent/60 transition-colors mt-3"
               onClick={() => handleReply()}
             >
               <span className="text-[13px] text-muted-foreground/60">
@@ -1030,11 +1117,11 @@ export function EmailThread({
 function ThreadLoadingState({ onBack }: { onBack: () => void }) {
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      <div className="shrink-0 px-5 pt-5 pb-3">
-        <div className="flex items-start gap-3">
+      <div className="shrink-0 px-3 sm:px-5 pt-4 sm:pt-5 pb-3">
+        <div className="flex items-start gap-2 sm:gap-3">
           <button
             onClick={onBack}
-            className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+            className="mt-0.5 flex h-9 w-9 sm:h-7 sm:w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
             title="Back (Esc)"
           >
             <IconArrowLeft className="h-[14px] w-[14px]" />
@@ -1055,7 +1142,7 @@ function ThreadLoadingState({ onBack }: { onBack: () => void }) {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-5 pb-4">
+      <div className="flex-1 overflow-y-auto px-3 sm:px-5 pb-4">
         <div className="mx-auto max-w-3xl space-y-3 pt-1.5">
           <ThreadMessageSkeleton />
           <ThreadMessageSkeleton compact />
@@ -1115,7 +1202,7 @@ const CollapsedMessageRow = forwardRef<
       ref={ref}
       onClick={onClick}
       className={cn(
-        "flex items-center gap-3 px-3 py-2 cursor-pointer rounded transition-colors",
+        "flex items-center gap-2 sm:gap-3 px-3 py-3 sm:py-2 cursor-pointer rounded transition-colors",
         isFocused
           ? "bg-accent/50 ring-1 ring-primary/30"
           : "hover:bg-accent/40",
@@ -1199,7 +1286,7 @@ const ExpandedMessageCard = forwardRef<
     >
       {/* Header */}
       {showDetails ? (
-        <div className="px-4 py-3">
+        <div className="px-3 sm:px-4 py-3">
           <div className="flex flex-col gap-1 text-[13px]">
             <div className="flex gap-3">
               <span className="w-10 shrink-0 text-muted-foreground/60">
@@ -1257,7 +1344,7 @@ const ExpandedMessageCard = forwardRef<
         </div>
       ) : (
         <div
-          className="flex items-center gap-3 px-4 py-3 cursor-pointer"
+          className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-3 cursor-pointer"
           onClick={onCollapse}
         >
           <div className="flex-1 min-w-0 flex items-center gap-2">
@@ -1283,36 +1370,36 @@ const ExpandedMessageCard = forwardRef<
           </div>
 
           {/* Reply / Reply All / Forward buttons */}
-          <div className="flex items-center gap-0.5 shrink-0">
+          <div className="flex items-center gap-1 sm:gap-0.5 shrink-0">
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 onReply();
               }}
-              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
+              className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
               title="Reply"
             >
-              <IconArrowBackUp className="h-[14px] w-[14px]" />
+              <IconArrowBackUp className="h-4 w-4 sm:h-[14px] sm:w-[14px]" />
             </button>
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 onReplyAll();
               }}
-              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
+              className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
               title="Reply All"
             >
-              <IconArrowBackUp className="h-[14px] w-[14px]" />
+              <IconArrowBackUp className="h-4 w-4 sm:h-[14px] sm:w-[14px]" />
             </button>
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 onForward();
               }}
-              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
+              className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
               title="Forward"
             >
-              <IconArrowForwardUp className="h-[14px] w-[14px]" />
+              <IconArrowForwardUp className="h-4 w-4 sm:h-[14px] sm:w-[14px]" />
             </button>
           </div>
 
@@ -1323,7 +1410,7 @@ const ExpandedMessageCard = forwardRef<
       )}
 
       {/* Body */}
-      <div className="px-4 pb-5 pt-1">
+      <div className="px-3 sm:px-4 pb-5 pt-1 overflow-x-hidden">
         {email.bodyHtml ? (
           <HtmlEmailBody
             html={email.bodyHtml}
@@ -1342,7 +1429,7 @@ const ExpandedMessageCard = forwardRef<
 
       {/* Attachments */}
       {email.attachments && email.attachments.length > 0 && (
-        <div className="px-4 pb-4">
+        <div className="px-3 sm:px-4 pb-4">
           {/* Image thumbnails */}
           {email.attachments.some((a) => a.mimeType.startsWith("image/")) && (
             <div className="flex flex-wrap gap-2 mb-2">
@@ -2603,7 +2690,7 @@ function ThreadSearchBar({
   };
 
   return (
-    <div className="shrink-0 flex items-center gap-2 px-4 py-2 border-b border-border/50 bg-background/80 backdrop-blur-sm">
+    <div className="shrink-0 flex items-center gap-2 px-3 sm:px-4 py-2 border-b border-border/50 bg-background/80 backdrop-blur-sm">
       <IconSearch className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
       <input
         ref={inputRef}
@@ -2627,25 +2714,25 @@ function ThreadSearchBar({
         <button
           onClick={onPrev}
           disabled={totalMatches === 0}
-          className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+          className="flex h-8 w-8 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           title="Previous match (Shift+Enter)"
         >
-          <IconChevronUp className="h-3 w-3" />
+          <IconChevronUp className="h-3.5 w-3.5 sm:h-3 sm:w-3" />
         </button>
         <button
           onClick={onNext}
           disabled={totalMatches === 0}
-          className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+          className="flex h-8 w-8 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           title="Next match (Enter)"
         >
-          <IconChevronDown className="h-3 w-3" />
+          <IconChevronDown className="h-3.5 w-3.5 sm:h-3 sm:w-3" />
         </button>
         <button
           onClick={onClose}
-          className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ml-1"
+          className="flex h-8 w-8 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ml-1"
           title="Close (Esc)"
         >
-          <IconX className="h-3 w-3" />
+          <IconX className="h-3.5 w-3.5 sm:h-3 sm:w-3" />
         </button>
       </div>
     </div>

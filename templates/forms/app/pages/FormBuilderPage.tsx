@@ -338,8 +338,8 @@ export function FormBuilderPage() {
     <div className="flex flex-col h-full">
       {codeRequiredDialog}
       {/* Top bar */}
-      <div className="flex items-center justify-between border-b border-border px-4 h-14 shrink-0">
-        <div className="flex items-center gap-3 relative">
+      <div className="flex items-center justify-between border-b border-border pl-12 pr-2 sm:px-4 md:pl-4 h-14 shrink-0 min-w-0">
+        <div className="flex items-center gap-2 sm:gap-3 relative min-w-0 flex-1 mr-2">
           <span
             ref={titleMeasureRef}
             aria-hidden
@@ -356,12 +356,12 @@ export function FormBuilderPage() {
             onFocus={() => (titleFocused.current = true)}
             onBlur={() => (titleFocused.current = false)}
             style={{ width: titleInputWidth }}
-            className="h-8 text-sm font-medium border-none bg-transparent px-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 max-w-80"
+            className="h-8 text-sm font-medium border-none bg-transparent px-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 max-w-[50vw] sm:max-w-80"
           />
           <Badge
             variant="outline"
             className={cn(
-              "text-[10px]",
+              "text-[10px] shrink-0 hidden sm:inline-flex",
               form.status === "published"
                 ? "bg-emerald-600/10 text-emerald-600 border-emerald-600/20"
                 : "bg-amber-600/10 text-amber-600 border-amber-600/20",
@@ -370,13 +370,13 @@ export function FormBuilderPage() {
             {form.status}
           </Badge>
           {saveState !== "idle" && (
-            <span className="text-[11px] text-muted-foreground">
+            <span className="text-[11px] text-muted-foreground shrink-0 hidden sm:inline">
               {saveState === "saving" ? "Saving…" : "Saved"}
             </span>
           )}
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 shrink-0">
           {form.status === "published" && (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -416,9 +416,9 @@ export function FormBuilderPage() {
       </div>
 
       {/* Tab row */}
-      <div className="border-b border-border px-4 shrink-0">
+      <div className="border-b border-border px-2 sm:px-4 shrink-0 overflow-x-auto">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="h-9 bg-transparent p-0 gap-0">
+          <TabsList className="h-9 bg-transparent p-0 gap-0 w-max sm:w-auto">
             <TabsTrigger
               value="edit"
               className="text-xs px-3 h-9 rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
@@ -498,7 +498,7 @@ export function FormBuilderPage() {
 
       {activeTab === "settings" && (
         <div className="flex-1 overflow-auto">
-          <div className="max-w-lg mx-auto py-8 px-4">
+          <div className="max-w-lg mx-auto py-4 sm:py-8 px-3 sm:px-4">
             <SettingsEditor
               form={form}
               onSave={(settings) => {
@@ -512,7 +512,7 @@ export function FormBuilderPage() {
 
       {activeTab === "integrations" && (
         <div className="flex-1 overflow-auto">
-          <div className="max-w-lg mx-auto py-8 px-4">
+          <div className="max-w-lg mx-auto py-4 sm:py-8 px-3 sm:px-4">
             <IntegrationsEditor
               form={form}
               onSave={(settings) => {
@@ -596,7 +596,7 @@ function BuilderContent({
     <div className="flex flex-1 overflow-hidden relative">
       {/* Live preview */}
       <div className="flex-1 overflow-auto bg-muted/30">
-        <div className="max-w-2xl mx-auto py-8 px-4">
+        <div className="max-w-2xl mx-auto py-4 sm:py-8 px-3 sm:px-4">
           {/* Form header */}
           <div className="mb-6">
             <Input
@@ -650,7 +650,7 @@ function BuilderContent({
                     )}
                   >
                     <div
-                      className="absolute -left-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 cursor-grab"
+                      className="absolute -left-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 cursor-grab hidden sm:block"
                       aria-label="Drag to reorder"
                     >
                       <IconGripVertical className="h-4 w-4 text-muted-foreground" />
@@ -662,7 +662,7 @@ function BuilderContent({
                   side="right"
                   align="start"
                   sideOffset={12}
-                  className="w-72 max-h-[520px] overflow-auto p-0"
+                  className="w-[calc(100vw-2rem)] sm:w-72 max-h-[70vh] sm:max-h-[520px] overflow-auto p-0"
                   onOpenAutoFocus={(e) => e.preventDefault()}
                   onInteractOutside={(e) => {
                     // Don't close when interacting with dropdowns portaled to body
@@ -725,7 +725,7 @@ function BuilderContent({
                 side="top"
                 align="end"
                 sideOffset={8}
-                className="w-80 p-0 rounded-xl"
+                className="w-[calc(100vw-2rem)] sm:w-80 p-0 rounded-xl"
                 onOpenAutoFocus={(e) => {
                   e.preventDefault();
                   agentPromptRef.current?.focus();
@@ -847,7 +847,7 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-2 border-b border-border">
+      <div className="flex items-center justify-between px-3 sm:px-4 py-2 border-b border-border">
         <Badge variant="secondary" className="text-xs">
           {total} response{total !== 1 ? "s" : ""}
         </Badge>
@@ -1153,7 +1153,7 @@ function IntegrationsEditor({
               </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {(
                 Object.entries(integrationMeta) as [
                   IntegrationType,
@@ -1164,7 +1164,7 @@ function IntegrationsEditor({
                   key={type}
                   type="button"
                   onClick={() => addIntegration(type)}
-                  className="rounded-lg border bg-background p-3 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  className="rounded-lg border bg-background p-3 text-left hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring min-h-[44px]"
                 >
                   <div className="flex items-center gap-3">
                     <IntegrationBrandMark type={type} className="h-9 w-9" />

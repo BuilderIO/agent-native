@@ -83,8 +83,20 @@ export function EventDetailPanel({
 
   return (
     <TooltipProvider>
-      <div className={cn("shrink-0 overflow-hidden", isOpen ? "w-80" : "w-0")}>
-        <div className="h-full w-80 border-l border-border bg-card flex flex-col">
+      {isOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm md:hidden"
+          onClick={onClose}
+        />
+      )}
+      <div
+        className={cn(
+          "fixed inset-y-0 right-0 z-50 w-full max-w-sm overflow-hidden md:static md:z-auto md:max-w-none md:shrink-0",
+          isOpen ? "md:w-80" : "w-0 md:w-0",
+          !isOpen && "pointer-events-none",
+        )}
+      >
+        <div className="h-full w-full border-l border-border bg-card flex flex-col md:w-80">
           {event && (
             <>
               {/* Header */}

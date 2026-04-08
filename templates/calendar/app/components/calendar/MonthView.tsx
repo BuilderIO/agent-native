@@ -14,6 +14,7 @@ import {
 import { cn } from "@/lib/utils";
 import { EventCard } from "./EventCard";
 import { EventDetailPopover } from "./EventDetailPopover";
+import { useIsMobile } from "@/hooks/use-mobile";
 import type { CalendarEvent } from "@shared/api";
 
 interface MonthViewProps {
@@ -38,6 +39,7 @@ const MONTH_SKELETON_WIDTHS = [
 ];
 
 const WEEKDAY_HEADERS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const WEEKDAY_HEADERS_SHORT = ["S", "M", "T", "W", "T", "F", "S"];
 
 export function MonthView({
   events,
@@ -48,6 +50,7 @@ export function MonthView({
   onEventDrop,
   isLoading = false,
 }: MonthViewProps) {
+  const isMobile = useIsMobile();
   const [dragOverDay, setDragOverDay] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
 
@@ -81,10 +84,10 @@ export function MonthView({
     <div className="flex h-full flex-col">
       {/* Weekday headers */}
       <div className="grid grid-cols-7 border-b border-border bg-card">
-        {WEEKDAY_HEADERS.map((day) => (
+        {(isMobile ? WEEKDAY_HEADERS_SHORT : WEEKDAY_HEADERS).map((day, i) => (
           <div
-            key={day}
-            className="py-2.5 text-center text-xs font-medium text-muted-foreground tracking-wide"
+            key={`${day}-${i}`}
+            className="py-2 text-center text-[10px] font-medium text-muted-foreground tracking-wide sm:py-2.5 sm:text-xs"
           >
             {day}
           </div>
@@ -118,7 +121,7 @@ export function MonthView({
               }}
               onDrop={(e) => handleDrop(e, day)}
               className={cn(
-                "group relative min-h-[90px] cursor-pointer border-b border-r border-border p-1.5 transition-colors",
+                "group relative min-h-[60px] cursor-pointer border-b border-r border-border p-1 sm:min-h-[90px] sm:p-1.5",
                 !inMonth && "opacity-35",
                 isDragTarget
                   ? "bg-primary/10 ring-1 ring-inset ring-primary/30"
@@ -129,7 +132,7 @@ export function MonthView({
               <div className="flex items-center justify-between">
                 <span
                   className={cn(
-                    "flex h-7 w-7 items-center justify-center rounded-full text-sm font-medium transition-colors",
+                    "flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium sm:h-7 sm:w-7 sm:text-sm",
                     today && "bg-primary text-primary-foreground font-semibold",
                     selected && !today && "bg-accent text-accent-foreground",
                     !today && !selected && "text-foreground",
@@ -157,7 +160,7 @@ export function MonthView({
                     />
                   ))}
                 {!isLoading &&
-                  dayEvents.slice(0, 3).map((event) => (
+                  dayEvents.slice(0, isMobile ? 2 : 3).map((event) => (
                     <EventDetailPopover
                       key={event.id}
                       event={event}
@@ -179,15 +182,15 @@ export function MonthView({
                       </div>
                     </EventDetailPopover>
                   ))}
-                {!isLoading && dayEvents.length > 3 && (
+                {!isLoading && dayEvents.length > (isMobile ? 2 : 3) && (
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       onDateSelect(day);
                     }}
-                    className="block w-full rounded px-1.5 py-0.5 text-left text-xs text-muted-foreground hover:bg-accent/50 transition-colors"
+                    className="block w-full rounded px-1 py-0.5 text-left text-[10px] text-muted-foreground hover:bg-accent/50 sm:px-1.5 sm:text-xs"
                   >
-                    +{dayEvents.length - 3} more
+                    +{dayEvents.length - (isMobile ? 2 : 3)} more
                   </button>
                 )}
               </div>

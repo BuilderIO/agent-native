@@ -18,7 +18,7 @@ export function MobileNav() {
     <div className="flex items-center h-14 border-b border-border px-4 md:hidden bg-sidebar">
       <button
         onClick={() => setOpen(true)}
-        className="mr-3 p-1.5 rounded-md hover:bg-sidebar-accent/50 transition-colors"
+        className="mr-3 p-2.5 -ml-1 rounded-md hover:bg-sidebar-accent/50"
         aria-label="Open navigation"
       >
         <IconMenu className="h-5 w-5 text-foreground" />
@@ -34,9 +34,9 @@ export function MobileNav() {
       </div>
 
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="left" className="p-0 w-64">
+        <SheetContent side="left" className="p-0 w-[280px]">
           <SheetTitle className="sr-only">Navigation</SheetTitle>
-          <Sidebar />
+          <Sidebar mobile />
         </SheetContent>
       </Sheet>
     </div>

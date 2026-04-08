@@ -74,7 +74,7 @@ export const ComposeEditor = forwardRef<
 
   const editor = useEditor({
     extensions: [
-      StarterKit.configure({
+      (StarterKit as any).configure({
         heading: { levels: [1, 2, 3] },
         codeBlock: false,
         dropcursor: { color: "hsl(220 10% 40%)", width: 2 },
@@ -162,10 +162,10 @@ export const ComposeEditor = forwardRef<
 
   useImperativeHandle(ref, () => ({
     toggleBold: () => {
-      editor?.chain().focus().toggleBold().run();
+      (editor?.chain().focus() as any)?.toggleBold().run();
     },
     toggleItalic: () => {
-      editor?.chain().focus().toggleItalic().run();
+      (editor?.chain().focus() as any)?.toggleItalic().run();
     },
     setLink: () => {
       if (!editor) return;

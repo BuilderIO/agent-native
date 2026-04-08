@@ -216,10 +216,10 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
   };
 
   return (
-    <div className="absolute top-3 right-4 z-10 flex items-center gap-1">
+    <div className="absolute top-2 right-2 z-10 flex items-center gap-0.5 sm:top-3 sm:right-4 sm:gap-1">
       <button
         onClick={() => setHistoryOpen(true)}
-        className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent"
+        className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
         title="Version history"
       >
         <IconHistory size={16} />
@@ -235,7 +235,7 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
         <PopoverTrigger asChild>
           <button
             className={cn(
-              "flex h-7 w-7 items-center justify-center rounded hover:bg-accent",
+              "flex h-9 w-9 items-center justify-center rounded-lg hover:bg-accent",
               isLinked
                 ? "text-foreground"
                 : "text-muted-foreground hover:text-foreground",

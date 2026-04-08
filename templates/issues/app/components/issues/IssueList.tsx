@@ -62,7 +62,7 @@ export function IssueList({
                   [group.categoryKey]: !prev[group.categoryKey],
                 }))
               }
-              className="flex w-full items-center gap-2 border-b border-border/30 bg-muted/30 px-4 py-2 text-left"
+              className="flex w-full items-center gap-2 border-b border-border/30 bg-muted/30 px-3 py-2.5 text-left sm:px-4"
             >
               {isCollapsed ? (
                 <IconChevronRight className="h-3 w-3 text-muted-foreground" />

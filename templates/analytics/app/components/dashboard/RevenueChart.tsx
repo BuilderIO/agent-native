@@ -21,7 +21,7 @@ const data = [
 
 export function RevenueChart() {
   return (
-    <Card className="col-span-4 bg-card border-border/50">
+    <Card className="col-span-full lg:col-span-4 bg-card border-border/50">
       <CardHeader>
         <CardTitle>Revenue over time</CardTitle>
       </CardHeader>

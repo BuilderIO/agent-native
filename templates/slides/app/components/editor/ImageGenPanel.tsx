@@ -118,19 +118,30 @@ export default function ImageGenPanel({
 
   if (anchorRef?.current) {
     const rect = anchorRef.current.getBoundingClientRect();
-    style = {
-      position: "fixed",
-      top: rect.bottom + 8,
-      right: Math.max(8, window.innerWidth - rect.right),
-      zIndex: 9999,
-    };
+    const vw = window.innerWidth;
+    if (vw < 640) {
+      style = {
+        position: "fixed",
+        top: rect.bottom + 8,
+        left: 12,
+        right: 12,
+        zIndex: 9999,
+      };
+    } else {
+      style = {
+        position: "fixed",
+        top: rect.bottom + 8,
+        right: Math.max(8, vw - rect.right),
+        zIndex: 9999,
+      };
+    }
   }
 
   return createPortal(
     <div
       ref={panelRef}
       style={style}
-      className="w-80 bg-[hsl(240,5%,10%)] border border-white/[0.1] rounded-xl shadow-2xl shadow-black/60 overflow-hidden"
+      className="w-[min(20rem,calc(100vw-24px))] bg-[hsl(240,5%,10%)] border border-white/[0.1] rounded-xl shadow-2xl shadow-black/60 overflow-hidden"
     >
       <div className="px-4 pt-3 pb-2 flex items-center justify-between">
         <h3 className="text-sm font-semibold text-white/90">Generate Image</h3>

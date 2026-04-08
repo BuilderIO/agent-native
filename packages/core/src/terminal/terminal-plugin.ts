@@ -7,7 +7,7 @@ import { isNodeRuntime } from "../shared/runtime.js";
  * component can connect to a real CLI. Mounts a discovery endpoint at
  * /_agent-native/agent-terminal-info for the client component.
  *
- * Skips activation when running inside a harness (HARNESS_PORT is set).
+ * Skips activation when running inside a frame (FRAME_PORT is set).
  */
 
 import { defineEventHandler } from "h3";
@@ -50,9 +50,9 @@ export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
       }),
     );
 
-    // Skip if running inside a harness
-    if (process.env.HARNESS_PORT) {
-      console.log("[terminal] Harness detected, skipping embedded terminal");
+    // Skip if running inside a frame
+    if (process.env.FRAME_PORT) {
+      console.log("[terminal] Frame detected, skipping embedded terminal");
       return;
     }
 

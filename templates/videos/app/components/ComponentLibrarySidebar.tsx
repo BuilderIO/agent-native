@@ -99,7 +99,7 @@ export function ComponentLibrarySidebar({
   if (!open) return null;
 
   return (
-    <div className="w-64 border-r border-border bg-secondary/30 flex flex-col overflow-hidden">
+    <div className="absolute inset-y-0 left-0 z-30 w-64 md:relative border-r border-border bg-secondary/30 flex flex-col overflow-hidden">
       <Tabs
         value={tab}
         onValueChange={(v) => setTab(v as "components" | "properties")}

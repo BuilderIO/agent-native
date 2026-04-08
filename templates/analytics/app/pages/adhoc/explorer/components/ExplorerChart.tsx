@@ -105,7 +105,7 @@ function MetricView({
   config: ExplorerConfig;
 }) {
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
       {rows.map((row, i) => {
         const label = String(
           row.event_label ?? config.events[0]?.event ?? "Count",
@@ -142,7 +142,7 @@ function TableView({ rows }: { rows: Record<string, unknown>[] }) {
                 {columns.map((col) => (
                   <th
                     key={col}
-                    className="text-left px-3 py-2 font-medium text-muted-foreground"
+                    className="text-left px-3 py-2 font-medium text-muted-foreground whitespace-nowrap"
                   >
                     {col}
                   </th>
@@ -153,7 +153,7 @@ function TableView({ rows }: { rows: Record<string, unknown>[] }) {
               {rows.slice(0, 100).map((row, i) => (
                 <tr key={i} className="border-t border-border">
                   {columns.map((col) => (
-                    <td key={col} className="px-3 py-1.5">
+                    <td key={col} className="px-3 py-1.5 whitespace-nowrap">
                       {formatCell(row[col])}
                     </td>
                   ))}

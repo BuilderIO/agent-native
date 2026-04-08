@@ -34,14 +34,11 @@ export interface AppWebviewHandle {
  * Determine the URL to load for this app.
  *
  * Production mode (default): load the production URL (e.g. https://mail.agent-native.com).
- * Dev mode: load the dev URL (localhost) or fall back to the CLI harness.
+ * Dev mode: load through the local dev frame (chat+CLI sidebar + app iframe).
  */
 function resolveUrl(app: AppDefinition, appConfig?: AppConfig): string {
   if (appConfig?.mode === "dev") {
-    // Dev mode: prefer custom dev URL, fall back to CLI harness
-    if (appConfig.devUrl) {
-      return appConfig.devUrl;
-    }
+    // Dev mode: load through the local dev frame
     return getAppUrl(app);
   }
 

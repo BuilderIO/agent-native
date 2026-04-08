@@ -269,7 +269,7 @@ function AliasesSection() {
   };
 
   return (
-    <div className="flex-1 p-8 overflow-y-auto">
+    <div className="flex-1 p-4 sm:p-8 overflow-y-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -661,7 +661,7 @@ function AutomationsSection() {
   };
 
   return (
-    <div className="flex-1 p-8 overflow-y-auto">
+    <div className="flex-1 p-4 sm:p-8 overflow-y-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -754,10 +754,10 @@ export function SettingsPage() {
     useState<SettingsSection>("automations");
 
   return (
-    <div className="flex flex-1 overflow-hidden">
-      {/* Left sidebar nav */}
-      <div className="w-[200px] shrink-0 border-r border-border/30 bg-muted/50 dark:bg-[hsl(220,6%,5%)] p-3 flex flex-col gap-0.5">
-        <p className="px-2 py-1.5 text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider mb-1">
+    <div className="flex flex-1 flex-col sm:flex-row overflow-hidden">
+      {/* Top tabs on mobile, left sidebar on desktop */}
+      <div className="sm:w-[200px] shrink-0 sm:border-r border-b sm:border-b-0 border-border/30 bg-muted/50 dark:bg-[hsl(220,6%,5%)] sm:p-3 flex sm:flex-col gap-0.5 overflow-x-auto">
+        <p className="hidden sm:block px-2 py-1.5 text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider mb-1">
           Settings
         </p>
         {navItems.map((item) => {
@@ -768,7 +768,7 @@ export function SettingsPage() {
               key={item.id}
               onClick={() => setActiveSection(item.id)}
               className={cn(
-                "flex items-center gap-2.5 w-full rounded-md px-2.5 py-2 text-[13px] transition-colors text-left",
+                "flex items-center gap-2.5 sm:w-full rounded-md px-3 sm:px-2.5 py-2.5 sm:py-2 text-[13px] transition-colors text-left whitespace-nowrap",
                 isActive
                   ? "bg-indigo-500/15 text-indigo-300 font-medium"
                   : "text-muted-foreground hover:text-foreground hover:bg-accent/50",

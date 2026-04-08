@@ -34,16 +34,18 @@ export function JobsListPage() {
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-border px-6 h-14 flex-shrink-0">
-        <div className="flex items-center gap-4">
-          <h1 className="text-sm font-semibold text-foreground">Jobs</h1>
-          <div className="flex items-center gap-1">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 min-h-14 py-2 flex-shrink-0 sm:px-6 sm:flex-nowrap">
+        <div className="flex items-center gap-3 sm:gap-4">
+          <h1 className="text-sm font-semibold text-foreground pl-10 md:pl-0">
+            Jobs
+          </h1>
+          <div className="flex items-center gap-0.5 sm:gap-1">
             {statuses.map((s) => (
               <button
                 key={s.value}
                 onClick={() => setStatusFilter(s.value)}
                 className={cn(
-                  "rounded-md px-2.5 py-1 text-xs font-medium",
+                  "rounded-md px-2 py-1.5 text-xs font-medium sm:px-2.5",
                   statusFilter === s.value
                     ? "bg-accent text-foreground"
                     : "text-muted-foreground hover:text-foreground",
@@ -54,14 +56,14 @@ export function JobsListPage() {
             ))}
           </div>
         </div>
-        <div className="relative">
+        <div className="relative w-full sm:w-auto">
           <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search jobs..."
-            className="h-8 w-56 rounded-md border border-border bg-background pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground/50 outline-none focus:border-ring"
+            className="h-8 w-full rounded-md border border-border bg-background pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground/50 outline-none focus:border-ring sm:w-56"
           />
         </div>
       </div>
@@ -98,101 +100,144 @@ export function JobsListPage() {
             </p>
           </div>
         ) : (
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-border text-left">
-                <th
-                  scope="col"
-                  className="px-6 py-2.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider"
-                >
-                  Job
-                </th>
-                <th
-                  scope="col"
-                  className="px-4 py-2.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider"
-                >
-                  Department
-                </th>
-                <th
-                  scope="col"
-                  className="px-4 py-2.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider"
-                >
-                  Office
-                </th>
-                <th
-                  scope="col"
-                  className="px-4 py-2.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider"
-                >
-                  Status
-                </th>
-                <th
-                  scope="col"
-                  className="px-4 py-2.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider"
-                >
-                  Openings
-                </th>
-                <th
-                  scope="col"
-                  className="px-4 py-2.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider text-right"
-                >
-                  Opened
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
+          <>
+            {/* Mobile list */}
+            <div className="divide-y divide-border sm:hidden">
               {filtered.map((job) => (
-                <tr
+                <div
                   key={job.id}
                   onClick={() => navigate(`/jobs/${job.id}`)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      navigate(`/jobs/${job.id}`);
-                    }
-                  }}
-                  tabIndex={0}
-                  className="list-row cursor-pointer hover:bg-accent/50"
+                  className="flex items-center justify-between gap-3 px-4 py-3 cursor-pointer hover:bg-accent/50"
                 >
-                  <td className="px-6 py-3">
-                    <div className="text-sm font-medium text-foreground">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium text-foreground truncate">
                       {job.name}
                     </div>
-                    {job.requisition_id && (
-                      <div className="text-xs text-muted-foreground">
-                        REQ-{job.requisition_id}
-                      </div>
+                    <div className="text-xs text-muted-foreground truncate">
+                      {job.departments.map((d) => d.name).join(", ") ||
+                        "No dept"}
+                      {job.offices.length > 0 &&
+                        ` · ${job.offices.map((o) => o.name).join(", ")}`}
+                    </div>
+                  </div>
+                  <span
+                    className={cn(
+                      "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium flex-shrink-0",
+                      job.status === "open"
+                        ? "bg-green-500/10 text-green-600"
+                        : job.status === "closed"
+                          ? "bg-red-500/10 text-red-600"
+                          : "bg-yellow-500/10 text-yellow-600",
                     )}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-muted-foreground">
-                    {job.departments.map((d) => d.name).join(", ") || "—"}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-muted-foreground">
-                    {job.offices.map((o) => o.name).join(", ") || "—"}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={cn(
-                        "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium",
-                        job.status === "open"
-                          ? "bg-green-500/10 text-green-600"
-                          : job.status === "closed"
-                            ? "bg-red-500/10 text-red-600"
-                            : "bg-yellow-500/10 text-yellow-600",
-                      )}
-                    >
-                      {job.status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-sm text-muted-foreground tabular-nums">
-                    {job.openings?.length ?? 0}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-muted-foreground text-right tabular-nums">
-                    {job.opened_at ? formatDateShort(job.opened_at) : "—"}
-                  </td>
-                </tr>
+                  >
+                    {job.status}
+                  </span>
+                </div>
               ))}
-            </tbody>
-          </table>
+            </div>
+
+            {/* Desktop table */}
+            <div className="hidden sm:block overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-border text-left">
+                    <th
+                      scope="col"
+                      className="px-6 py-2.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider"
+                    >
+                      Job
+                    </th>
+                    <th
+                      scope="col"
+                      className="px-4 py-2.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider"
+                    >
+                      Department
+                    </th>
+                    <th
+                      scope="col"
+                      className="px-4 py-2.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider hidden lg:table-cell"
+                    >
+                      Office
+                    </th>
+                    <th
+                      scope="col"
+                      className="px-4 py-2.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider"
+                    >
+                      Status
+                    </th>
+                    <th
+                      scope="col"
+                      className="px-4 py-2.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider"
+                    >
+                      Openings
+                    </th>
+                    <th
+                      scope="col"
+                      className="px-4 py-2.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider text-right"
+                    >
+                      Opened
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {filtered.map((job) => (
+                    <tr
+                      key={job.id}
+                      onClick={() => navigate(`/jobs/${job.id}`)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          navigate(`/jobs/${job.id}`);
+                        }
+                      }}
+                      tabIndex={0}
+                      className="list-row cursor-pointer hover:bg-accent/50"
+                    >
+                      <td className="px-6 py-3">
+                        <div className="text-sm font-medium text-foreground">
+                          {job.name}
+                        </div>
+                        {job.requisition_id && (
+                          <div className="text-xs text-muted-foreground">
+                            REQ-{job.requisition_id}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-muted-foreground">
+                        {job.departments.map((d) => d.name).join(", ") ||
+                          "\u2014"}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-muted-foreground hidden lg:table-cell">
+                        {job.offices.map((o) => o.name).join(", ") || "\u2014"}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={cn(
+                            "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium",
+                            job.status === "open"
+                              ? "bg-green-500/10 text-green-600"
+                              : job.status === "closed"
+                                ? "bg-red-500/10 text-red-600"
+                                : "bg-yellow-500/10 text-yellow-600",
+                          )}
+                        >
+                          {job.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-muted-foreground tabular-nums">
+                        {job.openings?.length ?? 0}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-muted-foreground text-right tabular-nums">
+                        {job.opened_at
+                          ? formatDateShort(job.opened_at)
+                          : "\u2014"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
     </div>

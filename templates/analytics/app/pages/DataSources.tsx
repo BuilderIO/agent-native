@@ -391,7 +391,7 @@ function ConnectedView({
       </div>
 
       {/* Actions */}
-      <div className="flex items-center gap-2 pt-2 border-t border-border/30">
+      <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border/30">
         <Button
           size="sm"
           variant="outline"

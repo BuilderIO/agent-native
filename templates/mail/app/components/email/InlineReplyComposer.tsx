@@ -299,7 +299,7 @@ export const InlineReplyComposer = forwardRef<
             </span>
             <button
               onClick={() => onPopOut(draft.id)}
-              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
+              className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
               title="Pop out to compose window"
             >
               <IconExternalLink className="h-3.5 w-3.5" />

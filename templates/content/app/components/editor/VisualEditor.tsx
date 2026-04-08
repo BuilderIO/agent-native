@@ -1,4 +1,8 @@
 import { useEditor, EditorContent, Extension } from "@tiptap/react";
+import Collaboration from "@tiptap/extension-collaboration";
+import CollaborationCaret from "@tiptap/extension-collaboration-caret";
+import type { Doc as YDoc } from "yjs";
+import { Awareness } from "y-protocols/awareness";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
@@ -16,7 +20,7 @@ import {
   TextSelection,
   AllSelection,
 } from "@tiptap/pm/state";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useMemo } from "react";
 import { BubbleToolbar } from "./BubbleToolbar";
 import { SlashCommandMenu } from "./SlashCommandMenu";
 import { LinkHoverPreview } from "./LinkHoverPreview";
@@ -361,19 +365,52 @@ interface VisualEditorProps {
   documentId?: string;
   content: string;
   onChange: (markdown: string) => void;
+  /** Yjs document for collaborative editing. */
+  ydoc?: YDoc | null;
+  /** Current user info for cursor labels. */
+  user?: { name: string; color: string };
   editable?: boolean;
+  /** Called when user selects text and clicks "Comment" in bubble toolbar. */
+  onComment?: (quotedText: string) => void;
 }
 
 export function VisualEditor({
   documentId,
   content,
   onChange,
+  ydoc,
+  user,
   editable = true,
+  onComment,
 }: VisualEditorProps) {
   const isSettingContent = useRef(false);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
   const prevDocIdRef = useRef(documentId);
+
+  // Create Awareness instance locally (same module as CollaborationCursor uses)
+  const localAwareness = useMemo(() => {
+    if (!ydoc) return null;
+    const a = new Awareness(ydoc);
+    if (user) {
+      a.setLocalStateField("user", user);
+    }
+    return a;
+  }, [ydoc]);
+
+  // Update user info when it changes
+  useEffect(() => {
+    if (localAwareness && user) {
+      localAwareness.setLocalStateField("user", user);
+    }
+  }, [localAwareness, user?.name, user?.color]);
+
+  // Clean up awareness on unmount
+  useEffect(() => {
+    return () => {
+      localAwareness?.destroy();
+    };
+  }, [localAwareness]);
 
   const editor = useEditor({
     extensions: [
@@ -382,6 +419,8 @@ export function VisualEditor({
         codeBlock: false,
         horizontalRule: {},
         dropcursor: { color: "hsl(243 75% 59%)", width: 2 },
+        // Disable built-in history when Collaboration is active (Yjs tracks undo)
+        ...(ydoc ? { history: false } : {}),
       }),
       CodeBlock,
       Placeholder.configure({
@@ -428,6 +467,17 @@ export function VisualEditor({
         transformPastedText: true,
         transformCopiedText: true,
       }),
+      // Collaborative editing via Y.XmlFragment
+      ...(ydoc ? [Collaboration.configure({ document: ydoc })] : []),
+      // Multi-user cursor awareness (live cursor positions + names)
+      ...(localAwareness
+        ? [
+            CollaborationCaret.configure({
+              provider: { awareness: localAwareness },
+              user: user ?? { name: "Anonymous", color: "#999" },
+            }),
+          ]
+        : []),
     ],
     content: parseNfmForEditor(content),
     editorProps: {
@@ -439,7 +489,11 @@ export function VisualEditor({
       if (isSettingContent.current) return;
       try {
         const md = (editor.storage as any).markdown.getMarkdown();
-        onChangeRef.current(serializeEditorToNfm(md));
+        const normalized = serializeEditorToNfm(md);
+        // Don't save empty content when Collaboration hasn't seeded yet —
+        // this prevents overwriting DB content with empty string
+        if (!normalized.trim() && ydoc) return;
+        onChangeRef.current(normalized);
       } catch (err: any) {
         toast.error("Markdown serialization error: " + err.message);
         console.error("Markdown serialization error:", err);
@@ -452,9 +506,27 @@ export function VisualEditor({
     editor.setEditable(editable);
   }, [editor, editable]);
 
-  // Sync content from outside
+  // Seed Y.XmlFragment from content prop on first load.
+  // The Collaboration extension does NOT auto-seed from the content prop —
+  // we must do it manually when the fragment is empty.
+  const seededDocRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!editor || editor.isDestroyed) return;
+    if (!editor || editor.isDestroyed || !ydoc || !content) return;
+    // Skip if already seeded for this document
+    if (seededDocRef.current === documentId) return;
+    const fragment = ydoc.getXmlFragment("default");
+    if (fragment.length === 0) {
+      isSettingContent.current = true;
+      editor.commands.setContent(parseNfmForEditor(content));
+      isSettingContent.current = false;
+    }
+    seededDocRef.current = documentId ?? null;
+  }, [editor, ydoc, content, documentId]);
+
+  // Sync content from outside (only when NOT using Collaboration).
+  // When ydoc is bound, ySyncPlugin handles all content updates.
+  useEffect(() => {
+    if (!editor || editor.isDestroyed || ydoc) return;
     const docChanged = documentId !== prevDocIdRef.current;
     if (docChanged) prevDocIdRef.current = documentId;
     const nextEditorContent = parseNfmForEditor(content);
@@ -484,7 +556,7 @@ export function VisualEditor({
 
   return (
     <div className="visual-editor-wrapper">
-      <BubbleToolbar editor={editor} />
+      <BubbleToolbar editor={editor} onComment={onComment} />
       <SlashCommandMenu editor={editor} documentId={documentId} />
       <LinkHoverPreview editor={editor} />
       <TableHoverControls editor={editor} />

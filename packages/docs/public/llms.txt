@@ -37,15 +37,28 @@ Replace `mail` with any template name below. To start from a blank canvas instea
 
 ## Documentation (Markdown)
 
-All documentation pages are available as raw markdown by appending `.md` to any docs URL:
+All documentation pages are available as raw markdown by appending `.md` to any docs URL. This makes it easy for LLMs and automated tools to consume the docs directly.
 
 - [Getting Started](https://agent-native.com/docs/getting-started.md)
-- [Server API](https://agent-native.com/docs/server.md)
-- [Client Hooks](https://agent-native.com/docs/client.md)
-- [Scripts](https://agent-native.com/docs/scripts.md)
-- [Routing](https://agent-native.com/docs/routing.md)
+- [What Is Agent-Native?](https://agent-native.com/docs/what-is-agent-native.md)
+- [Key Concepts](https://agent-native.com/docs/key-concepts.md)
+- [FAQ](https://agent-native.com/docs/faq.md)
+- [Context Awareness](https://agent-native.com/docs/context-awareness.md)
+- [Skills Guide](https://agent-native.com/docs/skills-guide.md)
+- [A2A Protocol](https://agent-native.com/docs/a2a-protocol.md)
+- [Real-Time Collaboration](https://agent-native.com/docs/real-time-collaboration.md)
+- [Agent Mentions](https://agent-native.com/docs/agent-mentions.md)
+- [Integrations](https://agent-native.com/docs/integrations.md)
+- [Authentication](https://agent-native.com/docs/authentication.md)
+- [Security & Data Scoping](https://agent-native.com/docs/security.md)
+- [Server](https://agent-native.com/docs/server.md)
+- [Client](https://agent-native.com/docs/client.md)
+- [Resources & Skills](https://agent-native.com/docs/resources.md)
+- [Actions](https://agent-native.com/docs/actions.md)
 - [Deployment](https://agent-native.com/docs/deployment.md)
-- [Harnesses](https://agent-native.com/docs/harnesses)
+- [CLI Adapters](https://agent-native.com/docs/cli-adapters.md)
+- [Frames](https://agent-native.com/docs/frames.md)
+- [Creating Templates](https://agent-native.com/docs/creating-templates.md)
 
 ## Full Documentation
 

@@ -74,28 +74,37 @@ export function ResponsesPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-border px-4 h-14 shrink-0">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" asChild className="gap-1.5">
+      <div className="flex items-center justify-between border-b border-border pl-12 pr-2 sm:px-4 md:pl-4 h-14 shrink-0 gap-2 min-w-0">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            asChild
+            className="gap-1.5 shrink-0"
+          >
             <Link to={`/forms/${id}`}>
               <ArrowLeft className="h-3.5 w-3.5" />
-              Back to Builder
+              <span className="hidden sm:inline">Back to Builder</span>
+              <span className="sm:hidden">Back</span>
             </Link>
           </Button>
-          <span className="text-sm font-medium">{form?.title}</span>
-          <Badge variant="secondary" className="text-xs">
+          <span className="text-sm font-medium truncate hidden sm:block">
+            {form?.title}
+          </span>
+          <Badge variant="secondary" className="text-xs shrink-0">
             {total} response{total !== 1 ? "s" : ""}
           </Badge>
         </div>
         <Button
           variant="outline"
           size="sm"
-          className="gap-1.5 text-xs"
+          className="gap-1.5 text-xs shrink-0"
           onClick={exportCsv}
           disabled={responses.length === 0}
         >
           <Download className="h-3.5 w-3.5" />
-          Export CSV
+          <span className="hidden sm:inline">Export CSV</span>
+          <span className="sm:hidden">Export</span>
         </Button>
       </div>
 
@@ -140,7 +149,7 @@ export function ResponsesPage() {
                 {responses.map((response, idx) => (
                   <tr
                     key={response.id}
-                    className="border-b border-border hover:bg-muted/20 transition-colors"
+                    className="border-b border-border hover:bg-muted/20"
                   >
                     <td className="px-4 py-2.5 text-xs text-muted-foreground">
                       {total - idx}

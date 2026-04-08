@@ -89,7 +89,7 @@ export default async function main() {
 }
 ```
 
-**The agent should always call `view-screen` before acting.** This is a hard convention across all templates.
+**Navigation state is auto-injected into every user message as a `<current-screen>` block**, so the agent always has basic context without calling any tool. The `view-screen` action is still useful when you need a richer snapshot (e.g., fetching the full email thread or form data for the current view).
 
 ### 3. The `navigate` Script
 
@@ -168,7 +168,7 @@ The mail template demonstrates all three patterns working together:
 
 ## Do
 
-- Always read `view-screen` before acting — even if you think you know what's on screen
+- Use the auto-injected `<current-screen>` block for basic context — call `view-screen` only when you need richer data
 - Include all relevant selection state in the `navigation` key (view, item IDs, filters)
 - Update `view-screen` when adding new features — it should return data for every view
 - Use the one-shot `navigate` command pattern for agent-initiated navigation
@@ -179,7 +179,7 @@ The mail template demonstrates all three patterns working together:
 - Don't assume the user is on a specific page — always check navigation state
 - Don't hardcode navigation paths in scripts — read the current state and branch
 - Don't write to the `navigation` key from the agent — it belongs to the UI. Use `navigate` instead.
-- Don't skip `view-screen` to save time — context errors cost more than the read
+- Don't ignore the `<current-screen>` block — it tells you where the user is
 - Don't store fetched data in navigation state — it holds IDs and filters only. The `view-screen` script fetches the actual data.
 
 ## Related Skills

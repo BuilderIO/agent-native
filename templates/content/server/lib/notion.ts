@@ -598,3 +598,51 @@ export async function saveNotionTokensForOwner(
   );
   return accountId;
 }
+
+// ─── Notion Comments API ────────────────────────────────────────
+
+export interface NotionComment {
+  id: string;
+  rich_text: Array<{ plain_text: string }>;
+  created_time: string;
+  created_by: { id: string };
+}
+
+/** List open comments on a Notion page. */
+export async function listNotionComments(
+  pageId: string,
+  accessToken: string,
+): Promise<NotionComment[]> {
+  const res = await fetch(`${NOTION_API_BASE}/comments?block_id=${pageId}`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Notion-Version": NOTION_API_VERSION,
+    },
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return (data.results ?? []) as NotionComment[];
+}
+
+/** Add a comment to a Notion page. */
+export async function addNotionComment(
+  pageId: string,
+  text: string,
+  accessToken: string,
+): Promise<string | null> {
+  const res = await fetch(`${NOTION_API_BASE}/comments`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Notion-Version": NOTION_API_VERSION,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      parent: { page_id: pageId },
+      rich_text: [{ text: { content: text } }],
+    }),
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.id ?? null;
+}

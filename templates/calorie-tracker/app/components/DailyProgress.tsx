@@ -104,8 +104,8 @@ export function DailyProgress({
   };
 
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5 backdrop-blur-sm">
-      <div className="grid lg:grid-cols-[1fr,340px] gap-8">
+    <div className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4 sm:p-5 backdrop-blur-sm">
+      <div className="grid lg:grid-cols-[1fr,340px] gap-6 sm:gap-8">
         {/* Left Side */}
         <div className="space-y-8 flex flex-col justify-center">
           <div className="flex items-center justify-between">
@@ -138,23 +138,23 @@ export function DailyProgress({
           </div>
 
           <div>
-            <div className="flex items-baseline gap-3">
+            <div className="flex items-baseline gap-2 sm:gap-3">
               <span
                 className={cn(
-                  "text-7xl font-bold tracking-tighter text-foreground",
+                  "text-5xl sm:text-7xl font-bold tracking-tighter text-foreground",
                   isOver && "text-red-400",
                 )}
               >
                 {netCalories}
               </span>
-              <span className="text-xl font-medium text-muted-foreground uppercase tracking-widest">
+              <span className="text-base sm:text-xl font-medium text-muted-foreground uppercase tracking-widest">
                 kcal
               </span>
             </div>
           </div>
 
           <div className="space-y-3 mt-auto">
-            <div className="flex items-center gap-6">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 sm:gap-x-6">
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-emerald-400/60" />
                 <span className="text-sm text-muted-foreground">
@@ -201,7 +201,7 @@ export function DailyProgress({
           </div>
 
           {(protein > 0 || carbs > 0 || fat > 0) && (
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-3 gap-2 sm:gap-3">
               {[
                 { label: "Protein", value: protein },
                 { label: "Carbs", value: carbs },
@@ -209,12 +209,12 @@ export function DailyProgress({
               ].map((m) => (
                 <div
                   key={m.label}
-                  className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.04]"
+                  className="p-2.5 sm:p-3 rounded-xl bg-white/[0.03] border border-white/[0.04]"
                 >
                   <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">
                     {m.label}
                   </p>
-                  <p className="text-lg font-bold text-foreground">
+                  <p className="text-base sm:text-lg font-bold text-foreground">
                     {m.value}g
                   </p>
                 </div>

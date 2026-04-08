@@ -65,6 +65,13 @@ const electronAPI = {
   setActiveWebview: (target: ActiveWebviewTarget) =>
     ipcRenderer.send(IPC.SET_ACTIVE_WEBVIEW, target),
 
+  /** Local dev frame settings */
+  frame: {
+    load: (): Promise<any> => ipcRenderer.invoke(IPC.FRAME_LOAD),
+    update: (settings: any): Promise<any> =>
+      ipcRenderer.invoke(IPC.FRAME_UPDATE, settings),
+  },
+
   /** Inter-app communication — relay messages between loaded apps */
   interApp: {
     /** Send a message to a specific app (or broadcast with targetAppId = "*") */

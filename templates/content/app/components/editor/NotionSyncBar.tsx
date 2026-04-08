@@ -193,7 +193,7 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
                   value={pageIdOrUrl}
                   onChange={(e) => setPageIdOrUrl(e.target.value)}
                   placeholder="Notion page URL or page ID"
-                  className="h-8 w-[260px]"
+                  className="h-8 w-full sm:w-[260px]"
                 />
                 <Button
                   size="sm"

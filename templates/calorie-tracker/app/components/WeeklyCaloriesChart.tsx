@@ -176,7 +176,7 @@ export function WeeklyCaloriesChart({
 
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-3 gap-2 sm:gap-3">
         {[
           {
             label: "Avg / Week",
@@ -230,7 +230,7 @@ export function WeeklyCaloriesChart({
             tickLine={false}
             axisLine={false}
             dy={10}
-            interval={0}
+            interval="preserveStartEnd"
             angle={-25}
             textAnchor="end"
             height={50}

@@ -26,12 +26,18 @@ interface DocumentSidebarProps {
   activeDocumentId: string | null;
   collapsed: boolean;
   onToggleCollapsed: () => void;
+  onNavigate?: () => void;
+  width?: number;
+  onResize?: (width: number) => void;
 }
 
 export function DocumentSidebar({
   activeDocumentId,
   collapsed,
   onToggleCollapsed,
+  onNavigate,
+  width = 240,
+  onResize,
 }: DocumentSidebarProps) {
   const navigate = useNavigate();
   const { data: documents = [], isLoading } = useDocuments();
@@ -44,6 +50,36 @@ export function DocumentSidebar({
   // All nodes default to expanded; only collapsed IDs are tracked.
   const collapsedIds = useRef(new Set<string>());
   const [, forceUpdate] = useState(0);
+  const [isResizing, setIsResizing] = useState(false);
+
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      if (!onResize) return;
+      e.preventDefault();
+      setIsResizing(true);
+      const startX = e.clientX;
+      const startWidth = width;
+
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = "col-resize";
+
+      const handleMouseMove = (e: MouseEvent) => {
+        onResize(startWidth + e.clientX - startX);
+      };
+
+      const handleMouseUp = () => {
+        setIsResizing(false);
+        document.body.style.userSelect = "";
+        document.body.style.cursor = "";
+        document.removeEventListener("mousemove", handleMouseMove);
+        document.removeEventListener("mouseup", handleMouseUp);
+      };
+
+      document.addEventListener("mousemove", handleMouseMove);
+      document.addEventListener("mouseup", handleMouseUp);
+    },
+    [onResize, width],
+  );
 
   const tree = buildDocumentTree(documents);
   const favorites = documents.filter((d) => d.isFavorite);
@@ -69,6 +105,7 @@ export function DocumentSidebar({
           parentId: parentId ?? null,
         });
         navigate(`/page/${doc.id}`);
+        onNavigate?.();
       } catch (err) {
         toast.error("Failed to create page", {
           description:
@@ -76,7 +113,7 @@ export function DocumentSidebar({
         });
       }
     },
-    [createDocument, navigate],
+    [createDocument, navigate, onNavigate],
   );
 
   const handleDelete = useCallback(
@@ -104,46 +141,49 @@ export function DocumentSidebar({
 
   if (collapsed) {
     return (
-      <div className="flex flex-col h-full w-10 border-r border-border bg-muted/30 items-center py-3 gap-2">
+      <div className="flex flex-col h-full w-12 border-r border-border bg-muted/30 items-center py-3 gap-1">
         <button
-          className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent text-muted-foreground hover:text-foreground"
+          className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
           onClick={onToggleCollapsed}
           title="Expand sidebar"
         >
-          <IconLayoutSidebarLeftExpand size={16} />
+          <IconLayoutSidebarLeftExpand size={18} />
         </button>
         <button
-          className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent text-muted-foreground hover:text-foreground"
+          className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
           onClick={() => handleCreatePage()}
           title="New page"
         >
-          <IconPlus size={14} />
+          <IconPlus size={16} />
         </button>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-full w-60 border-r border-border bg-muted/30">
+    <div
+      className="relative flex flex-col h-full border-r border-border bg-muted/30"
+      style={{ width, flexShrink: 0 }}
+    >
       {/* Header */}
-      <div className="flex items-center justify-between h-12 px-4 border-b border-border">
+      <div className="flex items-center justify-between h-12 px-3 border-b border-border">
         <span className="text-base font-semibold tracking-tight text-foreground">
           Documents
         </span>
         <div className="flex items-center gap-0.5">
           <button
-            className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent text-muted-foreground hover:text-foreground"
+            className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
             onClick={() => setIsSearching(!isSearching)}
             title="Search"
           >
-            <IconSearch size={14} />
+            <IconSearch size={16} />
           </button>
           <button
-            className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent text-muted-foreground hover:text-foreground"
+            className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
             onClick={onToggleCollapsed}
             title="Collapse sidebar"
           >
-            <IconLayoutSidebarLeftCollapse size={14} />
+            <IconLayoutSidebarLeftCollapse size={16} />
           </button>
         </div>
       </div>
@@ -185,7 +225,7 @@ export function DocumentSidebar({
                   <button
                     key={doc.id}
                     className={cn(
-                      "w-full flex items-center gap-2 px-3 py-1.5 text-sm text-left rounded-md",
+                      "w-full flex items-center gap-2 px-3 py-[5px] text-sm text-left rounded-md",
                       doc.id === activeDocumentId
                         ? "bg-accent text-accent-foreground"
                         : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -194,6 +234,7 @@ export function DocumentSidebar({
                       navigate(`/page/${doc.id}`);
                       setIsSearching(false);
                       setSearchQuery("");
+                      onNavigate?.();
                     }}
                   >
                     <span className="flex-shrink-0 w-5 text-center">
@@ -217,12 +258,15 @@ export function DocumentSidebar({
                     <button
                       key={doc.id}
                       className={cn(
-                        "w-full flex items-center gap-2 px-4 py-1.5 text-sm text-left rounded-md",
+                        "w-full flex items-center gap-2 px-4 py-[5px] text-sm text-left rounded-md",
                         doc.id === activeDocumentId
                           ? "bg-accent text-accent-foreground"
                           : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                       )}
-                      onClick={() => navigate(`/page/${doc.id}`)}
+                      onClick={() => {
+                        navigate(`/page/${doc.id}`);
+                        onNavigate?.();
+                      }}
                     >
                       <span className="flex-shrink-0 w-5 text-center">
                         {doc.icon || <IconFileText size={14} />}
@@ -268,7 +312,10 @@ export function DocumentSidebar({
                       activeId={activeDocumentId}
                       expandedIds={expandedIds}
                       onToggleExpanded={handleToggleExpanded}
-                      onSelect={(id) => navigate(`/page/${id}`)}
+                      onSelect={(id) => {
+                        navigate(`/page/${id}`);
+                        onNavigate?.();
+                      }}
                       onCreateChild={(parentId) => handleCreatePage(parentId)}
                       onDelete={handleDelete}
                       onToggleFavorite={handleToggleFavorite}
@@ -281,7 +328,7 @@ export function DocumentSidebar({
 
           {/* New page button — under the list */}
           <button
-            className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+            className="flex w-full items-center gap-2 rounded-md px-3 py-[5px] text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
             onClick={() => handleCreatePage()}
           >
             <IconPlus size={14} className="shrink-0" />
@@ -297,6 +344,17 @@ export function DocumentSidebar({
           <ThemeToggle />
         </div>
       </div>
+
+      {/* Resize handle */}
+      {onResize && (
+        <div
+          className={cn(
+            "absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-primary/20 active:bg-primary/30",
+            isResizing && "bg-primary/30",
+          )}
+          onMouseDown={handleMouseDown}
+        />
+      )}
     </div>
   );
 }

@@ -4,7 +4,10 @@ import { AgentSidebar } from "@agent-native/core/client";
 export function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-screen overflow-hidden">
-      <div className="flex h-full">
+      <div className="hidden md:flex h-full">
+        <Sidebar />
+      </div>
+      <div className="md:hidden">
         <Sidebar />
       </div>
       <AgentSidebar

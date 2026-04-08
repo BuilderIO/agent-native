@@ -28,6 +28,10 @@ export const IPC = {
   /** Active webview tracking (renderer → main) */
   SET_ACTIVE_APP: "webview:set-active-app",
   SET_ACTIVE_WEBVIEW: "webview:set-active-webview",
+
+  /** Frame settings (renderer ↔ main) */
+  FRAME_LOAD: "frame:load",
+  FRAME_UPDATE: "frame:update",
 } as const;
 
 export interface ActiveWebviewTarget {

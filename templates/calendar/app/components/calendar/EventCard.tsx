@@ -1,5 +1,6 @@
 import { cn } from "@/lib/utils";
-import { getEventAutoColor } from "@/lib/event-colors";
+import { getEventAutoColor, allOtherDeclined } from "@/lib/event-colors";
+import { IconAlertTriangleFilled } from "@tabler/icons-react";
 import type { CalendarEvent } from "@shared/api";
 
 interface EventCardProps {
@@ -51,10 +52,17 @@ export function EventCard({
           backgroundColor: `${accentColor}25`,
         }}
       >
-        <span
-          className="h-1.5 w-1.5 shrink-0 rounded-full"
-          style={{ backgroundColor: accentColor }}
-        />
+        {allOtherDeclined(event) ? (
+          <IconAlertTriangleFilled
+            size={10}
+            className="shrink-0 text-current opacity-70"
+          />
+        ) : (
+          <span
+            className="h-1.5 w-1.5 shrink-0 rounded-full"
+            style={{ backgroundColor: accentColor }}
+          />
+        )}
         <span className="truncate font-medium">{event.title}</span>
       </button>
     );
@@ -76,7 +84,15 @@ export function EventCard({
         borderLeft: `2px solid ${accentColor}`,
       }}
     >
-      <span className="truncate font-medium">{event.title}</span>
+      <div className="flex items-center gap-1 truncate">
+        {allOtherDeclined(event) && (
+          <IconAlertTriangleFilled
+            size={12}
+            className="shrink-0 text-current opacity-70"
+          />
+        )}
+        <span className="truncate font-medium">{event.title}</span>
+      </div>
       {!event.allDay && (
         <span className="text-foreground/70">
           {new Date(event.start).toLocaleTimeString([], {

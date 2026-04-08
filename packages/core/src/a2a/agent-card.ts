@@ -18,7 +18,17 @@ export function generateAgentCard(
     skills: config.skills,
   };
 
-  if (config.apiKeyEnv) {
+  // Advertise JWT-based A2A identity when A2A_SECRET is configured
+  if (process.env.A2A_SECRET) {
+    card.securitySchemes = {
+      jwtBearer: {
+        type: "http",
+        scheme: "bearer",
+        bearerFormat: "JWT",
+      },
+    };
+    card.security = [{ jwtBearer: [] }];
+  } else if (config.apiKeyEnv) {
     card.securitySchemes = {
       apiKey: {
         type: "http",

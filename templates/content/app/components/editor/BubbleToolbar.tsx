@@ -6,6 +6,7 @@ import {
   IconStrikethrough,
   IconCode,
   IconLink,
+  IconMessageCircle,
   IconH1,
   IconH2,
   IconH3,
@@ -15,9 +16,10 @@ import { useState } from "react";
 
 interface BubbleToolbarProps {
   editor: Editor;
+  onComment?: (quotedText: string) => void;
 }
 
-export function BubbleToolbar({ editor }: BubbleToolbarProps) {
+export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
 
@@ -97,6 +99,21 @@ export function BubbleToolbar({ editor }: BubbleToolbarProps) {
       action: toggleLink,
       isActive: () => editor.isActive("link"),
     },
+    ...(onComment
+      ? [
+          { type: "divider" as const },
+          {
+            icon: IconMessageCircle,
+            title: "Comment",
+            action: () => {
+              const { from, to } = editor.state.selection;
+              const text = editor.state.doc.textBetween(from, to, " ");
+              if (text.trim()) onComment(text.trim());
+            },
+            isActive: () => false,
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -127,18 +144,18 @@ export function BubbleToolbar({ editor }: BubbleToolbarProps) {
                 setLinkUrl("");
               }
             }}
-            className="bg-transparent border-none outline-none text-white text-sm w-48 px-1 py-0.5 placeholder:text-gray-400"
+            className="bg-transparent border-none outline-none text-white text-sm w-40 sm:w-48 px-1 py-1 placeholder:text-gray-400"
           />
           <button
             onClick={handleSetLink}
-            className="text-xs text-blue-400 hover:text-blue-300 px-1.5 py-0.5 font-medium"
+            className="text-xs text-blue-400 hover:text-blue-300 px-2 py-1.5 font-medium"
           >
             Apply
           </button>
         </div>
       ) : (
         <div
-          className="flex items-center gap-0.5"
+          className="flex items-center gap-0.5 overflow-x-auto"
           onMouseDown={(e) => e.preventDefault()}
         >
           {items.map((item, i) => {
@@ -164,13 +181,13 @@ export function BubbleToolbar({ editor }: BubbleToolbarProps) {
                 onClick={action}
                 title={title}
                 className={cn(
-                  "p-1.5 rounded transition-colors",
+                  "p-2 rounded",
                   isActive()
                     ? "bg-gray-600 text-white"
                     : "text-gray-300 hover:bg-gray-700 hover:text-white",
                 )}
               >
-                <Icon size={14} strokeWidth={2.5} />
+                <Icon size={16} strokeWidth={2.5} />
               </button>
             );
           })}

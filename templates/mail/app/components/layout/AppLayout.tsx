@@ -630,7 +630,7 @@ export function AppLayout({ children }: AppLayoutProps) {
               {/* Hamburger menu */}
               <button
                 onClick={() => setSidebarOpen(!sidebarOpen)}
-                className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/50 transition-colors shrink-0"
+                className="flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/50 transition-colors shrink-0"
                 title="Menu"
               >
                 <IconMenu2 className="h-4 w-4" />
@@ -786,13 +786,13 @@ export function AppLayout({ children }: AppLayoutProps) {
                       if (!searchQuery) setSearchFocused(false);
                     }}
                     placeholder="Search..."
-                    className="h-7 w-48 rounded bg-accent/80 border-none px-2.5 text-[13px] text-foreground placeholder:text-muted-foreground/60 outline-none focus:ring-1 focus:ring-primary/40"
+                    className="h-8 sm:h-7 w-40 sm:w-48 rounded bg-accent/80 border-none px-2.5 text-[13px] text-foreground placeholder:text-muted-foreground/60 outline-none focus:ring-1 focus:ring-primary/40"
                   />
                 </div>
               ) : (
                 <button
                   onClick={() => setSearchFocused(true)}
-                  className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+                  className="flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
                   title="Search (/)"
                 >
                   <IconSearch className="h-4 w-4" />
@@ -815,7 +815,7 @@ export function AppLayout({ children }: AppLayoutProps) {
               {/* Compose (pen) icon */}
               <button
                 onClick={handleCompose}
-                className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+                className="flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
                 title="Compose (C)"
               >
                 <IconPencil className="h-4 w-4" />
@@ -995,7 +995,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                           to={item.href}
                           onClick={() => setSidebarOpen(false)}
                           className={cn(
-                            "flex items-center justify-between rounded-md px-3 py-2 text-[14px] transition-colors",
+                            "flex items-center justify-between rounded-md px-3 py-2.5 text-[14px] transition-colors min-h-[44px]",
                             view === item.id
                               ? "bg-accent/60 text-foreground font-medium"
                               : "text-foreground/70 hover:bg-accent/30",
@@ -1014,7 +1014,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                           to="/settings"
                           onClick={() => setSidebarOpen(false)}
                           className={cn(
-                            "flex items-center rounded-md px-3 py-2 text-[14px] transition-colors",
+                            "flex items-center rounded-md px-3 py-2.5 text-[14px] transition-colors min-h-[44px]",
                             location.pathname === "/settings"
                               ? "bg-accent/60 text-foreground font-medium"
                               : "text-foreground/70 hover:bg-accent/30",
@@ -1048,7 +1048,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                                   to={tab.href}
                                   onClick={() => setSidebarOpen(false)}
                                   className={cn(
-                                    "flex items-center justify-between rounded-md px-3 py-2 text-[14px] transition-colors",
+                                    "flex items-center justify-between rounded-md px-3 py-2.5 text-[14px] transition-colors min-h-[44px]",
                                     tab.isActive
                                       ? "bg-accent/60 text-foreground font-medium"
                                       : "text-foreground/70 hover:bg-accent/30",
@@ -1321,7 +1321,7 @@ function TabSettingsPopover({
   const noResults = !showViews && !showCategories && !showLabels && search;
 
   return (
-    <div className="absolute left-0 top-full mt-1.5 z-50 w-60 rounded-lg border border-border/50 bg-card shadow-xl">
+    <div className="absolute left-0 top-full mt-1.5 z-50 w-60 max-w-[calc(100vw-2rem)] rounded-lg border border-border/50 bg-card shadow-xl">
       {/* Search */}
       <div className="px-2 py-1.5 border-b border-border/30">
         <input
@@ -1503,7 +1503,7 @@ function AccountPopover({
   const allSelected = activeAccounts.size === 0;
 
   return (
-    <div className="absolute right-0 top-full mt-1.5 z-50 w-72 rounded-lg border border-border/50 bg-card shadow-xl">
+    <div className="absolute right-0 top-full mt-1.5 z-50 w-72 max-w-[calc(100vw-2rem)] rounded-lg border border-border/50 bg-card shadow-xl">
       <div className="px-3 py-2 border-b border-border/30">
         <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
           Accounts

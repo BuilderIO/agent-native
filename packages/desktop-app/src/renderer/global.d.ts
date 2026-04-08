@@ -25,6 +25,23 @@ interface ElectronAPI {
     on(cb: (from: string, event: string, data: unknown) => void): () => void;
   };
 
+  frame: {
+    load(): Promise<{
+      enabled: boolean;
+      mode: "dev" | "prod";
+      prodUrl?: string;
+    }>;
+    update(settings: {
+      enabled?: boolean;
+      mode?: "dev" | "prod";
+      prodUrl?: string;
+    }): Promise<{
+      enabled: boolean;
+      mode: "dev" | "prod";
+      prodUrl?: string;
+    }>;
+  };
+
   appConfig: {
     load(): Promise<import("@agent-native/shared-app-config").AppConfig[]>;
     add(

@@ -47,7 +47,7 @@ const activities = [
 
 export function RecentActivity() {
   return (
-    <Card className="col-span-3 bg-card border-border/50">
+    <Card className="col-span-full lg:col-span-3 bg-card border-border/50">
       <CardHeader>
         <CardTitle>Recent Sales</CardTitle>
         <CardDescription>You made 265 sales this month.</CardDescription>

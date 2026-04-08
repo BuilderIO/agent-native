@@ -58,6 +58,7 @@ import {
   IconPresentation,
   IconStack2,
   IconMessageChatbot,
+  IconLock,
 } from "@tabler/icons-react";
 
 // ─── Markdown Text ──────────────────────────────────────────────────────────
@@ -1007,6 +1008,7 @@ const AssistantChatInner = forwardRef<
   const isRuntimeRunning = thread.isRunning;
   const messages = thread.messages;
   const [missingApiKey, setMissingApiKey] = useState(false);
+  const [authError, setAuthError] = useState(false);
   const [queuedMessages, setQueuedMessages] = useState<
     Array<{ text: string; images?: string[]; references?: Reference[] }>
   >([]);
@@ -1295,6 +1297,13 @@ const AssistantChatInner = forwardRef<
       window.removeEventListener("agent-chat:missing-api-key", handler);
   }, []);
 
+  // Listen for auth error events from the adapter
+  useEffect(() => {
+    const handler = () => setAuthError(true);
+    window.addEventListener("agent-chat:auth-error", handler);
+    return () => window.removeEventListener("agent-chat:auth-error", handler);
+  }, []);
+
   // Listen for loop-limit events from the adapter
   useEffect(() => {
     const handler = (e: Event) => {
@@ -1465,7 +1474,39 @@ const AssistantChatInner = forwardRef<
         ref={scrollRef}
         className="flex-1 overflow-y-auto overflow-x-hidden min-h-0"
       >
-        {missingApiKey ? (
+        {authError ? (
+          <div className="flex flex-col items-center justify-center h-full px-4 gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-destructive/10">
+              <IconLock className="h-5 w-5 text-destructive" />
+            </div>
+            <div className="text-center max-w-[280px]">
+              <p className="text-sm font-medium text-foreground mb-1">
+                Authentication required
+              </p>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                You need to log in to use the agent. If you're running locally,
+                add{" "}
+                <code className="bg-muted px-1 py-0.5 rounded text-[10px]">
+                  AUTH_MODE=local
+                </code>{" "}
+                to your{" "}
+                <code className="bg-muted px-1 py-0.5 rounded text-[10px]">
+                  .env
+                </code>{" "}
+                file and restart the dev server.
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                setAuthError(false);
+                window.location.reload();
+              }}
+              className="text-xs text-muted-foreground hover:text-foreground px-3 py-1.5 rounded-md border border-border hover:bg-accent"
+            >
+              Retry
+            </button>
+          </div>
+        ) : missingApiKey ? (
           <div className="flex flex-col items-center justify-center h-full px-2">
             <ApiKeySetupCard apiUrl={apiUrl} />
           </div>

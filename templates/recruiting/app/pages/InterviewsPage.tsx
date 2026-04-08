@@ -26,8 +26,10 @@ export function InterviewsPage() {
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="flex items-center border-b border-border px-6 h-14 flex-shrink-0">
-        <h1 className="text-sm font-semibold text-foreground">Interviews</h1>
+      <div className="flex items-center border-b border-border px-4 h-14 flex-shrink-0 sm:px-6">
+        <h1 className="text-sm font-semibold text-foreground pl-10 md:pl-0">
+          Interviews
+        </h1>
         <span className="ml-2 text-xs text-muted-foreground">
           {upcoming.length} upcoming
         </span>
@@ -61,7 +63,7 @@ export function InterviewsPage() {
             <p className="text-sm">No upcoming interviews</p>
           </div>
         ) : (
-          <div className="max-w-3xl mx-auto px-6 py-6 space-y-6">
+          <div className="max-w-3xl mx-auto px-4 py-6 space-y-6 sm:px-6">
             {grouped.map((group) => (
               <div key={group.label}>
                 <h2 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
@@ -71,11 +73,10 @@ export function InterviewsPage() {
                   {group.items.map((interview: any) => (
                     <div
                       key={interview.id}
-                      className="flex items-center justify-between px-4 py-3"
+                      className="flex flex-col gap-2 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4"
                     >
-                      <div className="flex items-center gap-4 min-w-0">
-                        {/* Time */}
-                        <div className="w-20 flex-shrink-0 text-right">
+                      <div className="flex items-center gap-3 min-w-0 sm:gap-4">
+                        <div className="w-16 flex-shrink-0 text-right sm:w-20">
                           <div className="text-sm font-medium text-foreground tabular-nums">
                             {format(
                               new Date(interview.start.date_time),
@@ -90,10 +91,8 @@ export function InterviewsPage() {
                           </div>
                         </div>
 
-                        {/* Divider */}
-                        <div className="h-8 w-px bg-border" />
+                        <div className="h-8 w-px bg-border hidden sm:block" />
 
-                        {/* Details */}
                         <div className="min-w-0">
                           <div className="text-sm font-medium text-foreground">
                             {interview.organizer?.name ?? "Interview"}
@@ -106,9 +105,9 @@ export function InterviewsPage() {
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-3 flex-shrink-0">
+                      <div className="flex items-center gap-2 flex-shrink-0 pl-[calc(4rem+0.75rem)] sm:gap-3 sm:pl-0">
                         {interview.location && (
-                          <span className="text-xs text-muted-foreground truncate max-w-[160px]">
+                          <span className="text-xs text-muted-foreground truncate max-w-[120px] sm:max-w-[160px]">
                             {interview.location}
                           </span>
                         )}

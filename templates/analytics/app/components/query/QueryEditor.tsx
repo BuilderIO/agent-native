@@ -107,7 +107,7 @@ export function QueryEditor({
     <div className="space-y-3">
       <div className="flex items-center gap-3 flex-wrap">
         <Select onValueChange={handleTemplateSelect}>
-          <SelectTrigger className="w-[260px]">
+          <SelectTrigger className="w-full sm:w-[260px]">
             <SelectValue placeholder="Load an example..." />
           </SelectTrigger>
           <SelectContent>

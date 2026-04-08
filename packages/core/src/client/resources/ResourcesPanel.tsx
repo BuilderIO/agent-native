@@ -398,8 +398,6 @@ function PathBreadcrumb({ path }: { path: string }) {
 
 // ─── ResourcesPanel ─────────────────────────────────────────────────────────
 
-const CONTROL_STYLE = { fontSize: 12, lineHeight: 1 } as const;
-
 const DEFAULT_AGENTS_MD_CLIENT = `# Agent Instructions
 
 This file customizes how the AI agent behaves in this app. Edit it to add your own instructions, preferences, and context.
@@ -421,14 +419,8 @@ Create skill files under \`skills/\` to give the agent specialized knowledge. Re
 `;
 
 export function ResourcesPanel() {
-  const [scope, setScope] = useState<ResourceScope>(
-    () =>
-      (localStorage.getItem("an:resources-scope") as ResourceScope) || "shared",
-  );
-  const handleSetScope = (s: ResourceScope) => {
-    setScope(s);
-    localStorage.setItem("an:resources-scope", s);
-  };
+  // Scope for toolbar-level create/upload defaults to shared
+  const activeScope: ResourceScope = "shared";
   const [selectedResourceId, setSelectedResourceId] = useState<string | null>(
     null,
   );
@@ -445,7 +437,8 @@ export function ResourcesPanel() {
   );
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const treeQuery = useResourceTree(scope);
+  const sharedTreeQuery = useResourceTree("shared");
+  const personalTreeQuery = useResourceTree("personal");
   const resourceQuery = useResource(selectedResourceId);
   const createResource = useCreateResource();
   const updateResource = useUpdateResource();
@@ -482,7 +475,7 @@ export function ResourcesPanel() {
   }, []);
 
   const handleCreateFile = useCallback(
-    (parentPath: string, name: string) => {
+    (parentPath: string, name: string, scope: ResourceScope) => {
       const path = parentPath ? `${parentPath}/${name}` : name;
       createResource.mutate(
         { path, content: "", shared: scope === "shared" },
@@ -493,21 +486,21 @@ export function ResourcesPanel() {
         },
       );
     },
-    [createResource, scope],
+    [createResource],
   );
 
   const handleCreateFolder = useCallback(
-    (parentPath: string, name: string) => {
+    (parentPath: string, name: string, scope: ResourceScope) => {
       const path = parentPath ? `${parentPath}/${name}/.keep` : `${name}/.keep`;
       createResource.mutate({ path, content: "", shared: scope === "shared" });
     },
-    [createResource, scope],
+    [createResource],
   );
 
   const handleCreateFromToolbar = useCallback(
     (name: string) => {
       createResource.mutate(
-        { path: name, content: "", shared: scope === "shared" },
+        { path: name, content: "", shared: activeScope === "shared" },
         {
           onSuccess: (data) => {
             setSelectedResourceId(data.id);
@@ -515,7 +508,7 @@ export function ResourcesPanel() {
         },
       );
     },
-    [createResource, scope],
+    [createResource, activeScope],
   );
 
   const handleDelete = useCallback(
@@ -549,11 +542,11 @@ export function ResourcesPanel() {
         const file = files[i];
         const formData = new FormData();
         formData.append("file", file);
-        formData.append("shared", scope === "shared" ? "true" : "false");
+        formData.append("shared", activeScope === "shared" ? "true" : "false");
         uploadResource.mutate(formData);
       }
     },
-    [uploadResource, scope],
+    [uploadResource, activeScope],
   );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -583,7 +576,7 @@ export function ResourcesPanel() {
   return (
     <div
       className={cn(
-        "flex h-full flex-col min-h-0",
+        "relative flex h-full flex-col min-h-0",
         dragOver && "ring-2 ring-inset ring-accent",
       )}
       onDragOver={handleDragOver}
@@ -591,128 +584,97 @@ export function ResourcesPanel() {
       onDrop={handleDrop}
     >
       {/* Toolbar */}
-      <div className="flex shrink-0 items-center justify-between border-b border-border px-2 py-1.5">
-        {isEditing ? (
-          /* Editor toolbar: back + path + view toggle + save status + delete */
-          <>
-            <div className="flex items-center gap-1.5 min-w-0">
-              <button
-                onClick={handleBack}
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                title="Back to files"
-              >
-                <IconArrowLeft className="h-3.5 w-3.5" />
-              </button>
-              {resourceQuery.data && (
-                <PathBreadcrumb path={resourceQuery.data.path} />
+      {isEditing ? (
+        <div className="flex shrink-0 items-center justify-between border-b border-border px-2 py-1.5">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <button
+              onClick={handleBack}
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
+              title="Back to files"
+            >
+              <IconArrowLeft className="h-3.5 w-3.5" />
+            </button>
+            {resourceQuery.data && (
+              <PathBreadcrumb path={resourceQuery.data.path} />
+            )}
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            {resourceQuery.data &&
+              (resourceQuery.data.mimeType === "text/markdown" ||
+                resourceQuery.data.path.endsWith(".md")) && (
+                <div className="flex items-center gap-0.5 mr-1">
+                  <button
+                    onClick={() => setEditorView("visual")}
+                    className={cn(
+                      "flex h-6 w-6 items-center justify-center rounded-md",
+                      editorView === "visual"
+                        ? "bg-accent text-foreground"
+                        : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                    )}
+                    title="Visual editor"
+                  >
+                    <IconEye className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setEditorView("code")}
+                    className={cn(
+                      "flex h-6 w-6 items-center justify-center rounded-md",
+                      editorView === "code"
+                        ? "bg-accent text-foreground"
+                        : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                    )}
+                    title="Code editor"
+                  >
+                    <IconCode className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               )}
-            </div>
-            <div className="flex items-center gap-1 shrink-0">
-              {resourceQuery.data &&
-                (resourceQuery.data.mimeType === "text/markdown" ||
-                  resourceQuery.data.path.endsWith(".md")) && (
-                  <div className="flex items-center gap-0.5 mr-1">
-                    <button
-                      onClick={() => setEditorView("visual")}
-                      className={cn(
-                        "flex h-6 w-6 items-center justify-center rounded-md",
-                        editorView === "visual"
-                          ? "bg-accent text-foreground"
-                          : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
-                      )}
-                      title="Visual editor"
-                    >
-                      <IconEye className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      onClick={() => setEditorView("code")}
-                      className={cn(
-                        "flex h-6 w-6 items-center justify-center rounded-md",
-                        editorView === "code"
-                          ? "bg-accent text-foreground"
-                          : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
-                      )}
-                      title="Code editor"
-                    >
-                      <IconCode className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                )}
-              <span className="text-[11px] text-muted-foreground/60 mr-1">
-                {saveStatus === "saving"
-                  ? "Saving..."
-                  : saveStatus === "saved"
-                    ? "Saved"
-                    : ""}
-              </span>
-              <button
-                onClick={() => {
-                  if (selectedResourceId) handleDelete(selectedResourceId);
-                }}
-                className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-accent/50"
-                title="Delete resource"
-              >
-                <IconTrash className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </>
-        ) : (
-          /* Tree toolbar: scope toggle + create menu + upload */
-          <>
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => handleSetScope("personal")}
-                className={cn(
-                  "rounded-md px-2 py-1 text-[12px] leading-none",
-                  scope === "personal"
-                    ? "bg-accent text-foreground"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                )}
-                style={CONTROL_STYLE}
-              >
-                Personal
-              </button>
-              <button
-                onClick={() => handleSetScope("shared")}
-                className={cn(
-                  "rounded-md px-2 py-1 text-[12px] leading-none",
-                  scope === "shared"
-                    ? "bg-accent text-foreground"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                )}
-                style={CONTROL_STYLE}
-              >
-                Shared
-              </button>
-            </div>
-            <div className="flex items-center gap-1">
-              <CreateMenu
-                scope={scope}
-                onCreateFile={handleCreateFromToolbar}
-              />
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                title="Upload file"
-              >
-                <IconUpload className="h-3.5 w-3.5" />
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                className="hidden"
-                onChange={(e) => {
-                  if (e.target.files && e.target.files.length > 0) {
-                    handleUploadFiles(e.target.files);
-                    e.target.value = "";
-                  }
-                }}
-              />
-            </div>
-          </>
-        )}
-      </div>
+            <span className="text-[11px] text-muted-foreground/60 mr-1">
+              {saveStatus === "saving"
+                ? "Saving..."
+                : saveStatus === "saved"
+                  ? "Saved"
+                  : ""}
+            </span>
+            <button
+              onClick={() => {
+                if (selectedResourceId) handleDelete(selectedResourceId);
+              }}
+              className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-accent/50"
+              title="Delete resource"
+            >
+              <IconTrash className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      ) : (
+        /* Floating action buttons — absolute top-right over tree view */
+        <div className="absolute top-1 right-1 z-10 flex items-center gap-1">
+          <CreateMenu
+            scope={activeScope}
+            onCreateFile={handleCreateFromToolbar}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
+            title="Upload file"
+          >
+            <IconUpload className="h-3.5 w-3.5" />
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files && e.target.files.length > 0) {
+                handleUploadFiles(e.target.files);
+                e.target.value = "";
+              }
+            }}
+          />
+        </div>
+      )}
 
       {/* Content: either tree OR editor (single view) */}
       <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
@@ -738,8 +700,8 @@ export function ResourcesPanel() {
               Loading...
             </div>
           )
-        ) : /* Tree view */
-        treeQuery.isLoading ? (
+        ) : /* Tree view — both sections */
+        sharedTreeQuery.isLoading && personalTreeQuery.isLoading ? (
           <div className="flex-1 min-h-0 overflow-y-auto px-2 py-1.5">
             {Array.from({ length: 5 }).map((_, i) => (
               <div key={i} className="flex items-center gap-2 px-2 py-1.5">
@@ -757,21 +719,41 @@ export function ResourcesPanel() {
               </div>
             ))}
           </div>
-        ) : treeQuery.error ? (
-          <div className="flex flex-1 items-center justify-center text-[12px] text-destructive/70">
-            Failed to load
-          </div>
         ) : (
-          <ResourceTree
-            tree={treeQuery.data ?? []}
-            selectedId={selectedResourceId}
-            onSelect={handleSelect}
-            onCreateFile={handleCreateFile}
-            onCreateFolder={handleCreateFolder}
-            onDelete={handleDelete}
-            onRename={handleRename}
-            onDrop={handleUploadFiles}
-          />
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            <ResourceTree
+              tree={personalTreeQuery.data ?? []}
+              selectedId={selectedResourceId}
+              onSelect={handleSelect}
+              onCreateFile={(parentPath, name) =>
+                handleCreateFile(parentPath, name, "personal")
+              }
+              onCreateFolder={(parentPath, name) =>
+                handleCreateFolder(parentPath, name, "personal")
+              }
+              onDelete={handleDelete}
+              onRename={handleRename}
+              onDrop={handleUploadFiles}
+              title="Personal"
+              titleTooltip="Files visible only to you"
+            />
+            <ResourceTree
+              tree={sharedTreeQuery.data ?? []}
+              selectedId={selectedResourceId}
+              onSelect={handleSelect}
+              onCreateFile={(parentPath, name) =>
+                handleCreateFile(parentPath, name, "shared")
+              }
+              onCreateFolder={(parentPath, name) =>
+                handleCreateFolder(parentPath, name, "shared")
+              }
+              onDelete={handleDelete}
+              onRename={handleRename}
+              onDrop={handleUploadFiles}
+              title="Shared"
+              titleTooltip="Files shared across the organization"
+            />
+          </div>
         )}
       </div>
     </div>

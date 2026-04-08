@@ -5,7 +5,7 @@
  * Messages are sent via postMessage to the parent window (or self if top-level).
  */
 
-import { getHarnessOrigin } from "./harness.js";
+import { getFrameOrigin } from "./frame.js";
 
 export interface AgentChatMessage {
   /** The visible prompt message sent to the chat */
@@ -24,7 +24,16 @@ export interface AgentChatMessage {
   uploadedReferenceImages?: string[];
   /** Stable tab identifier — auto-generated if omitted */
   tabId?: string;
-  /** If true, this action requires source code changes (won't work in production) */
+  /**
+   * Message routing type:
+   * - "content" (default): stays in the embedded app agent for content/data operations
+   * - "code": routes to the code editing frame (local dev frame or Builder.io)
+   *
+   * When type is "code" and no frame is connected, a dialog is shown.
+   * `requiresCode: true` is treated as `type: "code"` for backward compatibility.
+   */
+  type?: "content" | "code";
+  /** @deprecated Use `type: "code"` instead. If true, treated as `type: "code"`. */
   requiresCode?: boolean;
   /** Model preference for this sub-agent (e.g. "claude-haiku-4-5"). Uses default if omitted */
   model?: string;
@@ -35,7 +44,7 @@ export interface AgentChatMessage {
 const AGENT_CHAT_MESSAGE_TYPE = "builder.submitChat";
 
 /**
- * Listen for chatRunning messages from the harness (postMessage)
+ * Listen for chatRunning messages from the frame (postMessage)
  * and re-dispatch as a CustomEvent so hooks like useAgentChatGenerating() work.
  */
 if (typeof window !== "undefined") {
@@ -70,7 +79,7 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
   };
 
   const target = window.parent !== window ? window.parent : window;
-  const targetOrigin = getHarnessOrigin() || window.location.origin;
+  const targetOrigin = getFrameOrigin() || window.location.origin;
   target.postMessage(payload, targetOrigin);
   return tabId;
 }

@@ -125,6 +125,8 @@ export interface ClientConfigOptions {
   fsAllow?: string[];
   /** Additional fs.deny patterns */
   fsDeny?: string[];
+  /** Additional Vite optimizeDeps configuration */
+  optimizeDeps?: { include?: string[]; exclude?: string[] };
   /**
    * @deprecated Pass `reactRouter()` directly in the `plugins` array instead.
    * Previously used to auto-load the React Router Vite plugin via require(),
@@ -342,7 +344,11 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
         ...(hasDep("@agent-native/pinpoint", cwd)
           ? ["@agent-native/pinpoint/react"]
           : []),
+        ...(options.optimizeDeps?.include ?? []),
       ],
+      ...(options.optimizeDeps?.exclude
+        ? { exclude: options.optimizeDeps.exclude }
+        : {}),
     },
     resolve: {
       alias: [

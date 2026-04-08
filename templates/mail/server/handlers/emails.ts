@@ -25,6 +25,7 @@ import {
   gmailListLabels,
   gmailModifyMessage,
   gmailModifyThread,
+  gmailSendMessage,
   gmailTrashThread,
   gmailUntrashThread,
   googleFetch,
@@ -2009,6 +2010,114 @@ export const calendarRsvp = defineEventHandler(async (event: H3Event) => {
     return { ok: true, response };
   } catch (error: any) {
     console.error("[calendarRsvp] error:", error.message);
+    setResponseStatus(event, 500);
+    return { error: error.message };
+  }
+});
+
+// ─── Unsubscribe ─────────────────────────────────────────────────────────────
+
+export const unsubscribeEmail = defineEventHandler(async (event: H3Event) => {
+  const email = await userEmail(event);
+  const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
+    accountEmail?: string;
+  };
+
+  if (!(await isConnected(email))) {
+    setResponseStatus(event, 400);
+    return { error: "No connected account" };
+  }
+
+  const acct = await resolveAccountEmail(body.accountEmail, email);
+  const accessToken = await getAccessToken(acct);
+  if (!accessToken) {
+    setResponseStatus(event, 401);
+    return { error: "No valid access token" };
+  }
+
+  try {
+    const id = getRouterParam(event, "id") as string;
+    const msg = await gmailGetMessage(accessToken, id, "metadata");
+    const headers: Array<{ name?: string; value?: string }> =
+      msg.payload?.headers || [];
+    const listUnsub = headers.find(
+      (h: any) => h.name?.toLowerCase() === "list-unsubscribe",
+    )?.value;
+    const listUnsubPost = headers.find(
+      (h: any) => h.name?.toLowerCase() === "list-unsubscribe-post",
+    )?.value;
+
+    if (!listUnsub) {
+      setResponseStatus(event, 404);
+      return { error: "No unsubscribe header found" };
+    }
+
+    // Extract URLs from the header
+    const entries = listUnsub.match(/<[^>]+>/g) || [];
+    let url: string | undefined;
+    let mailto: string | undefined;
+    for (const entry of entries) {
+      const val = entry.slice(1, -1);
+      if (val.startsWith("http://") || val.startsWith("https://")) {
+        url = val;
+      } else if (val.startsWith("mailto:")) {
+        mailto = val.slice(7);
+      }
+    }
+
+    const oneClick =
+      !!listUnsubPost &&
+      listUnsubPost.toLowerCase().includes("list-unsubscribe=one-click");
+
+    // Try RFC 8058 one-click unsubscribe first
+    if (oneClick && url) {
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: "List-Unsubscribe=One-Click",
+        });
+        return { ok: true, method: "one-click", status: res.status, url };
+      } catch (e: any) {
+        // One-click failed, fall through to other methods
+        console.warn("[unsubscribe] one-click POST failed:", e.message);
+      }
+    }
+
+    // Try mailto unsubscribe
+    if (mailto) {
+      try {
+        // Parse mailto for optional subject/body
+        const [address, query] = mailto.split("?");
+        const params = new URLSearchParams(query || "");
+        const subject = params.get("subject") || "Unsubscribe";
+        const bodyText = params.get("body") || "";
+
+        // Build RFC 2822 email
+        const raw = Buffer.from(
+          `To: ${address}\r\nSubject: ${subject}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${bodyText}`,
+        )
+          .toString("base64")
+          .replace(/\+/g, "-")
+          .replace(/\//g, "_")
+          .replace(/=+$/, "");
+
+        await gmailSendMessage(accessToken, raw);
+        return { ok: true, method: "mailto", address, url };
+      } catch (e: any) {
+        console.warn("[unsubscribe] mailto send failed:", e.message);
+      }
+    }
+
+    // Return the URL for the client to open manually
+    if (url) {
+      return { ok: true, method: "url-only", url };
+    }
+
+    setResponseStatus(event, 400);
+    return { error: "Could not unsubscribe — no usable method found" };
+  } catch (error: any) {
+    console.error("[unsubscribe] error:", error.message);
     setResponseStatus(event, 500);
     return { error: error.message };
   }

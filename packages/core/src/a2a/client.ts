@@ -1,3 +1,4 @@
+import * as jose from "jose";
 import type {
   AgentCard,
   JsonRpcRequest,
@@ -5,6 +6,34 @@ import type {
   Message,
   Task,
 } from "./types.js";
+
+/**
+ * Sign a JWT for A2A cross-app identity verification.
+ *
+ * Uses A2A_SECRET as an HMAC key. The token contains the caller's email
+ * as `sub`, so the receiving app can verify who's calling.
+ */
+export async function signA2AToken(email: string): Promise<string> {
+  const secret = process.env.A2A_SECRET;
+  if (!secret) {
+    throw new Error(
+      "A2A_SECRET is required for authenticated cross-app calls. " +
+        "Set the same A2A_SECRET on all apps that need to verify identity.",
+    );
+  }
+
+  const appUrl =
+    process.env.APP_URL ||
+    process.env.BETTER_AUTH_URL ||
+    "http://localhost:3000";
+
+  return new jose.SignJWT({ sub: email })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuer(appUrl)
+    .setIssuedAt()
+    .setExpirationTime("15m")
+    .sign(new TextEncoder().encode(secret));
+}
 
 export class A2AClient {
   private baseUrl: string;
@@ -157,6 +186,10 @@ export class A2AClient {
 
 /**
  * One-shot convenience function: send a text message and get a text response.
+ *
+ * When A2A_SECRET is set and userEmail is provided, outbound calls are signed
+ * with a JWT so the receiving app can cryptographically verify the caller's
+ * identity (instead of blindly trusting metadata).
  */
 export async function callAgent(
   url: string,
@@ -167,7 +200,18 @@ export async function callAgent(
     userEmail?: string;
   },
 ): Promise<string> {
-  const client = new A2AClient(url, opts?.apiKey);
+  let apiKey = opts?.apiKey;
+
+  // Auto-sign with JWT when A2A_SECRET is available and we have a user email
+  if (!apiKey && opts?.userEmail && process.env.A2A_SECRET) {
+    try {
+      apiKey = await signA2AToken(opts.userEmail);
+    } catch {
+      // Fall back to unsigned call
+    }
+  }
+
+  const client = new A2AClient(url, apiKey);
   const metadata = opts?.userEmail ? { userEmail: opts.userEmail } : undefined;
   const task = await client.send(
     {

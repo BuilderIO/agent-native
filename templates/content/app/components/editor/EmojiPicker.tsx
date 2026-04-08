@@ -399,12 +399,12 @@ export function EmojiPicker({ icon, onSelect }: EmojiPickerProps) {
                 <div className="text-[11px] font-medium text-muted-foreground/60 uppercase tracking-wider px-0.5 mb-1">
                   {category.name}
                 </div>
-                <div className="grid grid-cols-8 gap-0">
+                <div className="grid grid-cols-7 gap-0 sm:grid-cols-8">
                   {category.emojis.map((emoji) => (
                     <button
                       key={emoji}
                       onClick={() => handleSelect(emoji)}
-                      className="w-8 h-8 flex items-center justify-center text-lg rounded hover:bg-accent cursor-pointer"
+                      className="w-9 h-9 flex items-center justify-center text-lg rounded hover:bg-accent cursor-pointer"
                     >
                       {emoji}
                     </button>

@@ -34,7 +34,7 @@ function createCommands(onGenerate: () => void): CommandItem[] {
       description: "Plain text block",
       icon: IconTypography,
       category: "basic",
-      action: (editor) => editor.chain().focus().setParagraph().run(),
+      action: (editor) => (editor.chain().focus() as any).setParagraph().run(),
     },
     {
       title: "Heading 1",
@@ -42,7 +42,7 @@ function createCommands(onGenerate: () => void): CommandItem[] {
       icon: IconH1,
       category: "basic",
       action: (editor) =>
-        editor.chain().focus().toggleHeading({ level: 1 }).run(),
+        (editor.chain().focus() as any).toggleHeading({ level: 1 }).run(),
     },
     {
       title: "Heading 2",
@@ -50,7 +50,7 @@ function createCommands(onGenerate: () => void): CommandItem[] {
       icon: IconH2,
       category: "basic",
       action: (editor) =>
-        editor.chain().focus().toggleHeading({ level: 2 }).run(),
+        (editor.chain().focus() as any).toggleHeading({ level: 2 }).run(),
     },
     {
       title: "Heading 3",
@@ -58,42 +58,47 @@ function createCommands(onGenerate: () => void): CommandItem[] {
       icon: IconH3,
       category: "basic",
       action: (editor) =>
-        editor.chain().focus().toggleHeading({ level: 3 }).run(),
+        (editor.chain().focus() as any).toggleHeading({ level: 3 }).run(),
     },
     {
       title: "Bullet List",
       description: "Unordered list",
       icon: IconList,
       category: "basic",
-      action: (editor) => editor.chain().focus().toggleBulletList().run(),
+      action: (editor) =>
+        (editor.chain().focus() as any).toggleBulletList().run(),
     },
     {
       title: "Numbered List",
       description: "Ordered list",
       icon: IconListNumbers,
       category: "basic",
-      action: (editor) => editor.chain().focus().toggleOrderedList().run(),
+      action: (editor) =>
+        (editor.chain().focus() as any).toggleOrderedList().run(),
     },
     {
       title: "Quote",
       description: "Block quote",
       icon: IconQuote,
       category: "basic",
-      action: (editor) => editor.chain().focus().toggleBlockquote().run(),
+      action: (editor) =>
+        (editor.chain().focus() as any).toggleBlockquote().run(),
     },
     {
       title: "Code Block",
       description: "Code snippet",
       icon: IconCode,
       category: "basic",
-      action: (editor) => editor.chain().focus().toggleCodeBlock().run(),
+      action: (editor) =>
+        (editor.chain().focus() as any).toggleCodeBlock().run(),
     },
     {
       title: "Divider",
       description: "Horizontal rule",
       icon: IconMinus,
       category: "basic",
-      action: (editor) => editor.chain().focus().setHorizontalRule().run(),
+      action: (editor) =>
+        (editor.chain().focus() as any).setHorizontalRule().run(),
     },
     {
       title: "Image",

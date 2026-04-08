@@ -102,13 +102,15 @@ function ToolbarPopover({
 
   if (!open || !anchorRef.current) return null;
   const rect = anchorRef.current.getBoundingClientRect();
-  const left = align === "right" ? rect.right - width : rect.left;
+  const vw = window.innerWidth;
+  let left = align === "right" ? rect.right - width : rect.left;
+  left = Math.max(8, Math.min(left, vw - width - 8));
 
   return createPortal(
     <div
       ref={menuRef}
-      className="fixed rounded-lg border border-white/[0.08] bg-[hsl(240,5%,10%)] shadow-xl z-[200]"
-      style={{ top: rect.bottom + 4, left, width }}
+      className="fixed rounded-lg border border-white/[0.08] bg-[hsl(240,5%,10%)] shadow-xl z-[200] max-h-[80vh] overflow-y-auto"
+      style={{ top: rect.bottom + 4, left, width: Math.min(width, vw - 16) }}
     >
       {children}
     </div>,
@@ -149,11 +151,11 @@ export default function EditorToolbar({
   };
 
   return (
-    <div className="h-12 border-b border-white/[0.06] bg-[hsl(240,5%,6%)] flex items-center px-2 sm:px-3 gap-1.5 sm:gap-2 overflow-x-auto">
+    <div className="h-12 border-b border-white/[0.06] bg-[hsl(240,5%,6%)] flex items-center px-1 sm:px-3 gap-1 sm:gap-2 overflow-x-auto">
       {/* Back button */}
       <Link
         to="/"
-        className="p-1.5 rounded-md hover:bg-white/[0.06] transition-colors flex-shrink-0"
+        className="p-2.5 sm:p-1.5 rounded-md hover:bg-white/[0.06] transition-colors flex-shrink-0"
         title="Back to decks"
         aria-label="Back to decks"
       >
@@ -163,7 +165,7 @@ export default function EditorToolbar({
       {/* Sidebar toggle */}
       <button
         onClick={onToggleSidebar}
-        className={`p-1.5 rounded-md hover:bg-white/[0.06] transition-colors flex-shrink-0 ${
+        className={`p-2.5 sm:p-1.5 rounded-md hover:bg-white/[0.06] transition-colors flex-shrink-0 ${
           sidebarOpen ? "text-white/60" : "text-white/30"
         }`}
         title="Toggle sidebar"
@@ -182,7 +184,7 @@ export default function EditorToolbar({
       />
 
       {/* Slide counter */}
-      <span className="text-xs text-white/30 flex-shrink-0">
+      <span className="text-xs text-white/30 flex-shrink-0 hidden sm:inline">
         {currentSlideIndex + 1}/{slideCount}
       </span>
 
@@ -198,7 +200,7 @@ export default function EditorToolbar({
               closeAll();
               setLayoutOpen(!layoutOpen);
             }}
-            className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-xs transition-colors flex-shrink-0 ${
+            className={`flex items-center gap-1 p-2.5 sm:px-2 sm:py-1.5 rounded-md text-xs transition-colors flex-shrink-0 ${
               layoutOpen
                 ? "text-white/80 bg-white/[0.06]"
                 : "text-white/50 hover:text-white/70 hover:bg-white/[0.06]"
@@ -299,7 +301,7 @@ export default function EditorToolbar({
         <button
           onClick={onUndo}
           disabled={!canUndo}
-          className="p-1.5 rounded-md hover:bg-white/[0.06] disabled:opacity-20 transition-colors"
+          className="p-2.5 sm:p-1.5 rounded-md hover:bg-white/[0.06] disabled:opacity-20 transition-colors"
           title="Undo (Cmd+Z)"
           aria-label="Undo"
         >
@@ -308,7 +310,7 @@ export default function EditorToolbar({
         <button
           onClick={onRedo}
           disabled={!canRedo}
-          className="p-1.5 rounded-md hover:bg-white/[0.06] disabled:opacity-20 transition-colors"
+          className="p-2.5 sm:p-1.5 rounded-md hover:bg-white/[0.06] disabled:opacity-20 transition-colors"
           title="Redo (Cmd+Shift+Z)"
           aria-label="Redo"
         >
@@ -316,11 +318,11 @@ export default function EditorToolbar({
         </button>
       </div>
 
-      {/* IconHistory */}
+      {/* IconHistory - hidden on small screens */}
       <button
         ref={historyButtonRef}
         onClick={onShowHistory}
-        className={`p-1.5 rounded-md hover:bg-white/[0.06] transition-colors flex-shrink-0 ${
+        className={`p-2.5 sm:p-1.5 rounded-md hover:bg-white/[0.06] transition-colors flex-shrink-0 hidden sm:block ${
           historyOpen
             ? "text-white/80 bg-white/[0.06]"
             : "text-white/40 hover:text-white/70"
@@ -338,7 +340,7 @@ export default function EditorToolbar({
       <div className="flex items-center rounded-md border border-white/[0.08] overflow-hidden flex-shrink-0">
         <button
           onClick={() => onTabChange("visual")}
-          className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+          className={`px-3 py-2 sm:py-1.5 text-xs font-medium transition-colors ${
             activeTab === "visual"
               ? "bg-white/[0.08] text-white/90"
               : "text-white/40 hover:text-white/60"
@@ -348,7 +350,7 @@ export default function EditorToolbar({
         </button>
         <button
           onClick={() => onTabChange("code")}
-          className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+          className={`px-3 py-2 sm:py-1.5 text-xs font-medium transition-colors ${
             activeTab === "code"
               ? "bg-white/[0.08] text-white/90"
               : "text-white/40 hover:text-white/60"
@@ -361,7 +363,7 @@ export default function EditorToolbar({
       {/* Share button */}
       <button
         onClick={onShare}
-        className="p-1.5 rounded-md text-white/40 hover:text-white/70 hover:bg-white/[0.06] transition-colors flex-shrink-0"
+        className="p-2.5 sm:p-1.5 rounded-md text-white/40 hover:text-white/70 hover:bg-white/[0.06] transition-colors flex-shrink-0"
         title="Share presentation"
         aria-label="Share presentation"
       >
@@ -371,7 +373,7 @@ export default function EditorToolbar({
       {/* Present button */}
       <Link
         to={`/deck/${deckId}/present`}
-        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-[#609FF8] hover:bg-[#7AB2FA] text-black text-xs font-medium transition-colors flex-shrink-0"
+        className="flex items-center gap-1.5 px-2.5 py-2 sm:py-1.5 rounded-md bg-[#609FF8] hover:bg-[#7AB2FA] text-black text-xs font-medium transition-colors flex-shrink-0"
       >
         <IconPlayerPlay className="w-3 h-3" />
         <span className="hidden sm:inline">Present</span>

@@ -5,12 +5,12 @@ import { IconArrowLeft } from "@tabler/icons-react";
 export default function Settings() {
   return (
     <div className="min-h-screen bg-[hsl(240,6%,4%)] text-white/90">
-      <header className="border-b border-white/[0.06] px-6 h-14 flex items-center gap-3">
+      <header className="border-b border-white/[0.06] px-4 sm:px-6 h-14 flex items-center gap-3">
         <Link
           to="/"
-          className="flex items-center gap-1.5 text-sm text-white/50 hover:text-white/80 transition-colors"
+          className="flex items-center gap-1.5 text-sm text-white/50 hover:text-white/80 py-2"
         >
-          <IconArrowLeft className="w-3.5 h-3.5" />
+          <IconArrowLeft className="w-4 h-4" />
           Back
         </Link>
         <span className="text-base font-semibold">Settings</span>
@@ -18,7 +18,7 @@ export default function Settings() {
           <AgentToggleButton />
         </div>
       </header>
-      <main className="max-w-xl mx-auto px-6 py-8">
+      <main className="max-w-xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <ApiKeySettings />
       </main>
     </div>

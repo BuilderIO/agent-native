@@ -78,7 +78,7 @@ function SortableSlideThumb({
         <div
           {...attributes}
           {...listeners}
-          className="flex-shrink-0 mt-2 cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-opacity"
+          className="flex-shrink-0 mt-2 cursor-grab active:cursor-grabbing sm:opacity-0 sm:group-hover:opacity-100"
         >
           <IconGripVertical className="w-3.5 h-3.5 text-white/30" />
         </div>
@@ -96,14 +96,14 @@ function SortableSlideThumb({
         </div>
       </button>
 
-      {/* Actions */}
-      <div className="absolute top-2 right-2 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+      {/* Actions - always visible on touch devices */}
+      <div className="absolute top-2 right-2 flex gap-0.5 sm:opacity-0 sm:group-hover:opacity-100">
         <button
           onClick={(e) => {
             e.stopPropagation();
             onDuplicate();
           }}
-          className="p-1 rounded bg-black/60 backdrop-blur-sm border border-white/10 hover:bg-black/80 transition-colors"
+          className="p-1.5 rounded bg-black/60 backdrop-blur-sm border border-white/10 hover:bg-black/80"
           title="Duplicate"
           aria-label="Duplicate slide"
         >
@@ -114,7 +114,7 @@ function SortableSlideThumb({
             e.stopPropagation();
             onDelete();
           }}
-          className="p-1 rounded bg-black/60 backdrop-blur-sm border border-white/10 hover:bg-red-900/80 transition-colors"
+          className="p-1.5 rounded bg-black/60 backdrop-blur-sm border border-white/10 hover:bg-red-900/80"
           title="Delete"
           aria-label="Delete slide"
         >
@@ -260,20 +260,25 @@ function AddSlidePopover({
   if (!open || !anchorRef.current) return null;
 
   const rect = anchorRef.current.getBoundingClientRect();
+  const panelWidth = Math.min(384, window.innerWidth - 24);
+  const left = Math.max(
+    12,
+    Math.min(rect.left, window.innerWidth - panelWidth - 12),
+  );
 
   const busy = generating || uploading;
 
   return createPortal(
     <div
       ref={panelRef}
-      className={`fixed w-[24rem] rounded-xl border bg-[hsl(240,5%,10%)] shadow-2xl shadow-black/60 z-[200] overflow-hidden transition-colors ${
+      className={`fixed w-[min(24rem,calc(100vw-24px))] rounded-xl border bg-[hsl(240,5%,10%)] shadow-2xl shadow-black/60 z-[200] overflow-hidden transition-colors ${
         dragging
           ? "border-[#609FF8]/50 bg-[hsl(240,5%,12%)]"
           : "border-white/[0.1]"
       }`}
       style={{
         top: rect.bottom + 8,
-        left: rect.left,
+        left,
       }}
       onDrop={handleDrop}
       onDragOver={(e) => {
@@ -335,7 +340,7 @@ function AddSlidePopover({
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          className="p-1.5 rounded-md hover:bg-white/[0.06] text-white/30 hover:text-white/50 transition-colors"
+          className="p-2 rounded-md hover:bg-white/[0.06] text-white/30 hover:text-white/50"
           title="Attach files"
           aria-label="Attach files"
         >
@@ -352,7 +357,7 @@ function AddSlidePopover({
         <button
           onClick={handleSubmit}
           disabled={busy}
-          className="p-1.5 rounded-lg bg-white/[0.12] hover:bg-white/[0.18] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          className="p-2 rounded-lg bg-white/[0.12] hover:bg-white/[0.18] disabled:opacity-30 disabled:cursor-not-allowed"
           title="Generate"
           aria-label="Generate slides"
         >
@@ -420,7 +425,7 @@ export default function EditorSidebar({
   }, [slides, activeSlideId, onSelectSlide]);
 
   return (
-    <div className="w-64 flex-shrink-0 border-r border-white/[0.06] bg-[hsl(240,5%,6%)] flex flex-col h-full">
+    <div className="w-56 sm:w-64 flex-shrink-0 border-r border-white/[0.06] bg-[hsl(240,5%,6%)] flex flex-col h-full">
       <div className="p-3 border-b border-white/[0.06] flex items-center justify-between">
         <span className="text-xs font-medium text-white/50 uppercase tracking-wider">
           Slides
@@ -431,7 +436,7 @@ export default function EditorSidebar({
           <button
             ref={headerAddRef}
             onClick={() => setAddOpen(!addOpen)}
-            className="p-1 rounded-md hover:bg-white/[0.06] transition-colors"
+            className="p-2 rounded-md hover:bg-white/[0.06] transition-colors"
             title="Add slides"
             aria-label="Add slides"
           >

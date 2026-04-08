@@ -20,6 +20,8 @@ import {
   IconBuilding,
   IconSelector,
   IconCheck,
+  IconMenu2,
+  IconX,
 } from "@tabler/icons-react";
 import { toast } from "sonner";
 
@@ -63,9 +65,12 @@ function InvitationBanner() {
   if (!org?.pendingInvitations?.length) return null;
 
   return (
-    <div className="border-b border-border bg-blue-50 dark:bg-blue-950/30 px-4 py-2.5">
+    <div className="border-b border-border bg-blue-50 dark:bg-blue-950/30 px-3 py-2.5 sm:px-4">
       {org.pendingInvitations.map((inv) => (
-        <div key={inv.id} className="flex items-center justify-between text-sm">
+        <div
+          key={inv.id}
+          className="flex items-center justify-between gap-3 text-sm"
+        >
           <span className="text-foreground">
             <span className="font-medium">{inv.invitedBy}</span> invited you to
             join <span className="font-medium">{inv.orgName}</span>
@@ -162,11 +167,16 @@ function OrgSwitcher() {
 
 export function AppLayout({ children }: AppLayoutProps) {
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const { data: status, isLoading } = useGreenhouseStatus();
 
   const currentPath = location.pathname.split("/")[1] || "dashboard";
+
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [location.pathname]);
 
   // Global keyboard shortcuts
   useEffect(() => {
@@ -255,9 +265,21 @@ export function AppLayout({ children }: AppLayoutProps) {
       ]}
     >
       <div className="flex h-screen overflow-hidden bg-background">
-        {/* Sidebar */}
-        <aside className="flex w-52 flex-col border-r border-border bg-sidebar-background">
-          {/* Logo */}
+        {sidebarOpen && (
+          <div
+            className="fixed inset-0 z-40 bg-black/50 md:hidden"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
+
+        <aside
+          className={cn(
+            "fixed inset-y-0 left-0 z-50 flex w-52 flex-col border-r border-border bg-sidebar-background md:static md:z-auto",
+            sidebarOpen
+              ? "translate-x-0"
+              : "-translate-x-full md:translate-x-0",
+          )}
+        >
           <div className="flex h-14 items-center gap-2.5 px-4 border-b border-border">
             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-green-600/10">
               <IconPlant2 className="h-4 w-4 text-green-600" />
@@ -265,9 +287,14 @@ export function AppLayout({ children }: AppLayoutProps) {
             <span className="text-sm font-semibold text-foreground">
               Recruiting
             </span>
+            <button
+              onClick={() => setSidebarOpen(false)}
+              className="ml-auto flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent md:hidden"
+            >
+              <IconX className="h-4 w-4" />
+            </button>
           </div>
 
-          {/* Nav */}
           <nav className="flex-1 px-2 py-3 space-y-0.5">
             {navItems.map((item) => {
               const isActive =
@@ -278,7 +305,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                   key={item.id}
                   to={item.path}
                   className={cn(
-                    "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium",
+                    "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium",
                     isActive
                       ? "bg-accent text-foreground"
                       : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -291,25 +318,29 @@ export function AppLayout({ children }: AppLayoutProps) {
             })}
           </nav>
 
-          {/* Org Switcher */}
           <OrgSwitcher />
 
-          {/* Bottom */}
           <div className="flex items-center gap-1 border-t border-border px-3 py-2">
             <ThemeToggle />
           </div>
         </aside>
 
-        {/* Main */}
         <main className="relative flex-1 overflow-auto">
           <InvitationBanner />
+          <div className="absolute left-3 top-3 z-10 md:hidden">
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:text-foreground"
+            >
+              <IconMenu2 className="h-4 w-4" />
+            </button>
+          </div>
           <div className="absolute right-3 top-3 z-10">
             <AgentToggleButton />
           </div>
           {children}
         </main>
 
-        {/* Command palette */}
         <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
       </div>
     </AgentSidebar>

@@ -81,6 +81,7 @@ export interface AgentCapabilities {
 export interface AgentSecurityScheme {
   type: string;
   scheme?: string;
+  bearerFormat?: string;
   in?: string;
   name?: string;
 }

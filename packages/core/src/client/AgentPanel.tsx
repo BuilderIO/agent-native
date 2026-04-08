@@ -50,6 +50,7 @@ import {
   IconPlugConnected,
   IconChevronLeft,
   IconCopy,
+  IconExternalLink,
 } from "@tabler/icons-react";
 import {
   MultiTabAssistantChat,
@@ -113,7 +114,7 @@ function useAvailableClis() {
     // Returns 404 gracefully when the plugin isn't loaded.
     fetch("/_agent-native/available-clis")
       .then((r) => (r.ok ? r.json() : []))
-      .then((data) => setClis(data))
+      .then((data) => setClis(Array.isArray(data) ? data : []))
       .catch(() => {});
   }, []);
   return clis;
@@ -247,9 +248,13 @@ function IconTooltip({
 function AgentSettingsPopover({
   isDevMode,
   onToggle,
+  devAppUrl,
+  showEnvToggle = true,
 }: {
   isDevMode: boolean;
   onToggle: () => void;
+  devAppUrl?: string;
+  showEnvToggle?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -332,16 +337,35 @@ function AgentSettingsPopover({
             style={{ top: pos.top, right: pos.right }}
           >
             <div className="space-y-3 p-3">
-              <SettingsSelect
-                label="Environment"
-                value={isDevMode ? "development" : "production"}
-                options={environmentOptions}
-                onValueChange={(next) => {
-                  const nextIsDev = next === "development";
-                  if (nextIsDev !== isDevMode) onToggle();
-                }}
-              />
-              <div className="border-t border-border pt-3 mt-3">
+              {showEnvToggle && (
+                <SettingsSelect
+                  label="Environment"
+                  value={isDevMode ? "development" : "production"}
+                  options={environmentOptions}
+                  onValueChange={(next) => {
+                    const nextIsDev = next === "development";
+                    if (nextIsDev !== isDevMode) onToggle();
+                  }}
+                />
+              )}
+              {devAppUrl && (
+                <a
+                  href={devAppUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground mt-1"
+                >
+                  <IconExternalLink size={12} />
+                  Open app in new tab
+                </a>
+              )}
+              <div
+                className={
+                  showEnvToggle || devAppUrl
+                    ? "border-t border-border pt-3 mt-3"
+                    : ""
+                }
+              >
                 <Suspense fallback={null}>
                   <IntegrationsPanel />
                 </Suspense>
@@ -689,6 +713,8 @@ export interface AgentPanelProps extends Omit<
   className?: string;
   /** Called when the user clicks the collapse button. If provided, a collapse button appears in the header. */
   onCollapse?: () => void;
+  /** URL of the app being developed (shown as "Open app in new tab" in settings). Set by frame. */
+  devAppUrl?: string;
 }
 
 function useClientOnly() {
@@ -705,6 +731,7 @@ export function AgentPanel({
   suggestions,
   showHeader = true,
   onCollapse,
+  devAppUrl,
 }: AgentPanelProps) {
   const mounted = useClientOnly();
   const [execMode, setExecMode] = useState<ExecMode>(() => {
@@ -743,6 +770,17 @@ export function AgentPanel({
   const switchMode = useCallback((m: "chat" | "cli" | "resources") => {
     startTransition(() => setMode(m));
   }, []);
+
+  // Listen for mode changes from the frame parent (via AgentSidebar)
+  useEffect(() => {
+    function handler(e: Event) {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.mode) switchMode(detail.mode);
+    }
+    window.addEventListener("agent-panel:set-mode", handler);
+    return () => window.removeEventListener("agent-panel:set-mode", handler);
+  }, [switchMode]);
+
   // CLI terminal tabs (ephemeral — not persisted to SQL)
   const [cliTabs, setCliTabs] = useState<string[]>(["cli-1"]);
   const [activeCliTab, setActiveCliTab] = useState("cli-1");
@@ -785,6 +823,20 @@ export function AgentPanel({
   const selectedLabel =
     availableClis.find((c) => c.command === selectedCli)?.label || selectedCli;
   const { isDevMode, canToggle, setDevMode } = useDevMode(apiUrl);
+
+  // Notify frame when dev mode changes
+  const prevIsDevMode = useRef(isDevMode);
+  useEffect(() => {
+    if (prevIsDevMode.current !== isDevMode) {
+      prevIsDevMode.current = isDevMode;
+      window.dispatchEvent(
+        new CustomEvent("agent-panel:dev-mode-change", {
+          detail: { isDevMode },
+        }),
+      );
+    }
+  }, [isDevMode]);
+
   const isLocalhost =
     mounted &&
     typeof window !== "undefined" &&
@@ -810,22 +862,20 @@ export function AgentPanel({
           <IconMessage size={14} />
           Chat
         </button>
-        {isDevMode && (
-          <button
-            onClick={() => switchMode("cli")}
-            className={cn(
-              "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
-              activeMode === "cli"
-                ? "bg-accent text-foreground"
-                : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-            )}
-            title="CLI terminal mode"
-            style={AGENT_PANEL_CONTROL_STYLE}
-          >
-            <IconTerminal2 size={14} />
-            CLI
-          </button>
-        )}
+        <button
+          onClick={() => switchMode("cli")}
+          className={cn(
+            "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
+            activeMode === "cli"
+              ? "bg-accent text-foreground"
+              : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+          )}
+          title="CLI terminal mode"
+          style={AGENT_PANEL_CONTROL_STYLE}
+        >
+          <IconTerminal2 size={14} />
+          CLI
+        </button>
         <button
           onClick={() => switchMode("resources")}
           className={cn(
@@ -848,16 +898,16 @@ export function AgentPanel({
   const renderHeaderActions = useCallback(
     () => (
       <div className="flex shrink-0 items-center gap-1.5">
-        {showDevToggle && (
-          <IconTooltip content="Agent settings">
-            <div>
-              <AgentSettingsPopover
-                isDevMode={isDevMode}
-                onToggle={() => setDevMode(!isDevMode)}
-              />
-            </div>
-          </IconTooltip>
-        )}
+        <IconTooltip content="Agent settings">
+          <div>
+            <AgentSettingsPopover
+              isDevMode={isDevMode}
+              onToggle={() => setDevMode(!isDevMode)}
+              devAppUrl={devAppUrl}
+              showEnvToggle={showDevToggle}
+            />
+          </div>
+        </IconTooltip>
         {onCollapse && (
           <IconTooltip content="Collapse sidebar">
             <button
@@ -870,11 +920,12 @@ export function AgentPanel({
         )}
       </div>
     ),
-    [isDevMode, onCollapse, setDevMode, showDevToggle],
+    [isDevMode, onCollapse, setDevMode, showDevToggle, devAppUrl],
   );
 
   const [tabMenuOpen, setTabMenuOpen] = useState<string | null>(null);
   const [cliPickerOpen, setCliPickerOpen] = useState(false);
+  const cliPickerBtnRef = useRef<HTMLButtonElement>(null);
 
   // Ref callback: scroll the active tab into view in the overflow container.
   // Uses getBoundingClientRect for reliable positioning regardless of offsetParent.
@@ -1131,6 +1182,7 @@ export function AgentPanel({
                           <div className="relative">
                             <IconTooltip content={`CLI: ${selectedLabel}`}>
                               <button
+                                ref={cliPickerBtnRef}
                                 onClick={() => setCliPickerOpen(!cliPickerOpen)}
                                 className={cn(
                                   "flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
@@ -1140,47 +1192,60 @@ export function AgentPanel({
                                 <IconSettings size={14} />
                               </button>
                             </IconTooltip>
-                            {cliPickerOpen && (
-                              <>
-                                <div
-                                  className="fixed inset-0 z-40"
-                                  onClick={() => setCliPickerOpen(false)}
-                                />
-                                <div className="absolute right-0 top-full mt-1 z-50 w-48 rounded-md border border-border bg-popover py-1 shadow-lg">
-                                  {availableClis.map((cli) => (
-                                    <button
-                                      key={cli.command}
-                                      className={cn(
-                                        "flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent",
-                                        cli.command === selectedCli
-                                          ? "text-foreground font-medium"
-                                          : "text-muted-foreground",
-                                      )}
-                                      onClick={() => {
-                                        selectCli(cli.command);
-                                        setCliPickerOpen(false);
-                                      }}
-                                    >
-                                      {cli.command === selectedCli && (
-                                        <IconCheck
-                                          size={12}
-                                          className="shrink-0"
-                                        />
-                                      )}
-                                      <span
-                                        className={
-                                          cli.command !== selectedCli
-                                            ? "ml-5"
-                                            : ""
-                                        }
+                            {cliPickerOpen &&
+                              ReactDOM.createPortal(
+                                <>
+                                  <div
+                                    className="fixed inset-0 z-[9980]"
+                                    onClick={() => setCliPickerOpen(false)}
+                                  />
+                                  <div
+                                    className="fixed z-[9990] w-48 rounded-md border border-border bg-popover py-1 shadow-lg"
+                                    style={(() => {
+                                      const r =
+                                        cliPickerBtnRef.current?.getBoundingClientRect();
+                                      if (!r) return { top: 0, right: 0 };
+                                      return {
+                                        top: r.bottom + 4,
+                                        right: window.innerWidth - r.right,
+                                      };
+                                    })()}
+                                  >
+                                    {availableClis.map((cli) => (
+                                      <button
+                                        key={cli.command}
+                                        className={cn(
+                                          "flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent",
+                                          cli.command === selectedCli
+                                            ? "text-foreground font-medium"
+                                            : "text-muted-foreground",
+                                        )}
+                                        onClick={() => {
+                                          selectCli(cli.command);
+                                          setCliPickerOpen(false);
+                                        }}
                                       >
-                                        {cli.label}
-                                      </span>
-                                    </button>
-                                  ))}
-                                </div>
-                              </>
-                            )}
+                                        {cli.command === selectedCli && (
+                                          <IconCheck
+                                            size={12}
+                                            className="shrink-0"
+                                          />
+                                        )}
+                                        <span
+                                          className={
+                                            cli.command !== selectedCli
+                                              ? "ml-5"
+                                              : ""
+                                          }
+                                        >
+                                          {cli.label}
+                                        </span>
+                                      </button>
+                                    ))}
+                                  </div>
+                                </>,
+                                document.body,
+                              )}
                           </div>
                         )}
                         <div className="relative">
@@ -1371,44 +1436,66 @@ export function AgentPanel({
             contentHidden={mode !== "chat"}
             emptyStateText={emptyStateText}
             suggestions={suggestions}
-            onSwitchToCli={isDevMode ? () => switchMode("cli") : undefined}
+            onSwitchToCli={() => switchMode("cli")}
             execMode={execMode}
             onExecModeChange={switchExecMode}
           />
         )}
       </div>
 
-      {/* CLI terminals — always mounted in dev mode to preserve state (WebSocket, buffer).
-          Hidden via display:none when another mode is active, matching how chat is handled. */}
-      {isDevMode &&
-        cliTabs.map((id) => (
-          <div
-            key={id}
-            className={cn(
-              "min-h-0 relative",
-              mode === "cli" ? "flex-1" : "hidden",
-            )}
-            style={{
-              display:
-                mode === "cli" && id === activeCliTab ? undefined : "none",
-            }}
-          >
-            <Suspense
-              fallback={
-                <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-                  Loading terminal...
-                </div>
-              }
+      {/* CLI terminals — dev mode: real terminal, prod mode: prompt to use dev */}
+      {isDevMode
+        ? cliTabs.map((id) => (
+            <div
+              key={id}
+              className={cn(
+                "min-h-0 relative",
+                mode === "cli" ? "flex-1" : "hidden",
+              )}
+              style={{
+                display:
+                  mode === "cli" && id === activeCliTab ? undefined : "none",
+              }}
             >
-              <AgentTerminal
-                command={selectedCli}
-                hideInHarness={false}
-                className="h-full"
-                style={{ background: "transparent" }}
-              />
-            </Suspense>
-          </div>
-        ))}
+              <Suspense
+                fallback={
+                  <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+                    Loading terminal...
+                  </div>
+                }
+              >
+                <AgentTerminal
+                  command={selectedCli}
+                  hideInFrame={false}
+                  className="h-full"
+                  style={{ background: "transparent" }}
+                />
+              </Suspense>
+            </div>
+          ))
+        : mode === "cli" && (
+            <div className="flex flex-1 flex-col items-center justify-center min-h-0 px-6 gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+                <IconTerminal2 className="h-5 w-5 text-muted-foreground" />
+              </div>
+              <div className="text-center max-w-[260px]">
+                <p className="text-sm font-medium text-foreground mb-1">
+                  CLI requires dev mode
+                </p>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Run this app locally with{" "}
+                  <code className="bg-muted px-1 py-0.5 rounded text-[10px]">
+                    pnpm dev
+                  </code>{" "}
+                  or use{" "}
+                  <span className="font-medium text-foreground">
+                    Builder.io
+                  </span>{" "}
+                  to access the CLI terminal.
+                </p>
+              </div>
+            </div>
+          )}
 
       {/* Resources view */}
       {mode === "resources" && (
@@ -1581,12 +1668,27 @@ export function AgentSidebar({
     [],
   );
 
+  // Track whether the frame is controlling the sidebar (code mode = frame active)
+  const [frameCodeMode, setFrameCodeMode] = useState(false);
+
   useEffect(() => {
     const toggleHandler = () => {
-      setOpenPersisted((prev) => !prev);
+      if (frameCodeMode && window.parent !== window) {
+        // Forward toggle to frame parent — the frame sidebar handles it
+        window.parent.postMessage({ type: "builder.toggleSidebar" }, "*");
+      } else {
+        setOpenPersisted((prev) => !prev);
+      }
     };
     const openHandler = () => {
-      setOpenPersisted(true);
+      if (frameCodeMode && window.parent !== window) {
+        window.parent.postMessage(
+          { type: "builder.toggleSidebar", data: { open: true } },
+          "*",
+        );
+      } else {
+        setOpenPersisted(true);
+      }
     };
     window.addEventListener("agent-panel:toggle", toggleHandler);
     window.addEventListener("agent-panel:open", openHandler);
@@ -1594,6 +1696,55 @@ export function AgentSidebar({
       window.removeEventListener("agent-panel:toggle", toggleHandler);
       window.removeEventListener("agent-panel:open", openHandler);
     };
+  }, [setOpenPersisted, frameCodeMode]);
+
+  // Listen for sidebar mode commands from the frame parent.
+  // When frame is in "code" mode, hide the app sidebar.
+  // When frame is in "app" mode, show the app sidebar, sync width and panel mode.
+  useEffect(() => {
+    if (window.parent === window) return; // Not in an iframe
+
+    function handleMessage(event: MessageEvent) {
+      if (event.data?.type !== "builder.sidebarMode") return;
+      const {
+        mode,
+        appMode,
+        width: frameWidth,
+        open: frameOpen,
+      } = event.data.data || {};
+      if (mode === "code") {
+        // Frame is showing its own sidebar — hide the app's
+        setFrameCodeMode(true);
+        setOpenPersisted(false);
+      } else if (mode === "app") {
+        // Frame deferred to the app — show and sync width + mode
+        setFrameCodeMode(false);
+        if (frameOpen !== false) {
+          setOpenPersisted(true);
+        }
+        if (
+          frameWidth &&
+          frameWidth >= SIDEBAR_MIN &&
+          frameWidth <= SIDEBAR_MAX
+        ) {
+          setWidth(frameWidth);
+        }
+        // Sync the panel mode from frame tab selection
+        if (
+          appMode === "cli" ||
+          appMode === "resources" ||
+          appMode === "chat"
+        ) {
+          window.dispatchEvent(
+            new CustomEvent("agent-panel:set-mode", {
+              detail: { mode: appMode },
+            }),
+          );
+        }
+      }
+    }
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
   }, [setOpenPersisted]);
 
   // Cmd+I / Ctrl+I to focus the agent chat

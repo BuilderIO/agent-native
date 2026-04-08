@@ -642,7 +642,10 @@ export function EmailList({
       <div className="flex h-full flex-col" ref={containerRef}>
         <div className="flex-1 overflow-y-auto">
           {Array.from({ length: 12 }).map((_, i) => (
-            <div key={i} className="flex items-center gap-3 px-4 h-[38px]">
+            <div
+              key={i}
+              className="flex items-center gap-3 px-4 h-[48px] sm:h-[38px]"
+            >
               <div className="h-2 w-2 rounded-full bg-muted animate-pulse" />
               <div className="h-3 w-28 rounded bg-muted animate-pulse" />
               <div className="h-3 w-48 rounded bg-muted animate-pulse flex-1" />
@@ -692,16 +695,6 @@ export function EmailList({
 
   return (
     <div className="flex h-full flex-col" ref={containerRef}>
-      {selectedIds.size > 1 && (
-        <div className="flex items-center gap-2 px-4 h-8 border-b border-border/30 bg-primary/5 text-xs text-muted-foreground shrink-0">
-          <span className="font-medium text-foreground">
-            {selectedIds.size} selected
-          </span>
-          <span className="text-muted-foreground/60">
-            E archive · D trash · S star · Esc clear
-          </span>
-        </div>
-      )}
       <div className="flex-1 overflow-y-auto">
         {threads.map((thread) => (
           <EmailListItem

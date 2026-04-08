@@ -1,4 +1,9 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  useQuery,
+  useMutation,
+  useQueryClient,
+  keepPreviousData,
+} from "@tanstack/react-query";
 import type { CalendarEvent } from "@shared/api";
 
 export function useEvents(
@@ -27,6 +32,7 @@ export function useEvents(
     retry: false,
     staleTime: 30_000,
     gcTime: 30 * 60 * 1000,
+    placeholderData: keepPreviousData,
   });
   return query;
 }

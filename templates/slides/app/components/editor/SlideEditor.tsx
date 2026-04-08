@@ -237,7 +237,7 @@ export default function SlideEditor({
     <div className="flex-1 flex flex-col h-full overflow-hidden">
       <div className="flex-1 overflow-hidden">
         {activeTab === "visual" ? (
-          <div className="h-full flex items-center justify-center p-8 bg-[hsl(240,5%,5%)]">
+          <div className="h-full flex items-center justify-center p-2 sm:p-4 md:p-8 bg-[hsl(240,5%,5%)]">
             <div
               ref={containerRef}
               className="w-full max-w-4xl slide-image-clickable"

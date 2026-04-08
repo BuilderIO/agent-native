@@ -94,32 +94,32 @@ export default function IndexPage() {
     <div className="min-h-screen pb-32 relative z-10">
       <VoiceDictation currentDate={date} />
 
-      <div className="max-w-3xl lg:max-w-6xl mx-auto px-4 py-8 space-y-12">
+      <div className="max-w-3xl lg:max-w-6xl mx-auto px-3 sm:px-4 py-6 sm:py-8 space-y-8 sm:space-y-12">
         {/* Date Navigation */}
-        <div className="flex items-center justify-center gap-2">
+        <div className="flex items-center justify-center gap-1 sm:gap-2">
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground hover:bg-white/5"
+            className="h-11 w-11 sm:h-8 sm:w-8 rounded-full text-muted-foreground hover:text-foreground hover:bg-white/5"
             onClick={() => setDate(subDays(date, 1))}
           >
-            <IconChevronLeft className="h-4 w-4" />
+            <IconChevronLeft className="h-5 w-5 sm:h-4 sm:w-4" />
           </Button>
-          <div className="min-w-[160px] text-center px-4 py-2 rounded-full bg-white/[0.03] border border-white/[0.06]">
+          <div className="min-w-[140px] sm:min-w-[160px] text-center px-3 sm:px-4 py-2 rounded-full bg-white/[0.03] border border-white/[0.06]">
             <span className="text-sm font-medium text-foreground">
               {isSameDay(date, new Date())
                 ? "Today"
-                : format(date, "EEEE, MMM d")}
+                : format(date, "EEE, MMM d")}
             </span>
           </div>
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground hover:bg-white/5 disabled:opacity-30"
+            className="h-11 w-11 sm:h-8 sm:w-8 rounded-full text-muted-foreground hover:text-foreground hover:bg-white/5 disabled:opacity-30"
             onClick={() => setDate(addDays(date, 1))}
             disabled={isSameDay(date, new Date())}
           >
-            <IconChevronRight className="h-4 w-4" />
+            <IconChevronRight className="h-5 w-5 sm:h-4 sm:w-4" />
           </Button>
         </div>
 
@@ -140,7 +140,7 @@ export default function IndexPage() {
         </section>
 
         {/* Triple Column Layout */}
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
           {/* Meals */}
           <section className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-100">
             <div className="flex items-center justify-between px-1">

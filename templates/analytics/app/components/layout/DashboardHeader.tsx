@@ -26,7 +26,7 @@ export function DashboardHeader({
     <div className="mb-6 space-y-3">
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1 min-w-0">
-          <h1 className="text-3xl font-bold tracking-tight truncate">
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight truncate">
             {displayTitle}
           </h1>
           {description && (
@@ -41,7 +41,7 @@ export function DashboardHeader({
       </div>
 
       {metadata && (
-        <div className="flex items-center gap-4 text-xs text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
           {metadata.author && (
             <div className="flex items-center gap-1.5">
               <IconUser className="h-3.5 w-3.5" />

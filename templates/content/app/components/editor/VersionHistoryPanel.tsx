@@ -69,7 +69,7 @@ export function VersionHistoryPanel({
 
   return (
     <Sheet open={open} onOpenChange={handleClose}>
-      <SheetContent side="right" className="w-[400px] sm:max-w-[400px] p-0">
+      <SheetContent side="right" className="w-[85vw] max-w-[400px] p-0">
         <SheetHeader className="px-4 pt-4 pb-0">
           <SheetTitle className="text-sm font-medium">
             {selectedVersion ? (

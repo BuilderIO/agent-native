@@ -104,6 +104,9 @@
   font-size: 0.9375rem;
   line-height: 1.7;
   color: hsl(var(--foreground));
+  overflow-x: auto;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 .email-body-content a {
   color: hsl(var(--primary));
@@ -112,6 +115,15 @@
 }
 .email-body-content p {
   margin-bottom: 0.75rem;
+}
+.email-body-content img {
+  max-width: 100%;
+  height: auto;
+}
+.email-body-content pre,
+.email-body-content table {
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 /* Keyboard shortcut hint badges */

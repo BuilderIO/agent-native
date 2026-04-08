@@ -133,14 +133,14 @@ export function ActionItemsPage() {
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-border px-6 h-14 flex-shrink-0">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 min-h-14 py-2 flex-shrink-0 sm:px-6 sm:flex-nowrap">
         <div className="flex items-center gap-3">
-          <h1 className="text-sm font-semibold text-foreground">
+          <h1 className="text-sm font-semibold text-foreground pl-10 md:pl-0">
             Action Items
           </h1>
           {summary.totalActionItems > 0 && (
             <span className="inline-flex items-center rounded-full bg-red-500/10 px-2 py-0.5 text-[11px] font-medium text-red-600">
-              {summary.totalActionItems} need attention
+              {summary.totalActionItems}
             </span>
           )}
         </div>
@@ -149,19 +149,20 @@ export function ActionItemsPage() {
             <button
               onClick={handleSendUpdate}
               disabled={sendUpdate.isPending}
-              className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent/50 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-accent/50 disabled:opacity-50"
             >
               {sendUpdate.isPending ? (
                 <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
               ) : (
                 <IconBrandSlack className="h-3.5 w-3.5" />
               )}
-              Send Recruiter Update
+              <span className="hidden sm:inline">Send Recruiter Update</span>
+              <span className="sm:hidden">Send</span>
             </button>
           )}
           <button
             onClick={() => refetch()}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent/50"
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-accent/50"
           >
             Refresh
           </button>
@@ -170,9 +171,9 @@ export function ActionItemsPage() {
 
       {/* Content */}
       <div className="flex-1 overflow-auto">
-        <div className="max-w-4xl mx-auto px-6 py-6 space-y-6">
+        <div className="max-w-4xl mx-auto px-4 py-6 space-y-6 sm:px-6">
           {/* Summary cards */}
-          <div className="grid grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <SummaryCard
               label="Overdue Scorecards"
               count={summary.overdueScorecardCount}
@@ -234,7 +235,7 @@ export function ActionItemsPage() {
                   return (
                     <div
                       key={`${item.interview.id}-overdue`}
-                      className="flex items-center justify-between px-4 py-3 text-sm cursor-pointer hover:bg-accent/50"
+                      className="flex items-center justify-between gap-3 px-3 py-3 text-sm cursor-pointer hover:bg-accent/50 sm:px-4"
                       onClick={() =>
                         navigate(`/candidates/${item.candidateId}`)
                       }
@@ -249,10 +250,10 @@ export function ActionItemsPage() {
                           {initials}
                         </div>
                         <div className="min-w-0">
-                          <div className="font-medium text-foreground">
+                          <div className="font-medium text-foreground truncate">
                             {name}
                           </div>
-                          <div className="text-xs text-muted-foreground">
+                          <div className="text-xs text-muted-foreground truncate">
                             {item.jobName}
                           </div>
                         </div>
@@ -262,7 +263,7 @@ export function ActionItemsPage() {
                           <div className="text-xs text-red-600 font-medium">
                             {item.hoursSinceInterview}h overdue
                           </div>
-                          <div className="text-[11px] text-muted-foreground">
+                          <div className="text-[11px] text-muted-foreground hidden sm:block">
                             Missing:{" "}
                             {item.missingFrom.map((m) => m.name).join(", ")}
                           </div>
@@ -294,7 +295,7 @@ export function ActionItemsPage() {
                   return (
                     <div
                       key={`${item.interview.id}-pending`}
-                      className="flex items-center justify-between px-4 py-3 text-sm cursor-pointer hover:bg-accent/50"
+                      className="flex items-center justify-between gap-3 px-3 py-3 text-sm cursor-pointer hover:bg-accent/50 sm:px-4"
                       onClick={() =>
                         navigate(`/candidates/${item.candidateId}`)
                       }
@@ -309,10 +310,10 @@ export function ActionItemsPage() {
                           {initials}
                         </div>
                         <div className="min-w-0">
-                          <div className="font-medium text-foreground">
+                          <div className="font-medium text-foreground truncate">
                             {name}
                           </div>
-                          <div className="text-xs text-muted-foreground">
+                          <div className="text-xs text-muted-foreground truncate">
                             {item.jobName}
                           </div>
                         </div>
@@ -322,7 +323,7 @@ export function ActionItemsPage() {
                           <div className="text-xs text-amber-600 font-medium">
                             {item.hoursSinceInterview}h ago
                           </div>
-                          <div className="text-[11px] text-muted-foreground">
+                          <div className="text-[11px] text-muted-foreground hidden sm:block">
                             Waiting:{" "}
                             {item.missingFrom.map((m) => m.name).join(", ")}
                           </div>
@@ -354,7 +355,7 @@ export function ActionItemsPage() {
                   return (
                     <div
                       key={`${item.scorecard.id}-recent`}
-                      className="flex items-center justify-between px-4 py-3 text-sm cursor-pointer hover:bg-accent/50"
+                      className="flex items-center justify-between gap-3 px-3 py-3 text-sm cursor-pointer hover:bg-accent/50 sm:px-4"
                       onClick={() =>
                         navigate(`/candidates/${item.candidateId}`)
                       }
@@ -369,19 +370,19 @@ export function ActionItemsPage() {
                           {initials}
                         </div>
                         <div className="min-w-0">
-                          <div className="font-medium text-foreground">
+                          <div className="font-medium text-foreground truncate">
                             {name}
                           </div>
-                          <div className="text-xs text-muted-foreground">
+                          <div className="text-xs text-muted-foreground truncate">
                             {item.jobName} · {item.interviewName}
                           </div>
                         </div>
                       </div>
-                      <div className="flex items-center gap-3 flex-shrink-0">
+                      <div className="flex items-center gap-2 flex-shrink-0 sm:gap-3">
                         <RecommendationBadge
                           rec={item.scorecard.overall_recommendation}
                         />
-                        <div className="text-right">
+                        <div className="text-right hidden sm:block">
                           <div className="text-xs text-muted-foreground">
                             {item.scorecard.submitted_by.name}
                           </div>
@@ -419,7 +420,7 @@ export function ActionItemsPage() {
                   return (
                     <div
                       key={`${item.applicationId}-stuck`}
-                      className="flex items-center justify-between px-4 py-3 text-sm cursor-pointer hover:bg-accent/50"
+                      className="flex items-center justify-between gap-3 px-3 py-3 text-sm cursor-pointer hover:bg-accent/50 sm:px-4"
                       onClick={() =>
                         navigate(`/candidates/${item.candidateId}`)
                       }
@@ -434,10 +435,10 @@ export function ActionItemsPage() {
                           {initials}
                         </div>
                         <div className="min-w-0">
-                          <div className="font-medium text-foreground">
+                          <div className="font-medium text-foreground truncate">
                             {name}
                           </div>
-                          <div className="text-xs text-muted-foreground">
+                          <div className="text-xs text-muted-foreground truncate">
                             {item.jobName} · {item.stageName}
                           </div>
                         </div>
@@ -525,15 +526,21 @@ function Section({
     <div>
       <button
         onClick={onToggle}
-        className="flex items-center justify-between w-full mb-2 group"
+        className="flex items-center justify-between w-full mb-2 gap-2 group"
       >
-        <div className="flex items-center gap-2">
-          <Icon className={cn("h-4 w-4", color)} />
-          <h2 className="text-sm font-medium text-foreground">{title}</h2>
-          <span className="text-xs text-muted-foreground">({count})</span>
+        <div className="flex items-center gap-2 min-w-0">
+          <Icon className={cn("h-4 w-4 flex-shrink-0", color)} />
+          <h2 className="text-sm font-medium text-foreground truncate">
+            {title}
+          </h2>
+          <span className="text-xs text-muted-foreground flex-shrink-0">
+            ({count})
+          </span>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] text-muted-foreground">{subtitle}</span>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <span className="text-[11px] text-muted-foreground hidden sm:inline">
+            {subtitle}
+          </span>
           {expanded ? (
             <IconChevronUp className="h-3.5 w-3.5 text-muted-foreground" />
           ) : (

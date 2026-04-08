@@ -18,7 +18,7 @@ export function IssueActivity({ issue }: IssueActivityProps) {
     <div className="space-y-3">
       {histories.map((history) => (
         <div key={history.id} className="border-l-2 border-border py-1 pl-3">
-          <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-1 text-[12px] text-muted-foreground sm:gap-2">
             <span className="font-medium text-foreground">
               {history.author?.displayName}
             </span>

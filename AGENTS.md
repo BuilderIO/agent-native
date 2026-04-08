@@ -245,6 +245,53 @@ const task = await client.send({
 });
 ```
 
+## Real-Time Collaboration
+
+The framework provides multi-user collaborative editing via Yjs CRDT, allowing the AI agent and multiple human users to edit the same document simultaneously — like Google Docs or Notion.
+
+### How It Works
+
+- **Yjs Y.Doc** stores the document as a `Y.XmlFragment` (ProseMirror node tree)
+- **TipTap's Collaboration extension** binds the editor to the Y.XmlFragment via `ySyncPlugin`
+- **CollaborationCaret extension** renders remote users' cursors with names and colors
+- **Polling** (every 2s) syncs Y.Doc updates and awareness state between clients and server
+- **SQL `_collab_docs` table** persists Yjs state as base64-encoded binary (works across SQLite/Postgres)
+
+### Agent + Human Real-Time Collaboration
+
+The agent and human users are equal participants in collaborative editing:
+
+1. **Human edits** flow through TipTap → ySyncPlugin → Y.XmlFragment → server via `POST /_agent-native/collab/:docId/update`
+2. **Agent edits** flow through `edit-document` action → server search-replace endpoint → Y.XmlFragment mutation → poll update → all clients
+3. Both produce minimal Yjs operations that merge cleanly — the agent's edits appear in the user's editor without destroying their cursor position, selection, or undo history
+
+The `edit-document` action uses surgical search-and-replace on Y.XmlText nodes within the Y.XmlFragment tree, producing the smallest possible Yjs update. This is more efficient than regenerating entire documents.
+
+### Enabling Collaboration
+
+Templates opt into collaboration by:
+
+1. Installing `@tiptap/extension-collaboration`, `@tiptap/extension-collaboration-caret`, `@tiptap/y-tiptap`
+2. Adding a collab server plugin: `createCollabPlugin({ table, contentColumn, idColumn })`
+3. Using the `useCollaborativeDoc` client hook for Y.Doc management
+4. Adding Collaboration + CollaborationCaret extensions to TipTap
+5. Adding the packages to `optimizeDeps.include` in `vite.config.ts`
+
+See the `real-time-collab` skill for detailed setup instructions and common pitfalls.
+
+### Collab Routes
+
+All collab routes are auto-mounted under `/_agent-native/collab/`:
+
+| Route                                              | Purpose                                |
+| -------------------------------------------------- | -------------------------------------- |
+| `GET /_agent-native/collab/:docId/state`           | Fetch full Y.Doc state                 |
+| `POST /_agent-native/collab/:docId/update`         | Apply client Yjs update                |
+| `POST /_agent-native/collab/:docId/text`           | Apply full text (diff-based)           |
+| `POST /_agent-native/collab/:docId/search-replace` | Surgical find/replace in Y.XmlFragment |
+| `POST /_agent-native/collab/:docId/awareness`      | Sync cursor/presence state             |
+| `GET /_agent-native/collab/:docId/users`           | List active users                      |
+
 ## All-Agent Support
 
 AGENTS.md is the universal standard for agent instructions. It works with any AI coding tool. The framework auto-creates symlinks so all tools read the same instructions:
@@ -258,11 +305,21 @@ Run `agent-native setup-agents` to create all symlinks, or they're created autom
 
 ## Authentication
 
-Auth is automatic and environment-driven via `autoMountAuth(app)`.
+Auth is powered by **Better Auth** with account-first design. Users create an account on first visit.
 
-- **Dev mode**: Auth bypassed. `getSession()` returns `{ email: "local@localhost" }`.
-- **Production** (`ACCESS_TOKEN` set): Auth middleware auto-mounts. Cookie-based sessions in SQL.
+- **Default**: Better Auth with email/password + social providers (Google, GitHub). Organizations built in.
+- **`AUTH_MODE=local`**: Explicit escape hatch for solo local dev. `getSession()` returns `{ email: "local@localhost" }`. Set in `.env` or via the onboarding page's "Use locally" button.
+- **`ACCESS_TOKEN`/`ACCESS_TOKENS`**: Simple token-based auth for production deployments.
 - **Bring your own auth**: Pass a custom `getSession` to `autoMountAuth(app, { getSession })`.
+- **`AUTH_DISABLED=true`**: Skip auth entirely (for apps behind infrastructure-level auth like Cloudflare Access).
+
+### Organizations
+
+Better Auth's organization plugin is built into the framework. Every app supports creating orgs, inviting members, and role-based access (owner/admin/member). The active organization flows automatically: `session.orgId` → `AGENT_ORG_ID` → SQL scoping.
+
+### A2A Identity
+
+Set `A2A_SECRET` (same value) on all apps that need to verify each other's identity. Outbound A2A calls are signed with JWTs; inbound calls are verified cryptographically. Without `A2A_SECRET`, A2A calls are unauthenticated (fine for local dev).
 
 ## Server Plugins
 
@@ -338,6 +395,8 @@ Agent skills in `.agents/skills/` provide detailed guidance. Read the relevant s
 | `adding-a-feature`    | Adding any new feature (the four-area checklist)              |
 | `context-awareness`   | Exposing UI state to the agent, view-screen pattern           |
 | `a2a-protocol`        | Enabling inter-agent communication                            |
+| `real-time-collab`    | Multi-user collaborative editing with Yjs CRDT + live cursors |
+| `security`            | Data scoping (owner_email, org_id), auth model, A2A security  |
 
 **Always use shadcn/ui components** for standard UI patterns. Check `app/components/ui/` before building custom UI elements.
 

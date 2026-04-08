@@ -85,17 +85,32 @@ export function useChatThreads(apiUrl = "/_agent-native/agent-chat") {
     })();
   }, [fetchThreads, apiUrl, activeThreadId]);
 
-  const createThread = useCallback(async (): Promise<string | null> => {
-    try {
-      const res = await fetch(`${apiUrl}/threads`, { method: "POST" });
-      if (!res.ok) return null;
-      const thread = await res.json();
-      setThreads((prev) => [thread, ...prev]);
-      setActiveThreadId(thread.id);
-      return thread.id;
-    } catch {
-      return null;
-    }
+  const createThread = useCallback((): Promise<string | null> => {
+    // Generate ID client-side for instant UI response
+    const id = crypto.randomUUID();
+    const now = Date.now();
+    const optimistic: ChatThreadSummary = {
+      id,
+      title: "",
+      preview: "",
+      messageCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+    setThreads((prev) => [optimistic, ...prev]);
+    setActiveThreadId(id);
+
+    // Persist to server in the background
+    fetch(`${apiUrl}/threads`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    }).catch(() => {
+      // If server fails, remove the optimistic thread
+      setThreads((prev) => prev.filter((t) => t.id !== id));
+    });
+
+    return Promise.resolve(id);
   }, [apiUrl]);
 
   const switchThread = useCallback((id: string) => {

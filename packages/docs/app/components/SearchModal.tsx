@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router";
 import { createPortal } from "react-dom";
-import { searchIndex, type SearchEntry } from "./searchIndex";
+import { buildSearchIndex, type SearchEntry } from "./docs-content";
+
+const searchIndex = buildSearchIndex();
 
 function highlightMatch(text: string, query: string) {
   if (!query.trim()) return text;

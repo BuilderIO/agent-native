@@ -40,6 +40,10 @@ export interface ResourceTreeProps {
   onDelete: (id: string) => void;
   onRename: (id: string, newPath: string) => void;
   onDrop: (files: FileList) => void;
+  /** Section title displayed as heading */
+  title?: string;
+  /** Tooltip for the section heading */
+  titleTooltip?: string;
 }
 
 interface CreatingState {
@@ -256,6 +260,8 @@ export function ResourceTree({
   onCreateFolder,
   onDelete,
   onDrop,
+  title = "Files",
+  titleTooltip,
 }: ResourceTreeProps) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [creating, setCreating] = useState<CreatingState | null>(null);
@@ -329,18 +335,18 @@ export function ResourceTree({
 
   return (
     <div
-      className={cn(
-        "flex-1 min-h-0 overflow-y-auto p-1",
-        dragOver && "ring-1 ring-inset ring-accent",
-      )}
+      className={cn("p-1", dragOver && "ring-1 ring-inset ring-accent")}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {/* Root-level add button */}
+      {/* Section heading */}
       <div className="group/root flex items-center justify-between px-1.5 py-1">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">
-          Files
+        <span
+          className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60"
+          title={titleTooltip}
+        >
+          {title}
         </span>
         <button
           onClick={() => handleStartCreate("", "file")}
@@ -384,13 +390,8 @@ export function ResourceTree({
       )}
 
       {tree.length === 0 && !creating && (
-        <div
-          className="flex flex-col items-center gap-2 text-muted-foreground/50"
-          style={{ paddingTop: "5vh" }}
-        >
-          <IconFile className="h-8 w-8" />
-          <p className="text-[12px]">No resources yet</p>
-          <p className="text-[11px]">Drop files here or click + to create</p>
+        <div className="px-2 py-1">
+          <p className="text-[11px] text-muted-foreground/40">No files yet</p>
         </div>
       )}
     </div>
