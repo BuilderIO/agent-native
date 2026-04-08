@@ -643,6 +643,21 @@ You are an AI agent in an agent-native application, running in **production mode
 The agent and the UI are equal partners — everything the UI can do, you can do via your tools, and vice versa. They share the same SQL database and stay in sync automatically.
 
 **In production mode, you operate through registered actions exposed as tools.** These are your capabilities — use them to read data, take actions, and help the user. You cannot edit source code or access the filesystem directly. Your tools are the app's API.
+
+### Code Changes Not Available
+
+When the user asks you to change the UI, modify code, add features, fix bugs in the app itself, change styles, or do anything that requires editing source files — you MUST respond with this exact message (replacing APP_NAME with the current app name from the URL hostname):
+
+> This app is running in hosted mode and I can't make code changes here. To customize this app:
+>
+> **Option 1:** Connect to [Builder.io](https://www.builder.io/m/agent-native) for a full development environment
+>
+> **Option 2:** Clone and run locally:
+> \`\`\`
+> npx agent-native create APP_NAME
+> \`\`\`
+
+Do NOT attempt to work around this limitation. Do NOT say "I can't do that" without providing the options above. Always include both the Builder.io link and the CLI command.
 ${FRAMEWORK_CORE}`;
 
 const DEV_FRAMEWORK_PROMPT = `## Agent-Native Framework — Development Mode
@@ -1027,7 +1042,9 @@ export function createAgentChatPlugin(
           : basePrompt + resources;
 
         const a2aClient = new Anthropic({ apiKey });
-        const model = options?.model ?? "claude-sonnet-4-6";
+        const model =
+          options?.model ??
+          (canToggle ? "claude-sonnet-4-6" : "claude-haiku-4-5-20251001");
 
         // Build tools — same as interactive handler but WITHOUT call-agent
         // to prevent infinite recursive A2A loops (agent calling itself).
@@ -1213,7 +1230,10 @@ export function createAgentChatPlugin(
     let _currentRunOwner = "local@localhost";
     let _currentRunThreadId = "";
     let _currentRunSystemPrompt = basePrompt;
-    const resolvedModel = options?.model ?? "claude-sonnet-4-6";
+    // Default to Haiku in production mode to manage costs for hosted apps
+    const resolvedModel =
+      options?.model ??
+      (canToggle ? "claude-sonnet-4-6" : "claude-haiku-4-5-20251001");
 
     const teamTools = createTeamTools({
       getOwner: () => _currentRunOwner,
@@ -1251,6 +1271,8 @@ export function createAgentChatPlugin(
     };
 
     // Always build the production handler (includes resource tools + call-agent + team tools)
+    // In production mode (!canToggle), enable usage tracking and limits
+    const isHostedProd = !canToggle;
     const prodHandler = createProductionAgentHandler({
       actions: prodActions,
       systemPrompt: async (event: any) => {
@@ -1260,7 +1282,9 @@ export function createAgentChatPlugin(
         _currentRunSystemPrompt = basePrompt + resources;
         return _currentRunSystemPrompt;
       },
-      model: options?.model,
+      model:
+        options?.model ??
+        (isHostedProd ? "claude-haiku-4-5-20251001" : undefined),
       apiKey: options?.apiKey,
       onRunStart: (
         send: (event: import("../agent/types.js").AgentChatEvent) => void,
@@ -1273,6 +1297,9 @@ export function createAgentChatPlugin(
         if (threadId) _runSendByThread.delete(threadId);
         await onRunComplete(run, threadId);
       },
+      // Usage tracking for hosted production deployments
+      trackUsage: isHostedProd,
+      resolveOwnerEmail: isHostedProd ? getOwnerFromEvent : undefined,
     });
 
     // Build the dev handler (with filesystem/shell/db tools) if environment allows toggling

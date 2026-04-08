@@ -890,7 +890,80 @@ function ApiKeySetupCard({ apiUrl }: { apiUrl: string }) {
   );
 }
 
-// ─── Main Component ─────────────────────────────────────────────────────────
+// ─── Builder.io CTA Card (usage limit / code changes / CLI) ─────────────────
+
+export function BuilderCtaCard({
+  reason,
+  usageCents,
+  limitCents,
+}: {
+  reason: "usage_limit" | "code_changes" | "cli_tab";
+  usageCents?: number;
+  limitCents?: number;
+}) {
+  const appName =
+    typeof window !== "undefined"
+      ? window.location.hostname.split(".")[0]
+      : "app";
+  const cloneCommand = `npx agent-native create ${appName}`;
+
+  const title =
+    reason === "usage_limit"
+      ? "Free usage limit reached"
+      : reason === "code_changes"
+        ? "Code changes require a local setup"
+        : "Get full access";
+
+  const description =
+    reason === "usage_limit"
+      ? `You've used $${((usageCents ?? 0) / 100).toFixed(2)} of your $${((limitCents ?? 100) / 100).toFixed(2)} free tier. Connect to Builder.io for unlimited usage, or clone this app to run it locally with your own API key.`
+      : reason === "code_changes"
+        ? "This app is running in hosted mode. To make code changes, connect to Builder.io or clone and run locally."
+        : "This hosted app has limited AI features. Connect to Builder.io for the full experience, or clone and run locally with your own API key.";
+
+  return (
+    <div className="mx-4 my-6 rounded-lg border border-border bg-card p-5">
+      <div className="flex items-center gap-3 mb-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted">
+          <IconSparkles className="h-4.5 w-4.5 text-muted-foreground" />
+        </div>
+        <div>
+          <h3 className="text-sm font-medium text-foreground">{title}</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
+        </div>
+      </div>
+
+      <div className="space-y-2.5">
+        <a
+          href="https://www.builder.io/m/agent-native"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex w-full items-center justify-center rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
+        >
+          Connect to Builder.io
+        </a>
+
+        <div className="relative">
+          <div className="absolute inset-0 flex items-center">
+            <span className="w-full border-t border-border" />
+          </div>
+          <div className="relative flex justify-center text-xs">
+            <span className="bg-card px-2 text-muted-foreground">or</span>
+          </div>
+        </div>
+
+        <div className="rounded-md bg-muted/50 px-3 py-2.5">
+          <p className="text-xs text-muted-foreground mb-1.5">
+            Clone and run locally:
+          </p>
+          <code className="block text-xs text-foreground/80 font-mono break-all select-all">
+            {cloneCommand}
+          </code>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ─── Main Component ─────────────────────────────────────────────────────────
 
@@ -1009,6 +1082,10 @@ const AssistantChatInner = forwardRef<
   const messages = thread.messages;
   const [missingApiKey, setMissingApiKey] = useState(false);
   const [authError, setAuthError] = useState(false);
+  const [usageLimitReached, setUsageLimitReached] = useState<{
+    usageCents: number;
+    limitCents: number;
+  } | null>(null);
   const [queuedMessages, setQueuedMessages] = useState<
     Array<{ text: string; images?: string[]; references?: Reference[] }>
   >([]);
@@ -1304,6 +1381,20 @@ const AssistantChatInner = forwardRef<
     return () => window.removeEventListener("agent-chat:auth-error", handler);
   }, []);
 
+  // Listen for usage limit reached events from the adapter
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      setUsageLimitReached({
+        usageCents: detail?.usageCents ?? 0,
+        limitCents: detail?.limitCents ?? 100,
+      });
+    };
+    window.addEventListener("agent-chat:usage-limit-reached", handler);
+    return () =>
+      window.removeEventListener("agent-chat:usage-limit-reached", handler);
+  }, []);
+
   // Listen for loop-limit events from the adapter
   useEffect(() => {
     const handler = (e: Event) => {
@@ -1509,6 +1600,14 @@ const AssistantChatInner = forwardRef<
         ) : missingApiKey ? (
           <div className="flex flex-col items-center justify-center h-full px-2">
             <ApiKeySetupCard apiUrl={apiUrl} />
+          </div>
+        ) : usageLimitReached ? (
+          <div className="flex flex-col items-center justify-center h-full px-2">
+            <BuilderCtaCard
+              reason="usage_limit"
+              usageCents={usageLimitReached.usageCents}
+              limitCents={usageLimitReached.limitCents}
+            />
           </div>
         ) : isRestoring ? (
           <div className="flex flex-col gap-3 p-4">
