@@ -133,10 +133,11 @@ export default function CalendarView() {
   }, [viewMode, selectedDate]);
 
   const {
-    data: rawEvents = [],
+    data: rawEventsData,
     error: eventsError,
     isLoading,
   } = useEvents(from, to, overlayEmails);
+  const rawEvents = Array.isArray(rawEventsData) ? rawEventsData : [];
 
   // Show skeleton only when loading with no cached data (new date range).
   // Tab refocus keeps cached data visible and refetches in background.
