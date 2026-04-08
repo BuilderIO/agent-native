@@ -12,6 +12,7 @@ export {
   addSession,
   removeSession,
   getSessionEmail,
+  runAuthGuard,
   type AuthSession,
   type AuthOptions,
 } from "./auth.js";
