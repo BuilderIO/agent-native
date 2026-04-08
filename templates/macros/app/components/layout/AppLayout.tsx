@@ -65,12 +65,12 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     <AgentSidebar
       position="right"
       defaultOpen={false}
-      emptyStateText="Ask me about your nutrition, log meals by voice, or get insights"
+      emptyStateText="Just tell me what you ate — I'll estimate the macros"
       suggestions={[
-        "What did I eat today?",
-        "Log a chicken salad, 450 calories",
-        "Show me my weight trend",
-        "How many calories have I burned this week?",
+        "Fried chicken dinner, 600 cal",
+        "Oatmeal with banana for breakfast",
+        "What are my macros today?",
+        "Protein shake after gym",
       ]}
     >
       <div className="flex flex-1 flex-col overflow-hidden">
