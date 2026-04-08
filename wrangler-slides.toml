@@ -3,11 +3,8 @@ compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
 pages_build_output_dir = "./templates/slides/dist"
 
+[placement]
+mode = "smart"
+
 [vars]
 GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
-
-
-[[d1_databases]]
-binding = "DB"
-database_name = "an-slides"
-database_id = "dfa8936b-2ecd-460e-a6ac-2088cf12d701"
