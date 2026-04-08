@@ -332,13 +332,6 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
         : [
             nitroVitePlugin({
               serverDir: "./server",
-              // Suppress noisy ECONNRESET errors (client disconnected mid-request)
-              devErrorHandler: (error: any, event: any, opts: any) => {
-                const code = error?.code || error?.cause?.code;
-                if (code === "ECONNRESET" || code === "ECONNABORTED") return;
-                if (error?.message === "aborted") return;
-                return opts.defaultHandler(error, event);
-              },
               ...(options.nitro ?? {}),
             } as any),
           ]),

@@ -5,20 +5,13 @@ try {
   // dotenv not available in Vite SSR context — env is already loaded
 }
 
+import { parseArgs as coreParseArgs } from "@agent-native/core/scripts";
+
 /** Parse CLI args like --key=value into a Record */
 export function parseArgs(
   argv = process.argv.slice(2),
 ): Record<string, string> {
-  const args: Record<string, string> = {};
-  for (const arg of argv.filter((a) => a !== "--")) {
-    const match = arg.match(/^--(\w[\w-]*)=(.*)$/);
-    if (match) {
-      args[match[1]] = match[2];
-    } else if (arg.startsWith("--")) {
-      args[arg.slice(2)] = "true";
-    }
-  }
-  return args;
+  return coreParseArgs(argv);
 }
 
 /**

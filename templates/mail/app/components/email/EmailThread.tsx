@@ -115,10 +115,11 @@ export function EmailThread({
       allMessages.filter(
         (m) =>
           !(
-            m.from.name === "Reminder" &&
-            (m.snippet || m.body || "")
-              .toLowerCase()
-              .includes("reminder from superhuman")
+            m.from.email === "reminder@superhuman.com" ||
+            (m.from.name === "Reminder" &&
+              (m.snippet || m.body || "")
+                .toLowerCase()
+                .includes("reminder from superhuman"))
           ),
       ),
     [allMessages],
