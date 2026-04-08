@@ -503,13 +503,8 @@ export default function CalendarView() {
       <div className="flex h-full">
         {/* Left: calendar area (header + grid) */}
         <div className="flex flex-1 flex-col overflow-hidden">
-          {/* Google Calendar connect banner — show when not connected OR when there's a credentials error */}
-          {(!googleStatus.isLoading &&
-            googleStatus.data &&
-            !isGoogleConnected) ||
-          eventsError ? (
-            <GoogleConnectBanner />
-          ) : null}
+          {/* Google Calendar connect banner — show when there's a credentials error */}
+          {eventsError ? <GoogleConnectBanner /> : null}
 
           {/* Error detail */}
           {eventsError && (

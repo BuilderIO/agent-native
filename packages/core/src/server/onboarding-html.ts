@@ -4,12 +4,50 @@
  * Shown when Better Auth is active and the user isn't signed in.
  * Provides two paths:
  * 1. Create account (email/password) — real identity from day one
- * 2. Use locally — sets AUTH_MODE=local for offline/solo dev
+ * 2. Use locally — sets AUTH_MODE=local for offline/solo dev (dev only)
  *
  * After first account exists, this page acts as a normal login page.
+ * The "Use locally" escape hatch is hidden in production to ensure
+ * real accounts are used (needed for per-user usage tracking/limits).
  */
 
-export const ONBOARDING_HTML = `<!DOCTYPE html>
+function isProductionEnv(): boolean {
+  const env = process.env.NODE_ENV;
+  return env !== "development" && env !== "test";
+}
+
+export function getOnboardingHtml(): string {
+  const showLocalMode = !isProductionEnv();
+  const localModeBlock = showLocalMode
+    ? `
+  <div class="divider">or</div>
+
+  <button class="btn-secondary" id="local-btn" onclick="useLocally()">Use locally without an account</button>
+  <p class="local-info">Skip auth for solo local development. You can create an account later.</p>`
+    : "";
+
+  const localModeScript = showLocalMode
+    ? `
+  async function useLocally() {
+    var btn = document.getElementById('local-btn');
+    btn.disabled = true;
+    btn.textContent = 'Setting up...';
+    try {
+      var res = await fetch('/_agent-native/auth/local-mode', { method: 'POST' });
+      if (res.ok) {
+        window.location.reload();
+      } else {
+        btn.textContent = 'Failed — try again';
+        btn.disabled = false;
+      }
+    } catch(e) {
+      btn.textContent = 'Failed — try again';
+      btn.disabled = false;
+    }
+  }`
+    : "";
+
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -158,11 +196,7 @@ export const ONBOARDING_HTML = `<!DOCTYPE html>
     <button type="submit">Sign in</button>
     <p class="msg error" id="l-msg"></p>
   </form>
-
-  <div class="divider">or</div>
-
-  <button class="btn-secondary" id="local-btn" onclick="useLocally()">Use locally without an account</button>
-  <p class="local-info">Skip auth for solo local development. You can create an account later.</p>
+${localModeBlock}
 </div>
 <script>
   var tabs = document.querySelectorAll('.tab');
@@ -229,24 +263,11 @@ export const ONBOARDING_HTML = `<!DOCTYPE html>
       msg.classList.add('show');
     }
   });
-
-  async function useLocally() {
-    var btn = document.getElementById('local-btn');
-    btn.disabled = true;
-    btn.textContent = 'Setting up...';
-    try {
-      var res = await fetch('/_agent-native/auth/local-mode', { method: 'POST' });
-      if (res.ok) {
-        window.location.reload();
-      } else {
-        btn.textContent = 'Failed — try again';
-        btn.disabled = false;
-      }
-    } catch(e) {
-      btn.textContent = 'Failed — try again';
-      btn.disabled = false;
-    }
-  }
+${localModeScript}
 </script>
 </body>
 </html>`;
+}
+
+/** @deprecated Use getOnboardingHtml() instead */
+export const ONBOARDING_HTML = getOnboardingHtml();

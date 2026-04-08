@@ -26,7 +26,7 @@ import type { App as H3App, H3Event } from "h3";
 import { getDbExec, isPostgres, intType } from "../db/client.js";
 import { getBetterAuth, getBetterAuthSync } from "./better-auth-instance.js";
 import type { BetterAuthConfig } from "./better-auth-instance.js";
-import { ONBOARDING_HTML } from "./onboarding-html.js";
+import { getOnboardingHtml } from "./onboarding-html.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -497,12 +497,20 @@ async function mountBetterAuthRoutes(
   );
 
   // POST /_agent-native/auth/local-mode — switch to local mode (onboarding escape hatch)
+  // Only available in dev — production requires real accounts for usage tracking.
   app.use(
     "/_agent-native/auth/local-mode",
     defineEventHandler(async (event) => {
       if (getMethod(event) !== "POST") {
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
+      }
+      if (!isDevEnvironment()) {
+        setResponseStatus(event, 403);
+        return {
+          error:
+            "Local mode is not available in production. Create an account to continue.",
+        };
       }
       const ok = await setAuthModeLocal();
       if (!ok) {
@@ -643,7 +651,7 @@ async function mountBetterAuthRoutes(
   );
 
   // Auth guard
-  const loginHtml = options.loginHtml ?? ONBOARDING_HTML;
+  const loginHtml = options.loginHtml ?? getOnboardingHtml();
   app.use(
     defineEventHandler(async (event) => {
       const url = event.node?.req?.url ?? event.path ?? "/";

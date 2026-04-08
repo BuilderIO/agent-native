@@ -1,8 +1,11 @@
 import { createContext, useContext, useState, useEffect } from "react";
+import { useLocation } from "react-router";
 import { IconMenu } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { AgentSidebar } from "@agent-native/core/client";
 import { Sidebar } from "./Sidebar";
+import { GoogleConnectBanner } from "@/components/calendar/GoogleConnectBanner";
+import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { useIsMobile } from "@/hooks/use-mobile";
 import type { CalendarEvent } from "@shared/api";
@@ -59,6 +62,10 @@ interface AppLayoutProps {
 
 export function AppLayout({ children }: AppLayoutProps) {
   const isMobile = useIsMobile();
+  const location = useLocation();
+  const googleStatus = useGoogleAuthStatus();
+  const hasAccounts = (googleStatus.data?.accounts?.length ?? 0) > 0;
+  const isSettingsPage = location.pathname === "/settings";
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>(isMobile ? "day" : "week");
@@ -129,7 +136,17 @@ export function AppLayout({ children }: AppLayoutProps) {
               <span className="ml-2 text-sm font-semibold">Calendar</span>
             </div>
 
-            <main className="flex-1 overflow-y-auto">{children}</main>
+            {/* Show full-page takeover when no accounts connected (except on settings page) */}
+            {!googleStatus.isLoading &&
+            !googleStatus.isError &&
+            !hasAccounts &&
+            !isSettingsPage ? (
+              <main className="flex-1 overflow-y-auto">
+                <GoogleConnectBanner variant="hero" />
+              </main>
+            ) : (
+              <main className="flex-1 overflow-y-auto">{children}</main>
+            )}
           </div>
         </AgentSidebar>
       </div>
