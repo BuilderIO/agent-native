@@ -228,7 +228,89 @@ let customGetSession: ((event: H3Event) => Promise<AuthSession | null>) | null =
   null;
 let authDisabledMode = false;
 
+/**
+ * Module-level auth guard function. Set by autoMountAuth() when auth is active.
+ * Called by the server middleware to enforce auth on ALL requests (not just
+ * /_agent-native/* routes).
+ */
+let _authGuardFn:
+  | ((event: H3Event) => Promise<Response | object | string | void>)
+  | null = null;
+
+/**
+ * Run the auth guard on an event. Returns a Response/object to block the
+ * request (login page or 401), or undefined to allow it through.
+ *
+ * Called by the default server middleware (server/middleware/auth.ts) to
+ * enforce auth on page routes and API routes — not just framework routes.
+ */
+export async function runAuthGuard(
+  event: H3Event,
+): Promise<Response | object | string | void> {
+  if (!_authGuardFn) return; // Auth not mounted (local mode, etc.)
+  return _authGuardFn(event);
+}
+
 const LOCAL_SESSION: AuthSession = { email: "local@localhost" };
+
+// ---------------------------------------------------------------------------
+// Auth guard factory
+// ---------------------------------------------------------------------------
+
+/**
+ * Create an auth guard function that checks session and blocks
+ * unauthenticated requests. Returns the login HTML for page routes
+ * or a 401 JSON response for API routes.
+ */
+function createAuthGuardFn(
+  loginHtml: string,
+  publicPaths: string[],
+): (event: H3Event) => Promise<Response | object | string | void> {
+  return async (event: H3Event) => {
+    const url = event.node?.req?.url ?? event.path ?? "/";
+    const p = url.split("?")[0];
+
+    // Skip auth routes
+    if (
+      p === "/_agent-native/auth/login" ||
+      p === "/_agent-native/auth/logout" ||
+      p === "/_agent-native/auth/session" ||
+      p === "/_agent-native/auth/register" ||
+      p === "/_agent-native/auth/local-mode" ||
+      p.startsWith("/_agent-native/auth/ba/")
+    ) {
+      return;
+    }
+    // Skip static assets (Vite chunks, fonts, images, etc.)
+    if (
+      p.startsWith("/assets/") ||
+      p.startsWith("/_build/") ||
+      p.endsWith(".js") ||
+      p.endsWith(".css") ||
+      p.endsWith(".map") ||
+      p.endsWith(".ico") ||
+      p.endsWith(".png") ||
+      p.endsWith(".svg") ||
+      p.endsWith(".woff2") ||
+      p.endsWith(".woff")
+    ) {
+      return;
+    }
+    if (isPublicPath(url, publicPaths)) return;
+
+    const session = await getSession(event);
+    if (session) return;
+
+    if (p.startsWith("/api/") || p.startsWith("/_agent-native/")) {
+      setResponseStatus(event, 401);
+      return { error: "Unauthorized" };
+    }
+
+    setResponseStatus(event, 200);
+    setResponseHeader(event, "Content-Type", "text/html");
+    return loginHtml;
+  };
+}
 
 /**
  * Map a Better Auth session to our AuthSession type.
@@ -650,39 +732,12 @@ async function mountBetterAuthRoutes(
     }),
   );
 
-  // Auth guard
+  // Auth guard — stored both in framework middleware registry AND in
+  // _authGuardFn so the server middleware can enforce it on ALL routes.
   const loginHtml = options.loginHtml ?? getOnboardingHtml();
-  app.use(
-    defineEventHandler(async (event) => {
-      const url = event.node?.req?.url ?? event.path ?? "/";
-      const p = url.split("?")[0];
-
-      // Skip auth routes
-      if (
-        p === "/_agent-native/auth/login" ||
-        p === "/_agent-native/auth/logout" ||
-        p === "/_agent-native/auth/session" ||
-        p === "/_agent-native/auth/register" ||
-        p === "/_agent-native/auth/local-mode" ||
-        p.startsWith("/_agent-native/auth/ba/")
-      ) {
-        return;
-      }
-      if (isPublicPath(url, publicPaths)) return;
-
-      const session = await getSession(event);
-      if (session) return;
-
-      if (p.startsWith("/api/") || p.startsWith("/_agent-native/")) {
-        setResponseStatus(event, 401);
-        return { error: "Unauthorized" };
-      }
-
-      setResponseStatus(event, 200);
-      setResponseHeader(event, "Content-Type", "text/html");
-      return loginHtml;
-    }),
-  );
+  const guardFn = createAuthGuardFn(loginHtml, publicPaths);
+  _authGuardFn = guardFn;
+  app.use(defineEventHandler(guardFn));
 }
 
 // ---------------------------------------------------------------------------
@@ -746,32 +801,9 @@ function mountTokenOnlyRoutes(
     }),
   );
 
-  app.use(
-    defineEventHandler(async (event) => {
-      const url = event.node?.req?.url ?? event.path ?? "/";
-      const p = url.split("?")[0];
-      if (
-        p === "/_agent-native/auth/login" ||
-        p === "/_agent-native/auth/logout" ||
-        p === "/_agent-native/auth/session"
-      ) {
-        return;
-      }
-      if (isPublicPath(url, publicPaths)) return;
-
-      const session = await getSession(event);
-      if (session) return;
-
-      if (p.startsWith("/api/") || p.startsWith("/_agent-native/")) {
-        setResponseStatus(event, 401);
-        return { error: "Unauthorized" };
-      }
-
-      setResponseStatus(event, 200);
-      setResponseHeader(event, "Content-Type", "text/html");
-      return TOKEN_LOGIN_HTML;
-    }),
-  );
+  const guardFn = createAuthGuardFn(TOKEN_LOGIN_HTML, publicPaths);
+  _authGuardFn = guardFn;
+  app.use(defineEventHandler(guardFn));
 }
 
 // ---------------------------------------------------------------------------
@@ -875,29 +907,9 @@ export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
     );
 
     const byoaLoginHtml = options.loginHtml ?? TOKEN_LOGIN_HTML;
-    app.use(
-      defineEventHandler(async (event) => {
-        const url = event.node?.req?.url ?? event.path ?? "/";
-        const p = url.split("?")[0];
-        if (
-          p === "/_agent-native/auth/login" ||
-          p === "/_agent-native/auth/logout" ||
-          p === "/_agent-native/auth/session"
-        ) {
-          return;
-        }
-        if (isPublicPath(url, publicPaths)) return;
-        const session = await getSession(event);
-        if (session) return;
-        if (p.startsWith("/api/") || p.startsWith("/_agent-native/")) {
-          setResponseStatus(event, 401);
-          return { error: "Unauthorized" };
-        }
-        setResponseStatus(event, 200);
-        setResponseHeader(event, "Content-Type", "text/html");
-        return byoaLoginHtml;
-      }),
-    );
+    const guardFn = createAuthGuardFn(byoaLoginHtml, publicPaths);
+    _authGuardFn = guardFn;
+    app.use(defineEventHandler(guardFn));
 
     console.log("[agent-native] Auth enabled — custom getSession provider.");
     return true;
