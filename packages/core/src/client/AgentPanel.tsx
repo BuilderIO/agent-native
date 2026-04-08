@@ -249,10 +249,12 @@ function AgentSettingsPopover({
   isDevMode,
   onToggle,
   devAppUrl,
+  showEnvToggle = true,
 }: {
   isDevMode: boolean;
   onToggle: () => void;
   devAppUrl?: string;
+  showEnvToggle?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -335,15 +337,17 @@ function AgentSettingsPopover({
             style={{ top: pos.top, right: pos.right }}
           >
             <div className="space-y-3 p-3">
-              <SettingsSelect
-                label="Environment"
-                value={isDevMode ? "development" : "production"}
-                options={environmentOptions}
-                onValueChange={(next) => {
-                  const nextIsDev = next === "development";
-                  if (nextIsDev !== isDevMode) onToggle();
-                }}
-              />
+              {showEnvToggle && (
+                <SettingsSelect
+                  label="Environment"
+                  value={isDevMode ? "development" : "production"}
+                  options={environmentOptions}
+                  onValueChange={(next) => {
+                    const nextIsDev = next === "development";
+                    if (nextIsDev !== isDevMode) onToggle();
+                  }}
+                />
+              )}
               {devAppUrl && (
                 <a
                   href={devAppUrl}
@@ -355,7 +359,13 @@ function AgentSettingsPopover({
                   Open app in new tab
                 </a>
               )}
-              <div className="border-t border-border pt-3 mt-3">
+              <div
+                className={
+                  showEnvToggle || devAppUrl
+                    ? "border-t border-border pt-3 mt-3"
+                    : ""
+                }
+              >
                 <Suspense fallback={null}>
                   <IntegrationsPanel />
                 </Suspense>
@@ -890,17 +900,16 @@ export function AgentPanel({
   const renderHeaderActions = useCallback(
     () => (
       <div className="flex shrink-0 items-center gap-1.5">
-        {showDevToggle && (
-          <IconTooltip content="Agent settings">
-            <div>
-              <AgentSettingsPopover
-                isDevMode={isDevMode}
-                onToggle={() => setDevMode(!isDevMode)}
-                devAppUrl={devAppUrl}
-              />
-            </div>
-          </IconTooltip>
-        )}
+        <IconTooltip content="Agent settings">
+          <div>
+            <AgentSettingsPopover
+              isDevMode={isDevMode}
+              onToggle={() => setDevMode(!isDevMode)}
+              devAppUrl={devAppUrl}
+              showEnvToggle={showDevToggle}
+            />
+          </div>
+        </IconTooltip>
         {onCollapse && (
           <IconTooltip content="Collapse sidebar">
             <button
@@ -913,7 +922,7 @@ export function AgentPanel({
         )}
       </div>
     ),
-    [isDevMode, onCollapse, setDevMode, showDevToggle],
+    [isDevMode, onCollapse, setDevMode, showDevToggle, devAppUrl],
   );
 
   const [tabMenuOpen, setTabMenuOpen] = useState<string | null>(null);

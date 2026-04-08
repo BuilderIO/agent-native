@@ -154,8 +154,9 @@ Documents form a tree via `parent_id`. Content is stored as markdown.
 
 ## Rules
 
-1. **Use scripts for document operations** — never use raw `db-exec` SQL for documents
-2. **Always `view-screen` first** — know what the user is looking at before acting
-3. **Use markdown for content** — documents store content as markdown
-4. **All AI goes through agent chat** — never call an LLM directly from code
-5. **Run `refresh-list` after changes** — the create/update/delete scripts do this automatically
+1. **Use scripts for document operations** — NEVER use raw `db-exec` SQL for documents. Always use `edit-document` or `update-document`. The editor uses real-time Yjs collaboration — raw SQL changes won't appear in the user's editor.
+2. **Prefer `edit-document` for changes** — use `edit-document --find "old" --replace "new"` for modifications. It's faster (no full regeneration) and syncs live to the editor via Yjs CRDT.
+3. **Always `view-screen` first** — know what the user is looking at before acting
+4. **Use markdown for content** — documents store content as markdown
+5. **All AI goes through agent chat** — never call an LLM directly from code
+6. **Run `refresh-list` after changes** — the create/update/delete scripts do this automatically

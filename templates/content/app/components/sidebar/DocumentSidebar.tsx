@@ -225,7 +225,7 @@ export function DocumentSidebar({
                   <button
                     key={doc.id}
                     className={cn(
-                      "w-full flex items-center gap-2 px-3 py-2 text-sm text-left rounded-md",
+                      "w-full flex items-center gap-2 px-3 py-[5px] text-sm text-left rounded-md",
                       doc.id === activeDocumentId
                         ? "bg-accent text-accent-foreground"
                         : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -258,7 +258,7 @@ export function DocumentSidebar({
                     <button
                       key={doc.id}
                       className={cn(
-                        "w-full flex items-center gap-2 px-4 py-2 text-sm text-left rounded-md",
+                        "w-full flex items-center gap-2 px-4 py-[5px] text-sm text-left rounded-md",
                         doc.id === activeDocumentId
                           ? "bg-accent text-accent-foreground"
                           : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -328,7 +328,7 @@ export function DocumentSidebar({
 
           {/* New page button — under the list */}
           <button
-            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+            className="flex w-full items-center gap-2 rounded-md px-3 py-[5px] text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
             onClick={() => handleCreatePage()}
           >
             <IconPlus size={14} className="shrink-0" />

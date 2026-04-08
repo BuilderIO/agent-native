@@ -82,11 +82,24 @@ const DEFAULT_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 /**
  * Check if the app is in local-only mode (no auth).
  *
- * AUTH_MODE=local is the explicit escape hatch for solo local dev.
- * It can be set in .env or toggled via the onboarding page.
+ * Returns true when:
+ * - AUTH_MODE=local is explicitly set (escape hatch)
+ * - In dev environment (NODE_ENV=development) with no explicit auth configured
+ *   (no ACCESS_TOKEN, no GOOGLE_CLIENT_ID). This makes dev "just work" without
+ *   requiring auth setup, while still respecting auth when configured.
  */
 function isLocalMode(): boolean {
-  return process.env.AUTH_MODE === "local";
+  if (process.env.AUTH_MODE === "local") return true;
+  // Default to local mode in dev when no auth is explicitly configured
+  if (
+    isDevEnvironment() &&
+    !process.env.ACCESS_TOKEN &&
+    !process.env.ACCESS_TOKENS &&
+    !process.env.GOOGLE_CLIENT_ID
+  ) {
+    return true;
+  }
+  return false;
 }
 
 /**

@@ -86,6 +86,25 @@ export default async function main(args: string[]) {
     args: params,
   });
 
+  // Push content through Yjs for live collaborative sync
+  if (opts.content !== undefined) {
+    try {
+      const { hasCollabState } = await import("@agent-native/core/collab");
+      const collabEnabled = await hasCollabState(id);
+      if (collabEnabled) {
+        const origin =
+          process.env.ORIGIN || `http://localhost:${process.env.PORT || 8080}`;
+        await fetch(`${origin}/_agent-native/collab/${id}/text`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: opts.content, requestSource: "agent" }),
+        });
+      }
+    } catch {
+      // Server not running — SQL update is sufficient
+    }
+  }
+
   // Trigger UI refresh
   await writeAppState("refresh-signal", { ts: Date.now() });
 
