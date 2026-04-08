@@ -54,7 +54,7 @@ export default defineAction({
 
       case "invite": {
         if (!args.email) {
-          return { error: "--email is required for invite action" };
+          throw new Error("--email is required for invite action");
         }
         const result = await localFetch<any>("/api/org/invitations", {
           method: "POST",
@@ -65,7 +65,7 @@ export default defineAction({
 
       case "create": {
         if (!args.name) {
-          return { error: "--name is required for create action" };
+          throw new Error("--name is required for create action");
         }
         const result = await localFetch<any>("/api/org", {
           method: "POST",
@@ -76,10 +76,9 @@ export default defineAction({
 
       case "switch": {
         if (!args.orgId) {
-          return {
-            error:
-              "--orgId is required for switch action. Use --action=info to see available orgs.",
-          };
+          throw new Error(
+            "--orgId is required for switch action. Use --action=info to see available orgs.",
+          );
         }
         const result = await localFetch<any>("/api/org/switch", {
           method: "PUT",
@@ -89,9 +88,9 @@ export default defineAction({
       }
 
       default:
-        return {
-          error: `Unknown action: ${args.action}. Use info, list-members, invite, create, or switch.`,
-        };
+        throw new Error(
+          `Unknown action: ${args.action}. Use info, list-members, invite, create, or switch.`,
+        );
     }
   },
 });

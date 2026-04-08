@@ -1,30 +1,21 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useActionQuery, useActionMutation } from "@agent-native/core/client";
-import type { Form, FormField, FormSettings } from "@shared/types";
 
 // ---------------------------------------------------------------------------
 // Admin hooks (authenticated)
 // ---------------------------------------------------------------------------
 
 export function useForms() {
-  return useActionQuery<Form[]>("list-forms");
+  return useActionQuery("list-forms");
 }
 
 export function useForm(id: string) {
-  return useActionQuery<Form>("get-form", { id }, { enabled: !!id });
+  return useActionQuery("get-form", { id }, { enabled: !!id });
 }
 
 export function useCreateForm() {
   const qc = useQueryClient();
-  return useActionMutation<
-    Form,
-    {
-      title: string;
-      description?: string;
-      fields?: FormField[];
-      settings?: FormSettings;
-    }
-  >("create-form", {
+  return useActionMutation("create-form", {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["action", "list-forms"] });
     },
@@ -33,18 +24,7 @@ export function useCreateForm() {
 
 export function useUpdateForm() {
   const qc = useQueryClient();
-  return useActionMutation<
-    Form,
-    {
-      id: string;
-      title?: string;
-      description?: string;
-      slug?: string;
-      fields?: FormField[];
-      settings?: FormSettings;
-      status?: "draft" | "published" | "closed";
-    }
-  >("update-form", {
+  return useActionMutation("update-form", {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["action", "list-forms"] });
       qc.invalidateQueries({ queryKey: ["action", "get-form"] });
@@ -54,14 +34,11 @@ export function useUpdateForm() {
 
 export function useDeleteForm() {
   const qc = useQueryClient();
-  return useActionMutation<{ success: boolean }, { id: string }>(
-    "delete-form",
-    {
-      onSuccess: () => {
-        qc.invalidateQueries({ queryKey: ["action", "list-forms"] });
-      },
+  return useActionMutation("delete-form", {
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["action", "list-forms"] });
     },
-  );
+  });
 }
 
 // ---------------------------------------------------------------------------

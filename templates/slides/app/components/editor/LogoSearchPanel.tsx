@@ -31,9 +31,7 @@ export default function LogoSearchPanel({
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Fetch Brandfetch client ID from server config
-  const { data: logoConfigData } = useActionQuery<{
-    brandfetchId: string | null;
-  }>("logo-config");
+  const { data: logoConfigData } = useActionQuery("logo-config");
   useEffect(() => {
     if (logoConfigData?.brandfetchId) {
       setBrandfetchId(logoConfigData.brandfetchId);

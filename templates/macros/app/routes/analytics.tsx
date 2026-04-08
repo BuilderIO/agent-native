@@ -24,7 +24,6 @@ import { formatLocalDate } from "@/lib/utils";
 import { WeeklyCaloriesChart } from "@/components/WeeklyCaloriesChart";
 import { IconCalendar } from "@tabler/icons-react";
 import { useState } from "react";
-import type { DailyCalories, WeightHistoryEntry } from "@shared/types";
 
 const GOAL_CALORIES = 2000;
 
@@ -39,45 +38,43 @@ export default function AnalyticsPage() {
   const endDate = formatLocalDate(new Date());
   const startDate = getStartDate(timeRange);
 
-  const { data: history, isLoading } = useActionQuery<DailyCalories[]>(
-    "meals-history",
-    { startDate, endDate },
-  );
-
-  const { data: weightHistory, isLoading: weightLoading } = useActionQuery<
-    WeightHistoryEntry[]
-  >("weights-history", {
+  const { data: rawHistory, isLoading } = useActionQuery("meals-history", {
     startDate,
     endDate,
   });
+  const history = Array.isArray(rawHistory) ? rawHistory : [];
 
-  const weightStats = weightHistory
-    ? {
-        current:
-          weightHistory.length > 0
-            ? weightHistory[weightHistory.length - 1].weight
-            : 0,
-        change:
-          weightHistory.length >= 2
-            ? Math.round(
-                (weightHistory[weightHistory.length - 1].trendWeight -
-                  weightHistory[0].trendWeight) *
-                  10,
-              ) / 10
-            : 0,
-        lowest:
-          weightHistory.length > 0
-            ? Math.min(...weightHistory.map((w) => w.weight))
-            : 0,
-        highest:
-          weightHistory.length > 0
-            ? Math.max(...weightHistory.map((w) => w.weight))
-            : 0,
-      }
-    : { current: 0, change: 0, lowest: 0, highest: 0 };
+  const { data: rawWeightHistory, isLoading: weightLoading } = useActionQuery(
+    "weights-history",
+    { startDate, endDate },
+  );
+  const weightHistory = Array.isArray(rawWeightHistory) ? rawWeightHistory : [];
+
+  const weightStats = {
+    current:
+      weightHistory.length > 0
+        ? weightHistory[weightHistory.length - 1].weight
+        : 0,
+    change:
+      weightHistory.length >= 2
+        ? Math.round(
+            (weightHistory[weightHistory.length - 1].trendWeight -
+              weightHistory[0].trendWeight) *
+              10,
+          ) / 10
+        : 0,
+    lowest:
+      weightHistory.length > 0
+        ? Math.min(...weightHistory.map((w) => w.weight))
+        : 0,
+    highest:
+      weightHistory.length > 0
+        ? Math.max(...weightHistory.map((w) => w.weight))
+        : 0,
+  };
 
   const getWeightYDomain = () => {
-    if (!weightHistory || weightHistory.length === 0) return [0, 200];
+    if (weightHistory.length === 0) return [0, 200];
     const ws = weightHistory.map((h) => h.weight);
     const min = Math.min(...ws);
     const max = Math.max(...ws);
@@ -85,18 +82,24 @@ export default function AnalyticsPage() {
     return [Math.floor(min - padding), Math.ceil(max + padding)];
   };
 
-  const stats = history
-    ? {
-        average:
-          Math.round(
+  const stats = {
+    average:
+      history.length > 0
+        ? Math.round(
             history.reduce((sum, day) => sum + day.netCalories, 0) /
               history.length,
-          ) || 0,
-        highest: Math.max(...history.map((day) => day.netCalories), 0),
-        lowest: Math.min(...history.map((day) => day.netCalories), 0),
-        total: history.length,
-      }
-    : { average: 0, highest: 0, lowest: 0, total: 0 };
+          )
+        : 0,
+    highest:
+      history.length > 0
+        ? Math.max(...history.map((day) => day.netCalories))
+        : 0,
+    lowest:
+      history.length > 0
+        ? Math.min(...history.map((day) => day.netCalories))
+        : 0,
+    total: history.length,
+  };
 
   const tooltipStyle = {
     backgroundColor: "hsl(var(--card))",
@@ -172,7 +175,7 @@ export default function AnalyticsPage() {
                 <TabsContent key={tab} value={tab} className="mt-0">
                   {isLoading ? (
                     <Skeleton className="h-[250px] w-full rounded-xl" />
-                  ) : history && history.length > 0 ? (
+                  ) : history.length > 0 ? (
                     <ResponsiveContainer width="100%" height={250}>
                       <LineChart
                         data={history}
@@ -334,7 +337,7 @@ export default function AnalyticsPage() {
                 <TabsContent key={tab} value={tab} className="mt-0">
                   {weightLoading ? (
                     <Skeleton className="h-[250px] w-full rounded-xl" />
-                  ) : weightHistory && weightHistory.length > 0 ? (
+                  ) : weightHistory.length > 0 ? (
                     <div className="space-y-2">
                       {tab === "trend" && (
                         <p className="text-xs text-muted-foreground">

@@ -7,7 +7,7 @@ import type { FilterResponse } from "@shared/types";
 
 async function doFilter(args: Record<string, string>) {
   if (!args.prompt) {
-    return { error: "--prompt is required" };
+    throw new Error("--prompt is required");
   }
 
   const jobId = args.jobId ? Number(args.jobId) : undefined;

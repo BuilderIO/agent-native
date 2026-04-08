@@ -39,34 +39,31 @@ export default function IndexPage() {
     }).catch(() => {});
   }, [dateStr]);
 
-  const { data: meals, isLoading: mealsLoading } = useActionQuery<Meal[]>(
+  const { data: rawMeals, isLoading: mealsLoading } = useActionQuery(
     "list-meals",
     { date: dateStr },
   );
+  const meals = Array.isArray(rawMeals) ? rawMeals : [];
 
-  const { data: exercises, isLoading: exercisesLoading } = useActionQuery<
-    Exercise[]
-  >("list-exercises", { date: dateStr });
-
-  const deleteMealMutation = useActionMutation<any, { id: string }>(
-    "delete-meal",
-    {
-      onSuccess: () => {
-        toast.success("Meal deleted");
-      },
-    },
+  const { data: rawExercises, isLoading: exercisesLoading } = useActionQuery(
+    "list-exercises",
+    { date: dateStr },
   );
+  const exercises = Array.isArray(rawExercises) ? rawExercises : [];
 
-  const deleteExerciseMutation = useActionMutation<any, { id: string }>(
-    "delete-exercise",
-    {
-      onSuccess: () => {
-        toast.success("Exercise deleted");
-      },
+  const deleteMealMutation = useActionMutation("delete-meal", {
+    onSuccess: () => {
+      toast.success("Meal deleted");
     },
-  );
+  });
 
-  const mealTotals = meals?.reduce(
+  const deleteExerciseMutation = useActionMutation("delete-exercise", {
+    onSuccess: () => {
+      toast.success("Exercise deleted");
+    },
+  });
+
+  const mealTotals = meals.reduce(
     (acc, meal) => ({
       calories: acc.calories + meal.calories,
       protein: acc.protein + (meal.protein || 0),
@@ -76,12 +73,12 @@ export default function IndexPage() {
     { calories: 0, protein: 0, carbs: 0, fat: 0 },
   ) || { calories: 0, protein: 0, carbs: 0, fat: 0 };
 
-  const exerciseTotals = exercises?.reduce(
+  const exerciseTotals = exercises.reduce(
     (acc, exercise) => ({
       burned: acc.burned + exercise.calories_burned,
     }),
     { burned: 0 },
-  ) || { burned: 0 };
+  );
 
   const GOAL_CALORIES = 2000;
   const isLoading = mealsLoading || exercisesLoading;
@@ -163,7 +160,7 @@ export default function IndexPage() {
                   <Skeleton className="h-16 w-full rounded-xl" />
                   <Skeleton className="h-16 w-full rounded-xl" />
                 </>
-              ) : meals?.length === 0 ? (
+              ) : meals.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-center rounded-2xl bg-white/[0.02] border border-dashed border-white/[0.06]">
                   <div className="p-3 rounded-full bg-emerald-500/10 mb-3">
                     <IconToolsKitchen2 className="h-5 w-5 text-emerald-500/50" />
@@ -176,7 +173,7 @@ export default function IndexPage() {
                   </p>
                 </div>
               ) : (
-                meals?.map((meal) => (
+                meals.map((meal) => (
                   <MealCard
                     key={meal.id}
                     meal={meal}
@@ -220,7 +217,7 @@ export default function IndexPage() {
             <div className="space-y-2">
               {isLoading ? (
                 <Skeleton className="h-16 w-full rounded-xl" />
-              ) : exercises?.length === 0 ? (
+              ) : exercises.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-center rounded-2xl bg-white/[0.02] border border-dashed border-white/[0.06]">
                   <div className="p-3 rounded-full bg-orange-500/10 mb-3">
                     <IconBarbell className="h-5 w-5 text-orange-500/50" />
@@ -233,7 +230,7 @@ export default function IndexPage() {
                   </p>
                 </div>
               ) : (
-                exercises?.map((exercise) => (
+                exercises.map((exercise) => (
                   <ExerciseCard
                     key={exercise.id}
                     exercise={exercise}

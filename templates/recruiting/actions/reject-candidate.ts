@@ -4,7 +4,7 @@ import { withOrgContext } from "../server/lib/greenhouse-api.js";
 
 async function rejectCandidate(args: Record<string, string>) {
   if (!args.applicationId) {
-    return { error: "--applicationId is required" };
+    throw new Error("--applicationId is required");
   }
   await gh.rejectApplication(Number(args.applicationId), undefined, args.notes);
   return {

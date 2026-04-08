@@ -29,7 +29,6 @@ import {
   IconChevronUp,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
-import type { WeightHistoryEntry, DailyCalories } from "@shared/types";
 
 interface DailyProgressProps {
   totalCalories: number;
@@ -68,21 +67,21 @@ export function DailyProgress({
   const endDate = formatLocalDate(new Date());
   const startDate = formatLocalDate(subDays(new Date(), 30));
 
-  const { data: weightHistory, isLoading: weightLoading } = useActionQuery<
-    WeightHistoryEntry[]
-  >(
+  const { data: rawWeightHistory, isLoading: weightLoading } = useActionQuery(
     "weights-history",
     { startDate, endDate },
     { enabled: activeChart === "weight" },
   );
+  const weightHistory = Array.isArray(rawWeightHistory) ? rawWeightHistory : [];
 
-  const { data: calorieHistory, isLoading: calorieLoading } = useActionQuery<
-    DailyCalories[]
-  >(
+  const { data: rawCalorieHistory, isLoading: calorieLoading } = useActionQuery(
     "meals-history",
     { startDate, endDate },
     { enabled: activeChart === "activity" },
   );
+  const calorieHistory = Array.isArray(rawCalorieHistory)
+    ? rawCalorieHistory
+    : [];
 
   const getYDomain = (data: any[], key: string) => {
     if (!data || data.length === 0) return [0, 100];
@@ -270,7 +269,7 @@ export function DailyProgress({
               <div className="h-[140px] w-full">
                 {weightLoading ? (
                   <Skeleton className="h-full w-full rounded-xl bg-white/[0.02]" />
-                ) : weightHistory && weightHistory.length > 0 ? (
+                ) : weightHistory.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart
                       data={weightHistory}
@@ -333,7 +332,7 @@ export function DailyProgress({
                   </div>
                 )}
               </div>
-              {weightHistory?.[weightHistory.length - 1] && (
+              {weightHistory.length > 0 && (
                 <p className="text-[10px] uppercase tracking-widest text-muted-foreground/50 text-right mt-2">
                   Current: {weightHistory[weightHistory.length - 1].weight} lbs
                 </p>
@@ -347,7 +346,7 @@ export function DailyProgress({
               <div className="h-[140px] w-full">
                 {calorieLoading ? (
                   <Skeleton className="h-full w-full rounded-xl bg-white/[0.02]" />
-                ) : calorieHistory && calorieHistory.length > 0 ? (
+                ) : calorieHistory.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart
                       data={calorieHistory}

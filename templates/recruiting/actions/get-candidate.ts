@@ -3,7 +3,7 @@ import * as gh from "../server/lib/greenhouse-api.js";
 import { withOrgContext } from "../server/lib/greenhouse-api.js";
 
 async function getCandidate(args: Record<string, string>) {
-  if (!args.id) return { error: "--id is required" };
+  if (!args.id) throw new Error("--id is required");
   return gh.getCandidate(Number(args.id));
 }
 

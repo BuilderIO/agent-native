@@ -128,7 +128,7 @@ async function fetchScreen() {
   }
 
   if (Object.keys(screen).length === 0) {
-    return { error: "No application state found. Is the app running?" };
+    throw new Error("No application state found. Is the app running?");
   }
   return screen;
 }

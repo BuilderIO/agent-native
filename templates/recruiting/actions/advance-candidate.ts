@@ -4,7 +4,7 @@ import { withOrgContext } from "../server/lib/greenhouse-api.js";
 
 async function advanceCandidate(args: Record<string, string>) {
   if (!args.applicationId || !args.fromStageId) {
-    return { error: "--applicationId and --fromStageId are required" };
+    throw new Error("--applicationId and --fromStageId are required");
   }
   await gh.advanceApplication(
     Number(args.applicationId),

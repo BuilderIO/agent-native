@@ -2,6 +2,22 @@
  * React Query hooks for calling actions via their auto-mounted HTTP endpoints.
  *
  * Actions are mounted at `/_agent-native/actions/:name` by the framework.
+ *
+ * ## End-to-end type safety
+ *
+ * When the action type registry is generated (via the Vite plugin or CLI),
+ * `useActionQuery` and `useActionMutation` automatically infer the correct
+ * return type and parameter types from the action definitions — no manual
+ * type annotations needed.
+ *
+ * ```ts
+ * // Fully typed — return type and params inferred from the action's defineAction()
+ * const { data } = useActionQuery("list-forms", { status: "published" });
+ * //      ^? Form[]  (inferred from the action's run() return type)
+ * ```
+ *
+ * Without the registry, the hooks fall back to `any` types for backward
+ * compatibility.
  */
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type {
@@ -10,6 +26,41 @@ import type {
 } from "@tanstack/react-query";
 
 const ACTION_PREFIX = "/_agent-native/actions";
+
+// ---------------------------------------------------------------------------
+// Action type registry — augmented by generated code
+// ---------------------------------------------------------------------------
+
+/**
+ * Action type registry. This interface is empty by default and gets augmented
+ * by the auto-generated `.generated/action-types.d.ts` file. When augmented,
+ * it maps action names to their parameter and return types, enabling
+ * end-to-end type safety for `useActionQuery` and `useActionMutation`.
+ */
+export interface ActionRegistry {}
+
+/** Resolves to the union of registered action names, or `string` if no registry exists. */
+type ActionName = keyof ActionRegistry extends never
+  ? string
+  : (keyof ActionRegistry & string) | (string & {});
+
+/** Resolves the return type of an action, or `any` if not in the registry. */
+type ActionResult<T extends string> = T extends keyof ActionRegistry
+  ? ActionRegistry[T] extends { result: infer R }
+    ? R
+    : any
+  : any;
+
+/** Resolves the parameter type of an action, or `Record<string, any>` if not in the registry. */
+type ActionParams<T extends string> = T extends keyof ActionRegistry
+  ? ActionRegistry[T] extends { params: infer P }
+    ? P
+    : Record<string, any>
+  : Record<string, any>;
+
+// ---------------------------------------------------------------------------
+// Fetch helper
+// ---------------------------------------------------------------------------
 
 async function actionFetch<T>(
   name: string,
@@ -41,52 +92,89 @@ async function actionFetch<T>(
   return data;
 }
 
+// ---------------------------------------------------------------------------
+// Query hook
+// ---------------------------------------------------------------------------
+
 /**
  * Query an action exposed as GET.
  *
+ * When the action type registry is generated, the return type and parameter
+ * types are inferred automatically from the action's `defineAction()` call.
+ *
  * ```ts
- * const { data } = useActionQuery<Meal[]>("list-meals", { date: "2025-01-01" });
+ * // Type-safe — no manual generic needed
+ * const { data } = useActionQuery("list-meals", { date: "2025-01-01" });
+ *
+ * // Manual override still works when needed
+ * const { data } = useActionQuery<CustomType>("list-meals");
  * ```
  */
-export function useActionQuery<T = any>(
-  actionName: string,
-  params?: Record<string, any>,
-  options?: Omit<UseQueryOptions<T>, "queryKey" | "queryFn">,
+export function useActionQuery<
+  TResult = undefined,
+  TName extends ActionName = ActionName,
+>(
+  actionName: TName,
+  params?: ActionParams<TName>,
+  options?: Omit<
+    UseQueryOptions<TResult extends undefined ? ActionResult<TName> : TResult>,
+    "queryKey" | "queryFn"
+  >,
 ) {
-  return useQuery<T>({
+  type R = TResult extends undefined ? ActionResult<TName> : TResult;
+  return useQuery<R>({
     queryKey: ["action", actionName, params],
-    queryFn: () => actionFetch<T>(actionName, "GET", params),
+    queryFn: () => actionFetch<R>(actionName, "GET", params),
     ...options,
   });
 }
 
+// ---------------------------------------------------------------------------
+// Mutation hook
+// ---------------------------------------------------------------------------
+
 /**
  * Mutate via an action exposed as POST (default), PUT, or DELETE.
  *
+ * When the action type registry is generated, the return type and parameter
+ * types are inferred automatically.
+ *
  * ```ts
- * const { mutate } = useActionMutation<Meal>("log-meal");
+ * // Type-safe
+ * const { mutate } = useActionMutation("log-meal");
  * mutate({ name: "Salad", calories: 350 });
  * ```
  */
 export function useActionMutation<
-  TData = any,
-  TVariables = Record<string, any>,
+  TData = undefined,
+  TVariables = undefined,
+  TName extends ActionName = ActionName,
 >(
-  actionName: string,
-  options?: Omit<UseMutationOptions<TData, Error, TVariables>, "mutationFn"> & {
+  actionName: TName,
+  options?: Omit<
+    UseMutationOptions<
+      TData extends undefined ? ActionResult<TName> : TData,
+      Error,
+      TVariables extends undefined ? ActionParams<TName> : TVariables
+    >,
+    "mutationFn"
+  > & {
     method?: "POST" | "PUT" | "DELETE";
   },
 ) {
   const queryClient = useQueryClient();
   const method = options?.method ?? "POST";
 
-  return useMutation<TData, Error, TVariables>({
+  type D = TData extends undefined ? ActionResult<TName> : TData;
+  type V = TVariables extends undefined ? ActionParams<TName> : TVariables;
+
+  return useMutation<D, Error, V>({
     mutationFn: (params) =>
-      actionFetch<TData>(actionName, method, params as Record<string, any>),
-    onSuccess: (...args) => {
+      actionFetch<D>(actionName, method, params as Record<string, any>),
+    onSuccess: (...args: [any, any, any]) => {
       // Invalidate related action queries
       queryClient.invalidateQueries({ queryKey: ["action"] });
-      options?.onSuccess?.(...args);
+      (options?.onSuccess as Function)?.(...args);
     },
     ...options,
   });

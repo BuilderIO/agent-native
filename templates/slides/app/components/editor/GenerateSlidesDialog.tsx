@@ -31,8 +31,7 @@ export default function GenerateSlidesDialog({
   const [includeImages, setIncludeImages] = useState(true);
   const [referenceImages, setReferenceImages] = useState<string[]>([]);
   const [error, setError] = useState("");
-  const generateSlidesMutation =
-    useActionMutation<SlideGenerateResponse>("generate-slides-ai");
+  const generateSlidesMutation = useActionMutation("generate-slides-ai");
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;

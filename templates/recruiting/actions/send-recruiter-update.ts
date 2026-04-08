@@ -364,7 +364,7 @@ export default defineAction({
 
     if (!res.ok) {
       const text = await res.text().catch(() => "");
-      return { error: `Slack webhook failed: ${text}` };
+      throw new Error(`Slack webhook failed: ${text}`);
     }
 
     return { success: true, sentAt: new Date().toISOString() };

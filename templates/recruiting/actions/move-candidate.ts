@@ -4,9 +4,9 @@ import { withOrgContext } from "../server/lib/greenhouse-api.js";
 
 async function moveCandidate(args: Record<string, string>) {
   if (!args.applicationId || !args.fromStageId || !args.toStageId) {
-    return {
-      error: "--applicationId, --fromStageId, and --toStageId are required",
-    };
+    throw new Error(
+      "--applicationId, --fromStageId, and --toStageId are required",
+    );
   }
   await gh.moveApplication(
     Number(args.applicationId),

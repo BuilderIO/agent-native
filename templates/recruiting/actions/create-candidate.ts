@@ -4,7 +4,7 @@ import { withOrgContext } from "../server/lib/greenhouse-api.js";
 
 async function createCandidate(args: Record<string, string>) {
   if (!args.firstName || !args.lastName) {
-    return { error: "--firstName and --lastName are required" };
+    throw new Error("--firstName and --lastName are required");
   }
 
   const data: any = {

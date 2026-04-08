@@ -117,4 +117,8 @@ export {
   type CommandItemProps,
   type CommandShortcutProps,
 } from "./CommandMenu.js";
-export { useActionQuery, useActionMutation } from "./use-action.js";
+export {
+  useActionQuery,
+  useActionMutation,
+  type ActionRegistry,
+} from "./use-action.js";

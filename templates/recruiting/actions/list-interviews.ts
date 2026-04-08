@@ -28,7 +28,7 @@ async function listInterviews(args: Record<string, string>) {
       interviewers: i.interviewers.map((iv: any) => iv.name),
       location: i.location,
       status: i.status,
-    }));
+    })) as any;
   }
   return upcoming;
 }

@@ -37,7 +37,8 @@ export function useComments(documentId: string | null) {
       enabled: !!documentId,
       select: (data: any) => {
         // Group into threads
-        const comments: Comment[] = data?.comments ?? data ?? [];
+        const raw = data?.comments ?? data;
+        const comments: Comment[] = Array.isArray(raw) ? raw : [];
         const threadMap = new Map<string, CommentThread>();
         for (const c of comments) {
           if (!threadMap.has(c.thread_id)) {

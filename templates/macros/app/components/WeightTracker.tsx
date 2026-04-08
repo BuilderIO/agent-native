@@ -18,21 +18,18 @@ export function WeightTracker({ currentDate }: WeightTrackerProps) {
 
   const dateStr = formatLocalDate(currentDate);
 
-  const deleteWeightMutation = useActionMutation<any, { id: string }>(
-    "delete-weight",
-    {
-      onSuccess: () => {
-        toast.success("Weight entry deleted");
-      },
+  const deleteWeightMutation = useActionMutation("delete-weight", {
+    onSuccess: () => {
+      toast.success("Weight entry deleted");
     },
-  );
+  });
 
-  const { data: weights, isLoading } = useActionQuery<Weight[]>(
-    "list-weights",
-    { date: dateStr },
-  );
+  const { data: rawWeights, isLoading } = useActionQuery("list-weights", {
+    date: dateStr,
+  });
+  const weights = Array.isArray(rawWeights) ? rawWeights : [];
 
-  const todayWeight = weights?.[0];
+  const todayWeight = weights[0];
 
   return (
     <div className="space-y-4">

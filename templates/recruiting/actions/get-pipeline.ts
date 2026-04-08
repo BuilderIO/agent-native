@@ -26,7 +26,7 @@ async function batchFetch<T>(
 }
 
 async function getPipeline(args: Record<string, string>) {
-  if (!args.jobId) return { error: "--jobId is required" };
+  if (!args.jobId) throw new Error("--jobId is required");
   const jobId = Number(args.jobId);
 
   const [stages, applications] = await Promise.all([
@@ -93,7 +93,7 @@ async function getPipeline(args: Record<string, string>) {
         name: a.candidate_name,
         company: a.candidate_company,
       })),
-    }));
+    })) as unknown as typeof pipeline;
   }
   return pipeline;
 }

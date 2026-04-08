@@ -31,7 +31,7 @@ interface SeoResponse {
 }
 
 export function useBlogSeoData() {
-  return useActionQuery<SeoResponse>("seo-blog-pages", undefined, {
+  return useActionQuery("seo-blog-pages", undefined, {
     staleTime: 30 * 60 * 1000, // 30 min
     retry: 1,
   });
@@ -51,15 +51,11 @@ interface KeywordsResponse {
 }
 
 export function useBlogKeywords(slug: string | null) {
-  return useActionQuery<KeywordsResponse>(
-    "seo-page-keywords",
-    slug ? { slug } : undefined,
-    {
-      enabled: !!slug,
-      staleTime: 30 * 60 * 1000,
-      retry: 1,
-    },
-  );
+  return useActionQuery("seo-page-keywords", slug ? { slug } : undefined, {
+    enabled: !!slug,
+    staleTime: 30 * 60 * 1000,
+    retry: 1,
+  });
 }
 
 // Bulk SEO keyword rankings with rank changes
@@ -82,7 +78,7 @@ interface TopKeywordsResponse {
 }
 
 export function useTopBlogKeywords(limit = 500) {
-  return useActionQuery<TopKeywordsResponse>(
+  return useActionQuery(
     "seo-top-keywords",
     { limit: String(limit) },
     {
@@ -149,25 +145,21 @@ export interface HubSpotMetrics {
 }
 
 export function useHubspotDeals() {
-  return useActionQuery<HubSpotDealsResponse>("hubspot-deals", undefined, {
+  return useActionQuery("hubspot-deals", undefined, {
     staleTime: 5 * 60 * 1000,
     retry: 1,
   });
 }
 
 export function useHubspotPipelines() {
-  return useActionQuery<HubSpotPipelinesResponse>(
-    "hubspot-pipelines",
-    undefined,
-    {
-      staleTime: 30 * 60 * 1000,
-      retry: 1,
-    },
-  );
+  return useActionQuery("hubspot-pipelines", undefined, {
+    staleTime: 30 * 60 * 1000,
+    retry: 1,
+  });
 }
 
 export function useHubspotMetrics() {
-  return useActionQuery<HubSpotMetrics>("hubspot-metrics", undefined, {
+  return useActionQuery("hubspot-metrics", undefined, {
     staleTime: 5 * 60 * 1000,
     retry: 1,
   });
@@ -443,12 +435,8 @@ interface ContentCalendarResponse {
 }
 
 export function useContentCalendar() {
-  return useActionQuery<ContentCalendarResponse>(
-    "content-calendar",
-    undefined,
-    {
-      staleTime: 10 * 60 * 1000, // 10 min
-      retry: 1,
-    },
-  );
+  return useActionQuery("content-calendar", undefined, {
+    staleTime: 10 * 60 * 1000, // 10 min
+    retry: 1,
+  });
 }

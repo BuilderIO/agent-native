@@ -2,12 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useActionQuery, useActionMutation } from "@agent-native/core/client";
 import { TAB_ID } from "@/lib/tab-id";
 import type {
-  GreenhouseJob,
-  GreenhouseCandidate,
   GreenhouseJobStage,
-  GreenhouseScheduledInterview,
-  DashboardStats,
-  PipelineStage,
   AgentNote,
   ActionItemsResponse,
   FilterResponse,
@@ -68,15 +63,14 @@ export function useGreenhouseDisconnect() {
 // --- Jobs ---
 
 export function useJobs(status?: string) {
-  return useActionQuery<GreenhouseJob[]>(
-    "list-jobs",
-    status ? { status } : undefined,
-    { staleTime: 30_000 },
-  );
+  return useActionQuery("list-jobs", status ? { status } : undefined, {
+    staleTime: 30_000,
+    select: (d) => (Array.isArray(d) ? d : []),
+  });
 }
 
 export function useJob(id: number | undefined) {
-  return useActionQuery<GreenhouseJob & { pipeline_summary?: any[] }>(
+  return useActionQuery(
     "get-job",
     { id: String(id) },
     { enabled: !!id, staleTime: 30_000 },
@@ -93,10 +87,14 @@ export function useJobStages(jobId: number | undefined) {
 }
 
 export function useJobPipeline(jobId: number | undefined) {
-  return useActionQuery<PipelineStage[]>(
+  return useActionQuery(
     "get-pipeline",
     { jobId: String(jobId) },
-    { enabled: !!jobId, staleTime: 15_000 },
+    {
+      enabled: !!jobId,
+      staleTime: 15_000,
+      select: (d) => (Array.isArray(d) ? d : []),
+    },
   );
 }
 
@@ -112,15 +110,15 @@ export function useCandidates(params?: {
   if (params?.jobId) actionParams.jobId = String(params.jobId);
   if (params?.limit) actionParams.limit = String(params.limit);
 
-  return useActionQuery<GreenhouseCandidate[]>(
+  return useActionQuery(
     "list-candidates",
     Object.keys(actionParams).length > 0 ? actionParams : undefined,
-    { staleTime: 30_000 },
+    { staleTime: 30_000, select: (d) => (Array.isArray(d) ? d : []) },
   );
 }
 
 export function useCandidate(id: number | undefined) {
-  return useActionQuery<GreenhouseCandidate>(
+  return useActionQuery(
     "get-candidate",
     { id: String(id) },
     { enabled: !!id, staleTime: 30_000 },
@@ -131,10 +129,7 @@ export function useCandidate(id: number | undefined) {
 
 export function useAdvanceApplication() {
   const qc = useQueryClient();
-  const mutation = useActionMutation<
-    { success: boolean },
-    { applicationId: string; fromStageId: string }
-  >("advance-candidate");
+  const mutation = useActionMutation("advance-candidate");
 
   return {
     ...mutation,
@@ -167,10 +162,7 @@ export function useAdvanceApplication() {
 
 export function useMoveApplication() {
   const qc = useQueryClient();
-  const mutation = useActionMutation<
-    { success: boolean },
-    { applicationId: string; fromStageId: string; toStageId: string }
-  >("move-candidate");
+  const mutation = useActionMutation("move-candidate");
 
   return {
     ...mutation,
@@ -206,10 +198,7 @@ export function useMoveApplication() {
 
 export function useRejectApplication() {
   const qc = useQueryClient();
-  const mutation = useActionMutation<
-    { success: boolean },
-    { applicationId: string; notes?: string }
-  >("reject-candidate");
+  const mutation = useActionMutation("reject-candidate");
 
   return {
     ...mutation,
@@ -243,20 +232,25 @@ export function useRejectApplication() {
 // --- Interviews ---
 
 export function useInterviews() {
-  return useActionQuery<GreenhouseScheduledInterview[]>(
-    "list-interviews",
-    undefined,
-    {
-      staleTime: 30_000,
-    },
-  );
+  return useActionQuery("list-interviews", undefined, {
+    staleTime: 30_000,
+    select: (d) => (Array.isArray(d) ? d : []),
+  });
 }
 
 // --- Dashboard ---
 
 export function useDashboard() {
-  return useActionQuery<DashboardStats>("dashboard-summary", undefined, {
+  return useActionQuery("dashboard-summary", undefined, {
     staleTime: 30_000,
+    select: (d) => ({
+      openJobs: d?.openJobs ?? 0,
+      activeCandidates: d?.activeCandidates ?? 0,
+      upcomingInterviews: d?.upcomingInterviews ?? 0,
+      recentApplications: Array.isArray(d?.recentApplications)
+        ? d.recentApplications
+        : [],
+    }),
   });
 }
 

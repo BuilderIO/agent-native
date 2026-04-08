@@ -100,27 +100,26 @@ export default defineAction({
     switch (args.action) {
       case "create": {
         if (!args.candidateId || !args.content || !args.type) {
-          return {
-            error:
-              "--candidateId, --content, and --type are required for create",
-          };
+          throw new Error(
+            "--candidateId, --content, and --type are required for create",
+          );
         }
         return createNote(Number(args.candidateId), args.content, args.type);
       }
       case "list": {
         if (!args.candidateId) {
-          return { error: "--candidateId is required for list" };
+          throw new Error("--candidateId is required for list");
         }
         return listNotes(Number(args.candidateId));
       }
       case "delete": {
         if (!args.id) {
-          return { error: "--id is required for delete" };
+          throw new Error("--id is required for delete");
         }
         return deleteNote(args.id);
       }
       default:
-        return { error: "--action must be create, list, or delete" };
+        throw new Error("--action must be create, list, or delete");
     }
   },
 });

@@ -26,7 +26,7 @@ async function batchFetch<T>(
 }
 
 async function getJob(args: Record<string, string>) {
-  if (!args.id) return { error: "--id is required" };
+  if (!args.id) throw new Error("--id is required");
   const id = Number(args.id);
 
   const [job, stages, applications] = await Promise.all([

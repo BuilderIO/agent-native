@@ -14,7 +14,10 @@ export function useDocumentVersions(documentId: string | null) {
       fetchJson<DocumentVersionListResponse>(
         `/api/documents/${documentId}/versions`,
       ),
-    select: (data) => data.versions,
+    select: (data: any) => {
+      const versions = data?.versions ?? data;
+      return Array.isArray(versions) ? versions : [];
+    },
     enabled: !!documentId,
   });
 }

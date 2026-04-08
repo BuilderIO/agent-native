@@ -43,7 +43,7 @@ async function listCandidates(args: Record<string, string>) {
       company: c.company,
       title: c.title,
       tags: c.tags,
-    }));
+    })) as any;
   }
   return mapped;
 }
