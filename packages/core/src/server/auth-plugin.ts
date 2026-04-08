@@ -6,8 +6,8 @@ import { createGoogleAuthPlugin } from "./google-auth-plugin.js";
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
 export function createAuthPlugin(options?: AuthOptions): NitroPluginDef {
-  return (nitroApp: any) => {
-    autoMountAuth(getH3App(nitroApp), options);
+  return async (nitroApp: any) => {
+    await autoMountAuth(getH3App(nitroApp), options);
   };
 }
 
@@ -16,7 +16,7 @@ export function createAuthPlugin(options?: AuthOptions): NitroPluginDef {
  * - If GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are set → Google OAuth
  * - Otherwise → email/password or ACCESS_TOKEN auth
  */
-export const defaultAuthPlugin: NitroPluginDef = (nitroApp: any) => {
+export const defaultAuthPlugin: NitroPluginDef = async (nitroApp: any) => {
   if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
     return createGoogleAuthPlugin()(nitroApp);
   }

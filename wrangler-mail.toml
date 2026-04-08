@@ -3,15 +3,8 @@ compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
 pages_build_output_dir = "./templates/mail/dist"
 
-# Smart Placement: run the Worker near the D1 database to reduce latency
 [placement]
 mode = "smart"
 
 [vars]
 GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
-
-
-[[d1_databases]]
-binding = "DB"
-database_name = "an-mail"
-database_id = "5cbb9720-f664-40f7-b38c-a24bfdba4fb8"

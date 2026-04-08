@@ -1,7 +1,7 @@
-name = "an-analytics"
+name = "an-calorie-tracker"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
-pages_build_output_dir = "./templates/analytics/dist"
+pages_build_output_dir = "./templates/calorie-tracker/dist"
 
 [placement]
 mode = "smart"
