@@ -58,6 +58,7 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
     awareness,
     isLoading: collabLoading,
     activeUsers,
+    agentActive,
   } = useCollaborativeDoc({
     docId: documentId,
     requestSource: TAB_ID,
@@ -164,13 +165,27 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
           onToggleComments={() => setShowComments(!showComments)}
         />
 
-        {/* Save indicator + Presence bar (other users only) */}
+        {/* Save indicator + Agent presence + User presence */}
         {(() => {
           const otherUsers = activeUsers.filter(
             (u) => u.email !== session?.email,
           );
-          return isSaving || otherUsers.length > 0 ? (
+          return isSaving || otherUsers.length > 0 || agentActive ? (
             <div className="absolute top-12 right-4 flex items-center gap-2 z-10">
+              {/* Agent editing indicator */}
+              {agentActive && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium animate-pulse">
+                      <IconSparkles size={14} />
+                      AI editing
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    The AI agent is making changes
+                  </TooltipContent>
+                </Tooltip>
+              )}
               {otherUsers.length > 0 && (
                 <div className="flex -space-x-2">
                   {otherUsers.map((u, i) => (
