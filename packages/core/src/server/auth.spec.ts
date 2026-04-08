@@ -74,9 +74,7 @@ describe("server/auth", () => {
       const { autoMountAuth } = await import("./auth.js");
 
       const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const errorSpy = vi
-        .spyOn(console, "error")
-        .mockImplementation(() => {});
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
       const app = createMockApp();
       const result = await autoMountAuth(app);
 
