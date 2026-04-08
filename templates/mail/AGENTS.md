@@ -240,17 +240,32 @@ The UI will pick up the changes automatically (via SSE on `"app-state"` events).
 
 #### Compose state shape
 
-| Field             | Type   | Required | Description                         |
-| ----------------- | ------ | -------- | ----------------------------------- |
-| `id`              | string | yes      | Unique draft ID (matches key name)  |
-| `to`              | string | yes      | Comma-separated recipient emails    |
-| `cc`              | string | no       | Comma-separated CC emails           |
-| `bcc`             | string | no       | Comma-separated BCC emails          |
-| `subject`         | string | yes      | Email subject line                  |
-| `body`            | string | yes      | Email body (plain text)             |
-| `mode`            | string | yes      | `"compose"`, `"reply"`, `"forward"` |
-| `replyToId`       | string | no       | ID of email being replied to        |
-| `replyToThreadId` | string | no       | Thread ID for grouping              |
+| Field             | Type   | Required | Description                           |
+| ----------------- | ------ | -------- | ------------------------------------- |
+| `id`              | string | yes      | Unique draft ID (matches key name)    |
+| `to`              | string | yes      | Comma-separated recipient emails      |
+| `cc`              | string | no       | Comma-separated CC emails             |
+| `bcc`             | string | no       | Comma-separated BCC emails            |
+| `subject`         | string | yes      | Email subject line                    |
+| `body`            | string | yes      | Email body (**markdown** — see below) |
+| `mode`            | string | yes      | `"compose"`, `"reply"`, `"forward"`   |
+| `replyToId`       | string | no       | ID of email being replied to          |
+| `replyToThreadId` | string | no       | Thread ID for grouping                |
+
+#### Body formatting
+
+The `body` field uses **markdown**. The compose editor (TipTap) renders it as rich text, and the send flow converts it to HTML for the email. Use standard markdown:
+
+- **Links:** `[link text](https://example.com)` — renders as a clickable hyperlink
+- **Bold:** `**bold text**`
+- **Italic:** `*italic text*`
+- **Lists:** `- item` or `1. item`
+- **Headings:** `# Heading` (h1–h3)
+- **Code:** `` `inline` `` or fenced code blocks
+- **Blockquotes:** `> quoted text`
+- **Bare URLs:** `https://example.com` auto-links
+
+Do NOT use HTML tags in the body — use markdown only.
 
 ## Common Tasks
 

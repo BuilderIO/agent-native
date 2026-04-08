@@ -639,6 +639,42 @@ function UserMessageText({ text }: { text: string }) {
   return <>{parts.length > 0 ? parts : text}</>;
 }
 
+function UserMessageAttachments() {
+  const messageRuntime = useMessageRuntime();
+  const msg = messageRuntime.getState();
+  // Content parts may include image/file types from attachments
+  const parts = msg.content as unknown as Array<Record<string, any>>;
+  const images = parts.filter((p) => p.type === "image" && p.image);
+  const files = parts.filter((p) => p.type === "file");
+  if (images.length === 0 && files.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap justify-end gap-1.5 mb-1.5">
+      {images.map((img, i) => (
+        <div
+          key={i}
+          className="h-16 w-16 overflow-hidden rounded-lg border border-border/70 bg-muted/50"
+        >
+          <img
+            src={img.image}
+            alt="attachment"
+            className="h-full w-full object-cover"
+          />
+        </div>
+      ))}
+      {files.map((file, i) => (
+        <div
+          key={`f-${i}`}
+          className="flex items-center gap-1.5 rounded-lg border border-border/70 bg-muted/50 px-2 py-1.5 text-xs text-muted-foreground"
+        >
+          <IconFile className="h-3.5 w-3.5 shrink-0" />
+          <span className="truncate max-w-[120px]">{file.name || "file"}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function UserMessage() {
   const [expanded, setExpanded] = useState(false);
   const [isExpandable, setIsExpandable] = useState(false);
@@ -661,6 +697,7 @@ function UserMessage() {
   return (
     <div className="flex justify-end" style={{ contentVisibility: "auto" }}>
       <div className="max-w-[85%]">
+        <UserMessageAttachments />
         <div
           className="relative rounded-lg bg-accent px-3 py-2 text-sm leading-relaxed text-foreground"
           onCopy={(e) => {

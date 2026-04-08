@@ -14,7 +14,7 @@
  *   --cc       CC email(s)
  *   --bcc      BCC email(s)
  *   --subject  Email subject
- *   --body     Email body text
+ *   --body     Email body in markdown (use [text](url) for links, **bold**, *italic*, etc.)
  *   --mode     compose, reply, or forward (default: compose)
  *   --replyToId       Message ID being replied to
  *   --replyToThreadId Thread ID for grouping
@@ -56,7 +56,11 @@ export const tool: ActionTool = {
       cc: { type: "string", description: "CC email(s)" },
       bcc: { type: "string", description: "BCC email(s)" },
       subject: { type: "string", description: "Email subject" },
-      body: { type: "string", description: "Email body text" },
+      body: {
+        type: "string",
+        description:
+          "Email body in markdown. Use [text](url) for links, **bold**, *italic*, - lists, etc.",
+      },
       mode: {
         type: "string",
         description: "compose, reply, or forward",

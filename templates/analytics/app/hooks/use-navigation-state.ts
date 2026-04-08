@@ -35,6 +35,7 @@ export function useNavigationState() {
 
     fetch("/_agent-native/application-state/navigation", {
       method: "PUT",
+      keepalive: true,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(state),
     }).catch(() => {});

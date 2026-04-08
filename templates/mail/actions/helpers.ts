@@ -96,6 +96,49 @@ function pickFields(data: unknown, fields: string[]): unknown {
 }
 
 // ---------------------------------------------------------------------------
+// Owner email resolution (for CLI scripts without AGENT_USER_EMAIL)
+// ---------------------------------------------------------------------------
+
+import { getDbExec } from "@agent-native/core/db";
+
+let _ownerEmail: string | undefined;
+
+/**
+ * Resolve the current user's email for OAuth token lookups.
+ * Checks AGENT_USER_EMAIL first, then falls back to the most recent DB session.
+ */
+async function resolveOwnerEmail(): Promise<string> {
+  if (_ownerEmail) return _ownerEmail;
+
+  const env = process.env.AGENT_USER_EMAIL;
+  if (env) {
+    _ownerEmail = env;
+    return env;
+  }
+
+  // No env var — check DB for the most recent session
+  try {
+    const db = getDbExec();
+    const { rows } = await db.execute({
+      sql: "SELECT email FROM sessions ORDER BY created_at DESC LIMIT 1",
+      args: [],
+    });
+    if (rows[0]) {
+      const email = rows[0].email as string;
+      if (email && email !== "local@localhost") {
+        _ownerEmail = email;
+        return email;
+      }
+    }
+  } catch {
+    // sessions table may not exist yet
+  }
+
+  _ownerEmail = "local@localhost";
+  return "local@localhost";
+}
+
+// ---------------------------------------------------------------------------
 // OAuth access-token helpers (fetch-based, no googleapis dependency)
 // ---------------------------------------------------------------------------
 
@@ -154,7 +197,7 @@ async function resolveAccessToken(
 export async function getAccessTokens(): Promise<
   Array<{ email: string; accessToken: string }>
 > {
-  const ownerEmail = process.env.AGENT_USER_EMAIL || "local@localhost";
+  const ownerEmail = await resolveOwnerEmail();
   const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
   const results: Array<{ email: string; accessToken: string }> = [];
 
