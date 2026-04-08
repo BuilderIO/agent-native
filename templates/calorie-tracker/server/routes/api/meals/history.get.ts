@@ -5,8 +5,7 @@ import { and, gte, lte, asc } from "drizzle-orm";
 
 export default defineEventHandler(async (event) => {
   const { startDate, endDate } = getQuery(event);
-  if (!startDate || !endDate)
-    return { error: "startDate and endDate required" };
+  if (!startDate || !endDate) return [];
 
   const mealsData = await db()
     .select()
