@@ -2132,9 +2132,6 @@ importers:
       nanoid:
         specifier: ^4.0.2
         version: 4.0.2
-      pdf-parse:
-        specifier: ^2.4.5
-        version: 2.4.5
       zod:
         specifier: ^3.25.76
         version: 3.25.76
