@@ -122,18 +122,19 @@ The current screen state (navigation + Greenhouse API data) is automatically inc
 
 ### Reading & Searching
 
-| Action              | Args                             | Purpose                                |
-| ------------------- | -------------------------------- | -------------------------------------- |
-| `view-screen`       |                                  | See what the user sees (with data)     |
-| `list-jobs`         | `--status <open\|closed\|draft>` | List jobs with optional filter         |
-| `get-job`           | `--id <job-id>`                  | Get job detail + pipeline summary      |
-| `list-candidates`   | `--search <term> --jobId <id>`   | Search/filter candidates               |
-| `get-candidate`     | `--id <candidate-id>`            | Get full candidate details             |
-| `get-pipeline`      | `--jobId <id> [--compact]`       | Pipeline view (candidates by stage)    |
-| `list-interviews`   | `[--compact]`                    | List upcoming interviews               |
-| `dashboard-summary` |                                  | Get dashboard statistics               |
-| `check-scorecards`  | `[--overdueHours] [--section]`   | Check overdue/pending/recent feedback  |
-| `pipeline-health`   | `[--stuckDays]`                  | Find stuck candidates, pipeline issues |
+| Action              | Args                             | Purpose                                      |
+| ------------------- | -------------------------------- | -------------------------------------------- |
+| `view-screen`       |                                  | See what the user sees (with data)           |
+| `list-jobs`         | `--status <open\|closed\|draft>` | List jobs with optional filter               |
+| `get-job`           | `--id <job-id>`                  | Get job detail + pipeline summary            |
+| `list-candidates`   | `--search <term> --jobId <id>`   | Search/filter candidates                     |
+| `get-candidate`     | `--id <candidate-id>`            | Get full candidate details                   |
+| `get-pipeline`      | `--jobId <id> [--compact]`       | Pipeline view (candidates by stage)          |
+| `list-interviews`   | `[--compact]`                    | List upcoming interviews                     |
+| `dashboard-summary` |                                  | Get dashboard statistics                     |
+| `check-scorecards`  | `[--overdueHours] [--section]`   | Check overdue/pending/recent feedback        |
+| `pipeline-health`   | `[--stuckDays]`                  | Find stuck candidates, pipeline issues       |
+| `filter-candidates` | `--prompt <criteria> [--jobId]`  | AI filter: evaluate resumes against criteria |
 
 ### Actions
 
@@ -166,6 +167,7 @@ The current screen state (navigation + Greenhouse API data) is automatically inc
 | "Move candidate to next stage"       | `advance-candidate --applicationId=<id> --fromStageId=<id>`   |
 | "Reject this candidate"              | `reject-candidate --applicationId=<id>`                       |
 | "Add a new candidate"                | `create-candidate --firstName=... --lastName=... --email=...` |
+| "Find candidates with X skills"      | `filter-candidates --prompt="X skills"`                       |
 | "What's falling through the cracks?" | `check-scorecards` + `pipeline-health`                        |
 | "Who hasn't submitted feedback?"     | `check-scorecards --section=overdue`                          |
 | "Send an update to the recruiter"    | `send-recruiter-update`                                       |

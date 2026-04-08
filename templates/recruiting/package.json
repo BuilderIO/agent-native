@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@agent-native/core": "workspace:*",
+    "@anthropic-ai/sdk": "^0.80.0",
     "@libsql/client": "^0.15.0",
     "@tabler/icons-react": "^3.40.0",
     "drizzle-orm": "^0.44.0",
