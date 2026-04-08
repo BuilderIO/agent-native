@@ -6,6 +6,7 @@ import {
   IconStrikethrough,
   IconCode,
   IconLink,
+  IconMessageCircle,
   IconH1,
   IconH2,
   IconH3,
@@ -15,9 +16,10 @@ import { useState } from "react";
 
 interface BubbleToolbarProps {
   editor: Editor;
+  onComment?: (quotedText: string) => void;
 }
 
-export function BubbleToolbar({ editor }: BubbleToolbarProps) {
+export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
 
@@ -97,6 +99,21 @@ export function BubbleToolbar({ editor }: BubbleToolbarProps) {
       action: toggleLink,
       isActive: () => editor.isActive("link"),
     },
+    ...(onComment
+      ? [
+          { type: "divider" as const },
+          {
+            icon: IconMessageCircle,
+            title: "Comment",
+            action: () => {
+              const { from, to } = editor.state.selection;
+              const text = editor.state.doc.textBetween(from, to, " ");
+              if (text.trim()) onComment(text.trim());
+            },
+            isActive: () => false,
+          },
+        ]
+      : []),
   ];
 
   return (

@@ -862,22 +862,20 @@ export function AgentPanel({
           <IconMessage size={14} />
           Chat
         </button>
-        {isDevMode && (
-          <button
-            onClick={() => switchMode("cli")}
-            className={cn(
-              "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
-              activeMode === "cli"
-                ? "bg-accent text-foreground"
-                : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-            )}
-            title="CLI terminal mode"
-            style={AGENT_PANEL_CONTROL_STYLE}
-          >
-            <IconTerminal2 size={14} />
-            CLI
-          </button>
-        )}
+        <button
+          onClick={() => switchMode("cli")}
+          className={cn(
+            "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
+            activeMode === "cli"
+              ? "bg-accent text-foreground"
+              : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+          )}
+          title="CLI terminal mode"
+          style={AGENT_PANEL_CONTROL_STYLE}
+        >
+          <IconTerminal2 size={14} />
+          CLI
+        </button>
         <button
           onClick={() => switchMode("resources")}
           className={cn(
@@ -1438,44 +1436,66 @@ export function AgentPanel({
             contentHidden={mode !== "chat"}
             emptyStateText={emptyStateText}
             suggestions={suggestions}
-            onSwitchToCli={isDevMode ? () => switchMode("cli") : undefined}
+            onSwitchToCli={() => switchMode("cli")}
             execMode={execMode}
             onExecModeChange={switchExecMode}
           />
         )}
       </div>
 
-      {/* CLI terminals — always mounted in dev mode to preserve state (WebSocket, buffer).
-          Hidden via display:none when another mode is active, matching how chat is handled. */}
-      {isDevMode &&
-        cliTabs.map((id) => (
-          <div
-            key={id}
-            className={cn(
-              "min-h-0 relative",
-              mode === "cli" ? "flex-1" : "hidden",
-            )}
-            style={{
-              display:
-                mode === "cli" && id === activeCliTab ? undefined : "none",
-            }}
-          >
-            <Suspense
-              fallback={
-                <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-                  Loading terminal...
-                </div>
-              }
+      {/* CLI terminals — dev mode: real terminal, prod mode: prompt to use dev */}
+      {isDevMode
+        ? cliTabs.map((id) => (
+            <div
+              key={id}
+              className={cn(
+                "min-h-0 relative",
+                mode === "cli" ? "flex-1" : "hidden",
+              )}
+              style={{
+                display:
+                  mode === "cli" && id === activeCliTab ? undefined : "none",
+              }}
             >
-              <AgentTerminal
-                command={selectedCli}
-                hideInFrame={false}
-                className="h-full"
-                style={{ background: "transparent" }}
-              />
-            </Suspense>
-          </div>
-        ))}
+              <Suspense
+                fallback={
+                  <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+                    Loading terminal...
+                  </div>
+                }
+              >
+                <AgentTerminal
+                  command={selectedCli}
+                  hideInFrame={false}
+                  className="h-full"
+                  style={{ background: "transparent" }}
+                />
+              </Suspense>
+            </div>
+          ))
+        : mode === "cli" && (
+            <div className="flex flex-1 flex-col items-center justify-center min-h-0 px-6 gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+                <IconTerminal2 className="h-5 w-5 text-muted-foreground" />
+              </div>
+              <div className="text-center max-w-[260px]">
+                <p className="text-sm font-medium text-foreground mb-1">
+                  CLI requires dev mode
+                </p>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Run this app locally with{" "}
+                  <code className="bg-muted px-1 py-0.5 rounded text-[10px]">
+                    pnpm dev
+                  </code>{" "}
+                  or use{" "}
+                  <span className="font-medium text-foreground">
+                    Builder.io
+                  </span>{" "}
+                  to access the CLI terminal.
+                </p>
+              </div>
+            </div>
+          )}
 
       {/* Resources view */}
       {mode === "resources" && (

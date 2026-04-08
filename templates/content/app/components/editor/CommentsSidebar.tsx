@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   useComments,
   useCreateComment,
@@ -6,12 +6,7 @@ import {
   type CommentThread,
 } from "@/hooks/use-comments";
 import { sendToAgentChat } from "@agent-native/core/client";
-import {
-  IconCheck,
-  IconMessageCircle,
-  IconSparkles,
-  IconX,
-} from "@tabler/icons-react";
+import { IconCheck, IconSparkles } from "@tabler/icons-react";
 import {
   Tooltip,
   TooltipContent,
@@ -20,28 +15,50 @@ import {
 
 interface CommentsSidebarProps {
   documentId: string;
-  onClose: () => void;
+  /** Pre-filled quoted text for a new comment from text selection. */
+  pendingQuotedText?: string | null;
+  /** Called after the pending comment is submitted or dismissed. */
+  onPendingDone?: () => void;
 }
 
-export function CommentsSidebar({ documentId, onClose }: CommentsSidebarProps) {
+export function CommentsSidebar({
+  documentId,
+  pendingQuotedText,
+  onPendingDone,
+}: CommentsSidebarProps) {
   const { data: threads, isLoading } = useComments(documentId);
   const createComment = useCreateComment();
   const resolveComment = useResolveComment();
-  const [newComment, setNewComment] = useState("");
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [replyText, setReplyText] = useState("");
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const [pendingText, setPendingText] = useState("");
+  const pendingInputRef = useRef<HTMLTextAreaElement>(null);
 
   const openThreads = threads?.filter((t) => !t.resolved) ?? [];
   const resolvedThreads = threads?.filter((t) => t.resolved) ?? [];
 
-  const handleNewComment = () => {
-    if (!newComment.trim()) return;
+  // Focus the pending comment input when quoted text comes in
+  useEffect(() => {
+    if (pendingQuotedText) {
+      setPendingText("");
+      setTimeout(() => pendingInputRef.current?.focus(), 50);
+    }
+  }, [pendingQuotedText]);
+
+  const handlePendingSubmit = () => {
+    if (!pendingText.trim()) return;
     createComment.mutate({
       documentId,
-      content: newComment.trim(),
+      content: pendingText.trim(),
+      quotedText: pendingQuotedText ?? undefined,
     });
-    setNewComment("");
+    setPendingText("");
+    onPendingDone?.();
+  };
+
+  const handlePendingCancel = () => {
+    setPendingText("");
+    onPendingDone?.();
   };
 
   const handleReply = (threadId: string) => {
@@ -69,120 +86,105 @@ export function CommentsSidebar({ documentId, onClose }: CommentsSidebarProps) {
     });
   };
 
+  const hasContent =
+    openThreads.length > 0 || resolvedThreads.length > 0 || !!pendingQuotedText;
+
+  if (!hasContent && !isLoading) return null;
+
   return (
-    <div className="w-full sm:w-80 border-l border-border bg-background flex flex-col h-full">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-        <div className="flex items-center gap-2 text-sm font-medium">
-          <IconMessageCircle size={16} />
-          Comments
-          {openThreads.length > 0 && (
-            <span className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
-              {openThreads.length}
-            </span>
-          )}
-        </div>
-        <button
-          onClick={onClose}
-          className="p-2 rounded-lg hover:bg-accent text-muted-foreground"
-        >
-          <IconX size={16} />
-        </button>
-      </div>
-
-      {/* New comment */}
-      <div className="px-4 py-3 border-b border-border">
-        <textarea
-          ref={inputRef}
-          value={newComment}
-          onChange={(e) => setNewComment(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              handleNewComment();
-            }
-          }}
-          placeholder="Add a comment..."
-          className="w-full resize-none rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-          rows={2}
-        />
-        {newComment.trim() && (
-          <button
-            onClick={handleNewComment}
-            className="mt-2 px-3 py-1.5 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
-          >
-            Comment
-          </button>
-        )}
-      </div>
-
-      {/* Thread list */}
-      <div className="flex-1 overflow-auto">
-        {isLoading && (
-          <div className="text-center text-muted-foreground text-sm py-8">
-            Loading...
+    <div className="w-72 shrink-0 overflow-auto py-4 pl-2 pr-4">
+      {/* New comment from text selection */}
+      {pendingQuotedText && (
+        <div className="mb-4 rounded-lg border border-primary/30 bg-background p-3 shadow-sm">
+          <div className="text-xs text-muted-foreground bg-accent/50 px-2 py-1 rounded mb-2 line-clamp-2 italic border-l-2 border-primary/30">
+            {pendingQuotedText}
           </div>
-        )}
-
-        {!isLoading && openThreads.length === 0 && (
-          <div className="text-center text-muted-foreground text-sm py-8">
-            No comments yet
-          </div>
-        )}
-
-        {openThreads.map((thread) => (
-          <ThreadView
-            key={thread.threadId}
-            thread={thread}
-            documentId={documentId}
-            isReplying={replyingTo === thread.threadId}
-            replyText={replyText}
-            onStartReply={() => setReplyingTo(thread.threadId)}
-            onReplyChange={setReplyText}
-            onSubmitReply={() => handleReply(thread.threadId)}
-            onCancelReply={() => {
-              setReplyingTo(null);
-              setReplyText("");
+          <textarea
+            ref={pendingInputRef}
+            value={pendingText}
+            onChange={(e) => setPendingText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                handlePendingSubmit();
+              }
+              if (e.key === "Escape") handlePendingCancel();
             }}
-            onResolve={() =>
-              resolveComment.mutate({
-                id: thread.comments[0].id,
-                documentId,
-              })
-            }
-            onSendToAI={() => handleSendToAI(thread)}
+            placeholder="Add a comment..."
+            className="w-full resize-none rounded-md border border-input bg-transparent px-2 py-1.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            rows={2}
           />
-        ))}
-
-        {resolvedThreads.length > 0 && (
-          <div className="px-4 py-2 text-xs text-muted-foreground font-medium border-t border-border mt-2">
-            Resolved ({resolvedThreads.length})
+          <div className="flex gap-1 mt-1.5">
+            <button
+              onClick={handlePendingSubmit}
+              disabled={!pendingText.trim()}
+              className="px-2.5 py-1 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
+            >
+              Comment
+            </button>
+            <button
+              onClick={handlePendingCancel}
+              className="px-2.5 py-1 text-xs rounded-md text-muted-foreground hover:bg-accent"
+            >
+              Cancel
+            </button>
           </div>
-        )}
-        {resolvedThreads.map((thread) => (
-          <ThreadView
-            key={thread.threadId}
-            thread={thread}
-            documentId={documentId}
-            isReplying={false}
-            replyText=""
-            onStartReply={() => {}}
-            onReplyChange={() => {}}
-            onSubmitReply={() => {}}
-            onCancelReply={() => {}}
-            onResolve={() => {}}
-            onSendToAI={() => handleSendToAI(thread)}
-            resolved
-          />
-        ))}
-      </div>
+        </div>
+      )}
+
+      {/* Open threads */}
+      {openThreads.map((thread) => (
+        <ThreadView
+          key={thread.threadId}
+          thread={thread}
+          isReplying={replyingTo === thread.threadId}
+          replyText={replyText}
+          onStartReply={() => setReplyingTo(thread.threadId)}
+          onReplyChange={setReplyText}
+          onSubmitReply={() => handleReply(thread.threadId)}
+          onCancelReply={() => {
+            setReplyingTo(null);
+            setReplyText("");
+          }}
+          onResolve={() =>
+            resolveComment.mutate({
+              id: thread.comments[0].id,
+              documentId,
+            })
+          }
+          onSendToAI={() => handleSendToAI(thread)}
+        />
+      ))}
+
+      {/* Resolved threads */}
+      {resolvedThreads.length > 0 && (
+        <>
+          <div className="text-[11px] text-muted-foreground font-medium mt-4 mb-2 px-1">
+            Resolved
+          </div>
+          {resolvedThreads.map((thread) => (
+            <ThreadView
+              key={thread.threadId}
+              thread={thread}
+              isReplying={false}
+              replyText=""
+              onStartReply={() => {}}
+              onReplyChange={() => {}}
+              onSubmitReply={() => {}}
+              onCancelReply={() => {}}
+              onResolve={() => {}}
+              onSendToAI={() => handleSendToAI(thread)}
+              resolved
+            />
+          ))}
+        </>
+      )}
     </div>
   );
 }
 
 function ThreadView({
   thread,
-  documentId,
   isReplying,
   replyText,
   onStartReply,
@@ -194,7 +196,6 @@ function ThreadView({
   resolved,
 }: {
   thread: CommentThread;
-  documentId: string;
   isReplying: boolean;
   replyText: string;
   onStartReply: () => void;
@@ -207,7 +208,7 @@ function ThreadView({
 }) {
   return (
     <div
-      className={`px-4 py-3 border-b border-border ${resolved ? "opacity-50" : ""}`}
+      className={`mb-3 rounded-lg border border-border bg-background p-3 shadow-sm ${resolved ? "opacity-50" : ""}`}
     >
       {/* Quoted text */}
       {thread.quotedText && (
@@ -218,7 +219,7 @@ function ThreadView({
 
       {/* Comments in thread */}
       {thread.comments.map((c) => (
-        <div key={c.id} className={`mb-2 ${c.parent_id ? "ml-4" : ""}`}>
+        <div key={c.id} className={`mb-2 ${c.parent_id ? "ml-3" : ""}`}>
           <div className="flex items-center gap-1.5 mb-0.5">
             <span className="text-xs font-medium text-foreground">
               {c.author_name ?? c.author_email.split("@")[0]}
@@ -233,10 +234,10 @@ function ThreadView({
 
       {/* Actions */}
       {!resolved && (
-        <div className="flex items-center gap-1 mt-2">
+        <div className="flex items-center gap-0.5 mt-1">
           <button
             onClick={onStartReply}
-            className="text-xs text-muted-foreground hover:text-foreground px-3 py-1.5 rounded-lg hover:bg-accent"
+            className="text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-accent"
           >
             Reply
           </button>
@@ -244,9 +245,9 @@ function ThreadView({
             <TooltipTrigger asChild>
               <button
                 onClick={onResolve}
-                className="p-2 rounded-lg text-muted-foreground hover:text-green-500 hover:bg-accent"
+                className="p-1.5 rounded text-muted-foreground hover:text-green-500 hover:bg-accent"
               >
-                <IconCheck size={16} />
+                <IconCheck size={14} />
               </button>
             </TooltipTrigger>
             <TooltipContent>Resolve</TooltipContent>
@@ -255,9 +256,9 @@ function ThreadView({
             <TooltipTrigger asChild>
               <button
                 onClick={onSendToAI}
-                className="p-2 rounded-lg text-muted-foreground hover:text-primary hover:bg-accent"
+                className="p-1.5 rounded text-muted-foreground hover:text-primary hover:bg-accent"
               >
-                <IconSparkles size={16} />
+                <IconSparkles size={14} />
               </button>
             </TooltipTrigger>
             <TooltipContent>Ask AI about this</TooltipContent>

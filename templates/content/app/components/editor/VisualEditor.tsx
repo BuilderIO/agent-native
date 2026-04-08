@@ -370,6 +370,8 @@ interface VisualEditorProps {
   /** Current user info for cursor labels. */
   user?: { name: string; color: string };
   editable?: boolean;
+  /** Called when user selects text and clicks "Comment" in bubble toolbar. */
+  onComment?: (quotedText: string) => void;
 }
 
 export function VisualEditor({
@@ -379,6 +381,7 @@ export function VisualEditor({
   ydoc,
   user,
   editable = true,
+  onComment,
 }: VisualEditorProps) {
   const isSettingContent = useRef(false);
   const onChangeRef = useRef(onChange);
@@ -553,7 +556,7 @@ export function VisualEditor({
 
   return (
     <div className="visual-editor-wrapper">
-      <BubbleToolbar editor={editor} />
+      <BubbleToolbar editor={editor} onComment={onComment} />
       <SlashCommandMenu editor={editor} documentId={documentId} />
       <LinkHoverPreview editor={editor} />
       <TableHoverControls editor={editor} />

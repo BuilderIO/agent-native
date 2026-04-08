@@ -13,6 +13,7 @@ import {
 } from "@agent-native/core/client";
 import { IconLoader2, IconSparkles } from "@tabler/icons-react";
 import { CommentsSidebar } from "./CommentsSidebar";
+import { useComments } from "@/hooks/use-comments";
 import {
   Tooltip,
   TooltipContent,
@@ -137,8 +138,18 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
     [debouncedSave],
   );
 
-  const [showComments, setShowComments] = useState(false);
+  // Comments state — pending comment from text selection
+  const [pendingQuotedText, setPendingQuotedText] = useState<string | null>(
+    null,
+  );
+  const { data: threads } = useComments(documentId);
+  const hasComments =
+    (threads?.some((t) => !t.resolved) ?? false) || !!pendingQuotedText;
   const isMobile = useIsMobile();
+
+  const handleComment = useCallback((quotedText: string) => {
+    setPendingQuotedText(quotedText);
+  }, []);
 
   if (isLoading || collabLoading) {
     return (
@@ -156,14 +167,18 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
     );
   }
 
+  const sidebar = (
+    <CommentsSidebar
+      documentId={documentId}
+      pendingQuotedText={pendingQuotedText}
+      onPendingDone={() => setPendingQuotedText(null)}
+    />
+  );
+
   return (
     <div className="flex-1 flex min-h-0">
       <div className="flex-1 flex flex-col min-h-0">
-        <DocumentToolbar
-          documentId={documentId}
-          showComments={showComments}
-          onToggleComments={() => setShowComments(!showComments)}
-        />
+        <DocumentToolbar documentId={documentId} />
 
         {/* Save indicator + Agent presence + User presence */}
         {(() => {
@@ -261,6 +276,7 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
               ydoc={ydoc}
               user={currentUser}
               editable
+              onComment={handleComment}
             />
           </div>
         </div>
@@ -268,23 +284,17 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
 
       {isMobile ? (
         <Sheet
-          open={showComments}
-          onOpenChange={(open) => setShowComments(open)}
+          open={hasComments}
+          onOpenChange={(open) => {
+            if (!open) setPendingQuotedText(null);
+          }}
         >
           <SheetContent side="right" className="w-[85vw] max-w-sm p-0">
-            <CommentsSidebar
-              documentId={documentId}
-              onClose={() => setShowComments(false)}
-            />
+            {sidebar}
           </SheetContent>
         </Sheet>
       ) : (
-        showComments && (
-          <CommentsSidebar
-            documentId={documentId}
-            onClose={() => setShowComments(false)}
-          />
-        )
+        hasComments && sidebar
       )}
     </div>
   );

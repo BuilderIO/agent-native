@@ -559,7 +559,7 @@ const FRAMEWORK_CORE = `
 ### Core Rules
 
 1. **Data lives in SQL** — All app state is in a SQL database (could be SQLite, Postgres, Turso, or Cloudflare D1 — never assume which). Use the available database tools.
-2. **Context awareness** — Before taking action, understand what the user is looking at. Use the \`view-screen\` tool if available — it returns the current UI state (which page, which item is focused, what's selected).
+2. **Context awareness** — The user's current screen state is automatically included in each message as a \`<current-screen>\` block. Use it to understand what the user is looking at. You can still call \`view-screen\` for a more detailed snapshot if needed, but you should NOT need to call it before every action.
 3. **Navigate the UI** — Use the \`navigate\` tool to switch views, open items, or focus elements for the user.
 4. **Application state** — Ephemeral UI state (drafts, selections, navigation) lives in \`application_state\`. Use \`readAppState\`/\`writeAppState\` to read and write it. When you write state, the UI updates automatically.
 5. **Resources for memory** — Use the Resources system for persistent notes and context. Update LEARNINGS.md when you learn user preferences or corrections. Update the shared AGENTS.md for instructions that should apply to all users.
