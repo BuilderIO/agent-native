@@ -298,23 +298,30 @@ export function EmailThread({
     [threadId, view, navigate, labelSuffix],
   );
 
+  // Prefetch ±5 siblings in order (nearest first) for fast e/j/k navigation
   useEffect(() => {
     if (!threadId || emailIds.length === 0) return;
     const idx = emailIds.indexOf(threadId);
     if (idx === -1) return;
 
-    const threadIdsToWarm = new Set<string>();
-    for (const candidate of [emailIds[idx - 1], emailIds[idx + 1]]) {
-      if (candidate) threadIdsToWarm.add(candidate);
+    // Build ordered list: +1, -1, +2, -2, ... ±5 (nearest first)
+    const ordered: string[] = [];
+    for (let d = 1; d <= 5; d++) {
+      if (idx + d < emailIds.length) ordered.push(emailIds[idx + d]);
+      if (idx - d >= 0) ordered.push(emailIds[idx - d]);
     }
 
-    threadIdsToWarm.forEach((candidateThreadId) => {
-      void queryClient.prefetchQuery({
-        queryKey: ["thread-messages", candidateThreadId],
-        queryFn: () => fetchThreadMessages(candidateThreadId),
-        staleTime: 30_000,
-      });
-    });
+    // Chain prefetches so nearest resolves first
+    let chain = Promise.resolve();
+    for (const id of ordered) {
+      chain = chain.then(() =>
+        queryClient.prefetchQuery({
+          queryKey: ["thread-messages", id],
+          queryFn: () => fetchThreadMessages(id),
+          staleTime: 30_000,
+        }),
+      );
+    }
   }, [threadId, emailIds, queryClient]);
 
   const advanceOrGoBack = useCallback(() => {

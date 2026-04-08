@@ -510,6 +510,7 @@ export function EmailList({
     }
   }, [threads, focusedId, setFocusedId]);
 
+  // Prefetch ±1 around focused item for instant j/k response
   useEffect(() => {
     if (!focusedId) return;
     const index = threads.findIndex((t) => t.latestMessage.id === focusedId);
@@ -534,6 +535,40 @@ export function EmailList({
       });
     });
   }, [focusedId, threads, queryClient]);
+
+  // Prefetch all visible threads so any click/Enter opens instantly
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || threads.length === 0) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          const id = (entry.target as HTMLElement).dataset.threadId;
+          if (id) {
+            void queryClient.prefetchQuery({
+              queryKey: ["thread-messages", id],
+              queryFn: () => fetchThreadMessages(id),
+              staleTime: 30_000,
+            });
+          }
+        }
+      },
+      { root: container.querySelector(".overflow-y-auto"), threshold: 0 },
+    );
+
+    // Observe all rows after a tick (rows need to be rendered)
+    const raf = requestAnimationFrame(() => {
+      const rows = container.querySelectorAll<HTMLElement>("[data-thread-id]");
+      rows.forEach((row) => observer.observe(row));
+    });
+
+    return () => {
+      cancelAnimationFrame(raf);
+      observer.disconnect();
+    };
+  }, [threads, queryClient]);
 
   // Infinite scroll — fetch next page when the sentinel enters the viewport
   const sentinelRef = useRef<HTMLDivElement>(null);
