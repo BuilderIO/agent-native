@@ -945,6 +945,38 @@ async function buildWithNitro() {
       }
     }
 
+    // 4. Create stub modules in _libs/ for native deps that Nitro's rolldown
+    // bundler references but can't resolve on CF Workers.
+    const libsDir2 = path.join(
+      serverDir2 || path.join(cwd, "dist", "_worker.js"),
+      "_libs",
+    );
+    if (fs.existsSync(libsDir2)) {
+      const NATIVE_STUBS = ["better-sqlite3", "node-pty", "cron-parser"];
+      for (const mod of NATIVE_STUBS) {
+        // Check if any _libs/ file references this module
+        const libFiles = fs
+          .readdirSync(libsDir2)
+          .filter((f) => f.endsWith(".mjs"));
+        const isReferenced = libFiles.some((f) => {
+          const content = fs.readFileSync(path.join(libsDir2, f), "utf-8");
+          return content.includes(`"${mod}"`) || content.includes(`'${mod}'`);
+        });
+        if (!isReferenced) continue;
+
+        // Create a stub _libs/<mod>.mjs that exports empty defaults
+        const stubName = mod.replace(/[/@]/g, "__") + ".mjs";
+        const stubPath = path.join(libsDir2, stubName);
+        if (!fs.existsSync(stubPath)) {
+          fs.writeFileSync(
+            stubPath,
+            `export default {}; export const watch = () => ({ close() {} });\n`,
+          );
+          console.log(`[deploy] Created stub for _libs/${stubName}`);
+        }
+      }
+    }
+
     console.log(
       "[deploy] Patched bare Node imports, timer calls, and route finder for CF Workers",
     );
