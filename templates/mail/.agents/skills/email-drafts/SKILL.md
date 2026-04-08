@@ -31,10 +31,25 @@ Drafts are stored in the `application_state` SQL table via `writeAppState("compo
 | `cc`              | string | no       | Comma-separated CC addresses                    |
 | `bcc`             | string | no       | Comma-separated BCC addresses                   |
 | `subject`         | string | yes      | Email subject line                              |
-| `body`            | string | yes      | Email body (plain text or markdown)             |
+| `body`            | string | yes      | Email body in **markdown** (see formatting below) |
 | `mode`            | string | yes      | One of: `"compose"`, `"reply"`, `"forward"`     |
 | `replyToId`       | string | no       | Message ID being replied to (for reply/forward) |
 | `replyToThreadId` | string | no       | Thread ID for grouping (for reply/forward)      |
+
+## Body Formatting
+
+The `body` field uses **markdown**. The compose editor (TipTap) renders it as rich text, and the send flow converts markdown to HTML before sending via Gmail. Use standard markdown syntax:
+
+- **Links:** `[click here](https://example.com)` — renders as a clickable hyperlink in the sent email
+- **Bold:** `**bold text**`
+- **Italic:** `*italic text*`
+- **Lists:** `- item` (unordered) or `1. item` (ordered)
+- **Headings:** `# Heading` (h1–h3)
+- **Code:** `` `inline code` `` or fenced code blocks
+- **Blockquotes:** `> quoted text`
+- **Bare URLs:** `https://example.com` auto-links
+
+Do NOT use raw HTML tags — use markdown only.
 
 ## How It Works
 

@@ -277,7 +277,8 @@ function createAuthGuardFn(
       p === "/_agent-native/auth/session" ||
       p === "/_agent-native/auth/register" ||
       p === "/_agent-native/auth/local-mode" ||
-      p.startsWith("/_agent-native/auth/ba/")
+      p.startsWith("/_agent-native/auth/ba/") ||
+      p.startsWith("/_agent-native/google/")
     ) {
       return;
     }

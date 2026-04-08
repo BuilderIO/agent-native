@@ -15,6 +15,7 @@ export function useNavigationSync(state: NavigationState) {
     debounceRef.current = setTimeout(() => {
       apiFetch("/_agent-native/application-state/navigation", {
         method: "PUT",
+        keepalive: true,
         body: JSON.stringify(state),
       }).catch(() => {});
     }, 500);
