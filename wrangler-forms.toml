@@ -3,15 +3,8 @@ compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
 pages_build_output_dir = "./templates/forms/dist"
 
-# Smart Placement: run the Worker near the D1 database to reduce latency
 [placement]
 mode = "smart"
 
 [vars]
 GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
-
-
-[[d1_databases]]
-binding = "DB"
-database_name = "an-forms"
-database_id = "ea55ebda-4c45-4f15-88c3-379199504dda"
