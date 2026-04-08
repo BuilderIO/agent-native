@@ -5,17 +5,26 @@ try {
   // dotenv not available in Vite SSR context — env is already loaded
 }
 
-/** Parse CLI args like --key=value into a Record */
+/** Parse CLI args: --key=value, --key value, or --flag (boolean) */
 export function parseArgs(
   argv = process.argv.slice(2),
 ): Record<string, string> {
   const args: Record<string, string> = {};
-  for (const arg of argv.filter((a) => a !== "--")) {
-    const match = arg.match(/^--(\w[\w-]*)=(.*)$/);
-    if (match) {
-      args[match[1]] = match[2];
-    } else if (arg.startsWith("--")) {
-      args[arg.slice(2)] = "true";
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (!arg.startsWith("--")) continue;
+    const eqIdx = arg.indexOf("=");
+    if (eqIdx !== -1) {
+      args[arg.slice(2, eqIdx)] = arg.slice(eqIdx + 1);
+    } else {
+      const key = arg.slice(2);
+      const next = argv[i + 1];
+      if (next && !next.startsWith("--")) {
+        args[key] = next;
+        i++;
+      } else {
+        args[key] = "true";
+      }
     }
   }
   return args;

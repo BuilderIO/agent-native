@@ -136,6 +136,10 @@ export function createServer(
 ): CreateServerResult {
   const app = createApp({
     onError(error, event) {
+      // Suppress connection-reset errors — client disconnected mid-request (tab close, reload)
+      const code = (error as any)?.code || (error as any)?.cause?.code;
+      if (code === "ECONNRESET" || code === "ECONNABORTED") return;
+      if ((error as any)?.message === "aborted") return;
       console.error("[agent-native] Server error:", error);
     },
   });

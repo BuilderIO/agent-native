@@ -89,24 +89,11 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
     }
   }, [document, documentId]);
 
-  // Sync SQL content changes into Yjs (fallback for raw db-exec updates).
-  const lastSyncedContentRef = useRef<string>("");
-  useEffect(() => {
-    if (!document || !ydoc || !isInitializedRef.current) return;
-    const serverContent = document.content;
-    if (
-      serverContent &&
-      serverContent !== lastSyncedContentRef.current &&
-      serverContent !== lastSavedRef.current.content
-    ) {
-      lastSyncedContentRef.current = serverContent;
-      fetch(`/_agent-native/collab/${documentId}/text`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: serverContent, requestSource: "sync" }),
-      }).catch(() => {});
-    }
-  }, [document?.content, ydoc, documentId]);
+  // NOTE: External content changes (Notion pull, update-document action) are
+  // synced into the editor via VisualEditor's content prop. The old approach
+  // of calling /collab/{docId}/text wrote to Y.Text("content") which is a
+  // different Yjs shared type than the Y.XmlFragment("default") that TipTap
+  // uses — so those updates never reached the editor.
 
   // Pick up external title changes (e.g. Notion pull)
   useEffect(() => {

@@ -8,16 +8,20 @@
  */
 
 import crypto from "node:crypto";
-import {
-  getHeader,
-  setCookie,
-  sendRedirect,
-  setResponseHeader,
-  type H3Event,
-} from "h3";
+import { getHeader, setCookie, sendRedirect, type H3Event } from "h3";
 import { addSession, getSession } from "./auth.js";
 
 // ─── Platform Detection ─────────────────────────────────────────────────────
+
+/** Return an HTML response with the correct Content-Type.
+ *  Uses a web-standard Response to ensure the header survives
+ *  Nitro dev mode's mock-node-response pipeline. */
+function htmlResponse(html: string, status = 200): Response {
+  return new Response(html, {
+    status,
+    headers: { "Content-Type": "text/html; charset=utf-8" },
+  });
+}
 
 /** Detect requests from the Electron desktop app webview. */
 export function isElectron(event: H3Event): boolean {
@@ -212,7 +216,7 @@ export function oauthCallbackResponse(
     desktop?: boolean;
     addAccount?: boolean;
   },
-): string | void | Promise<string | void> {
+): Response | void | Promise<Response | void> {
   const mobile = isMobile(event);
 
   // Mobile: deep link back to native app
@@ -220,8 +224,9 @@ export function oauthCallbackResponse(
     const deepLink = opts.sessionToken
       ? `agentnative://oauth-complete?token=${opts.sessionToken}`
       : `agentnative://oauth-complete`;
-    setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
-    return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Connected</title></head><body style="background:#111;color:#aaa;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p>Connected! Returning to app…</p><script>window.location.href=${JSON.stringify(deepLink)};setTimeout(function(){window.location.href="/"},1500)</script></body></html>`;
+    return htmlResponse(
+      `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Connected</title></head><body style="background:#111;color:#aaa;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p>Connected! Returning to app…</p><script>window.location.href=${JSON.stringify(deepLink)};setTimeout(function(){window.location.href="/"},1500)</script></body></html>`,
+    );
   }
 
   // Desktop: deep link back to Electron app
@@ -232,14 +237,13 @@ export function oauthCallbackResponse(
   // Add-account web flow: close-tab page
   if (opts.addAccount) {
     const safeEmail = JSON.stringify(email);
-    setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
-    return `<!DOCTYPE html><html><body><script>
+    return htmlResponse(`<!DOCTYPE html><html><body><script>
         window.close();
         var p = document.createElement('p');
         p.style.cssText = 'font-family:system-ui;text-align:center;margin-top:40vh';
         p.textContent = 'Connected ' + ${safeEmail} + '! You can close this tab.';
         document.body.appendChild(p);
-      </script></body></html>`;
+      </script></body></html>`);
   }
 
   // Web: redirect to app home
@@ -247,27 +251,33 @@ export function oauthCallbackResponse(
 }
 
 /** HTML error page for OAuth failures. */
-export function oauthErrorPage(message: string): string {
-  return `<!DOCTYPE html><html><body>
+export function oauthErrorPage(message: string): Response {
+  return htmlResponse(
+    `<!DOCTYPE html><html><body>
     <div style="font-family:system-ui;max-width:420px;margin:30vh auto;text-align:center">
       <p style="font-size:15px;color:#e55">${message}</p>
       <p style="margin-top:16px;font-size:13px;color:#888"><a href="/" style="color:#888">Back to login</a></p>
     </div>
-  </body></html>`;
+  </body></html>`,
+    400,
+  );
 }
 
 // ─── Internal ────────────────────────────────────────────────────────────────
 
 function desktopSuccessPage(
-  event: H3Event,
+  _event: H3Event,
   email?: string,
   sessionToken?: string,
-): string {
+): Response {
   const msg = email ? `Connected ${email}!` : "Connected!";
-  setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
   if (sessionToken) {
     const deepLink = `agentnative://oauth-complete?token=${sessionToken}`;
-    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:12px"><p style="font-size:16px">${msg}</p><a href=${JSON.stringify(deepLink)} style="display:inline-block;margin-top:8px;padding:10px 24px;background:#fff;color:#000;border-radius:8px;text-decoration:none;font-size:14px;font-weight:500">Open Agent Native</a><p style="font-size:12px;color:#666;margin-top:4px">If the app didn\u2019t open automatically, click the button above.</p><script>window.location.href=${JSON.stringify(deepLink)}</script></body></html>`;
+    return htmlResponse(
+      `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:12px"><p style="font-size:16px">${msg}</p><a href=${JSON.stringify(deepLink)} style="display:inline-block;margin-top:8px;padding:10px 24px;background:#fff;color:#000;border-radius:8px;text-decoration:none;font-size:14px;font-weight:500">Open Agent Native</a><p style="font-size:12px;color:#666;margin-top:4px">If the app didn\u2019t open automatically, click the button above.</p><script>window.location.href=${JSON.stringify(deepLink)}</script></body></html>`,
+    );
   }
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:8px"><p style="font-size:16px">${msg}</p><p style="font-size:13px;color:#888">You can close this tab and return to Agent Native.</p></body></html>`;
+  return htmlResponse(
+    `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:8px"><p style="font-size:16px">${msg}</p><p style="font-size:13px;color:#888">You can close this tab and return to Agent Native.</p></body></html>`,
+  );
 }

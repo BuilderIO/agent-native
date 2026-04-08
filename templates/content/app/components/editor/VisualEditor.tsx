@@ -387,6 +387,9 @@ export function VisualEditor({
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
   const prevDocIdRef = useRef(documentId);
+  // Track the last content the editor emitted via onChange, so we can
+  // distinguish external SQL changes (Notion pull) from our own saves.
+  const lastEmittedRef = useRef<string>("");
 
   // Create Awareness instance locally (same module as CollaborationCursor uses)
   const localAwareness = useMemo(() => {
@@ -493,6 +496,7 @@ export function VisualEditor({
         // Don't save empty content when Collaboration hasn't seeded yet —
         // this prevents overwriting DB content with empty string
         if (!normalized.trim() && ydoc) return;
+        lastEmittedRef.current = normalized;
         onChangeRef.current(normalized);
       } catch (err: any) {
         toast.error("Markdown serialization error: " + err.message);
@@ -523,34 +527,44 @@ export function VisualEditor({
     seededDocRef.current = documentId ?? null;
   }, [editor, ydoc, content, documentId]);
 
-  // Sync content from outside (only when NOT using Collaboration).
-  // When ydoc is bound, ySyncPlugin handles all content updates.
+  // Sync content from outside (e.g. Notion pull, update-document action).
+  // When ydoc is bound, we track what the editor last emitted via onChange
+  // so we can detect truly external changes and apply them through the editor
+  // (which updates the Y.XmlFragment that TipTap actually renders).
   useEffect(() => {
-    if (!editor || editor.isDestroyed || ydoc) return;
+    if (!editor || editor.isDestroyed) return;
     const docChanged = documentId !== prevDocIdRef.current;
     if (docChanged) prevDocIdRef.current = documentId;
     const nextEditorContent = parseNfmForEditor(content);
     const currentMd = serializeEditorToNfm(
       (editor.storage as any).markdown.getMarkdown(),
     );
-    if (currentMd !== serializeEditorToNfm(nextEditorContent)) {
-      // Skip sync when editor is focused UNLESS the document changed —
-      // during navigation we must force content replacement
+    const normalizedNext = serializeEditorToNfm(nextEditorContent);
+    if (currentMd === normalizedNext) return;
+
+    // When collab is active, only sync if this is a truly external change
+    // (not content we just emitted ourselves via onChange)
+    if (ydoc) {
+      const normalizedEmitted = serializeEditorToNfm(lastEmittedRef.current);
+      if (normalizedNext === normalizedEmitted) return;
+    } else {
+      // Without collab, skip sync when editor is focused UNLESS doc changed
       if (editor.isFocused && !docChanged) return;
-      isSettingContent.current = true;
-      // Use addToHistory: false so cmd+z doesn't erase loaded content.
-      // External content changes (load, sync) should never be undoable.
-      editor
-        .chain()
-        .command(({ tr }) => {
-          tr.setMeta("addToHistory", false);
-          return true;
-        })
-        .setContent(nextEditorContent)
-        .run();
-      isSettingContent.current = false;
     }
-  }, [content, editor, documentId]);
+
+    isSettingContent.current = true;
+    // Use addToHistory: false so cmd+z doesn't erase loaded content.
+    // External content changes (load, sync) should never be undoable.
+    editor
+      .chain()
+      .command(({ tr }) => {
+        tr.setMeta("addToHistory", false);
+        return true;
+      })
+      .setContent(nextEditorContent)
+      .run();
+    isSettingContent.current = false;
+  }, [content, editor, documentId, ydoc]);
 
   if (!editor) return null;
 

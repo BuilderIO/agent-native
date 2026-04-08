@@ -14,31 +14,70 @@ import {
   appStateList,
   appStateDeleteByPrefix,
 } from "./store.js";
+import { getDbExec } from "../db/client.js";
 
-function getScriptSessionId(): string {
+let _resolvedSessionId: string | undefined;
+
+/**
+ * Resolve session ID, checking AGENT_USER_EMAIL first, then falling back to
+ * the most recent session in the DB. This ensures CLI actions write to the
+ * same session partition as the logged-in UI user.
+ */
+async function resolveSessionId(): Promise<string> {
+  if (_resolvedSessionId) return _resolvedSessionId;
+
   const email = process.env.AGENT_USER_EMAIL;
-  // Map "local@localhost" → "local" to match the server handler convention
-  if (!email || email === "local@localhost") return "local";
-  return email;
+  if (email && email !== "local@localhost") {
+    _resolvedSessionId = email;
+    return email;
+  }
+  if (email === "local@localhost") {
+    _resolvedSessionId = "local";
+    return "local";
+  }
+
+  // No AGENT_USER_EMAIL set — check DB for the most recent session
+  try {
+    const db = getDbExec();
+    const { rows } = await db.execute({
+      sql: "SELECT email FROM sessions ORDER BY created_at DESC LIMIT 1",
+      args: [],
+    });
+    if (rows[0]) {
+      const dbEmail = rows[0].email as string;
+      if (dbEmail && dbEmail !== "local@localhost") {
+        _resolvedSessionId = dbEmail;
+        return dbEmail;
+      }
+    }
+  } catch {
+    // sessions table may not exist yet — fall through
+  }
+
+  _resolvedSessionId = "local";
+  return "local";
 }
 
 export async function readAppState(
   key: string,
 ): Promise<Record<string, unknown> | null> {
-  return appStateGet(getScriptSessionId(), key);
+  const sessionId = await resolveSessionId();
+  return appStateGet(sessionId, key);
 }
 
 export async function writeAppState(
   key: string,
   value: Record<string, unknown>,
 ): Promise<void> {
-  return appStatePut(getScriptSessionId(), key, value, {
+  const sessionId = await resolveSessionId();
+  return appStatePut(sessionId, key, value, {
     requestSource: "agent",
   });
 }
 
 export async function deleteAppState(key: string): Promise<boolean> {
-  return appStateDelete(getScriptSessionId(), key, {
+  const sessionId = await resolveSessionId();
+  return appStateDelete(sessionId, key, {
     requestSource: "agent",
   });
 }
@@ -46,11 +85,13 @@ export async function deleteAppState(key: string): Promise<boolean> {
 export async function listAppState(
   prefix: string,
 ): Promise<Array<{ key: string; value: Record<string, unknown> }>> {
-  return appStateList(getScriptSessionId(), prefix);
+  const sessionId = await resolveSessionId();
+  return appStateList(sessionId, prefix);
 }
 
 export async function deleteAppStateByPrefix(prefix: string): Promise<number> {
-  return appStateDeleteByPrefix(getScriptSessionId(), prefix, {
+  const sessionId = await resolveSessionId();
+  return appStateDeleteByPrefix(sessionId, prefix, {
     requestSource: "agent",
   });
 }

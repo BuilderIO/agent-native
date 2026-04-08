@@ -108,7 +108,22 @@ export function EmailThread({
   } = useThreadMessages(threadId);
 
   // Use full thread when loaded, otherwise show what we have from the list cache
-  const messages = threadMessages ?? cachedMessages;
+  const allMessages = threadMessages ?? cachedMessages;
+  // Hide Superhuman reminder messages — they're noise in the thread view
+  const messages = useMemo(
+    () =>
+      allMessages.filter(
+        (m) =>
+          !(
+            m.from.email === "reminder@superhuman.com" ||
+            (m.from.name === "Reminder" &&
+              (m.snippet || m.body || "")
+                .toLowerCase()
+                .includes("reminder from superhuman"))
+          ),
+      ),
+    [allMessages],
+  );
   const isHydratingThread =
     !!threadId && !threadMessages && (isThreadLoading || isThreadFetching);
 
@@ -298,23 +313,30 @@ export function EmailThread({
     [threadId, view, navigate, labelSuffix],
   );
 
+  // Prefetch ±5 siblings in order (nearest first) for fast e/j/k navigation
   useEffect(() => {
     if (!threadId || emailIds.length === 0) return;
     const idx = emailIds.indexOf(threadId);
     if (idx === -1) return;
 
-    const threadIdsToWarm = new Set<string>();
-    for (const candidate of [emailIds[idx - 1], emailIds[idx + 1]]) {
-      if (candidate) threadIdsToWarm.add(candidate);
+    // Build ordered list: +1, -1, +2, -2, ... ±5 (nearest first)
+    const ordered: string[] = [];
+    for (let d = 1; d <= 5; d++) {
+      if (idx + d < emailIds.length) ordered.push(emailIds[idx + d]);
+      if (idx - d >= 0) ordered.push(emailIds[idx - d]);
     }
 
-    threadIdsToWarm.forEach((candidateThreadId) => {
-      void queryClient.prefetchQuery({
-        queryKey: ["thread-messages", candidateThreadId],
-        queryFn: () => fetchThreadMessages(candidateThreadId),
-        staleTime: 30_000,
-      });
-    });
+    // Chain prefetches so nearest resolves first
+    let chain = Promise.resolve();
+    for (const id of ordered) {
+      chain = chain.then(() =>
+        queryClient.prefetchQuery({
+          queryKey: ["thread-messages", id],
+          queryFn: () => fetchThreadMessages(id),
+          staleTime: 30_000,
+        }),
+      );
+    }
   }, [threadId, emailIds, queryClient]);
 
   const advanceOrGoBack = useCallback(() => {
@@ -632,8 +654,22 @@ export function EmailThread({
       },
       { key: "e", handler: handleArchive },
       { key: "s", handler: handleStar },
-      { key: "r", handler: () => handleReply() },
-      { key: "a", handler: () => handleReplyAll() },
+      {
+        key: "r",
+        handler: () => {
+          const focused =
+            focusedIndex >= 0 ? messages[focusedIndex] : undefined;
+          handleReply(focused);
+        },
+      },
+      {
+        key: "a",
+        handler: () => {
+          const focused =
+            focusedIndex >= 0 ? messages[focusedIndex] : undefined;
+          handleReplyAll(focused);
+        },
+      },
       { key: "f", handler: handleForward },
       {
         key: "f",
@@ -1009,6 +1045,7 @@ export function EmailThread({
                 onReply={() => handleReply(msg)}
                 onReplyAll={() => handleReplyAll(msg)}
                 onForward={() => handleForwardMsg(msg)}
+                onFocus={() => setFocusedIndex(idx)}
                 onContactSelect={onContactSelect}
                 searchTerm={searchQuery.trim() || undefined}
                 activeLocalIdx={getActiveLocalIdx(msg.id)}
@@ -1232,6 +1269,7 @@ const ExpandedMessageCard = forwardRef<
     onReply: () => void;
     onReplyAll: () => void;
     onForward: () => void;
+    onFocus?: () => void;
     onContactSelect?: (email: string) => void;
     searchTerm?: string;
     activeLocalIdx?: number | null;
@@ -1244,6 +1282,7 @@ const ExpandedMessageCard = forwardRef<
     onReply,
     onReplyAll,
     onForward,
+    onFocus,
     onContactSelect,
     searchTerm,
     activeLocalIdx,
@@ -1279,9 +1318,12 @@ const ExpandedMessageCard = forwardRef<
   return (
     <div
       ref={ref}
+      onClick={onFocus}
       className={cn(
-        "rounded-lg bg-card dark:bg-[hsl(220,5%,10%)] overflow-hidden",
-        isFocused && "ring-1 ring-primary/30",
+        "rounded-lg bg-card dark:bg-[hsl(220,5%,10%)] overflow-hidden cursor-pointer",
+        isFocused
+          ? "ring-1 ring-primary/40"
+          : "ring-1 ring-transparent hover:ring-border/30",
       )}
     >
       {/* Header */}

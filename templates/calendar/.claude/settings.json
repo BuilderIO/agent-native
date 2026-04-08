@@ -1,4 +1,17 @@
 {
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pnpm action view-screen 2>/dev/null || echo '{\"view\": \"unknown\"}'",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
   "permissions": {
     "allow": [
       "Read",

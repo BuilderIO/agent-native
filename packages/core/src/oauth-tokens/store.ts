@@ -22,6 +22,14 @@ async function ensureTable(): Promise<void> {
       } catch {
         // Column already exists
       }
+      // Migration: add display_name column
+      try {
+        await client.execute(
+          `ALTER TABLE oauth_tokens ADD COLUMN display_name TEXT`,
+        );
+      } catch {
+        // Column already exists
+      }
       // Backfill: set owner = account_id for existing rows without an owner
       await client.execute(
         `UPDATE oauth_tokens SET owner = account_id WHERE owner IS NULL`,
@@ -63,26 +71,29 @@ export async function saveOAuthTokens(
   const client = getDbExec();
 
   // When owner is not provided (e.g. during token refresh), preserve the existing
-  // owner so secondary accounts don't get silently re-assigned to accountId.
+  // owner and display_name so they don't get wiped by INSERT OR REPLACE.
   let resolvedOwner = owner ?? accountId;
+  let existingDisplayName: string | null = null;
   if (!owner) {
     const { rows: existing } = await client.execute({
-      sql: `SELECT owner FROM oauth_tokens WHERE provider = ? AND account_id = ?`,
+      sql: `SELECT owner, display_name FROM oauth_tokens WHERE provider = ? AND account_id = ?`,
       args: [provider, accountId],
     });
-    if (existing.length > 0 && existing[0].owner) {
-      resolvedOwner = existing[0].owner as string;
+    if (existing.length > 0) {
+      if (existing[0].owner) resolvedOwner = existing[0].owner as string;
+      existingDisplayName = (existing[0].display_name as string) ?? null;
     }
   }
 
   await client.execute({
     sql: isPostgres()
-      ? `INSERT INTO oauth_tokens (provider, account_id, owner, tokens, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (provider, account_id) DO UPDATE SET owner=EXCLUDED.owner, tokens=EXCLUDED.tokens, updated_at=EXCLUDED.updated_at`
-      : `INSERT OR REPLACE INTO oauth_tokens (provider, account_id, owner, tokens, updated_at) VALUES (?, ?, ?, ?, ?)`,
+      ? `INSERT INTO oauth_tokens (provider, account_id, owner, display_name, tokens, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (provider, account_id) DO UPDATE SET owner=EXCLUDED.owner, display_name=COALESCE(EXCLUDED.display_name, oauth_tokens.display_name), tokens=EXCLUDED.tokens, updated_at=EXCLUDED.updated_at`
+      : `INSERT OR REPLACE INTO oauth_tokens (provider, account_id, owner, display_name, tokens, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
     args: [
       provider,
       accountId,
       resolvedOwner,
+      existingDisplayName,
       JSON.stringify(tokens),
       Date.now(),
     ],
@@ -136,17 +147,40 @@ export async function listOAuthAccounts(provider: string): Promise<
 export async function listOAuthAccountsByOwner(
   provider: string,
   owner: string,
-): Promise<Array<{ accountId: string; tokens: Record<string, unknown> }>> {
+): Promise<
+  Array<{
+    accountId: string;
+    displayName: string | null;
+    tokens: Record<string, unknown>;
+  }>
+> {
   await ensureTable();
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT account_id, tokens FROM oauth_tokens WHERE provider = ? AND owner = ?`,
+    sql: `SELECT account_id, display_name, tokens FROM oauth_tokens WHERE provider = ? AND owner = ?`,
     args: [provider, owner],
   });
   return rows.map((row) => ({
     accountId: row.account_id as string,
+    displayName: (row.display_name as string) ?? null,
     tokens: JSON.parse(row.tokens as string),
   }));
+}
+
+/**
+ * Set the display name for an OAuth account (e.g. Google profile name).
+ */
+export async function setOAuthDisplayName(
+  provider: string,
+  accountId: string,
+  displayName: string,
+): Promise<void> {
+  await ensureTable();
+  const client = getDbExec();
+  await client.execute({
+    sql: `UPDATE oauth_tokens SET display_name = ? WHERE provider = ? AND account_id = ?`,
+    args: [displayName, provider, accountId],
+  });
 }
 
 export async function hasOAuthTokens(provider: string): Promise<boolean> {

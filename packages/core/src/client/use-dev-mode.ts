@@ -70,6 +70,8 @@ export function useDevMode(apiBase = "/_agent-native/agent-chat"): {
 
   const setDevMode = useCallback(
     async (devMode: boolean) => {
+      // Optimistic update — apply immediately, then confirm with server
+      notifyListeners({ devMode, canToggle: true });
       const res = await fetch(`${apiBase}/mode`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

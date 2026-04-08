@@ -108,7 +108,8 @@ export function App() {
     );
   }
 
-  // Send frame origin + initial state to iframe on load
+  // Send frame origin + initial state to iframe on load.
+  // Retry a few times to handle slow mounts and HMR reloads.
   useEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
@@ -117,10 +118,24 @@ export function App() {
         { type: "builder.frameOrigin", origin: window.location.origin },
         "*",
       );
-      setTimeout(() => notifyIframe(frameMode, sidebarWidth, sidebarOpen), 500);
+      const delays = [200, 500, 1500];
+      const timers = delays.map((ms) =>
+        setTimeout(
+          () => notifyIframe(frameMode, sidebarWidth, sidebarOpen),
+          ms,
+        ),
+      );
+      return timers;
     }
-    iframe.addEventListener("load", onLoad);
-    return () => iframe.removeEventListener("load", onLoad);
+    let timers: ReturnType<typeof setTimeout>[] = [];
+    function handleLoad() {
+      timers = onLoad() || [];
+    }
+    iframe.addEventListener("load", handleLoad);
+    return () => {
+      iframe.removeEventListener("load", handleLoad);
+      timers.forEach(clearTimeout);
+    };
   }, []);
 
   // When mode/open/width changes, notify iframe
@@ -153,6 +168,16 @@ export function App() {
           setSidebarOpen(true);
         } else {
           setSidebarOpen((prev) => !prev);
+        }
+        return;
+      }
+      if (event.data.type === "builder.devModeChange") {
+        const isDev = event.data.data?.isDevMode;
+        if (isDev === true) {
+          setFrameMode("dev");
+          setSidebarOpen(true);
+        } else if (isDev === false) {
+          setFrameMode("prod");
         }
         return;
       }
@@ -234,10 +259,17 @@ export function App() {
       {showFrameSidebar && (
         <>
           <div
-            className="shrink-0 cursor-col-resize"
-            style={{ width: 1, background: "hsl(var(--border))" }}
+            className="shrink-0 cursor-col-resize relative"
+            style={{ width: 1, background: "hsl(var(--border))", zIndex: 50 }}
             onMouseDown={startResize}
-          />
+          >
+            {/* Invisible wider hit area for easier dragging */}
+            <div
+              className="absolute inset-y-0 cursor-col-resize"
+              style={{ left: -4, right: -4 }}
+              onMouseDown={startResize}
+            />
+          </div>
           <div
             className="flex flex-col shrink-0 overflow-hidden"
             style={{ width: sidebarWidth, maxHeight: "100vh" }}

@@ -140,6 +140,7 @@ export const EmailListItem = memo(function EmailListItem({
     <div
       role="row"
       tabIndex={0}
+      data-thread-id={email.threadId || email.id}
       onClick={onSelect}
       onMouseEnter={onHover}
       onKeyDown={(e) => e.key === "Enter" && onSelect()}

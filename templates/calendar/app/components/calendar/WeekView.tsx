@@ -776,11 +776,9 @@ export function WeekView({
                               e.stopPropagation();
                               startDrag(e, event.id, "resize-top", dayIndex);
                             }}
-                            className="absolute left-0 right-0 top-0 h-2 cursor-n-resize opacity-0 group-hover:opacity-100"
+                            className="absolute left-0 right-0 top-0 h-2 cursor-n-resize"
                             style={{ touchAction: "none" }}
-                          >
-                            <div className="mx-auto mt-0.5 h-1 w-8 rounded-full bg-foreground/20" />
-                          </div>
+                          />
                         )}
                         {/* Bottom resize handle */}
                         {canDrag && (
@@ -790,11 +788,9 @@ export function WeekView({
                               e.stopPropagation();
                               startDrag(e, event.id, "resize", dayIndex);
                             }}
-                            className="absolute bottom-0 left-0 right-0 h-2 cursor-s-resize opacity-0 group-hover:opacity-100"
+                            className="absolute bottom-0 left-0 right-0 h-2 cursor-s-resize"
                             style={{ touchAction: "none" }}
-                          >
-                            <div className="mx-auto mt-0.5 h-1 w-8 rounded-full bg-foreground/20" />
-                          </div>
+                          />
                         )}
                       </button>
                     );
