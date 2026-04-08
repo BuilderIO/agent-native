@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, type RefObject } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   useComments,
   useCreateComment,
@@ -37,46 +37,16 @@ function formatDate(dateStr: string) {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-/** Find the Y offset of a text string inside the ProseMirror editor relative to the scroll container. */
-function findTextOffsetInEditor(
-  quotedText: string | null,
-  scrollContainer: HTMLElement | null,
-): number | null {
-  if (!quotedText || !scrollContainer) return null;
-  const pm = scrollContainer.querySelector(".ProseMirror") as HTMLElement;
-  if (!pm) return null;
-
-  const walker = window.document.createTreeWalker(
-    pm,
-    NodeFilter.SHOW_TEXT,
-    null,
-  );
-  let node: Node | null;
-  const searchStr = quotedText.slice(0, 40);
-  while ((node = walker.nextNode())) {
-    if (node.textContent && node.textContent.includes(searchStr)) {
-      const range = window.document.createRange();
-      range.selectNode(node);
-      const rect = range.getBoundingClientRect();
-      const containerRect = scrollContainer.getBoundingClientRect();
-      return rect.top - containerRect.top + scrollContainer.scrollTop;
-    }
-  }
-  return null;
-}
-
 interface CommentsSidebarProps {
   documentId: string;
-  pendingComment?: { quotedText: string; offsetTop: number } | null;
+  pendingQuotedText?: string | null;
   onPendingDone?: () => void;
-  scrollContainerRef?: RefObject<HTMLDivElement | null>;
 }
 
 export function CommentsSidebar({
   documentId,
-  pendingComment,
+  pendingQuotedText,
   onPendingDone,
-  scrollContainerRef,
 }: CommentsSidebarProps) {
   const { data: threads, isLoading } = useComments(documentId);
   const createComment = useCreateComment();
@@ -85,29 +55,22 @@ export function CommentsSidebar({
   const [replyText, setReplyText] = useState("");
   const [pendingText, setPendingText] = useState("");
   const pendingInputRef = useRef<HTMLTextAreaElement>(null);
-  const replyInputRef = useRef<HTMLInputElement>(null);
 
   const openThreads = threads?.filter((t) => !t.resolved) ?? [];
 
   useEffect(() => {
-    if (pendingComment) {
+    if (pendingQuotedText) {
       setPendingText("");
       setTimeout(() => pendingInputRef.current?.focus(), 50);
     }
-  }, [pendingComment]);
-
-  useEffect(() => {
-    if (expandedThread) {
-      setTimeout(() => replyInputRef.current?.focus(), 50);
-    }
-  }, [expandedThread]);
+  }, [pendingQuotedText]);
 
   const handlePendingSubmit = () => {
     if (!pendingText.trim()) return;
     createComment.mutate({
       documentId,
       content: pendingText.trim(),
-      quotedText: pendingComment?.quotedText,
+      quotedText: pendingQuotedText ?? undefined,
     });
     setPendingText("");
     onPendingDone?.();
@@ -143,60 +106,14 @@ export function CommentsSidebar({
     });
   };
 
-  // Calculate positions for threads based on quoted text in the editor DOM
-  const [threadOffsets, setThreadOffsets] = useState<Map<string, number>>(
-    new Map(),
-  );
-  const threadIds = openThreads.map((t) => t.threadId).join(",");
-  useEffect(() => {
-    if (!scrollContainerRef?.current || openThreads.length === 0) return;
-    const offsets = new Map<string, number>();
-    for (const thread of openThreads) {
-      const offset = findTextOffsetInEditor(
-        thread.quotedText,
-        scrollContainerRef.current,
-      );
-      if (offset != null) {
-        offsets.set(thread.threadId, offset);
-      }
-    }
-    setThreadOffsets(offsets);
-  }, [threadIds, scrollContainerRef]);
-
-  const hasContent = openThreads.length > 0 || !!pendingComment;
+  const hasContent = openThreads.length > 0 || !!pendingQuotedText;
   if (!hasContent && !isLoading) return null;
 
-  // Sort by position in document
-  const sortedThreads = [...openThreads].sort((a, b) => {
-    const aOff = threadOffsets.get(a.threadId) ?? Infinity;
-    const bOff = threadOffsets.get(b.threadId) ?? Infinity;
-    return aOff - bOff;
-  });
-
-  // Position each card, avoiding overlap
-  const items: { thread: CommentThread; marginTop: number }[] = [];
-  let cursor = 0;
-  for (const thread of sortedThreads) {
-    const targetTop = threadOffsets.get(thread.threadId);
-    const marginTop =
-      targetTop != null
-        ? Math.max(0, targetTop - cursor)
-        : cursor === 0
-          ? 0
-          : 12;
-    items.push({ thread, marginTop });
-    // Estimate card height
-    cursor += marginTop + 80 + (thread.comments.length - 1) * 44;
-  }
-
   return (
-    <div className="w-80 shrink-0 overflow-auto relative">
-      {/* Pending new comment */}
-      {pendingComment && (
-        <div
-          className="absolute left-2 right-4 rounded-lg bg-popover p-3 shadow-md ring-1 ring-border/50 z-10"
-          style={{ top: pendingComment.offsetTop }}
-        >
+    <div className="w-80 shrink-0 overflow-auto pt-14 pl-2 pr-4 md:pt-16">
+      {/* New comment from text selection */}
+      {pendingQuotedText && (
+        <div className="mb-3 rounded-lg bg-popover p-3 shadow-md ring-1 ring-border/50">
           <textarea
             ref={pendingInputRef}
             value={pendingText}
@@ -230,18 +147,20 @@ export function CommentsSidebar({
         </div>
       )}
 
-      {/* Positioned thread cards */}
-      {items.map(({ thread, marginTop }) => (
+      {openThreads.map((thread) => (
         <ThreadView
           key={thread.threadId}
           thread={thread}
-          marginTop={marginTop}
           isExpanded={expandedThread === thread.threadId}
           replyText={expandedThread === thread.threadId ? replyText : ""}
           onExpand={() => {
             setExpandedThread(
               expandedThread === thread.threadId ? null : thread.threadId,
             );
+            setReplyText("");
+          }}
+          onCollapse={() => {
+            setExpandedThread(null);
             setReplyText("");
           }}
           onReplyChange={setReplyText}
@@ -253,9 +172,6 @@ export function CommentsSidebar({
             })
           }
           onSendToAI={() => handleSendToAI(thread)}
-          replyInputRef={
-            expandedThread === thread.threadId ? replyInputRef : undefined
-          }
         />
       ))}
     </div>
@@ -264,37 +180,40 @@ export function CommentsSidebar({
 
 function ThreadView({
   thread,
-  marginTop,
   isExpanded,
   replyText,
   onExpand,
+  onCollapse,
   onReplyChange,
   onSubmitReply,
   onResolve,
   onSendToAI,
-  replyInputRef,
 }: {
   thread: CommentThread;
-  marginTop: number;
   isExpanded: boolean;
   replyText: string;
   onExpand: () => void;
+  onCollapse: () => void;
   onReplyChange: (text: string) => void;
   onSubmitReply: () => void;
   onResolve: () => void;
   onSendToAI: () => void;
-  replyInputRef?: RefObject<HTMLInputElement | null>;
 }) {
-  const firstComment = thread.comments[0];
+  const replyInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isExpanded) {
+      setTimeout(() => replyInputRef.current?.focus(), 50);
+    }
+  }, [isExpanded]);
 
   return (
     <div
-      className="group/thread mx-2 mr-4 rounded-lg bg-popover shadow-md ring-1 ring-border/50 cursor-pointer"
-      style={{ marginTop }}
+      className="group/thread mb-3 rounded-lg bg-popover shadow-md ring-1 ring-border/50 cursor-pointer"
       onClick={onExpand}
     >
       <div className="relative p-3 pb-2">
-        {/* Hover actions — top right corner, Notion style pill */}
+        {/* Hover actions — top right, Notion style pill */}
         <div className="absolute top-2 right-2 hidden group-hover/thread:flex items-center rounded-md bg-accent/80 ring-1 ring-border/50">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -356,32 +275,7 @@ function ThreadView({
         ))}
       </div>
 
-      {/* Collapsed: Reply + resolve + chat */}
-      {!isExpanded && (
-        <div className="flex items-center gap-1 px-3 pb-2.5 pl-8">
-          <span className="text-xs text-muted-foreground">Reply</span>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onResolve();
-            }}
-            className="p-0.5 text-muted-foreground hover:text-green-500 ml-0.5"
-          >
-            <IconCheck size={14} />
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onSendToAI();
-            }}
-            className="p-0.5 text-muted-foreground hover:text-primary"
-          >
-            <IconMessageCircle size={14} />
-          </button>
-        </div>
-      )}
-
-      {/* Expanded: Notion-style reply input */}
+      {/* Expanded: Notion-style reply input — collapses on blur */}
       {isExpanded && (
         <div
           className="flex items-center gap-2 px-3 pb-3 pt-1"
@@ -391,11 +285,11 @@ function ThreadView({
             className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-medium text-white shrink-0 opacity-40"
             style={{
               backgroundColor: emailToAvatarColor(
-                firstComment?.author_email ?? "user",
+                thread.comments[0]?.author_email ?? "user",
               ),
             }}
           >
-            {emailToInitial(firstComment?.author_name ?? "user")}
+            {emailToInitial(thread.comments[0]?.author_name ?? "user")}
           </div>
           <div className="flex-1 relative">
             <input
@@ -407,7 +301,13 @@ function ThreadView({
                   e.preventDefault();
                   onSubmitReply();
                 }
-                if (e.key === "Escape") onExpand();
+                if (e.key === "Escape") onCollapse();
+              }}
+              onBlur={() => {
+                // Delay so click on send button registers first
+                setTimeout(() => {
+                  if (!replyText.trim()) onCollapse();
+                }, 150);
               }}
               placeholder="Reply..."
               className="w-full bg-transparent text-sm placeholder:text-muted-foreground/50 focus:outline-none pr-16"
