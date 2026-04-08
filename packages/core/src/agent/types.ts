@@ -98,6 +98,7 @@ export type AgentChatEvent =
   | { type: "done" }
   | { type: "error"; error: string }
   | { type: "missing_api_key" }
+  | { type: "usage_limit_reached"; usageCents: number; limitCents: number }
   | { type: "loop_limit" }
   | { type: "clear" };
 
