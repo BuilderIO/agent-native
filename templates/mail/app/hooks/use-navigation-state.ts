@@ -35,6 +35,7 @@ export function useNavigationState() {
     mutationFn: (state: NavigationState) =>
       apiFetch("/_agent-native/application-state/navigation", {
         method: "PUT",
+        keepalive: true,
         body: JSON.stringify(state),
       }),
   });
