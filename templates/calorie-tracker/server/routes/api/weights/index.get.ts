@@ -5,7 +5,7 @@ import { eq, desc } from "drizzle-orm";
 
 export default defineEventHandler(async (event) => {
   const { date } = getQuery(event);
-  if (!date) return { error: "Date parameter is required" };
+  if (!date) return [];
 
   return await db()
     .select()
