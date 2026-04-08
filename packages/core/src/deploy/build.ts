@@ -1034,6 +1034,7 @@ console.log(`[deploy] Building for ${preset}...`);
 
 switch (preset) {
   case "cloudflare_pages":
+  case "cloudflare-pages":
     // Cloudflare Workers require a single-file bundle that wrangler can deploy.
     // Nitro's native presets produce split chunks that wrangler can't upload
     // as multi-module Workers. Use the custom esbuild-based bundler.
