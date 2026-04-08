@@ -130,6 +130,7 @@ export function startRun(
           (last.event.type !== "done" &&
             last.event.type !== "error" &&
             last.event.type !== "missing_api_key" &&
+            last.event.type !== "usage_limit_reached" &&
             last.event.type !== "loop_limit")
         ) {
           run.events.push(terminal);
@@ -256,6 +257,7 @@ function subscribeInMemory(
             event.event.type === "done" ||
             event.event.type === "error" ||
             event.event.type === "missing_api_key" ||
+            event.event.type === "usage_limit_reached" ||
             event.event.type === "loop_limit"
           ) {
             run.subscribers.delete(subscriberRef!);
@@ -317,6 +319,7 @@ function subscribeFromSQL(
               parsed.type === "done" ||
               parsed.type === "error" ||
               parsed.type === "missing_api_key" ||
+              parsed.type === "usage_limit_reached" ||
               parsed.type === "loop_limit"
             ) {
               controller.close();

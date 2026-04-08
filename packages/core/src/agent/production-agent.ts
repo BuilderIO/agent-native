@@ -59,6 +59,12 @@ export interface ProductionAgentOptions {
     send: (event: AgentChatEvent) => void,
     threadId: string,
   ) => void;
+  /** Resolve the owner email from the H3 event (for usage tracking) */
+  resolveOwnerEmail?: (event: any) => string | Promise<string>;
+  /** Enable per-user usage limit checking and token tracking */
+  trackUsage?: boolean;
+  /** Usage limit in cents (default: 100 = $1.00) */
+  usageLimitCents?: number;
 }
 
 const MAX_ITERATIONS = 40;
@@ -147,9 +153,17 @@ function enrichMessage(
   return `${parts.join("\n\n")}\n\n${message}`;
 }
 
+/** Accumulated token usage from an agent loop run */
+export interface AgentLoopUsage {
+  inputTokens: number;
+  outputTokens: number;
+  model: string;
+}
+
 /**
  * The core agent loop — calls Claude iteratively until no more tool calls.
  * Decoupled from HTTP transport so it can run in the background.
+ * Returns accumulated token usage for cost tracking.
  */
 export async function runAgentLoop(opts: {
   client: Anthropic;
@@ -160,7 +174,7 @@ export async function runAgentLoop(opts: {
   actions: Record<string, ActionEntry>;
   send: (event: AgentChatEvent) => void;
   signal: AbortSignal;
-}): Promise<void> {
+}): Promise<AgentLoopUsage> {
   const {
     client,
     model,
@@ -171,6 +185,8 @@ export async function runAgentLoop(opts: {
     send,
     signal,
   } = opts;
+
+  const usage: AgentLoopUsage = { inputTokens: 0, outputTokens: 0, model };
 
   let iterations = 0;
   while (true) {
@@ -205,6 +221,11 @@ export async function runAgentLoop(opts: {
 
         const finalMessage = await apiStream.finalMessage();
         assistantContent = finalMessage.content;
+        // Accumulate token usage
+        if (finalMessage.usage) {
+          usage.inputTokens += finalMessage.usage.input_tokens ?? 0;
+          usage.outputTokens += finalMessage.usage.output_tokens ?? 0;
+        }
         break;
       } catch (err: unknown) {
         if (signal.aborted) throw err;
@@ -280,6 +301,7 @@ export async function runAgentLoop(opts: {
   }
 
   send({ type: "done" });
+  return usage;
 }
 
 export function createProductionAgentHandler(
@@ -342,6 +364,38 @@ export function createProductionAgentHandler(
           controller.close();
         },
       });
+    }
+
+    // Check usage limit before starting a run (production hosted mode)
+    if (options.trackUsage && options.resolveOwnerEmail) {
+      try {
+        const ownerEmail = await options.resolveOwnerEmail(event);
+        if (ownerEmail && ownerEmail !== "local@localhost") {
+          const { checkUsageLimit } = await import("../usage/store.js");
+          const result = await checkUsageLimit(
+            ownerEmail,
+            options.usageLimitCents,
+          );
+          if (!result.allowed) {
+            setResponseHeader(event, "Content-Type", "text/event-stream");
+            setResponseHeader(event, "Cache-Control", "no-cache");
+            setResponseHeader(event, "Connection", "keep-alive");
+            const encoder = new TextEncoder();
+            return new ReadableStream({
+              start(controller) {
+                controller.enqueue(
+                  encoder.encode(
+                    `data: ${JSON.stringify({ type: "usage_limit_reached", usageCents: result.usageCents, limitCents: result.limitCents })}\n\n`,
+                  ),
+                );
+                controller.close();
+              },
+            });
+          }
+        }
+      } catch {
+        // Usage check failed — allow the request to proceed
+      }
     }
 
     // Resolve system prompt before starting the run
@@ -558,7 +612,7 @@ export function createProductionAgentHandler(
           }
         }
 
-        return runAgentLoop({
+        const loopUsage = await runAgentLoop({
           client,
           model,
           systemPrompt,
@@ -568,6 +622,28 @@ export function createProductionAgentHandler(
           send,
           signal,
         });
+
+        // Record token usage for cost tracking (production hosted mode)
+        if (options.trackUsage && options.resolveOwnerEmail) {
+          try {
+            const ownerEmail = await options.resolveOwnerEmail(event);
+            if (
+              ownerEmail &&
+              ownerEmail !== "local@localhost" &&
+              (loopUsage.inputTokens > 0 || loopUsage.outputTokens > 0)
+            ) {
+              const { recordUsage } = await import("../usage/store.js");
+              await recordUsage(
+                ownerEmail,
+                loopUsage.inputTokens,
+                loopUsage.outputTokens,
+                loopUsage.model,
+              );
+            }
+          } catch {
+            // Usage recording failed — don't break the run
+          }
+        }
       },
       options.onRunComplete
         ? (run) => options.onRunComplete!(run, threadId)
