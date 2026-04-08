@@ -1,6 +1,6 @@
 [build]
   command = "pnpm install && NITRO_PRESET=netlify pnpm --filter @agent-native/docs build"
-  publish = "dist"
+  publish = "packages/docs/dist"
 
 [build.environment]
   NITRO_PRESET = "netlify"
