@@ -8,7 +8,8 @@ dist-ssr
 .tanstack
 .wrangler
 .output
-server/
+server/*
+!server/routes/
 .vinxi
 __unconfig*
 todos.json
