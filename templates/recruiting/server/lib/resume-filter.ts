@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { PDFParse } from "pdf-parse";
 import type { GreenhouseCandidate } from "@shared/types";
 import { getApiKey } from "./greenhouse-api.js";
 
@@ -83,8 +84,13 @@ async function extractAttachmentText(attachment: {
     const contentType = res.headers.get("content-type") || "";
     const filename = attachment.filename.toLowerCase();
 
-    // Only extract plain text attachments — PDF/DOCX parsing requires
-    // native APIs (DOMMatrix, etc.) not available on Cloudflare Workers.
+    if (filename.endsWith(".pdf") || contentType.includes("pdf")) {
+      const arrayBuffer = await res.arrayBuffer();
+      const pdf = new PDFParse({ data: new Uint8Array(arrayBuffer) });
+      const result = await pdf.getText();
+      return result.text?.trim() || null;
+    }
+
     if (
       filename.endsWith(".txt") ||
       filename.endsWith(".md") ||
