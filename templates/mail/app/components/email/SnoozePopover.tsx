@@ -125,7 +125,9 @@ export function SnoozePopover({
     // Fire API in background
     snoozeEmail
       .mutateAsync({ emailId, runAt })
-      .catch(() => toast.error("Couldn't snooze — check the server logs."));
+      .catch((err: any) =>
+        toast.error(err?.message || "Couldn't snooze — check the server logs."),
+      );
   };
 
   const displayDate = selectedDate

@@ -17,7 +17,10 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
 
 export function useDocuments() {
   return useActionQuery<Document[]>("list-documents", undefined, {
-    select: (data: any) => (data?.documents ?? data) as Document[],
+    select: (data: any) => {
+      const docs = data?.documents ?? data;
+      return Array.isArray(docs) ? docs : [];
+    },
   });
 }
 
@@ -67,7 +70,10 @@ export function useMoveDocument() {
   });
 }
 
-export function buildDocumentTree(documents: Document[]): DocumentTreeNode[] {
+export function buildDocumentTree(
+  documents: Document[] | undefined | null,
+): DocumentTreeNode[] {
+  if (!Array.isArray(documents)) return [];
   const map = new Map<string, DocumentTreeNode>();
   const roots: DocumentTreeNode[] = [];
 

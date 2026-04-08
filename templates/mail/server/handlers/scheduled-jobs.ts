@@ -219,6 +219,7 @@ export const snoozeEmail = defineEventHandler(async (event: H3Event) => {
     return job;
   } catch (error: any) {
     const message = error?.message || "Failed to snooze email";
+    console.error("[snooze]", message, error);
     setResponseStatus(event, message === "Email not found" ? 404 : 500);
     return { error: message };
   }
