@@ -92,7 +92,10 @@ export default function CalendarView() {
 
   const queryClient = useQueryClient();
   const googleStatus = useGoogleAuthStatus();
-  const { data: overlayPeople = [] } = useOverlayPeople();
+  const { data: rawOverlayPeople } = useOverlayPeople();
+  const overlayPeople = Array.isArray(rawOverlayPeople)
+    ? rawOverlayPeople
+    : [];
   const overlayEmails = useMemo(
     () => overlayPeople.map((p) => p.email),
     [overlayPeople],
