@@ -53,7 +53,7 @@ All data is stored in SQL via Drizzle ORM.
 
 ## Actions
 
-Always run `view-screen` first to understand what the user is looking at.
+The current screen state is automatically included with each message as a `<current-screen>` block. Use `view-screen` only when you need a refreshed snapshot mid-conversation.
 
 | Action           | Args                                                   | Purpose                      |
 | ---------------- | ------------------------------------------------------ | ---------------------------- |

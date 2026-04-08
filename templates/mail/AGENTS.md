@@ -139,7 +139,7 @@ When the user asks you to **draft**, **compose**, or **write** an email, use `wr
 
 ## Agent Operations
 
-**Always run `pnpm action view-screen` first** before taking any action. This shows what the user is currently looking at and provides email IDs to act on. Don't skip this step — even if you think you know what's on screen.
+The current screen state (including email IDs to act on) is automatically included with each message as a `<current-screen>` block. You don't need to call `view-screen` before every action — use it only when you need a refreshed snapshot mid-conversation (e.g., after archiving or sending).
 
 **Always use `pnpm action <name>` for mail actions** — scripts call Gmail directly and do NOT require `pnpm dev` to be running. Never use `curl` or raw HTTP requests. When no script exists, use `node -e` inline JavaScript.
 

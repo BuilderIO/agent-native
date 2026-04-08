@@ -33,9 +33,13 @@ The UI writes a `navigation` key to application-state on every route change:
 
 The agent reads this before taking action: `readAppState("navigation")`.
 
+### Auto-Injected Screen Context
+
+The framework automatically runs the template's `view-screen` action before each agent chat message and includes the result as a `<current-screen>` block in the user's message. This means the agent always knows what the user is looking at without needing to call `view-screen` explicitly. If no `view-screen` action is registered, the raw navigation state is included instead.
+
 ### The view-screen Action
 
-Every template should have a `view-screen` action that reads navigation state, fetches the relevant data, and returns a snapshot of what the user sees. This is the agent's eyes.
+Every template should have a `view-screen` action that reads navigation state, fetches the relevant data, and returns a snapshot of what the user sees. This action is automatically called by the framework to provide context — agents only need to call it manually for a refreshed snapshot mid-conversation.
 
 ### The navigate Action
 

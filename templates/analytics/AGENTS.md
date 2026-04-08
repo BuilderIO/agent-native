@@ -6,7 +6,7 @@ This is an **agent-native** app built with `@agent-native/core`.
 
 **Core philosophy:** The agent and UI have full parity. Everything the user can see, the agent can see via `view-screen`. Everything the user can do, the agent can do via actions. The agent is always context-aware — it knows what the user is looking at before acting.
 
-**Always run `pnpm action view-screen` first** before taking any action. This shows what the user is currently looking at and provides context for your response.
+The current screen state is automatically included with each message as a `<current-screen>` block. You don't need to call `view-screen` before every action — use it only when you need a refreshed snapshot mid-conversation.
 
 ## Resources
 
