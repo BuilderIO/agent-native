@@ -1,3 +1,18 @@
 [build]
-  command = "pnpm install && pnpm --filter @agent-native/docs build"
-  publish = "packages/docs/build/client"
+  command = "pnpm install && NITRO_PRESET=netlify pnpm --filter @agent-native/docs build"
+  publish = "packages/docs/dist"
+
+[build.environment]
+  NITRO_PRESET = "netlify"
+
+# SSR pages: cache 1h, serve stale for 24h while revalidating
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Cache-Control = "public, max-age=3600, stale-while-revalidate=86400"
+
+# Static assets: immutable long cache
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

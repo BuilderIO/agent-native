@@ -6,7 +6,7 @@ This is an **agent-native** app built with `@agent-native/core`.
 
 **Core philosophy:** The agent and UI have full parity. Everything the user can see, the agent can see via `view-screen`. Everything the user can do, the agent can do via actions. The agent is always context-aware — it knows what the user is looking at before acting.
 
-**Always run `pnpm action view-screen` first** before taking any action. This shows what the user is currently looking at — the document tree and the open document (if any).
+**Context is automatic** — the current screen state (navigation, open document, document tree) is included with every message as a `<current-screen>` block. You don't need to call `view-screen` before every action. Use `view-screen` only when you need a refreshed snapshot mid-conversation.
 
 ## Resources
 
@@ -156,7 +156,7 @@ Documents form a tree via `parent_id`. Content is stored as markdown.
 
 1. **Use scripts for document operations** — NEVER use raw `db-exec` SQL for documents. Always use `edit-document` or `update-document`. The editor uses real-time Yjs collaboration — raw SQL changes won't appear in the user's editor.
 2. **Prefer `edit-document` for changes** — use `edit-document --find "old" --replace "new"` for modifications. It's faster (no full regeneration) and syncs live to the editor via Yjs CRDT.
-3. **Always `view-screen` first** — know what the user is looking at before acting
+3. **Screen context is auto-included** — check `<current-screen>` in the user's message before acting
 4. **Use markdown for content** — documents store content as markdown
 5. **All AI goes through agent chat** — never call an LLM directly from code
 6. **Run `refresh-list` after changes** — the create/update/delete scripts do this automatically

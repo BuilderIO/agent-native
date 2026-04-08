@@ -42,6 +42,7 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
   localTitleRef.current = localTitle;
   const localContentRef = useRef(localContent);
   localContentRef.current = localContent;
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // Current user info for cursor labels
   const { session } = useSession();
@@ -87,6 +88,25 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
       isInitializedRef.current = true;
     }
   }, [document, documentId]);
+
+  // Sync SQL content changes into Yjs (fallback for raw db-exec updates).
+  const lastSyncedContentRef = useRef<string>("");
+  useEffect(() => {
+    if (!document || !ydoc || !isInitializedRef.current) return;
+    const serverContent = document.content;
+    if (
+      serverContent &&
+      serverContent !== lastSyncedContentRef.current &&
+      serverContent !== lastSavedRef.current.content
+    ) {
+      lastSyncedContentRef.current = serverContent;
+      fetch(`/_agent-native/collab/${documentId}/text`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: serverContent, requestSource: "sync" }),
+      }).catch(() => {});
+    }
+  }, [document?.content, ydoc, documentId]);
 
   // Pick up external title changes (e.g. Notion pull)
   useEffect(() => {
@@ -139,16 +159,17 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
   );
 
   // Comments state — pending comment from text selection
-  const [pendingQuotedText, setPendingQuotedText] = useState<string | null>(
-    null,
-  );
+  const [pendingComment, setPendingComment] = useState<{
+    quotedText: string;
+    offsetTop: number;
+  } | null>(null);
   const { data: threads } = useComments(documentId);
   const hasComments =
-    (threads?.some((t) => !t.resolved) ?? false) || !!pendingQuotedText;
+    (threads?.some((t) => !t.resolved) ?? false) || !!pendingComment;
   const isMobile = useIsMobile();
 
-  const handleComment = useCallback((quotedText: string) => {
-    setPendingQuotedText(quotedText);
+  const handleComment = useCallback((quotedText: string, offsetTop: number) => {
+    setPendingComment({ quotedText, offsetTop });
   }, []);
 
   if (isLoading || collabLoading) {
@@ -170,8 +191,9 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
   const sidebar = (
     <CommentsSidebar
       documentId={documentId}
-      pendingQuotedText={pendingQuotedText}
-      onPendingDone={() => setPendingQuotedText(null)}
+      pendingComment={pendingComment}
+      onPendingDone={() => setPendingComment(null)}
+      scrollContainerRef={scrollContainerRef}
     />
   );
 
@@ -187,7 +209,6 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
           );
           return isSaving || otherUsers.length > 0 || agentActive ? (
             <div className="absolute top-12 right-4 flex items-center gap-2 z-10">
-              {/* Agent editing indicator */}
               {agentActive && (
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -230,7 +251,10 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
           ) : null;
         })()}
 
-        <div className="flex-1 min-h-0 overflow-auto flex flex-col">
+        <div
+          ref={scrollContainerRef}
+          className="flex-1 min-h-0 overflow-auto flex flex-col"
+        >
           <div className="shrink-0 px-4 pt-14 pb-2 sm:px-8 md:px-16 md:pt-16 group/title">
             <div className="mb-1">
               <EmojiPicker
@@ -286,7 +310,7 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
         <Sheet
           open={hasComments}
           onOpenChange={(open) => {
-            if (!open) setPendingQuotedText(null);
+            if (!open) setPendingComment(null);
           }}
         >
           <SheetContent side="right" className="w-[85vw] max-w-sm p-0">

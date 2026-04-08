@@ -7,7 +7,7 @@ This is an **agent-native** Jira client built with `@agent-native/core`. The age
 ## Core Philosophy
 
 1. **Agent + UI parity** — The agent can create, search, update, and transition issues just like the UI. Both work on the same Jira data.
-2. **Context awareness** — Always run `view-screen` first to understand what the user sees before acting.
+2. **Context awareness** — The current screen state is automatically included with each message as a `<current-screen>` block. Use `view-screen` only when you need a refreshed snapshot mid-conversation.
 3. **Skills-first** — Read `.agents/skills/` for detailed guidance on issue management, JQL queries, sprint workflows, and transitions.
 
 See `.agents/skills/` for the framework rules that apply to all agent-native apps:
@@ -92,7 +92,7 @@ Views: `my-issues`, `projects`, `board`, `sprint`, `settings`.
 
 ## Agent Operations
 
-**Always run `pnpm action view-screen` first** before taking action. This returns the navigation state AND fetches the actual issue list and issue detail from the Jira API.
+The current screen state (navigation + Jira API issue data) is automatically included with each message as a `<current-screen>` block. You don't need to call `view-screen` before every action — use it only when you need a refreshed snapshot mid-conversation.
 
 **Always use `pnpm action <name>` for operations** — never curl or raw HTTP.
 

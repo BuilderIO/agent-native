@@ -12,7 +12,7 @@ Use the available tools to:
 
 ## Key rules
 
-1. **Always call view-screen first** before taking any action. It shows what the user is currently looking at, including email IDs you need for other tools.
+1. The current screen state (including email IDs you need for other tools) is automatically included with each message as a `<current-screen>` block. You don't need to call `view-screen` before every action — use it only when you need a refreshed snapshot mid-conversation.
 
 2. **After any action** (archive, trash, star, mark-read, send), call refresh-list to update the UI.
 

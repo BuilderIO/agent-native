@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, type RefObject } from "react";
 import {
   useComments,
   useCreateComment,
@@ -6,51 +6,101 @@ import {
   type CommentThread,
 } from "@/hooks/use-comments";
 import { sendToAgentChat } from "@agent-native/core/client";
-import { IconCheck, IconSparkles } from "@tabler/icons-react";
+import {
+  IconCheck,
+  IconDots,
+  IconMessageCircle,
+  IconArrowUp,
+  IconAt,
+} from "@tabler/icons-react";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+function emailToInitial(email: string) {
+  return (email.split("@")[0]?.[0] ?? "?").toUpperCase();
+}
+
+function emailToAvatarColor(email: string) {
+  let hash = 0;
+  for (let i = 0; i < email.length; i++) {
+    hash = email.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const hue = Math.abs(hash) % 360;
+  return `hsl(${hue}, 55%, 55%)`;
+}
+
+function formatDate(dateStr: string) {
+  const d = new Date(dateStr);
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+/** Find the Y offset of quoted text in the ProseMirror editor relative to the scroll container. */
+function findTextOffsetInEditor(
+  quotedText: string | null,
+  scrollContainer: HTMLElement | null,
+): number | null {
+  if (!quotedText || !scrollContainer) return null;
+  const pm = scrollContainer.querySelector(".ProseMirror") as HTMLElement;
+  if (!pm) return null;
+
+  const walker = window.document.createTreeWalker(
+    pm,
+    NodeFilter.SHOW_TEXT,
+    null,
+  );
+  let node: Node | null;
+  const searchStr = quotedText.slice(0, 40);
+  while ((node = walker.nextNode())) {
+    if (node.textContent && node.textContent.includes(searchStr)) {
+      const range = window.document.createRange();
+      range.selectNode(node);
+      const rect = range.getBoundingClientRect();
+      const containerRect = scrollContainer.getBoundingClientRect();
+      return rect.top - containerRect.top + scrollContainer.scrollTop;
+    }
+  }
+  return null;
+}
+
 interface CommentsSidebarProps {
   documentId: string;
-  /** Pre-filled quoted text for a new comment from text selection. */
-  pendingQuotedText?: string | null;
-  /** Called after the pending comment is submitted or dismissed. */
+  pendingComment?: { quotedText: string; offsetTop: number } | null;
   onPendingDone?: () => void;
+  scrollContainerRef?: RefObject<HTMLDivElement | null>;
 }
 
 export function CommentsSidebar({
   documentId,
-  pendingQuotedText,
+  pendingComment,
   onPendingDone,
+  scrollContainerRef,
 }: CommentsSidebarProps) {
   const { data: threads, isLoading } = useComments(documentId);
   const createComment = useCreateComment();
   const resolveComment = useResolveComment();
-  const [replyingTo, setReplyingTo] = useState<string | null>(null);
+  const [expandedThread, setExpandedThread] = useState<string | null>(null);
   const [replyText, setReplyText] = useState("");
   const [pendingText, setPendingText] = useState("");
   const pendingInputRef = useRef<HTMLTextAreaElement>(null);
 
   const openThreads = threads?.filter((t) => !t.resolved) ?? [];
-  const resolvedThreads = threads?.filter((t) => t.resolved) ?? [];
 
-  // Focus the pending comment input when quoted text comes in
   useEffect(() => {
-    if (pendingQuotedText) {
+    if (pendingComment) {
       setPendingText("");
       setTimeout(() => pendingInputRef.current?.focus(), 50);
     }
-  }, [pendingQuotedText]);
+  }, [pendingComment]);
 
   const handlePendingSubmit = () => {
     if (!pendingText.trim()) return;
     createComment.mutate({
       documentId,
       content: pendingText.trim(),
-      quotedText: pendingQuotedText ?? undefined,
+      quotedText: pendingComment?.quotedText,
     });
     setPendingText("");
     onPendingDone?.();
@@ -71,7 +121,7 @@ export function CommentsSidebar({
       parentId: thread?.comments[0]?.id,
     });
     setReplyText("");
-    setReplyingTo(null);
+    setExpandedThread(null);
   };
 
   const handleSendToAI = (thread: CommentThread) => {
@@ -86,19 +136,60 @@ export function CommentsSidebar({
     });
   };
 
-  const hasContent =
-    openThreads.length > 0 || resolvedThreads.length > 0 || !!pendingQuotedText;
+  // Calculate Y positions for each thread based on quoted text in the editor DOM
+  const [threadOffsets, setThreadOffsets] = useState<Map<string, number>>(
+    new Map(),
+  );
+  const threadIds = openThreads.map((t) => t.threadId).join(",");
+  useEffect(() => {
+    if (!scrollContainerRef?.current || openThreads.length === 0) return;
+    const offsets = new Map<string, number>();
+    for (const thread of openThreads) {
+      const offset = findTextOffsetInEditor(
+        thread.quotedText,
+        scrollContainerRef.current,
+      );
+      if (offset != null) {
+        offsets.set(thread.threadId, offset);
+      }
+    }
+    setThreadOffsets(offsets);
+  }, [threadIds, scrollContainerRef]);
 
+  const hasContent = openThreads.length > 0 || !!pendingComment;
   if (!hasContent && !isLoading) return null;
 
+  // Sort threads by their position in the document
+  const sortedThreads = [...openThreads].sort((a, b) => {
+    const aOff = threadOffsets.get(a.threadId) ?? Infinity;
+    const bOff = threadOffsets.get(b.threadId) ?? Infinity;
+    return aOff - bOff;
+  });
+
+  // Position each card with margin-top to align with its text, avoiding overlap
+  const items: { thread: CommentThread; marginTop: number }[] = [];
+  let cursor = 0;
+  for (const thread of sortedThreads) {
+    const targetTop = threadOffsets.get(thread.threadId);
+    const marginTop =
+      targetTop != null
+        ? Math.max(0, targetTop - cursor)
+        : cursor === 0
+          ? 0
+          : 12;
+    items.push({ thread, marginTop });
+    // Estimate card height (~80px base + ~44px per additional comment)
+    cursor += marginTop + 80 + (thread.comments.length - 1) * 44;
+  }
+
   return (
-    <div className="w-72 shrink-0 overflow-auto py-4 pl-2 pr-4">
-      {/* New comment from text selection */}
-      {pendingQuotedText && (
-        <div className="mb-4 rounded-lg border border-primary/30 bg-background p-3 shadow-sm">
-          <div className="text-xs text-muted-foreground bg-accent/50 px-2 py-1 rounded mb-2 line-clamp-2 italic border-l-2 border-primary/30">
-            {pendingQuotedText}
-          </div>
+    <div className="w-80 shrink-0 overflow-auto relative">
+      {/* Pending new comment — positioned at selection Y offset */}
+      {pendingComment && (
+        <div
+          className="absolute left-2 right-4 rounded-lg bg-popover p-3 shadow-md ring-1 ring-border/50 z-10"
+          style={{ top: pendingComment.offsetTop }}
+        >
           <textarea
             ref={pendingInputRef}
             value={pendingText}
@@ -108,13 +199,25 @@ export function CommentsSidebar({
                 e.preventDefault();
                 handlePendingSubmit();
               }
-              if (e.key === "Escape") handlePendingCancel();
+              if (e.key === "Escape" && !pendingText.trim())
+                handlePendingCancel();
+            }}
+            onBlur={() => {
+              setTimeout(() => {
+                if (!pendingText.trim()) handlePendingCancel();
+              }, 150);
             }}
             placeholder="Add a comment..."
-            className="w-full resize-none rounded-md border border-input bg-transparent px-2 py-1.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            className="w-full resize-none bg-transparent text-sm placeholder:text-muted-foreground focus:outline-none"
             rows={2}
           />
-          <div className="flex gap-1 mt-1.5">
+          <div className="flex justify-end gap-1 mt-1.5">
+            <button
+              onClick={handlePendingCancel}
+              className="px-2.5 py-1 text-xs rounded-md text-muted-foreground hover:bg-accent"
+            >
+              Cancel
+            </button>
             <button
               onClick={handlePendingSubmit}
               disabled={!pendingText.trim()}
@@ -122,30 +225,30 @@ export function CommentsSidebar({
             >
               Comment
             </button>
-            <button
-              onClick={handlePendingCancel}
-              className="px-2.5 py-1 text-xs rounded-md text-muted-foreground hover:bg-accent"
-            >
-              Cancel
-            </button>
           </div>
         </div>
       )}
 
-      {/* Open threads */}
-      {openThreads.map((thread) => (
+      {/* Thread cards — positioned to align with their referenced text */}
+      {items.map(({ thread, marginTop }) => (
         <ThreadView
           key={thread.threadId}
           thread={thread}
-          isReplying={replyingTo === thread.threadId}
-          replyText={replyText}
-          onStartReply={() => setReplyingTo(thread.threadId)}
-          onReplyChange={setReplyText}
-          onSubmitReply={() => handleReply(thread.threadId)}
-          onCancelReply={() => {
-            setReplyingTo(null);
+          marginTop={marginTop}
+          isExpanded={expandedThread === thread.threadId}
+          replyText={expandedThread === thread.threadId ? replyText : ""}
+          onExpand={() => {
+            setExpandedThread(
+              expandedThread === thread.threadId ? null : thread.threadId,
+            );
             setReplyText("");
           }}
+          onCollapse={() => {
+            setExpandedThread(null);
+            setReplyText("");
+          }}
+          onReplyChange={setReplyText}
+          onSubmitReply={() => handleReply(thread.threadId)}
           onResolve={() =>
             resolveComment.mutate({
               id: thread.comments[0].id,
@@ -155,148 +258,158 @@ export function CommentsSidebar({
           onSendToAI={() => handleSendToAI(thread)}
         />
       ))}
-
-      {/* Resolved threads */}
-      {resolvedThreads.length > 0 && (
-        <>
-          <div className="text-[11px] text-muted-foreground font-medium mt-4 mb-2 px-1">
-            Resolved
-          </div>
-          {resolvedThreads.map((thread) => (
-            <ThreadView
-              key={thread.threadId}
-              thread={thread}
-              isReplying={false}
-              replyText=""
-              onStartReply={() => {}}
-              onReplyChange={() => {}}
-              onSubmitReply={() => {}}
-              onCancelReply={() => {}}
-              onResolve={() => {}}
-              onSendToAI={() => handleSendToAI(thread)}
-              resolved
-            />
-          ))}
-        </>
-      )}
     </div>
   );
 }
 
 function ThreadView({
   thread,
-  isReplying,
+  marginTop,
+  isExpanded,
   replyText,
-  onStartReply,
+  onExpand,
+  onCollapse,
   onReplyChange,
   onSubmitReply,
-  onCancelReply,
   onResolve,
   onSendToAI,
-  resolved,
 }: {
   thread: CommentThread;
-  isReplying: boolean;
+  marginTop: number;
+  isExpanded: boolean;
   replyText: string;
-  onStartReply: () => void;
+  onExpand: () => void;
+  onCollapse: () => void;
   onReplyChange: (text: string) => void;
   onSubmitReply: () => void;
-  onCancelReply: () => void;
   onResolve: () => void;
   onSendToAI: () => void;
-  resolved?: boolean;
 }) {
+  const replyInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isExpanded) {
+      setTimeout(() => replyInputRef.current?.focus(), 50);
+    }
+  }, [isExpanded]);
+
   return (
     <div
-      className={`mb-3 rounded-lg border border-border bg-background p-3 shadow-sm ${resolved ? "opacity-50" : ""}`}
+      className="group/thread mx-2 mr-4 rounded-lg bg-popover shadow-md ring-1 ring-border/50 cursor-pointer"
+      style={{ marginTop }}
+      onClick={onExpand}
     >
-      {/* Quoted text */}
-      {thread.quotedText && (
-        <div className="text-xs text-muted-foreground bg-accent/50 px-2 py-1 rounded mb-2 line-clamp-2 italic border-l-2 border-primary/30">
-          {thread.quotedText}
-        </div>
-      )}
-
-      {/* Comments in thread */}
-      {thread.comments.map((c) => (
-        <div key={c.id} className={`mb-2 ${c.parent_id ? "ml-3" : ""}`}>
-          <div className="flex items-center gap-1.5 mb-0.5">
-            <span className="text-xs font-medium text-foreground">
-              {c.author_name ?? c.author_email.split("@")[0]}
-            </span>
-            <span className="text-[10px] text-muted-foreground">
-              {new Date(c.created_at).toLocaleDateString()}
-            </span>
-          </div>
-          <p className="text-sm text-foreground/80">{c.content}</p>
-        </div>
-      ))}
-
-      {/* Actions */}
-      {!resolved && (
-        <div className="flex items-center gap-0.5 mt-1">
-          <button
-            onClick={onStartReply}
-            className="text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-accent"
-          >
-            Reply
-          </button>
+      <div className="relative p-3 pb-2">
+        {/* Hover actions — top right, Notion style pill */}
+        <div className="absolute top-2 right-2 hidden group-hover/thread:flex items-center rounded-md bg-accent/80 ring-1 ring-border/50">
           <Tooltip>
             <TooltipTrigger asChild>
               <button
-                onClick={onResolve}
-                className="p-1.5 rounded text-muted-foreground hover:text-green-500 hover:bg-accent"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSendToAI();
+                }}
+                className="p-1.5 text-muted-foreground hover:text-foreground rounded-l-md hover:bg-accent"
+              >
+                <IconMessageCircle size={14} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Ask AI</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onResolve();
+                }}
+                className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-accent"
               >
                 <IconCheck size={14} />
               </button>
             </TooltipTrigger>
             <TooltipContent>Resolve</TooltipContent>
           </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={onSendToAI}
-                className="p-1.5 rounded text-muted-foreground hover:text-primary hover:bg-accent"
-              >
-                <IconSparkles size={14} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>Ask AI about this</TooltipContent>
-          </Tooltip>
+          <button
+            onClick={(e) => e.stopPropagation()}
+            className="p-1.5 text-muted-foreground hover:text-foreground rounded-r-md hover:bg-accent"
+          >
+            <IconDots size={14} />
+          </button>
         </div>
-      )}
 
-      {/* Reply input */}
-      {isReplying && (
-        <div className="mt-2">
-          <textarea
-            value={replyText}
-            onChange={(e) => onReplyChange(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                onSubmitReply();
-              }
-              if (e.key === "Escape") onCancelReply();
+        {/* Comments */}
+        {thread.comments.map((c) => (
+          <div key={c.id} className="mb-3 last:mb-0">
+            <div className="flex items-center gap-2 mb-0.5">
+              <div
+                className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-medium text-white shrink-0"
+                style={{ backgroundColor: emailToAvatarColor(c.author_email) }}
+              >
+                {emailToInitial(c.author_name ?? c.author_email)}
+              </div>
+              <span className="text-[13px] font-semibold text-foreground">
+                {c.author_name ?? c.author_email.split("@")[0]}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {formatDate(c.created_at)}
+              </span>
+            </div>
+            <p className="text-[13px] text-foreground/90 pl-8 leading-relaxed">
+              {c.content}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      {/* Expanded: Notion-style reply input — collapses on blur */}
+      {isExpanded && (
+        <div
+          className="flex items-center gap-2 px-3 pb-3 pt-1"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div
+            className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-medium text-white shrink-0 opacity-40"
+            style={{
+              backgroundColor: emailToAvatarColor(
+                thread.comments[0]?.author_email ?? "user",
+              ),
             }}
-            placeholder="Reply..."
-            className="w-full resize-none rounded-md border border-input bg-transparent px-2 py-1.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-            rows={2}
-            autoFocus
-          />
-          <div className="flex gap-1 mt-1">
-            <button
-              onClick={onSubmitReply}
-              className="px-2 py-1 text-xs rounded bg-primary text-primary-foreground hover:bg-primary/90"
-            >
-              Reply
-            </button>
-            <button
-              onClick={onCancelReply}
-              className="px-2 py-1 text-xs rounded text-muted-foreground hover:bg-accent"
-            >
-              Cancel
-            </button>
+          >
+            {emailToInitial(thread.comments[0]?.author_name ?? "user")}
+          </div>
+          <div className="flex-1 relative">
+            <input
+              ref={replyInputRef}
+              value={replyText}
+              onChange={(e) => onReplyChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  onSubmitReply();
+                }
+                if (e.key === "Escape") onCollapse();
+              }}
+              onBlur={() => {
+                setTimeout(() => {
+                  if (!replyText.trim()) onCollapse();
+                }, 150);
+              }}
+              placeholder="Reply..."
+              className="w-full bg-transparent text-sm placeholder:text-muted-foreground/50 focus:outline-none pr-16"
+            />
+            <div className="absolute right-0 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
+              <button className="p-1 text-muted-foreground/40 hover:text-muted-foreground">
+                <IconAt size={16} />
+              </button>
+              <button
+                onClick={onSubmitReply}
+                disabled={!replyText.trim()}
+                className="p-1 rounded-full text-muted-foreground/40 hover:text-foreground disabled:opacity-30"
+              >
+                <IconArrowUp size={16} />
+              </button>
+            </div>
           </div>
         </div>
       )}

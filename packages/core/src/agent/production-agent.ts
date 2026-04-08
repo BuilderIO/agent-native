@@ -372,11 +372,21 @@ export function createProductionAgentHandler(
 
     // Auto-inject current screen context so the agent always knows what
     // the user is looking at without needing to call view-screen first.
+    // If the template registers a view-screen action, run it for rich context;
+    // otherwise fall back to raw navigation state.
     let screenContext = "";
     try {
-      const navigation = await readAppState("navigation");
-      if (navigation) {
-        screenContext = `\n\n<current-screen>\n${JSON.stringify(navigation, null, 2)}\n</current-screen>`;
+      const viewScreenAction = resolvedActions["view-screen"];
+      if (viewScreenAction) {
+        const result = await viewScreenAction.run({});
+        if (result && result !== "(no output)") {
+          screenContext = `\n\n<current-screen>\n${result}\n</current-screen>`;
+        }
+      } else {
+        const navigation = await readAppState("navigation");
+        if (navigation) {
+          screenContext = `\n\n<current-screen>\n${JSON.stringify(navigation, null, 2)}\n</current-screen>`;
+        }
       }
     } catch {
       // DB not ready or no navigation state — skip silently

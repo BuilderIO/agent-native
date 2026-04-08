@@ -7,7 +7,7 @@ This is an **agent-native** form builder built with `@agent-native/core`. The ag
 ## Core Philosophy
 
 1. **Agent + UI parity** — The agent creates forms from natural language. The GUI provides live preview + click-to-edit for fine-tuning. Both work on the same data.
-2. **Context awareness** — Always run `view-screen` first to understand what the user sees before acting.
+2. **Context awareness** — The current screen state is automatically included with each message as a `<current-screen>` block. Use `view-screen` only when you need a refreshed snapshot mid-conversation.
 3. **Skills-first** — Read `.agents/skills/` for detailed guidance on form building, responses, and publishing.
 
 See `.agents/skills/` for the framework rules that apply to all agent-native apps:
@@ -111,7 +111,7 @@ This is a one-shot command — the entry is deleted after the UI processes it.
 
 ## Agent Operations
 
-**Always run `pnpm action view-screen` first** before taking any action. This shows what the user is currently looking at, including form details and response data. Don't skip this step.
+The current screen state (including form details and response data) is automatically included with each message as a `<current-screen>` block. You don't need to call `view-screen` before every action — use it only when you need a refreshed snapshot mid-conversation.
 
 **Always use `pnpm action <name>` for operations** — never curl or raw HTTP.
 

@@ -58,7 +58,7 @@ AI-powered analysis (use manage-notes to save results):
 - Interview question generation: Create tailored questions
 - Bulk screening: Screen candidates against specific criteria
 
-Always use view-screen first to understand what the user is looking at before taking action.
+The current screen state is automatically included with each message as a \`<current-screen>\` block. You don't need to call view-screen before every action — use it only when you need a refreshed snapshot mid-conversation.
 When the user @-tags a candidate, use the referenced candidate ID to fetch full details with get-candidate before making decisions.
 After any mutation (advance, move, reject, create), call refresh-data to update the UI.
 
