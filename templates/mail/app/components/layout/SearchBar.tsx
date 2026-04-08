@@ -57,8 +57,9 @@ export function SearchBar({ onClose }: SearchBarProps) {
       const q = contact.email;
       setQuery(q);
       navigate(`/inbox?q=${encodeURIComponent(q)}`);
+      onClose();
     },
-    [navigate],
+    [navigate, onClose],
   );
 
   // Debounced auto-search as you type (only for text queries, not contact selection)
@@ -141,9 +142,7 @@ export function SearchBar({ onClose }: SearchBarProps) {
           ) {
             return;
           }
-          if (!query) {
-            setTimeout(onClose, 100);
-          }
+          setTimeout(onClose, 100);
         }}
         placeholder="Search..."
         className="h-8 sm:h-7 w-40 sm:w-48 rounded bg-accent/80 border-none px-2.5 text-[13px] text-foreground placeholder:text-muted-foreground/60 outline-none focus:ring-1 focus:ring-primary/40"
