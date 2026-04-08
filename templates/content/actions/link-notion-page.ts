@@ -1,18 +1,27 @@
-import { parseArgs, fail } from "./_utils.js";
+import { defineAction } from "@agent-native/core";
 import { linkDocumentToNotionPage } from "../server/lib/notion-sync.js";
 
-export default async function main(args: string[]) {
-  const opts = parseArgs(args);
-  const owner = process.env.AGENT_USER_EMAIL || "local@localhost";
-  const documentId = opts.documentId || opts.id;
-  const pageIdOrUrl = opts.pageId || opts.url;
+export default defineAction({
+  description: "Link a document to a Notion page for syncing.",
+  parameters: {
+    documentId: { type: "string", description: "Document ID (required)" },
+    pageId: {
+      type: "string",
+      description: "Notion page ID or URL (required)",
+    },
+  },
+  http: false,
+  run: async (args) => {
+    const owner = process.env.AGENT_USER_EMAIL || "local@localhost";
+    const documentId = args.documentId || args.id;
+    const pageIdOrUrl = args.pageId || args.url;
 
-  if (!documentId || !pageIdOrUrl) {
-    fail(
-      "Usage: pnpm action link-notion-page --documentId <id> --pageId <id-or-url>",
-    );
-  }
+    if (!documentId || !pageIdOrUrl) {
+      throw new Error(
+        "Usage: pnpm action link-notion-page --documentId <id> --pageId <id-or-url>",
+      );
+    }
 
-  const status = await linkDocumentToNotionPage(owner, documentId, pageIdOrUrl);
-  console.log(JSON.stringify(status, null, 2));
-}
+    return linkDocumentToNotionPage(owner, documentId, pageIdOrUrl);
+  },
+});

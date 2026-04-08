@@ -20,6 +20,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Context Awareness", to: "/docs/context-awareness" as const },
       { label: "Skills Guide", to: "/docs/skills-guide" as const },
       { label: "A2A Protocol", to: "/docs/a2a-protocol" as const },
+      { label: "MCP Protocol", to: "/docs/mcp-protocol" as const },
       {
         label: "Real-Time Collaboration",
         to: "/docs/real-time-collaboration" as const,

@@ -61,8 +61,8 @@ export function PeopleSearchDialog({
     setSearching(true);
     try {
       const url = q
-        ? `/api/people/search?q=${encodeURIComponent(q)}`
-        : `/api/people/search`;
+        ? `/_agent-native/actions/search-people?q=${encodeURIComponent(q)}`
+        : `/_agent-native/actions/search-people`;
       const res = await fetch(url);
       if (res.ok) {
         const data: SearchResponse = await res.json();

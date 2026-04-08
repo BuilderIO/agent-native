@@ -71,9 +71,12 @@ export function FormsListPage() {
   }
 
   function handleDelete(id: string) {
-    deleteForm.mutate(id, {
-      onSuccess: () => toast.success("Form deleted"),
-    });
+    deleteForm.mutate(
+      { id },
+      {
+        onSuccess: () => toast.success("Form deleted"),
+      },
+    );
   }
 
   function handleTogglePublish(form: (typeof forms)[0]) {

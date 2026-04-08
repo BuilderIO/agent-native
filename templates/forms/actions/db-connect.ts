@@ -1,26 +1,8 @@
+import { defineAction } from "@agent-native/core";
 import fs from "fs";
 import path from "path";
 
-function parseArgs(args: string[]): Record<string, string> {
-  const result: Record<string, string> = {};
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg.startsWith("--")) {
-      const key = arg.slice(2);
-      const next = args[i + 1];
-      if (next && !next.startsWith("--")) {
-        result[key] = next;
-        i++;
-      } else {
-        result[key] = "true";
-      }
-    }
-  }
-  return result;
-}
-
 function upsertEnvLine(lines: string[], key: string, value: string): string[] {
-  // Reject values with newlines, carriage returns, or null bytes
   if (/[\r\n\0]/.test(value)) {
     throw new Error(
       `Invalid value for ${key}: must not contain newlines or null bytes`,
@@ -37,47 +19,33 @@ function upsertEnvLine(lines: string[], key: string, value: string): string[] {
   return lines;
 }
 
-export default async function main(args: string[]) {
-  const { url, token, help } = parseArgs(args);
-
-  if (help) {
-    console.log(
-      "Usage: pnpm action db-connect --url <DATABASE_URL> [--token <DATABASE_AUTH_TOKEN>]",
-    );
-    console.log("\nWrites DATABASE_URL and DATABASE_AUTH_TOKEN to .env");
-    return;
-  }
-
-  if (!url) {
-    console.error("Error: --url is required");
-    throw new Error("Script failed");
-  }
-
-  const envPath = path.join(process.cwd(), ".env");
-  let lines: string[] = [];
-
-  if (fs.existsSync(envPath)) {
-    lines = fs.readFileSync(envPath, "utf8").split("\n");
-  }
-
-  try {
-    upsertEnvLine(lines, "DATABASE_URL", url);
-    if (token) {
-      upsertEnvLine(lines, "DATABASE_AUTH_TOKEN", token);
+export default defineAction({
+  description:
+    "Write DATABASE_URL and optional DATABASE_AUTH_TOKEN to .env file.",
+  parameters: {
+    url: { type: "string", description: "DATABASE_URL value (required)" },
+    token: { type: "string", description: "DATABASE_AUTH_TOKEN value" },
+  },
+  http: false,
+  run: async (args) => {
+    if (!args.url) {
+      throw new Error("--url is required");
     }
-  } catch (err) {
-    console.error(
-      `Error: ${err instanceof Error ? err.message : "Invalid value"}`,
-    );
-    throw new Error("Script failed");
-  }
 
-  fs.writeFileSync(envPath, lines.join("\n"));
+    const envPath = path.join(process.cwd(), ".env");
+    let lines: string[] = [];
 
-  console.log(`\nDatabase connection saved to .env`);
-  console.log(
-    `  DATABASE_URL=${url.startsWith("file:") ? url : url.replace(/\/\/.*@/, "//***@")}`,
-  );
-  if (token) console.log(`  DATABASE_AUTH_TOKEN=***`);
-  console.log(`\nRestart the dev server for changes to take effect.`);
-}
+    if (fs.existsSync(envPath)) {
+      lines = fs.readFileSync(envPath, "utf8").split("\n");
+    }
+
+    upsertEnvLine(lines, "DATABASE_URL", args.url);
+    if (args.token) {
+      upsertEnvLine(lines, "DATABASE_AUTH_TOKEN", args.token);
+    }
+
+    fs.writeFileSync(envPath, lines.join("\n"));
+
+    return `Database connection saved to .env. Restart the dev server for changes to take effect.`;
+  },
+});

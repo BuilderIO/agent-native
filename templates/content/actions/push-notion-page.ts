@@ -1,15 +1,19 @@
-import { parseArgs, fail } from "./_utils.js";
+import { defineAction } from "@agent-native/core";
 import { pushDocumentToNotion } from "../server/lib/notion-sync.js";
 
-export default async function main(args: string[]) {
-  const opts = parseArgs(args);
-  const owner = process.env.AGENT_USER_EMAIL || "local@localhost";
-  const documentId = opts.documentId || opts.id;
+export default defineAction({
+  description: "Push local document content to a linked Notion page.",
+  parameters: {
+    documentId: { type: "string", description: "Document ID (required)" },
+  },
+  http: false,
+  run: async (args) => {
+    const documentId = args.documentId || args.id;
+    if (!documentId) {
+      throw new Error("Usage: pnpm action push-notion-page --documentId <id>");
+    }
 
-  if (!documentId) {
-    fail("Usage: pnpm action push-notion-page --documentId <id>");
-  }
-
-  const status = await pushDocumentToNotion(owner, documentId);
-  console.log(JSON.stringify(status, null, 2));
-}
+    const owner = process.env.AGENT_USER_EMAIL || "local@localhost";
+    return pushDocumentToNotion(owner, documentId);
+  },
+});

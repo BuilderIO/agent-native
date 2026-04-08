@@ -1,23 +1,24 @@
-#!/usr/bin/env tsx
-/**
- * Query Amplitude analytics event data.
- *
- * Usage:
- *   pnpm action amplitude-events --event=signup_completed
- *   pnpm action amplitude-events --event=page_view --days=7
- */
-import { parseArgs, output, fatal } from "./helpers";
+import { defineAction } from "@agent-native/core";
 import { queryEvents } from "../server/lib/amplitude";
 
-const args = parseArgs();
-const event = args.event;
-if (!event) fatal("--event is required. Example: --event=signup_completed");
+export default defineAction({
+  description: "Query Amplitude analytics event data.",
+  parameters: {
+    event: { type: "string", description: "Event name to query (required)" },
+    days: {
+      type: "string",
+      description: "Number of days to look back (default 30)",
+    },
+  },
+  http: false,
+  run: async (args) => {
+    if (!args.event) return { error: "event is required" };
 
-const days = parseInt(args.days || "30", 10);
-const end = new Date();
-const start = new Date(end.getTime() - days * 24 * 60 * 60 * 1000);
-const fmt = (d: Date) => d.toISOString().slice(0, 10);
+    const days = parseInt(args.days || "30", 10);
+    const end = new Date();
+    const start = new Date(end.getTime() - days * 24 * 60 * 60 * 1000);
+    const fmt = (d: Date) => d.toISOString().slice(0, 10);
 
-const result = await queryEvents(event, fmt(start), fmt(end));
-
-output(result);
+    return await queryEvents(args.event, fmt(start), fmt(end));
+  },
+});

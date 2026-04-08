@@ -93,7 +93,7 @@ This runs at server startup and configures auth based on the environment automat
 
 ## Session Storage
 
-Sessions are stored in `data/.sessions.json` (file-backed, consistent with the files-as-database principle). This file is:
+Sessions are stored in the `sessions` SQL table. Session data is:
 
 - Gitignored in all templates
 - Pruned on startup (expired sessions are removed)

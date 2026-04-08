@@ -1,26 +1,23 @@
-import { parseArgs } from "@agent-native/core";
-import { getAtlassianClient, jiraUrl, jiraFetch } from "./helpers.js";
+import { defineAction } from "@agent-native/core";
+import { getClient } from "../server/lib/jira-auth.js";
+import { jiraListProjects } from "../server/lib/jira-api.js";
 
-export default async function (args: string[]) {
-  const { compact } = parseArgs(args);
-  const client = await getAtlassianClient();
+export default defineAction({
+  description: "List accessible Jira projects",
+  parameters: {
+    startAt: { type: "string", description: "Start index for pagination" },
+    maxResults: { type: "string", description: "Max results (default 50)" },
+  },
+  http: { method: "GET" },
+  run: async (args) => {
+    const { startAt, maxResults } = args;
 
-  const result = await jiraFetch(
-    jiraUrl(client.cloudId, "/project/search?maxResults=50"),
-    client.accessToken,
-  );
+    const client = await getClient(process.env.AGENT_USER_EMAIL);
+    if (!client) throw new Error("Jira not connected");
 
-  const projects = result.values || [];
-  if (projects.length === 0) return "No projects found.";
-
-  if (compact) {
-    return projects.map((p: any) => `${p.key} — ${p.name}`).join("\n");
-  }
-
-  return projects
-    .map(
-      (p: any) =>
-        `${p.key} | ${p.name} | ${p.projectTypeKey || "-"} | Lead: ${p.lead?.displayName || "-"}`,
-    )
-    .join("\n");
-}
+    return await jiraListProjects(client.cloudId, client.accessToken, {
+      startAt: startAt ? Number(startAt) : 0,
+      maxResults: maxResults ? Number(maxResults) : 50,
+    });
+  },
+});

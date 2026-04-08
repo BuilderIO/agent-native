@@ -1,25 +1,23 @@
-import { parseArgs, output, localFetch } from "./helpers.js";
-import type { ActionTool } from "@agent-native/core";
+import { defineAction } from "@agent-native/core";
+import * as gh from "../server/lib/greenhouse-api.js";
+import { withOrgContext } from "../server/lib/greenhouse-api.js";
 
-export const tool: ActionTool = {
+async function getCandidate(args: Record<string, string>) {
+  if (!args.id) return { error: "--id is required" };
+  return gh.getCandidate(Number(args.id));
+}
+
+export default defineAction({
   description: "Get full details about a specific candidate",
   parameters: {
-    type: "object",
-    properties: {
-      id: { type: "string", description: "Candidate ID (required)" },
-    },
-    required: ["id"],
+    id: { type: "string", description: "Candidate ID (required)" },
   },
-};
-
-export async function run(args: Record<string, string>): Promise<string> {
-  if (!args.id) return "Error: --id is required";
-  const candidate = await localFetch<any>(`/api/candidates/${args.id}`);
-  return JSON.stringify(candidate, null, 2);
-}
-
-export default async function main(): Promise<void> {
-  const args = parseArgs();
-  const result = await run(args);
-  console.log(result);
-}
+  http: { method: "GET" },
+  run: async (args) => {
+    const orgId = process.env.AGENT_ORG_ID;
+    if (orgId) {
+      return withOrgContext(orgId, () => getCandidate(args));
+    }
+    return getCandidate(args);
+  },
+});

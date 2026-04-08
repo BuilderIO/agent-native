@@ -1,59 +1,11 @@
-/**
- * Send an email via Gmail.
- *
- * Usage:
- *   pnpm action send-email --to=alice@example.com --subject="Hello" --body="Hi there"
- *   pnpm action send-email --to=alice@example.com --cc=bob@example.com --subject="Update" --body="..."
- *   pnpm action send-email --to=alice@example.com --subject="Re: Thread" --body="..." --replyToId=msg-456
- *
- * Options:
- *   --to          Recipient email(s), comma-separated (required)
- *   --cc          CC email(s), comma-separated
- *   --bcc         BCC email(s), comma-separated
- *   --subject     Email subject (required)
- *   --body        Email body in markdown (use [text](url) for links, **bold**, etc.) (required)
- *   --replyToId   Message ID being replied to (for threading)
- *   --account     Specific account to send from (optional)
- */
-
-import { parseArgs, output, fatal, getAccessTokens } from "./helpers.js";
+import { defineAction } from "@agent-native/core";
+import { getAccessTokens } from "./helpers.js";
 import {
   gmailGetMessage,
   gmailSendMessage,
   googleFetch,
 } from "../server/lib/google-api.js";
 import { getSetting } from "@agent-native/core/settings";
-import type { ActionTool } from "@agent-native/core";
-
-export const tool: ActionTool = {
-  description: "Send an email via Gmail.",
-  parameters: {
-    type: "object",
-    properties: {
-      to: {
-        type: "string",
-        description: "Recipient email(s), comma-separated",
-      },
-      subject: { type: "string", description: "Email subject" },
-      body: {
-        type: "string",
-        description:
-          "Email body in markdown. Use [text](url) for links, **bold**, *italic*, - lists, etc.",
-      },
-      cc: { type: "string", description: "CC email(s), comma-separated" },
-      bcc: { type: "string", description: "BCC email(s), comma-separated" },
-      replyToId: {
-        type: "string",
-        description: "Message ID being replied to (for threading)",
-      },
-      account: {
-        type: "string",
-        description: "Specific account email to send from",
-      },
-    },
-    required: ["to", "subject", "body"],
-  },
-};
 
 function escapeHtml(value: string): string {
   return value
@@ -225,116 +177,132 @@ async function readSettings(): Promise<{ name: string; email: string }> {
   return { name: "", email: "" };
 }
 
-export async function run(args: Record<string, string>): Promise<string> {
-  if (!args.to) return "Error: --to is required";
-  if (!args.subject) return "Error: --subject is required";
-  if (!args.body) return "Error: --body is required";
+export default defineAction({
+  description: "Send an email via Gmail.",
+  parameters: {
+    to: {
+      type: "string",
+      description: "Recipient email(s), comma-separated",
+    },
+    subject: { type: "string", description: "Email subject" },
+    body: {
+      type: "string",
+      description:
+        "Email body in markdown. Use [text](url) for links, **bold**, *italic*, - lists, etc.",
+    },
+    cc: { type: "string", description: "CC email(s), comma-separated" },
+    bcc: { type: "string", description: "BCC email(s), comma-separated" },
+    replyToId: {
+      type: "string",
+      description: "Message ID being replied to (for threading)",
+    },
+    account: {
+      type: "string",
+      description: "Specific account email to send from",
+    },
+  },
+  run: async (args) => {
+    if (!args.to) return "Error: --to is required";
+    if (!args.subject) return "Error: --subject is required";
+    if (!args.body) return "Error: --body is required";
 
-  const settings = await readSettings();
-  const accounts = await getAccessTokens();
-  if (accounts.length === 0) return "Error: No Google account connected.";
+    const settings = await readSettings();
+    const accounts = await getAccessTokens();
+    if (accounts.length === 0) return "Error: No Google account connected.";
 
-  let selectedToken = accounts[0].accessToken;
-  let selectedEmail = accounts[0].email;
+    let selectedToken = accounts[0].accessToken;
+    let selectedEmail = accounts[0].email;
 
-  if (args.account) {
-    const match = accounts.find((a) => a.email === args.account);
-    if (!match) return `Error: Account ${args.account} not connected`;
-    selectedToken = match.accessToken;
-    selectedEmail = match.email;
-  }
-
-  let threadId: string | undefined;
-  let inReplyTo: string | undefined;
-  let references: string | undefined;
-
-  if (args.replyToId) {
-    for (const { email, accessToken } of accounts) {
-      try {
-        const original = await gmailGetMessage(
-          accessToken,
-          args.replyToId,
-          "metadata",
-        );
-        threadId = original.threadId ?? undefined;
-        const headers = original.payload?.headers || [];
-        inReplyTo =
-          headers.find(
-            (h: any) => h.name === "Message-Id" || h.name === "Message-ID",
-          )?.value ?? undefined;
-        const refs = headers.find((h: any) => h.name === "References")?.value;
-        references = [refs, inReplyTo].filter(Boolean).join(" ");
-        if (!args.account) {
-          selectedToken = accessToken;
-          selectedEmail = email;
-        }
-        break;
-      } catch {}
+    if (args.account) {
+      const match = accounts.find((a) => a.email === args.account);
+      if (!match) return `Error: Account ${args.account} not connected`;
+      selectedToken = match.accessToken;
+      selectedEmail = match.email;
     }
-  }
 
-  // Fetch sender display name from Gmail send-as settings,
-  // falling back to Google profile name, then settings.name
-  let fromHeader = settings.name
-    ? `${settings.name} <${selectedEmail}>`
-    : selectedEmail;
-  try {
-    const sendAs = await googleFetch(
-      `https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs`,
-      selectedToken,
-    );
-    const match = sendAs?.sendAs?.find(
-      (s: any) => s.sendAsEmail?.toLowerCase() === selectedEmail.toLowerCase(),
-    );
-    if (match?.displayName) {
-      fromHeader = `${match.displayName} <${selectedEmail}>`;
+    let threadId: string | undefined;
+    let inReplyTo: string | undefined;
+    let references: string | undefined;
+
+    if (args.replyToId) {
+      for (const { email, accessToken } of accounts) {
+        try {
+          const original = await gmailGetMessage(
+            accessToken,
+            args.replyToId,
+            "metadata",
+          );
+          threadId = original.threadId ?? undefined;
+          const headers = original.payload?.headers || [];
+          inReplyTo =
+            headers.find(
+              (h: any) => h.name === "Message-Id" || h.name === "Message-ID",
+            )?.value ?? undefined;
+          const refs = headers.find((h: any) => h.name === "References")?.value;
+          references = [refs, inReplyTo].filter(Boolean).join(" ");
+          if (!args.account) {
+            selectedToken = accessToken;
+            selectedEmail = email;
+          }
+          break;
+        } catch {}
+      }
     }
-  } catch {
-    // Fall back to profile name below
-  }
-  // If still no display name, try Google profile
-  if (
-    fromHeader === selectedEmail ||
-    (!fromHeader.includes("<") && !settings.name)
-  ) {
+
+    // Fetch sender display name from Gmail send-as settings,
+    // falling back to Google profile name, then settings.name
+    let fromHeader = settings.name
+      ? `${settings.name} <${selectedEmail}>`
+      : selectedEmail;
     try {
-      const profile = await googleFetch(
-        `https://www.googleapis.com/oauth2/v2/userinfo`,
+      const sendAs = await googleFetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs`,
         selectedToken,
       );
-      if (profile?.name) {
-        fromHeader = `${profile.name} <${selectedEmail}>`;
+      const match = sendAs?.sendAs?.find(
+        (s: any) =>
+          s.sendAsEmail?.toLowerCase() === selectedEmail.toLowerCase(),
+      );
+      if (match?.displayName) {
+        fromHeader = `${match.displayName} <${selectedEmail}>`;
       }
     } catch {
-      // Fall back to settings.name or email-only
+      // Fall back to profile name below
     }
-  }
+    // If still no display name, try Google profile
+    if (
+      fromHeader === selectedEmail ||
+      (!fromHeader.includes("<") && !settings.name)
+    ) {
+      try {
+        const profile = await googleFetch(
+          `https://www.googleapis.com/oauth2/v2/userinfo`,
+          selectedToken,
+        );
+        if (profile?.name) {
+          fromHeader = `${profile.name} <${selectedEmail}>`;
+        }
+      } catch {
+        // Fall back to settings.name or email-only
+      }
+    }
 
-  const raw = buildRawEmail({
-    from: fromHeader,
-    to: args.to,
-    cc: args.cc,
-    bcc: args.bcc,
-    subject: args.subject,
-    body: args.body,
-    inReplyTo,
-    references,
-  });
+    const raw = buildRawEmail({
+      from: fromHeader,
+      to: args.to,
+      cc: args.cc,
+      bcc: args.bcc,
+      subject: args.subject,
+      body: args.body,
+      inReplyTo,
+      references,
+    });
 
-  try {
-    const sent = await gmailSendMessage(selectedToken, raw, threadId);
-    return `Email sent successfully (id: ${sent.id})`;
-  } catch (err: any) {
-    return `Error sending email: ${err?.message}`;
-  }
-}
-
-export default async function main(): Promise<void> {
-  const args = parseArgs() as Record<string, string>;
-  if (!args.to) fatal("--to is required");
-  if (!args.subject) fatal("--subject is required");
-  if (!args.body) fatal("--body is required");
-  const result = await run(args);
-  console.error(result);
-  output({ result });
-}
+    try {
+      const sent = await gmailSendMessage(selectedToken, raw, threadId);
+      return `Email sent successfully (id: ${sent.id})`;
+    } catch (err: any) {
+      return `Error sending email: ${err?.message}`;
+    }
+  },
+});

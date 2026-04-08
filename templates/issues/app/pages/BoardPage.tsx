@@ -44,7 +44,9 @@ export function BoardPage({
       if (!column) return;
 
       // We need to fetch transitions for this issue to find the right one
-      fetch(`/api/issues/${issueKey}/transitions`)
+      fetch(
+        `/_agent-native/actions/get-transitions?key=${encodeURIComponent(issueKey)}`,
+      )
         .then((r) => r.json())
         .then((data) => {
           const transitions = data.transitions || [];

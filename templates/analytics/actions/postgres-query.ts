@@ -1,24 +1,16 @@
-#!/usr/bin/env tsx
-/**
- * Run an arbitrary SQL query against a connected PostgreSQL database.
- *
- * Usage:
- *   pnpm action postgres-query --sql="SELECT * FROM users LIMIT 10"
- *   pnpm action postgres-query --sql="SELECT count(*) FROM orders" --format=json
- */
-import { parseArgs, output, fatal } from "./helpers";
+import { defineAction } from "@agent-native/core";
 import { runQuery } from "../server/lib/postgres";
 
-const args = parseArgs();
-const sql = args.sql;
-if (!sql) fatal('--sql is required. Example: --sql="SELECT 1"');
-
-const format = args.format || "table";
-
-const rows = await runQuery(sql);
-
-if (format === "table" && Array.isArray(rows) && rows.length > 0) {
-  console.table(rows);
-} else {
-  output(rows);
-}
+export default defineAction({
+  description:
+    "Run an arbitrary SQL query against a connected PostgreSQL database.",
+  parameters: {
+    sql: { type: "string", description: "SQL query to execute" },
+  },
+  http: false,
+  run: async (args) => {
+    if (!args.sql)
+      return { error: '--sql is required. Example: --sql="SELECT 1"' };
+    return await runQuery(args.sql);
+  },
+});

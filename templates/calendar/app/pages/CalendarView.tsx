@@ -344,7 +344,7 @@ export default function CalendarView() {
           // quickEditEventId to the real ID.
           const { _tempId, ...realEvent } = result;
           queryClient.setQueriesData<CalendarEvent[]>(
-            { queryKey: ["events"] },
+            { queryKey: ["action", "list-events"] },
             (old) =>
               old?.map((e) => (e.id === _tempId ? { ...e, ...realEvent } : e)),
           );

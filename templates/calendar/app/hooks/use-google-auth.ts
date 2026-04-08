@@ -99,7 +99,7 @@ export function useSyncGoogle() {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["events"] });
+      queryClient.invalidateQueries({ queryKey: ["action", "list-events"] });
     },
   });
 }

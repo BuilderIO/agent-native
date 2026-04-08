@@ -1,4 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useActionQuery, useActionMutation } from "@agent-native/core/client";
 import type {
   Document,
   DocumentCreateRequest,
@@ -15,65 +16,40 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export function useDocuments() {
-  return useQuery({
-    queryKey: ["documents"],
-    queryFn: () => fetchJson<DocumentListResponse>("/api/documents"),
-    select: (data) => data.documents,
+  return useActionQuery<Document[]>("list-documents", undefined, {
+    select: (data: any) => (data?.documents ?? data) as Document[],
   });
 }
 
 export function useDocument(id: string | null) {
-  return useQuery({
-    queryKey: ["document", id],
-    queryFn: () => fetchJson<Document>(`/api/documents/${id}`),
+  return useActionQuery<Document>("get-document", id ? { id } : undefined, {
     enabled: !!id,
   });
 }
 
 export function useCreateDocument() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (data: DocumentCreateRequest) =>
-      fetchJson<Document>("/api/documents", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["documents"] });
-    },
-  });
+  return useActionMutation<Document, DocumentCreateRequest>("create-document");
 }
 
 export function useUpdateDocument() {
   const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, ...data }: DocumentUpdateRequest & { id: string }) =>
-      fetchJson<Document>(`/api/documents/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      }),
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["documents"] });
-      queryClient.invalidateQueries({
-        queryKey: ["document", variables.id],
-      });
+  return useActionMutation<Document, DocumentUpdateRequest & { id: string }>(
+    "update-document",
+    {
+      onSuccess: (_data, variables) => {
+        queryClient.invalidateQueries({
+          queryKey: ["action", "get-document", { id: variables.id }],
+        });
+      },
     },
-  });
+  );
 }
 
 export function useDeleteDocument() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) =>
-      fetchJson<{ success: boolean }>(`/api/documents/${id}`, {
-        method: "DELETE",
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["documents"] });
-    },
-  });
+  return useActionMutation<
+    { success: boolean; deleted: number },
+    { id: string }
+  >("delete-document");
 }
 
 export function useMoveDocument() {
@@ -86,7 +62,7 @@ export function useMoveDocument() {
         body: JSON.stringify(data),
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["documents"] });
+      queryClient.invalidateQueries({ queryKey: ["action"] });
     },
   });
 }

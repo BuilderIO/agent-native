@@ -1,45 +1,62 @@
-import { parseArgs } from "@agent-native/core";
-import { getAtlassianClient, jiraUrl, jiraFetch } from "./helpers.js";
+import { defineAction } from "@agent-native/core";
+import { getClient } from "../server/lib/jira-auth.js";
+import { jiraUpdateIssue } from "../server/lib/jira-api.js";
 
-export default async function (args: string[]) {
-  const { key, summary, description, priority, assignee, labels } =
-    parseArgs(args);
+export default defineAction({
+  description: "Update fields on a Jira issue",
+  parameters: {
+    key: { type: "string", description: "Issue key" },
+    summary: { type: "string", description: "New summary" },
+    description: { type: "string", description: "New description" },
+    priority: { type: "string", description: "New priority" },
+    assignee: { type: "string", description: "New assignee account ID" },
+    labels: { type: "string", description: "Comma-separated labels" },
+  },
+  run: async (args: Record<string, any>) => {
+    const { key, summary, description, priority, assignee, labels } = args;
 
-  if (!key) return "Error: --key is required (e.g. --key=PROJ-123)";
+    if (!key) throw new Error("key is required (e.g. --key=PROJ-123)");
 
-  const client = await getAtlassianClient();
+    const client = await getClient(process.env.AGENT_USER_EMAIL);
+    if (!client) throw new Error("Jira not connected");
 
-  const fields: Record<string, unknown> = {};
-  if (summary) fields.summary = summary as string;
-  if (priority) fields.priority = { name: priority as string };
-  if (assignee) fields.assignee = { accountId: assignee as string };
-  if (labels)
-    fields.labels = (labels as string).split(",").map((l) => l.trim());
-  if (description) {
-    fields.description = {
-      version: 1,
-      type: "doc",
-      content: [
-        {
-          type: "paragraph",
-          content: [{ type: "text", text: description as string }],
-        },
-      ],
-    };
-  }
+    // If a raw Jira body is passed (from frontend), forward it directly
+    if (args.fields) {
+      await jiraUpdateIssue(client.cloudId, client.accessToken, key, {
+        fields: args.fields,
+      });
+      return { success: true };
+    }
 
-  if (Object.keys(fields).length === 0) {
-    return "Error: provide at least one field to update (--summary, --description, --priority, --assignee, --labels)";
-  }
+    // Otherwise build from flat params (agent path)
+    const fields: Record<string, unknown> = {};
+    if (summary) fields.summary = summary;
+    if (priority) fields.priority = { name: priority };
+    if (assignee) fields.assignee = { accountId: assignee };
+    if (labels) {
+      const labelStr = typeof labels === "string" ? labels : String(labels);
+      fields.labels = labelStr.split(",").map((l: string) => l.trim());
+    }
+    if (description) {
+      fields.description = {
+        version: 1,
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [{ type: "text", text: description }],
+          },
+        ],
+      };
+    }
 
-  await jiraFetch(
-    jiraUrl(client.cloudId, `/issue/${key}`),
-    client.accessToken,
-    {
-      method: "PUT",
-      body: JSON.stringify({ fields }),
-    },
-  );
+    if (Object.keys(fields).length === 0) {
+      throw new Error(
+        "provide at least one field to update (--summary, --description, --priority, --assignee, --labels)",
+      );
+    }
 
-  return `Updated ${key}`;
-}
+    await jiraUpdateIssue(client.cloudId, client.accessToken, key, { fields });
+    return { success: true };
+  },
+});

@@ -1,95 +1,63 @@
-/**
- * Delete a document and all its children recursively.
- *
- * Usage:
- *   pnpm action delete-document --id abc123
- *
- * Options:
- *   --id    Document ID (required)
- */
-
-import { parseArgs, fail } from "./_utils.js";
-import { getDbExec } from "@agent-native/core/db";
+import { defineAction } from "@agent-native/core";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "../server/db/index.js";
 import { writeAppState } from "@agent-native/core/application-state";
 
-async function collectDescendants(
-  client: ReturnType<typeof getDbExec>,
-  parentId: string,
+async function deleteRecursive(
+  db: ReturnType<typeof getDb>,
+  id: string,
 ): Promise<string[]> {
-  const result = await client.execute({
-    sql: "SELECT id FROM documents WHERE parent_id = ?",
-    args: [parentId],
-  });
-  const ids: string[] = [];
-  for (const row of result.rows || []) {
-    const childId = (row as any).id;
-    ids.push(childId);
-    const grandchildren = await collectDescendants(client, childId);
-    ids.push(...grandchildren);
+  const children = await db
+    .select({ id: schema.documents.id })
+    .from(schema.documents)
+    .where(eq(schema.documents.parentId, id));
+
+  const deleted: string[] = [];
+  for (const child of children) {
+    deleted.push(...(await deleteRecursive(db, child.id)));
   }
-  return ids;
+
+  // Delete sync links, versions, then document
+  await db
+    .delete(schema.documentSyncLinks)
+    .where(eq(schema.documentSyncLinks.documentId, id));
+  await db
+    .delete(schema.documentVersions)
+    .where(eq(schema.documentVersions.documentId, id));
+  await db.delete(schema.documents).where(eq(schema.documents.id, id));
+  deleted.push(id);
+
+  return deleted;
 }
 
-export default async function main(args: string[]) {
-  const opts = parseArgs(args);
+export default defineAction({
+  description: "Delete a document and all its children recursively.",
+  parameters: {
+    id: { type: "string", description: "Document ID (required)" },
+  },
+  run: async (args) => {
+    const id = args.id;
+    if (!id) throw new Error("--id is required");
 
-  if (opts.help) {
-    console.log("Usage: pnpm action delete-document --id <id>");
-    console.log("Deletes a document and all its children recursively.");
-    return;
-  }
+    const db = getDb();
+    const [existing] = await db
+      .select({ id: schema.documents.id, title: schema.documents.title })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, id));
 
-  const id = opts.id;
-  if (!id) fail("--id is required");
+    if (!existing) throw new Error(`Document "${id}" not found`);
 
-  const client = getDbExec();
+    const deleted = await deleteRecursive(db, id);
+    const childCount = deleted.length - 1;
 
-  // Verify document exists
-  const existing = await client.execute({
-    sql: "SELECT id, title FROM documents WHERE id = ?",
-    args: [id],
-  });
-  if (!existing.rows || existing.rows.length === 0) {
-    fail(`Document "${id}" not found`);
-  }
+    // Trigger UI refresh
+    await writeAppState("refresh-signal", { ts: Date.now() });
 
-  const title = (existing.rows[0] as any).title || "Untitled";
+    const msg =
+      `Deleted "${existing.title}" (${id})` +
+      (childCount > 0 ? ` and ${childCount} child document(s)` : "");
+    console.log(msg);
 
-  // Collect all descendant IDs
-  const descendants = await collectDescendants(client, id);
-  const allIds = [id, ...descendants];
-
-  // Delete sync links for all documents
-  for (const docId of allIds) {
-    await client.execute({
-      sql: "DELETE FROM document_sync_links WHERE document_id = ?",
-      args: [docId],
-    });
-  }
-
-  // Delete document versions for all documents
-  for (const docId of allIds) {
-    await client.execute({
-      sql: "DELETE FROM document_versions WHERE document_id = ?",
-      args: [docId],
-    });
-  }
-
-  // Delete all documents (children first, then parent)
-  for (const docId of allIds.reverse()) {
-    await client.execute({
-      sql: "DELETE FROM documents WHERE id = ?",
-      args: [docId],
-    });
-  }
-
-  // Trigger UI refresh
-  await writeAppState("refresh-signal", { ts: Date.now() });
-
-  console.log(
-    `Deleted "${title}" (${id})` +
-      (descendants.length > 0
-        ? ` and ${descendants.length} child document(s)`
-        : ""),
-  );
-}
+    return { success: true, deleted: deleted.length };
+  },
+});

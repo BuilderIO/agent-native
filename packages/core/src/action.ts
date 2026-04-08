@@ -1,5 +1,13 @@
 import type { ActionTool } from "./agent/types.js";
 
+/** HTTP exposure config for an action. */
+export interface ActionHttpConfig {
+  /** HTTP method. Default: "POST". Use "GET" for read-only actions. */
+  method?: "GET" | "POST" | "PUT" | "DELETE";
+  /** Override route path under /_agent-native/actions/. Default: action filename. */
+  path?: string;
+}
+
 interface DefineActionOptions {
   description: string;
   /** Flat map of parameter names to their schema. Automatically wrapped in `{ type: "object", properties: ... }`. */
@@ -7,7 +15,14 @@ interface DefineActionOptions {
     string,
     { type: string; description?: string; enum?: string[] }
   >;
-  run: (args: Record<string, string>) => Promise<string> | string;
+  run: (args: Record<string, string>) => Promise<any> | any;
+  /**
+   * HTTP exposure config. Controls whether this action is auto-mounted as an API endpoint.
+   * - Omitted → auto-exposed with method inferred from action name
+   * - `false` → agent-only, never exposed as HTTP
+   * - `{ method: "GET" }` → explicit override
+   */
+  http?: ActionHttpConfig | false;
 }
 
 /**
@@ -42,5 +57,6 @@ export function defineAction(options: DefineActionOptions) {
         : undefined,
     },
     run: options.run,
+    ...(options.http !== undefined ? { http: options.http } : {}),
   };
 }

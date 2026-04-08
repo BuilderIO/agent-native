@@ -1,11 +1,19 @@
-#!/usr/bin/env tsx
-import { parseArgs, output } from "./helpers";
+import { defineAction } from "@agent-native/core";
 import { runQuery } from "../server/lib/bigquery";
 
-const args = parseArgs();
-const days = parseInt(args.days || "90", 10);
+export default defineAction({
+  description: "Query onboarding-related events from Amplitude via BigQuery.",
+  parameters: {
+    days: {
+      type: "string",
+      description: "Number of days to look back (default 90)",
+    },
+  },
+  http: false,
+  run: async (args) => {
+    const days = parseInt(args.days || "90", 10);
 
-const sql = `
+    const sql = `
 SELECT
   event_type,
   COUNT(*) as event_count,
@@ -36,5 +44,7 @@ ORDER BY
   event_count DESC
 `;
 
-const result = await runQuery(sql);
-output(result.rows);
+    const result = await runQuery(sql);
+    return result.rows;
+  },
+});

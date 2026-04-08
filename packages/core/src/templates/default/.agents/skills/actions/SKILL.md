@@ -131,6 +131,6 @@ export default async function transform(args: string[]) {
 
 ## Related Skills
 
-- **files-as-database** -- Actions read/write data files in `data/`
+- **storing-data** -- Actions read/write data via SQL
 - **delegate-to-agent** -- The agent invokes actions via `pnpm action <name>`
 - **real-time-sync** -- Database writes from actions trigger poll events to update the UI

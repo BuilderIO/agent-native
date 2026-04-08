@@ -1,37 +1,38 @@
-import { parseArgs, output, localFetch } from "./helpers.js";
-import type { ActionTool } from "@agent-native/core";
+import { defineAction } from "@agent-native/core";
+import * as gh from "../server/lib/greenhouse-api.js";
+import { withOrgContext } from "../server/lib/greenhouse-api.js";
 
-export const tool: ActionTool = {
+async function advanceCandidate(args: Record<string, string>) {
+  if (!args.applicationId || !args.fromStageId) {
+    return { error: "--applicationId and --fromStageId are required" };
+  }
+  await gh.advanceApplication(
+    Number(args.applicationId),
+    Number(args.fromStageId),
+  );
+  return {
+    success: true,
+    message: `Advanced application ${args.applicationId} to the next stage.`,
+  };
+}
+
+export default defineAction({
   description: "Advance a candidate's application to the next stage",
   parameters: {
-    type: "object",
-    properties: {
-      applicationId: {
-        type: "string",
-        description: "Application ID (required)",
-      },
-      fromStageId: {
-        type: "string",
-        description: "Current stage ID (required)",
-      },
+    applicationId: {
+      type: "string",
+      description: "Application ID (required)",
     },
-    required: ["applicationId", "fromStageId"],
+    fromStageId: {
+      type: "string",
+      description: "Current stage ID (required)",
+    },
   },
-};
-
-export async function run(args: Record<string, string>): Promise<string> {
-  if (!args.applicationId || !args.fromStageId) {
-    return "Error: --applicationId and --fromStageId are required";
-  }
-  await localFetch(`/api/applications/${args.applicationId}/advance`, {
-    method: "PATCH",
-    body: JSON.stringify({ from_stage_id: Number(args.fromStageId) }),
-  });
-  return `Advanced application ${args.applicationId} to the next stage.`;
-}
-
-export default async function main(): Promise<void> {
-  const args = parseArgs();
-  const result = await run(args);
-  console.log(result);
-}
+  run: async (args) => {
+    const orgId = process.env.AGENT_ORG_ID;
+    if (orgId) {
+      return withOrgContext(orgId, () => advanceCandidate(args));
+    }
+    return advanceCandidate(args);
+  },
+});

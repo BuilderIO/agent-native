@@ -1,91 +1,106 @@
+import { defineAction } from "@agent-native/core";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
+import type { FormField, FormSettings } from "../shared/types.js";
 
-function parseArgs(args: string[]): Record<string, string> {
-  const result: Record<string, string> = {};
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg.startsWith("--")) {
-      const key = arg.slice(2);
-      const next = args[i + 1];
-      if (next && !next.startsWith("--")) {
-        result[key] = next;
-        i++;
-      } else {
-        result[key] = "true";
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 60);
+}
+
+export default defineAction({
+  description: "Update an existing form.",
+  parameters: {
+    id: { type: "string", description: "Form ID (required)" },
+    title: { type: "string", description: "New title" },
+    description: { type: "string", description: "New description" },
+    slug: { type: "string", description: "New URL slug" },
+    fields: { type: "string", description: "JSON array of form fields" },
+    settings: { type: "string", description: "JSON object of form settings" },
+    status: {
+      type: "string",
+      description: "New status",
+      enum: ["draft", "published", "closed"],
+    },
+  },
+  run: async (args) => {
+    if (!args.id) {
+      throw new Error("--id is required");
+    }
+
+    const db = getDb();
+    const existing = await db
+      .select()
+      .from(schema.forms)
+      .where(eq(schema.forms.id, args.id))
+      .get();
+
+    if (!existing) {
+      throw new Error(`Form ${args.id} not found`);
+    }
+
+    const now = new Date().toISOString();
+    const updates: Record<string, unknown> = { updatedAt: now };
+
+    if (args.title !== undefined) {
+      updates.title = args.title;
+      if (args.slug === undefined) {
+        const idSuffix = args.id.slice(0, 6);
+        updates.slug = slugify(args.title || "untitled") + "-" + idSuffix;
       }
     }
-  }
-  return result;
-}
-
-export default async function main(args: string[]) {
-  const {
-    id,
-    title,
-    status,
-    fields: fieldsJson,
-    description,
-    help,
-  } = parseArgs(args);
-
-  if (help) {
-    console.log(
-      "Usage: pnpm action update-form --id <id> [--title ...] [--status draft|published|closed] [--fields <json>] [--description ...]",
-    );
-    return;
-  }
-
-  if (!id) {
-    console.error("Error: --id is required");
-    throw new Error("Script failed");
-  }
-
-  const db = getDb();
-  const existing = await db
-    .select()
-    .from(schema.forms)
-    .where(eq(schema.forms.id, id))
-    .get();
-
-  if (!existing) {
-    console.error(`Error: Form ${id} not found`);
-    throw new Error("Script failed");
-  }
-
-  const updates: Record<string, unknown> = {
-    updatedAt: new Date().toISOString(),
-  };
-  if (title) {
-    updates.title = title;
-    // Auto-update slug to match new title
-    const slugified = title
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "")
-      .slice(0, 60);
-    updates.slug = slugified + "-" + id.slice(0, 6);
-  }
-  if (description) updates.description = description;
-  if (status) updates.status = status;
-  if (fieldsJson) {
-    try {
-      JSON.parse(fieldsJson);
-      updates.fields = fieldsJson;
-    } catch {
-      console.error("Error: --fields must be valid JSON");
-      throw new Error("Script failed");
+    if (args.description !== undefined) updates.description = args.description;
+    if (args.slug !== undefined) updates.slug = args.slug;
+    if (args.fields !== undefined) {
+      if (typeof args.fields === "string") {
+        try {
+          JSON.parse(args.fields);
+          updates.fields = args.fields;
+        } catch {
+          throw new Error("--fields must be valid JSON");
+        }
+      } else {
+        updates.fields = JSON.stringify(args.fields);
+      }
     }
-  }
+    if (args.settings !== undefined) {
+      if (typeof args.settings === "string") {
+        try {
+          JSON.parse(args.settings);
+          updates.settings = args.settings;
+        } catch {
+          throw new Error("--settings must be valid JSON");
+        }
+      } else {
+        updates.settings = JSON.stringify(args.settings);
+      }
+    }
+    if (args.status !== undefined) updates.status = args.status;
 
-  await db
-    .update(schema.forms)
-    .set(updates)
-    .where(eq(schema.forms.id, id))
-    .run();
+    await db
+      .update(schema.forms)
+      .set(updates)
+      .where(eq(schema.forms.id, args.id));
 
-  console.log(`\nForm updated successfully!`);
-  console.log(`  ID: ${id}`);
-  if (title) console.log(`  Title: ${title}`);
-  if (status) console.log(`  Status: ${status}`);
-}
+    const row = await db
+      .select()
+      .from(schema.forms)
+      .where(eq(schema.forms.id, args.id))
+      .get();
+
+    return {
+      id: row!.id,
+      title: row!.title,
+      description: row!.description ?? undefined,
+      slug: row!.slug,
+      fields: JSON.parse(row!.fields) as FormField[],
+      settings: JSON.parse(row!.settings) as FormSettings,
+      status: row!.status,
+      createdAt: row!.createdAt,
+      updatedAt: row!.updatedAt,
+    };
+  },
+});

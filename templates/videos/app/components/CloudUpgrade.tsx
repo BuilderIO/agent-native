@@ -138,7 +138,7 @@ export function CloudUpgrade({
       for (let i = 0; i < 30; i++) {
         await new Promise((r) => setTimeout(r, 1000));
         try {
-          const healthRes = await fetch("/api/db-health");
+          const healthRes = await fetch("/_agent-native/actions/db-health");
           const health = await healthRes.json();
           if (health.ok && health.local === false) {
             ok = true;

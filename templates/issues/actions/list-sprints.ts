@@ -1,25 +1,25 @@
-import { parseArgs } from "@agent-native/core";
-import { getAtlassianClient, agileUrl, jiraFetch } from "./helpers.js";
+import { defineAction } from "@agent-native/core";
+import { getClient } from "../server/lib/jira-auth.js";
+import { agileListSprints } from "../server/lib/jira-api.js";
 
-export default async function (args: string[]) {
-  const { boardId } = parseArgs(args);
+export default defineAction({
+  description: "List sprints for a board",
+  parameters: {
+    boardId: { type: "string", description: "Board ID" },
+    state: { type: "string", description: "Sprint state filter" },
+  },
+  http: { method: "GET" },
+  run: async (args) => {
+    const { boardId, state } = args;
 
-  if (!boardId) return "Error: --boardId is required";
+    if (!boardId) throw new Error("boardId is required");
 
-  const client = await getAtlassianClient();
+    const client = await getClient(process.env.AGENT_USER_EMAIL);
+    if (!client) throw new Error("Jira not connected");
 
-  const result = await jiraFetch(
-    agileUrl(client.cloudId, `/board/${boardId}/sprint?maxResults=20`),
-    client.accessToken,
-  );
-
-  const sprints = result.values || [];
-  if (sprints.length === 0) return "No sprints found for this board.";
-
-  return sprints
-    .map(
-      (s: any) =>
-        `${s.id} | [${s.state.toUpperCase()}] ${s.name}${s.goal ? ` — ${s.goal}` : ""}`,
-    )
-    .join("\n");
-}
+    return await agileListSprints(client.cloudId, client.accessToken, boardId, {
+      state,
+      maxResults: 50,
+    });
+  },
+});

@@ -1,50 +1,73 @@
-import { parseArgs, output, localFetch } from "./helpers.js";
-import type { ActionTool } from "@agent-native/core";
+import { defineAction } from "@agent-native/core";
+import { withOrgContext } from "../server/lib/greenhouse-api.js";
+import {
+  mapCandidateListItem,
+  searchCandidates,
+} from "../server/lib/candidate-search.js";
+import * as gh from "../server/lib/greenhouse-api.js";
 
-export const tool: ActionTool = {
-  description: "Search and list candidates from Greenhouse",
-  parameters: {
-    type: "object",
-    properties: {
-      search: {
-        type: "string",
-        description: "Search term (name, email, company)",
-      },
-      jobId: { type: "string", description: "Filter by job ID" },
-      compact: {
-        type: "string",
-        description: "Return compact output",
-        enum: ["true", "false"],
-      },
-    },
-  },
-};
+async function listCandidates(args: Record<string, string>) {
+  const jobId = args.jobId ? Number(args.jobId) : undefined;
+  const limit = Number(args.limit) || 100;
 
-export async function run(args: Record<string, string>): Promise<string> {
-  const params = new URLSearchParams();
-  if (args.search) params.set("search", args.search);
-  if (args.jobId) params.set("job_id", args.jobId);
-  const candidates = await localFetch<any[]>(`/api/candidates?${params}`);
+  const thirtyDaysAgo = new Date(
+    Date.now() - 30 * 24 * 60 * 60 * 1000,
+  ).toISOString();
+
+  const results = args.search?.trim()
+    ? await searchCandidates({
+        search: args.search,
+        jobId,
+        limit,
+      })
+    : await gh.listCandidates({
+        job_id: jobId,
+        updated_after: thirtyDaysAgo,
+        per_page: limit,
+        page: 1,
+      });
+
+  results.sort((a, b) => {
+    const aDate = a.last_activity ? new Date(a.last_activity).getTime() : 0;
+    const bDate = b.last_activity ? new Date(b.last_activity).getTime() : 0;
+    return bDate - aDate;
+  });
+
+  const mapped = results.map(mapCandidateListItem);
 
   if (args.compact === "true") {
-    return JSON.stringify(
-      candidates.map((c) => ({
-        id: c.id,
-        name: `${c.first_name} ${c.last_name}`,
-        email: c.emails?.[0]?.value,
-        company: c.company,
-        title: c.title,
-        tags: c.tags,
-      })),
-      null,
-      2,
-    );
+    return mapped.map((c) => ({
+      id: c.id,
+      name: `${c.first_name} ${c.last_name}`,
+      email: c.emails?.[0]?.value,
+      company: c.company,
+      title: c.title,
+      tags: c.tags,
+    }));
   }
-  return JSON.stringify(candidates, null, 2);
+  return mapped;
 }
 
-export default async function main(): Promise<void> {
-  const args = parseArgs();
-  const result = await run(args);
-  console.log(result);
-}
+export default defineAction({
+  description: "Search and list candidates from Greenhouse",
+  parameters: {
+    search: {
+      type: "string",
+      description: "Search term (name, email, company)",
+    },
+    jobId: { type: "string", description: "Filter by job ID" },
+    compact: {
+      type: "string",
+      description: "Return compact output",
+      enum: ["true", "false"],
+    },
+  },
+  http: { method: "GET" },
+  run: async (args) => {
+    const orgId = process.env.AGENT_ORG_ID;
+    if (orgId) {
+      return withOrgContext(orgId, () => listCandidates(args));
+    }
+    return listCandidates(args);
+  },
+});

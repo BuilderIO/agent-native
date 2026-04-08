@@ -28,8 +28,7 @@ export function useRestoreDocumentVersion(documentId: string) {
         { method: "POST" },
       ),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["documents"] });
-      queryClient.invalidateQueries({ queryKey: ["document", documentId] });
+      queryClient.invalidateQueries({ queryKey: ["action"] });
       queryClient.invalidateQueries({
         queryKey: ["document-versions", documentId],
       });

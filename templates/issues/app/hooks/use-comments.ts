@@ -1,88 +1,83 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useActionQuery, useActionMutation } from "@agent-native/core/client";
 
 export function useComments(issueKey: string | undefined) {
-  return useQuery({
-    queryKey: ["comments", issueKey],
-    queryFn: async () => {
-      const res = await fetch(`/api/issues/${issueKey}/comments`);
-      if (!res.ok) throw new Error("Failed to fetch comments");
-      return res.json();
+  return useActionQuery<any>(
+    "get-comments",
+    issueKey ? { key: issueKey } : undefined,
+    {
+      enabled: !!issueKey,
+      staleTime: 30_000,
     },
-    enabled: !!issueKey,
-    staleTime: 30_000,
-  });
+  );
 }
 
 export function useAddComment() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({
-      issueKey,
-      body,
-    }: {
-      issueKey: string;
-      body: string;
-    }) => {
-      const res = await fetch(`/api/issues/${issueKey}/comments`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body }),
-      });
-      if (!res.ok) throw new Error("Failed to add comment");
-      return res.json();
-    },
-    onSuccess: (_, { issueKey }) => {
-      qc.invalidateQueries({ queryKey: ["comments", issueKey] });
-      qc.invalidateQueries({ queryKey: ["issue", issueKey] });
-    },
-  });
+  const mutation = useActionMutation<any, { key: string; body: string }>(
+    "add-comment",
+  );
+
+  return {
+    ...mutation,
+    mutate: (
+      vars: { issueKey: string; body: string },
+      options?: Parameters<typeof mutation.mutate>[1],
+    ) => mutation.mutate({ key: vars.issueKey, body: vars.body }, options),
+    mutateAsync: (
+      vars: { issueKey: string; body: string },
+      options?: Parameters<typeof mutation.mutateAsync>[1],
+    ) => mutation.mutateAsync({ key: vars.issueKey, body: vars.body }, options),
+  };
 }
 
 export function useEditComment() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({
-      issueKey,
-      commentId,
-      body,
-    }: {
-      issueKey: string;
-      commentId: string;
-      body: string;
-    }) => {
-      const res = await fetch(`/api/issues/${issueKey}/comments/${commentId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body }),
-      });
-      if (!res.ok) throw new Error("Failed to edit comment");
-      return res.json();
-    },
-    onSuccess: (_, { issueKey }) => {
-      qc.invalidateQueries({ queryKey: ["comments", issueKey] });
-    },
-  });
+  const mutation = useActionMutation<
+    any,
+    { key: string; commentId: string; body: string }
+  >("update-comment");
+
+  return {
+    ...mutation,
+    mutate: (
+      vars: { issueKey: string; commentId: string; body: string },
+      options?: Parameters<typeof mutation.mutate>[1],
+    ) =>
+      mutation.mutate(
+        { key: vars.issueKey, commentId: vars.commentId, body: vars.body },
+        options,
+      ),
+    mutateAsync: (
+      vars: { issueKey: string; commentId: string; body: string },
+      options?: Parameters<typeof mutation.mutateAsync>[1],
+    ) =>
+      mutation.mutateAsync(
+        { key: vars.issueKey, commentId: vars.commentId, body: vars.body },
+        options,
+      ),
+  };
 }
 
 export function useDeleteComment() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({
-      issueKey,
-      commentId,
-    }: {
-      issueKey: string;
-      commentId: string;
-    }) => {
-      const res = await fetch(`/api/issues/${issueKey}/comments/${commentId}`, {
-        method: "DELETE",
-      });
-      if (!res.ok) throw new Error("Failed to delete comment");
-      return res.json();
-    },
-    onSuccess: (_, { issueKey }) => {
-      qc.invalidateQueries({ queryKey: ["comments", issueKey] });
-      qc.invalidateQueries({ queryKey: ["issue", issueKey] });
-    },
-  });
+  const mutation = useActionMutation<any, { key: string; commentId: string }>(
+    "delete-comment",
+  );
+
+  return {
+    ...mutation,
+    mutate: (
+      vars: { issueKey: string; commentId: string },
+      options?: Parameters<typeof mutation.mutate>[1],
+    ) =>
+      mutation.mutate(
+        { key: vars.issueKey, commentId: vars.commentId },
+        options,
+      ),
+    mutateAsync: (
+      vars: { issueKey: string; commentId: string },
+      options?: Parameters<typeof mutation.mutateAsync>[1],
+    ) =>
+      mutation.mutateAsync(
+        { key: vars.issueKey, commentId: vars.commentId },
+        options,
+      ),
+  };
 }

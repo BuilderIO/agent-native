@@ -35,7 +35,9 @@ export interface ActionEntry {
   run: (
     args: Record<string, string>,
     context?: ActionRunContext,
-  ) => Promise<string>;
+  ) => Promise<any>;
+  /** HTTP exposure config. `false` = agent-only. Omitted = auto-inferred from name. */
+  http?: import("../action.js").ActionHttpConfig | false;
 }
 
 /** @deprecated Use `ActionEntry` instead */
@@ -281,10 +283,11 @@ export async function runAgentLoop(opts: {
 
       let result: string;
       try {
-        result = await actionEntry.run(
+        const raw = await actionEntry.run(
           toolUse.input as Record<string, string>,
           { send },
         );
+        result = typeof raw === "string" ? raw : JSON.stringify(raw, null, 2);
       } catch (err: any) {
         result = `Error running ${toolUse.name}: ${err?.message ?? String(err)}`;
       }

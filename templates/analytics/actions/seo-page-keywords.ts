@@ -1,14 +1,18 @@
-#!/usr/bin/env tsx
-/**
- * Get the top ranked keywords for a specific blog page by slug.
- *
- * Usage:
- *   npx tsx scripts/run.ts seo-page-keywords --slug=micro-frontends
- */
-import { parseArgs, output, fatal } from "./helpers";
+import { defineAction } from "@agent-native/core";
 import { getRankedKeywordsForPage } from "../server/lib/dataforseo";
 
-const args = parseArgs();
-if (!args.slug) fatal("--slug is required. Example: --slug=micro-frontends");
-
-output(await getRankedKeywordsForPage(args.slug));
+export default defineAction({
+  description: "Get the top ranked keywords for a specific blog page by slug.",
+  parameters: {
+    slug: {
+      type: "string",
+      description: "Blog page slug (e.g. micro-frontends)",
+    },
+  },
+  http: { method: "GET" },
+  run: async (args) => {
+    if (!args.slug) return { error: "slug is required" };
+    const keywords = await getRankedKeywordsForPage(args.slug, 20);
+    return { keywords };
+  },
+});

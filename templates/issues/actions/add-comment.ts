@@ -1,33 +1,29 @@
-import { parseArgs } from "@agent-native/core";
-import { getAtlassianClient, jiraUrl, jiraFetch } from "./helpers.js";
+import { defineAction } from "@agent-native/core";
+import { getClient } from "../server/lib/jira-auth.js";
+import { jiraAddComment } from "../server/lib/jira-api.js";
+import { markdownToAdf } from "../server/lib/adf.js";
 
-export default async function (args: string[]) {
-  const { key, body } = parseArgs(args);
+export default defineAction({
+  description: "Add a comment to a Jira issue",
+  parameters: {
+    key: { type: "string", description: "Issue key" },
+    body: { type: "string", description: "Comment text" },
+  },
+  run: async (args) => {
+    const { key, body } = args;
 
-  if (!key) return "Error: --key is required";
-  if (!body) return "Error: --body is required";
+    if (!key) throw new Error("key is required");
+    if (!body) throw new Error("body is required");
 
-  const client = await getAtlassianClient();
+    const client = await getClient(process.env.AGENT_USER_EMAIL);
+    if (!client) throw new Error("Jira not connected");
 
-  const adfBody = {
-    version: 1,
-    type: "doc",
-    content: [
-      {
-        type: "paragraph",
-        content: [{ type: "text", text: body as string }],
-      },
-    ],
-  };
-
-  const result = await jiraFetch(
-    jiraUrl(client.cloudId, `/issue/${key}/comment`),
-    client.accessToken,
-    {
-      method: "POST",
-      body: JSON.stringify({ body: adfBody }),
-    },
-  );
-
-  return `Added comment to ${key} (id: ${result.id})`;
-}
+    const adfBody = markdownToAdf(body);
+    return await jiraAddComment(
+      client.cloudId,
+      client.accessToken,
+      key,
+      adfBody,
+    );
+  },
+});

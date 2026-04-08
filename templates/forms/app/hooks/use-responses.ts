@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useActionQuery } from "@agent-native/core/client";
 import type { FormField, FormResponse } from "@shared/types";
 
 interface ResponsesResult {
@@ -8,13 +8,9 @@ interface ResponsesResult {
 }
 
 export function useFormResponses(formId: string, limit = 100) {
-  return useQuery<ResponsesResult>({
-    queryKey: ["responses", formId, limit],
-    queryFn: () =>
-      fetch(`/api/forms/${formId}/responses?limit=${limit}`).then((r) => {
-        if (!r.ok) throw new Error("Failed to fetch responses");
-        return r.json();
-      }),
-    enabled: !!formId,
-  });
+  return useActionQuery<ResponsesResult>(
+    "list-responses",
+    { formId, limit: String(limit) },
+    { enabled: !!formId },
+  );
 }

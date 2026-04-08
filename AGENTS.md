@@ -13,7 +13,7 @@ The agent can also see what the user is looking at. If an email is open, the age
 Every new feature or integration MUST update all four areas. Skipping any one breaks the agent-native contract:
 
 1. **UI** — The user-facing interface (component, route, page)
-2. **Actions** — Agent-callable operations in `actions/` so the agent can do the same thing
+2. **Actions** — Operations in `actions/` using `defineAction`. Actions serve double duty: the agent calls them as tools, and the frontend calls them as HTTP endpoints at `/_agent-native/actions/:name`. You typically don't need separate `/api/` routes anymore.
 3. **Skills / Instructions** — Update AGENTS.md and/or create skills if the feature introduces new patterns the agent needs to know
 4. **Application State** — Expose navigation and selection state so the agent knows what the user is looking at
 
@@ -76,9 +76,26 @@ All app state lives in SQL via Drizzle ORM. Users choose their database by setti
 
 The UI never calls an LLM directly. When the user wants AI to do something, the UI sends a message via `sendToAgentChat()`. The agent does the work and writes results to the database.
 
-### 3. Actions for Agent Operations
+### 3. Actions Are the Single Source of Truth
 
-When the agent needs to do something — query data, call APIs, process information — it runs an action via `pnpm action <name>`. Actions live in `actions/` and export a default async function. **Everything the UI can do, the agent can do via actions.**
+Actions are the **single source of truth** for all app operations. Define them once in `actions/` — the agent calls them as tools, and the framework auto-exposes them as HTTP endpoints at `/_agent-native/actions/:name` for the frontend.
+
+```
+┌─────────────┐     ┌─────────────────────────────────┐     ┌─────────────┐
+│  Frontend   │     │         actions/                 │     │  AI Agent   │
+│  (React)    │────▶│  defineAction({ run, http })     │◀────│  (Claude)   │
+│             │     │                                  │     │             │
+│ useAction   │     │  Single source of truth for      │     │ Tool calls  │
+│ Query/      │     │  all app operations              │     │             │
+│ Mutation    │     └─────────────────────────────────┘     └─────────────┘
+│             │       │                           │
+│             │       ▼                           ▼
+│             │  /_agent-native/actions/:name   Agent tool
+│             │  (auto-mounted HTTP)            invocation
+└─────────────┘
+```
+
+**Everything the UI can do, the agent can do — through the same action.** No more duplicating logic between `/api/` routes and actions.
 
 ### 4. Polling Keeps the UI in Sync
 
@@ -359,10 +376,13 @@ All framework-level routes live under the `/_agent-native/` prefix to avoid coll
 | `/_agent-native/auth/*`                                       | Authentication (login, session, logout)  |
 | `/_agent-native/google/*`                                     | Google OAuth (callback, auth-url, etc.)  |
 | `/_agent-native/resources/*`                                  | Resource CRUD                            |
+| `/_agent-native/actions/:name`                                | Auto-mounted action endpoints            |
 | `/_agent-native/available-clis`                               | Available CLI tools                      |
 | `/_agent-native/agent-terminal-info`                          | Terminal connection info                 |
 
-**Hard rule: ALL framework routes go under `/_agent-native/`.** Templates own `/api/*` for their domain routes (e.g., `/api/emails`, `/api/forms`, `/api/events`). When adding new framework functionality — whether in core plugins, the auth system, resources, terminal, or any other framework feature — always use the `/_agent-native/` prefix. Never put framework routes under `/api/`. Never put template routes under `/_agent-native/`.
+**Hard rule: ALL framework routes go under `/_agent-native/`.** Templates own `/api/*` for their domain routes. Never put framework routes under `/api/`. Never put template routes under `/_agent-native/`.
+
+**Actions-first approach:** For standard CRUD and data operations, use `defineAction` in `actions/` — the framework auto-mounts them as HTTP endpoints. Only create custom `/api/*` routes for things actions can't do: file uploads with multipart form data, streaming responses, webhooks from external services, or OAuth callbacks.
 
 The Nitro Vite plugin handles both `/api/` and `/_agent-native/` prefixes via file-based routing in `server/routes/`. If you add a new framework route prefix, add routes under the appropriate `server/routes/` directory.
 
@@ -375,10 +395,10 @@ app/                   # React frontend
   components/          # UI components
   hooks/               # React hooks (including use-navigation-state.ts)
 server/                # Nitro API server
-  routes/api/          # File-based API routes
+  routes/api/          # Custom API routes (file uploads, streaming, webhooks only)
   plugins/             # Server plugins (startup logic)
   db/                  # Drizzle schema + DB connection
-actions/               # Agent-callable actions (view-screen, navigate, domain ops)
+actions/               # App operations (agent tools + auto-mounted HTTP endpoints)
 .agents/skills/        # Agent skills — detailed guidance for patterns
 ```
 
@@ -439,7 +459,61 @@ The agent proactively saves learnings to `LEARNINGS.md` when users correct it, s
 
 ## Actions
 
-Create `actions/my-action.ts`:
+Actions are the primary way to add operations to your app. Define them once — the agent calls them as tools, and the framework auto-exposes them as HTTP endpoints at `/_agent-native/actions/:name`.
+
+Create `actions/list-events.ts`:
+
+```ts
+import { defineAction } from "@agent-native/core";
+
+export default defineAction({
+  description: "List calendar events",
+  parameters: {
+    from: { type: "string", description: "Start date (ISO)" },
+    to: { type: "string", description: "End date (ISO)" },
+  },
+  http: { method: "GET" },
+  run: async (args) => {
+    const events = await fetchEvents(args.from, args.to);
+    return events;
+  },
+});
+```
+
+The agent calls this as a tool. The frontend calls it via `useActionQuery("list-events", { from, to })`.
+
+### Action HTTP Options
+
+| Option                     | Effect                                                        |
+| -------------------------- | ------------------------------------------------------------- |
+| _(omitted)_                | Auto-exposed as `POST /_agent-native/actions/:name` (default) |
+| `http: { method: "GET" }`  | Exposed as `GET` — use for read-only actions                  |
+| `http: false`              | Agent-only — never exposed as HTTP                            |
+| `http: { path: "custom" }` | Override the route path (default is the action filename)      |
+
+### Frontend Hooks
+
+Call action endpoints from React with the provided hooks:
+
+```ts
+import {
+  useActionQuery,
+  useActionMutation,
+} from "@agent-native/core/client/use-action";
+
+// GET actions (read-only)
+const { data } = useActionQuery<Event[]>("list-events", { from, to });
+
+// POST actions (mutations)
+const { mutate } = useActionMutation<Event>("create-event");
+mutate({ title: "Standup", date: "2025-01-15" });
+```
+
+`useActionQuery` wraps React Query's `useQuery`. `useActionMutation` wraps `useMutation` and auto-invalidates action query caches on success.
+
+### Legacy Format
+
+Actions can also use the legacy export format with `parseArgs`:
 
 ```ts
 import { parseArgs } from "@agent-native/core";
@@ -450,6 +524,8 @@ export default async function (args: string[]) {
 ```
 
 Run with: `pnpm action my-action --name foo`
+
+Legacy actions are still auto-exposed as HTTP endpoints (POST by default). Use `defineAction` for new actions — it provides better typing, parameter validation, and explicit HTTP control.
 
 ### Core Actions (available automatically)
 
@@ -464,6 +540,7 @@ Per-user data scoping is automatic in production mode via `AGENT_USER_EMAIL`.
 
 ## Conventions
 
+- **Actions first** — for any new operation, create a `defineAction` in `actions/`. It serves both the agent (tool) and the frontend (HTTP endpoint). Only create `/api/` routes for special cases (file uploads, streaming, webhooks).
 - **TypeScript everywhere** — all code must be `.ts`/`.tsx`. Never `.js` or `.mjs`.
 - **Prettier** — run `npx prettier --write <files>` after modifying source files.
 - **Client-side rendering** — all app content renders client-side via the `ClientOnly` wrapper in `root.tsx`.

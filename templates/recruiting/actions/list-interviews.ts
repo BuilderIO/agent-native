@@ -1,22 +1,15 @@
-import { parseArgs, output, localFetch } from "./helpers.js";
-import type { ActionTool } from "@agent-native/core";
+import { defineAction } from "@agent-native/core";
+import * as gh from "../server/lib/greenhouse-api.js";
+import { withOrgContext } from "../server/lib/greenhouse-api.js";
 
-export const tool: ActionTool = {
-  description: "List upcoming scheduled interviews",
-  parameters: {
-    type: "object",
-    properties: {
-      compact: {
-        type: "string",
-        description: "Return compact output",
-        enum: ["true", "false"],
-      },
-    },
-  },
-};
+async function listInterviews(args: Record<string, string>) {
+  const defaultAfter = new Date(
+    Date.now() - 365 * 24 * 60 * 60 * 1000,
+  ).toISOString();
 
-export async function run(args: Record<string, string>): Promise<string> {
-  const interviews = await localFetch<any[]>("/api/interviews");
+  const interviews = await gh.listScheduledInterviews({
+    created_after: defaultAfter,
+  });
 
   const now = new Date();
   const upcoming = interviews
@@ -28,24 +21,33 @@ export async function run(args: Record<string, string>): Promise<string> {
     );
 
   if (args.compact === "true") {
-    return JSON.stringify(
-      upcoming.map((i) => ({
-        id: i.id,
-        start: i.start.date_time,
-        end: i.end.date_time,
-        interviewers: i.interviewers.map((iv: any) => iv.name),
-        location: i.location,
-        status: i.status,
-      })),
-      null,
-      2,
-    );
+    return upcoming.map((i) => ({
+      id: i.id,
+      start: i.start.date_time,
+      end: i.end.date_time,
+      interviewers: i.interviewers.map((iv: any) => iv.name),
+      location: i.location,
+      status: i.status,
+    }));
   }
-  return JSON.stringify(upcoming, null, 2);
+  return upcoming;
 }
 
-export default async function main(): Promise<void> {
-  const args = parseArgs();
-  const result = await run(args);
-  console.log(result);
-}
+export default defineAction({
+  description: "List upcoming scheduled interviews",
+  parameters: {
+    compact: {
+      type: "string",
+      description: "Return compact output",
+      enum: ["true", "false"],
+    },
+  },
+  http: { method: "GET" },
+  run: async (args) => {
+    const orgId = process.env.AGENT_ORG_ID;
+    if (orgId) {
+      return withOrgContext(orgId, () => listInterviews(args));
+    }
+    return listInterviews(args);
+  },
+});

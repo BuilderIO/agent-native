@@ -101,6 +101,10 @@ export {
   autoDiscoverActions,
   autoDiscoverScripts,
 } from "./action-discovery.js";
+export {
+  mountActionRoutes,
+  type MountActionRoutesOptions,
+} from "./action-routes.js";
 
 export {
   createIntegrationsPlugin,
