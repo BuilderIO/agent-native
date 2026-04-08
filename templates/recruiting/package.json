@@ -22,6 +22,7 @@
     "h3": "^1.13.0",
     "isbot": "^5",
     "nanoid": "^4.0.2",
+    "pdf-parse": "^2.4.5",
     "zod": "^3.25.76"
   },
   "devDependencies": {
