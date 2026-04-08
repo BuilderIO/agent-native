@@ -22,6 +22,14 @@ async function ensureTable(): Promise<void> {
       } catch {
         // Column already exists
       }
+      // Migration: add display_name column
+      try {
+        await client.execute(
+          `ALTER TABLE oauth_tokens ADD COLUMN display_name TEXT`,
+        );
+      } catch {
+        // Column already exists
+      }
       // Backfill: set owner = account_id for existing rows without an owner
       await client.execute(
         `UPDATE oauth_tokens SET owner = account_id WHERE owner IS NULL`,
@@ -136,17 +144,40 @@ export async function listOAuthAccounts(provider: string): Promise<
 export async function listOAuthAccountsByOwner(
   provider: string,
   owner: string,
-): Promise<Array<{ accountId: string; tokens: Record<string, unknown> }>> {
+): Promise<
+  Array<{
+    accountId: string;
+    displayName: string | null;
+    tokens: Record<string, unknown>;
+  }>
+> {
   await ensureTable();
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT account_id, tokens FROM oauth_tokens WHERE provider = ? AND owner = ?`,
+    sql: `SELECT account_id, display_name, tokens FROM oauth_tokens WHERE provider = ? AND owner = ?`,
     args: [provider, owner],
   });
   return rows.map((row) => ({
     accountId: row.account_id as string,
+    displayName: (row.display_name as string) ?? null,
     tokens: JSON.parse(row.tokens as string),
   }));
+}
+
+/**
+ * Set the display name for an OAuth account (e.g. Google profile name).
+ */
+export async function setOAuthDisplayName(
+  provider: string,
+  accountId: string,
+  displayName: string,
+): Promise<void> {
+  await ensureTable();
+  const client = getDbExec();
+  await client.execute({
+    sql: `UPDATE oauth_tokens SET display_name = ? WHERE provider = ? AND account_id = ?`,
+    args: [displayName, provider, accountId],
+  });
 }
 
 export async function hasOAuthTokens(provider: string): Promise<boolean> {

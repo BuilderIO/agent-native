@@ -17,6 +17,7 @@ import {
   saveOAuthTokens,
   listOAuthAccounts,
   listOAuthAccountsByOwner,
+  setOAuthDisplayName,
 } from "@agent-native/core/oauth-tokens";
 import {
   createOAuth2Client,
@@ -154,15 +155,25 @@ async function getAccountTokens(
   const results: Array<{ email: string; accessToken: string }> = [];
 
   for (const account of accounts) {
+    // Seed in-memory cache from SQL on first load
+    if (account.displayName && !getAccountDisplayName(account.accountId)) {
+      setAccountDisplayName(account.accountId, account.displayName);
+    }
+
     const token = await getAccessToken(account.accountId);
     if (token) {
       results.push({ email: account.accountId, accessToken: token });
-      // Populate display name cache if not already set
+      // Fetch from Google if we still don't have a display name
       if (!getAccountDisplayName(account.accountId)) {
         googleFetch(`https://www.googleapis.com/oauth2/v2/userinfo`, token)
           .then((profile: any) => {
             if (profile?.name) {
               setAccountDisplayName(account.accountId, profile.name);
+              setOAuthDisplayName(
+                "google",
+                account.accountId,
+                profile.name,
+              ).catch(() => {});
             }
           })
           .catch(() => {});

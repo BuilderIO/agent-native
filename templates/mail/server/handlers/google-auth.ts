@@ -26,6 +26,7 @@ import {
 } from "../lib/google-auth.js";
 import { googleFetch } from "../lib/google-api.js";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
+import { setOAuthDisplayName } from "@agent-native/core/oauth-tokens";
 
 export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
@@ -102,6 +103,7 @@ export const handleGoogleCallback = defineEventHandler(
             );
             if (match?.displayName) {
               setAccountDisplayName(email, match.displayName);
+              await setOAuthDisplayName("google", email, match.displayName);
               await putUserSetting(owner ?? email, "mail-settings", {
                 ...(settings || {}),
                 name: match.displayName,
