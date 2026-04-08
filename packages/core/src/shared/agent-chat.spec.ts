@@ -33,10 +33,10 @@ describe("agentChat.call", () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
-    delete process.env.HARNESS_PORT;
+    delete process.env.FRAME_PORT;
   });
 
-  it("sends POST to harness and returns response", async () => {
+  it("sends POST to frame and returns response", async () => {
     const mockResponse = {
       response: "Done!",
       filesChanged: ["events.json"],
@@ -47,7 +47,7 @@ describe("agentChat.call", () => {
       json: () => Promise.resolve(mockResponse),
     });
 
-    const result = await agentChat.call("what events?", { harnessPort: 4444 });
+    const result = await agentChat.call("what events?", { framePort: 4444 });
     expect(result).toEqual(mockResponse);
 
     const fetchCall = (globalThis.fetch as any).mock.calls[0];
@@ -63,13 +63,13 @@ describe("agentChat.call", () => {
       json: () => Promise.resolve({ response: "ok", filesChanged: [] }),
     });
 
-    await agentChat.call("msg", { context: "extra", harnessPort: 5555 });
+    await agentChat.call("msg", { context: "extra", framePort: 5555 });
     const body = JSON.parse((globalThis.fetch as any).mock.calls[0][1].body);
     expect(body.context).toBe("extra");
   });
 
-  it("uses HARNESS_PORT env var", async () => {
-    process.env.HARNESS_PORT = "9999";
+  it("uses FRAME_PORT env var", async () => {
+    process.env.FRAME_PORT = "9999";
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve({ response: "ok", filesChanged: [] }),
@@ -98,8 +98,8 @@ describe("agentChat.call", () => {
       text: () => Promise.resolve('{"error":"boom"}'),
     });
 
-    await expect(agentChat.call("msg", { harnessPort: 3333 })).rejects.toThrow(
-      "Harness chat failed (500)",
+    await expect(agentChat.call("msg", { framePort: 3333 })).rejects.toThrow(
+      "Frame chat failed (500)",
     );
   });
 
@@ -115,7 +115,7 @@ describe("agentChat.call", () => {
       json: () => Promise.resolve(mockResponse),
     });
 
-    const result = await agentChat.call("msg", { harnessPort: 3333 });
+    const result = await agentChat.call("msg", { framePort: 3333 });
     expect(result.warnings).toEqual([
       "Reverted unauthorized change to: src/index.ts",
     ]);

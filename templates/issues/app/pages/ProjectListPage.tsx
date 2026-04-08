@@ -7,8 +7,10 @@ export function ProjectListPage() {
   const projects = data?.values || [];
 
   return (
-    <div className="h-full overflow-y-auto p-6">
-      <h1 className="mb-6 text-lg font-semibold text-foreground">Projects</h1>
+    <div className="h-full overflow-y-auto p-4 sm:p-6">
+      <h1 className="mb-4 text-lg font-semibold text-foreground sm:mb-6">
+        Projects
+      </h1>
 
       {isLoading ? (
         <div className="text-sm text-muted-foreground">Loading...</div>

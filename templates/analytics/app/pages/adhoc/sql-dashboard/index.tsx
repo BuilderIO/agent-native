@@ -166,7 +166,7 @@ export default function SqlDashboardPage() {
     return (
       <div className="space-y-4">
         <Skeleton className="h-8 w-64" />
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Skeleton className="h-64" />
           <Skeleton className="h-64" />
         </div>
@@ -187,7 +187,7 @@ export default function SqlDashboardPage() {
               onChange={(e) => setNameInput(e.target.value)}
               onBlur={handleSaveName}
               onKeyDown={(e) => e.key === "Enter" && handleSaveName()}
-              className="h-8 w-64 text-lg font-semibold"
+              className="h-8 w-full sm:w-64 text-lg font-semibold"
               autoFocus
             />
           ) : (
@@ -232,7 +232,7 @@ export default function SqlDashboardPage() {
             items={dashboard.panels.map((p) => p.id)}
             strategy={rectSortingStrategy}
           >
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {dashboard.panels.map((panel) => (
                 <SqlChartCard
                   key={panel.id}

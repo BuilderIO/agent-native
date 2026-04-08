@@ -164,14 +164,14 @@ export function FormFillPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4 py-12 relative">
+    <div className="min-h-screen bg-background flex items-center justify-center p-3 sm:p-4 py-8 sm:py-12 relative">
       <div className="absolute top-4 right-4">
         <ThemeToggle />
       </div>
       <div className="w-full max-w-2xl">
         {/* Form header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-semibold">{form.title}</h1>
+        <div className="mb-6 sm:mb-8">
+          <h1 className="text-2xl sm:text-3xl font-semibold">{form.title}</h1>
           {form.description && (
             <p className="mt-2 text-muted-foreground">{form.description}</p>
           )}
@@ -202,7 +202,7 @@ export function FormFillPage() {
 
           <Button
             type="submit"
-            className="mt-4"
+            className="mt-4 w-full sm:w-auto"
             size="lg"
             disabled={submitForm.isPending}
           >

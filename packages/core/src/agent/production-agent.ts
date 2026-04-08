@@ -13,6 +13,7 @@ import type {
   AgentChatEvent,
   AgentChatReference,
 } from "./types.js";
+import { readAppState } from "../application-state/script-helpers.js";
 import {
   startRun,
   subscribeToRun,
@@ -369,6 +370,18 @@ export function createProductionAgentHandler(
     const client = new Anthropic({ apiKey });
     const enrichedMessage = enrichMessage(message, references);
 
+    // Auto-inject current screen context so the agent always knows what
+    // the user is looking at without needing to call view-screen first.
+    let screenContext = "";
+    try {
+      const navigation = await readAppState("navigation");
+      if (navigation) {
+        screenContext = `\n\n<current-screen>\n${JSON.stringify(navigation, null, 2)}\n</current-screen>`;
+      }
+    } catch {
+      // DB not ready or no navigation state — skip silently
+    }
+
     // Pre-compute agent references for A2A resolution inside the run
     const agentRefs = references.filter((r) => r.type === "agent");
 
@@ -395,7 +408,10 @@ export function createProductionAgentHandler(
         }
       }
     }
-    userContent.push({ type: "text", text: enrichedMessage });
+    userContent.push({
+      type: "text",
+      text: enrichedMessage + screenContext,
+    });
 
     const messages: Anthropic.MessageParam[] = [
       ...history

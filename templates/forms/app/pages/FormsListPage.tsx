@@ -119,17 +119,18 @@ export function FormsListPage() {
   }
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      <div className="flex items-center justify-between mb-8">
+    <div className="p-3 pt-14 sm:p-6 sm:pt-6 max-w-5xl mx-auto md:pt-6">
+      <div className="flex items-center justify-between mb-6 sm:mb-8 gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Forms</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Create and manage your forms
           </p>
         </div>
-        <Button onClick={handleCreate} className="gap-2">
+        <Button onClick={handleCreate} className="gap-2 shrink-0">
           <IconPlus className="h-4 w-4" />
-          New Form
+          <span className="hidden sm:inline">New Form</span>
+          <span className="sm:hidden">New</span>
         </Button>
       </div>
 
@@ -149,7 +150,7 @@ export function FormsListPage() {
           {forms.map((form) => (
             <div
               key={form.id}
-              className="group relative border border-border rounded-xl p-5 hover:border-primary/30 transition-colors cursor-pointer bg-card"
+              className="group relative border border-border rounded-xl p-4 sm:p-5 hover:border-primary/30 cursor-pointer bg-card"
               role="button"
               tabIndex={0}
               onClick={() => navigate(`/forms/${form.id}`)}
@@ -180,7 +181,7 @@ export function FormsListPage() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                      className="h-10 w-10 sm:h-8 sm:w-8 p-0 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100"
                       aria-label="Form actions"
                     >
                       <IconDots className="h-4 w-4" />
@@ -228,16 +229,23 @@ export function FormsListPage() {
                 </DropdownMenu>
               </div>
 
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <Badge
                   variant="outline"
-                  className={cn("text-[10px]", statusColors[form.status])}
+                  className={cn(
+                    "text-[10px] shrink-0",
+                    statusColors[form.status],
+                  )}
                 >
                   {form.status}
                 </Badge>
-                <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                  <span>{form.responseCount ?? 0} responses</span>
-                  <span>{format(new Date(form.createdAt), "MMM d")}</span>
+                <div className="flex items-center gap-2 sm:gap-3 text-xs text-muted-foreground">
+                  <span className="whitespace-nowrap">
+                    {form.responseCount ?? 0} responses
+                  </span>
+                  <span className="whitespace-nowrap">
+                    {format(new Date(form.createdAt), "MMM d")}
+                  </span>
                 </div>
               </div>
             </div>

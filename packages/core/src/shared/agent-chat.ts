@@ -61,7 +61,7 @@ function prefill(message: string, context?: string): void {
 export interface AgentChatCallOptions {
   context?: string;
   timeout?: number;
-  harnessPort?: number;
+  framePort?: number;
 }
 
 export interface AgentChatResponse {
@@ -71,9 +71,9 @@ export interface AgentChatResponse {
 }
 
 /**
- * Request/response call to the harness agent.
- * Sends a message to the harness CLI endpoint and awaits a response.
- * Node.js only — requires the harness server to be running.
+ * Request/response call to the frame agent.
+ * Sends a message to the frame CLI endpoint and awaits a response.
+ * Node.js only — requires the frame server to be running.
  */
 async function call(
   message: string,
@@ -84,9 +84,9 @@ async function call(
   }
 
   const port =
-    options?.harnessPort ??
-    (typeof process !== "undefined" && process.env.HARNESS_PORT
-      ? parseInt(process.env.HARNESS_PORT, 10)
+    options?.framePort ??
+    (typeof process !== "undefined" && process.env.FRAME_PORT
+      ? parseInt(process.env.FRAME_PORT, 10)
       : 3333);
   const timeout = options?.timeout ?? 300_000;
 
@@ -103,7 +103,7 @@ async function call(
 
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(`Harness chat failed (${res.status}): ${text}`);
+      throw new Error(`Frame chat failed (${res.status}): ${text}`);
     }
 
     return (await res.json()) as AgentChatResponse;
@@ -119,6 +119,6 @@ export const agentChat = {
   submit,
   /** Prefill the chat input for user review before sending */
   prefill,
-  /** Request/response call to the harness agent (Node.js only) */
+  /** Request/response call to the frame agent (Node.js only) */
   call,
 };

@@ -202,7 +202,7 @@ export function NewCompositionPopover({
           side="right"
           align="start"
           sideOffset={8}
-          className="w-[400px] p-4 bg-card border-border shadow-xl rounded-xl"
+          className="w-[calc(100vw-2rem)] sm:w-[400px] max-w-[400px] p-3 sm:p-4 bg-card border-border shadow-xl rounded-xl"
         >
           <div className="space-y-4">
             {/* Header */}

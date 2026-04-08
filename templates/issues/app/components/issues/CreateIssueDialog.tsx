@@ -62,7 +62,7 @@ export function CreateIssueDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[520px]">
+      <DialogContent className="max-h-[90vh] overflow-y-auto max-w-[95vw] sm:max-w-[520px]">
         <DialogHeader>
           <DialogTitle>Create Issue</DialogTitle>
         </DialogHeader>
@@ -75,7 +75,7 @@ export function CreateIssueDialog({
             <select
               value={projectKey}
               onChange={(e) => setProjectKey(e.target.value)}
-              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+              className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground"
             >
               <option value="">Select project...</option>
               {projects.map((p: any) => (
@@ -95,7 +95,7 @@ export function CreateIssueDialog({
               <select
                 value={issueType}
                 onChange={(e) => setIssueType(e.target.value)}
-                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+                className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground"
               >
                 <option value="Task">Task</option>
                 <option value="Bug">Bug</option>
@@ -110,7 +110,7 @@ export function CreateIssueDialog({
               <select
                 value={priority}
                 onChange={(e) => setPriority(e.target.value)}
-                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+                className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground"
               >
                 <option value="Highest">Highest</option>
                 <option value="High">High</option>
@@ -155,14 +155,14 @@ export function CreateIssueDialog({
             <button
               type="button"
               onClick={() => onOpenChange(false)}
-              className="rounded-md px-4 py-2 text-sm text-muted-foreground hover:text-foreground"
+              className="rounded-md px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={!projectKey || !summary.trim() || createIssue.isPending}
-              className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+              className="rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground disabled:opacity-50"
             >
               {createIssue.isPending ? "Creating..." : "Create"}
             </button>

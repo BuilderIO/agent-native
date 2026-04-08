@@ -63,27 +63,23 @@ export function IssueListItem({
     <Link
       to={`${basePath}/${issue.key}`}
       className={cn(
-        "issue-row flex items-center gap-3 border-b border-border/30 px-4 py-2.5",
+        "issue-row flex items-center gap-2 border-b border-border/30 px-3 py-3 sm:gap-3 sm:px-4 sm:py-2.5",
         focused && "focused",
         selected && "selected",
       )}
     >
-      {/* Issue type */}
       <IssueTypeIcon name={fields.issuetype?.name || "Task"} />
 
-      {/* Key */}
-      <span className="w-[80px] shrink-0 text-[12px] font-medium text-muted-foreground">
+      <span className="hidden w-[80px] shrink-0 text-[12px] font-medium text-muted-foreground sm:inline">
         {issue.key}
       </span>
 
-      {/* Summary */}
       <span className="min-w-0 flex-1 truncate text-[13px] text-foreground">
         {fields.summary}
       </span>
 
-      {/* Labels */}
       {fields.labels && fields.labels.length > 0 && (
-        <div className="hidden items-center gap-1 sm:flex">
+        <div className="hidden items-center gap-1 md:flex">
           {fields.labels.slice(0, 2).map((label) => (
             <span
               key={label}
@@ -95,13 +91,11 @@ export function IssueListItem({
         </div>
       )}
 
-      {/* Priority */}
       <PriorityIcon name={fields.priority?.name} />
 
-      {/* Assignee */}
       {fields.assignee ? (
         <div
-          className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground"
+          className="hidden h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground sm:flex"
           title={fields.assignee.displayName}
         >
           {fields.assignee.displayName
@@ -112,10 +106,9 @@ export function IssueListItem({
             .toUpperCase()}
         </div>
       ) : (
-        <div className="h-5 w-5 shrink-0" />
+        <div className="hidden h-5 w-5 shrink-0 sm:block" />
       )}
 
-      {/* Status */}
       <StatusBadge status={fields.status} />
     </Link>
   );

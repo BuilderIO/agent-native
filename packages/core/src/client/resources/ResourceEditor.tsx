@@ -699,6 +699,117 @@ function InlineBubbleToolbar({ editor }: { editor: any }) {
 
 // --- Visual Markdown Editor ---
 
+// --- Syntax-highlighted code editor (textarea + overlay) ---
+
+function highlightJson(text: string): string {
+  // Escape HTML first
+  const esc = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  // Tokenize JSON with regex
+  return esc.replace(
+    /("(?:\\.|[^"\\])*")\s*:|("(?:\\.|[^"\\])*")|((?:-?\d+)(?:\.\d+)?(?:[eE][+-]?\d+)?)|(\btrue\b|\bfalse\b|\bnull\b)/g,
+    (match, key, str, num, lit) => {
+      if (key) return `<span class="sh-key">${key}</span>:`;
+      if (str) return `<span class="sh-str">${str}</span>`;
+      if (num) return `<span class="sh-num">${num}</span>`;
+      if (lit) return `<span class="sh-lit">${lit}</span>`;
+      return match;
+    },
+  );
+}
+
+const shStyles = `
+.sh-key { color: #7dd3fc; }
+.sh-str { color: #86efac; }
+.sh-num { color: #fca5a5; }
+.sh-lit { color: #c4b5fd; }
+`;
+
+function SyntaxHighlightEditor({
+  value,
+  onChange,
+  language: _language,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  language: "json";
+}) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const preRef = useRef<HTMLPreElement>(null);
+
+  const highlighted = useMemo(() => highlightJson(value), [value]);
+
+  const syncScroll = useCallback(() => {
+    if (textareaRef.current && preRef.current) {
+      preRef.current.scrollTop = textareaRef.current.scrollTop;
+      preRef.current.scrollLeft = textareaRef.current.scrollLeft;
+    }
+  }, []);
+
+  const monoFont =
+    'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace';
+  const sharedStyle: React.CSSProperties = {
+    fontFamily: monoFont,
+    fontSize: 13,
+    lineHeight: 1.6,
+    padding: 12,
+    margin: 0,
+    border: "none",
+    whiteSpace: "pre",
+    wordWrap: "normal",
+    overflowWrap: "normal",
+    tabSize: 2,
+  };
+
+  return (
+    <>
+      <style>{shStyles}</style>
+      <div
+        className="flex-1 min-h-0"
+        style={{ position: "relative", overflow: "hidden" }}
+      >
+        <pre
+          ref={preRef}
+          aria-hidden
+          style={{
+            ...sharedStyle,
+            position: "absolute",
+            inset: 0,
+            overflow: "auto",
+            pointerEvents: "none",
+            color: "hsl(var(--muted-foreground))",
+            background: "transparent",
+          }}
+          dangerouslySetInnerHTML={{ __html: highlighted + "\n" }}
+        />
+        <textarea
+          ref={textareaRef}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onScroll={syncScroll}
+          spellCheck={false}
+          style={{
+            ...sharedStyle,
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
+            overflow: "auto",
+            resize: "none",
+            background: "transparent",
+            color: "transparent",
+            caretColor: "hsl(var(--foreground))",
+            outline: "none",
+            WebkitTextFillColor: "transparent",
+          }}
+        />
+      </div>
+    </>
+  );
+}
+
 function VisualMarkdownEditor({
   content,
   onChange,
@@ -980,20 +1091,31 @@ export function ResourceEditor({
     );
   }
 
-  // Non-markdown text files: plain textarea
+  // Non-markdown text files
+  const isJson =
+    resource.mimeType === "application/json" || resource.path.endsWith(".json");
+
   return (
     <div className="flex h-full flex-col">
-      <textarea
-        value={content}
-        onChange={(e) => handleChange(e.target.value)}
-        className="flex-1 min-h-0 resize-none bg-transparent p-3 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50"
-        style={{
-          fontFamily:
-            'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
-          lineHeight: 1.6,
-        }}
-        spellCheck={false}
-      />
+      {isJson ? (
+        <SyntaxHighlightEditor
+          value={content}
+          onChange={handleChange}
+          language="json"
+        />
+      ) : (
+        <textarea
+          value={content}
+          onChange={(e) => handleChange(e.target.value)}
+          className="flex-1 min-h-0 resize-none bg-transparent p-3 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50"
+          style={{
+            fontFamily:
+              'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+            lineHeight: 1.6,
+          }}
+          spellCheck={false}
+        />
+      )}
     </div>
   );
 }

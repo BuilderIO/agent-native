@@ -20,6 +20,10 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Context Awareness", to: "/docs/context-awareness" as const },
       { label: "Skills Guide", to: "/docs/skills-guide" as const },
       { label: "A2A Protocol", to: "/docs/a2a-protocol" as const },
+      {
+        label: "Real-Time Collaboration",
+        to: "/docs/real-time-collaboration" as const,
+      },
       { label: "Agent Mentions", to: "/docs/agent-mentions" as const },
       { label: "Integrations", to: "/docs/integrations" as const },
     ],
@@ -27,6 +31,8 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     title: "Architecture",
     items: [
+      { label: "Authentication", to: "/docs/authentication" as const },
+      { label: "Security & Data Scoping", to: "/docs/security" as const },
       { label: "Server", to: "/docs/server" as const },
       { label: "Client", to: "/docs/client" as const },
       { label: "Resources & Skills", to: "/docs/resources" as const },
@@ -38,7 +44,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: "CLI Adapters", to: "/docs/cli-adapters" as const },
       { label: "Deployment", to: "/docs/deployment" as const },
-      { label: "Harnesses", to: "/docs/harnesses" as const },
+      { label: "Frames", to: "/docs/frames" as const },
       { label: "Creating Templates", to: "/docs/creating-templates" as const },
     ],
   },

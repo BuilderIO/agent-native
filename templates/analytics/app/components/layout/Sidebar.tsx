@@ -434,7 +434,7 @@ function SortableToolItem({
 
 // --- Sidebar ---
 
-export function Sidebar() {
+export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const location = useLocation();
   const { logout } = useAuth();
 
@@ -596,13 +596,14 @@ export function Sidebar() {
   return (
     <div
       className="relative flex h-screen flex-col border-r border-border bg-sidebar text-sidebar-foreground"
-      style={{ width: sidebarWidth }}
+      style={mobile ? undefined : { width: sidebarWidth }}
     >
-      {/* Resize handle */}
-      <div
-        onMouseDown={handleResizeStart}
-        className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors z-10"
-      />
+      {!mobile && (
+        <div
+          onMouseDown={handleResizeStart}
+          className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 z-10"
+        />
+      )}
       <div className="flex h-14 items-center justify-between border-b border-border px-4 lg:h-[60px] lg:px-6">
         <Link to="/" className="font-semibold">
           <span className="text-lg font-bold tracking-tight">Analytics</span>

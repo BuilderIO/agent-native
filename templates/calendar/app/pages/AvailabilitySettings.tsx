@@ -131,9 +131,9 @@ export default function AvailabilitySettings() {
             return (
               <div
                 key={key}
-                className="flex flex-wrap items-center gap-4 rounded-lg border border-border px-4 py-3"
+                className="flex flex-wrap items-center gap-3 rounded-lg border border-border px-3 py-3 sm:gap-4 sm:px-4"
               >
-                <div className="flex items-center gap-3 w-40">
+                <div className="flex items-center gap-3 w-28 sm:w-40">
                   <Switch
                     checked={day.enabled}
                     onCheckedChange={(checked) =>
@@ -151,7 +151,7 @@ export default function AvailabilitySettings() {
                       onChange={(e) =>
                         updateDaySlot(key, "start", e.target.value)
                       }
-                      className="w-32"
+                      className="w-28 sm:w-32"
                     />
                     <span className="text-muted-foreground">to</span>
                     <Input
@@ -160,7 +160,7 @@ export default function AvailabilitySettings() {
                       onChange={(e) =>
                         updateDaySlot(key, "end", e.target.value)
                       }
-                      className="w-32"
+                      className="w-28 sm:w-32"
                     />
                   </div>
                 ) : (
@@ -183,7 +183,7 @@ export default function AvailabilitySettings() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label>Buffer between events (min)</Label>
               <Input

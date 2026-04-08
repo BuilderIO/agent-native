@@ -50,9 +50,24 @@ pnpm action create-document --title "Sub Page" --parentId parent123
 pnpm action create-document --title "My Page" --icon "📝"
 ```
 
+### edit-document
+
+Surgically edit document content using search-and-replace. **Preferred over `update-document --content` for modifications** — sends only the changed text instead of regenerating the entire document.
+
+```bash
+# Single edit
+pnpm action edit-document --id abc123 --find "old text" --replace "new text"
+
+# Delete text
+pnpm action edit-document --id abc123 --find "delete me" --replace ""
+
+# Batch edits
+pnpm action edit-document --id abc123 --edits '[{"find":"old","replace":"new"},{"find":"also old","replace":"also new"}]'
+```
+
 ### update-document
 
-Update an existing document.
+Update an existing document. Use for **full rewrites or new content**, not for small changes (use `edit-document` instead).
 
 ```bash
 pnpm action update-document --id abc123 --title "New Title"
@@ -110,7 +125,8 @@ Documents form a tree via `parent_id`:
 | ----------------------------- | ---------------------------------------------------------------- |
 | "Create a page about X"       | `create-document --title "X" --content "# X\n\n..."`           |
 | "Find my meeting notes"       | `search-documents --query "meeting notes"`                      |
-| "Update this document"        | `view-screen` to get ID, then `update-document --id ... --content ...` |
+| "Fix a typo / edit a line"    | `view-screen` to get ID, then `edit-document --id ... --find "old" --replace "new"` |
+| "Rewrite this document"       | `view-screen` to get ID, then `update-document --id ... --content ...` |
 | "Delete this page"            | `view-screen` to get ID, then `delete-document --id ...`       |
 | "Add a sub-page"              | `create-document --title "Sub" --parentId <parentId>`           |
 | "Show me the document tree"   | `list-documents`                                                |

@@ -57,7 +57,11 @@ export function NewDashboardDialog() {
           {isGenerating ? "Generating..." : "New Dashboard"}
         </button>
       </PopoverTrigger>
-      <PopoverContent className="w-96 p-4" side="right" align="start">
+      <PopoverContent
+        className="w-[calc(100vw-2rem)] sm:w-96 p-4"
+        side="right"
+        align="start"
+      >
         <form onSubmit={handleSubmit}>
           <textarea
             value={prompt}

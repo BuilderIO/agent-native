@@ -1,10 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-// We test the functions we can isolate without needing a full H3 server:
-// - getAccessTokens (via autoMountAuth behavior)
-// - isPublicPath (internal, tested indirectly)
-// - isDevMode (tested via getSession behavior)
-
 describe("server/auth", () => {
   let originalEnv: NodeJS.ProcessEnv;
 
@@ -21,6 +16,7 @@ describe("server/auth", () => {
     it("throws when app is null/undefined in production mode", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "secret");
+      delete process.env.AUTH_MODE;
       const { autoMountAuth } = await import("./auth.js");
 
       expect(() => autoMountAuth(null as any)).toThrow(
@@ -28,19 +24,30 @@ describe("server/auth", () => {
       );
     });
 
-    it("returns false when app is null in dev mode", async () => {
-      vi.stubEnv("NODE_ENV", "development");
+    it("returns false when app is null in local mode", async () => {
+      vi.stubEnv("AUTH_MODE", "local");
       const { autoMountAuth } = await import("./auth.js");
 
       expect(autoMountAuth(null as any)).toBe(false);
     });
 
-    it("returns false in dev mode (auth skipped)", async () => {
+    it("returns false when app is null in dev mode", async () => {
       vi.stubEnv("NODE_ENV", "development");
+      delete process.env.AUTH_MODE;
+      const { autoMountAuth } = await import("./auth.js");
+
+      expect(autoMountAuth(null as any)).toBe(false);
+    });
+
+    it("returns false in AUTH_MODE=local (auth skipped)", async () => {
+      vi.stubEnv("AUTH_MODE", "local");
       const { autoMountAuth } = await import("./auth.js");
 
       const app = createMockApp();
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
       expect(autoMountAuth(app)).toBe(false);
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("local"));
+      logSpy.mockRestore();
     });
 
     it("returns false when AUTH_DISABLED=true in production", async () => {
@@ -48,6 +55,7 @@ describe("server/auth", () => {
       vi.stubEnv("AUTH_DISABLED", "true");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
+      delete process.env.AUTH_MODE;
       const { autoMountAuth } = await import("./auth.js");
 
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -57,11 +65,12 @@ describe("server/auth", () => {
       warnSpy.mockRestore();
     });
 
-    it("enables email/password auth when no tokens in production", async () => {
+    it("enables Better Auth when no tokens in production", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
       delete process.env.AUTH_DISABLED;
+      delete process.env.AUTH_MODE;
       const { autoMountAuth } = await import("./auth.js");
 
       const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -70,7 +79,7 @@ describe("server/auth", () => {
 
       expect(result).toBe(true);
       expect(logSpy).toHaveBeenCalledWith(
-        expect.stringContaining("email/password"),
+        expect.stringContaining("Better Auth"),
       );
       logSpy.mockRestore();
     });
@@ -78,6 +87,7 @@ describe("server/auth", () => {
     it("mounts auth when ACCESS_TOKEN is set in production", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      delete process.env.AUTH_MODE;
       const { autoMountAuth } = await import("./auth.js");
 
       const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -95,6 +105,7 @@ describe("server/auth", () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKENS", "token1, token2, token3");
       delete process.env.ACCESS_TOKEN;
+      delete process.env.AUTH_MODE;
       const { autoMountAuth } = await import("./auth.js");
 
       const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -112,6 +123,7 @@ describe("server/auth", () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "shared");
       vi.stubEnv("ACCESS_TOKENS", "shared,unique1,unique2");
+      delete process.env.AUTH_MODE;
       const { autoMountAuth } = await import("./auth.js");
 
       const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -128,6 +140,7 @@ describe("server/auth", () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
+      delete process.env.AUTH_MODE;
       const { autoMountAuth } = await import("./auth.js");
 
       const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -145,11 +158,10 @@ describe("server/auth", () => {
   });
 
   describe("getSession", () => {
-    it("returns dev session in development mode", async () => {
-      vi.stubEnv("NODE_ENV", "development");
+    it("returns local session in AUTH_MODE=local", async () => {
+      vi.stubEnv("AUTH_MODE", "local");
       const { getSession, autoMountAuth } = await import("./auth.js");
 
-      // Init dev mode
       const app = createMockApp();
       autoMountAuth(app);
 
@@ -158,8 +170,9 @@ describe("server/auth", () => {
       expect(session).toEqual({ email: "local@localhost" });
     });
 
-    it("returns dev session in test mode", async () => {
-      vi.stubEnv("NODE_ENV", "test");
+    it("returns local session in AUTH_MODE=local regardless of NODE_ENV", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AUTH_MODE", "local");
       const { getSession, autoMountAuth } = await import("./auth.js");
 
       const app = createMockApp();
@@ -174,8 +187,8 @@ describe("server/auth", () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
+      delete process.env.AUTH_MODE;
 
-      // Mock the DB layer so getSessionEmail resolves the token
       const mockExecute = vi.fn().mockImplementation(({ sql, args }: any) => {
         if (
           typeof sql === "string" &&
@@ -186,7 +199,6 @@ describe("server/auth", () => {
             rows: [{ email: "user@gmail.com", created_at: Date.now() }],
           };
         }
-        // CREATE TABLE / ALTER TABLE
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
@@ -200,12 +212,10 @@ describe("server/auth", () => {
       const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
       const app = createMockApp();
       authModule.autoMountAuth(app, {
-        // Custom getSession that returns null (simulates no cookie in WebView)
         getSession: async () => null,
       });
       logSpy.mockRestore();
 
-      // Create event with _session query param (mobile WebView bridge)
       const event = createMockEvent({
         query: { _session: "mobile-token-abc" },
       });
@@ -221,6 +231,7 @@ describe("server/auth", () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
+      delete process.env.AUTH_MODE;
 
       const authModule = await import("./auth.js");
 
@@ -231,7 +242,6 @@ describe("server/auth", () => {
       });
       logSpy.mockRestore();
 
-      // Even with _session in query, custom auth takes priority when it succeeds
       const event = createMockEvent({ query: { _session: "some-token" } });
       const session = await authModule.getSession(event);
 
@@ -269,6 +279,7 @@ function createMockEvent(opts?: {
         appendHeader: vi.fn(),
       },
     },
+    headers: new Headers(),
     context: {},
     path: url,
     _cookies: opts?.cookies || {},

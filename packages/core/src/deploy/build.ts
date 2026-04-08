@@ -945,6 +945,76 @@ async function buildWithNitro() {
       }
     }
 
+    // 4. Create stub modules in _libs/ for native deps that Nitro's rolldown
+    // bundler references but can't resolve on CF Workers, and rewrite
+    // bare imports to point to the stub files.
+    const libsDir2 = path.join(
+      serverDir2 || path.join(cwd, "dist", "_worker.js"),
+      "_libs",
+    );
+    if (fs.existsSync(libsDir2)) {
+      const NATIVE_STUBS = ["better-sqlite3", "node-pty", "cron-parser"];
+      for (const mod of NATIVE_STUBS) {
+        const libFiles = fs
+          .readdirSync(libsDir2)
+          .filter((f) => f.endsWith(".mjs"));
+        const referencingFiles: string[] = [];
+        for (const f of libFiles) {
+          const filePath = path.join(libsDir2, f);
+          const content = fs.readFileSync(filePath, "utf-8");
+          if (content.includes(`"${mod}"`) || content.includes(`'${mod}'`)) {
+            referencingFiles.push(filePath);
+          }
+        }
+        if (referencingFiles.length === 0) continue;
+
+        // Create a stub _libs/<mod>.mjs that exports empty defaults
+        const stubName = mod.replace(/[/@]/g, "__") + ".mjs";
+        const stubPath = path.join(libsDir2, stubName);
+        if (!fs.existsSync(stubPath)) {
+          fs.writeFileSync(
+            stubPath,
+            `export default {}; export const watch = () => ({ close() {} });\n`,
+          );
+          console.log(`[deploy] Created stub for _libs/${stubName}`);
+        }
+
+        // Rewrite bare imports in _libs/ and _chunks/ to use the stub
+        const escaped = mod.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const importRe = new RegExp(`(from\\s*["'])${escaped}(["'])`, "g");
+        // Scan _libs/ files
+        for (const filePath of referencingFiles) {
+          let code = fs.readFileSync(filePath, "utf-8");
+          if (importRe.test(code)) {
+            code = code.replace(importRe, `$1./${stubName}$2`);
+            fs.writeFileSync(filePath, code);
+            console.log(
+              `[deploy] Rewrote ${mod} imports in _libs/${path.basename(filePath)}`,
+            );
+          }
+        }
+        // Also scan _chunks/ files (they import native deps too)
+        const chunksDir2 = path.join(
+          serverDir2 || path.join(cwd, "dist", "_worker.js"),
+          "_chunks",
+        );
+        if (fs.existsSync(chunksDir2)) {
+          for (const f of fs
+            .readdirSync(chunksDir2)
+            .filter((f) => f.endsWith(".mjs") || f.endsWith(".js"))) {
+            const filePath = path.join(chunksDir2, f);
+            let code = fs.readFileSync(filePath, "utf-8");
+            if (importRe.test(code)) {
+              // From _chunks/, the stub is at ../_libs/<stubName>
+              code = code.replace(importRe, `$1../_libs/${stubName}$2`);
+              fs.writeFileSync(filePath, code);
+              console.log(`[deploy] Rewrote ${mod} imports in _chunks/${f}`);
+            }
+          }
+        }
+      }
+    }
+
     console.log(
       "[deploy] Patched bare Node imports, timer calls, and route finder for CF Workers",
     );

@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { AgentSidebar } from "@agent-native/core/client";
 import { Sidebar } from "./Sidebar";
 import { useNavigationState } from "@/hooks/use-navigation-state";
+import { useIsMobile } from "@/hooks/use-mobile";
 import type { CalendarEvent } from "@shared/api";
 
 const EVENT_DETAIL_MODE_KEY = "calendar-event-detail-mode";
@@ -57,9 +58,10 @@ interface AppLayoutProps {
 }
 
 export function AppLayout({ children }: AppLayoutProps) {
+  const isMobile = useIsMobile();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
-  const [viewMode, setViewMode] = useState<ViewMode>("week");
+  const [viewMode, setViewMode] = useState<ViewMode>(isMobile ? "day" : "week");
   const [peopleSearchOpen, setPeopleSearchOpen] = useState(false);
   const [eventDetailSidebar, setEventDetailSidebarState] = useState(false);
   const [sidebarEvent, setSidebarEvent] = useState<CalendarEvent | null>(null);
@@ -119,10 +121,10 @@ export function AppLayout({ children }: AppLayoutProps) {
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8"
+                className="h-10 w-10"
                 onClick={() => setSidebarOpen(true)}
               >
-                <IconMenu className="h-4 w-4" />
+                <IconMenu className="h-5 w-5" />
               </Button>
               <span className="ml-2 text-sm font-semibold">Calendar</span>
             </div>

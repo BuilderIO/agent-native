@@ -10,21 +10,26 @@ export {
   CodeRequiredDialog,
   type CodeRequiredDialogProps,
 } from "./components/CodeRequiredDialog.js";
+export {
+  CodeAgentIndicator,
+  type CodeAgentIndicatorProps,
+} from "./components/CodeAgentIndicator.js";
 export { useDbSync, useFileWatcher } from "./use-db-sync.js";
 export { cn } from "./utils.js";
 export { ApiKeySettings } from "./components/ApiKeySettings.js";
 export { useSession, type AuthSession } from "./use-session.js";
 export {
-  sendToHarness,
-  onHarnessMessage,
+  sendToFrame,
+  onFrameMessage,
   requestUserInfo,
-  getHarnessOrigin,
+  getFrameOrigin,
   getCallbackOrigin,
+  isInFrame,
   enterStyleEditing,
   enterTextEditing,
   exitSelectionMode,
   type UserInfo,
-} from "./harness.js";
+} from "./frame.js";
 export {
   AssistantChat,
   clearChatStorage,
@@ -69,6 +74,14 @@ export { DefaultSpinner } from "./DefaultSpinner.js";
 export { AgentTerminal, type AgentTerminalProps } from "./terminal/index.js";
 export { trackEvent, trackSessionStatus } from "./analytics.js";
 export {
+  useCollaborativeDoc,
+  emailToColor,
+  emailToName,
+  type UseCollaborativeDocOptions,
+  type UseCollaborativeDocResult,
+  type CollabUser,
+} from "../collab/client.js";
+export {
   ResourcesPanel,
   ResourceTree,
   ResourceEditor,
@@ -86,6 +99,13 @@ export {
   type ResourceTreeProps,
   type ResourceEditorProps,
 } from "./resources/index.js";
+export type {
+  AppToFrameMessage,
+  FrameToAppMessage,
+  FrameMessage,
+  CodeCompleteMessage,
+  ChatRunningMessage,
+} from "./frame-protocol.js";
 export {
   CommandMenu,
   useCommandMenuShortcut,

@@ -84,7 +84,7 @@ function FilterRow({
   const needsValue = !NO_VALUE_OPS.has(filter.operator);
 
   return (
-    <div className="flex items-center gap-1.5 text-sm pl-4">
+    <div className="flex flex-wrap items-center gap-1.5 text-sm pl-4">
       <span className="text-muted-foreground text-xs shrink-0">&#9655;</span>
       <PropertyCombobox
         value={filter.property}

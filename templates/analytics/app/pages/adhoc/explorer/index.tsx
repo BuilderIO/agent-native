@@ -101,18 +101,17 @@ export default function ExplorerPage() {
   return (
     <div className="space-y-4">
       {/* Header bar */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2">
-          <h2 className="text-lg font-semibold">Explorer</h2>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <h2 className="text-lg font-semibold shrink-0">Explorer</h2>
           {currentId && (
-            <span className="text-sm text-muted-foreground">
+            <span className="text-sm text-muted-foreground truncate">
               — {config.name}
             </span>
           )}
         </div>
 
-        <div className="flex items-center gap-2">
-          {/* IconDeviceFloppy */}
+        <div className="flex items-center gap-2 flex-wrap">
           <Button
             size="sm"
             variant="outline"
@@ -123,7 +122,6 @@ export default function ExplorerPage() {
             {isSaving ? "Saving..." : "Save"}
           </Button>
 
-          {/* Load / manage saved configs */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button size="sm" variant="outline">

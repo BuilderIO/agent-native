@@ -170,7 +170,7 @@ export function CloudUpgrade({
   const isConnecting = status === "saving" || status === "polling";
 
   return (
-    <div className="w-full max-w-lg rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+    <div className="w-[calc(100%-2rem)] sm:w-full max-w-lg rounded-xl border border-zinc-200 bg-white p-4 sm:p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
       {/* Header */}
       <div className="mb-4 flex items-start justify-between">
         <div className="flex items-center gap-2">
@@ -195,7 +195,7 @@ export function CloudUpgrade({
       </p>
 
       {/* Provider selection */}
-      <div className="mb-5 grid grid-cols-2 gap-2">
+      <div className="mb-5 grid grid-cols-1 sm:grid-cols-2 gap-2">
         {PROVIDERS.map((p) => (
           <button
             key={p.id}

@@ -34,7 +34,10 @@ export function FieldRenderer({
 
   return (
     <div
-      className={cn("space-y-2", field.width === "half" ? "w-1/2" : "w-full")}
+      className={cn(
+        "space-y-2",
+        field.width === "half" ? "w-full sm:w-1/2" : "w-full",
+      )}
     >
       <Label className="text-sm font-medium">
         {field.label}
@@ -105,11 +108,14 @@ export function FieldRenderer({
       )}
 
       {field.type === "multiselect" && (
-        <div className="space-y-2">
+        <div className="space-y-1">
           {(field.options || []).map((opt) => {
             const selected = Array.isArray(value) ? value : [];
             return (
-              <label key={opt} className="flex items-center gap-2 text-sm">
+              <label
+                key={opt}
+                className="flex items-center gap-2.5 text-sm min-h-[44px] py-1"
+              >
                 <Checkbox
                   checked={selected.includes(opt)}
                   onCheckedChange={(checked) => {
@@ -128,7 +134,7 @@ export function FieldRenderer({
       )}
 
       {field.type === "checkbox" && (
-        <label className="flex items-center gap-2 text-sm">
+        <label className="flex items-center gap-2.5 text-sm min-h-[44px]">
           <Checkbox
             checked={!!value}
             onCheckedChange={handleChange}
@@ -145,7 +151,7 @@ export function FieldRenderer({
           disabled={disabled}
         >
           {(field.options || []).map((opt) => (
-            <div key={opt} className="flex items-center gap-2">
+            <div key={opt} className="flex items-center gap-2.5 min-h-[44px]">
               <RadioGroupItem value={opt} id={`${field.id}-${opt}`} />
               <Label htmlFor={`${field.id}-${opt}`} className="font-normal">
                 {opt}
@@ -165,19 +171,19 @@ export function FieldRenderer({
       )}
 
       {field.type === "rating" && (
-        <div className="flex gap-1">
+        <div className="flex gap-0.5 sm:gap-1">
           {[1, 2, 3, 4, 5].map((star) => (
             <button
               key={star}
               type="button"
               onClick={() => !disabled && handleChange(star)}
-              className="p-0.5"
+              className="p-2 sm:p-1.5"
               disabled={disabled}
               aria-label={`${star} star${star !== 1 ? "s" : ""}`}
             >
               <Star
                 className={cn(
-                  "h-6 w-6 transition-colors",
+                  "h-7 w-7 sm:h-6 sm:w-6",
                   (value as number) >= star
                     ? "fill-amber-400 text-amber-400"
                     : "text-muted-foreground/30",

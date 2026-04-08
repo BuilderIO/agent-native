@@ -77,41 +77,52 @@ Views: `list` (document tree), `editor` (viewing/editing a document).
 
 ### Document Operations
 
-| Action             | Args                                               | Purpose                            |
-| ------------------ | -------------------------------------------------- | ---------------------------------- |
-| `list-documents`   | `[--format json]`                                  | List all documents as tree         |
-| `search-documents` | `--query <text> [--format json]`                   | Search by title and content        |
-| `get-document`     | `--id <id> [--format json]`                        | Get a single document with content |
-| `create-document`  | `--title <text> [--content] [--parentId] [--icon]` | Create a new document              |
-| `update-document`  | `--id <id> [--title] [--content] [--icon]`         | Update document fields             |
-| `delete-document`  | `--id <id>`                                        | Delete with recursive children     |
+| Action             | Args                                               | Purpose                                          |
+| ------------------ | -------------------------------------------------- | ------------------------------------------------ |
+| `list-documents`   | `[--format json]`                                  | List all documents as tree                       |
+| `search-documents` | `--query <text> [--format json]`                   | Search by title and content                      |
+| `get-document`     | `--id <id> [--format json]`                        | Get a single document with content               |
+| `create-document`  | `--title <text> [--content] [--parentId] [--icon]` | Create a new document                            |
+| `edit-document`    | `--id <id> --find <text> --replace <text>`         | Surgical text edit (preferred for modifications) |
+| `edit-document`    | `--id <id> --edits <json>`                         | Batch surgical text edits                        |
+| `update-document`  | `--id <id> [--title] [--content] [--icon]`         | Full rewrite of document fields                  |
+| `delete-document`  | `--id <id>`                                        | Delete with recursive children                   |
 
 ### Notion Integration
 
-| Action                  | Args                                    | Purpose                  |
-| ----------------------- | --------------------------------------- | ------------------------ |
-| `connect-notion-status` |                                         | Check Notion connection  |
-| `link-notion-page`      | `--documentId <id> --notionPageId <id>` | Link doc to Notion page  |
-| `list-notion-links`     |                                         | List linked documents    |
-| `pull-notion-page`      | `--documentId <id>`                     | Pull content from Notion |
-| `push-notion-page`      | `--documentId <id>`                     | Push content to Notion   |
+| Action                  | Args                                    | Purpose                                   |
+| ----------------------- | --------------------------------------- | ----------------------------------------- |
+| `connect-notion-status` |                                         | Check Notion connection                   |
+| `link-notion-page`      | `--documentId <id> --notionPageId <id>` | Link doc to Notion page                   |
+| `list-notion-links`     |                                         | List linked documents                     |
+| `pull-notion-page`      | `--documentId <id>`                     | Pull content from Notion                  |
+| `push-notion-page`      | `--documentId <id>`                     | Push content to Notion                    |
+| `sync-notion-comments`  | `--documentId <id>`                     | Sync comments with Notion (bidirectional) |
+
+### Comments
+
+| Action          | Args                                                           | Purpose                  |
+| --------------- | -------------------------------------------------------------- | ------------------------ |
+| `list-comments` | `--documentId <id>`                                            | List all comment threads |
+| `add-comment`   | `--documentId <id> --content <text> [--threadId] [--parentId]` | Add a comment or reply   |
 
 ## Common Tasks
 
-| User request                   | What to do                                                                   |
-| ------------------------------ | ---------------------------------------------------------------------------- |
-| "What am I looking at?"        | `view-screen`                                                                |
-| "Create a page about X"        | `create-document --title "X" --content "# X\n\n..."`                         |
-| "Find my meeting notes"        | `search-documents --query "meeting notes"`                                   |
-| "Update the title of this doc" | `view-screen` to get ID, `update-document --id ... --title "New"`            |
-| "Write some content here"      | `view-screen` to get ID, `update-document --id ... --content "..."`          |
-| "Delete this page"             | `view-screen` to get ID, `delete-document --id ...`                          |
-| "Add a sub-page"               | `view-screen` to get parent ID, `create-document --title ... --parentId ...` |
-| "Show me the document list"    | `list-documents`                                                             |
-| "Open document X"              | `navigate --documentId=<id>`                                                 |
-| "Go to the list view"          | `navigate --path=/`                                                          |
-| "Pull from Notion"             | `view-screen` to get ID, `pull-notion-page --documentId ...`                 |
-| "Push to Notion"               | `view-screen` to get ID, `push-notion-page --documentId ...`                 |
+| User request                   | What to do                                                                     |
+| ------------------------------ | ------------------------------------------------------------------------------ |
+| "What am I looking at?"        | `view-screen`                                                                  |
+| "Create a page about X"        | `create-document --title "X" --content "# X\n\n..."`                           |
+| "Find my meeting notes"        | `search-documents --query "meeting notes"`                                     |
+| "Update the title of this doc" | `view-screen` to get ID, `update-document --id ... --title "New"`              |
+| "Fix a typo / small edit"      | `view-screen` to get ID, `edit-document --id ... --find "old" --replace "new"` |
+| "Write new content here"       | `view-screen` to get ID, `update-document --id ... --content "..."`            |
+| "Delete this page"             | `view-screen` to get ID, `delete-document --id ...`                            |
+| "Add a sub-page"               | `view-screen` to get parent ID, `create-document --title ... --parentId ...`   |
+| "Show me the document list"    | `list-documents`                                                               |
+| "Open document X"              | `navigate --documentId=<id>`                                                   |
+| "Go to the list view"          | `navigate --path=/`                                                            |
+| "Pull from Notion"             | `view-screen` to get ID, `pull-notion-page --documentId ...`                   |
+| "Push to Notion"               | `view-screen` to get ID, `push-notion-page --documentId ...`                   |
 
 After any create, update, or delete operation, the scripts automatically trigger a UI refresh.
 
@@ -143,8 +154,9 @@ Documents form a tree via `parent_id`. Content is stored as markdown.
 
 ## Rules
 
-1. **Use scripts for document operations** — never use raw `db-exec` SQL for documents
-2. **Always `view-screen` first** — know what the user is looking at before acting
-3. **Use markdown for content** — documents store content as markdown
-4. **All AI goes through agent chat** — never call an LLM directly from code
-5. **Run `refresh-list` after changes** — the create/update/delete scripts do this automatically
+1. **Use scripts for document operations** — NEVER use raw `db-exec` SQL for documents. Always use `edit-document` or `update-document`. The editor uses real-time Yjs collaboration — raw SQL changes won't appear in the user's editor.
+2. **Prefer `edit-document` for changes** — use `edit-document --find "old" --replace "new"` for modifications. It's faster (no full regeneration) and syncs live to the editor via Yjs CRDT.
+3. **Always `view-screen` first** — know what the user is looking at before acting
+4. **Use markdown for content** — documents store content as markdown
+5. **All AI goes through agent chat** — never call an LLM directly from code
+6. **Run `refresh-list` after changes** — the create/update/delete scripts do this automatically

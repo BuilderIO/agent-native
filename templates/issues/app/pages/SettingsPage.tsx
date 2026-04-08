@@ -16,11 +16,12 @@ export function SettingsPage() {
   };
 
   return (
-    <div className="h-full overflow-y-auto p-6">
-      <h1 className="mb-6 text-lg font-semibold text-foreground">Settings</h1>
+    <div className="h-full overflow-y-auto p-4 sm:p-6">
+      <h1 className="mb-4 text-lg font-semibold text-foreground sm:mb-6">
+        Settings
+      </h1>
 
-      {/* Connection */}
-      <div className="rounded-lg border border-border p-6">
+      <div className="rounded-lg border border-border p-4 sm:p-6">
         <h2 className="mb-1 text-[15px] font-semibold text-foreground">
           Jira Connection
         </h2>
@@ -33,10 +34,10 @@ export function SettingsPage() {
             {accounts.map((account: any) => (
               <div
                 key={account.email}
-                className="flex items-center justify-between rounded-md border border-border p-3"
+                className="flex flex-col gap-2 rounded-md border border-border p-3 sm:flex-row sm:items-center sm:justify-between"
               >
-                <div>
-                  <div className="text-[13px] font-medium text-foreground">
+                <div className="min-w-0">
+                  <div className="truncate text-[13px] font-medium text-foreground">
                     {account.email}
                   </div>
                   {account.cloudName && (
@@ -48,7 +49,7 @@ export function SettingsPage() {
                 <button
                   onClick={() => handleDisconnect(account.email)}
                   disabled={disconnectMutation.isPending}
-                  className="rounded-md px-3 py-1.5 text-[13px] text-destructive hover:bg-destructive/10"
+                  className="shrink-0 self-start rounded-md px-3 py-2 text-[13px] text-destructive hover:bg-destructive/10"
                 >
                   Disconnect
                 </button>

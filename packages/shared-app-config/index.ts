@@ -39,8 +39,18 @@ export interface AppConfig {
   mode?: "dev" | "prod";
 }
 
-/** Harness UI port */
-export const HARNESS_PORT = 3334;
+/** Frame UI port */
+export const FRAME_PORT = 3334;
+
+/** Settings for the local dev frame (persisted by the desktop app) */
+export interface FrameSettings {
+  /** Whether the frame is enabled */
+  enabled: boolean;
+  /** Load frame from localhost (dev) or production URL (prod) */
+  mode: "dev" | "prod";
+  /** Production URL for the frame (if deployed) */
+  prodUrl?: string;
+}
 
 export const DEFAULT_APPS: AppConfig[] = [
   {
@@ -170,6 +180,20 @@ export const DEFAULT_APPS: AppConfig[] = [
     mode: "dev",
   },
   {
+    id: "calorie-tracker",
+    name: "Calorie Tracker",
+    icon: "Flame",
+    description: "Nutrition and calorie tracking",
+    url: "https://calorie-tracker.agent-native.com",
+    devPort: 8092,
+    devUrl: "http://localhost:8092",
+    color: "#F97316",
+    colorRgb: "249 115 22",
+    isBuiltIn: true,
+    enabled: true,
+    mode: "dev",
+  },
+  {
     id: "starter",
     name: "Starter",
     icon: "Code",
@@ -206,9 +230,9 @@ export function generateAppId(): string {
   return `custom-${Date.now().toString(36)}`;
 }
 
-/** Returns the harness URL for the given app (terminal + iframe) */
+/** Returns the frame URL for the given app (terminal + iframe) */
 export function getAppUrl(app: AppDefinition | AppConfig): string {
-  return `http://localhost:${HARNESS_PORT}?app=${app.id}`;
+  return `http://localhost:${FRAME_PORT}?app=${app.id}`;
 }
 
 export function getAppById(

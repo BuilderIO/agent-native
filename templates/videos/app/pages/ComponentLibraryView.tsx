@@ -168,22 +168,21 @@ export function ComponentLibraryView({
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="px-6 py-4 border-b border-border">
-        <h1 className="text-xl font-semibold">{component.title}</h1>
-        <p className="text-sm text-muted-foreground mt-1">
+      <div className="px-3 sm:px-6 py-3 sm:py-4 border-b border-border">
+        <h1 className="text-lg sm:text-xl font-semibold">{component.title}</h1>
+        <p className="text-xs sm:text-sm text-muted-foreground mt-1 line-clamp-2 sm:line-clamp-none">
           {component.description}
         </p>
       </div>
 
       {/* Preview Section */}
-      <div className="flex-1 flex flex-col items-center justify-center p-6 overflow-auto">
+      <div className="flex-1 flex flex-col items-center justify-center p-3 sm:p-6 overflow-auto">
         {/* Debug Mode Indicator */}
         {debugMode && (
           <div className="mb-4 w-full max-w-4xl">
-            <div className="bg-orange-500/90 text-white px-6 py-3 rounded-lg shadow-lg flex items-center justify-between">
-              <div className="font-bold text-sm">
-                🔧 DEBUG MODE - Press 'D' to toggle | Drag zones to reposition |
-                Drag corners to resize
+            <div className="bg-orange-500/90 text-white px-3 sm:px-6 py-2 sm:py-3 rounded-lg shadow-lg flex items-center justify-between gap-2">
+              <div className="font-bold text-xs sm:text-sm min-w-0">
+                DEBUG MODE - Press 'D' to toggle
               </div>
               <button
                 onClick={handleSaveZones}
@@ -240,39 +239,35 @@ export function ComponentLibraryView({
             />
 
             {/* Custom Controls Overlay */}
-            <div className="absolute bottom-0 left-0 right-0 p-4">
-              <div className="flex items-center gap-3">
-                {/* Restart */}
+            <div className="absolute bottom-0 left-0 right-0 p-2 sm:p-4">
+              <div className="flex items-center gap-2 sm:gap-3">
                 <button
                   onClick={handleRestart}
-                  className="p-2 hover:bg-white/10 rounded transition-colors"
+                  className="p-2.5 sm:p-2 hover:bg-white/10 rounded"
                   title="Restart"
                   aria-label="Restart"
                 >
                   <IconPlayerSkipBack className="w-4 h-4 text-white" />
                 </button>
 
-                {/* IconPlayerPlay/IconPlayerPause */}
                 <button
                   onClick={handlePlayPause}
-                  className="p-2 hover:bg-white/10 rounded transition-colors"
+                  className="p-2.5 sm:p-2 hover:bg-white/10 rounded"
                   title={playing ? "Pause" : "Play"}
                   aria-label={playing ? "Pause" : "Play"}
                 >
                   {playing ? (
-                    <IconPlayerPause className="w-4 h-4 text-white" />
+                    <IconPlayerPause className="w-5 h-5 sm:w-4 sm:h-4 text-white" />
                   ) : (
-                    <IconPlayerPlay className="w-4 h-4 text-white" />
+                    <IconPlayerPlay className="w-5 h-5 sm:w-4 sm:h-4 text-white" />
                   )}
                 </button>
 
-                {/* Time Display */}
-                <div className="flex-1 text-sm text-white/80 font-mono">
+                <div className="flex-1 text-xs sm:text-sm text-white/80 font-mono">
                   {fmtSec(currentFrame)} / {fmtSec(component.durationInFrames)}
                 </div>
 
-                {/* Duration Info */}
-                <div className="text-xs text-white/60">
+                <div className="hidden sm:block text-xs text-white/60">
                   {component.durationInFrames}f @ {component.fps}fps
                 </div>
               </div>
@@ -280,7 +275,7 @@ export function ComponentLibraryView({
           </div>
 
           {/* Info Card */}
-          <div className="mt-6 p-4 bg-secondary/50 rounded-lg border border-border space-y-3">
+          <div className="mt-4 sm:mt-6 p-3 sm:p-4 bg-secondary/50 rounded-lg border border-border space-y-3">
             <div>
               <h3 className="text-sm font-semibold mb-2">Preview Timeline</h3>
               <p className="text-xs text-muted-foreground mb-3">
@@ -289,33 +284,31 @@ export function ComponentLibraryView({
               </p>
               <ul className="text-xs text-muted-foreground space-y-1 ml-4 list-disc">
                 <li>
-                  <strong>0.0s - 1.3s</strong> (frames 0-40): Cursor approaches
+                  <strong>0.0s - 1.3s</strong>: Cursor approaches
                 </li>
                 <li>
-                  <strong>1.3s - 2.7s</strong> (frames 40-80): Hovers over
-                  component
+                  <strong>1.3s - 2.7s</strong>: Hovers over component
                 </li>
                 <li>
-                  <strong>2.7s</strong> (frame 80): Clicks component
+                  <strong>2.7s</strong>: Clicks component
                 </li>
                 <li>
-                  <strong>3.0s - 3.7s</strong> (frames 90-110): Continues
-                  hovering
+                  <strong>3.0s - 3.7s</strong>: Continues hovering
                 </li>
                 <li>
-                  <strong>3.7s - 5.0s</strong> (frames 110-150): Cursor exits
+                  <strong>3.7s - 5.0s</strong>: Cursor exits
                 </li>
               </ul>
             </div>
 
             <div className="pt-3 border-t border-border">
               <p className="text-xs font-medium text-foreground mb-1">
-                💡 Quick Debug
+                Quick Debug
               </p>
               <p className="text-xs text-muted-foreground">
                 Jump to specific frames using URL params:
               </p>
-              <code className="text-[10px] text-muted-foreground font-mono mt-1 block">
+              <code className="text-[10px] text-muted-foreground font-mono mt-1 block break-all">
                 ?frame=60 (hover) or ?frame=80 (click)
               </code>
             </div>

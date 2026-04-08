@@ -109,6 +109,29 @@ export function createAgentChatAdapter(options?: {
           signal: abortSignal,
         });
 
+        // Check for auth errors returned as 200 with JSON (common with middleware issues)
+        const contentType = res.headers.get("content-type") || "";
+        if (
+          res.ok &&
+          contentType.includes("application/json") &&
+          !contentType.includes("text/event-stream")
+        ) {
+          try {
+            const body = await res.text();
+            const parsed = JSON.parse(body);
+            if (parsed.error) {
+              throw new Error(parsed.error);
+            }
+          } catch (e) {
+            if (
+              e instanceof Error &&
+              e.message !== "Unexpected end of JSON input"
+            ) {
+              throw e;
+            }
+          }
+        }
+
         if (!res.ok) {
           let errorText = `Server error: ${res.status}`;
           try {
@@ -172,6 +195,31 @@ export function createAgentChatAdapter(options?: {
           return;
         }
 
+        const errMsg =
+          err instanceof Error ? err.message : "Something went wrong.";
+        const isAuthError =
+          errMsg.includes("Unauthorized") ||
+          errMsg.includes("Not authenticated") ||
+          errMsg.includes("401") ||
+          errMsg.includes("403");
+
+        // Don't try to reconnect for auth/client errors — show error directly
+        if (isAuthError) {
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new Event("agent-chat:auth-error"));
+          }
+          content.push({ type: "text", text: "" });
+          yield {
+            content: [...content],
+            status: {
+              type: "incomplete" as const,
+              reason: "error" as const,
+            },
+          };
+          clearActiveRun();
+          return;
+        }
+
         // Connection lost — try to reconnect to the run
         if (runId && lastSeq >= 0) {
           let reconnected = false;
@@ -214,10 +262,12 @@ export function createAgentChatAdapter(options?: {
           if (reconnected) return;
         }
 
-        // Reconnect failed or not possible — show error
+        // Reconnect failed or not possible — show error with details
         content.push({
           type: "text",
-          text: "Something went wrong. Please try again.",
+          text: errMsg.startsWith("Server error:")
+            ? errMsg
+            : `Something went wrong: ${errMsg}`,
         });
         yield {
           content: [...content],

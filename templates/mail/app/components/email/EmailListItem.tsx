@@ -101,7 +101,7 @@ export const EmailListItem = memo(function EmailListItem({
   const isUnread = thread ? thread.hasUnread : !email.isRead;
   const isStarred = thread ? thread.hasStarred : email.isStarred;
 
-  // Filter to user labels only (skip system labels like inbox, sent, etc.)
+  // Filter to user labels only (skip system labels and Gmail auto-categories)
   const systemLabels = new Set([
     "inbox",
     "sent",
@@ -123,6 +123,13 @@ export const EmailListItem = memo(function EmailListItem({
     "CATEGORY_UPDATES",
     "CATEGORY_FORUMS",
     "UNREAD",
+    // Gmail auto-categories (lowercase IDs used in the app)
+    "updates",
+    "promotions",
+    "social",
+    "forums",
+    "personal",
+    "note-to-self",
   ]);
   const allLabelIds = thread ? thread.labelIds : email.labelIds;
   const displayLabels = [...new Set(allLabelIds)].filter(
@@ -137,7 +144,7 @@ export const EmailListItem = memo(function EmailListItem({
       onMouseEnter={onHover}
       onKeyDown={(e) => e.key === "Enter" && onSelect()}
       className={cn(
-        "email-list-row group relative flex cursor-pointer items-center h-[38px] px-3 transition-colors",
+        "email-list-row group relative flex cursor-pointer items-center h-[48px] sm:h-[38px] px-3 transition-colors",
         isSelected && "selected",
         isFocused && !isSelected && "focused",
         isMultiSelected && "multi-selected",
@@ -165,7 +172,7 @@ export const EmailListItem = memo(function EmailListItem({
       {/* Sender name — fixed width column */}
       <span
         className={cn(
-          "w-[160px] shrink-0 text-sm sm:text-[13px] truncate mr-3",
+          "w-[100px] sm:w-[160px] shrink-0 text-sm sm:text-[13px] truncate mr-3",
           isUnread
             ? "font-semibold text-foreground"
             : "font-normal text-foreground/90",

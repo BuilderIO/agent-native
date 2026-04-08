@@ -100,16 +100,16 @@ function MiniCalendar({
           <button
             type="button"
             onClick={() => setViewMonth(subMonths(viewMonth, 1))}
-            className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground"
+            className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground"
           >
-            <IconChevronUp className="h-3 w-3" />
+            <IconChevronUp className="h-3.5 w-3.5" />
           </button>
           <button
             type="button"
             onClick={() => setViewMonth(addMonths(viewMonth, 1))}
-            className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground"
+            className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground"
           >
-            <IconChevronDown className="h-3 w-3" />
+            <IconChevronDown className="h-3.5 w-3.5" />
           </button>
         </div>
       </div>
@@ -268,7 +268,7 @@ function GoogleAccountsSection({
           <button
             type="button"
             onClick={() => setShowColors((p) => !p)}
-            className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+            className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground"
             title="Color settings"
           >
             <IconPalette className="h-3.5 w-3.5" />
@@ -276,7 +276,7 @@ function GoogleAccountsSection({
           <button
             type="button"
             onClick={() => setWantAddAccount(true)}
-            className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+            className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground"
             title="Add Google account"
           >
             <IconPlus className="h-3.5 w-3.5" />
@@ -443,7 +443,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             <button
               type="button"
               onClick={() => setPeopleSearchOpen(true)}
-              className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+              className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground"
             >
               <IconPlus className="h-3.5 w-3.5" />
             </button>

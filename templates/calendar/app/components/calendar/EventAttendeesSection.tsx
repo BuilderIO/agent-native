@@ -7,15 +7,12 @@ import {
 } from "@tabler/icons-react";
 import type { CalendarEvent } from "@shared/api";
 import { AttendeeApolloPopover } from "@/components/calendar/ApolloPanel";
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { useAttendeePhotos } from "@/hooks/use-attendee-photos";
 import { useRsvpEvent } from "@/hooks/use-events";
 import { cn } from "@/lib/utils";
@@ -136,11 +133,14 @@ function RsvpControls({
   };
 
   return (
-    <>
+    <Popover
+      open={!!pendingStatus}
+      onOpenChange={(open) => !open && setPendingStatus(null)}
+    >
       <div className="mt-2 flex items-center gap-1 rounded-2xl bg-muted/60 p-1">
         {options.map((option) => {
           const active = value === option.value;
-          return (
+          const btn = (
             <button
               key={option.value}
               type="button"
@@ -150,7 +150,7 @@ function RsvpControls({
                 handleRsvp(option.value);
               }}
               className={cn(
-                "min-w-0 flex-1 rounded-xl px-3 py-2 text-sm font-medium transition-colors",
+                "min-w-0 flex-1 rounded-xl px-3 py-2 text-sm font-medium",
                 active
                   ? "bg-background text-foreground shadow-sm ring-1 ring-border"
                   : "text-muted-foreground hover:bg-background/60 hover:text-foreground",
@@ -160,25 +160,37 @@ function RsvpControls({
               {option.label}
             </button>
           );
+          if (isRecurring && pendingStatus === option.value) {
+            return (
+              <PopoverTrigger key={option.value} asChild>
+                {btn}
+              </PopoverTrigger>
+            );
+          }
+          return btn;
         })}
       </div>
 
-      <AlertDialog
-        open={!!pendingStatus}
-        onOpenChange={(open) => !open && setPendingStatus(null)}
+      <PopoverContent
+        side="left"
+        align="center"
+        sideOffset={8}
+        className="w-64"
+        onClick={(e) => e.stopPropagation()}
       >
-        <AlertDialogContent onClick={(e) => e.stopPropagation()}>
-          <AlertDialogHeader>
-            <AlertDialogTitle>This is a recurring event</AlertDialogTitle>
-            <AlertDialogDescription>
+        <div className="space-y-2">
+          <div>
+            <p className="text-sm font-medium">This is a recurring event</p>
+            <p className="text-xs text-muted-foreground mt-1">
               Would you like to change your response for just this event, this
               and all following events, or all events in the series?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="flex-col gap-2 sm:flex-col">
+            </p>
+          </div>
+          <div className="space-y-1.5">
             <Button
               variant="outline"
-              className="w-full"
+              size="sm"
+              className="w-full justify-center"
               onClick={(e) => {
                 e.stopPropagation();
                 doRsvp(pendingStatus!, "single");
@@ -189,7 +201,8 @@ function RsvpControls({
             </Button>
             <Button
               variant="outline"
-              className="w-full"
+              size="sm"
+              className="w-full justify-center"
               onClick={(e) => {
                 e.stopPropagation();
                 doRsvp(pendingStatus!, "thisAndFollowing");
@@ -200,7 +213,8 @@ function RsvpControls({
             </Button>
             <Button
               variant="outline"
-              className="w-full"
+              size="sm"
+              className="w-full justify-center"
               onClick={(e) => {
                 e.stopPropagation();
                 doRsvp(pendingStatus!, "all");
@@ -209,10 +223,10 @@ function RsvpControls({
             >
               All events
             </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 

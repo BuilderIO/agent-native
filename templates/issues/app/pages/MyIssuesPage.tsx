@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useSearchParams, useParams, useNavigate } from "react-router";
 import { IconPlus, IconSearch, IconCircleDot } from "@tabler/icons-react";
 import { AgentToggleButton } from "@agent-native/core/client";
+import { cn } from "@/lib/utils";
 import { useIssues } from "@/hooks/use-issues";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { IssueList } from "@/components/issues/IssueList";
@@ -60,13 +61,18 @@ export function MyIssuesPage({ selectedIssueKey: propKey }: MyIssuesPageProps) {
 
   return (
     <div className="flex h-full">
-      {/* Issue list — hidden when detail is open to give it full width */}
       <div
-        className={`flex flex-col overflow-hidden ${selectedIssueKey ? "hidden" : "flex-1"}`}
+        className={cn(
+          "flex flex-col overflow-hidden",
+          selectedIssueKey
+            ? "hidden lg:flex lg:w-[340px] lg:shrink-0 lg:border-r lg:border-border"
+            : "flex-1",
+        )}
       >
-        {/* Header */}
-        <div className="flex items-center gap-3 border-b border-border px-4 py-3">
-          <h1 className="text-sm font-semibold text-foreground">My Issues</h1>
+        <div className="flex items-center gap-2 border-b border-border px-3 py-3 sm:gap-3 sm:px-4">
+          <h1 className="shrink-0 text-sm font-semibold text-foreground">
+            My Issues
+          </h1>
           <div className="flex-1" />
           <form onSubmit={handleSearch} className="relative">
             <IconSearch className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -76,17 +82,17 @@ export function MyIssuesPage({ selectedIssueKey: propKey }: MyIssuesPageProps) {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search..."
-              className="h-8 w-48 rounded-md border border-border bg-background pl-8 pr-3 text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              className="h-9 w-32 rounded-md border border-border bg-background pl-8 pr-3 text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring sm:w-48"
             />
           </form>
           <button
             onClick={() => setCreateOpen(true)}
-            className="flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-[13px] font-medium text-primary-foreground hover:opacity-90"
+            className="flex h-9 items-center gap-1.5 rounded-md bg-primary px-3 text-[13px] font-medium text-primary-foreground hover:opacity-90"
           >
             <IconPlus className="h-3.5 w-3.5" />
-            New
+            <span className="hidden sm:inline">New</span>
           </button>
-          <AgentToggleButton className="h-8 w-8 rounded-md border border-border bg-background" />
+          <AgentToggleButton className="h-9 w-9 rounded-md border border-border bg-background" />
         </div>
 
         {/* List */}
@@ -146,7 +152,6 @@ export function MyIssuesPage({ selectedIssueKey: propKey }: MyIssuesPageProps) {
         </div>
       </div>
 
-      {/* Detail panel */}
       {selectedIssueKey && (
         <div className="flex-1 overflow-hidden">
           <IssueDetail issueKey={selectedIssueKey} closePath="/my-issues" />

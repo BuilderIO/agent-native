@@ -4,9 +4,10 @@ export {
   type AppConfig,
   APP_REGISTRY,
   DEFAULT_APPS,
-  HARNESS_PORT,
+  FRAME_PORT,
   getAppUrl,
   getAppById,
   toAppDefinition,
   generateAppId,
+  type FrameSettings,
 } from "@agent-native/shared-app-config";

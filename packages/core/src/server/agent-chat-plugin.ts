@@ -537,8 +537,11 @@ export interface AgentChatPluginOptions {
    * Optional callback to resolve the org ID for the current request.
    * When provided, the resolved value is set as AGENT_ORG_ID env var so
    * that db-query/db-exec automatically scope by org_id in addition to
-   * owner_email. Templates with org support (e.g., recruiting) should
-   * provide this.
+   * owner_email.
+   *
+   * If not provided, the framework automatically uses `session.orgId` from
+   * Better Auth's active organization. Only provide this callback when you
+   * need custom org resolution logic (e.g., Atlassian org mapping).
    */
   resolveOrgId?: (event: any) => string | null | Promise<string | null>;
 }
@@ -556,7 +559,7 @@ const FRAMEWORK_CORE = `
 ### Core Rules
 
 1. **Data lives in SQL** — All app state is in a SQL database (could be SQLite, Postgres, Turso, or Cloudflare D1 — never assume which). Use the available database tools.
-2. **Context awareness** — Before taking action, understand what the user is looking at. Use the \`view-screen\` tool if available — it returns the current UI state (which page, which item is focused, what's selected).
+2. **Context awareness** — The user's current screen state is automatically included in each message as a \`<current-screen>\` block. Use it to understand what the user is looking at. You can still call \`view-screen\` for a more detailed snapshot if needed, but you should NOT need to call it before every action.
 3. **Navigate the UI** — Use the \`navigate\` tool to switch views, open items, or focus elements for the user.
 4. **Application state** — Ephemeral UI state (drafts, selections, navigation) lives in \`application_state\`. Use \`readAppState\`/\`writeAppState\` to read and write it. When you write state, the UI updates automatically.
 5. **Resources for memory** — Use the Resources system for persistent notes and context. Update LEARNINGS.md when you learn user preferences or corrections. Update the shared AGENTS.md for instructions that should apply to all users.
@@ -1921,6 +1924,7 @@ export function createAgentChatPlugin(
         if (method === "POST") {
           const body = await readBody(event);
           const thread = await createThread(owner, {
+            id: body?.id,
             title: body?.title ?? "",
           });
           return thread;
@@ -1954,13 +1958,22 @@ export function createAgentChatPlugin(
         process.env.AGENT_USER_EMAIL = owner;
 
         // Set AGENT_ORG_ID so db-query/db-exec scope by org_id when applicable.
+        // Priority: explicit resolveOrgId callback > session.orgId from Better Auth
+        let resolvedOrgId: string | null = null;
         if (options?.resolveOrgId) {
-          const orgId = await options.resolveOrgId(event);
-          if (orgId) {
-            process.env.AGENT_ORG_ID = orgId;
-          } else {
-            delete process.env.AGENT_ORG_ID;
+          resolvedOrgId = await options.resolveOrgId(event);
+        } else {
+          try {
+            const session = await getSession(event);
+            resolvedOrgId = session?.orgId ?? null;
+          } catch {
+            // Session not available
           }
+        }
+        if (resolvedOrgId) {
+          process.env.AGENT_ORG_ID = resolvedOrgId;
+        } else {
+          delete process.env.AGENT_ORG_ID;
         }
 
         const handler = currentDevMode && devHandler ? devHandler : prodHandler;
