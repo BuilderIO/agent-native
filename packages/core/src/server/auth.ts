@@ -848,7 +848,10 @@ function mountLocalModeRoutes(app: H3App): void {
  *
  * Returns true if auth was mounted, false if skipped.
  */
-export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
+export async function autoMountAuth(
+  app: H3App,
+  options: AuthOptions = {},
+): Promise<boolean> {
   if (!app) {
     if (isLocalMode() || isDevEnvironment()) {
       authDisabledMode = false;
@@ -937,13 +940,24 @@ export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
   }
 
   // Default: Better Auth (account-first)
-  mountBetterAuthRoutes(app, options).catch((err) => {
+  try {
+    await mountBetterAuthRoutes(app, options);
+    console.log(
+      "[agent-native] Auth enabled — Better Auth (accounts + organizations).",
+    );
+  } catch (err) {
     console.error("[agent-native] Failed to initialize Better Auth:", err);
-  });
-
-  console.log(
-    "[agent-native] Auth enabled — Better Auth (accounts + organizations).",
-  );
+    // CRITICAL: Even if Better Auth fails, register the auth guard so
+    // unauthenticated users can't access the app. They'll see the login
+    // page but won't be able to sign in until the DB is available.
+    const loginHtml = options.loginHtml ?? getOnboardingHtml();
+    const guardFn = createAuthGuardFn(loginHtml, publicPaths);
+    _authGuardFn = guardFn;
+    app.use(defineEventHandler(guardFn));
+    console.log(
+      "[agent-native] Auth guard registered despite init failure — app is locked.",
+    );
+  }
   return true;
 }
 
