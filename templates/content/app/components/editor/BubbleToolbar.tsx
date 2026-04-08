@@ -119,6 +119,8 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
                 : 0;
               const scrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
               const offsetTop = coords.top - containerTop + scrollTop;
+              // Clear selection so bubble toolbar hides
+              editor.commands.setTextSelection(from);
               onComment(text.trim(), offsetTop);
             },
             isActive: () => false,

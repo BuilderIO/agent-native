@@ -129,6 +129,8 @@ export {
   type OAuthSessionResult,
 } from "./google-oauth.js";
 
+export { ssrHandler, createSSRRequestHandler } from "./ssr-handler.js";
+
 // Nitro plugin helper — re-exported so templates don't need nitro as a direct dependency.
 // defineNitroPlugin is an identity function; this typed wrapper lets templates use it
 // without resolving `nitro/runtime` (which requires Nitro's virtual modules at runtime).
