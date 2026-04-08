@@ -80,7 +80,7 @@ const IntegrationsPanel = lazy(() =>
 );
 
 const CLI_STORAGE_KEY = "agent-native-cli-command";
-const CLI_DEFAULT = "builder";
+const CLI_DEFAULT = "claude";
 const EXEC_MODE_KEY = "agent-native-exec-mode";
 type ExecMode = "build" | "plan";
 const AGENT_PANEL_FONT_FAMILY =

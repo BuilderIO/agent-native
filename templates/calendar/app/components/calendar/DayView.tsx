@@ -497,11 +497,9 @@ export function DayView({
                         e.stopPropagation();
                         startDrag(e, event.id, "resize-top", 0);
                       }}
-                      className="absolute left-0 right-0 top-0 h-2.5 cursor-n-resize opacity-0 group-hover:opacity-100"
+                      className="absolute left-0 right-0 top-0 h-2.5 cursor-n-resize"
                       style={{ touchAction: "none" }}
-                    >
-                      <div className="mx-auto mb-1 mt-0.5 h-1 w-10 rounded-full bg-foreground/20" />
-                    </div>
+                    />
                   )}
                   {/* Bottom resize handle */}
                   {canDrag && (
@@ -511,11 +509,9 @@ export function DayView({
                         e.stopPropagation();
                         startDrag(e, event.id, "resize", 0);
                       }}
-                      className="absolute bottom-0 left-0 right-0 h-2.5 cursor-s-resize opacity-0 group-hover:opacity-100"
+                      className="absolute bottom-0 left-0 right-0 h-2.5 cursor-s-resize"
                       style={{ touchAction: "none" }}
-                    >
-                      <div className="mx-auto mt-1 h-1 w-10 rounded-full bg-foreground/20" />
-                    </div>
+                    />
                   )}
                 </button>
               );

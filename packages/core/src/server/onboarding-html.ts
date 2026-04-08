@@ -315,7 +315,7 @@ ${
       var data = await res.json();
       if (data.url) {
         try { sessionStorage.setItem('__an_signin', '1'); } catch(e) {}
-        window.location.href = data.url;
+        window.top.location.href = data.url;
       } else {
         err.textContent = data.message || 'Google OAuth is not configured.';
         err.classList.add('show');

@@ -654,8 +654,22 @@ export function EmailThread({
       },
       { key: "e", handler: handleArchive },
       { key: "s", handler: handleStar },
-      { key: "r", handler: () => handleReply() },
-      { key: "a", handler: () => handleReplyAll() },
+      {
+        key: "r",
+        handler: () => {
+          const focused =
+            focusedIndex >= 0 ? messages[focusedIndex] : undefined;
+          handleReply(focused);
+        },
+      },
+      {
+        key: "a",
+        handler: () => {
+          const focused =
+            focusedIndex >= 0 ? messages[focusedIndex] : undefined;
+          handleReplyAll(focused);
+        },
+      },
       { key: "f", handler: handleForward },
       {
         key: "f",
@@ -1031,6 +1045,7 @@ export function EmailThread({
                 onReply={() => handleReply(msg)}
                 onReplyAll={() => handleReplyAll(msg)}
                 onForward={() => handleForwardMsg(msg)}
+                onFocus={() => setFocusedIndex(idx)}
                 onContactSelect={onContactSelect}
                 searchTerm={searchQuery.trim() || undefined}
                 activeLocalIdx={getActiveLocalIdx(msg.id)}
@@ -1254,6 +1269,7 @@ const ExpandedMessageCard = forwardRef<
     onReply: () => void;
     onReplyAll: () => void;
     onForward: () => void;
+    onFocus?: () => void;
     onContactSelect?: (email: string) => void;
     searchTerm?: string;
     activeLocalIdx?: number | null;
@@ -1266,6 +1282,7 @@ const ExpandedMessageCard = forwardRef<
     onReply,
     onReplyAll,
     onForward,
+    onFocus,
     onContactSelect,
     searchTerm,
     activeLocalIdx,
@@ -1301,9 +1318,12 @@ const ExpandedMessageCard = forwardRef<
   return (
     <div
       ref={ref}
+      onClick={onFocus}
       className={cn(
-        "rounded-lg bg-card dark:bg-[hsl(220,5%,10%)] overflow-hidden",
-        isFocused && "ring-1 ring-primary/30",
+        "rounded-lg bg-card dark:bg-[hsl(220,5%,10%)] overflow-hidden cursor-pointer",
+        isFocused
+          ? "ring-1 ring-primary/40"
+          : "ring-1 ring-transparent hover:ring-border/30",
       )}
     >
       {/* Header */}

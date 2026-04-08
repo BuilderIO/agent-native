@@ -120,8 +120,8 @@ export async function runScript(): Promise<void> {
         );
         process.exit(1);
       }
-      await closeDbExec();
-      return;
+      await closeDbExec().catch(() => {});
+      process.exit(0);
     } catch (err: any) {
       await closeDbExec().catch(() => {});
       console.error(`Action "${actionName}" failed:`, err.message || err);
@@ -134,8 +134,8 @@ export async function runScript(): Promise<void> {
   if (coreScript) {
     try {
       await coreScript(args);
-      await closeDbExec();
-      return;
+      await closeDbExec().catch(() => {});
+      process.exit(0);
     } catch (err: any) {
       await closeDbExec().catch(() => {});
       console.error(`Core action "${actionName}" failed:`, err.message || err);

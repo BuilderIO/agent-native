@@ -306,9 +306,10 @@ function createAuthGuardFn(
       return { error: "Unauthorized" };
     }
 
-    setResponseStatus(event, 200);
-    setResponseHeader(event, "Content-Type", "text/html");
-    return loginHtml;
+    return new Response(loginHtml, {
+      status: 200,
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    });
   };
 }
 
