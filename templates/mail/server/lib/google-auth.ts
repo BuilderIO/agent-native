@@ -525,6 +525,19 @@ function getAttachments(
   return attachments;
 }
 
+// Cache of account email → display name (populated on first use per account)
+const accountDisplayNames = new Map<string, string>();
+
+/** Store a display name for a connected account email. */
+export function setAccountDisplayName(email: string, name: string) {
+  if (email && name) accountDisplayNames.set(email.toLowerCase(), name);
+}
+
+/** Get the cached display name for a connected account email. */
+export function getAccountDisplayName(email: string): string | undefined {
+  return accountDisplayNames.get(email.toLowerCase());
+}
+
 export function gmailToEmailMessage(
   msg: any,
   accountEmail?: string,
@@ -532,6 +545,11 @@ export function gmailToEmailMessage(
 ): any {
   const headers = msg.payload?.headers || [];
   const from = parseEmailAddress(getHeader(headers, "From"));
+  // When Gmail returns just an email with no display name, use the cached profile name
+  if (from.name === from.email) {
+    const cached = accountDisplayNames.get(from.email.toLowerCase());
+    if (cached) from.name = cached;
+  }
   const to = parseAddressList(getHeader(headers, "To"));
   const cc = parseAddressList(getHeader(headers, "Cc"));
   const subject = getHeader(headers, "Subject");

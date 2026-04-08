@@ -306,9 +306,10 @@ function createAuthGuardFn(
       return { error: "Unauthorized" };
     }
 
-    setResponseStatus(event, 200);
-    setResponseHeader(event, "Content-Type", "text/html");
-    return loginHtml;
+    return new Response(loginHtml, {
+      status: 200,
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    });
   };
 }
 
@@ -563,7 +564,18 @@ async function mountBetterAuthRoutes(
   app: H3App,
   options: AuthOptions,
 ): Promise<void> {
-  const publicPaths = options.publicPaths ?? [];
+  const publicPaths = [...(options.publicPaths ?? [])];
+
+  // Auto-add Google OAuth routes when credentials are configured
+  if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+    for (const gp of [
+      "/_agent-native/google/callback",
+      "/_agent-native/google/auth-url",
+    ]) {
+      if (!publicPaths.includes(gp)) publicPaths.push(gp);
+    }
+  }
+
   const accessTokens = getAccessTokens();
 
   // Initialize Better Auth

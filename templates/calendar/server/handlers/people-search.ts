@@ -62,7 +62,21 @@ export const searchPeople = defineEventHandler(async (event: H3Event) => {
     if (clients.length === 0) return { results: [] };
 
     const { accessToken } = clients[0];
-    const orgDomain = getDomain(email);
+
+    // Collect org domains from ALL connected accounts (not just the session email)
+    const orgDomains = new Set<string>();
+    for (const client of clients) {
+      const d = getDomain(client.email);
+      if (d) orgDomains.add(d);
+    }
+    // Also check the session user's email
+    const sessionDomain = getDomain(email);
+    if (sessionDomain) orgDomains.add(sessionDomain);
+
+    const isOrgEmail = (e: string) => {
+      const d = e.split("@")[1]?.toLowerCase();
+      return d ? orgDomains.has(d) : false;
+    };
 
     // Strategy 1: Try Google Workspace directory search (best results)
     if (q) {
@@ -71,14 +85,21 @@ export const searchPeople = defineEventHandler(async (event: H3Event) => {
           await import("../lib/google-api.js");
         const data = await peopleSearchDirectoryPeople(accessToken, q);
         if (data.people?.length > 0) {
-          return { results: extractPeople(data.people) };
+          const results = extractPeople(data.people);
+          // Directory search already returns org people, but filter to be safe
+          return {
+            results:
+              orgDomains.size > 0
+                ? results.filter((p) => isOrgEmail(p.email))
+                : results,
+          };
         }
       } catch {
         // 403 or not available — fall through to contacts
       }
     }
 
-    // Strategy 2: Search contacts + other contacts, filter by query and/or org domain
+    // Strategy 2: Search contacts + other contacts, filter to teammates only
     try {
       const { peopleListConnections, peopleListOtherContacts } =
         await import("../lib/google-api.js");
@@ -99,14 +120,17 @@ export const searchPeople = defineEventHandler(async (event: H3Event) => {
         ...(otherContacts.otherContacts || []),
       ]);
 
-      // Deduplicate by email
+      // Deduplicate by email, exclude self and non-org contacts
       const seen = new Set<string>();
+      const clientEmails = new Set(clients.map((c) => c.email.toLowerCase()));
       const deduped = allPeople.filter((p) => {
         const key = p.email.toLowerCase();
         if (seen.has(key)) return false;
         seen.add(key);
-        // Exclude the user themselves
-        if (key === email.toLowerCase()) return false;
+        // Exclude the user's own accounts
+        if (key === email.toLowerCase() || clientEmails.has(key)) return false;
+        // Only include teammates (same org domain)
+        if (orgDomains.size > 0 && !isOrgEmail(key)) return false;
         return true;
       });
 
@@ -120,25 +144,14 @@ export const searchPeople = defineEventHandler(async (event: H3Event) => {
             p.name.toLowerCase().includes(lq) ||
             p.email.toLowerCase().includes(lq),
         );
-      } else if (orgDomain) {
-        // No query — show org-domain contacts as suggestions
-        results = deduped.filter((p) =>
-          p.email.toLowerCase().endsWith(`@${orgDomain}`),
-        );
       } else {
-        // No query, no org domain — show recent/frequent contacts
-        results = deduped.slice(0, 20);
+        results = deduped;
       }
 
-      // Sort: org-domain contacts first, then alphabetically
-      if (orgDomain) {
-        results.sort((a, b) => {
-          const aOrg = a.email.toLowerCase().endsWith(`@${orgDomain}`) ? 0 : 1;
-          const bOrg = b.email.toLowerCase().endsWith(`@${orgDomain}`) ? 0 : 1;
-          if (aOrg !== bOrg) return aOrg - bOrg;
-          return (a.name || a.email).localeCompare(b.name || b.email);
-        });
-      }
+      // Sort alphabetically
+      results.sort((a, b) =>
+        (a.name || a.email).localeCompare(b.name || b.email),
+      );
 
       return { results: results.slice(0, 30) };
     } catch (error: any) {

@@ -5,4 +5,5 @@ export {
   listOAuthAccounts,
   listOAuthAccountsByOwner,
   hasOAuthTokens,
+  setOAuthDisplayName,
 } from "./store.js";

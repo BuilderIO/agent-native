@@ -52,7 +52,7 @@ The `navigation` key is written by the UI whenever the route changes. The `navig
 
 ## Agent Operations
 
-The user's current screen state is automatically included with each message as a `<current-screen>` block — you don't need to call `view-screen` before every action. Use `view-screen` only when you need a more detailed snapshot.
+**Context awareness:** The current screen state is automatically provided with each message (via a hook or `<current-screen>` block). Use this to understand what the user is looking at — which app, which page, which item. If you need a more detailed or refreshed snapshot, run `pnpm action view-screen`.
 
 ### Actions
 

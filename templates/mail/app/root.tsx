@@ -121,7 +121,10 @@ function DbSyncSetup() {
       const isOwnEvent = data.requestSource === TAB_ID;
 
       if (data.source === "app-state") {
-        if (data.key?.startsWith("compose-") && !isOwnEvent) {
+        if (
+          (data.key?.startsWith("compose-") || data.key === "*") &&
+          !isOwnEvent
+        ) {
           qc.invalidateQueries({
             queryKey: ["compose-drafts"],
             refetchType: "all",

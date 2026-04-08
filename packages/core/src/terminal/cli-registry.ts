@@ -13,15 +13,15 @@ export interface CliEntry {
 }
 
 export const CLI_REGISTRY: Record<string, CliEntry> = {
-  builder: {
-    label: "Builder.io",
-    installPackage: "",
-    stripEnv: [],
-  },
   claude: {
     label: "Claude Code",
     installPackage: "@anthropic-ai/claude-code",
     stripEnv: ["CLAUDECODE", "CLAUDE_CODE_SESSION"],
+  },
+  builder: {
+    label: "Builder.io",
+    installPackage: "",
+    stripEnv: [],
   },
   codex: {
     label: "Codex",

@@ -1,6 +1,6 @@
-import { createGoogleAuthPlugin } from "@agent-native/core/server";
+import { createAuthPlugin } from "@agent-native/core/server";
 
-export default createGoogleAuthPlugin({
+export default createAuthPlugin({
   publicPaths: [
     "/book",
     "/booking",

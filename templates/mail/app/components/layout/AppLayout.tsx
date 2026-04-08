@@ -28,6 +28,7 @@ import {
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { SnoozeModal } from "@/components/email/SnoozeModal";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { SearchBar } from "./SearchBar";
 import {
   IconMenu2,
   IconSettings,
@@ -438,12 +439,6 @@ export function AppLayout({ children }: AppLayoutProps) {
     toast("Thread muted.");
   }, [threadId, targetEmail, muteThread, dismissEmail]);
 
-  const handleSearch = (q: string) => {
-    if (q.trim()) {
-      navigate(`/inbox?q=${encodeURIComponent(q.trim())}`);
-    }
-  };
-
   const togglePinned = useCallback(
     (id: string) => {
       const current = settings?.pinnedLabels ?? [];
@@ -769,26 +764,12 @@ export function AppLayout({ children }: AppLayoutProps) {
 
               {/* Search */}
               {searchFocused ? (
-                <div className="flex items-center gap-1.5">
-                  <input
-                    id="mail-search"
-                    autoFocus
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") handleSearch(searchQuery);
-                      if (e.key === "Escape") {
-                        setSearchQuery("");
-                        setSearchFocused(false);
-                      }
-                    }}
-                    onBlur={() => {
-                      if (!searchQuery) setSearchFocused(false);
-                    }}
-                    placeholder="Search..."
-                    className="h-8 sm:h-7 w-40 sm:w-48 rounded bg-accent/80 border-none px-2.5 text-[13px] text-foreground placeholder:text-muted-foreground/60 outline-none focus:ring-1 focus:ring-primary/40"
-                  />
-                </div>
+                <SearchBar
+                  onClose={() => {
+                    setSearchFocused(false);
+                    setSearchQuery("");
+                  }}
+                />
               ) : (
                 <button
                   onClick={() => setSearchFocused(true)}
