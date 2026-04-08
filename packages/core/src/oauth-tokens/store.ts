@@ -71,26 +71,29 @@ export async function saveOAuthTokens(
   const client = getDbExec();
 
   // When owner is not provided (e.g. during token refresh), preserve the existing
-  // owner so secondary accounts don't get silently re-assigned to accountId.
+  // owner and display_name so they don't get wiped by INSERT OR REPLACE.
   let resolvedOwner = owner ?? accountId;
+  let existingDisplayName: string | null = null;
   if (!owner) {
     const { rows: existing } = await client.execute({
-      sql: `SELECT owner FROM oauth_tokens WHERE provider = ? AND account_id = ?`,
+      sql: `SELECT owner, display_name FROM oauth_tokens WHERE provider = ? AND account_id = ?`,
       args: [provider, accountId],
     });
-    if (existing.length > 0 && existing[0].owner) {
-      resolvedOwner = existing[0].owner as string;
+    if (existing.length > 0) {
+      if (existing[0].owner) resolvedOwner = existing[0].owner as string;
+      existingDisplayName = (existing[0].display_name as string) ?? null;
     }
   }
 
   await client.execute({
     sql: isPostgres()
-      ? `INSERT INTO oauth_tokens (provider, account_id, owner, tokens, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (provider, account_id) DO UPDATE SET owner=EXCLUDED.owner, tokens=EXCLUDED.tokens, updated_at=EXCLUDED.updated_at`
-      : `INSERT OR REPLACE INTO oauth_tokens (provider, account_id, owner, tokens, updated_at) VALUES (?, ?, ?, ?, ?)`,
+      ? `INSERT INTO oauth_tokens (provider, account_id, owner, display_name, tokens, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (provider, account_id) DO UPDATE SET owner=EXCLUDED.owner, display_name=COALESCE(EXCLUDED.display_name, oauth_tokens.display_name), tokens=EXCLUDED.tokens, updated_at=EXCLUDED.updated_at`
+      : `INSERT OR REPLACE INTO oauth_tokens (provider, account_id, owner, display_name, tokens, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
     args: [
       provider,
       accountId,
       resolvedOwner,
+      existingDisplayName,
       JSON.stringify(tokens),
       Date.now(),
     ],

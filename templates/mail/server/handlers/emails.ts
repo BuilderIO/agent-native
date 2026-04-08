@@ -165,6 +165,8 @@ async function getAccountTokens(
       results.push({ email: account.accountId, accessToken: token });
       // Fetch from Google if we still don't have a display name
       if (!getAccountDisplayName(account.accountId)) {
+        // Mark as attempted immediately so concurrent requests don't re-fire
+        setAccountDisplayName(account.accountId, account.accountId);
         googleFetch(`https://www.googleapis.com/oauth2/v2/userinfo`, token)
           .then((profile: any) => {
             if (profile?.name) {
