@@ -22,6 +22,7 @@ import {
   getAuthStatus,
   disconnect,
   getClient,
+  setAccountDisplayName,
 } from "../lib/google-auth.js";
 import { googleFetch } from "../lib/google-api.js";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
@@ -100,6 +101,7 @@ export const handleGoogleCallback = defineEventHandler(
               (s: any) => s.sendAsEmail?.toLowerCase() === email.toLowerCase(),
             );
             if (match?.displayName) {
+              setAccountDisplayName(email, match.displayName);
               await putUserSetting(owner ?? email, "mail-settings", {
                 ...(settings || {}),
                 name: match.displayName,

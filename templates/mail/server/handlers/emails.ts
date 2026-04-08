@@ -38,6 +38,8 @@ import {
   isConnected,
   listGmailMessages,
   gmailToEmailMessage,
+  getAccountDisplayName,
+  setAccountDisplayName,
 } from "../lib/google-auth.js";
 import {
   incrementSendFrequency,
@@ -155,6 +157,16 @@ async function getAccountTokens(
     const token = await getAccessToken(account.accountId);
     if (token) {
       results.push({ email: account.accountId, accessToken: token });
+      // Populate display name cache if not already set
+      if (!getAccountDisplayName(account.accountId)) {
+        googleFetch(`https://www.googleapis.com/oauth2/v2/userinfo`, token)
+          .then((profile: any) => {
+            if (profile?.name) {
+              setAccountDisplayName(account.accountId, profile.name);
+            }
+          })
+          .catch(() => {});
+      }
     }
   }
 
