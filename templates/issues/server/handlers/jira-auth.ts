@@ -96,6 +96,11 @@ export const handleAtlassianCallback = defineEventHandler(
       });
     } catch (error: any) {
       const msg = error.message || "Unknown error";
+      console.error(
+        "[atlassian-callback] OAuth callback error:",
+        msg,
+        error?.stack,
+      );
       // Authorization code errors usually mean the code was already used
       // (double-fetch, page reload) or expired. Check if we're actually
       // connected from a prior successful exchange.

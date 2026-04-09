@@ -79,6 +79,7 @@ export function encodeOAuthState(
   owner?: string,
   desktop?: boolean,
   addAccount?: boolean,
+  app?: string,
 ): string {
   const nonce = crypto.randomBytes(8).toString("hex");
   const payload: Record<string, string | boolean> = {
@@ -88,6 +89,7 @@ export function encodeOAuthState(
   if (owner) payload.o = owner;
   if (desktop) payload.d = true;
   if (addAccount) payload.a = true;
+  if (app) payload.app = app;
   const data = Buffer.from(JSON.stringify(payload)).toString("base64url");
   const sig = crypto
     .createHmac("sha256", getStateSigningKey())

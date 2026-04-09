@@ -1,7 +1,10 @@
 import { useEditor, EditorContent } from "@tiptap/react";
+import { Extension } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
+import { TextStyle } from "@tiptap/extension-text-style";
+import { Color } from "@tiptap/extension-color";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCaret from "@tiptap/extension-collaboration-caret";
 import { useEffect, useRef, useCallback } from "react";
@@ -14,6 +17,11 @@ import {
   SlashMenuUI,
   useSlashMenu,
 } from "./SlideSlashMenu";
+import {
+  copiedStyle,
+  setCopiedStyle,
+  type CopiedStyle,
+} from "./style-clipboard";
 
 interface SlideInlineEditorProps {
   slide: Slide;
@@ -125,6 +133,42 @@ export function SlideInlineEditor({
     typeof slide.content === "string" ? slide.content : "",
   );
 
+  const StyleShortcuts = Extension.create({
+    name: "styleShortcuts",
+    addKeyboardShortcuts() {
+      return {
+        "Mod-Alt-c": ({ editor: e }) => {
+          const attrs = e.getAttributes("textStyle");
+          const style: CopiedStyle = {
+            color: attrs.color as string | undefined,
+            bold: e.isActive("bold"),
+            italic: e.isActive("italic"),
+            strike: e.isActive("strike"),
+          };
+          setCopiedStyle(style);
+          return true;
+        },
+        "Mod-Alt-v": ({ editor: e }) => {
+          if (!copiedStyle) return false;
+          const chain = e.chain().focus();
+          if (copiedStyle.color) {
+            chain.setColor(copiedStyle.color);
+          } else {
+            chain.unsetColor();
+          }
+          if (copiedStyle.bold) chain.setBold();
+          else chain.unsetBold();
+          if (copiedStyle.italic) chain.setItalic();
+          else chain.unsetItalic();
+          if (copiedStyle.strike) chain.setStrike();
+          else chain.unsetStrike();
+          chain.run();
+          return true;
+        },
+      };
+    },
+  });
+
   const editor = useEditor({
     extensions: [
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -138,6 +182,9 @@ export function SlideInlineEditor({
           class: "text-[#00E5FF] underline",
         },
       }),
+      TextStyle,
+      Color,
+      StyleShortcuts,
       SlashCommandExtension,
       // Collaboration extensions — only active when ydoc is provided
       ...(ydoc

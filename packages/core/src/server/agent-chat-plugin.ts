@@ -699,17 +699,47 @@ ${FRAMEWORK_CORE}`;
 const DEFAULT_SYSTEM_PROMPT = PROD_FRAMEWORK_PROMPT;
 
 /**
- * Pre-load AGENTS.md and LEARNINGS.md (personal + shared) and append to the system prompt.
- * This ensures the agent always has the user's context without needing to call tools first.
+ * Pre-load the agent's context: AGENTS.md (template instructions), the skills
+ * index, and LEARNINGS.md (user notes). These all get appended to the system
+ * prompt so the agent has everything it needs from the first turn — no tool
+ * calls required to figure out "what is this app".
+ *
+ * Three sources are layered:
+ *
+ *   1. `<template>` — AGENTS.md + skills index from the `virtual:agents-bundle`
+ *      module (inlined at build time by the Vite plugin, falls back to a
+ *      filesystem read from `process.cwd()` in dev). Canonical source for
+ *      "what is this app, what can it do, what skills are available".
+ *   2. `<shared>` — LEARNINGS.md from the SQL shared scope. Team-level notes.
+ *   3. `<personal>` — LEARNINGS.md from the SQL personal scope. The current
+ *      user's own notes.
+ *
+ * Each source is read independently — no copying between them. Editing
+ * AGENTS.md and restarting the server is all it takes; Vite HMR invalidates
+ * the bundle in dev so changes land instantly.
  */
 async function loadResourcesForPrompt(owner: string): Promise<string> {
   await ensurePersonalDefaults(owner);
 
-  const resourceNames = ["AGENTS.md", "LEARNINGS.md"];
   const sections: string[] = [];
 
-  for (const name of resourceNames) {
-    // Read shared
+  // 1. Template AGENTS.md + skills index — from the virtual bundle.
+  try {
+    const { loadAgentsBundle, generateSkillsPromptBlock } =
+      await import("./agents-bundle.js");
+    const bundle = await loadAgentsBundle();
+    if (bundle.agentsMd.trim()) {
+      sections.push(
+        `<resource name="AGENTS.md" scope="template">\n${bundle.agentsMd.trim()}\n</resource>`,
+      );
+    }
+    const skillsBlock = generateSkillsPromptBlock(bundle);
+    if (skillsBlock) sections.push(skillsBlock);
+  } catch {}
+
+  // LEARNINGS.md from SQL (template-level instructions are in AGENTS.md above).
+  for (const name of ["LEARNINGS.md"]) {
+    // 2. Shared SQL scope
     try {
       const shared = await resourceGetByPath(SHARED_OWNER, name);
       if (shared?.content?.trim()) {
@@ -719,7 +749,7 @@ async function loadResourcesForPrompt(owner: string): Promise<string> {
       }
     } catch {}
 
-    // Read personal (skip if owner is the shared sentinel)
+    // 3. Personal SQL scope (skip if owner is the shared sentinel)
     if (owner !== SHARED_OWNER) {
       try {
         const personal = await resourceGetByPath(owner, name);
@@ -1103,7 +1133,11 @@ export function createAgentChatPlugin(
               ...chatScripts,
               ...devScriptsForA2A,
             }
-          : { ...templateScripts, ...resourceScripts, ...chatScripts };
+          : {
+              ...templateScripts,
+              ...resourceScripts,
+              ...chatScripts,
+            };
 
         const tools: any[] = Object.entries(a2aActions).map(
           ([name, entry]) => ({
@@ -1211,7 +1245,11 @@ export function createAgentChatPlugin(
               ...chatScripts,
               ...devScriptsForA2A,
             }
-          : { ...templateScripts, ...resourceScripts, ...chatScripts };
+          : {
+              ...templateScripts,
+              ...resourceScripts,
+              ...chatScripts,
+            };
 
         const tools: any[] = Object.entries(mcpActions).map(
           ([name, entry]) => ({

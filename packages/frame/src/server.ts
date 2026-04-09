@@ -20,10 +20,29 @@ import {
   setResponseHeader,
   toNodeListener,
 } from "h3";
+import { Buffer } from "node:buffer";
 import { listen } from "listhen";
 import { DEFAULT_APPS } from "@agent-native/shared-app-config";
 
 const PORT = parseInt(process.env.FRAME_SERVER_PORT || "3335", 10);
+
+/**
+ * Extract the app ID from an OAuth state parameter without verifying the HMAC.
+ * Used for routing-only purposes — security is still enforced by the app's
+ * callback handler which verifies the HMAC signature.
+ */
+function extractAppFromState(state: string | undefined): string | undefined {
+  if (!state) return undefined;
+  try {
+    const dotIdx = state.lastIndexOf(".");
+    if (dotIdx === -1) return undefined;
+    const data = state.slice(0, dotIdx);
+    const parsed = JSON.parse(Buffer.from(data, "base64url").toString());
+    return typeof parsed.app === "string" ? parsed.app : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 const app = createApp();
 const router = createRouter();
@@ -82,15 +101,16 @@ router.all(
 );
 
 // Proxy /_agent-native routes to the active app's dev server.
-// App is resolved from ?_app= query param, then frame_active_app cookie
-// (set by the Frame client when the user selects an app). This means all
-// core client calls (poll, mentions, resources, etc.) are automatically
-// routed to the correct app without needing ?_app= on every URL.
+// App is resolved from ?_app= query param, then OAuth state (for callbacks
+// from the system browser that lack the frame_active_app cookie), then the
+// frame_active_app cookie, then "mail" as default.
 router.all(
   "/_agent-native/**",
   defineEventHandler(async (event) => {
+    const query = getQuery(event);
     const appId =
-      (getQuery(event)._app as string) ||
+      (query._app as string) ||
+      extractAppFromState(query.state as string | undefined) ||
       getCookie(event, "frame_active_app") ||
       "mail";
     const app = DEFAULT_APPS.find((a) => a.id === appId);

@@ -65,9 +65,23 @@ export function runMigrations(
       const exec = getDbExec();
       const pg = isPostgres();
 
-      await exec.execute(
-        `CREATE TABLE IF NOT EXISTS _migrations (version INTEGER PRIMARY KEY)`,
-      );
+      // Retry initial table creation — SQLITE_BUSY_RECOVERY can occur on HMR
+      // restarts when WAL files from the previous process haven't been released yet.
+      for (let attempt = 0; attempt < 6; attempt++) {
+        try {
+          await exec.execute(
+            `CREATE TABLE IF NOT EXISTS _migrations (version INTEGER PRIMARY KEY)`,
+          );
+          break;
+        } catch (e: any) {
+          const msg = String(e?.message || e);
+          if (msg.includes("SQLITE_BUSY") && attempt < 5) {
+            await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+          } else {
+            throw e;
+          }
+        }
+      }
 
       const { rows } = await exec.execute(
         `SELECT MAX(version) as v FROM _migrations`,
