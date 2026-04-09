@@ -63,9 +63,7 @@ export async function polyfillH3Event(event: any): Promise<void> {
 
   if (!hasNode && webReq && typeof webReq === "object") {
     // Build a Node-like facade from the web Request.
-    const method = String(
-      webReq.method ?? event.method ?? "GET",
-    ).toUpperCase();
+    const method = String(webReq.method ?? event.method ?? "GET").toUpperCase();
     let pathPlusSearch = "/";
     try {
       const u = new URL(
@@ -185,9 +183,7 @@ export function polyfillH3EventSync(event: any): void {
   const hasNode = !!event.node?.req?.method;
 
   if (!hasNode && webReq && typeof webReq === "object") {
-    const method = String(
-      webReq.method ?? event.method ?? "GET",
-    ).toUpperCase();
+    const method = String(webReq.method ?? event.method ?? "GET").toUpperCase();
     let pathPlusSearch = "/";
     try {
       const u = new URL(

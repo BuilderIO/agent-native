@@ -194,7 +194,11 @@ export async function handleFrameworkRequest(event: any): Promise<any> {
   await polyfillH3Event(event);
 
   const url =
-    event.node?.req?.url ?? event.req?.url ?? event.path ?? event.url?.href ?? "";
+    event.node?.req?.url ??
+    event.req?.url ??
+    event.path ??
+    event.url?.href ??
+    "";
   // event.node.req.url is already path+search; event.req.url may be a full URL.
   let pathOnly = url;
   try {

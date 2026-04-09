@@ -97,10 +97,7 @@ export {
   registerFrameworkMiddleware,
   getH3App,
 } from "./framework-request-handler.js";
-export {
-  polyfillH3Event,
-  polyfillH3EventSync,
-} from "./h3-polyfill.js";
+export { polyfillH3Event, polyfillH3EventSync } from "./h3-polyfill.js";
 export {
   autoDiscoverActions,
   autoDiscoverScripts,
