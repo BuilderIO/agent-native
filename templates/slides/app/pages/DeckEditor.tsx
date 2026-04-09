@@ -28,6 +28,8 @@ import {
   emailToName,
 } from "@agent-native/core/client";
 import { useDeckPresence } from "@/hooks/use-deck-presence";
+import { useSlideComments } from "@/hooks/use-slide-comments";
+import { SlideCommentsPanel } from "@/components/comments/SlideCommentsPanel";
 
 // Stable tab ID for jitter prevention (module-level = never recreated)
 const COLLAB_TAB_ID = `slides-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -66,6 +68,10 @@ export default function DeckEditor() {
   const [shareOpen, setShareOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const historyButtonRef = useRef<HTMLButtonElement>(null);
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [pendingComment, setPendingComment] = useState<{
+    quotedText: string;
+  } | null>(null);
   const imageGenButtonRef = useRef<HTMLButtonElement>(null);
   const assetsButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -333,6 +339,15 @@ export default function DeckEditor() {
     user: currentUser,
   });
 
+  // Comments for the current slide (for badge count)
+  const { data: currentSlideThreads = [] } = useSlideComments(
+    id ?? null,
+    activeSlideId,
+  );
+  const unresolvedCommentCount = currentSlideThreads.filter(
+    (t) => !t.resolved,
+  ).length;
+
   if (loading) return <div className="h-screen bg-[hsl(240,5%,5%)]" />;
   if (!deck || !id) return <Navigate to="/" replace />;
 
@@ -374,6 +389,9 @@ export default function DeckEditor() {
         }
         activeUsers={slideActiveUsers}
         agentActive={agentActive}
+        commentsOpen={commentsOpen}
+        onToggleComments={() => setCommentsOpen((o) => !o)}
+        unresolvedCommentCount={unresolvedCommentCount}
       />
 
       <div className="flex-1 flex overflow-hidden relative">
@@ -448,6 +466,23 @@ export default function DeckEditor() {
                 : undefined
             }
             agentActive={agentActive}
+            onComment={(quotedText) => {
+              setPendingComment({ quotedText });
+              setCommentsOpen(true);
+            }}
+          />
+        )}
+
+        {commentsOpen && (
+          <SlideCommentsPanel
+            deckId={id}
+            slideId={currentSlide?.id ?? null}
+            pendingComment={pendingComment}
+            onPendingDone={() => setPendingComment(null)}
+            onClose={() => {
+              setCommentsOpen(false);
+              setPendingComment(null);
+            }}
           />
         )}
       </div>

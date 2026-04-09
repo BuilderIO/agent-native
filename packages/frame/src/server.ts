@@ -15,6 +15,7 @@ import {
   createRouter,
   defineEventHandler,
   getQuery,
+  getHeader,
   proxyRequest,
   setResponseHeader,
   toNodeListener,
@@ -23,6 +24,19 @@ import { listen } from "listhen";
 import { DEFAULT_APPS } from "@agent-native/shared-app-config";
 
 const PORT = parseInt(process.env.FRAME_SERVER_PORT || "3335", 10);
+
+/** Resolve active app ID from query param, then cookie fallback. */
+function resolveAppId(
+  query: Record<string, string | string[]>,
+  cookieHeader: string | undefined,
+): string {
+  if (query._app) return query._app as string;
+  if (cookieHeader) {
+    const match = cookieHeader.match(/(?:^|;\s*)frame_active_app=([^;]+)/);
+    if (match) return match[1];
+  }
+  return "mail";
+}
 
 const app = createApp();
 const router = createRouter();
@@ -71,7 +85,7 @@ router.all(
   "/api/google/**",
   defineEventHandler(async (event) => {
     const query = getQuery(event);
-    const appId = (query._app as string) || "mail";
+    const appId = resolveAppId(query, getHeader(event, "cookie"));
     const app = DEFAULT_APPS.find((a) => a.id === appId);
     const targetPort = app?.devPort || 8085;
     const targetUrl = `http://localhost:${targetPort}`;
@@ -79,12 +93,15 @@ router.all(
   }),
 );
 
-// Proxy /_agent-native routes to the app's dev server for auth/session
+// Proxy /_agent-native routes to the active app's dev server.
+// App is resolved from ?_app= query param, then frame_active_app cookie.
+// This means all core client calls (poll, mentions, resources, etc.) are
+// automatically routed to the correct app without needing ?_app= on every URL.
 router.all(
   "/_agent-native/**",
   defineEventHandler(async (event) => {
     const query = getQuery(event);
-    const appId = (query._app as string) || "mail";
+    const appId = resolveAppId(query, getHeader(event, "cookie"));
     const app = DEFAULT_APPS.find((a) => a.id === appId);
     const targetPort = app?.devPort || 8085;
     const targetUrl = `http://localhost:${targetPort}`;

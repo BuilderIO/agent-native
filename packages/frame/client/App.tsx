@@ -78,6 +78,12 @@ export function App() {
   const appUrl = getAppDevUrl(appId);
   const app = DEFAULT_APPS.find((a) => a.id === appId);
 
+  // Track active app in a cookie so Frame server routes all /_agent-native/
+  // requests to the correct app without needing ?_app= on every URL.
+  useEffect(() => {
+    document.cookie = `frame_active_app=${appId}; path=/; SameSite=Lax`;
+  }, [appId]);
+
   // Persist state
   useEffect(() => {
     try {
@@ -294,6 +300,7 @@ export function App() {
                 onCollapse={() => setSidebarOpen(false)}
                 devAppUrl={appUrl}
                 storageKey={appId}
+                apiUrl={`/_agent-native/agent-chat?_app=${appId}`}
               />
             </Suspense>
           </div>
