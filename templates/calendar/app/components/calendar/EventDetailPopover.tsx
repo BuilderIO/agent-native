@@ -187,7 +187,6 @@ function toTimeInputValue(iso: string): string {
 interface EventDetailPopoverProps {
   event: CalendarEvent;
   children: React.ReactNode;
-  onEdit: (event: CalendarEvent) => void;
   onDelete: (eventId: string) => void;
   /** When true, the popover opens immediately and title is focused for editing */
   defaultOpen?: boolean;
@@ -200,7 +199,6 @@ interface EventDetailPopoverProps {
 export function EventDetailPopover({
   event,
   children,
-  onEdit,
   onDelete,
   defaultOpen = false,
   onTitleSave,
@@ -944,106 +942,64 @@ export function EventDetailPopover({
               </div>
             ) : null}
 
-            {/* Description — always shown, editable */}
-            <div className="mx-4 my-2 border-t border-border/50" />
-            {editingField === "description" ? (
-              <div className="px-4 py-1.5">
-                <div className="flex items-start gap-3">
-                  <IconAlignLeft className="mt-1.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                  <textarea
-                    ref={descriptionRef}
-                    value={editDescription}
-                    onChange={(e) => setEditDescription(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Escape") {
-                        e.preventDefault();
-                        setEditDescription(event.description || "");
-                        setEditingField(null);
-                      }
-                      // Allow Enter for newlines, Cmd+Enter to save
-                      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                        e.preventDefault();
-                        handleSaveDescription();
-                      }
-                      e.stopPropagation();
-                    }}
-                    onBlur={handleSaveDescription}
-                    placeholder="Add description"
-                    rows={3}
-                    className="flex-1 w-full bg-transparent border border-border rounded-md px-2.5 py-2 text-sm text-foreground placeholder:text-muted-foreground/40 focus:ring-1 focus:ring-ring outline-none resize-y min-h-[60px]"
-                  />
-                </div>
-                <div className="flex justify-end mt-1">
-                  <span className="text-[10px] text-muted-foreground/40">
-                    <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px]">
-                      ⌘↵
-                    </kbd>{" "}
-                    to save
-                  </span>
-                </div>
-              </div>
-            ) : event.description ? (
-              (() => {
-                const cleanedHtml = descriptionIsHtml
-                  ? stripGcalInviteHtml(sanitizeHtml(event.description))
-                  : null;
-                const hasContent = cleanedHtml
-                  ? cleanedHtml.replace(/<[^>]*>/g, "").trim().length > 0
-                  : true;
-                if (!hasContent && !isOverlay) {
-                  return (
-                    <div
-                      className="flex items-center gap-3 px-4 py-1.5 cursor-pointer hover:bg-muted/50 rounded-md"
-                      onClick={() => setEditingField("description")}
-                    >
-                      <IconAlignLeft className="h-4 w-4 shrink-0 text-muted-foreground/40" />
-                      <span className="text-sm text-muted-foreground/40">
-                        Add description
-                      </span>
-                    </div>
-                  );
-                }
-                return (
-                  <div
-                    className={`px-4 py-1.5 ${!isOverlay ? "cursor-pointer" : ""}`}
-                    onClick={() => {
-                      if (isOverlay) return;
-                      setEditingField("description");
-                    }}
-                  >
-                    <div className="flex items-start gap-3">
-                      <IconAlignLeft className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                      <div className="flex-1 min-w-0">
-                        {descriptionIsHtml ? (
-                          <div
-                            className={`rounded-lg bg-muted/30 px-3 py-2.5 text-sm leading-relaxed text-foreground/80 prose prose-sm prose-invert prose-p:my-1 prose-a:text-primary ${!isOverlay ? "hover:bg-muted/50" : ""}`}
-                            dangerouslySetInnerHTML={{
-                              __html: cleanedHtml!,
-                            }}
-                          />
-                        ) : (
-                          <p
-                            className={`rounded-lg bg-muted/30 px-3 py-2.5 text-sm leading-relaxed text-foreground/80 whitespace-pre-wrap ${!isOverlay ? "hover:bg-muted/50" : ""}`}
-                          >
-                            {event.description}
-                          </p>
-                        )}
-                      </div>
-                    </div>
+            {/* Description — always shown for editable events; hidden for overlay events with no description */}
+            {(!isOverlay || event.description) && (
+              <>
+                <div className="mx-4 my-2 border-t border-border/50" />
+                <div className="px-4 py-1.5">
+                  <div className="flex items-start gap-3">
+                    <IconAlignLeft className="mt-1.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                    {isOverlay ? (
+                      event.description ? (
+                        (() => {
+                          const cleanedHtml = descriptionIsHtml
+                            ? stripGcalInviteHtml(
+                                sanitizeHtml(event.description),
+                              )
+                            : null;
+                          const hasContent = cleanedHtml
+                            ? cleanedHtml.replace(/<[^>]*>/g, "").trim()
+                                .length > 0
+                            : true;
+                          if (!hasContent) return null;
+                          return descriptionIsHtml ? (
+                            <div
+                              className="rounded-lg bg-muted/30 px-3 py-2.5 text-sm leading-relaxed text-foreground/80 prose prose-sm prose-invert prose-p:my-1 prose-a:text-primary"
+                              dangerouslySetInnerHTML={{ __html: cleanedHtml! }}
+                            />
+                          ) : (
+                            <p className="text-sm leading-relaxed text-foreground/80 whitespace-pre-wrap">
+                              {event.description}
+                            </p>
+                          );
+                        })()
+                      ) : null
+                    ) : (
+                      <textarea
+                        ref={descriptionRef}
+                        value={editDescription}
+                        onChange={(e) => setEditDescription(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape") {
+                            e.preventDefault();
+                            setEditDescription(event.description || "");
+                          }
+                          if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                            e.preventDefault();
+                            handleSaveDescription();
+                          }
+                          e.stopPropagation();
+                        }}
+                        onBlur={handleSaveDescription}
+                        placeholder="Add description"
+                        rows={3}
+                        className="flex-1 w-full bg-transparent border-none outline-none text-sm text-foreground placeholder:text-muted-foreground/40 focus:ring-0 resize-none"
+                      />
+                    )}
                   </div>
-                );
-              })()
-            ) : !isOverlay ? (
-              <div
-                className="flex items-center gap-3 px-4 py-1.5 cursor-pointer hover:bg-muted/50 rounded-md"
-                onClick={() => setEditingField("description")}
-              >
-                <IconAlignLeft className="h-4 w-4 shrink-0 text-muted-foreground/40" />
-                <span className="text-sm text-muted-foreground/40">
-                  Add description
-                </span>
-              </div>
-            ) : null}
+                </div>
+              </>
+            )}
 
             {/* Reminders */}
             {event.reminders && event.reminders.length > 0 && (
@@ -1122,18 +1078,6 @@ export function EventDetailPopover({
                 }}
               >
                 Delete
-              </Button>
-              <div className="flex-1" />
-              <Button
-                variant="outline"
-                size="sm"
-                className="text-xs"
-                onClick={() => {
-                  onEdit(event);
-                  handleOpenChange(false);
-                }}
-              >
-                Edit
               </Button>
             </div>
           )}

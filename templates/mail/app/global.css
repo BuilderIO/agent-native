@@ -661,6 +661,12 @@
 
 /* Inbox Zero — frosted glass effect on the agent chat sidebar */
 .inbox-zero .agent-sidebar-panel {
+  /* position + z-index create a stacking context above the position:fixed
+     background image so the background and blur are visible in production
+     (esbuild strips backdrop-filter for safari14 target, which would otherwise
+     create the stacking context automatically) */
+  position: relative;
+  z-index: 1;
   background: rgba(0, 0, 0, 0.4) !important;
   backdrop-filter: blur(24px) saturate(1.4);
   -webkit-backdrop-filter: blur(24px) saturate(1.4);

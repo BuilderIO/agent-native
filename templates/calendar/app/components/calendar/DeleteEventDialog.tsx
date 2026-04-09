@@ -19,7 +19,6 @@ interface DeleteEventDialogProps {
     sendUpdates: "all" | "none";
     removeOnly: boolean;
   }) => void;
-  isPending?: boolean;
 }
 
 export function DeleteEventDialog({
@@ -27,7 +26,6 @@ export function DeleteEventDialog({
   open,
   onClose,
   onConfirm,
-  isPending,
 }: DeleteEventDialogProps) {
   if (!event || !open) return null;
 
@@ -44,9 +42,25 @@ export function DeleteEventDialog({
     });
   }
 
+  function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    e.preventDefault();
+    const buttons = Array.from(
+      e.currentTarget.querySelectorAll<HTMLButtonElement>(
+        "button:not([data-cancel])",
+      ),
+    );
+    const idx = buttons.indexOf(document.activeElement as HTMLButtonElement);
+    if (e.key === "ArrowDown") {
+      buttons[(idx + 1) % buttons.length]?.focus();
+    } else {
+      buttons[(idx - 1 + buttons.length) % buttons.length]?.focus();
+    }
+  }
+
   return (
     <AlertDialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
-      <AlertDialogContent className="max-w-[340px]">
+      <AlertDialogContent className="max-w-[340px]" onKeyDown={handleKeyDown}>
         <AlertDialogHeader>
           <AlertDialogTitle className="text-sm">
             This is a recurring event
@@ -61,15 +75,14 @@ export function DeleteEventDialog({
           <Button
             variant="outline"
             className="w-full justify-center"
-            disabled={isPending}
             onClick={() => handleScopeClick("single")}
+            autoFocus
           >
             This event
           </Button>
           <Button
             variant="outline"
             className="w-full justify-center"
-            disabled={isPending}
             onClick={() => handleScopeClick("thisAndFollowing")}
           >
             This and following events
@@ -77,7 +90,6 @@ export function DeleteEventDialog({
           <Button
             variant="outline"
             className="w-full justify-center"
-            disabled={isPending}
             onClick={() => handleScopeClick("all")}
           >
             All events
@@ -85,7 +97,7 @@ export function DeleteEventDialog({
         </div>
 
         <AlertDialogFooter>
-          <AlertDialogCancel disabled={isPending}>Cancel</AlertDialogCancel>
+          <AlertDialogCancel data-cancel>Cancel</AlertDialogCancel>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

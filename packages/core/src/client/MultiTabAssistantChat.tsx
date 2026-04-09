@@ -480,7 +480,7 @@ export function MultiTabAssistantChat({
 
   // Listen for builder.submitChat postMessages
   useEffect(() => {
-    const EXEC_MODE_KEY = "agent-native-exec-mode";
+    const execModeKey = `agent-native-exec-mode${keyPrefix}`;
     const PLAN_MODE_INSTRUCTION =
       `PLAN MODE ACTIVE: Before making any changes, you MUST:\n` +
       `1. Explore the codebase to understand what's needed\n` +
@@ -502,7 +502,7 @@ export function MultiTabAssistantChat({
 
       const isPlanMode = (() => {
         try {
-          return localStorage.getItem(EXEC_MODE_KEY) === "plan";
+          return localStorage.getItem(execModeKey) === "plan";
         } catch {
           return false;
         }
@@ -527,7 +527,7 @@ export function MultiTabAssistantChat({
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
-  }, []);
+  }, [keyPrefix]);
 
   // Process pending sends when refs mount
   useEffect(() => {

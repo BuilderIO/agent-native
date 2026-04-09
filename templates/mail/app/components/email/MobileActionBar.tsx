@@ -162,9 +162,19 @@ export function MobileActionBar({
                 if (!meta) return null;
                 const enabled = actions.includes(id);
                 return (
-                  <label
+                  <div
                     key={id}
                     className="flex items-center justify-between py-3 px-2 rounded-lg active:bg-accent/50"
+                    onClick={() => {
+                      const next = enabled
+                        ? actions.filter((a) => a !== id)
+                        : [...actions, id];
+                      // Maintain canonical order
+                      const ordered = ALL_MOBILE_ACTIONS.filter((a) =>
+                        next.includes(a),
+                      );
+                      onUpdateActions(ordered);
+                    }}
                   >
                     <div className="flex items-center gap-3">
                       <span className="text-muted-foreground">
@@ -184,8 +194,9 @@ export function MobileActionBar({
                         );
                         onUpdateActions(ordered);
                       }}
+                      onClick={(e) => e.stopPropagation()}
                     />
-                  </label>
+                  </div>
                 );
               })}
             </div>

@@ -19,7 +19,7 @@ import {
 } from "@tabler/icons-react";
 import type { Slide, SlideLayout } from "@/context/DeckContext";
 
-import { AgentToggleButton } from "@agent-native/core/client";
+import { AgentToggleButton, type CollabUser } from "@agent-native/core/client";
 
 interface EditorToolbarProps {
   deckId: string;
@@ -45,6 +45,10 @@ interface EditorToolbarProps {
   canRedo: boolean;
   currentSlide?: Slide;
   onUpdateSlide?: (updates: Partial<Omit<Slide, "id">>) => void;
+  /** Active users on the current slide (from collab awareness) */
+  activeUsers?: CollabUser[];
+  /** True briefly when AI agent is making edits on the current slide */
+  agentActive?: boolean;
 }
 
 const slideLayoutOptions: { value: SlideLayout; label: string }[] = [
@@ -145,6 +149,8 @@ export default function EditorToolbar({
   canRedo,
   currentSlide,
   onUpdateSlide,
+  activeUsers,
+  agentActive,
 }: EditorToolbarProps) {
   const [layoutOpen, setLayoutOpen] = useState(false);
   const layoutRef = useRef<HTMLButtonElement>(null);
@@ -448,6 +454,36 @@ graph TD
           Code
         </button>
       </div>
+
+      {/* Presence avatars — show who's editing the current slide */}
+      {((activeUsers && activeUsers.length > 0) || agentActive) && (
+        <div className="flex items-center -space-x-1.5 flex-shrink-0 mr-0.5">
+          {agentActive && (
+            <div
+              className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white ring-2 ring-[hsl(240,5%,6%)] animate-pulse z-10"
+              style={{ backgroundColor: "#a78bfa" }}
+              title="AI is editing"
+            >
+              AI
+            </div>
+          )}
+          {(activeUsers ?? []).slice(0, 5).map((u, i) => (
+            <div
+              key={i}
+              className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white ring-2 ring-[hsl(240,5%,6%)]"
+              style={{ backgroundColor: u.color }}
+              title={u.name}
+            >
+              {u.name.charAt(0).toUpperCase()}
+            </div>
+          ))}
+          {(activeUsers?.length ?? 0) > 5 && (
+            <div className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white/50 bg-white/10 ring-2 ring-[hsl(240,5%,6%)]">
+              +{(activeUsers?.length ?? 0) - 5}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Share button */}
       <button

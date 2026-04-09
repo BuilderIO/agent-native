@@ -1794,12 +1794,23 @@ export function AgentSidebar({
 
   const isLeft = position === "left";
 
+  // Always render the sidebar panel (even when closed) so MultiTabAssistantChat
+  // stays mounted and can receive messages (e.g. from voice dictation) while
+  // the sidebar is visually hidden. When the user opens the sidebar they'll see
+  // any in-progress or completed conversations.
   const sidebar = (
     <>
-      {isLeft ? null : <ResizeHandle position={position} onDrag={handleDrag} />}
+      {isLeft ? null : open ? (
+        <ResizeHandle position={position} onDrag={handleDrag} />
+      ) : null}
       <div
         className="agent-sidebar-panel flex shrink-0 flex-col overflow-hidden text-[13px] leading-[1.2] antialiased"
-        style={{ ...AGENT_PANEL_ROOT_STYLE, width, maxHeight: "100vh" }}
+        style={{
+          ...AGENT_PANEL_ROOT_STYLE,
+          width,
+          maxHeight: "100vh",
+          display: open ? "flex" : "none",
+        }}
       >
         <AgentPanel
           emptyStateText={emptyStateText}
@@ -1807,17 +1818,21 @@ export function AgentSidebar({
           onCollapse={() => setOpenPersisted(false)}
         />
       </div>
-      {isLeft ? <ResizeHandle position={position} onDrag={handleDrag} /> : null}
+      {isLeft ? (
+        open ? (
+          <ResizeHandle position={position} onDrag={handleDrag} />
+        ) : null
+      ) : null}
     </>
   );
 
   return (
     <div className="flex min-w-0 flex-1 h-screen overflow-hidden">
-      {isLeft && open ? sidebar : null}
+      {isLeft ? sidebar : null}
       <div className="flex flex-1 flex-col overflow-auto min-w-0">
         {children}
       </div>
-      {!isLeft && open ? sidebar : null}
+      {!isLeft ? sidebar : null}
     </div>
   );
 }

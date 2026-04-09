@@ -185,10 +185,6 @@ export default function CalendarView() {
     setViewMode("day");
   }
 
-  function handleEditEvent(_event: CalendarEvent) {
-    setCreateDialogOpen(true);
-  }
-
   function handleDirectDelete(ev: CalendarEvent) {
     const isOrganizer =
       ev.organizer?.self ||
@@ -646,7 +642,6 @@ export default function CalendarView() {
                 events={events}
                 selectedDate={selectedDate}
                 onDateSelect={handleDateSelect}
-                onEditEvent={handleEditEvent}
                 onDeleteEvent={handleDeleteEvent}
                 onEventDrop={handleEventDrop}
                 isLoading={eventsLoading}
@@ -657,7 +652,6 @@ export default function CalendarView() {
                 events={events}
                 selectedDate={selectedDate}
                 onDateSelect={handleDateSelect}
-                onEditEvent={handleEditEvent}
                 onDeleteEvent={handleDeleteEvent}
                 onEventTimeChange={handleEventTimeChange}
                 onClickTimeSlot={handleClickTimeSlot}
@@ -671,7 +665,6 @@ export default function CalendarView() {
               <DayView
                 events={dayEvents}
                 date={selectedDate}
-                onEditEvent={handleEditEvent}
                 onDeleteEvent={handleDeleteEvent}
                 onEventTimeChange={handleEventTimeChange}
                 onClickTimeSlot={handleClickTimeSlot}
@@ -689,7 +682,6 @@ export default function CalendarView() {
           <EventDetailPanel
             event={sidebarEvent}
             onClose={() => setSidebarEvent(null)}
-            onEdit={handleEditEvent}
             onDelete={handleDeleteEvent}
             onTitleSave={(eventId, title) =>
               updateEvent.mutate({ id: eventId, title })
@@ -729,6 +721,7 @@ export default function CalendarView() {
           onConfirm={(options) => {
             if (!deleteDialogEvent) return;
             const snapshot = { ...deleteDialogEvent };
+            const eventId = deleteDialogEvent.id;
             const undo = () => {
               createEvent.mutate({
                 title: snapshot.title,
@@ -740,15 +733,16 @@ export default function CalendarView() {
                 color: snapshot.color,
               });
             };
+            // Optimistic: close dialog immediately
+            setDeleteDialogEvent(null);
+            if (sidebarEvent?.id === eventId) {
+              setSidebarEvent(null);
+            }
             deleteEvent.mutate(
-              { id: deleteDialogEvent.id, ...options },
+              { id: eventId, ...options },
               {
                 onSuccess: () => {
                   const label = options.removeOnly ? "removed" : "deleted";
-                  setDeleteDialogEvent(null);
-                  if (sidebarEvent?.id === deleteDialogEvent.id) {
-                    setSidebarEvent(null);
-                  }
                   setUndoAction(undo);
                   toast(`Event ${label}`, {
                     action: { label: "Undo", onClick: undo },
@@ -758,7 +752,6 @@ export default function CalendarView() {
               },
             );
           }}
-          isPending={deleteEvent.isPending}
         />
       </div>
     </TooltipProvider>

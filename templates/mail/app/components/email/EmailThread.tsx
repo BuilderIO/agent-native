@@ -409,6 +409,9 @@ export function EmailThread({
     setUserToggles((prev) => ({ ...prev, [id]: !isExpanded }));
   }, [focusedIndex, messages, expandedIds]);
 
+  // Mobile action bar
+  const isMobile = useIsMobile();
+
   const handleArchive = useCallback(() => {
     if (!email) return;
     const id = email.id;
@@ -436,6 +439,7 @@ export function EmailThread({
         label: "UNDO",
         onClick: undo,
       },
+      position: isMobile ? "top-center" : undefined,
     });
     advanceOrGoBack();
     archiveEmail.mutate({
@@ -452,6 +456,7 @@ export function EmailThread({
     onArchived,
     queryClient,
     labelParam,
+    isMobile,
   ]);
 
   const handleTrash = useCallback(() => {
@@ -724,8 +729,6 @@ export function EmailThread({
     !!threadId,
   );
 
-  // Mobile action bar
-  const isMobile = useIsMobile();
   const mobileActions = settings?.mobileActions ?? DEFAULT_MOBILE_ACTIONS;
   const handleMobileAction = useCallback(
     (action: MobileActionId) => {

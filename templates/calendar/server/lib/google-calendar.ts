@@ -3,7 +3,6 @@ import {
   getOAuthTokens,
   saveOAuthTokens,
   deleteOAuthTokens,
-  listOAuthAccounts,
   listOAuthAccountsByOwner,
   hasOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
@@ -146,9 +145,8 @@ export async function getClient(
 export async function getClients(
   forEmail?: string,
 ): Promise<Array<{ email: string; accessToken: string }>> {
-  const accounts = forEmail
-    ? await listOAuthAccountsByOwner("google", forEmail)
-    : await listOAuthAccounts("google");
+  if (!forEmail) return [];
+  const accounts = await listOAuthAccountsByOwner("google", forEmail);
 
   const results: Array<{ email: string; accessToken: string }> = [];
 
@@ -178,9 +176,8 @@ export async function isConnected(forEmail?: string): Promise<boolean> {
 export async function getConnectedAccounts(
   forEmail?: string,
 ): Promise<string[]> {
-  const accounts = forEmail
-    ? await listOAuthAccountsByOwner("google", forEmail)
-    : await listOAuthAccounts("google");
+  if (!forEmail) return [];
+  const accounts = await listOAuthAccountsByOwner("google", forEmail);
   return accounts.map((a) => a.accountId);
 }
 
