@@ -141,17 +141,22 @@ export function SlideInlineEditor({
     };
   }, [editor, onContentChange]);
 
-  // Escape key → exit
+  // Escape key → exit (but not when slash menu is open — let ProseMirror handle it)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        if (menuPosition !== null) {
+          // Slash menu is open: let the event through so ProseMirror can
+          // dispatch the slide-slash-nav event and close the menu.
+          return;
+        }
         e.stopPropagation();
         onExitEdit();
       }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [onExitEdit]);
+  }, [onExitEdit, menuPosition]);
 
   return (
     <div
