@@ -28,11 +28,11 @@ export default defineAction({
   }),
   run: async (args) => {
     const db = getDb();
-    const existing = await db
+    const [existing] = await db
       .select()
       .from(schema.forms)
       .where(eq(schema.forms.id, args.id))
-      .get();
+      .limit(1);
 
     if (!existing) {
       throw new Error(`Form ${args.id} not found`);
@@ -81,11 +81,11 @@ export default defineAction({
       .set(updates)
       .where(eq(schema.forms.id, args.id));
 
-    const row = await db
+    const [row] = await db
       .select()
       .from(schema.forms)
       .where(eq(schema.forms.id, args.id))
-      .get();
+      .limit(1);
 
     return {
       id: row!.id,

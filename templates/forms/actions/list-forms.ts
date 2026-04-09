@@ -18,8 +18,7 @@ export default defineAction({
     const rows = await db
       .select()
       .from(schema.forms)
-      .orderBy(schema.forms.updatedAt)
-      .all();
+      .orderBy(schema.forms.updatedAt);
 
     const counts = await db
       .select({
@@ -27,8 +26,7 @@ export default defineAction({
         count: sql<number>`count(*)`,
       })
       .from(schema.responses)
-      .groupBy(schema.responses.formId)
-      .all();
+      .groupBy(schema.responses.formId);
     const countMap = new Map(counts.map((c) => [c.formId, c.count]));
 
     let forms = rows.map((r) => ({

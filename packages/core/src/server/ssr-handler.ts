@@ -20,6 +20,7 @@ export const ssrHandler = defineEventHandler(async (event) => {
   const p = event.url.pathname;
   if (
     p.startsWith("/.well-known/") ||
+    p.startsWith("/_agent-native/") ||
     p === "/favicon.ico" ||
     p === "/favicon.png"
   ) {

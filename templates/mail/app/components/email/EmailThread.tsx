@@ -5,6 +5,7 @@ import {
   useEffect,
   useMemo,
   forwardRef,
+  Fragment,
 } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { cn, formatEmailDate, formatFileSize } from "@/lib/utils";
@@ -1027,46 +1028,100 @@ export function EmailThread({
             const isExpanded = expandedIds.has(msg.id);
             const isFocused = idx === focusedIndex;
             const isLast = idx === messages.length - 1;
-            return isExpanded ? (
-              <ExpandedMessageCard
-                key={msg.id}
-                ref={(el) => {
-                  if (isFocused)
-                    (
-                      focusedRef as React.MutableRefObject<HTMLDivElement | null>
-                    ).current = el;
-                  if (isLast) lastMessageRef.current = el;
-                }}
-                email={msg}
-                isFocused={isFocused}
-                onCollapse={() => {
-                  setUserToggles((prev) => ({ ...prev, [msg.id]: false }));
-                }}
-                onReply={() => handleReply(msg)}
-                onReplyAll={() => handleReplyAll(msg)}
-                onForward={() => handleForwardMsg(msg)}
-                onFocus={() => setFocusedIndex(idx)}
-                onContactSelect={onContactSelect}
-                searchTerm={searchQuery.trim() || undefined}
-                activeLocalIdx={getActiveLocalIdx(msg.id)}
-              />
-            ) : (
-              <CollapsedMessageRow
-                key={msg.id}
-                ref={(el) => {
-                  if (isFocused)
-                    (
-                      focusedRef as React.MutableRefObject<HTMLDivElement | null>
-                    ).current = el;
-                  if (isLast) lastMessageRef.current = el;
-                }}
-                email={msg}
-                isFocused={isFocused}
-                onClick={() => {
-                  setFocusedIndex(idx);
-                  setUserToggles((prev) => ({ ...prev, [msg.id]: true }));
-                }}
-              />
+            const showComposerAfter = inlineDraft?.replyToId === msg.id;
+            return (
+              <Fragment key={msg.id}>
+                {isExpanded ? (
+                  <ExpandedMessageCard
+                    ref={(el) => {
+                      if (isFocused)
+                        (
+                          focusedRef as React.MutableRefObject<HTMLDivElement | null>
+                        ).current = el;
+                      if (isLast) lastMessageRef.current = el;
+                    }}
+                    email={msg}
+                    isFocused={isFocused}
+                    onCollapse={() => {
+                      setUserToggles((prev) => ({ ...prev, [msg.id]: false }));
+                    }}
+                    onReply={() => handleReply(msg)}
+                    onReplyAll={() => handleReplyAll(msg)}
+                    onForward={() => handleForwardMsg(msg)}
+                    onFocus={() => setFocusedIndex(idx)}
+                    onContactSelect={onContactSelect}
+                    searchTerm={searchQuery.trim() || undefined}
+                    activeLocalIdx={getActiveLocalIdx(msg.id)}
+                  />
+                ) : (
+                  <CollapsedMessageRow
+                    ref={(el) => {
+                      if (isFocused)
+                        (
+                          focusedRef as React.MutableRefObject<HTMLDivElement | null>
+                        ).current = el;
+                      if (isLast) lastMessageRef.current = el;
+                    }}
+                    email={msg}
+                    isFocused={isFocused}
+                    onClick={() => {
+                      setFocusedIndex(idx);
+                      setUserToggles((prev) => ({ ...prev, [msg.id]: true }));
+                    }}
+                  />
+                )}
+                {showComposerAfter && (
+                  <div className="mt-3">
+                    <InlineReplyComposer
+                      ref={inlineReplyRef}
+                      draft={inlineDraft}
+                      messages={messages}
+                      onUpdate={compose.update}
+                      onDiscard={compose.discard}
+                      onClose={(id) => {
+                        const drafts = compose.drafts ?? [];
+                        const draft = drafts.find((d: any) => d.id === id);
+                        const hasContent = !!(
+                          draft?.to?.trim() ||
+                          draft?.subject?.trim() ||
+                          draft?.body?.trim()
+                        );
+                        const snapshot = draft ? { ...draft } : null;
+                        compose.close(id);
+                        if (hasContent && snapshot) {
+                          toast("Draft saved.", {
+                            action: {
+                              label: "REOPEN",
+                              onClick: () => {
+                                const { id: _id, ...reopenData } = snapshot;
+                                compose.open({ ...reopenData, inline: true });
+                              },
+                            },
+                            cancel: {
+                              label: "DELETE DRAFT",
+                              onClick: () => {
+                                if (snapshot.savedDraftId) {
+                                  fetch(
+                                    `/api/emails/${snapshot.savedDraftId}`,
+                                    {
+                                      method: "DELETE",
+                                    },
+                                  );
+                                }
+                              },
+                            },
+                          });
+                        }
+                      }}
+                      onPopOut={(id) => compose.update(id, { inline: false })}
+                      onFlush={compose.flush}
+                      onReopen={(state) =>
+                        compose.open({ ...state, inline: true })
+                      }
+                    />
+                  </div>
+                )}
+              </Fragment>
             );
           })}
 
@@ -1077,53 +1132,57 @@ export function EmailThread({
             </>
           )}
 
-          {/* Inline reply composer */}
-          {inlineDraft ? (
-            <div className="mt-3">
-              <InlineReplyComposer
-                ref={inlineReplyRef}
-                draft={inlineDraft}
-                messages={messages}
-                onUpdate={compose.update}
-                onDiscard={compose.discard}
-                onClose={(id) => {
-                  const drafts = compose.drafts ?? [];
-                  const draft = drafts.find((d: any) => d.id === id);
-                  const hasContent = !!(
-                    draft?.to?.trim() ||
-                    draft?.subject?.trim() ||
-                    draft?.body?.trim()
-                  );
-                  const snapshot = draft ? { ...draft } : null;
-                  compose.close(id);
-                  if (hasContent && snapshot) {
-                    toast("Draft saved.", {
-                      action: {
-                        label: "REOPEN",
-                        onClick: () => {
-                          const { id: _id, ...reopenData } = snapshot;
-                          compose.open({ ...reopenData, inline: true });
+          {/* Inline reply composer fallback (replyToId not matched) */}
+          {inlineDraft &&
+            !messages.some((m) => m.id === inlineDraft.replyToId) && (
+              <div className="mt-3">
+                <InlineReplyComposer
+                  ref={inlineReplyRef}
+                  draft={inlineDraft}
+                  messages={messages}
+                  onUpdate={compose.update}
+                  onDiscard={compose.discard}
+                  onClose={(id) => {
+                    const drafts = compose.drafts ?? [];
+                    const draft = drafts.find((d: any) => d.id === id);
+                    const hasContent = !!(
+                      draft?.to?.trim() ||
+                      draft?.subject?.trim() ||
+                      draft?.body?.trim()
+                    );
+                    const snapshot = draft ? { ...draft } : null;
+                    compose.close(id);
+                    if (hasContent && snapshot) {
+                      toast("Draft saved.", {
+                        action: {
+                          label: "REOPEN",
+                          onClick: () => {
+                            const { id: _id, ...reopenData } = snapshot;
+                            compose.open({ ...reopenData, inline: true });
+                          },
                         },
-                      },
-                      cancel: {
-                        label: "DELETE DRAFT",
-                        onClick: () => {
-                          if (snapshot.savedDraftId) {
-                            fetch(`/api/emails/${snapshot.savedDraftId}`, {
-                              method: "DELETE",
-                            });
-                          }
+                        cancel: {
+                          label: "DELETE DRAFT",
+                          onClick: () => {
+                            if (snapshot.savedDraftId) {
+                              fetch(`/api/emails/${snapshot.savedDraftId}`, {
+                                method: "DELETE",
+                              });
+                            }
+                          },
                         },
-                      },
-                    });
-                  }
-                }}
-                onPopOut={(id) => compose.update(id, { inline: false })}
-                onFlush={compose.flush}
-                onReopen={(state) => compose.open({ ...state, inline: true })}
-              />
-            </div>
-          ) : (
+                      });
+                    }
+                  }}
+                  onPopOut={(id) => compose.update(id, { inline: false })}
+                  onFlush={compose.flush}
+                  onReopen={(state) => compose.open({ ...state, inline: true })}
+                />
+              </div>
+            )}
+
+          {/* Reply prompt when no draft open */}
+          {!inlineDraft && (
             <div
               className="flex items-center rounded-lg bg-accent/40 px-4 py-3 sm:py-2.5 cursor-text hover:bg-accent/60 transition-colors mt-3"
               onClick={() => handleReply()}

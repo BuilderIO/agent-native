@@ -394,9 +394,10 @@ export async function createPtyWebSocketServer(
     server.listen(port, "127.0.0.1", () => {
       const addr = server.address();
       const actualPort = typeof addr === "object" && addr ? addr.port : port;
-      console.log(
-        `${logPrefix} PTY WebSocket server on ws://localhost:${actualPort}/ws`,
-      );
+      if (process.env.DEBUG)
+        console.log(
+          `${logPrefix} PTY WebSocket server on ws://localhost:${actualPort}/ws`,
+        );
 
       resolve({
         server,

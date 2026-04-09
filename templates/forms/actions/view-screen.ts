@@ -17,17 +17,16 @@ export default defineAction({
     if (nav?.formId) {
       const db = getDb();
       try {
-        const form = await db
+        const [form] = await db
           .select()
           .from(schema.forms)
           .where(eq(schema.forms.id, nav.formId))
-          .get();
+          .limit(1);
         if (form) {
-          const responseCount = await db
+          const [responseCount] = await db
             .select({ count: sql<number>`count(*)` })
             .from(schema.responses)
-            .where(eq(schema.responses.formId, nav.formId))
-            .get();
+            .where(eq(schema.responses.formId, nav.formId));
 
           screen.form = {
             id: form.id,
@@ -50,15 +49,14 @@ export default defineAction({
     if (nav?.view === "forms" || nav?.view === "forms-list" || !nav?.formId) {
       try {
         const db = getDb();
-        const rows = await db.select().from(schema.forms).all();
+        const rows = await db.select().from(schema.forms);
         const counts = await db
           .select({
             formId: schema.responses.formId,
             count: sql<number>`count(*)`,
           })
           .from(schema.responses)
-          .groupBy(schema.responses.formId)
-          .all();
+          .groupBy(schema.responses.formId);
         const countMap = new Map(counts.map((c) => [c.formId, c.count]));
 
         screen.formsList = {
@@ -85,14 +83,12 @@ export default defineAction({
           .select()
           .from(schema.responses)
           .where(eq(schema.responses.formId, nav.formId))
-          .limit(20)
-          .all();
+          .limit(20);
 
-        const total = await db
+        const [total] = await db
           .select({ count: sql<number>`count(*)` })
           .from(schema.responses)
-          .where(eq(schema.responses.formId, nav.formId))
-          .get();
+          .where(eq(schema.responses.formId, nav.formId));
 
         screen.responses = {
           formId: nav.formId,

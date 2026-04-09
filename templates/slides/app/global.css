@@ -801,3 +801,163 @@ button[title="Open agent sidebar"] {
   background: rgba(255, 255, 255, 0.06);
   color: #fff;
 }
+
+/* ─── Inline Slide Editor (TipTap) ─── */
+
+.slide-tiptap-editor {
+  font-family: "Poppins", sans-serif;
+  color: rgba(255, 255, 255, 0.9);
+  caret-color: #609ff8;
+  outline: none;
+  cursor: text;
+}
+
+.slide-tiptap-editor .tiptap {
+  outline: none;
+  min-height: 100%;
+  height: 100%;
+}
+
+/* Placeholder */
+.slide-tiptap-editor .tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: rgba(255, 255, 255, 0.2);
+  pointer-events: none;
+  float: left;
+  height: 0;
+}
+
+/* Headings */
+.slide-tiptap-editor .tiptap h1 {
+  font-size: 54px;
+  font-weight: 900;
+  color: #ffffff;
+  line-height: 1.1;
+  letter-spacing: -1px;
+  margin-bottom: 32px;
+}
+
+.slide-tiptap-editor .tiptap h2 {
+  font-size: 40px;
+  font-weight: 900;
+  color: #ffffff;
+  line-height: 1.15;
+  letter-spacing: -0.5px;
+  margin-bottom: 24px;
+}
+
+.slide-tiptap-editor .tiptap h3 {
+  font-size: 28px;
+  font-weight: 700;
+  color: #ffffff;
+  line-height: 1.2;
+  margin-bottom: 16px;
+}
+
+/* Paragraph */
+.slide-tiptap-editor .tiptap p {
+  font-size: 22px;
+  color: rgba(255, 255, 255, 0.85);
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+/* Lists */
+.slide-tiptap-editor .tiptap ul {
+  padding-left: 0;
+  margin-bottom: 16px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.slide-tiptap-editor .tiptap ul li {
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+  font-size: 22px;
+  color: rgba(255, 255, 255, 0.85);
+  line-height: 1.4;
+}
+
+.slide-tiptap-editor .tiptap ul li::before {
+  content: "●";
+  color: #ffffff;
+  font-size: 8px;
+  position: relative;
+  top: -4px;
+  flex-shrink: 0;
+}
+
+/* TipTap wraps li content in <p> — remove its margin */
+.slide-tiptap-editor .tiptap ul li p {
+  margin: 0;
+  font-size: inherit;
+  color: inherit;
+}
+
+.slide-tiptap-editor .tiptap ol {
+  padding-left: 28px;
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.slide-tiptap-editor .tiptap ol li {
+  font-size: 22px;
+  color: rgba(255, 255, 255, 0.85);
+  line-height: 1.4;
+  list-style-type: decimal;
+}
+
+.slide-tiptap-editor .tiptap ol li p {
+  margin: 0;
+  font-size: inherit;
+  color: inherit;
+}
+
+/* Blockquote */
+.slide-tiptap-editor .tiptap blockquote {
+  border-left: 4px solid #00e5ff;
+  padding-left: 24px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 24px;
+  font-style: italic;
+  margin-bottom: 16px;
+}
+
+/* Inline formatting */
+.slide-tiptap-editor .tiptap strong {
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.slide-tiptap-editor .tiptap em {
+  color: rgba(255, 255, 255, 0.9);
+  font-style: italic;
+}
+
+.slide-tiptap-editor .tiptap s {
+  opacity: 0.6;
+}
+
+.slide-tiptap-editor .tiptap code {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 2px 8px;
+  border-radius: 4px;
+  color: #00e5ff;
+  font-family: monospace;
+  font-size: 0.85em;
+}
+
+.slide-tiptap-editor .tiptap a {
+  color: #00e5ff;
+  text-decoration: underline;
+}
+
+/* Selection highlight */
+.slide-tiptap-editor .tiptap ::selection {
+  background: rgba(96, 159, 248, 0.35);
+}

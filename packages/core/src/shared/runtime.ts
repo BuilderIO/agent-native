@@ -11,15 +11,15 @@ export function isNodeRuntime(): boolean {
   return (
     typeof process !== "undefined" &&
     typeof process.versions?.node === "string" &&
-    typeof (globalThis as any).__cf_env === "undefined" &&
-    typeof (globalThis as any).Deno === "undefined"
+    !("__cf_env" in globalThis) &&
+    !("Deno" in globalThis)
   );
 }
 
 /** True when running in Cloudflare Workers/Pages. */
 export function isCloudflareRuntime(): boolean {
   return (
-    typeof (globalThis as any).__cf_env !== "undefined" ||
+    "__cf_env" in globalThis ||
     (typeof navigator !== "undefined" &&
       navigator.userAgent === "Cloudflare-Workers")
   );

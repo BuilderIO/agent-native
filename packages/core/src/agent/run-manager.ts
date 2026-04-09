@@ -184,7 +184,7 @@ export function startRun(
 
   // On Cloudflare Workers, keep the isolate alive for this run
   try {
-    const cfCtx = (globalThis as any).__cf_ctx;
+    const cfCtx = globalThis.__cf_ctx;
     if (cfCtx?.waitUntil) {
       cfCtx.waitUntil(runPromise);
     }

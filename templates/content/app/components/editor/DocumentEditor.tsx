@@ -43,6 +43,8 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
   const localContentRef = useRef(localContent);
   localContentRef.current = localContent;
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const shouldFocusTitleRef = useRef(false);
 
   // Current user info for cursor labels
   const { session } = useSession();
@@ -86,6 +88,9 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
         content: document.content,
       };
       isInitializedRef.current = true;
+      if (!document.title) {
+        shouldFocusTitleRef.current = true;
+      }
     }
   }, [document, documentId]);
 
@@ -158,6 +163,14 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
   const handleComment = useCallback((quotedText: string, offsetTop: number) => {
     setPendingComment({ quotedText, offsetTop });
   }, []);
+
+  // Auto-focus title on new empty documents once loading is done
+  useEffect(() => {
+    if (!isLoading && !collabLoading && shouldFocusTitleRef.current) {
+      shouldFocusTitleRef.current = false;
+      requestAnimationFrame(() => titleInputRef.current?.focus());
+    }
+  });
 
   if (isLoading || collabLoading) {
     return (
@@ -252,6 +265,7 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
               />
             </div>
             <input
+              ref={titleInputRef}
               value={localTitle}
               onChange={(e) => handleTitleChange(e.target.value)}
               onKeyDown={(e) => {
@@ -263,7 +277,7 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
                   pm?.focus();
                 }
               }}
-              placeholder="Untitled"
+              placeholder="Title"
               className="w-full text-3xl font-bold bg-transparent border-none outline-none text-foreground placeholder:text-muted-foreground/40 md:text-4xl"
             />
           </div>

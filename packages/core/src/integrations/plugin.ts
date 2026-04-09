@@ -231,9 +231,10 @@ export function createIntegrationsPlugin(
       }),
     );
 
-    console.log(
-      `[integrations] Mounted integration routes for: ${adapters.map((a) => a.platform).join(", ")}`,
-    );
+    if (process.env.DEBUG)
+      console.log(
+        `[integrations] Mounted integration routes for: ${adapters.map((a) => a.platform).join(", ")}`,
+      );
   };
 }
 

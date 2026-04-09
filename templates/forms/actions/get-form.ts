@@ -12,21 +12,20 @@ export default defineAction({
   http: { method: "GET" },
   run: async (args) => {
     const db = getDb();
-    const row = await db
+    const [row] = await db
       .select()
       .from(schema.forms)
       .where(eq(schema.forms.id, args.id))
-      .get();
+      .limit(1);
 
     if (!row) {
       throw new Error(`Form ${args.id} not found`);
     }
 
-    const count = await db
+    const [count] = await db
       .select({ count: sql<number>`count(*)` })
       .from(schema.responses)
-      .where(eq(schema.responses.formId, args.id))
-      .get();
+      .where(eq(schema.responses.formId, args.id));
 
     return {
       id: row.id,

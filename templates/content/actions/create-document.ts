@@ -17,14 +17,17 @@ function nanoid(size = 12): string {
 export default defineAction({
   description: "Create a new document.",
   schema: z.object({
-    title: z.string().optional().describe("Document title (required)"),
+    id: z
+      .string()
+      .optional()
+      .describe("Pre-generated document ID (for optimistic UI)"),
+    title: z.string().describe("Document title"),
     content: z.string().optional().describe("Markdown content"),
-    parentId: z.string().optional().describe("Parent document ID for nesting"),
+    parentId: z.string().nullish().describe("Parent document ID for nesting"),
     icon: z.string().optional().describe("Emoji icon"),
   }),
   run: async (args) => {
     const title = args.title;
-    if (!title) throw new Error("--title is required");
 
     let content = args.content || "";
     // Strip leading H1 that duplicates the title
@@ -54,7 +57,7 @@ export default defineAction({
 
     const position = (maxPos[0]?.max ?? -1) + 1;
     const now = new Date().toISOString();
-    const id = nanoid();
+    const id = args.id || nanoid();
 
     await db.insert(schema.documents).values({
       id,

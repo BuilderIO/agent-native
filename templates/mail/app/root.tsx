@@ -53,12 +53,18 @@ function AutoFocus() {
     const handleVisibility = () => {
       if (document.visibilityState === "visible") window.focus();
     };
+    const handleFocusRestore = () => window.focus();
     document.addEventListener("visibilitychange", handleVisibility);
-    const handleClick = () => window.focus();
-    document.addEventListener("click", handleClick, true);
+    document.addEventListener("click", handleFocusRestore, true);
+    // Restore focus when cursor re-enters the app (e.g. after using the agent chat panel)
+    document.documentElement.addEventListener("mouseenter", handleFocusRestore);
     return () => {
       document.removeEventListener("visibilitychange", handleVisibility);
-      document.removeEventListener("click", handleClick, true);
+      document.removeEventListener("click", handleFocusRestore, true);
+      document.documentElement.removeEventListener(
+        "mouseenter",
+        handleFocusRestore,
+      );
     };
   }, []);
   return null;

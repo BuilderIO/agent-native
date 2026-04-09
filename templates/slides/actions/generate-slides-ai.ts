@@ -5,7 +5,7 @@ import { z } from "zod";
 export default defineAction({
   description: "Generate slide deck content using Gemini AI.",
   schema: z.object({
-    topic: z.string().optional().describe("Presentation topic (required)"),
+    topic: z.string().describe("Presentation topic"),
     slideCount: z.coerce
       .number()
       .optional()
@@ -27,10 +27,6 @@ export default defineAction({
     }
 
     const topic = args.topic;
-    if (!topic?.trim()) {
-      throw new Error("Topic is required");
-    }
-
     const slideCount = args.slideCount ?? 8;
     const style = args.style;
     const includeImages = args.includeImages !== false;

@@ -18,19 +18,6 @@ export default defineAction({
       args: [documentId],
     });
 
-    if (rows.length === 0) {
-      console.log("No comments on this document.");
-    } else {
-      // Group by thread for agent output
-      const threads = new Map<string, any[]>();
-      for (const row of rows) {
-        const tid = (row as any).thread_id;
-        if (!threads.has(tid)) threads.set(tid, []);
-        threads.get(tid)!.push(row);
-      }
-      console.log(`${threads.size} comment thread(s)`);
-    }
-
     return { comments: rows };
   },
 });

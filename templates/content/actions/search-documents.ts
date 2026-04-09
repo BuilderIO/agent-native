@@ -6,12 +6,11 @@ import { z } from "zod";
 export default defineAction({
   description: "Search documents by title and content.",
   schema: z.object({
-    query: z.string().optional().describe("Search text (required)"),
+    query: z.string().describe("Search text"),
   }),
   http: { method: "GET" },
   run: async (args) => {
     const query = args.query;
-    if (!query) throw new Error("--query is required");
 
     const db = getDb();
     const pattern = `%${query}%`;

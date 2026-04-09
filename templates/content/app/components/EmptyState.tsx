@@ -10,7 +10,7 @@ export function EmptyState() {
 
   const handleCreate = async () => {
     try {
-      const doc = await createDocument.mutateAsync({});
+      const doc = await createDocument.mutateAsync({ title: "Untitled" });
       navigate(`/page/${doc.id}`);
     } catch (err) {
       toast.error("Failed to create page", {

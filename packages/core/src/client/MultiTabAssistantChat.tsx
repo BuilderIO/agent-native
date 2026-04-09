@@ -269,6 +269,8 @@ export type MultiTabAssistantChatProps = Omit<
   renderOverlay?: (props: MultiTabAssistantChatHeaderProps) => React.ReactNode;
   /** Hide the chat content while keeping the header visible. Used when CLI/resources mode is active. */
   contentHidden?: boolean;
+  /** Namespace for localStorage keys — used to isolate chat state per app in the frame. */
+  storageKey?: string;
 };
 
 export function MultiTabAssistantChat({
@@ -277,6 +279,7 @@ export function MultiTabAssistantChat({
   renderOverlay,
   contentHidden = false,
   apiUrl = "/_agent-native/agent-chat",
+  storageKey,
   ...props
 }: MultiTabAssistantChatProps) {
   const {
@@ -290,7 +293,10 @@ export function MultiTabAssistantChat({
     generateTitle,
     searchThreads,
     refreshThreads,
-  } = useChatThreads(apiUrl);
+  } = useChatThreads(apiUrl, storageKey);
+
+  // Namespace all localStorage keys by storageKey when provided (for per-app isolation in frame)
+  const keyPrefix = storageKey ? `:${storageKey}` : "";
 
   // Track which tabs have been focused at least once (lazy mount for sub-agent tabs)
   const mountedTabsRef = useRef<Set<string>>(new Set());
@@ -306,7 +312,7 @@ export function MultiTabAssistantChat({
 
   // Parent-child thread mapping — persisted to localStorage.
   // Maps childThreadId → parentThreadId for sub-agent tabs.
-  const PARENT_MAP_KEY = "agent-chat-parent-map";
+  const PARENT_MAP_KEY = `agent-chat-parent-map${keyPrefix}`;
   const [parentMap, setParentMap] = useState<Record<string, string>>(() => {
     try {
       const saved = localStorage.getItem(PARENT_MAP_KEY);
@@ -320,11 +326,11 @@ export function MultiTabAssistantChat({
     try {
       localStorage.setItem(PARENT_MAP_KEY, JSON.stringify(parentMap));
     } catch {}
-  }, [parentMap]);
+  }, [parentMap, PARENT_MAP_KEY]);
 
   // Sub-agent display names — persisted to localStorage.
   // Maps childThreadId → short name (e.g. "Research", "Draft email").
-  const SUB_AGENT_NAMES_KEY = "agent-chat-sub-agent-names";
+  const SUB_AGENT_NAMES_KEY = `agent-chat-sub-agent-names${keyPrefix}`;
   const [subAgentNames, setSubAgentNames] = useState<Record<string, string>>(
     () => {
       try {
@@ -339,10 +345,10 @@ export function MultiTabAssistantChat({
     try {
       localStorage.setItem(SUB_AGENT_NAMES_KEY, JSON.stringify(subAgentNames));
     } catch {}
-  }, [subAgentNames]);
+  }, [subAgentNames, SUB_AGENT_NAMES_KEY]);
 
   // Open tabs — persisted to localStorage so they survive refresh.
-  const OPEN_TABS_KEY = "agent-chat-open-tabs";
+  const OPEN_TABS_KEY = `agent-chat-open-tabs${keyPrefix}`;
   const [openTabIds, setOpenTabIds] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem(OPEN_TABS_KEY);
@@ -367,7 +373,7 @@ export function MultiTabAssistantChat({
         localStorage.setItem(OPEN_TABS_KEY, JSON.stringify(mainTabs));
       } catch {}
     }
-  }, [openTabIds, parentMap]);
+  }, [openTabIds, parentMap, OPEN_TABS_KEY]);
 
   // Initialize open tabs once threads load — validate saved tabs still exist
   useEffect(() => {

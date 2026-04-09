@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { markPopoverInteractOutside } from "@/lib/popover-click-guard";
 import { format, parseISO, differenceInMinutes } from "date-fns";
 import {
   IconX,
@@ -489,7 +490,10 @@ export function EventDetailPopover({
           const target = e.target as HTMLElement;
           if (target.closest("[data-apollo-popover]")) {
             e.preventDefault();
+            return;
           }
+          // Mark that a popover was dismissed so the grid suppresses time-slot creation
+          markPopoverInteractOutside();
         }}
       >
         <TooltipProvider>

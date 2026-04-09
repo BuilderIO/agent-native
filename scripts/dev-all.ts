@@ -77,14 +77,22 @@ console.log(`\x1b[36m[dev-all]\x1b[0m Docs: http://localhost:${DOCS_PORT}`);
 const names: string[] = [];
 const commands: string[] = [];
 
-templatePorts.forEach(({ name, port }) => {
+// Stagger template starts by 1.5s each to prevent CPU saturation.
+// When all 11+ apps start simultaneously, Nitro's ViteEnvRunner hits its
+// 3-second initialization timeout, producing "Vite environment unavailable" 503s.
+const STAGGER_DELAY_S = 1.5;
+
+templatePorts.forEach(({ name, port }, i) => {
   console.log(`\x1b[36m[dev-all]\x1b[0m ${name}: http://localhost:${port}`);
+
+  const delay = i * STAGGER_DELAY_S;
+  const prefix = delay > 0 ? `sleep ${delay} && ` : "";
 
   names.push(name);
   // Pass APP_NAME so each app can resolve its own DATABASE_URL
   // (e.g. MAIL_DATABASE_URL when APP_NAME=mail)
   commands.push(
-    `APP_NAME=${name} pnpm --filter ${name} exec vite --port ${port}`,
+    `${prefix}APP_NAME=${name} pnpm --filter ${name} exec vite --port ${port}`,
   );
 });
 

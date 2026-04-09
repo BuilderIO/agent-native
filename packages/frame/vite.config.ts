@@ -1,8 +1,23 @@
-import { defineConfig } from "vite";
+import { defineConfig, createLogger } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 import type { IncomingMessage } from "http";
+
+// Custom logger that suppresses proxy ECONNREFUSED noise during startup.
+// When dev:all starts, template backends aren't ready yet — the frame polls
+// and gets ECONNREFUSED until they come up. These are harmless (the frontend
+// retries), but flood the terminal with hundreds of identical lines.
+const logger = createLogger();
+const _loggerError = logger.error.bind(logger);
+logger.error = (msg, opts) => {
+  if (
+    opts?.error?.code === "ECONNREFUSED" ||
+    (typeof msg === "string" && msg.includes("ECONNREFUSED"))
+  )
+    return;
+  _loggerError(msg, opts);
+};
 
 // Import app registry to resolve ports by app ID
 const configPath = path.resolve(__dirname, "../shared-app-config/index.ts");
@@ -31,6 +46,7 @@ function getAppPort(req: IncomingMessage): number {
 
 export default defineConfig({
   root: ".",
+  customLogger: logger,
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {

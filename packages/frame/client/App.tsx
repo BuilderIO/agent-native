@@ -293,6 +293,7 @@ export function App() {
                 ]}
                 onCollapse={() => setSidebarOpen(false)}
                 devAppUrl={appUrl}
+                storageKey={appId}
               />
             </Suspense>
           </div>

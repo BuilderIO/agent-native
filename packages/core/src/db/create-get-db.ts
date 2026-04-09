@@ -39,7 +39,7 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
 
     // D1 only if dialect detected it (DATABASE_URL takes priority)
     if (dialect === "d1") {
-      const d1 = (globalThis as any).__cf_env?.DB;
+      const d1 = globalThis.__cf_env?.DB;
       if (d1) {
         _db = drizzleD1(d1, { schema }) as unknown as LibSQLDatabase<T>;
         _dbReady = Promise.resolve(_db);

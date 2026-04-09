@@ -102,7 +102,7 @@ export async function getUserUsageCents(ownerEmail: string): Promise<number> {
     sql: `SELECT COALESCE(SUM(cost_cents_x100), 0) as total FROM token_usage WHERE owner_email = ?`,
     args: [ownerEmail],
   });
-  const total = Number((rows[0] as any)?.total ?? 0);
+  const total = Number((rows[0] as { total?: number })?.total ?? 0);
   // Convert from centicents to cents
   return total / 100;
 }

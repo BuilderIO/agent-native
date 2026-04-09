@@ -52,7 +52,7 @@ export function slackAdapter(): PlatformAdapter {
         }
       } catch {}
       // Store raw body for later use
-      (event as any).__rawBody = body;
+      event.context.__rawBody = body;
       return { handled: false };
     },
 
@@ -68,7 +68,9 @@ export function slackAdapter(): PlatformAdapter {
       const ts = parseInt(timestamp, 10);
       if (Math.abs(Date.now() / 1000 - ts) > 300) return false;
 
-      const body = (event as any).__rawBody ?? (await readRawBody(event));
+      const body =
+        (event.context.__rawBody as string | undefined) ??
+        (await readRawBody(event));
       const crypto = await import("node:crypto");
       const basestring = `v0:${timestamp}:${body}`;
       const expectedSignature =
@@ -92,7 +94,9 @@ export function slackAdapter(): PlatformAdapter {
     async parseIncomingMessage(
       event: H3Event,
     ): Promise<IncomingMessage | null> {
-      const raw = (event as any).__rawBody ?? (await readRawBody(event));
+      const raw =
+        (event.context.__rawBody as string | undefined) ??
+        (await readRawBody(event));
       let payload: any;
       try {
         payload = JSON.parse(raw);
@@ -213,10 +217,10 @@ export function slackAdapter(): PlatformAdapter {
 
 /** Read the raw body as a string (H3 may have already parsed it) */
 async function readRawBody(event: H3Event): Promise<string> {
-  if ((event as any).__rawBody) return (event as any).__rawBody;
+  if (event.context.__rawBody) return event.context.__rawBody as string;
   const body = await readBody(event);
   const raw = typeof body === "string" ? body : JSON.stringify(body);
-  (event as any).__rawBody = raw;
+  event.context.__rawBody = raw;
   return raw;
 }
 

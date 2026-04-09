@@ -81,11 +81,11 @@ export default defineAction({
       updatedAt: now,
     });
 
-    const row = await db
+    const [row] = await db
       .select()
       .from(schema.forms)
       .where(eq(schema.forms.id, id))
-      .get();
+      .limit(1);
 
     return {
       id: row!.id,

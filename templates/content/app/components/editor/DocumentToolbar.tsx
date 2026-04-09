@@ -75,6 +75,7 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
   const [resolvingDirection, setResolvingDirection] = useState<
     "pull" | "push" | null
   >(null);
+  const [linkingPageId, setLinkingPageId] = useState<string | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
@@ -124,12 +125,15 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
 
   const handleLink = useCallback(
     async (pageId: string) => {
+      setLinkingPageId(pageId);
       try {
         await linkDocument.mutateAsync({ pageIdOrUrl: pageId });
         toast.success("Linked to Notion page.");
         setSearchQuery("");
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Failed to link.");
+      } finally {
+        setLinkingPageId(null);
       }
     },
     [linkDocument],
@@ -513,25 +517,36 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
                         className="w-full flex items-center gap-2.5 px-2.5 py-2 text-left rounded-md hover:bg-accent disabled:opacity-40"
                       >
                         <span className="flex h-5 w-5 shrink-0 items-center justify-center text-sm">
-                          {page.icon || (
-                            <IconFileText
+                          {linkingPageId === page.id ? (
+                            <IconLoader2
                               size={14}
-                              className="text-muted-foreground"
+                              className="animate-spin text-muted-foreground"
                             />
+                          ) : (
+                            page.icon || (
+                              <IconFileText
+                                size={14}
+                                className="text-muted-foreground"
+                              />
+                            )
                           )}
                         </span>
                         <div className="min-w-0 flex-1">
                           <p className="text-xs font-medium truncate">
                             {page.title}
                           </p>
-                          {page.lastEditedTime && (
+                          {linkingPageId === page.id ? (
+                            <p className="text-[10px] text-muted-foreground">
+                              Importing from Notion…
+                            </p>
+                          ) : page.lastEditedTime ? (
                             <p className="text-[10px] text-muted-foreground">
                               Edited{" "}
                               {new Date(
                                 page.lastEditedTime,
                               ).toLocaleDateString()}
                             </p>
-                          )}
+                          ) : null}
                         </div>
                       </button>
                     ))}
