@@ -9,7 +9,7 @@ import {
   addSession,
   getH3App,
 } from "@agent-native/core/server";
-import { defineEventHandler, setCookie } from "h3";
+import { defineEventHandler, setCookie, setResponseStatus } from "h3";
 import { createClient } from "@supabase/supabase-js";
 
 let _supabase: ReturnType<typeof createClient> | null = null;
@@ -68,17 +68,25 @@ export default (nitroApp: any) => {
         // H3 v2: event.req IS the web Request — use .json() for body
         const { email, password } = await (event as any).req.json();
 
-        if (!email || !password)
+        if (!email || !password) {
+          setResponseStatus(event, 400);
           return { error: "Email and password are required" };
+        }
 
         const supabase = getSupabase();
-        if (!supabase) return { error: "Supabase is not configured" };
+        if (!supabase) {
+          setResponseStatus(event, 500);
+          return { error: "Auth is not configured" };
+        }
 
         const { data, error } = await supabase.auth.signInWithPassword({
           email,
           password,
         });
-        if (error || !data.user) return { error: "Invalid email or password" };
+        if (error || !data.user) {
+          setResponseStatus(event, 401);
+          return { error: "Invalid email or password" };
+        }
 
         const token = globalThis.crypto.randomUUID();
         await addSession(token, data.user.email ?? email);
@@ -91,8 +99,9 @@ export default (nitroApp: any) => {
         });
 
         return { ok: true, email: data.user.email };
-      } catch (err: any) {
-        return { error: err?.message ?? "Login failed" };
+      } catch {
+        setResponseStatus(event, 500);
+        return { error: "Login failed" };
       }
     }),
   );
