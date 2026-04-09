@@ -738,28 +738,26 @@ async function loadResourcesForPrompt(owner: string): Promise<string> {
   } catch {}
 
   // LEARNINGS.md from SQL (template-level instructions are in AGENTS.md above).
-  for (const name of ["LEARNINGS.md"]) {
-    // 2. Shared SQL scope
+  // 2. Shared SQL scope
+  try {
+    const shared = await resourceGetByPath(SHARED_OWNER, "LEARNINGS.md");
+    if (shared?.content?.trim()) {
+      sections.push(
+        `<resource name="LEARNINGS.md" scope="shared">\n${shared.content.trim()}\n</resource>`,
+      );
+    }
+  } catch {}
+
+  // 3. Personal SQL scope (skip if owner is the shared sentinel)
+  if (owner !== SHARED_OWNER) {
     try {
-      const shared = await resourceGetByPath(SHARED_OWNER, name);
-      if (shared?.content?.trim()) {
+      const personal = await resourceGetByPath(owner, "LEARNINGS.md");
+      if (personal?.content?.trim()) {
         sections.push(
-          `<resource name="${name}" scope="shared">\n${shared.content.trim()}\n</resource>`,
+          `<resource name="LEARNINGS.md" scope="personal">\n${personal.content.trim()}\n</resource>`,
         );
       }
     } catch {}
-
-    // 3. Personal SQL scope (skip if owner is the shared sentinel)
-    if (owner !== SHARED_OWNER) {
-      try {
-        const personal = await resourceGetByPath(owner, name);
-        if (personal?.content?.trim()) {
-          sections.push(
-            `<resource name="${name}" scope="personal">\n${personal.content.trim()}\n</resource>`,
-          );
-        }
-      } catch {}
-    }
   }
 
   if (sections.length === 0) return "";
@@ -782,18 +780,36 @@ function generateActionsPrompt(registry: Record<string, ActionEntry>): string {
   const lines = Object.entries(registry).map(([name, entry]) => {
     const desc = entry.tool.description;
     const params = entry.tool.parameters?.properties;
+    const requiredFields = new Set(entry.tool.parameters?.required ?? []);
     if (params) {
-      const paramList = Object.entries(params)
-        .map(([k, v]) => `--${k}${v.description ? ` (${v.description})` : ""}`)
-        .join(", ");
-      return `- \`${name}\` — ${desc} Args: ${paramList}`;
+      // Order required params first, then optional. Mark required with "*"
+      // and include type + description so the agent knows exactly how to call.
+      const entries = Object.entries(params);
+      entries.sort(([a], [b]) => {
+        const ar = requiredFields.has(a) ? 0 : 1;
+        const br = requiredFields.has(b) ? 0 : 1;
+        if (ar !== br) return ar - br;
+        return a.localeCompare(b);
+      });
+      const paramList = entries
+        .map(([k, v]) => {
+          const isRequired = requiredFields.has(k);
+          const type = (v as { type?: string }).type ?? "any";
+          const marker = isRequired ? "*" : "?";
+          const descPart = v.description ? ` — ${v.description}` : "";
+          return `${k}${marker}: ${type}${descPart}`;
+        })
+        .join("; ");
+      return `- \`${name}\`(${paramList}) — ${desc}`;
     }
-    return `- \`${name}\` — ${desc}`;
+    return `- \`${name}\`() — ${desc}`;
   });
 
   return `\n\n## Available Actions
 
 **Use these actions directly to accomplish tasks. Do NOT use \`db-schema\`, \`search-files\`, or \`shell\` to explore the app — these actions already connect to the correct database and services.**
+
+Parameter notation: \`name*\` = required, \`name?\` = optional. Always pass the tool's parameters as a JSON object to the tool_use call — never via shell or string-concatenated CLI flags.
 
 ${lines.join("\n")}`;
 }

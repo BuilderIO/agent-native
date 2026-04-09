@@ -117,8 +117,3 @@ export async function uploadAvatar(file: File, email: string): Promise<void> {
   _inFlight.delete(email);
   notifyListeners(email, image);
 }
-
-/** @deprecated Use `uploadAvatar` directly — this hook wrapper is unnecessary. */
-export function useUploadAvatar(): typeof uploadAvatar {
-  return uploadAvatar;
-}

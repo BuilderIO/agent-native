@@ -125,6 +125,5 @@ export {
 export {
   useAvatarUrl,
   uploadAvatar,
-  useUploadAvatar,
   invalidateAvatarCache,
 } from "./use-avatar.js";

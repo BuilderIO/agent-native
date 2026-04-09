@@ -20,29 +20,11 @@ import {
   setResponseHeader,
   toNodeListener,
 } from "h3";
-import { Buffer } from "node:buffer";
 import { listen } from "listhen";
 import { DEFAULT_APPS } from "@agent-native/shared-app-config";
+import { extractAppFromState } from "./oauth-state.js";
 
 const PORT = parseInt(process.env.FRAME_SERVER_PORT || "3335", 10);
-
-/**
- * Extract the app ID from an OAuth state parameter without verifying the HMAC.
- * Used for routing-only purposes — security is still enforced by the app's
- * callback handler which verifies the HMAC signature.
- */
-function extractAppFromState(state: string | undefined): string | undefined {
-  if (!state) return undefined;
-  try {
-    const dotIdx = state.lastIndexOf(".");
-    if (dotIdx === -1) return undefined;
-    const data = state.slice(0, dotIdx);
-    const parsed = JSON.parse(Buffer.from(data, "base64url").toString());
-    return typeof parsed.app === "string" ? parsed.app : undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 const app = createApp();
 const router = createRouter();
