@@ -27,6 +27,8 @@ import { postAwareness, getActiveUsers } from "../collab/awareness.js";
 import { seedFromText } from "../collab/ydoc-manager.js";
 import { hasCollabState } from "../collab/storage.js";
 import { getDbExec } from "../db/client.js";
+import { getCollabEmitter } from "../collab/emitter.js";
+import { recordChange } from "./poll.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
@@ -59,6 +61,12 @@ export function createCollabPlugin(
   return async (nitroApp: any) => {
     await awaitBootstrap(nitroApp);
     const P = FRAMEWORK_ROUTE_PREFIX;
+
+    // Wire collab emitter → poll ring buffer so clients receive Yjs updates
+    const collabEmitter = getCollabEmitter();
+    collabEmitter.on("collab", (event) => {
+      recordChange(event);
+    });
 
     // Mount collab routes — manual method dispatch since the path layout is
     // `/collab/:docId/<action>`. The framework strips the `/collab` mount

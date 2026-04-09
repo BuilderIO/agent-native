@@ -225,7 +225,8 @@ export default function DeckEditor() {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [deck, id, activeSlideId, deleteSlide]);
 
-  // Resolve initial slide from URL param once deck is available
+  // Resolve initial slide from URL param once deck is available.
+  // Always sets activeSlideId so collab docId is never null when a slide is showing.
   useEffect(() => {
     if (!deck || activeSlideId) return;
     const slideParam = searchParams.get("slide");
@@ -235,6 +236,10 @@ export default function DeckEditor() {
         setActiveSlideId(deck.slides[idx].id);
         return;
       }
+    }
+    // No valid slide param — default to first slide
+    if (deck.slides.length > 0) {
+      setActiveSlideId(deck.slides[0].id);
     }
   }, [deck, activeSlideId, searchParams]);
 
@@ -305,19 +310,11 @@ export default function DeckEditor() {
       }
     : undefined;
 
-  if (loading) return <div className="h-screen bg-[hsl(240,5%,5%)]" />;
-  if (!deck || !id) return <Navigate to="/" replace />;
-
-  const currentSlide =
-    deck.slides.find((s) => s.id === activeSlideId) || deck.slides[0];
-  const currentIndex = deck.slides.findIndex((s) => s.id === currentSlide?.id);
-  currentSlideRef.current = currentSlide;
-
-  // Slide-level collab: one Yjs doc per slide
-  // eslint-disable-next-line react-hooks/rules-of-hooks
+  // Slide-level collab: one Yjs doc per slide.
+  // Uses activeSlideId (state) so it's stable before deck loads.
+  // useCollaborativeDoc handles null docId gracefully (returns empty state).
   const slideDocId =
-    id && currentSlide ? `deck-${id}-slide-${currentSlide.id}` : null;
-  // eslint-disable-next-line react-hooks/rules-of-hooks
+    id && activeSlideId ? `deck-${id}-slide-${activeSlideId}` : null;
   const {
     ydoc,
     awareness,
@@ -330,12 +327,19 @@ export default function DeckEditor() {
   });
 
   // Deck-level presence: tracks which slide each user is viewing
-  // eslint-disable-next-line react-hooks/rules-of-hooks
   const { slidePresence } = useDeckPresence({
     deckId: id ?? null,
-    activeSlideId: currentSlide?.id ?? null,
+    activeSlideId: activeSlideId,
     user: currentUser,
   });
+
+  if (loading) return <div className="h-screen bg-[hsl(240,5%,5%)]" />;
+  if (!deck || !id) return <Navigate to="/" replace />;
+
+  const currentSlide =
+    deck.slides.find((s) => s.id === activeSlideId) || deck.slides[0];
+  const currentIndex = deck.slides.findIndex((s) => s.id === currentSlide?.id);
+  currentSlideRef.current = currentSlide;
 
   return (
     <div className="h-screen flex flex-col bg-[hsl(240,5%,5%)]">
