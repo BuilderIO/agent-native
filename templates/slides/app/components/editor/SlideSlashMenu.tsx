@@ -184,6 +184,10 @@ export const SlashCommandExtension = Extension.create({
               event.key === "Enter" ||
               event.key === "Escape"
             ) {
+              // Capture open state BEFORE dispatching — the event listener may
+              // call closeMenu() synchronously, flipping the flag to false.
+              const wasOpen = (view.dom as any).__slashMenuOpen;
+
               // Dispatch so the React component can intercept
               const customEvent = new CustomEvent("slide-slash-nav", {
                 detail: { key: event.key },
@@ -191,9 +195,8 @@ export const SlashCommandExtension = Extension.create({
               });
               view.dom.dispatchEvent(customEvent);
 
-              // If the menu is open, swallow Arrow/Enter/Escape
-              const isOpen = (view.dom as any).__slashMenuOpen;
-              if (isOpen) return true;
+              // If the menu was open, swallow Arrow/Enter/Escape
+              if (wasOpen) return true;
             }
             return false;
           },
@@ -234,12 +237,15 @@ export function useSlashMenu(editor: Editor | null) {
       const { from } = editor.state.selection;
       closeMenu();
 
-      // Delete the slash + any query text typed
       if (slashPos !== null) {
+        // Delete the slash + any query text, then apply the block-type command.
+        // Use requestAnimationFrame so the deleteRange transaction commits and
+        // the editor's selection is stable before toggleHeading/etc. runs.
         editor.chain().focus().deleteRange({ from: slashPos, to: from }).run();
+        requestAnimationFrame(() => cmd.command(editor));
+      } else {
+        cmd.command(editor);
       }
-
-      cmd.command(editor);
     },
     [editor, closeMenu],
   );

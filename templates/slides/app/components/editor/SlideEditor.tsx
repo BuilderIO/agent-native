@@ -258,11 +258,16 @@ export default function SlideEditor({
             <div
               className="h-full flex items-center justify-center p-2 sm:p-4 md:p-8 bg-[hsl(240,5%,5%)]"
               onMouseDown={(e) => {
-                // Click outside the slide canvas → exit edit mode
+                // Click outside the slide canvas → exit edit mode.
+                // But don't exit if clicking on portaled overlays (slash menu,
+                // bubble menu) which live in document.body outside containerRef.
+                const target = e.target as Element;
                 if (
                   isEditing &&
                   containerRef.current &&
-                  !containerRef.current.contains(e.target as Node)
+                  !containerRef.current.contains(target) &&
+                  !target.closest('[data-slash-menu="true"]') &&
+                  !target.closest('[data-bubble-menu="true"]')
                 ) {
                   setIsEditing(false);
                 }
