@@ -163,7 +163,11 @@ export function useActionMutation<
   },
 ) {
   const queryClient = useQueryClient();
-  const { method: methodOpt, onSuccess, ...restOptions } = options ?? ({} as any);
+  const {
+    method: methodOpt,
+    onSuccess,
+    ...restOptions
+  } = options ?? ({} as any);
   const method = methodOpt ?? "POST";
 
   type D = TData extends undefined ? ActionResult<TName> : TData;
