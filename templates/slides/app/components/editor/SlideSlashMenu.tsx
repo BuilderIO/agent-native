@@ -195,8 +195,13 @@ export const SlashCommandExtension = Extension.create({
               });
               view.dom.dispatchEvent(customEvent);
 
-              // If the menu was open, swallow Arrow/Enter/Escape
-              if (wasOpen) return true;
+              // If the menu was open, swallow Arrow/Enter/Escape and stop
+              // propagation so window-level listeners (e.g. SlideEditor's
+              // Escape handler) don't also fire.
+              if (wasOpen) {
+                event.stopPropagation();
+                return true;
+              }
             }
             return false;
           },
@@ -329,6 +334,15 @@ export function useSlashMenu(editor: Editor | null) {
         e.preventDefault();
         menuRef.current?.select();
       } else if (detail.key === "Escape") {
+        // Delete the "/" and any query text before closing
+        if (editor && slashPosRef.current !== null) {
+          const { from } = editor.state.selection;
+          editor
+            .chain()
+            .focus()
+            .deleteRange({ from: slashPosRef.current, to: from })
+            .run();
+        }
         closeMenu();
       }
     };
