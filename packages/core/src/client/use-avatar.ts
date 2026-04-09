@@ -12,6 +12,12 @@ import { useState, useEffect } from "react";
 // Module-level cache so multiple components sharing the same email don't race
 const _cache = new Map<string, string | null>();
 const _inFlight = new Map<string, Promise<string | null>>();
+// Listeners notified when an upload succeeds so mounted hooks re-render
+const _listeners = new Map<string, Set<(url: string | null) => void>>();
+
+function notifyListeners(email: string, url: string | null): void {
+  _listeners.get(email)?.forEach((fn) => fn(url));
+}
 
 async function fetchAvatar(email: string): Promise<string | null> {
   if (_cache.has(email)) return _cache.get(email)!;
@@ -21,12 +27,17 @@ async function fetchAvatar(email: string): Promise<string | null> {
     .then((r) => (r.ok ? r.json() : null))
     .then((d) => {
       const url = d?.image ?? null;
-      _cache.set(email, url);
+      // Only write to cache if not superseded by a more recent upload
+      if (!_cache.has(email)) {
+        _cache.set(email, url);
+      }
       _inFlight.delete(email);
       return url as string | null;
     })
     .catch(() => {
-      _cache.set(email, null);
+      if (!_cache.has(email)) {
+        _cache.set(email, null);
+      }
       _inFlight.delete(email);
       return null;
     });
@@ -53,8 +64,13 @@ export function useAvatarUrl(email: string | null | undefined): string | null {
     fetchAvatar(email).then((u) => {
       if (!cancelled) setUrl(u);
     });
+    // Subscribe to upload notifications so the avatar updates without remount
+    if (!_listeners.has(email)) _listeners.set(email, new Set());
+    const listener = (u: string | null) => setUrl(u);
+    _listeners.get(email)!.add(listener);
     return () => {
       cancelled = true;
+      _listeners.get(email)?.delete(listener);
     };
   }, [email]);
 
@@ -87,13 +103,18 @@ async function compressAvatar(file: File): Promise<string> {
 /** Compress and upload an avatar image for the given user. */
 export async function uploadAvatar(file: File, email: string): Promise<void> {
   const image = await compressAvatar(file);
-  await fetch("/_agent-native/avatar", {
+  const res = await fetch("/_agent-native/avatar", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ image }),
   });
+  if (!res.ok) {
+    throw new Error(`Avatar upload failed: ${res.status}`);
+  }
+  // Update cache and notify all mounted useAvatarUrl hooks for this email
   _cache.set(email, image);
   _inFlight.delete(email);
+  notifyListeners(email, image);
 }
 
 /** @deprecated Use `uploadAvatar` directly — this hook wrapper is unnecessary. */
