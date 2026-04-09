@@ -504,22 +504,15 @@ function ReconnectStreamMessage({ content }: { content: ContentPart[] }) {
   }, [content]);
 
   return (
-    <div className="flex justify-start px-4 py-2">
-      <div className="max-w-[85%] space-y-1">
-        <div className="flex items-center gap-1.5 mb-1">
-          <IconSparkles className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">
-            Agent
-          </span>
-        </div>
+    <div className="flex justify-start">
+      <div className="max-w-[95%] text-sm leading-relaxed text-foreground space-y-1">
         {content.map((part, i) => {
           if (part.type === "text") {
             return (
-              <div
-                key={`reconnect-text-${i}`}
-                className="text-sm leading-relaxed whitespace-pre-wrap break-words"
-              >
-                {part.text}
+              <div key={`reconnect-text-${i}`} className="agent-markdown break-words">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {part.text}
+                </ReactMarkdown>
               </div>
             );
           }
@@ -1134,6 +1127,8 @@ const AssistantChatInner = forwardRef<
   const [showContinue, setShowContinue] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [reconnectContent, setReconnectContent] = useState<ContentPart[]>([]);
+  // When stop is clicked during reconnect, keep content visible (don't wipe it)
+  const [reconnectFrozen, setReconnectFrozen] = useState(false);
   const reconnectRunIdRef = useRef<string | null>(null);
   const reconnectAbortRef = useRef<AbortController | null>(null);
   // Treat reconnecting to an active run the same as running for UI purposes
@@ -1275,6 +1270,9 @@ const AssistantChatInner = forwardRef<
                             : refreshData.threadData;
                         if (repo?.messages?.length > 0) {
                           threadRuntime.import(ensureMessageMetadata(repo));
+                          // Thread data restored — clear any frozen reconnect snapshot
+                          setReconnectContent([]);
+                          setReconnectFrozen(false);
                         }
                       }
                     }
@@ -1283,6 +1281,7 @@ const AssistantChatInner = forwardRef<
                   if (reconnectRunIdRef.current) {
                     reconnectAbortRef.current = null;
                     setReconnectContent([]);
+                    setReconnectFrozen(false);
                     setIsReconnecting(false);
                     reconnectRunIdRef.current = null;
                     window.dispatchEvent(
@@ -1711,10 +1710,10 @@ const AssistantChatInner = forwardRef<
                 </button>
               </div>
             )}
-            {isReconnecting && reconnectContent.length > 0 && (
+            {(isReconnecting || reconnectFrozen) && reconnectContent.length > 0 && (
               <ReconnectStreamMessage content={reconnectContent} />
             )}
-            {isRunning && !(isReconnecting && reconnectContent.length > 0) && (
+            {isRunning && (
               <ThinkingIndicator />
             )}
             {queuedMessages.map((msg, i) => (
@@ -1800,7 +1799,8 @@ const AssistantChatInner = forwardRef<
                       reconnectAbortRef.current = null;
                       reconnectRunIdRef.current = null;
                       setIsReconnecting(false);
-                      setReconnectContent([]);
+                      // Keep reconnectContent visible (frozen) — don't wipe it
+                      setReconnectFrozen(true);
                       window.dispatchEvent(
                         new CustomEvent("builder.chatRunning", {
                           detail: {

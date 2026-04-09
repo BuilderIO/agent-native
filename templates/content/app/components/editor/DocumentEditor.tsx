@@ -81,8 +81,11 @@ function ContentCurrentUserAvatar({ email }: { email: string }) {
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    await uploadAvatar(file, email);
-    if (inputRef.current) inputRef.current.value = "";
+    try {
+      await uploadAvatar(file, email);
+    } finally {
+      if (inputRef.current) inputRef.current.value = "";
+    }
   };
 
   return (

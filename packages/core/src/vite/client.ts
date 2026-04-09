@@ -364,47 +364,6 @@ function rolldownInputFix(): Plugin {
 }
 
 /**
- * Explicitly load .env into process.env early in the dev server lifecycle.
- *
- * Nitro's c12 should handle this, but the Nitro worker (env-runner node-worker)
- * is created with a snapshot of `{ ...process.env }` at creation time. If the
- * c12 dotenv loading hasn't yet propagated into process.env (e.g. due to async
- * timing or environment isolation), env vars set only in .env won't be visible
- * to server-side code running in the worker.
- *
- * This plugin reads .env synchronously during Vite's `config` phase (the
- * earliest possible hook, in the main process) so the values are guaranteed
- * to be in process.env before any worker thread is created.
- */
-function dotenvLoader(): Plugin {
-  return {
-    name: "agent-native-dotenv-loader",
-    apply: "serve",
-    config() {
-      try {
-        const envPath = path.join(process.cwd(), ".env");
-        const content = fs.readFileSync(envPath, "utf8");
-        for (const line of content.split("\n")) {
-          const trimmed = line.trim();
-          if (!trimmed || trimmed.startsWith("#")) continue;
-          const eqIdx = trimmed.indexOf("=");
-          if (eqIdx < 0) continue;
-          const key = trimmed.slice(0, eqIdx).trim();
-          const raw = trimmed.slice(eqIdx + 1);
-          // Strip surrounding quotes (single or double)
-          const value = raw.replace(/^(['"])([\s\S]*)\1$/, "$2");
-          if (key && process.env[key] === undefined) {
-            process.env[key] = value;
-          }
-        }
-      } catch {
-        // .env not found or not readable — fine, nothing to load
-      }
-    },
-  };
-}
-
-/**
  * Expose the resolved Vite dev server port as process.env.PORT so that
  * in-process scripts (which use localFetch → http://localhost:${PORT}/api/...)
  * hit the right address even when Vite auto-increments the port.
@@ -485,7 +444,6 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
       noExternal: /^(?!node:)/,
     },
     plugins: [
-      dotenvLoader(),
       actionTypesPlugin(),
       autoReloadOnOptimizeDep(),
       baseRedirectGuard(),

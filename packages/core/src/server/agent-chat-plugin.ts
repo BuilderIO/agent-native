@@ -357,12 +357,25 @@ function createTeamTools(deps: {
         // concurrent runs don't clobber each other's send reference.
         const capturedSend = deps.getSend();
         const { spawnTask } = await import("./agent-teams.js");
+        // Filter out team orchestration tools so sub-agents can't spawn sub-agents
+        const teamToolNames = new Set([
+          "spawn-task",
+          "task-status",
+          "read-task-result",
+          "send-to-task",
+          "list-tasks",
+        ]);
+        const subAgentActions = Object.fromEntries(
+          Object.entries(deps.getActions()).filter(
+            ([name]) => !teamToolNames.has(name),
+          ),
+        );
         const task = await spawnTask({
           description: args.task,
           instructions: args.instructions,
           ownerEmail: deps.getOwner(),
           systemPrompt: deps.getSystemPrompt(),
-          actions: deps.getActions(),
+          actions: subAgentActions,
           apiKey: deps.getApiKey(),
           model: deps.getModel(),
           parentThreadId: deps.getParentThreadId(),
@@ -604,7 +617,7 @@ You are an orchestrator. For complex or multi-step tasks, delegate to sub-agents
 4. Use \`read-task-result\` to check results when needed, or the user can see live progress in the card.
 5. If the user's request has multiple steps, you can spawn one sub-agent per step, or chain them.
 
-The sub-agent has the same tools you do. Give it a specific, actionable task description — it will figure out which tools to use.
+Sub-agents have access to all template tools but **cannot spawn sub-agents themselves** — only you (the orchestrator) can do that. Give the sub-agent a specific, actionable task description — it will figure out which tools to use.
 
 ### Recurring Jobs
 

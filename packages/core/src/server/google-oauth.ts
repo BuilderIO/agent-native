@@ -51,15 +51,19 @@ export interface OAuthStatePayload {
 
 /**
  * Derive a signing key for HMAC verification of OAuth state.
- * Uses GOOGLE_CLIENT_SECRET as the key material — it's always available
- * when OAuth is configured and is never exposed to the browser.
+ * Uses the first available OAuth client secret — prevents CSRF without
+ * requiring a specific provider's credentials.
  */
 function getStateSigningKey(): string {
-  const secret = process.env.GOOGLE_CLIENT_SECRET;
+  const secret =
+    process.env.GOOGLE_CLIENT_SECRET ||
+    process.env.ATLASSIAN_CLIENT_SECRET ||
+    process.env.GITHUB_CLIENT_SECRET ||
+    process.env.OAUTH_STATE_SECRET;
   if (!secret) {
     throw new Error(
-      "GOOGLE_CLIENT_SECRET is required for OAuth state signing. " +
-        "Set it in your environment before enabling Google OAuth.",
+      "An OAuth client secret is required for state signing. " +
+        "Set GOOGLE_CLIENT_SECRET, ATLASSIAN_CLIENT_SECRET, GITHUB_CLIENT_SECRET, or OAUTH_STATE_SECRET.",
     );
   }
   return secret;

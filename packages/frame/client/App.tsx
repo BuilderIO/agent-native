@@ -199,12 +199,15 @@ export function App() {
       }
       // Relay submitChat from the iframe — MultiTabAssistantChat rejects
       // cross-origin messages, so re-dispatch same-origin so it accepts it.
-      // Only relay cross-origin messages to avoid re-triggering this handler.
-      if (
-        event.data.type === "builder.submitChat" &&
-        event.origin !== window.location.origin
-      ) {
-        window.postMessage(event.data, window.location.origin);
+      // Only relay from known app dev-server origins to prevent arbitrary
+      // cross-origin pages from injecting agent messages.
+      if (event.data.type === "builder.submitChat") {
+        const allowedOrigins = new Set(
+          DEFAULT_APPS.map((a) => `http://localhost:${a.devPort || 8080}`),
+        );
+        if (allowedOrigins.has(event.origin)) {
+          window.postMessage(event.data, window.location.origin);
+        }
         return;
       }
     }
