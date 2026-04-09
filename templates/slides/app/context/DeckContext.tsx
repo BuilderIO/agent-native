@@ -33,6 +33,10 @@ export interface Slide {
   imagePrompt?: string;
   /** Excalidraw scene data (elements + appState + files) as JSON string */
   excalidrawData?: string;
+  /** Slide transition animation when entering this slide */
+  transition?: "none" | "fade" | "slide" | "zoom";
+  /** Reveal content elements one at a time on click */
+  splitByParagraph?: boolean;
 }
 
 export interface Deck {

@@ -140,7 +140,7 @@ export const DEFAULT_APPS: AppConfig[] = [
   {
     id: "issues",
     name: "Issues",
-    icon: "CircleDot",
+    icon: "BrandJira",
     description: "Jira project tracker",
     url: "https://issues.agent-native.com",
     devPort: 8091,

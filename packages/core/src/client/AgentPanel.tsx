@@ -1663,6 +1663,7 @@ export function AgentSidebar({
     } catch {}
     return defaultOpen;
   });
+  const [presentationMode, setPresentationMode] = useState(false);
   const [width, setWidth] = useState(sidebarWidth);
   useEffect(() => {
     try {
@@ -1782,6 +1783,16 @@ export function AgentSidebar({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, []);
 
+  // Hide sidebar during presentation mode
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      if (event.data?.type !== "builder.presentationMode") return;
+      setPresentationMode(event.data.data?.active === true);
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, []);
+
   const handleDrag = useCallback((delta: number) => {
     setWidth((prev) => {
       const next = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, prev + delta));
@@ -1828,11 +1839,11 @@ export function AgentSidebar({
 
   return (
     <div className="flex min-w-0 flex-1 h-screen overflow-hidden">
-      {isLeft ? sidebar : null}
+      {isLeft && !presentationMode ? sidebar : null}
       <div className="flex flex-1 flex-col overflow-auto min-w-0">
         {children}
       </div>
-      {!isLeft ? sidebar : null}
+      {!isLeft && !presentationMode ? sidebar : null}
     </div>
   );
 }

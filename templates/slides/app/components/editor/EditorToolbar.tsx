@@ -33,6 +33,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Switch } from "@/components/ui/switch";
 
 interface EditorToolbarProps {
   deckId: string;
@@ -516,6 +517,41 @@ graph TD
                   Remove Excalidraw Canvas
                 </button>
               )}
+
+              {/* Transitions section */}
+              <div className="mx-2 my-1.5 border-t border-white/[0.06]" />
+              <div className="px-3 py-1.5 text-[10px] font-medium text-white/30 uppercase tracking-wider">
+                Transition
+              </div>
+              <div className="px-3 pb-2 grid grid-cols-4 gap-1">
+                {(["none", "fade", "slide", "zoom"] as const).map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => onUpdateSlide!({ transition: t })}
+                    className={`px-1.5 py-1 rounded text-[10px] font-medium capitalize border ${
+                      (currentSlide.transition ?? "none") === t
+                        ? "bg-[#609FF8]/20 text-[#609FF8] border-[#609FF8]/30"
+                        : "text-white/40 hover:text-white/70 hover:bg-white/[0.04] border-transparent"
+                    }`}
+                  >
+                    {t === "none"
+                      ? "None"
+                      : t.charAt(0).toUpperCase() + t.slice(1)}
+                  </button>
+                ))}
+              </div>
+
+              {/* Split by paragraph toggle */}
+              <div className="px-3 pb-2.5 flex items-center justify-between">
+                <span className="text-xs text-white/50">By paragraph</span>
+                <Switch
+                  checked={currentSlide.splitByParagraph ?? false}
+                  onCheckedChange={(checked) =>
+                    onUpdateSlide!({ splitByParagraph: checked })
+                  }
+                  className="scale-75 origin-right"
+                />
+              </div>
             </div>
           </ToolbarPopover>
         </>

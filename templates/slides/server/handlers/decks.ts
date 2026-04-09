@@ -12,7 +12,14 @@ import { readBody } from "@agent-native/core/server";
 type SSEPush = (data: string) => void;
 const sseClients = new Set<SSEPush>();
 
-function notifyClients(deckId: string, type = "deck-changed") {
+/**
+ * Broadcast a deck change to all connected UI clients. Exported so agent
+ * actions (add-slide, update-slide, create-deck) can notify the frontend
+ * after a direct DB write — otherwise the UI has no way to know the deck
+ * was modified until the next 3-second poll, and won't notice content
+ * changes to slides inside an existing deck at all.
+ */
+export function notifyClients(deckId: string, type = "deck-changed") {
   const message = JSON.stringify({ type, deckId });
   for (const push of sseClients) {
     try {

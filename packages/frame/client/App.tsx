@@ -96,8 +96,11 @@ export function App() {
     } catch {}
   }, [sidebarOpen]);
 
-  // Show frame sidebar only in dev mode when open
-  const showFrameSidebar = frameMode === "dev" && sidebarOpen;
+  const [isPresentationMode, setIsPresentationMode] = useState(false);
+
+  // Show frame sidebar only in dev mode when open, and not during presentation
+  const showFrameSidebar =
+    frameMode === "dev" && sidebarOpen && !isPresentationMode;
 
   // Notify iframe of sidebar state
   function notifyIframe(mode: FrameMode, width: number, open: boolean) {
@@ -201,6 +204,10 @@ export function App() {
       // cross-origin messages, so re-dispatch same-origin so it accepts it.
       // Only relay from known app dev-server origins to prevent arbitrary
       // cross-origin pages from injecting agent messages.
+      if (event.data.type === "builder.presentationMode") {
+        setIsPresentationMode(event.data.data?.active === true);
+        return;
+      }
       if (event.data.type === "builder.submitChat") {
         const allowedOrigins = new Set(
           DEFAULT_APPS.map((a) => `http://localhost:${a.devPort || 8080}`),
@@ -268,6 +275,7 @@ export function App() {
           src={appUrl}
           className="w-full h-full border-none"
           title={app?.name || "App"}
+          allow="fullscreen"
         />
         {/* Overlay during drag to prevent iframe from capturing mouse events */}
         {isDragging && (

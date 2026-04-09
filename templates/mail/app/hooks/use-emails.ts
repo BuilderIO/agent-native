@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-query";
 import type { EmailMessage, Label, UserSettings } from "@shared/types";
 import { TAB_ID } from "@/lib/tab-id";
+import { markdownToHtml } from "@/lib/utils";
 
 // ─── API helpers ─────────────────────────────────────────────────────────────
 
@@ -88,6 +89,7 @@ export function useAddOptimisticReply() {
       subject: data.subject || "(no subject)",
       snippet: data.body.slice(0, 120).replace(/\n/g, " "),
       body: data.body,
+      bodyHtml: markdownToHtml(data.body),
       date: new Date().toISOString(),
       isRead: true,
       isStarred: false,

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { writeAppState } from "@agent-native/core/application-state";
+import { notifyClients } from "../server/handlers/decks.js";
 
 const SlideSchema = z.object({
   id: z.string().describe("Unique slide ID, e.g. 'slide-1'"),
@@ -57,7 +58,9 @@ export default defineAction({
         .update(schema.decks)
         .set({ title, data: JSON.stringify(data), updatedAt: now })
         .where(eq(schema.decks.id, deckId));
-      // Trigger UI refresh via poll endpoint's cross-process change detection
+      // Broadcast to open editors (in-process SSE) + application-state
+      // refresh signal (cross-process polling fallback for serverless).
+      notifyClients(deckId);
       await writeAppState("refresh-signal", { ts: now, source: "create-deck" });
       return { id: deckId, title, slideCount: slides.length };
     }
@@ -72,7 +75,7 @@ export default defineAction({
       updatedAt: now,
     });
 
-    // Trigger UI refresh via poll endpoint's cross-process change detection
+    notifyClients(id);
     await writeAppState("refresh-signal", { ts: now, source: "create-deck" });
     return { id, title, slideCount: slides.length };
   },

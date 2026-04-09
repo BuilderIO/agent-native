@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
+import { notifyClients } from "../server/handlers/decks.js";
 
 // In-process serialization per deckId. The agent fires parallel add-slide calls
 // from a single turn (see production-agent.ts parallel tool execution), and a
@@ -98,6 +99,9 @@ export default defineAction({
         .update(schema.decks)
         .set({ data: JSON.stringify(deck), updatedAt: now })
         .where(eq(schema.decks.id, deckId));
+
+      // Broadcast to any open editors so the new slide appears immediately.
+      notifyClients(deckId);
 
       return {
         deckId,
