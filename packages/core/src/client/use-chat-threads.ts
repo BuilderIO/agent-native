@@ -22,11 +22,17 @@ export interface ChatThreadData {
 
 const ACTIVE_THREAD_KEY = "agent-chat-active-thread";
 
-export function useChatThreads(apiUrl = "/_agent-native/agent-chat") {
+export function useChatThreads(
+  apiUrl = "/_agent-native/agent-chat",
+  storageKey?: string,
+) {
+  const activeThreadKey = storageKey
+    ? `${ACTIVE_THREAD_KEY}:${storageKey}`
+    : ACTIVE_THREAD_KEY;
   const [threads, setThreads] = useState<ChatThreadSummary[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(() => {
     try {
-      return localStorage.getItem(ACTIVE_THREAD_KEY);
+      return localStorage.getItem(activeThreadKey);
     } catch {
       return null;
     }
@@ -38,10 +44,10 @@ export function useChatThreads(apiUrl = "/_agent-native/agent-chat") {
   useEffect(() => {
     try {
       if (activeThreadId) {
-        localStorage.setItem(ACTIVE_THREAD_KEY, activeThreadId);
+        localStorage.setItem(activeThreadKey, activeThreadId);
       }
     } catch {}
-  }, [activeThreadId]);
+  }, [activeThreadId, activeThreadKey]);
 
   const fetchThreads = useCallback(async () => {
     try {

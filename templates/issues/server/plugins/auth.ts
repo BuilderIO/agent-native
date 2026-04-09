@@ -57,7 +57,7 @@ const ATLASSIAN_LOGIN_HTML = `<!DOCTYPE html>
   <h1>Sign in</h1>
   <p class="subtitle">Continue with your Atlassian account</p>
   <button id="btn" onclick="signIn()">
-    <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="atl-grad" x1="0.993" y1="0.404" x2="0.123" y2="0.971" gradientUnits="objectBoundingBox"><stop offset="0" stop-color="#0052cc"/><stop offset="1" stop-color="#2684ff"/></linearGradient></defs><path d="M3.84 23.16 14.1 3.84a1.47 1.47 0 0 0-2.57-1.41L.35 21.75A1.47 1.47 0 0 0 1.63 24h3.5a1.47 1.47 0 0 0 1.32-.84z" fill="url(#atl-grad)" transform="translate(0.5 0.5)"/><path d="M17.9 3.84 7.64 23.16a1.47 1.47 0 0 1-1.32.84h15.1A1.47 1.47 0 0 0 22.7 21.75L11.47 2.43a1.47 1.47 0 0 0-2.57 0z" fill="#2684ff" transform="translate(8.5 0.5)"/></svg>
+    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="atl-g" x1="1" y1="0" x2="0.3" y2="1"><stop offset="0" stop-color="#0052cc"/><stop offset="1" stop-color="#2684ff"/></linearGradient></defs><path d="M7.12 11.084a.683.683 0 00-1.16.126L.075 22.974a.703.703 0 00.63 1.018h8.19a.678.678 0 00.63-.39c1.767-3.65.696-9.203-2.406-12.52z" fill="url(#atl-g)"/><path d="M11.434.386a15.515 15.515 0 00-.906 15.317l3.95 7.9a.703.703 0 00.628.388h8.19a.703.703 0 00.63-1.017L12.63.38a.664.664 0 00-1.196.006z" fill="#2684ff"/></svg>
     Sign in with Atlassian
   </button>
   <p class="error" id="err"></p>

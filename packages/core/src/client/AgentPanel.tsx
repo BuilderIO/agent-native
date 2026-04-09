@@ -715,6 +715,8 @@ export interface AgentPanelProps extends Omit<
   onCollapse?: () => void;
   /** URL of the app being developed (shown as "Open app in new tab" in settings). Set by frame. */
   devAppUrl?: string;
+  /** Namespace for localStorage keys — used to isolate chat state per app in the frame. */
+  storageKey?: string;
 }
 
 function useClientOnly() {
@@ -732,6 +734,7 @@ export function AgentPanel({
   showHeader = true,
   onCollapse,
   devAppUrl,
+  storageKey,
 }: AgentPanelProps) {
   const mounted = useClientOnly();
   const [execMode, setExecMode] = useState<ExecMode>(() => {
@@ -1449,6 +1452,7 @@ export function AgentPanel({
             onSwitchToCli={() => switchMode("cli")}
             execMode={execMode}
             onExecModeChange={switchExecMode}
+            storageKey={storageKey}
           />
         )}
       </div>
