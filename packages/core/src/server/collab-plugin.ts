@@ -15,7 +15,7 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
-import { getH3App } from "./framework-request-handler.js";
+import { getH3App, awaitBootstrap } from "./framework-request-handler.js";
 import { FRAMEWORK_ROUTE_PREFIX } from "./core-routes-plugin.js";
 import {
   getCollabState,
@@ -57,17 +57,19 @@ export function createCollabPlugin(
   } = options;
 
   return async (nitroApp: any) => {
+    await awaitBootstrap(nitroApp);
     const P = FRAMEWORK_ROUTE_PREFIX;
 
     // Mount collab routes — manual method dispatch since the path layout is
-    // `/collab/:docId/<action>` and h3 v2's createRouter would need explicit
-    // path stripping that's awkward with our prefix-middleware design.
-    const collabPrefix = `${P}/collab`;
+    // `/collab/:docId/<action>`. The framework strips the `/collab` mount
+    // prefix from event.url.pathname before calling us, so we see e.g.
+    // `/abc-123/state`.
     getH3App(nitroApp).use(
-      collabPrefix,
+      `${P}/collab`,
       defineEventHandler(async (event: H3Event) => {
-        const remainder = event.url.pathname.slice(collabPrefix.length);
-        const parts = remainder.replace(/^\/+/, "").split("/");
+        const parts = (event.url?.pathname || "")
+          .replace(/^\/+/, "")
+          .split("/");
         const docId = parts[0] || "";
         const action = parts[1] || "";
         if (!docId) return;

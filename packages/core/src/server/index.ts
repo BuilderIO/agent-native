@@ -93,7 +93,11 @@ export {
 } from "./agent-teams.js";
 export { isOAuthConnected, getOAuthAccounts } from "./oauth-helpers.js";
 export { wrapWithAnalytics } from "./analytics.js";
-export { getH3App, type H3AppShim } from "./framework-request-handler.js";
+export {
+  getH3App,
+  awaitBootstrap,
+  type H3AppShim,
+} from "./framework-request-handler.js";
 export {
   autoDiscoverActions,
   autoDiscoverScripts,

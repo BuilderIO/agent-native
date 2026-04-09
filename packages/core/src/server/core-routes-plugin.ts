@@ -1,4 +1,4 @@
-import { getH3App } from "./framework-request-handler.js";
+import { getH3App, awaitBootstrap } from "./framework-request-handler.js";
 import { defineEventHandler, setResponseStatus, getMethod } from "h3";
 import type { H3Event } from "h3";
 import path from "node:path";
@@ -65,6 +65,10 @@ export function createCoreRoutesPlugin(
   options: CoreRoutesPluginOptions = {},
 ): NitroPluginDef {
   return async (nitroApp: any) => {
+    // No-op when called from inside the bootstrap (auto-mount path).
+    // Otherwise wait so other default plugins finish mounting first.
+    await awaitBootstrap(nitroApp);
+
     const P = FRAMEWORK_ROUTE_PREFIX;
 
     // Polling
@@ -152,13 +156,14 @@ export function createCoreRoutesPlugin(
 
     if (!options.disableAppState) {
       // Compose draft routes (more specific path, mounted first so the
-      // generic app-state matcher below doesn't shadow them).
-      const composePrefix = `${P}/application-state/compose`;
+      // generic app-state matcher below doesn't shadow them). The framework
+      // strips the mount prefix from event.url.pathname before calling us,
+      // so we just see e.g. `/abc-123` (id) or `/` (collection root).
       getH3App(nitroApp).use(
-        composePrefix,
+        `${P}/application-state/compose`,
         defineEventHandler(async (event: H3Event) => {
-          const remainder = event.url.pathname.slice(composePrefix.length);
-          const id = remainder.replace(/^\/+/, "").split("/")[0] || "";
+          const id =
+            (event.url?.pathname || "").replace(/^\/+/, "").split("/")[0] || "";
           if (event.context) {
             event.context.params = { ...event.context.params, id };
           }
@@ -178,12 +183,11 @@ export function createCoreRoutesPlugin(
 
       // Generic application state — match `/application-state/:key` only
       // (NOT `/application-state/compose/...` which the handler above owns).
-      const appStatePrefix = `${P}/application-state`;
       getH3App(nitroApp).use(
-        appStatePrefix,
+        `${P}/application-state`,
         defineEventHandler(async (event: H3Event) => {
-          const remainder = event.url.pathname.slice(appStatePrefix.length);
-          const key = remainder.replace(/^\/+/, "").split("/")[0] || "";
+          const key =
+            (event.url?.pathname || "").replace(/^\/+/, "").split("/")[0] || "";
           // Skip — compose handler above already handled it
           if (key === "compose" || key === "") return;
           if (event.context) {

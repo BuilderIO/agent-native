@@ -842,6 +842,12 @@ export function createAgentChatPlugin(
   options?: AgentChatPluginOptions,
 ): NitroPluginDef {
   return async (nitroApp: any) => {
+    // Wait for default framework plugins (auth, core-routes, integrations, ...)
+    // to finish mounting their middleware before we register our own. Without
+    // this, requests can race ahead of the bootstrap and hit the SSR catch-all.
+    const { awaitBootstrap } = await import("./framework-request-handler.js");
+    await awaitBootstrap(nitroApp);
+
     const env = process.env.NODE_ENV;
     // AGENT_MODE=production forces production agent constraints even in dev
     const canToggle =

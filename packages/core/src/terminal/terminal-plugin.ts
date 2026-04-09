@@ -115,6 +115,13 @@ export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
         ? parseInt(process.env.AGENT_TERMINAL_PORT, 10)
         : 0);
 
+    // Mark as running BEFORE the async server start. The previous code only
+    // set this AFTER `await createPtyWebSocketServer(...)`, which left a
+    // TOCTOU window where two concurrent plugin invocations would both pass
+    // the running-check, both spawn a server, and end up fighting for the
+    // CLI's PTY pool — leading to `posix_spawnp failed` floods.
+    process.env.__AGENT_TERMINAL_RUNNING = "true";
+
     try {
       const { createPtyWebSocketServer } = await import("./pty-server.js");
 
@@ -126,9 +133,8 @@ export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
         logPrefix: "[terminal]",
       });
 
-      // Store port for other consumers and mark as running to prevent HMR duplication
+      // Store port for other consumers
       process.env.AGENT_TERMINAL_PORT = String(result.port);
-      process.env.__AGENT_TERMINAL_RUNNING = "true";
 
       // Mount discovery endpoint
       getH3App(nitroApp).use(
@@ -150,6 +156,8 @@ export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
         `[terminal] Agent terminal ready (command: ${command}, port: ${result.port})`,
       );
     } catch (err) {
+      // Clear the running flag so a retry can spawn a fresh server
+      delete process.env.__AGENT_TERMINAL_RUNNING;
       console.error("[terminal] Failed to start PTY server:", err);
       console.error(
         "[terminal] Make sure node-pty is installed: pnpm add node-pty",
