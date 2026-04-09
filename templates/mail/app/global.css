@@ -204,13 +204,13 @@
   visibility: hidden;
 }
 
-/* Sonner toast — auto width, no full-width stretch */
+/* Sonner toast — fit-content width with sensible bounds */
 [data-sonner-toaster] {
-  --width: auto !important;
+  --width: fit-content !important;
 }
 [data-sonner-toast] {
-  width: auto !important;
-  min-width: 0 !important;
+  width: fit-content !important;
+  min-width: 14rem !important;
   max-width: 24rem !important;
 }
 /* Ensure toast border is visible in dark mode */
