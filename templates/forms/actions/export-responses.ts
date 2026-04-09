@@ -15,11 +15,11 @@ export default defineAction({
   run: async (args) => {
     const formId = args.form;
     const db = getDb();
-    const form = await db
+    const [form] = await db
       .select()
       .from(schema.forms)
       .where(eq(schema.forms.id, formId))
-      .get();
+      .limit(1);
     if (!form) {
       throw new Error(`Form ${formId} not found`);
     }
@@ -28,8 +28,7 @@ export default defineAction({
       .select()
       .from(schema.responses)
       .where(eq(schema.responses.formId, formId))
-      .orderBy(desc(schema.responses.submittedAt))
-      .all();
+      .orderBy(desc(schema.responses.submittedAt));
 
     const fields = JSON.parse(form.fields);
     const fmt =
