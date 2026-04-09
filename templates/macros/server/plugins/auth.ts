@@ -9,7 +9,7 @@ import {
   addSession,
   getH3App,
 } from "@agent-native/core/server";
-import { defineEventHandler, setCookie, setResponseStatus } from "h3";
+import { defineEventHandler } from "h3";
 import { createClient } from "@supabase/supabase-js";
 
 let _supabase: ReturnType<typeof createClient> | null = null;
@@ -58,6 +58,13 @@ catch{err.textContent='Network error';err.style.display='block'}
 finally{b.disabled=false;b.textContent='Sign in'}};
 </script></body></html>`;
 
+function jsonResponse(body: object, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
 export default (nitroApp: any) => {
   const app = getH3App(nitroApp);
 
@@ -68,40 +75,41 @@ export default (nitroApp: any) => {
         // H3 v2: event.req IS the web Request — use .json() for body
         const { email, password } = await (event as any).req.json();
 
-        if (!email || !password) {
-          setResponseStatus(event, 400);
-          return { error: "Email and password are required" };
-        }
+        if (!email || !password)
+          return jsonResponse(
+            { error: "Email and password are required" },
+            400,
+          );
 
         const supabase = getSupabase();
-        if (!supabase) {
-          setResponseStatus(event, 500);
-          return { error: "Auth is not configured" };
-        }
+        if (!supabase)
+          return jsonResponse({ error: "Auth is not configured" }, 500);
 
         const { data, error } = await supabase.auth.signInWithPassword({
           email,
           password,
         });
-        if (error || !data.user) {
-          setResponseStatus(event, 401);
-          return { error: "Invalid email or password" };
-        }
+        if (error || !data.user)
+          return jsonResponse({ error: "Invalid email or password" }, 401);
 
         const token = globalThis.crypto.randomUUID();
         await addSession(token, data.user.email ?? email);
-        setCookie(event, "an_session", token, {
-          httpOnly: true,
-          secure: process.env.NODE_ENV === "production",
-          sameSite: "lax",
-          path: "/",
-          maxAge: 60 * 60 * 24 * 30,
-        });
 
-        return { ok: true, email: data.user.email };
+        const maxAge = 60 * 60 * 24 * 30;
+        const secure = process.env.NODE_ENV === "production";
+        const cookie = `an_session=${token}; Max-Age=${maxAge}; Path=/; HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}`;
+
+        return new Response(
+          JSON.stringify({ ok: true, email: data.user.email }),
+          {
+            headers: {
+              "Content-Type": "application/json",
+              "Set-Cookie": cookie,
+            },
+          },
+        );
       } catch {
-        setResponseStatus(event, 500);
-        return { error: "Login failed" };
+        return jsonResponse({ error: "Login failed" }, 500);
       }
     }),
   );
