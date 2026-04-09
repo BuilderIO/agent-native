@@ -905,7 +905,31 @@ export function createAgentChatPlugin(
           for (const file of files) {
             const name = file.replace(/\.ts$/, "");
             if (templateScripts[name] || devScriptsForA2A[name]) continue;
-            // Register as shell-based tool
+
+            // Try to load the action module directly so we get the real
+            // run function (not a shell wrapper). This makes HTTP endpoints
+            // work correctly. Only fall back to shell wrapper if the import
+            // fails (e.g., CLI-style scripts that throw at top level).
+            const filePath = pathMod.join(actionsDir, file);
+            try {
+              const mod = await import(/* @vite-ignore */ filePath);
+              const def =
+                mod.default && typeof mod.default === "object"
+                  ? mod.default
+                  : mod;
+              if (def?.tool && typeof def.run === "function") {
+                discoveredActions[name] = {
+                  tool: def.tool,
+                  run: def.run,
+                  ...(def.http !== undefined ? { http: def.http } : {}),
+                };
+                continue;
+              }
+            } catch {
+              // Fall through to shell wrapper for CLI-style scripts
+            }
+
+            // Fallback: shell-based wrapper for CLI-style scripts
             discoveredActions[name] = {
               tool: {
                 description: `Run the ${name} action. Use: pnpm action ${name} --arg=value`,

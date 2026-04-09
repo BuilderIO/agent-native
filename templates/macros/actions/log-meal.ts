@@ -24,6 +24,7 @@ export default defineAction({
     const result = await db()
       .insert(schema.meals)
       .values({
+        owner_email: process.env.AGENT_USER_EMAIL ?? null,
         name: args.name,
         calories: args.calories || 0,
         protein: args.protein ?? null,

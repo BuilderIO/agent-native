@@ -69,13 +69,30 @@ export function mountActionRoutes(
           }
         }
 
-        // Parse params based on method
+        // Parse params based on method. On web-standard runtimes (Netlify
+        // Functions, CF Workers), event.req IS the web Request — use .json()
+        // directly. H3's readBody fails on those runtimes because it expects
+        // a Node.js stream on event.node.req.
         let params: Record<string, any>;
         try {
           if (method === "GET") {
-            params = getQuery(event) as Record<string, any>;
+            // H3 v2: prefer web Request URL, fallback to getQuery
+            const webReq = (event as any).req;
+            if (webReq?.url) {
+              const url = new URL(webReq.url);
+              params = Object.fromEntries(url.searchParams);
+            } else {
+              params = getQuery(event) as Record<string, any>;
+            }
           } else {
-            params = (await readBody(event)) ?? {};
+            const webReq = (event as any).req;
+            if (webReq && typeof webReq.json === "function") {
+              // H3 v2: event.req is the web Request — use .json() directly
+              params = (await webReq.json().catch(() => null)) ?? {};
+            } else {
+              // Fallback: H3's readBody (Node.js dev)
+              params = (await readBody(event)) ?? {};
+            }
           }
         } catch {
           params = {};

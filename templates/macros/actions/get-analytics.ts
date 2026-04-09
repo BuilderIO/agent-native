@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { db, schema } from "../server/db/index.js";
-import { and, gte, lte, asc, desc } from "drizzle-orm";
+import { and, gte, lte, asc, desc, eq, or, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 export default defineAction({
@@ -24,12 +24,22 @@ export default defineAction({
     const startDate = fmt(start);
     const endDate = fmt(end);
 
+    const ownerEmail = process.env.AGENT_USER_EMAIL;
+    const ownerFilter = (col: any) =>
+      ownerEmail
+        ? or(eq(col, ownerEmail), isNull(col))
+        : undefined;
+
     // Calorie history
     const mealsData = await db()
       .select()
       .from(schema.meals)
       .where(
-        and(gte(schema.meals.date, startDate), lte(schema.meals.date, endDate)),
+        and(
+          gte(schema.meals.date, startDate),
+          lte(schema.meals.date, endDate),
+          ownerFilter(schema.meals.owner_email),
+        ),
       )
       .orderBy(asc(schema.meals.date));
 
@@ -40,6 +50,7 @@ export default defineAction({
         and(
           gte(schema.exercises.date, startDate),
           lte(schema.exercises.date, endDate),
+          ownerFilter(schema.exercises.owner_email),
         ),
       )
       .orderBy(asc(schema.exercises.date));
@@ -84,6 +95,7 @@ export default defineAction({
         and(
           gte(schema.weights.date, startDate),
           lte(schema.weights.date, endDate),
+          ownerFilter(schema.weights.owner_email),
         ),
       )
       .orderBy(asc(schema.weights.date), desc(schema.weights.created_at));
