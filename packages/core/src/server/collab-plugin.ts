@@ -9,8 +9,13 @@
  * ```
  */
 
-import { createRouter } from "h3";
-import { getH3App } from "./framework-request-handler.js";
+import {
+  defineEventHandler,
+  getMethod,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
+import { getH3App, awaitBootstrap } from "./framework-request-handler.js";
 import { FRAMEWORK_ROUTE_PREFIX } from "./core-routes-plugin.js";
 import {
   getCollabState,
@@ -52,18 +57,42 @@ export function createCollabPlugin(
   } = options;
 
   return async (nitroApp: any) => {
+    await awaitBootstrap(nitroApp);
     const P = FRAMEWORK_ROUTE_PREFIX;
 
-    // Mount collab routes
-    const router = createRouter()
-      .get("/:docId/state", getCollabState)
-      .post("/:docId/update", postCollabUpdate)
-      .post("/:docId/text", postCollabText)
-      .post("/:docId/search-replace", postCollabSearchReplace)
-      .post("/:docId/awareness", postAwareness)
-      .get("/:docId/users", getActiveUsers);
-
-    getH3App(nitroApp).use(`${P}/collab`, router.handler);
+    // Mount collab routes — manual method dispatch since the path layout is
+    // `/collab/:docId/<action>`. The framework strips the `/collab` mount
+    // prefix from event.url.pathname before calling us, so we see e.g.
+    // `/abc-123/state`.
+    getH3App(nitroApp).use(
+      `${P}/collab`,
+      defineEventHandler(async (event: H3Event) => {
+        const parts = (event.url?.pathname || "")
+          .replace(/^\/+/, "")
+          .split("/");
+        const docId = parts[0] || "";
+        const action = parts[1] || "";
+        if (!docId) return;
+        if (event.context) {
+          event.context.params = { ...event.context.params, docId };
+        }
+        const method = getMethod(event);
+        if (action === "state" && method === "GET")
+          return getCollabState(event);
+        if (action === "update" && method === "POST")
+          return postCollabUpdate(event);
+        if (action === "text" && method === "POST")
+          return postCollabText(event);
+        if (action === "search-replace" && method === "POST")
+          return postCollabSearchReplace(event);
+        if (action === "awareness" && method === "POST")
+          return postAwareness(event);
+        if (action === "users" && method === "GET")
+          return getActiveUsers(event);
+        setResponseStatus(event, 404);
+        return { error: "Not found" };
+      }),
+    );
 
     // Auto-seed existing documents into collab state
     if (autoSeed) {

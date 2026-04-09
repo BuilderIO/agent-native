@@ -8,6 +8,7 @@ import {
   createAuthPlugin,
   addSession,
   getH3App,
+  readBody,
 } from "@agent-native/core/server";
 import { defineEventHandler } from "h3";
 import { createClient } from "@supabase/supabase-js";
@@ -72,8 +73,10 @@ export default (nitroApp: any) => {
     "/_agent-native/auth/supabase-login",
     defineEventHandler(async (event) => {
       try {
-        // H3 v2: event.req IS the web Request — use .json() for body
-        const { email, password } = await (event as any).req.json();
+        const { email, password } = await readBody<{
+          email?: string;
+          password?: string;
+        }>(event);
 
         if (!email || !password)
           return jsonResponse(

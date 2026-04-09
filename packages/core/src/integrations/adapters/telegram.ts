@@ -1,5 +1,5 @@
 import type { H3Event } from "h3";
-import { readBody, getHeader } from "h3";
+import { getHeader } from "h3";
 import type {
   PlatformAdapter,
   IncomingMessage,
@@ -7,6 +7,7 @@ import type {
   IntegrationStatus,
 } from "../types.js";
 import type { EnvKeyConfig } from "../../server/create-server.js";
+import { readBody } from "../../server/h3-helpers.js";
 
 /** Telegram's max message length */
 const TELEGRAM_MAX_LENGTH = 4096;

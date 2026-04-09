@@ -1,4 +1,4 @@
-import { readBody, createError } from "h3";
+import { createError } from "h3";
 import { defineOrgHandler } from "../../../lib/org-context.js";
 import { filterCandidates } from "../../../lib/resume-filter.js";
 import {
@@ -6,6 +6,7 @@ import {
   listRecentCandidates,
 } from "../../../lib/candidate-search.js";
 import * as gh from "../../../lib/greenhouse-api.js";
+import { readBody } from "@agent-native/core/server";
 
 export default defineOrgHandler(async (event) => {
   const body = await readBody(event);

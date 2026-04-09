@@ -1,5 +1,5 @@
 import type { H3Event } from "h3";
-import { readBody, setResponseStatus } from "h3";
+import { setResponseStatus } from "h3";
 import type { PlatformAdapter, IncomingMessage } from "./types.js";
 import { getThreadMapping, saveThreadMapping } from "./thread-mapping-store.js";
 import { createThread, getThread } from "../chat-threads/store.js";
@@ -10,6 +10,7 @@ import {
   extractThreadMeta,
 } from "../agent/thread-data-builder.js";
 import { updateThreadData } from "../chat-threads/store.js";
+import { readBody } from "../server/h3-helpers.js";
 
 /**
  * Tracks recently processed event IDs to deduplicate webhook retries.

@@ -46,7 +46,8 @@
       "better-sqlite3",
       "canvas",
       "esbuild",
-      "lightningcss"
+      "lightningcss",
+      "node-pty"
     ]
   },
   "dependencies": {

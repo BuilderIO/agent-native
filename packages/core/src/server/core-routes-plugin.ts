@@ -1,17 +1,12 @@
-import { getH3App } from "./framework-request-handler.js";
-import {
-  createRouter,
-  defineEventHandler,
-  readBody,
-  setResponseStatus,
-  getMethod,
-} from "h3";
+import { getH3App, awaitBootstrap } from "./framework-request-handler.js";
+import { defineEventHandler, setResponseStatus, getMethod } from "h3";
 import type { H3Event } from "h3";
 import path from "node:path";
 import { createPollHandler } from "./poll.js";
 import { createSSEHandler } from "./sse.js";
 import { upsertEnvFile } from "./create-server.js";
 import type { EnvKeyConfig } from "./create-server.js";
+import { readBody } from "./h3-helpers.js";
 import {
   getState,
   putState,
@@ -70,6 +65,10 @@ export function createCoreRoutesPlugin(
   options: CoreRoutesPluginOptions = {},
 ): NitroPluginDef {
   return async (nitroApp: any) => {
+    // No-op when called from inside the bootstrap (auto-mount path).
+    // Otherwise wait so other default plugins finish mounting first.
+    await awaitBootstrap(nitroApp);
+
     const P = FRAMEWORK_ROUTE_PREFIX;
 
     // Polling
@@ -156,24 +155,52 @@ export function createCoreRoutesPlugin(
     // Auto-mounted so templates don't need boilerplate route files.
 
     if (!options.disableAppState) {
-      // Compose draft routes (more specific, mounted first)
-      const composeRouter = createRouter()
-        .get("/", listComposeDrafts)
-        .delete("/", deleteAllComposeDrafts)
-        .get("/:id", getComposeDraft)
-        .put("/:id", putComposeDraft)
-        .delete("/:id", deleteComposeDraft);
+      // Compose draft routes (more specific path, mounted first so the
+      // generic app-state matcher below doesn't shadow them). The framework
+      // strips the mount prefix from event.url.pathname before calling us,
+      // so we just see e.g. `/abc-123` (id) or `/` (collection root).
       getH3App(nitroApp).use(
         `${P}/application-state/compose`,
-        composeRouter.handler,
+        defineEventHandler(async (event: H3Event) => {
+          const id =
+            (event.url?.pathname || "").replace(/^\/+/, "").split("/")[0] || "";
+          if (event.context) {
+            event.context.params = { ...event.context.params, id };
+          }
+          const method = getMethod(event);
+          if (!id) {
+            if (method === "GET") return listComposeDrafts(event);
+            if (method === "DELETE") return deleteAllComposeDrafts(event);
+          } else {
+            if (method === "GET") return getComposeDraft(event);
+            if (method === "PUT") return putComposeDraft(event);
+            if (method === "DELETE") return deleteComposeDraft(event);
+          }
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }),
       );
 
-      // Generic application state routes
-      const appStateRouter = createRouter()
-        .get("/:key", getState)
-        .put("/:key", putState)
-        .delete("/:key", deleteState);
-      getH3App(nitroApp).use(`${P}/application-state`, appStateRouter.handler);
+      // Generic application state — match `/application-state/:key` only
+      // (NOT `/application-state/compose/...` which the handler above owns).
+      getH3App(nitroApp).use(
+        `${P}/application-state`,
+        defineEventHandler(async (event: H3Event) => {
+          const key =
+            (event.url?.pathname || "").replace(/^\/+/, "").split("/")[0] || "";
+          // Skip — compose handler above already handled it
+          if (key === "compose" || key === "") return;
+          if (event.context) {
+            event.context.params = { ...event.context.params, key };
+          }
+          const method = getMethod(event);
+          if (method === "GET") return getState(event);
+          if (method === "PUT") return putState(event);
+          if (method === "DELETE") return deleteState(event);
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }),
+      );
     }
   };
 }

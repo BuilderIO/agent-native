@@ -1,6 +1,7 @@
-import { defineEventHandler, getQuery, readBody, setResponseStatus } from "h3";
+import { defineEventHandler, getQuery, setResponseStatus } from "h3";
 import fs from "fs/promises";
 import path from "path";
+import { readBody } from "@agent-native/core/server";
 const SKILLS_DIR = path.join(process.cwd(), ".builder/skills");
 const RULES_DIR = path.join(process.cwd(), ".builder/rules");
 

@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { db, schema } from "../server/db/index.js";
-import { eq } from "drizzle-orm";
+import { eq, and, or, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 export default defineAction({
@@ -18,6 +18,7 @@ export default defineAction({
   }),
   run: async (args) => {
     const id = args.id!;
+    const ownerEmail = process.env.AGENT_USER_EMAIL;
     const result = await db()
       .update(schema.meals)
       .set({
@@ -30,7 +31,17 @@ export default defineAction({
         image_url: args.image_url || null,
         notes: args.notes ?? null,
       })
-      .where(eq(schema.meals.id, id))
+      .where(
+        and(
+          eq(schema.meals.id, id),
+          ownerEmail
+            ? or(
+                eq(schema.meals.owner_email, ownerEmail),
+                isNull(schema.meals.owner_email),
+              )
+            : undefined,
+        ),
+      )
       .returning();
 
     return result[0];

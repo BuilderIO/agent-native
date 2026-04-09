@@ -204,6 +204,20 @@
   visibility: hidden;
 }
 
+/* Sonner toast — fit-content width with sensible bounds */
+[data-sonner-toaster] {
+  --width: fit-content !important;
+}
+[data-sonner-toast] {
+  width: fit-content !important;
+  min-width: 14rem !important;
+  max-width: 24rem !important;
+}
+/* Ensure toast border is visible in dark mode */
+.dark [data-sonner-toast] {
+  border-color: hsl(220 4% 22%) !important;
+}
+
 /* Sonner cancel button style — match action button but muted */
 [data-sonner-toast] [data-cancel] {
   background: transparent !important;

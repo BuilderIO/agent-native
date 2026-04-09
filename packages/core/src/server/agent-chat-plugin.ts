@@ -21,7 +21,6 @@ import {
 } from "../agent/thread-data-builder.js";
 import {
   defineEventHandler,
-  readBody,
   setResponseStatus,
   setResponseHeader,
   getMethod,
@@ -46,6 +45,7 @@ import {
   SHARED_OWNER,
 } from "../resources/store.js";
 import nodePath from "node:path";
+import { readBody } from "./h3-helpers.js";
 
 // Lazy fs — loaded via dynamic import() on first use.
 // This avoids require() which bundlers convert to createRequire(import.meta.url)
@@ -760,7 +760,7 @@ function generateActionsPrompt(registry: Record<string, ActionEntry>): string {
  * Usage in templates:
  * ```ts
  * // server/plugins/agent-chat.ts
- * import { createAgentChatPlugin } from "@agent-native/core/server";
+ * import { readBody, createAgentChatPlugin } from "@agent-native/core/server";
  * import { scriptRegistry } from "../../scripts/registry.js";
  *
  * export default createAgentChatPlugin({
@@ -842,6 +842,12 @@ export function createAgentChatPlugin(
   options?: AgentChatPluginOptions,
 ): NitroPluginDef {
   return async (nitroApp: any) => {
+    // Wait for default framework plugins (auth, core-routes, integrations, ...)
+    // to finish mounting their middleware before we register our own. Without
+    // this, requests can race ahead of the bootstrap and hit the SSR catch-all.
+    const { awaitBootstrap } = await import("./framework-request-handler.js");
+    await awaitBootstrap(nitroApp);
+
     const env = process.env.NODE_ENV;
     // AGENT_MODE=production forces production agent constraints even in dev
     const canToggle =
@@ -905,7 +911,31 @@ export function createAgentChatPlugin(
           for (const file of files) {
             const name = file.replace(/\.ts$/, "");
             if (templateScripts[name] || devScriptsForA2A[name]) continue;
-            // Register as shell-based tool
+
+            // Try to load the action module directly so we get the real
+            // run function (not a shell wrapper). This makes HTTP endpoints
+            // work correctly. Only fall back to shell wrapper if the import
+            // fails (e.g., CLI-style scripts that throw at top level).
+            const filePath = pathMod.join(actionsDir, file);
+            try {
+              const mod = await import(/* @vite-ignore */ filePath);
+              const def =
+                mod.default && typeof mod.default === "object"
+                  ? mod.default
+                  : mod;
+              if (def?.tool && typeof def.run === "function") {
+                discoveredActions[name] = {
+                  tool: def.tool,
+                  run: def.run,
+                  ...(def.http !== undefined ? { http: def.http } : {}),
+                };
+                continue;
+              }
+            } catch {
+              // Fall through to shell wrapper for CLI-style scripts
+            }
+
+            // Fallback: shell-based wrapper for CLI-style scripts
             discoveredActions[name] = {
               tool: {
                 description: `Run the ${name} action. Use: pnpm action ${name} --arg=value`,

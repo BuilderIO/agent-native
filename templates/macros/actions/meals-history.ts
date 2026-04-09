@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { db, schema } from "../server/db/index.js";
-import { and, gte, lte, asc } from "drizzle-orm";
+import { and, gte, lte, asc, eq, or, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 export default defineAction({
@@ -16,6 +16,7 @@ export default defineAction({
   run: async (args) => {
     if (!args.startDate || !args.endDate) return [];
 
+    const ownerEmail = process.env.AGENT_USER_EMAIL;
     const mealsData = await db()
       .select()
       .from(schema.meals)
@@ -23,6 +24,12 @@ export default defineAction({
         and(
           gte(schema.meals.date, String(args.startDate)),
           lte(schema.meals.date, String(args.endDate)),
+          ownerEmail
+            ? or(
+                eq(schema.meals.owner_email, ownerEmail),
+                isNull(schema.meals.owner_email),
+              )
+            : undefined,
         ),
       )
       .orderBy(asc(schema.meals.date));
@@ -34,6 +41,12 @@ export default defineAction({
         and(
           gte(schema.exercises.date, String(args.startDate)),
           lte(schema.exercises.date, String(args.endDate)),
+          ownerEmail
+            ? or(
+                eq(schema.exercises.owner_email, ownerEmail),
+                isNull(schema.exercises.owner_email),
+              )
+            : undefined,
         ),
       )
       .orderBy(asc(schema.exercises.date));

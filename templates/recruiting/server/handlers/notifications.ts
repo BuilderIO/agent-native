@@ -1,4 +1,4 @@
-import { defineEventHandler, readBody, createError } from "h3";
+import { defineEventHandler, createError } from "h3";
 import {
   getSetting,
   putSetting,
@@ -6,6 +6,7 @@ import {
 } from "@agent-native/core/settings";
 import { getOrgContext } from "../lib/org-context.js";
 import type { ActionItemsResponse } from "./action-items.js";
+import { readBody } from "@agent-native/core/server";
 
 type SlackConfig = {
   webhookUrl: string;

@@ -1,7 +1,6 @@
 import {
   defineEventHandler,
   getQuery,
-  readBody,
   getRouterParam,
   getHeader,
   setResponseStatus,
@@ -11,7 +10,7 @@ import {
 import { nanoid } from "nanoid";
 import type { EmailMessage, Label, UserSettings } from "@shared/types.js";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
-import { getSession } from "@agent-native/core/server";
+import { readBody, getSession } from "@agent-native/core/server";
 import {
   getOAuthTokens,
   saveOAuthTokens,

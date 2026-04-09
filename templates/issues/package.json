@@ -19,7 +19,7 @@
     "@libsql/client": "^0.15.0",
     "@tabler/icons-react": "^3.40.0",
     "drizzle-orm": "^0.44.0",
-    "h3": "^1.13.0",
+    "h3": "^2.0.1-rc.20",
     "isbot": "^5",
     "nanoid": "^4.0.2",
     "zod": "^3.25.76"

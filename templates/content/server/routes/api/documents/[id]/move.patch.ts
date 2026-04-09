@@ -1,8 +1,9 @@
-import { defineEventHandler, readBody, createError } from "h3";
+import { defineEventHandler, createError } from "h3";
 import { eq, sql } from "drizzle-orm";
 import { getDb } from "../../../../db/index.js";
 import { schema } from "../../../../db/index.js";
 import { parseDocumentFavorite } from "../../../../lib/documents.js";
+import { readBody } from "@agent-native/core/server";
 
 export default defineEventHandler(async (event) => {
   const id = event.context.params!.id;

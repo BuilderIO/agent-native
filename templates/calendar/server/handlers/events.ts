@@ -1,14 +1,13 @@
 import {
   defineEventHandler,
   getQuery,
-  readBody,
   getRouterParam,
   setResponseStatus,
   setResponseHeader,
   type H3Event,
 } from "h3";
 import type { CalendarEvent } from "../../shared/api.js";
-import { getSession } from "@agent-native/core/server";
+import { readBody, getSession } from "@agent-native/core/server";
 import * as googleCalendar from "../lib/google-calendar.js";
 
 async function uEmail(event: H3Event): Promise<string> {

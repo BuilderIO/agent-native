@@ -1,4 +1,4 @@
-import { defineEventHandler, readBody, createError } from "h3";
+import { defineEventHandler, createError } from "h3";
 import {
   getSetting,
   putSetting,
@@ -6,6 +6,7 @@ import {
 } from "@agent-native/core/settings";
 import { validateApiKey } from "../lib/greenhouse-api.js";
 import { getOrgContext } from "../lib/org-context.js";
+import { readBody } from "@agent-native/core/server";
 
 function greenhouseSettingsKey(orgId: string | null): string {
   return orgId ? `org:${orgId}:greenhouse-api-key` : "greenhouse-api-key";

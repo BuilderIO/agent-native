@@ -1,6 +1,7 @@
-import { defineEventHandler, readBody } from "h3";
+import { defineEventHandler } from "h3";
 import { getDocumentOwnerEmail } from "../../../../../lib/notion.js";
 import { resolveDocumentSyncConflict } from "../../../../../lib/notion-sync.js";
+import { readBody } from "@agent-native/core/server";
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event);

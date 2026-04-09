@@ -1,6 +1,5 @@
 import {
   defineEventHandler,
-  readBody,
   getRouterParam,
   getHeader,
   setResponseStatus,
@@ -14,6 +13,7 @@ import {
   appStateDeleteByPrefix,
 } from "./store.js";
 import { getSession } from "../server/auth.js";
+import { readBody } from "../server/h3-helpers.js";
 
 /**
  * Resolve the session ID for app state scoping.

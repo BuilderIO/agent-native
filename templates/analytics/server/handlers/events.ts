@@ -1,6 +1,7 @@
-import { defineEventHandler, readBody, setResponseStatus } from "h3";
+import { defineEventHandler, setResponseStatus } from "h3";
 import { getAccessToken } from "../lib/gcloud";
 import { resolveCredential } from "../lib/credentials";
+import { readBody } from "@agent-native/core/server";
 
 /**
  * POST /api/events/track

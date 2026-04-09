@@ -8,7 +8,7 @@
  */
 
 import crypto from "node:crypto";
-import { getHeader, setCookie, sendRedirect, type H3Event } from "h3";
+import { getHeader, setCookie, type H3Event } from "h3";
 import { addSession, getSession } from "./auth.js";
 
 // ─── Platform Detection ─────────────────────────────────────────────────────
@@ -247,7 +247,7 @@ export function oauthCallbackResponse(
   }
 
   // Web: redirect to app home
-  return sendRedirect(event, "/");
+  return new Response(null, { status: 302, headers: { Location: "/" } });
 }
 
 /** HTML error page for OAuth failures. */

@@ -1,10 +1,10 @@
 import {
   defineEventHandler,
   getQuery,
-  readBody,
   setResponseStatus,
   type H3Event,
 } from "h3";
+import { readBody } from "@agent-native/core/server";
 import {
   appStateGet,
   appStatePut,

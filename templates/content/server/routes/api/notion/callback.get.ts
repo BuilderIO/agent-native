@@ -31,5 +31,5 @@ export default defineEventHandler(async (event) => {
   const tokens = await exchangeNotionCodeForTokens(event, code);
   await saveNotionTokensForOwner(owner, tokens);
 
-  return sendRedirect(event, getNotionRedirectPath(state));
+  return sendRedirect(event, getNotionRedirectPath(state), 302);
 });

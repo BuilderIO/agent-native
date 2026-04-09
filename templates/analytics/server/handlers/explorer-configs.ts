@@ -1,9 +1,5 @@
-import {
-  defineEventHandler,
-  getRouterParam,
-  readBody,
-  setResponseStatus,
-} from "h3";
+import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
+import { readBody } from "@agent-native/core/server";
 import {
   getSetting,
   putSetting,

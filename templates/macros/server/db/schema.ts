@@ -12,9 +12,7 @@ export const meals = table("meals", {
   date: text("date").notNull(),
   image_url: text("image_url"),
   notes: text("notes"),
-  created_at: integer("created_at", { mode: "timestamp" }).$defaultFn(
-    () => new Date(),
-  ),
+  created_at: text("created_at").$defaultFn(() => new Date().toISOString()),
 });
 
 export const exercises = table("exercises", {
@@ -25,9 +23,7 @@ export const exercises = table("exercises", {
   calories_burned: integer("calories_burned").notNull().default(0),
   duration_minutes: integer("duration_minutes"),
   date: text("date").notNull(),
-  created_at: integer("created_at", { mode: "timestamp" }).$defaultFn(
-    () => new Date(),
-  ),
+  created_at: text("created_at").$defaultFn(() => new Date().toISOString()),
 });
 
 export const weights = table("weights", {
@@ -37,7 +33,5 @@ export const weights = table("weights", {
   weight: real("weight").notNull(),
   date: text("date").notNull(),
   notes: text("notes"),
-  created_at: integer("created_at", { mode: "timestamp" }).$defaultFn(
-    () => new Date(),
-  ),
+  created_at: text("created_at").$defaultFn(() => new Date().toISOString()),
 });

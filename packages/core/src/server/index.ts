@@ -4,6 +4,8 @@ export {
   type CreateServerOptions,
   type EnvKeyConfig,
 } from "./create-server.js";
+
+export { readBody, streamFile } from "./h3-helpers.js";
 export { createSSEHandler, type SSEHandlerOptions } from "./sse.js";
 export {
   mountAuthMiddleware,
@@ -92,10 +94,9 @@ export {
 export { isOAuthConnected, getOAuthAccounts } from "./oauth-helpers.js";
 export { wrapWithAnalytics } from "./analytics.js";
 export {
-  handleFrameworkRequest,
-  registerFrameworkRoute,
-  registerFrameworkMiddleware,
   getH3App,
+  awaitBootstrap,
+  type H3AppShim,
 } from "./framework-request-handler.js";
 export {
   autoDiscoverActions,

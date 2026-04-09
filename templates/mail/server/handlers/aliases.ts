@@ -1,6 +1,5 @@
 import {
   defineEventHandler,
-  readBody,
   getRouterParam,
   setResponseStatus,
   type H3Event,
@@ -8,7 +7,7 @@ import {
 import { nanoid } from "nanoid";
 import type { Alias } from "@shared/types.js";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
-import { getSession } from "@agent-native/core/server";
+import { readBody, getSession } from "@agent-native/core/server";
 
 async function uEmail(event: H3Event): Promise<string> {
   const session = await getSession(event);

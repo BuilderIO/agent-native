@@ -1,8 +1,11 @@
 import path from "path";
 import { createReadStream } from "fs";
 import { stat } from "fs/promises";
-import { defineEventHandler, sendStream, setResponseStatus } from "h3";
+import { defineEventHandler, setResponseStatus } from "h3";
+import { streamFile } from "@agent-native/core/server";
+
 const generatedDir = path.resolve(process.cwd(), "public/assets/generated");
+
 export default defineEventHandler(async (event) => {
   const filename = event.path.replace("/api/generated/", "");
   const filepath = path.resolve(generatedDir, filename);
@@ -12,7 +15,7 @@ export default defineEventHandler(async (event) => {
   }
   try {
     await stat(filepath);
-    return sendStream(event, createReadStream(filepath));
+    return streamFile(createReadStream(filepath));
   } catch {
     setResponseStatus(event, 404);
     return { error: "Not found" };

@@ -1,16 +1,11 @@
-import {
-  defineEventHandler,
-  readBody,
-  setResponseStatus,
-  type H3Event,
-} from "h3";
+import { defineEventHandler, setResponseStatus, type H3Event } from "h3";
 import type { Settings } from "../../shared/api.js";
 import {
   getUserSetting,
   putUserSetting,
   putSetting,
 } from "@agent-native/core/settings";
-import { getSession } from "@agent-native/core/server";
+import { readBody, getSession } from "@agent-native/core/server";
 
 const DEFAULT_SETTINGS: Settings = {
   timezone: "America/New_York",

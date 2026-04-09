@@ -25,11 +25,11 @@ export default defineAction({
     const result = await db()
       .insert(schema.exercises)
       .values({
+        owner_email: process.env.AGENT_USER_EMAIL ?? null,
         name: args.name,
         calories_burned: args.calories_burned || 0,
         duration_minutes: args.duration_minutes ?? null,
         date: String(date).split("T")[0],
-        created_at: new Date(),
       })
       .returning();
 

@@ -1,12 +1,12 @@
 import {
   defineEventHandler,
-  readBody,
   getRouterParam,
   setResponseStatus,
   createEventStream,
 } from "h3";
 import { eq, desc } from "drizzle-orm";
 import { getDb, schema } from "../db";
+import { readBody } from "@agent-native/core/server";
 
 // --- SSE for change notifications ---
 type SSEPush = (data: string) => void;
