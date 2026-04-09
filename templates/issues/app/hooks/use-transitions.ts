@@ -1,41 +1,39 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useActionQuery, useActionMutation } from "@agent-native/core/client";
 
 export function useTransitions(issueKey: string | undefined) {
-  return useQuery({
-    queryKey: ["transitions", issueKey],
-    queryFn: async () => {
-      const res = await fetch(`/api/issues/${issueKey}/transitions`);
-      if (!res.ok) throw new Error("Failed to fetch transitions");
-      return res.json();
+  return useActionQuery<any>(
+    "get-transitions",
+    issueKey ? { key: issueKey } : undefined,
+    {
+      enabled: !!issueKey,
+      staleTime: 30_000,
     },
-    enabled: !!issueKey,
-    staleTime: 30_000,
-  });
+  );
 }
 
 export function useTransitionIssue() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({
-      issueKey,
-      transitionId,
-    }: {
-      issueKey: string;
-      transitionId: string;
-    }) => {
-      const res = await fetch(`/api/issues/${issueKey}/transitions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ transitionId }),
-      });
-      if (!res.ok) throw new Error("Failed to transition issue");
-      return res.json();
-    },
-    onSuccess: (_, { issueKey }) => {
-      qc.invalidateQueries({ queryKey: ["issues"] });
-      qc.invalidateQueries({ queryKey: ["issue", issueKey] });
-      qc.invalidateQueries({ queryKey: ["transitions", issueKey] });
-      qc.invalidateQueries({ queryKey: ["sprint-issues"] });
-    },
-  });
+  const mutation = useActionMutation<
+    any,
+    { key: string; transitionId: string }
+  >("transition-issue");
+
+  return {
+    ...mutation,
+    mutate: (
+      vars: { issueKey: string; transitionId: string },
+      options?: Parameters<typeof mutation.mutate>[1],
+    ) =>
+      mutation.mutate(
+        { key: vars.issueKey, transitionId: vars.transitionId },
+        options,
+      ),
+    mutateAsync: (
+      vars: { issueKey: string; transitionId: string },
+      options?: Parameters<typeof mutation.mutateAsync>[1],
+    ) =>
+      mutation.mutateAsync(
+        { key: vars.issueKey, transitionId: vars.transitionId },
+        options,
+      ),
+  };
 }

@@ -1,37 +1,39 @@
-import { parseArgs, output, localFetch } from "./helpers.js";
-import type { ActionTool } from "@agent-native/core";
+import { defineAction } from "@agent-native/core";
+import * as gh from "../server/lib/greenhouse-api.js";
+import { withOrgContext } from "../server/lib/greenhouse-api.js";
+import { z } from "zod";
 
-export const tool: ActionTool = {
-  description: "Advance a candidate's application to the next stage",
-  parameters: {
-    type: "object",
-    properties: {
-      applicationId: {
-        type: "string",
-        description: "Application ID (required)",
-      },
-      fromStageId: {
-        type: "string",
-        description: "Current stage ID (required)",
-      },
-    },
-    required: ["applicationId", "fromStageId"],
-  },
-};
-
-export async function run(args: Record<string, string>): Promise<string> {
+async function advanceCandidate(args: {
+  applicationId?: number;
+  fromStageId?: number;
+}) {
   if (!args.applicationId || !args.fromStageId) {
-    return "Error: --applicationId and --fromStageId are required";
+    throw new Error("--applicationId and --fromStageId are required");
   }
-  await localFetch(`/api/applications/${args.applicationId}/advance`, {
-    method: "PATCH",
-    body: JSON.stringify({ from_stage_id: Number(args.fromStageId) }),
-  });
-  return `Advanced application ${args.applicationId} to the next stage.`;
+  await gh.advanceApplication(args.applicationId, args.fromStageId);
+  return {
+    success: true,
+    message: `Advanced application ${args.applicationId} to the next stage.`,
+  };
 }
 
-export default async function main(): Promise<void> {
-  const args = parseArgs();
-  const result = await run(args);
-  console.log(result);
-}
+export default defineAction({
+  description: "Advance a candidate's application to the next stage",
+  schema: z.object({
+    applicationId: z.coerce
+      .number()
+      .optional()
+      .describe("Application ID (required)"),
+    fromStageId: z.coerce
+      .number()
+      .optional()
+      .describe("Current stage ID (required)"),
+  }),
+  run: async (args) => {
+    const orgId = process.env.AGENT_ORG_ID;
+    if (orgId) {
+      return withOrgContext(orgId, () => advanceCandidate(args));
+    }
+    return advanceCandidate(args);
+  },
+});

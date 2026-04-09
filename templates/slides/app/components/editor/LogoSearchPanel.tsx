@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { IconX, IconSearch, IconLoader2 } from "@tabler/icons-react";
+import { useActionQuery } from "@agent-native/core/client";
 
 const LOGO_DEV_PK = "pk_VwOyCAOgT0aBNpecT2qO-A";
 
@@ -30,14 +31,12 @@ export default function LogoSearchPanel({
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Fetch Brandfetch client ID from server config
+  const { data: logoConfigData } = useActionQuery("logo-config");
   useEffect(() => {
-    fetch("/api/logo/config")
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.brandfetchId) setBrandfetchId(d.brandfetchId);
-      })
-      .catch(() => {});
-  }, []);
+    if (logoConfigData?.brandfetchId) {
+      setBrandfetchId(logoConfigData.brandfetchId);
+    }
+  }, [logoConfigData]);
 
   useEffect(() => {
     if (!open) return;
@@ -80,7 +79,9 @@ export default function LogoSearchPanel({
     setResults([]);
     setSelectedDomain(null);
     try {
-      const res = await fetch(`/api/logo/search?q=${encodeURIComponent(q)}`);
+      const res = await fetch(
+        `/_agent-native/actions/search-logos?q=${encodeURIComponent(q)}`,
+      );
       if (!res.ok) {
         const data = await res.json();
         setError(data.error || "Search failed");

@@ -31,6 +31,8 @@ export interface Slide {
   imageLoading?: boolean;
   /** Prompt used to generate the image */
   imagePrompt?: string;
+  /** Excalidraw scene data (elements + appState + files) as JSON string */
+  excalidrawData?: string;
 }
 
 export interface Deck {

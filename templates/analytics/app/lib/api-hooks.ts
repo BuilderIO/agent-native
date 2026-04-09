@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useActionQuery } from "@agent-native/core/client";
 import { getIdToken } from "./auth";
 
 async function apiFetch<T>(path: string): Promise<T> {
@@ -30,9 +31,7 @@ interface SeoResponse {
 }
 
 export function useBlogSeoData() {
-  return useQuery<SeoResponse>({
-    queryKey: ["seo-blog-pages"],
-    queryFn: () => apiFetch<SeoResponse>("/api/seo/blog-pages"),
+  return useActionQuery("seo-blog-pages", undefined, {
     staleTime: 30 * 60 * 1000, // 30 min
     retry: 1,
   });
@@ -52,9 +51,7 @@ interface KeywordsResponse {
 }
 
 export function useBlogKeywords(slug: string | null) {
-  return useQuery<KeywordsResponse>({
-    queryKey: ["seo-keywords", slug],
-    queryFn: () => apiFetch<KeywordsResponse>(`/api/seo/keywords?slug=${slug}`),
+  return useActionQuery("seo-page-keywords", slug ? { slug } : undefined, {
     enabled: !!slug,
     staleTime: 30 * 60 * 1000,
     retry: 1,
@@ -81,13 +78,14 @@ interface TopKeywordsResponse {
 }
 
 export function useTopBlogKeywords(limit = 500) {
-  return useQuery<TopKeywordsResponse>({
-    queryKey: ["seo-top-keywords", limit],
-    queryFn: () =>
-      apiFetch<TopKeywordsResponse>(`/api/seo/top-keywords?limit=${limit}`),
-    staleTime: 30 * 60 * 1000,
-    retry: 1,
-  });
+  return useActionQuery(
+    "seo-top-keywords",
+    { limit: String(limit) },
+    {
+      staleTime: 30 * 60 * 1000,
+      retry: 1,
+    },
+  );
 }
 
 // -- HubSpot CRM --
@@ -147,27 +145,21 @@ export interface HubSpotMetrics {
 }
 
 export function useHubspotDeals() {
-  return useQuery<HubSpotDealsResponse>({
-    queryKey: ["hubspot-deals"],
-    queryFn: () => apiFetch<HubSpotDealsResponse>("/api/hubspot/deals"),
+  return useActionQuery("hubspot-deals", undefined, {
     staleTime: 5 * 60 * 1000,
     retry: 1,
   });
 }
 
 export function useHubspotPipelines() {
-  return useQuery<HubSpotPipelinesResponse>({
-    queryKey: ["hubspot-pipelines"],
-    queryFn: () => apiFetch<HubSpotPipelinesResponse>("/api/hubspot/pipelines"),
+  return useActionQuery("hubspot-pipelines", undefined, {
     staleTime: 30 * 60 * 1000,
     retry: 1,
   });
 }
 
 export function useHubspotMetrics() {
-  return useQuery<HubSpotMetrics>({
-    queryKey: ["hubspot-metrics"],
-    queryFn: () => apiFetch<HubSpotMetrics>("/api/hubspot/metrics"),
+  return useActionQuery("hubspot-metrics", undefined, {
     staleTime: 5 * 60 * 1000,
     retry: 1,
   });
@@ -443,10 +435,7 @@ interface ContentCalendarResponse {
 }
 
 export function useContentCalendar() {
-  return useQuery<ContentCalendarResponse>({
-    queryKey: ["notion-content-calendar"],
-    queryFn: () =>
-      apiFetch<ContentCalendarResponse>("/api/notion/content-calendar"),
+  return useActionQuery("content-calendar", undefined, {
     staleTime: 10 * 60 * 1000, // 10 min
     retry: 1,
   });

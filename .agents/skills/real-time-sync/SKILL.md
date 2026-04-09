@@ -104,9 +104,13 @@ The `use-navigation-state.ts` hook sends the same `TAB_ID` in the `X-Request-Sou
 
 Without jitter prevention, a cycle occurs: the UI writes state, polling detects the change, the UI refetches and re-renders, potentially overwriting what the user is actively editing. With `ignoreSource`, the UI only reacts to changes from other sources (agent scripts, other browser tabs, other users).
 
+## Action Routes and Polling
+
+Action routes (`/_agent-native/actions/:name`) work with the same polling system. When a POST/PUT/DELETE action writes to the database, the version counter increments and `useDbSync` picks up the change. Frontend mutations via `useActionMutation` automatically invalidate `["action"]` query keys on success, triggering refetches of `useActionQuery` hooks.
+
 ## Related Skills
 
 - **storing-data** — Application-state and settings are the data stores that sync via polling
 - **context-awareness** — Navigation state writes use jitter prevention to avoid overwriting active edits
-- **scripts** — Script outputs written to the database trigger poll events
+- **actions** — Action routes auto-expose actions as HTTP endpoints; database writes trigger poll events
 - **self-modifying-code** — Agent code edits trigger poll events; rapid edits can cause event storms

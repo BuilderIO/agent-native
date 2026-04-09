@@ -1,80 +1,61 @@
+import { defineAction } from "@agent-native/core";
 import { eq, desc, sql } from "drizzle-orm";
+import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
+import type { FormResponse } from "../shared/types.js";
 
-function parseArgs(args: string[]): Record<string, string> {
-  const result: Record<string, string> = {};
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg.startsWith("--")) {
-      const key = arg.slice(2);
-      const next = args[i + 1];
-      if (next && !next.startsWith("--")) {
-        result[key] = next;
-        i++;
-      } else {
-        result[key] = "true";
-      }
+export default defineAction({
+  description: "List responses for a form.",
+  schema: z.object({
+    formId: z.string().describe("Form ID (required)"),
+    limit: z.coerce
+      .number()
+      .optional()
+      .default(100)
+      .describe("Max responses to return (default 100)"),
+  }),
+  http: { method: "GET" },
+  run: async (args) => {
+    const formId = args.formId;
+    if (!formId) {
+      throw new Error("--formId is required");
     }
-  }
-  return result;
-}
 
-export default async function main(args: string[]) {
-  const { form: formId, limit: limitStr, help } = parseArgs(args);
+    const db = getDb();
+    const form = await db
+      .select()
+      .from(schema.forms)
+      .where(eq(schema.forms.id, formId))
+      .get();
 
-  if (help) {
-    console.log(
-      "Usage: pnpm action list-responses --form <form-id> [--limit N]",
-    );
-    return;
-  }
-
-  if (!formId) {
-    console.error("Error: --form is required");
-    throw new Error("Script failed");
-  }
-
-  const db = getDb();
-  const form = await db
-    .select()
-    .from(schema.forms)
-    .where(eq(schema.forms.id, formId))
-    .get();
-  if (!form) {
-    console.error(`Error: Form ${formId} not found`);
-    throw new Error("Script failed");
-  }
-
-  const limit = parseInt(limitStr || "50", 10);
-  const responses = await db
-    .select()
-    .from(schema.responses)
-    .where(eq(schema.responses.formId, formId))
-    .orderBy(desc(schema.responses.submittedAt))
-    .limit(limit)
-    .all();
-
-  const total = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(schema.responses)
-    .where(eq(schema.responses.formId, formId))
-    .get();
-
-  const fields = JSON.parse(form.fields);
-
-  console.log(
-    `\nResponses for "${form.title}" (${total?.count ?? 0} total, showing ${responses.length}):\n`,
-  );
-
-  for (const response of responses) {
-    const data = JSON.parse(response.data);
-    console.log(`  Response ${response.id} — ${response.submittedAt}`);
-    for (const field of fields) {
-      const val = data[field.id];
-      console.log(
-        `    ${field.label}: ${Array.isArray(val) ? val.join(", ") : (val ?? "-")}`,
-      );
+    if (!form) {
+      throw new Error(`Form ${formId} not found`);
     }
-    console.log("");
-  }
-}
+
+    const limit = args.limit;
+    const rows = await db
+      .select()
+      .from(schema.responses)
+      .where(eq(schema.responses.formId, formId))
+      .orderBy(desc(schema.responses.submittedAt))
+      .limit(limit)
+      .all();
+
+    const total = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(schema.responses)
+      .where(eq(schema.responses.formId, formId))
+      .get();
+
+    return {
+      responses: rows.map((r) => ({
+        id: r.id,
+        formId: r.formId,
+        data: JSON.parse(r.data),
+        submittedAt: r.submittedAt,
+      })) as FormResponse[],
+      total: total?.count ?? 0,
+      fields: JSON.parse(form.fields),
+    };
+  },
+});

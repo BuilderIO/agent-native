@@ -1,9 +1,12 @@
-#!/usr/bin/env tsx
+import { defineAction } from "@agent-native/core";
 import { runQuery } from "../server/lib/bigquery";
-import { output } from "./helpers";
 
-async function main() {
-  const sql = `
+export default defineAction({
+  description: "Query inbound sales/demo form submissions from BigQuery.",
+  parameters: {},
+  http: false,
+  run: async () => {
+    const sql = `
 SELECT
   form_name,
   conversion_details,
@@ -27,10 +30,9 @@ WHERE form_name IS NOT NULL
 GROUP BY form_name, conversion_details, form_type, form_intent
 ORDER BY submission_count DESC
 LIMIT 100
-  `;
+`;
 
-  const result = await runQuery(sql);
-  output(result.rows);
-}
-
-export default main;
+    const result = await runQuery(sql);
+    return result.rows;
+  },
+});

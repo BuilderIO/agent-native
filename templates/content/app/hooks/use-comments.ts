@@ -1,4 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useActionQuery, useActionMutation } from "@agent-native/core/client";
 
 export interface Comment {
   id: string;
@@ -29,52 +30,45 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export function useComments(documentId: string | null) {
-  return useQuery({
-    queryKey: ["comments", documentId],
-    queryFn: () =>
-      fetchJson<{ comments: Comment[] }>(
-        `/api/comments?documentId=${documentId}`,
-      ),
-    enabled: !!documentId,
-    select: (data) => {
-      // Group into threads
-      const threadMap = new Map<string, CommentThread>();
-      for (const c of data.comments) {
-        if (!threadMap.has(c.thread_id)) {
-          threadMap.set(c.thread_id, {
-            threadId: c.thread_id,
-            quotedText: c.quoted_text,
-            resolved: !!c.resolved,
-            comments: [],
-          });
+  return useActionQuery<CommentThread[]>(
+    "list-comments",
+    documentId ? { documentId } : undefined,
+    {
+      enabled: !!documentId,
+      select: (data: any) => {
+        // Group into threads
+        const raw = data?.comments ?? data;
+        const comments: Comment[] = Array.isArray(raw) ? raw : [];
+        const threadMap = new Map<string, CommentThread>();
+        for (const c of comments) {
+          if (!threadMap.has(c.thread_id)) {
+            threadMap.set(c.thread_id, {
+              threadId: c.thread_id,
+              quotedText: c.quoted_text,
+              resolved: !!c.resolved,
+              comments: [],
+            });
+          }
+          threadMap.get(c.thread_id)!.comments.push(c);
         }
-        threadMap.get(c.thread_id)!.comments.push(c);
-      }
-      return Array.from(threadMap.values());
+        return Array.from(threadMap.values());
+      },
+      refetchInterval: 5000,
     },
-    refetchInterval: 5000, // Poll for new comments
-  });
+  );
 }
 
 export function useCreateComment() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (data: {
+  return useActionMutation<
+    { id: string; threadId: string },
+    {
       documentId: string;
       content: string;
       threadId?: string;
       parentId?: string;
       quotedText?: string;
-    }) =>
-      fetchJson<{ id: string; threadId: string }>("/api/comments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      }),
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: ["comments", variables.documentId] });
-    },
-  });
+    }
+  >("add-comment");
 }
 
 export function useResolveComment() {
@@ -86,8 +80,8 @@ export function useResolveComment() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ resolved: true }),
       }),
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: ["comments", variables.documentId] });
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["action"] });
     },
   });
 }
@@ -97,8 +91,8 @@ export function useDeleteComment() {
   return useMutation({
     mutationFn: ({ id }: { id: string; documentId: string }) =>
       fetchJson<{ ok: boolean }>(`/api/comments/${id}`, { method: "DELETE" }),
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: ["comments", variables.documentId] });
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["action"] });
     },
   });
 }

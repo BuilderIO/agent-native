@@ -2,3 +2,5 @@
 build
 .output/
 templates/starter/.env
+
+.generated/

@@ -7,6 +7,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { useActionMutation } from "@agent-native/core/client";
 import type { SlideGenerateResponse } from "@shared/api";
 
 interface GenerateSlidesDialogProps {
@@ -29,8 +30,8 @@ export default function GenerateSlidesDialog({
   const [style, setStyle] = useState("");
   const [includeImages, setIncludeImages] = useState(true);
   const [referenceImages, setReferenceImages] = useState<string[]>([]);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const generateSlidesMutation = useActionMutation("generate-slides-ai");
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -45,40 +46,31 @@ export default function GenerateSlidesDialog({
     e.target.value = "";
   };
 
+  const loading = generateSlidesMutation.isPending;
+
   const handleGenerate = async () => {
     if (!topic.trim()) return;
-    setLoading(true);
     setError("");
 
-    try {
-      const res = await fetch("/api/generate-slides", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          topic,
-          slideCount,
-          style: style || undefined,
-          includeImages,
-          uploadedReferenceImages:
-            referenceImages.length > 0 ? referenceImages : undefined,
-        }),
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Failed to generate slides");
-      }
-
-      const data: SlideGenerateResponse = await res.json();
-      onGenerated(data, includeImages, referenceImages);
-      onOpenChange(false);
-      setTopic("");
-      setStyle("");
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+    generateSlidesMutation.mutate(
+      {
+        topic,
+        slideCount: String(slideCount),
+        style: style || undefined,
+        includeImages: String(includeImages),
+      },
+      {
+        onSuccess: (data) => {
+          onGenerated(data, includeImages, referenceImages);
+          onOpenChange(false);
+          setTopic("");
+          setStyle("");
+        },
+        onError: (err) => {
+          setError(err.message);
+        },
+      },
+    );
   };
 
   return (

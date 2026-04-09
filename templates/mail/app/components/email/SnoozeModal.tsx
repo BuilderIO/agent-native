@@ -182,7 +182,7 @@ export function SnoozeModal({
               "Snooze DB not ready. Run: pnpm db:push in the mail template.",
             );
           } else {
-            toast.error("Couldn't snooze — check the server logs.");
+            toast.error(msg || "Couldn't snooze — check the server logs.");
           }
         });
     },

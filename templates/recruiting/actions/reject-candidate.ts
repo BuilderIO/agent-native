@@ -1,37 +1,36 @@
-import { parseArgs, output, localFetch } from "./helpers.js";
-import type { ActionTool } from "@agent-native/core";
+import { defineAction } from "@agent-native/core";
+import * as gh from "../server/lib/greenhouse-api.js";
+import { withOrgContext } from "../server/lib/greenhouse-api.js";
+import { z } from "zod";
 
-export const tool: ActionTool = {
-  description: "Reject a candidate's application",
-  parameters: {
-    type: "object",
-    properties: {
-      applicationId: {
-        type: "string",
-        description: "Application ID (required)",
-      },
-      notes: {
-        type: "string",
-        description: "Rejection notes",
-      },
-    },
-    required: ["applicationId"],
-  },
-};
-
-export async function run(args: Record<string, string>): Promise<string> {
+async function rejectCandidate(args: {
+  applicationId?: number;
+  notes?: string;
+}) {
   if (!args.applicationId) {
-    return "Error: --applicationId is required";
+    throw new Error("--applicationId is required");
   }
-  await localFetch(`/api/applications/${args.applicationId}/reject`, {
-    method: "PATCH",
-    body: JSON.stringify({ notes: args.notes }),
-  });
-  return `Rejected application ${args.applicationId}.`;
+  await gh.rejectApplication(args.applicationId, undefined, args.notes);
+  return {
+    success: true,
+    message: `Rejected application ${args.applicationId}.`,
+  };
 }
 
-export default async function main(): Promise<void> {
-  const args = parseArgs();
-  const result = await run(args);
-  console.log(result);
-}
+export default defineAction({
+  description: "Reject a candidate's application",
+  schema: z.object({
+    applicationId: z.coerce
+      .number()
+      .optional()
+      .describe("Application ID (required)"),
+    notes: z.string().optional().describe("Rejection notes"),
+  }),
+  run: async (args) => {
+    const orgId = process.env.AGENT_ORG_ID;
+    if (orgId) {
+      return withOrgContext(orgId, () => rejectCandidate(args));
+    }
+    return rejectCandidate(args);
+  },
+});

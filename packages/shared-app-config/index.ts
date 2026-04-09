@@ -180,11 +180,12 @@ export const DEFAULT_APPS: AppConfig[] = [
     mode: "dev",
   },
   {
-    id: "calorie-tracker",
-    name: "Calorie Tracker",
+    id: "macros",
+    name: "Macros",
     icon: "Flame",
-    description: "Nutrition and calorie tracking",
-    url: "https://calorie-tracker.agent-native.com",
+    description:
+      "AI-powered macro tracker — speak to the agent and it handles everything",
+    url: "https://macros.agent-native.com",
     devPort: 8092,
     devUrl: "http://localhost:8092",
     color: "#F97316",

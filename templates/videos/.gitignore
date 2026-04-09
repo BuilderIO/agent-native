@@ -38,3 +38,5 @@ data/app.db-shm
 learnings.md
 
 build
+
+.generated/

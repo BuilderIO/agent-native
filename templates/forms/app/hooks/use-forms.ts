@@ -1,98 +1,49 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import type { Form, FormField, FormSettings } from "@shared/types";
+import { useActionQuery, useActionMutation } from "@agent-native/core/client";
 
 // ---------------------------------------------------------------------------
 // Admin hooks (authenticated)
 // ---------------------------------------------------------------------------
 
 export function useForms() {
-  return useQuery<Form[]>({
-    queryKey: ["forms"],
-    queryFn: async () => {
-      const r = await fetch("/api/forms");
-      if (!r.ok) throw new Error("Failed to fetch forms");
-      return r.json();
-    },
-  });
+  return useActionQuery("list-forms");
 }
 
 export function useForm(id: string) {
-  return useQuery<Form>({
-    queryKey: ["forms", id],
-    queryFn: async () => {
-      const r = await fetch(`/api/forms/${id}`);
-      if (!r.ok) throw new Error("Failed to fetch form");
-      return r.json();
-    },
-    enabled: !!id,
-  });
+  return useActionQuery("get-form", { id }, { enabled: !!id });
 }
 
 export function useCreateForm() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (data: {
-      title: string;
-      description?: string;
-      fields?: FormField[];
-      settings?: FormSettings;
-    }) =>
-      fetch("/api/forms", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      }).then((r) => {
-        if (!r.ok) return r.json().then((e: any) => Promise.reject(e));
-        return r.json();
-      }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["forms"] }),
+  return useActionMutation("create-form", {
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["action", "list-forms"] });
+    },
   });
 }
 
 export function useUpdateForm() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({
-      id,
-      ...data
-    }: {
-      id: string;
-      title?: string;
-      description?: string;
-      slug?: string;
-      fields?: FormField[];
-      settings?: FormSettings;
-      status?: "draft" | "published" | "closed";
-    }) =>
-      fetch(`/api/forms/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      }).then((r) => {
-        if (!r.ok) return r.json().then((e: any) => Promise.reject(e));
-        return r.json();
-      }),
-    onSuccess: (_, vars) => {
-      qc.invalidateQueries({ queryKey: ["forms"] });
-      qc.invalidateQueries({ queryKey: ["forms", vars.id] });
+  return useActionMutation("update-form", {
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["action", "list-forms"] });
+      qc.invalidateQueries({ queryKey: ["action", "get-form"] });
     },
   });
 }
 
 export function useDeleteForm() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) =>
-      fetch(`/api/forms/${id}`, { method: "DELETE" }).then((r) => {
-        if (!r.ok) return r.json().then((e: any) => Promise.reject(e));
-        return r.json();
-      }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["forms"] }),
+  return useActionMutation("delete-form", {
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["action", "list-forms"] });
+    },
   });
 }
 
 // ---------------------------------------------------------------------------
-// Public hooks (unauthenticated)
+// Public hooks (unauthenticated) — stay as raw fetch since they hit
+// public API routes that don't require auth
 // ---------------------------------------------------------------------------
 
 export function usePublicForm(formId: string) {

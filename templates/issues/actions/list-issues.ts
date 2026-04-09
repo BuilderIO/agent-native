@@ -1,75 +1,87 @@
-import { parseArgs } from "@agent-native/core";
-import { getAtlassianClient, jiraUrl, jiraFetch } from "./helpers.js";
+import { defineAction } from "@agent-native/core";
+import { z } from "zod";
+import { getClient } from "../server/lib/jira-auth.js";
+import { jiraSearchIssues } from "../server/lib/jira-api.js";
 
-export default async function (args: string[]) {
-  const { view, projectKey, jql, q, compact, maxResults } = parseArgs(args);
-  const client = await getAtlassianClient();
+const DEFAULT_FIELDS = [
+  "summary",
+  "status",
+  "priority",
+  "assignee",
+  "reporter",
+  "issuetype",
+  "project",
+  "labels",
+  "created",
+  "updated",
+  "resolution",
+  "resolutiondate",
+  "parent",
+  "subtasks",
+  "issuelinks",
+  "sprint",
+  "comment",
+];
 
-  let query: string;
-  const v = (view as string) || "my-issues";
+export default defineAction({
+  description: "List Jira issues for a view",
+  schema: z.object({
+    view: z
+      .string()
+      .optional()
+      .describe("View: my-issues (default), project, recent"),
+    projectKey: z
+      .string()
+      .optional()
+      .describe("Project key (for project view)"),
+    jql: z.string().optional().describe("Custom JQL query"),
+    q: z.string().optional().describe("Text search"),
+    nextPageToken: z.string().optional().describe("Pagination token"),
+    maxResults: z.coerce
+      .number()
+      .optional()
+      .describe("Max results (default 50)"),
+  }),
+  http: { method: "GET" },
+  run: async (args) => {
+    const { view, projectKey, q, nextPageToken, maxResults } = args;
+    const client = await getClient(process.env.AGENT_USER_EMAIL);
+    if (!client) throw new Error("Jira not connected");
 
-  if (jql) {
-    query = jql as string;
-  } else {
-    switch (v) {
-      case "my-issues":
-        query =
-          "assignee = currentUser() AND resolution = Unresolved ORDER BY status ASC, updated DESC";
-        break;
-      case "project":
-        if (!projectKey) return "Error: --projectKey required for project view";
-        query = `project = "${projectKey}" ORDER BY updated DESC`;
-        break;
-      case "recent":
-        query = "assignee = currentUser() ORDER BY updated DESC";
-        break;
-      default:
-        query =
-          "assignee = currentUser() AND resolution = Unresolved ORDER BY updated DESC";
+    let jql = args.jql;
+
+    if (!jql) {
+      const v = view || "my-issues";
+      switch (v) {
+        case "my-issues":
+          jql =
+            "assignee = currentUser() AND resolution = Unresolved ORDER BY status ASC, updated DESC";
+          break;
+        case "project":
+          if (!projectKey)
+            throw new Error("projectKey is required for project view");
+          jql = `project = "${projectKey}" ORDER BY updated DESC`;
+          break;
+        case "recent":
+          jql = "assignee = currentUser() ORDER BY updated DESC";
+          break;
+        default:
+          jql =
+            "assignee = currentUser() AND resolution = Unresolved ORDER BY status ASC, updated DESC";
+      }
+
+      if (q) {
+        const base = jql.split("ORDER BY")[0].trim();
+        const order = jql.split("ORDER BY")[1]?.trim() || "updated DESC";
+        jql = `text ~ "${q}" AND (${base}) ORDER BY ${order}`;
+      }
     }
 
-    if (q) {
-      const base = query.split("ORDER BY")[0].trim();
-      const order = query.split("ORDER BY")[1]?.trim() || "updated DESC";
-      query = `text ~ "${q}" AND (${base}) ORDER BY ${order}`;
-    }
-  }
-
-  const result = await jiraFetch(
-    jiraUrl(client.cloudId, "/search/jql"),
-    client.accessToken,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        jql: query,
-        maxResults: Number(maxResults) || 25,
-        fields: [
-          "summary",
-          "status",
-          "priority",
-          "assignee",
-          "issuetype",
-          "project",
-          "labels",
-          "updated",
-        ],
-      }),
-    },
-  );
-
-  const issues = result.issues || [];
-  if (issues.length === 0) return "No issues found.";
-
-  if (compact) {
-    return issues
-      .map((i: any) => `${i.key} [${i.fields.status.name}] ${i.fields.summary}`)
-      .join("\n");
-  }
-
-  return issues
-    .map(
-      (i: any) =>
-        `${i.key} | ${i.fields.issuetype?.name || "Task"} | ${i.fields.status.name} | ${i.fields.priority?.name || "-"} | ${i.fields.assignee?.displayName || "Unassigned"} | ${i.fields.summary}`,
-    )
-    .join("\n");
-}
+    return await jiraSearchIssues(client.cloudId, client.accessToken, {
+      jql,
+      nextPageToken,
+      maxResults: maxResults || 50,
+      fields: DEFAULT_FIELDS,
+    });
+  },
+});

@@ -1,0 +1,6 @@
+[build]
+  command = "pnpm install && NITRO_PRESET=netlify pnpm --filter macros build"
+  publish = "templates/macros/dist"
+
+[build.environment]
+  NITRO_PRESET = "netlify"

@@ -1,46 +1,320 @@
 import type { ActionTool } from "./agent/types.js";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 
-interface DefineActionOptions {
-  description: string;
-  /** Flat map of parameter names to their schema. Automatically wrapped in `{ type: "object", properties: ... }`. */
-  parameters?: Record<
-    string,
-    { type: string; description?: string; enum?: string[] }
-  >;
-  run: (args: Record<string, string>) => Promise<string> | string;
+/** HTTP exposure config for an action. */
+export interface ActionHttpConfig {
+  /** HTTP method. Default: "POST". Use "GET" for read-only actions. */
+  method?: "GET" | "POST" | "PUT" | "DELETE";
+  /** Override route path under /_agent-native/actions/. Default: action filename. */
+  path?: string;
 }
 
+/** Schema definition for a single action parameter (legacy JSON schema style). */
+export interface ParameterSchema {
+  type: string;
+  description?: string;
+  enum?: string[];
+}
+
+/** Infer runtime parameter types from a legacy parameter schema map. */
+type InferParams<T extends Record<string, ParameterSchema> | undefined> =
+  T extends Record<string, ParameterSchema>
+    ? { [K in keyof T]?: string }
+    : Record<string, string>;
+
+// ---------------------------------------------------------------------------
+// Schema-based action options (new: Zod / Valibot / ArkType via Standard Schema)
+// ---------------------------------------------------------------------------
+
+interface DefineActionWithSchema<
+  TSchema extends StandardSchemaV1,
+  TReturn = any,
+> {
+  description: string;
+  /** Standard Schema-compatible schema (Zod, Valibot, ArkType). Provides runtime
+   *  validation and full TypeScript type inference for `run()` args. The schema is
+   *  also converted to JSON Schema for the Claude API tool definition. */
+  schema: TSchema;
+  /** Legacy parameters — ignored when `schema` is provided. */
+  parameters?: never;
+  run: (
+    args: StandardSchemaV1.InferOutput<TSchema>,
+  ) => Promise<TReturn> | TReturn;
+  http?: ActionHttpConfig | false;
+}
+
+// ---------------------------------------------------------------------------
+// Legacy parameter-based action options
+// ---------------------------------------------------------------------------
+
+interface DefineActionWithParams<
+  TParams extends Record<string, ParameterSchema> | undefined =
+    | Record<string, ParameterSchema>
+    | undefined,
+  TReturn = any,
+> {
+  description: string;
+  /** Flat map of parameter names to their schema. Automatically wrapped in
+   *  `{ type: "object", properties: ... }` for the Claude API. */
+  parameters?: TParams;
+  /** Standard Schema — not used in this overload. */
+  schema?: never;
+  run: (args: InferParams<TParams>) => Promise<TReturn> | TReturn;
+  http?: ActionHttpConfig | false;
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
 /**
- * Define an agent action. Place in `actions/` directory -- auto-discovered by the framework.
+ * Define an agent action. Place in `actions/` directory — auto-discovered by the framework.
+ *
+ * Supports two modes:
+ *
+ * **Schema mode (recommended)** — pass a Standard Schema-compatible schema (Zod, Valibot,
+ * ArkType) for runtime validation and full type inference:
  *
  * ```ts
- * // actions/list-events.ts
  * import { defineAction } from "@agent-native/core";
+ * import { z } from "zod";
  *
  * export default defineAction({
- *   description: "List calendar events",
- *   parameters: {
- *     from: { type: "string", description: "Start date" },
- *     to: { type: "string", description: "End date" },
- *   },
+ *   description: "Create a form",
+ *   schema: z.object({
+ *     title: z.string().describe("Form title"),
+ *     status: z.enum(["draft", "published", "closed"]).default("draft"),
+ *   }),
  *   run: async (args) => {
- *     const events = await fetchEvents(args.from, args.to);
- *     return JSON.stringify(events, null, 2);
+ *     // args is { title: string; status: "draft" | "published" | "closed" }
+ *     // Already validated — invalid inputs never reach here
  *   },
  * });
  * ```
+ *
+ * **Parameters mode (legacy)** — pass raw JSON schema-like parameter definitions:
+ *
+ * ```ts
+ * export default defineAction({
+ *   description: "List events",
+ *   parameters: {
+ *     from: { type: "string", description: "Start date" },
+ *   },
+ *   run: async (args) => { ... },
+ * });
+ * ```
  */
-export function defineAction(options: DefineActionOptions) {
+export function defineAction<TSchema extends StandardSchemaV1, TReturn>(
+  options: DefineActionWithSchema<TSchema, TReturn>,
+): any;
+export function defineAction<
+  TParams extends Record<string, ParameterSchema> | undefined,
+  TReturn,
+>(options: DefineActionWithParams<TParams, TReturn>): any;
+export function defineAction(options: any) {
+  const hasSchema = options.schema && "~standard" in options.schema;
+
+  // Build tool definition for the Claude API
+  let toolParameters: ActionTool["parameters"];
+  if (hasSchema) {
+    // Convert Standard Schema to JSON Schema for Claude
+    toolParameters = schemaToJsonSchema(options.schema, options.description);
+  } else if (options.parameters) {
+    toolParameters = {
+      type: "object" as const,
+      properties: options.parameters,
+    };
+  }
+
+  // Wrap run() with validation when schema is provided
+  const run = hasSchema
+    ? wrapWithValidation(options.schema, options.run)
+    : options.run;
+
   return {
     tool: {
       description: options.description,
-      parameters: options.parameters
-        ? {
-            type: "object" as const,
-            properties: options.parameters,
-          }
-        : undefined,
+      parameters: toolParameters,
     },
-    run: options.run,
+    run,
+    ...(hasSchema ? { schema: options.schema } : {}),
+    ...(options.http !== undefined ? { http: options.http } : {}),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Schema → JSON Schema conversion
+// ---------------------------------------------------------------------------
+
+/**
+ * Convert a Standard Schema to JSON Schema for the Claude API.
+ * Tries vendor-specific toJSONSchema first (Zod v4), then falls back
+ * to a basic introspection of the schema shape.
+ */
+function schemaToJsonSchema(
+  schema: StandardSchemaV1,
+  _description?: string,
+): ActionTool["parameters"] {
+  // Try Zod v4's toJSONSchema if available
+  const s = schema as any;
+  if (s._zod?.def) {
+    return zodDefToJsonSchema(s._zod.def);
+  }
+
+  // Try StandardJSONSchemaV1 interface (future-proof)
+  if (s["~standard"]?.jsonSchema?.input) {
+    try {
+      return s["~standard"].jsonSchema.input({
+        target: "draft-07",
+      }) as ActionTool["parameters"];
+    } catch {
+      // Fall through
+    }
+  }
+
+  // Fallback: empty object schema
+  return { type: "object" as const, properties: {} };
+}
+
+/**
+ * Convert a Zod v4 internal def to JSON Schema.
+ * Handles the common types used in action parameters.
+ */
+function zodDefToJsonSchema(def: any): any {
+  const type = def.type;
+
+  if (type === "object") {
+    const properties: Record<string, any> = {};
+    const required: string[] = [];
+    const shape = def.shape;
+    if (shape) {
+      for (const [key, fieldSchema] of Object.entries(shape) as any[]) {
+        const fieldDef = fieldSchema?._zod?.def;
+        if (fieldDef) {
+          properties[key] = zodDefToJsonSchema(fieldDef);
+          // Check if field is required (not optional, not default)
+          if (fieldDef.type !== "optional" && fieldDef.type !== "default") {
+            required.push(key);
+          }
+        }
+      }
+    }
+    const result: any = { type: "object", properties };
+    if (required.length > 0) result.required = required;
+    return result;
+  }
+
+  if (type === "string") {
+    const result: any = { type: "string" };
+    if (def.description) result.description = def.description;
+    return result;
+  }
+
+  if (type === "number" || type === "float" || type === "int") {
+    const result: any = { type: type === "int" ? "integer" : "number" };
+    if (def.description) result.description = def.description;
+    return result;
+  }
+
+  if (type === "boolean") {
+    const result: any = { type: "boolean" };
+    if (def.description) result.description = def.description;
+    return result;
+  }
+
+  if (type === "enum") {
+    const result: any = { type: "string", enum: def.entries };
+    if (def.description) result.description = def.description;
+    return result;
+  }
+
+  if (type === "literal") {
+    return { type: typeof def.value, enum: [def.value] };
+  }
+
+  if (type === "array") {
+    const result: any = { type: "array" };
+    if (def.element?._zod?.def) {
+      result.items = zodDefToJsonSchema(def.element._zod.def);
+    }
+    if (def.description) result.description = def.description;
+    return result;
+  }
+
+  if (type === "optional") {
+    if (def.innerType?._zod?.def) {
+      return zodDefToJsonSchema(def.innerType._zod.def);
+    }
+  }
+
+  if (type === "default") {
+    if (def.innerType?._zod?.def) {
+      const inner = zodDefToJsonSchema(def.innerType._zod.def);
+      inner.default =
+        typeof def.defaultValue === "function"
+          ? def.defaultValue()
+          : def.defaultValue;
+      return inner;
+    }
+  }
+
+  if (type === "nullable") {
+    if (def.innerType?._zod?.def) {
+      return zodDefToJsonSchema(def.innerType._zod.def);
+    }
+  }
+
+  if (type === "union") {
+    if (def.options?.length) {
+      // Check if it's a simple enum-like union of literals
+      const allLiterals = def.options.every(
+        (o: any) => o?._zod?.def?.type === "literal",
+      );
+      if (allLiterals) {
+        return {
+          type: "string",
+          enum: def.options.map((o: any) => o._zod.def.value),
+        };
+      }
+      return {
+        anyOf: def.options.map((o: any) =>
+          zodDefToJsonSchema(o._zod?.def ?? {}),
+        ),
+      };
+    }
+  }
+
+  // Fallback
+  return { type: "string" };
+}
+
+// ---------------------------------------------------------------------------
+// Runtime validation wrapper
+// ---------------------------------------------------------------------------
+
+/**
+ * Wrap an action's run function with schema validation.
+ * Invalid inputs get a clear error message instead of crashing inside run().
+ */
+function wrapWithValidation(
+  schema: StandardSchemaV1,
+  run: Function,
+): (args: any) => any {
+  return async (args: any) => {
+    const result = await schema["~standard"].validate(args);
+    if (result.issues) {
+      const messages = result.issues
+        .map((issue) => {
+          const path = issue.path
+            ? issue.path
+                .map((p) => (typeof p === "object" ? p.key : p))
+                .join(".")
+            : "";
+          return path ? `${path}: ${issue.message}` : issue.message;
+        })
+        .join("; ");
+      throw new Error(`Invalid action parameters: ${messages}`);
+    }
+    return run((result as StandardSchemaV1.SuccessResult<any>).value);
   };
 }

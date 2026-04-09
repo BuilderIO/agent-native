@@ -1,15 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useActionQuery } from "@agent-native/core/client";
 import type { Booking } from "@shared/api";
 
 export function useBookings() {
-  return useQuery<Booking[]>({
-    queryKey: ["bookings"],
-    queryFn: async () => {
-      const res = await fetch("/api/bookings");
-      if (!res.ok) throw new Error("Failed to fetch bookings");
-      return res.json();
-    },
-  });
+  return useActionQuery<Booking[]>("list-bookings");
 }
 
 export function useAvailableSlots(date: string, duration: number) {
@@ -48,7 +42,7 @@ export function useCreateBooking() {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["bookings"] });
+      queryClient.invalidateQueries({ queryKey: ["action", "list-bookings"] });
     },
   });
 }
@@ -62,7 +56,7 @@ export function useDeleteBooking() {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["bookings"] });
+      queryClient.invalidateQueries({ queryKey: ["action", "list-bookings"] });
     },
   });
 }

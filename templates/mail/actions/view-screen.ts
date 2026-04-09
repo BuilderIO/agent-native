@@ -1,20 +1,6 @@
-/**
- * See what the user is currently looking at on screen.
- *
- * Reads navigation state and fetches the matching email list directly
- * from Gmail API (or local store fallback). No HTTP self-requests.
- *
- * Usage:
- *   pnpm action view-screen
- */
-
-import {
-  parseArgs,
-  output,
-  getAccessTokens,
-  fetchLabelMap,
-} from "./helpers.js";
+import { defineAction } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
+import { z } from "zod";
 import {
   isConnected,
   getClients,
@@ -24,23 +10,7 @@ import {
 } from "../server/lib/google-auth.js";
 import { gmailGetThread } from "../server/lib/google-api.js";
 import { getSetting } from "@agent-native/core/settings";
-import type { ActionTool } from "@agent-native/core";
-
-export const tool: ActionTool = {
-  description:
-    "See what the user is currently looking at on screen. Returns the current view, email list, and open thread (if any). Always call this first before taking any action.",
-  parameters: {
-    type: "object",
-    properties: {
-      full: {
-        type: "string",
-        description:
-          "Set to 'true' for full detail (deprecated, now always returns full detail)",
-        enum: ["true", "false"],
-      },
-    },
-  },
-};
+import { getAccessTokens, fetchLabelMap } from "./helpers.js";
 
 const VIEW_QUERIES: Record<string, string> = {
   inbox: "in:inbox",
@@ -202,61 +172,58 @@ async function fetchThreadMessages(threadId: string): Promise<any | null> {
   }
 }
 
-export async function run(args: Record<string, string>): Promise<string> {
-  const navigation = await readAppState("navigation");
+export default defineAction({
+  description:
+    "See what the user is currently looking at on screen. Returns the current view, email list, and open thread (if any). Always call this first before taking any action.",
+  schema: z.object({
+    full: z.coerce
+      .boolean()
+      .optional()
+      .describe(
+        "Set to true for full detail (deprecated, now always returns full detail)",
+      ),
+  }),
+  http: false,
+  run: async () => {
+    const navigation = await readAppState("navigation");
 
-  const screen: Record<string, unknown> = {};
-  if (navigation) screen.navigation = navigation;
+    const screen: Record<string, unknown> = {};
+    if (navigation) screen.navigation = navigation;
 
-  // Fetch emails based on the user's current filter state
-  const nav = navigation as any;
-  if (nav?.view) {
-    const emails = await fetchEmailList(nav.view, nav.search, nav.label);
-    const compact = emails.slice(0, 50).map((e: any) => ({
-      id: e.id,
-      threadId: e.threadId,
-      from: e.from?.name
-        ? `${e.from.name} <${e.from.email}>`
-        : (e.from?.email ?? e.from ?? ""),
-      subject: e.subject,
-      snippet: e.snippet,
-      date: e.date,
-      isRead: e.isRead,
-      isStarred: e.isStarred,
-    }));
-    screen.emailList = {
-      view: nav.view,
-      label: nav.label ?? null,
-      search: nav.search ?? null,
-      count: compact.length,
-      emails: compact,
-    };
-  }
+    // Fetch emails based on the user's current filter state
+    const nav = navigation as any;
+    if (nav?.view) {
+      const emails = await fetchEmailList(nav.view, nav.search, nav.label);
+      const compact = emails.slice(0, 50).map((e: any) => ({
+        id: e.id,
+        threadId: e.threadId,
+        from: e.from?.name
+          ? `${e.from.name} <${e.from.email}>`
+          : (e.from?.email ?? e.from ?? ""),
+        subject: e.subject,
+        snippet: e.snippet,
+        date: e.date,
+        isRead: e.isRead,
+        isStarred: e.isStarred,
+      }));
+      screen.emailList = {
+        view: nav.view,
+        label: nav.label ?? null,
+        search: nav.search ?? null,
+        count: compact.length,
+        emails: compact,
+      };
+    }
 
-  // Fetch thread messages directly via Gmail API if the user is viewing a thread
-  if (nav?.threadId) {
-    const thread = await fetchThreadMessages(nav.threadId);
-    if (thread) screen.thread = thread;
-  }
+    // Fetch thread messages directly via Gmail API if the user is viewing a thread
+    if (nav?.threadId) {
+      const thread = await fetchThreadMessages(nav.threadId);
+      if (thread) screen.thread = thread;
+    }
 
-  if (Object.keys(screen).length === 0) {
-    return "No application state found. Is the app running?";
-  }
-  return JSON.stringify(screen, null, 2);
-}
-
-export default async function main(): Promise<void> {
-  const args = parseArgs() as Record<string, string>;
-  const result = await run(args);
-
-  const parsed = JSON.parse(result);
-  const nav = parsed.navigation;
-  const emailCount = parsed.emailList?.count ?? 0;
-
-  console.error(
-    `Current view: ${nav?.view ?? "unknown"}` +
-      (nav?.threadId ? ` (thread: ${nav.threadId})` : "") +
-      ` — ${emailCount} email(s) on screen`,
-  );
-  output(parsed);
-}
+    if (Object.keys(screen).length === 0) {
+      return "No application state found. Is the app running?";
+    }
+    return JSON.stringify(screen, null, 2);
+  },
+});

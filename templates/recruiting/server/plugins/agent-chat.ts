@@ -7,10 +7,6 @@ export default createAgentChatPlugin({
     const ctx = await getOrgContext(event);
     return ctx.orgId;
   },
-  actions: async () => {
-    const { actionRegistry } = await import("../../actions/registry.js");
-    return actionRegistry;
-  },
   mentionProviders: async () => {
     const {
       getCandidateDisplayName,

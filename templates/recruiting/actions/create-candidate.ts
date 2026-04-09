@@ -1,23 +1,16 @@
-import { parseArgs, output, localFetch } from "./helpers.js";
-import type { ActionTool } from "@agent-native/core";
+import { defineAction } from "@agent-native/core";
+import * as gh from "../server/lib/greenhouse-api.js";
+import { withOrgContext } from "../server/lib/greenhouse-api.js";
+import { z } from "zod";
 
-export const tool: ActionTool = {
-  description: "Create a new candidate in Greenhouse",
-  parameters: {
-    type: "object",
-    properties: {
-      firstName: { type: "string", description: "First name (required)" },
-      lastName: { type: "string", description: "Last name (required)" },
-      email: { type: "string", description: "Email address" },
-      jobId: { type: "string", description: "Job ID to apply for" },
-    },
-    required: ["firstName", "lastName"],
-  },
-};
-
-export async function run(args: Record<string, string>): Promise<string> {
+async function createCandidate(args: {
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  jobId?: number;
+}) {
   if (!args.firstName || !args.lastName) {
-    return "Error: --firstName and --lastName are required";
+    throw new Error("--firstName and --lastName are required");
   }
 
   const data: any = {
@@ -28,18 +21,26 @@ export async function run(args: Record<string, string>): Promise<string> {
     data.emails = [{ value: args.email, type: "personal" }];
   }
   if (args.jobId) {
-    data.applications = [{ job_id: Number(args.jobId) }];
+    data.applications = [{ job_id: args.jobId }];
   }
 
-  const candidate = await localFetch<any>("/api/candidates", {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
-  return `Created candidate ${candidate.first_name} ${candidate.last_name} (ID: ${candidate.id})`;
+  const candidate = await gh.createCandidate(data);
+  return candidate;
 }
 
-export default async function main(): Promise<void> {
-  const args = parseArgs();
-  const result = await run(args);
-  console.log(result);
-}
+export default defineAction({
+  description: "Create a new candidate in Greenhouse",
+  schema: z.object({
+    firstName: z.string().optional().describe("First name (required)"),
+    lastName: z.string().optional().describe("Last name (required)"),
+    email: z.string().optional().describe("Email address"),
+    jobId: z.coerce.number().optional().describe("Job ID to apply for"),
+  }),
+  run: async (args) => {
+    const orgId = process.env.AGENT_ORG_ID;
+    if (orgId) {
+      return withOrgContext(orgId, () => createCandidate(args));
+    }
+    return createCandidate(args);
+  },
+});
