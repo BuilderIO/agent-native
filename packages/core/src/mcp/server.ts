@@ -239,7 +239,8 @@ export function mountMCP(
     }),
   );
 
-  console.log(
-    `[mcp] Mounted MCP server at ${routePrefix}/mcp (${Object.keys(config.actions).length} tools${config.askAgent ? " + ask-agent" : ""})`,
-  );
+  if (process.env.DEBUG)
+    console.log(
+      `[mcp] Mounted MCP server at ${routePrefix}/mcp (${Object.keys(config.actions).length} tools${config.askAgent ? " + ask-agent" : ""})`,
+    );
 }

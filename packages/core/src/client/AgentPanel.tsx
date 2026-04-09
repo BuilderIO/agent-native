@@ -138,10 +138,7 @@ function useCliSelection() {
 }
 
 // Detect dev mode at build time (Vite replaces this)
-const IS_DEV: boolean =
-  typeof import.meta !== "undefined" &&
-  typeof (import.meta as any).env !== "undefined" &&
-  (import.meta as any).env.DEV === true;
+const IS_DEV: boolean = import.meta.env?.DEV === true;
 
 interface SettingsSelectOption {
   value: string;

@@ -70,7 +70,9 @@ export async function isRunAborted(runId: string): Promise<boolean> {
     sql: `SELECT status FROM agent_runs WHERE id = ?`,
     args: [runId],
   });
-  return rows.length > 0 && (rows[0] as any).status === "aborted";
+  return (
+    rows.length > 0 && (rows[0] as { status: string }).status === "aborted"
+  );
 }
 
 export async function insertRunEvent(
@@ -96,10 +98,10 @@ export async function getRunEventsSince(
     sql: `SELECT seq, event_data FROM agent_run_events WHERE run_id = ? AND seq >= ? ORDER BY seq ASC`,
     args: [runId, fromSeq],
   });
-  return rows.map((r: any) => ({
-    seq: Number(r.seq),
-    eventData: r.event_data as string,
-  }));
+  return rows.map((r) => {
+    const row = r as { seq: number | string; event_data: string };
+    return { seq: Number(row.seq), eventData: row.event_data };
+  });
 }
 
 export async function getRunById(runId: string): Promise<{
@@ -115,7 +117,12 @@ export async function getRunById(runId: string): Promise<{
     args: [runId],
   });
   if (rows.length === 0) return null;
-  const r = rows[0] as any;
+  const r = rows[0] as {
+    id: string;
+    thread_id: string;
+    status: string;
+    started_at: number | string;
+  };
   return {
     id: r.id,
     threadId: r.thread_id,
@@ -137,7 +144,12 @@ export async function getRunByThread(threadId: string): Promise<{
     args: [threadId],
   });
   if (rows.length === 0) return null;
-  const r = rows[0] as any;
+  const r = rows[0] as {
+    id: string;
+    thread_id: string;
+    status: string;
+    started_at: number | string;
+  };
   return {
     id: r.id,
     threadId: r.thread_id,

@@ -27,18 +27,17 @@ export function runMigrations(
   return async () => {
     try {
       // Check for Cloudflare D1 binding (only if DATABASE_URL not set)
-      const d1 =
-        getDialect() === "d1" ? (globalThis as any).__cf_env?.DB : null;
+      const d1 = getDialect() === "d1" ? globalThis.__cf_env?.DB : null;
       if (d1) {
         await d1
           .prepare(
             `CREATE TABLE IF NOT EXISTS _migrations (version INTEGER PRIMARY KEY)`,
           )
           .run();
-        const { results } = await d1
+        const firstRow = await d1
           .prepare(`SELECT MAX(version) as v FROM _migrations`)
-          .first();
-        const current = (results?.v as number) ?? 0;
+          .first<{ v?: number }>();
+        const current = (firstRow?.v as number) ?? 0;
 
         for (const m of migrations.filter((m) => m.version > current)) {
           try {

@@ -214,10 +214,10 @@ export function whatsappAdapter(): PlatformAdapter {
 }
 
 async function readRawBody(event: H3Event): Promise<string> {
-  if ((event as any).__rawBody) return (event as any).__rawBody;
+  if (event.context.__rawBody) return event.context.__rawBody as string;
   const body = await readBody(event);
   const raw = typeof body === "string" ? body : JSON.stringify(body);
-  (event as any).__rawBody = raw;
+  event.context.__rawBody = raw;
   return raw;
 }
 

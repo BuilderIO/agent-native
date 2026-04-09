@@ -960,11 +960,10 @@ export function createAgentChatPlugin(
             };
           }
         }
-        if (Object.keys(discoveredActions).length > 0) {
+        if (Object.keys(discoveredActions).length > 0 && process.env.DEBUG)
           console.log(
             `[agent-chat] Auto-discovered ${Object.keys(discoveredActions).length} action(s): ${Object.keys(discoveredActions).join(", ")}`,
           );
-        }
       } catch {}
     }
     const allScripts = {
@@ -2193,7 +2192,8 @@ export function createAgentChatPlugin(
               console.error("[recurring-jobs] Scheduler error:", err?.message);
             });
           }, 60_000);
-          console.log("[recurring-jobs] Scheduler started (60s interval)");
+          if (process.env.DEBUG)
+            console.log("[recurring-jobs] Scheduler started (60s interval)");
         }, 10_000);
       } catch (err) {
         // Jobs module not available — skip silently
