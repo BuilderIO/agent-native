@@ -39,9 +39,7 @@ export default defineAction({
     const id = args.id!;
     const ownerEmail = process.env.AGENT_USER_EMAIL;
     const ownerFilter = (col: any) =>
-      ownerEmail
-        ? or(eq(col, ownerEmail), isNull(col))
-        : undefined;
+      ownerEmail ? or(eq(col, ownerEmail), isNull(col)) : undefined;
 
     if (args.type === "meal") {
       const updates: Record<string, any> = {};
@@ -55,10 +53,7 @@ export default defineAction({
         .update(schema.meals)
         .set(updates)
         .where(
-          and(
-            eq(schema.meals.id, id),
-            ownerFilter(schema.meals.owner_email),
-          ),
+          and(eq(schema.meals.id, id), ownerFilter(schema.meals.owner_email)),
         )
         .returning();
       return result[0];

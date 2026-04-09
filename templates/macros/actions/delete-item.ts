@@ -16,18 +16,13 @@ export default defineAction({
     const id = args.id!;
     const ownerEmail = process.env.AGENT_USER_EMAIL;
     const ownerFilter = (col: any) =>
-      ownerEmail
-        ? or(eq(col, ownerEmail), isNull(col))
-        : undefined;
+      ownerEmail ? or(eq(col, ownerEmail), isNull(col)) : undefined;
 
     if (args.type === "meal") {
       await db()
         .delete(schema.meals)
         .where(
-          and(
-            eq(schema.meals.id, id),
-            ownerFilter(schema.meals.owner_email),
-          ),
+          and(eq(schema.meals.id, id), ownerFilter(schema.meals.owner_email)),
         );
     } else if (args.type === "exercise") {
       await db()

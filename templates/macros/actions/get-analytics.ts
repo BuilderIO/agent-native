@@ -26,9 +26,7 @@ export default defineAction({
 
     const ownerEmail = process.env.AGENT_USER_EMAIL;
     const ownerFilter = (col: any) =>
-      ownerEmail
-        ? or(eq(col, ownerEmail), isNull(col))
-        : undefined;
+      ownerEmail ? or(eq(col, ownerEmail), isNull(col)) : undefined;
 
     // Calorie history
     const mealsData = await db()
