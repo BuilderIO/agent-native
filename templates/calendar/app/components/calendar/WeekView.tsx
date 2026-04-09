@@ -15,6 +15,7 @@ import {
   addMinutes,
 } from "date-fns";
 import { cn } from "@/lib/utils";
+import { shouldSuppressAfterPopoverClose } from "@/lib/popover-click-guard";
 import { getEventAutoColor, allOtherDeclined } from "@/lib/event-colors";
 import { IconAlertTriangleFilled } from "@tabler/icons-react";
 import { EventDetailPopover } from "./EventDetailPopover";
@@ -528,7 +529,12 @@ export function WeekView({
                 onClick={(e) => {
                   // Only fire on empty space (not on event buttons or after drags)
                   if ((e.target as HTMLElement).closest("button")) return;
-                  if (!onClickTimeSlot || isDragging || shouldSuppressClick())
+                  if (
+                    !onClickTimeSlot ||
+                    isDragging ||
+                    shouldSuppressClick() ||
+                    shouldSuppressAfterPopoverClose()
+                  )
                     return;
                   const rect = e.currentTarget.getBoundingClientRect();
                   const y = e.clientY - rect.top;

@@ -50,12 +50,30 @@ export default defineConfig({
         target: "http://localhost:8085",
         changeOrigin: true,
         router: (req: IncomingMessage) => `http://localhost:${getAppPort(req)}`,
+        configure: (proxy) => {
+          proxy.on("error", (_err, _req, res) => {
+            // Backend not ready yet (ECONNREFUSED during startup) — return 503
+            // silently so the frontend retries. Avoids log spam during dev:all.
+            if ("writeHead" in res) {
+              (res as any).writeHead(503);
+              res.end("Backend not ready");
+            }
+          });
+        },
       },
       // Proxy app API routes
       "/api": {
         target: "http://localhost:8085",
         changeOrigin: true,
         router: (req: IncomingMessage) => `http://localhost:${getAppPort(req)}`,
+        configure: (proxy) => {
+          proxy.on("error", (_err, _req, res) => {
+            if ("writeHead" in res) {
+              (res as any).writeHead(503);
+              res.end("Backend not ready");
+            }
+          });
+        },
       },
     },
   },
