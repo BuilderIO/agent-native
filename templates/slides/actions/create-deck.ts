@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
+import { writeAppState } from "@agent-native/core/application-state";
 
 const SlideSchema = z.object({
   id: z.string().describe("Unique slide ID, e.g. 'slide-1'"),
@@ -21,6 +22,12 @@ const SlideSchema = z.object({
     .describe("Layout type hint"),
 });
 
+// Accept either a parsed array (HTTP/agent) or a JSON string (CLI)
+const SlidesSchema = z.preprocess(
+  (v) => (typeof v === "string" ? JSON.parse(v) : v),
+  z.array(SlideSchema),
+);
+
 export default defineAction({
   description:
     "Create a new deck with slides, or replace all slides in an existing deck. " +
@@ -28,9 +35,9 @@ export default defineAction({
     "Returns the deck id, title, and slide count.",
   schema: z.object({
     title: z.string().describe("Deck title"),
-    slides: z
-      .array(SlideSchema)
-      .describe("Array of slides with id, content (HTML), and optional layout"),
+    slides: SlidesSchema.describe(
+      "Array of slides with id, content (HTML), and optional layout",
+    ),
     deckId: z
       .string()
       .optional()
@@ -50,6 +57,8 @@ export default defineAction({
         .update(schema.decks)
         .set({ title, data: JSON.stringify(data), updatedAt: now })
         .where(eq(schema.decks.id, deckId));
+      // Trigger UI refresh via poll endpoint's cross-process change detection
+      await writeAppState("refresh-signal", { ts: now, source: "create-deck" });
       return { id: deckId, title, slideCount: slides.length };
     }
 
@@ -63,6 +72,8 @@ export default defineAction({
       updatedAt: now,
     });
 
+    // Trigger UI refresh via poll endpoint's cross-process change detection
+    await writeAppState("refresh-signal", { ts: now, source: "create-deck" });
     return { id, title, slideCount: slides.length };
   },
 });

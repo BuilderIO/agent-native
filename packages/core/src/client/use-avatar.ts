@@ -32,7 +32,8 @@ async function fetchAvatar(email: string): Promise<string | null> {
         _cache.set(email, url);
       }
       _inFlight.delete(email);
-      return url as string | null;
+      // Return the cached value in case an upload superseded this fetch
+      return (_cache.get(email) ?? null) as string | null;
     })
     .catch(() => {
       if (!_cache.has(email)) {

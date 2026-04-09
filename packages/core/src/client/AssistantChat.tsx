@@ -1394,6 +1394,15 @@ const AssistantChatInner = forwardRef<
     wasRunningRef.current = isRunning;
   }, [isRunning, queuedMessages, threadRuntime]);
 
+  // Clear frozen reconnect content when a new run starts so stale content
+  // from a prior reconnect doesn't persist across the next user submission.
+  useEffect(() => {
+    if (isRuntimeRunning && reconnectFrozen) {
+      setReconnectFrozen(false);
+      setReconnectContent([]);
+    }
+  }, [isRuntimeRunning, reconnectFrozen]);
+
   const addToQueue = useCallback(
     (text: string, images?: string[], references?: Reference[]) => {
       setShowContinue(false);
@@ -1633,7 +1642,9 @@ const AssistantChatInner = forwardRef<
               reconnectContent.length > 0 && (
                 <ReconnectStreamMessage content={reconnectContent} />
               )}
-            {isRunning && <ThinkingIndicator />}
+            {isRunning && !(isReconnecting && reconnectContent.length > 0) && (
+              <ThinkingIndicator />
+            )}
             {queuedMessages.map((msg, i) => (
               <div key={`queued-${i}`} className="flex justify-end">
                 <div className="max-w-[85%] rounded-lg bg-accent/50 text-foreground/60 px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words">
