@@ -54,6 +54,8 @@ interface SlideEditorProps {
   collabUser?: { name: string; color: string };
   /** True briefly when AI agent is making edits */
   agentActive?: boolean;
+  /** Called when the user selects text and clicks the comment button */
+  onComment?: (quotedText: string) => void;
 }
 
 /** Selection outline rendered over a selected image */
@@ -91,6 +93,7 @@ export default function SlideEditor({
   awareness,
   collabUser,
   agentActive,
+  onComment,
 }: SlideEditorProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [imageOverlay, setImageOverlay] = useState<{
@@ -297,6 +300,7 @@ export default function SlideEditor({
                     awareness={awareness}
                     collabUser={collabUser}
                     agentActive={agentActive}
+                    onComment={onComment}
                   />
                 ) : (
                   <div

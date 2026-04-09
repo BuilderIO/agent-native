@@ -16,6 +16,7 @@ import {
   IconSchema,
   IconPencil,
   IconTransform,
+  IconMessage,
 } from "@tabler/icons-react";
 import type { Slide, SlideLayout } from "@/context/DeckContext";
 
@@ -49,6 +50,12 @@ interface EditorToolbarProps {
   activeUsers?: CollabUser[];
   /** True briefly when AI agent is making edits on the current slide */
   agentActive?: boolean;
+  /** Whether the comments panel is open */
+  commentsOpen?: boolean;
+  /** Toggle the comments panel */
+  onToggleComments?: () => void;
+  /** Number of unresolved comments on the current slide */
+  unresolvedCommentCount?: number;
 }
 
 const slideLayoutOptions: { value: SlideLayout; label: string }[] = [
@@ -151,6 +158,9 @@ export default function EditorToolbar({
   onUpdateSlide,
   activeUsers,
   agentActive,
+  commentsOpen,
+  onToggleComments,
+  unresolvedCommentCount = 0,
 }: EditorToolbarProps) {
   const [layoutOpen, setLayoutOpen] = useState(false);
   const layoutRef = useRef<HTMLButtonElement>(null);
@@ -483,6 +493,27 @@ graph TD
             </div>
           )}
         </div>
+      )}
+
+      {/* Comments toggle */}
+      {onToggleComments && (
+        <button
+          onClick={onToggleComments}
+          className={`relative p-2.5 sm:p-1.5 rounded-md transition-colors flex-shrink-0 ${
+            commentsOpen
+              ? "text-white/90 bg-white/[0.08]"
+              : "text-white/40 hover:text-white/70 hover:bg-white/[0.06]"
+          }`}
+          title="Comments"
+          aria-label="Comments"
+        >
+          <IconMessage className="w-3.5 h-3.5" />
+          {unresolvedCommentCount > 0 && (
+            <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-[#609FF8] text-[8px] font-bold text-black flex items-center justify-center leading-none">
+              {unresolvedCommentCount > 9 ? "9+" : unresolvedCommentCount}
+            </span>
+          )}
+        </button>
       )}
 
       {/* Share button */}

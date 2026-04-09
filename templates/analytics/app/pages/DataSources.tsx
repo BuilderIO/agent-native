@@ -9,6 +9,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   IconCheck,
   IconChevronDown,
@@ -16,11 +17,12 @@ import {
   IconExternalLink,
   IconLoader2,
   IconCircle,
-  IconCopy,
   IconAlertCircle,
   IconUpload,
   IconPencil,
   IconTrash,
+  IconSearch,
+  IconPlus,
 } from "@tabler/icons-react";
 import { getIdToken } from "@/lib/auth";
 import {
@@ -31,6 +33,7 @@ import {
   type DataSourceCategory,
   type WalkthroughStep,
 } from "@/lib/data-sources";
+import { useSendToAgentChat } from "@agent-native/core/client";
 
 interface EnvKeyStatus {
   key: string;
@@ -104,8 +107,6 @@ function StepItem({
   inputValues: Record<string, string>;
   onInputChange: (key: string, value: string) => void;
 }) {
-  const [copied, setCopied] = useState(false);
-
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !step.inputKey) return;
@@ -372,7 +373,6 @@ function ConnectedView({
       {/* Credential summary */}
       <div className="space-y-2">
         {source.envKeys.map((key) => {
-          const status = envStatus.find((s) => s.key === key);
           return (
             <div
               key={key}
@@ -471,20 +471,18 @@ function DataSourceCard({
   source,
   connected,
   envStatus,
+  isStatusLoading,
   onSaved,
 }: {
   source: DataSource;
   connected: boolean;
   envStatus: EnvKeyStatus[];
+  isStatusLoading: boolean;
   onSaved: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
   const [inputValues, setInputValues] = useState<Record<string, string>>({});
-  const [testResult, setTestResult] = useState<{
-    ok: boolean;
-    error?: string;
-  } | null>(null);
   const totalSteps = source.walkthroughSteps.length;
 
   const saveMutation = useMutation({
@@ -526,7 +524,9 @@ function DataSourceCard({
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {connected ? (
+              {isStatusLoading ? (
+                <Skeleton className="h-4 w-20 rounded-full" />
+              ) : connected ? (
                 <span className="flex items-center gap-1.5 text-xs text-emerald-500 font-medium">
                   <IconCheck className="h-3.5 w-3.5" />
                   Connected
@@ -679,10 +679,73 @@ function DataSourceCard({
   );
 }
 
+function RequestDataSourceCTA() {
+  const [prompt, setPrompt] = useState("");
+  const { send, isGenerating } = useSendToAgentChat();
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!prompt.trim() || isGenerating) return;
+
+    send({
+      message: prompt.trim(),
+      context:
+        "The user wants to add a new data source integration to the analytics app. " +
+        "Help them add the integration by: creating a new entry in app/lib/data-sources.ts with the source metadata, " +
+        "any required server-side API client code, and updating the relevant skill documentation. " +
+        "Ask clarifying questions if needed about which service they want to connect.",
+      submit: true,
+    });
+
+    setPrompt("");
+  }
+
+  return (
+    <Card className="bg-card border-border/50 border-dashed">
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <IconPlus className="h-4 w-4" />
+          Request a Data Source
+        </CardTitle>
+        <CardDescription>
+          Don't see the integration you need? Describe it and the agent will add
+          it
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <textarea
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            placeholder='e.g., "Add Salesforce integration so I can query CRM data"'
+            className="flex w-full rounded-md border border-input bg-background px-3 py-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 min-h-[80px] resize-y"
+            onKeyDown={(e) => {
+              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                e.preventDefault();
+                if (prompt.trim()) handleSubmit(e);
+              }
+            }}
+          />
+          <div className="flex justify-end">
+            <Button
+              type="submit"
+              size="sm"
+              disabled={!prompt.trim() || isGenerating}
+            >
+              {isGenerating ? "Sending..." : "Request Integration"}
+            </Button>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function DataSources() {
   const queryClient = useQueryClient();
+  const [search, setSearch] = useState("");
 
-  const { data: envStatus = [] } = useQuery({
+  const { data: envStatus = [], isLoading: isStatusLoading } = useQuery({
     queryKey: ["env-status"],
     queryFn: fetchEnvStatus,
     staleTime: 10_000,
@@ -696,14 +759,23 @@ export default function DataSources() {
     queryClient.invalidateQueries({ queryKey: ["env-status"] });
   };
 
+  const searchLower = search.toLowerCase();
+  const filteredSources = search
+    ? dataSources.filter(
+        (s) =>
+          s.name.toLowerCase().includes(searchLower) ||
+          s.description.toLowerCase().includes(searchLower),
+      )
+    : null;
+
   return (
     <Layout>
-      <div className="mx-auto max-w-4xl space-y-8">
+      <div className="mx-auto max-w-5xl space-y-8">
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Data Sources</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Connect your data sources, then ask the agent to create dashboards.{" "}
-            {connectedCount > 0 && (
+            {!isStatusLoading && connectedCount > 0 && (
               <span className="text-emerald-500 font-medium">
                 {connectedCount} connected
               </span>
@@ -711,28 +783,66 @@ export default function DataSources() {
           </p>
         </div>
 
-        {categoryOrder.map((category) => {
-          const sources = dataSources.filter((s) => s.category === category);
-          if (sources.length === 0) return null;
-          return (
-            <div key={category} className="space-y-3">
-              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-                {categoryLabels[category]}
-              </h3>
-              <div className="grid gap-3">
-                {sources.map((source) => (
-                  <DataSourceCard
-                    key={source.id}
-                    source={source}
-                    connected={isSourceConnected(source, envStatus)}
-                    envStatus={envStatus}
-                    onSaved={handleSaved}
-                  />
-                ))}
-              </div>
+        {/* Search bar */}
+        <div className="relative">
+          <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search data sources..."
+            className="flex w-full rounded-md border border-input bg-background pl-9 pr-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
+          />
+        </div>
+
+        {/* Filtered results */}
+        {filteredSources !== null ? (
+          filteredSources.length > 0 ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {filteredSources.map((source) => (
+                <DataSourceCard
+                  key={source.id}
+                  source={source}
+                  connected={isSourceConnected(source, envStatus)}
+                  envStatus={envStatus}
+                  isStatusLoading={isStatusLoading}
+                  onSaved={handleSaved}
+                />
+              ))}
             </div>
-          );
-        })}
+          ) : (
+            <p className="text-sm text-muted-foreground py-4">
+              No data sources match "{search}"
+            </p>
+          )
+        ) : (
+          categoryOrder.map((category) => {
+            const sources = dataSources.filter((s) => s.category === category);
+            if (sources.length === 0) return null;
+            return (
+              <div key={category} className="space-y-3">
+                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+                  {categoryLabels[category]}
+                </h3>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {sources.map((source) => (
+                    <DataSourceCard
+                      key={source.id}
+                      source={source}
+                      connected={isSourceConnected(source, envStatus)}
+                      envStatus={envStatus}
+                      isStatusLoading={isStatusLoading}
+                      onSaved={handleSaved}
+                    />
+                  ))}
+                </div>
+              </div>
+            );
+          })
+        )}
+
+        {/* Always-visible CTA to request a new data source */}
+        <RequestDataSourceCTA />
       </div>
     </Layout>
   );

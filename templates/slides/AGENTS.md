@@ -86,6 +86,14 @@ The current screen state (including deck/slide context) is automatically include
 | `list-decks`  | `[--compact]`   | List all decks with metadata   |
 | `get-deck`    | `--id <deckId>` | Get a deck with all slides     |
 
+### Comments
+
+| Action                | Args                                                                 | Purpose                     |
+| --------------------- | -------------------------------------------------------------------- | --------------------------- |
+| `list-slide-comments` | `--deckId <id> --slideId <id>`                                       | List comments on a slide    |
+| `add-slide-comment`   | `--deckId <id> --slideId <id> --content "text" [--quotedText "..."]` | Add a comment to a slide    |
+| `add-slide-comment`   | `--deckId <id> --slideId <id> --threadId <id> --content "reply"`     | Reply to an existing thread |
+
 ### Slide Editing (Surgical — Preferred)
 
 Always prefer `update-slide` with `--find/--replace` over full deck rewrites. It syncs live to open editors via Yjs CRDT and shows the agent as a presence participant.

@@ -1,4 +1,4 @@
-import { Suspense, lazy } from "react";
+import { Suspense, lazy, useEffect } from "react";
 import { useParams, useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Layout } from "@/components/layout/Layout";
@@ -57,6 +57,10 @@ export default function AdhocRouter() {
   const { id = "default" } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
   const Component = dashboardComponents[id];
+
+  useEffect(() => {
+    localStorage.setItem("last-dashboard-id", id);
+  }, [id]);
 
   // Code-based dashboards take priority
   if (Component) {

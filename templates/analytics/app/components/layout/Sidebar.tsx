@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { Link, useLocation, useNavigate } from "react-router";
+import { Link, useLocation } from "react-router";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/auth/AuthProvider";
 import {
@@ -10,7 +10,6 @@ import {
   IconFlask,
   IconLogout,
   IconChevronDown,
-  IconChevronRight,
   IconPlus,
   IconSun,
   IconMoon,
@@ -18,11 +17,8 @@ import {
   IconTrash,
   IconStar,
   IconSettings,
-  IconHammer,
   IconGripVertical,
-  IconHome,
   IconChartBar,
-  IconLayoutDashboard,
   IconDatabase,
 } from "@tabler/icons-react";
 import { getIdToken } from "@/lib/auth";
@@ -34,8 +30,6 @@ import {
   toggleFavoriteDashboard,
   getDashboardOrder,
   setDashboardOrder,
-  getToolsOrder,
-  setToolsOrder,
   type DashboardMeta,
 } from "@/pages/adhoc/registry";
 import {
@@ -73,16 +67,6 @@ import { CSS } from "@dnd-kit/utilities";
 const bottomItems = [
   { icon: IconSettings, label: "Settings", href: "/settings" },
   { icon: IconInfoCircle, label: "About", href: "/about" },
-];
-
-interface ToolItem {
-  id: string;
-  name: string;
-  href: string;
-}
-
-const defaultTools: ToolItem[] = [
-  { id: "explorer", name: "Explorer", href: "/adhoc/explorer" },
 ];
 
 function applyOrder<T extends { id: string }>(
@@ -247,32 +231,6 @@ function SortableDashboardItem({
   );
 }
 
-// --- Sortable Tool Item ---
-
-async function fetchSavedCharts(): Promise<{ id: string; name: string }[]> {
-  const token = await getIdToken();
-  const res = await fetch("/api/explorer-configs", {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (!res.ok) return [];
-  const data = await res.json();
-  return (data.configs ?? [])
-    .filter((c: any) => c.id !== "_autosave")
-    .map((c: any) => ({ id: c.id, name: c.name }));
-}
-
-async function fetchExplorerDashboards(): Promise<
-  { id: string; name: string }[]
-> {
-  const token = await getIdToken();
-  const res = await fetch("/api/explorer-dashboards", {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (!res.ok) return [];
-  const data = await res.json();
-  return (data.dashboards ?? []).map((d: any) => ({ id: d.id, name: d.name }));
-}
-
 async function fetchSqlDashboards(): Promise<{ id: string; name: string }[]> {
   const token = await getIdToken();
   const res = await fetch("/api/sql-dashboards", {
@@ -283,156 +241,6 @@ async function fetchSqlDashboards(): Promise<{ id: string; name: string }[]> {
   return (data.dashboards ?? []).map((d: any) => ({ id: d.id, name: d.name }));
 }
 
-function NewExplorerDashboardButton() {
-  const navigate = useNavigate();
-  const queryClient = __useQueryClient();
-  const [creating, setCreating] = useState(false);
-
-  const handleCreate = async () => {
-    if (creating) return;
-    setCreating(true);
-    const id = `dashboard-${Date.now()}`;
-    const token = await getIdToken();
-    await fetch(`/api/explorer-dashboards/${id}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token && { Authorization: `Bearer ${token}` }),
-      },
-      body: JSON.stringify({ name: "Untitled Dashboard", charts: [] }),
-    });
-    queryClient.invalidateQueries({
-      queryKey: ["explorer-dashboards-sidebar"],
-    });
-    queryClient.invalidateQueries({
-      queryKey: ["explorer-dashboards-palette"],
-    });
-    navigate(`/adhoc/explorer-dashboard?id=${id}`);
-    setCreating(false);
-  };
-
-  return (
-    <button
-      onClick={handleCreate}
-      disabled={creating}
-      className="flex items-center gap-2 rounded-md px-3 py-1 text-[11px] text-muted-foreground/50 hover:text-primary hover:bg-sidebar-accent/50 transition-all w-full"
-    >
-      <IconPlus className="h-3 w-3 shrink-0" />
-      New Dashboard
-    </button>
-  );
-}
-
-function SortableToolItem({
-  tool,
-  isActive,
-  savedCharts,
-  explorerDashboards,
-  location,
-}: {
-  tool: ToolItem;
-  isActive: boolean;
-  savedCharts?: { id: string; name: string }[];
-  explorerDashboards?: { id: string; name: string }[];
-  location: ReturnType<typeof useLocation>;
-}) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: tool.id });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    zIndex: isDragging ? 50 : undefined,
-    opacity: isDragging ? 0.5 : 1,
-  };
-
-  return (
-    <>
-      <div
-        ref={setNodeRef}
-        style={style}
-        className="group flex items-center min-w-0"
-      >
-        <button
-          className="p-1 cursor-grab active:cursor-grabbing text-muted-foreground/30 hover:text-muted-foreground/60 transition-colors shrink-0 opacity-0 group-hover:opacity-100"
-          {...attributes}
-          {...listeners}
-        >
-          <IconGripVertical className="h-3 w-3" />
-        </button>
-        <Link
-          to={tool.href}
-          className={cn(
-            "flex-1 min-w-0 flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-all hover:text-primary",
-            isActive
-              ? "bg-sidebar-accent text-sidebar-accent-foreground"
-              : "text-muted-foreground hover:bg-sidebar-accent/50",
-          )}
-        >
-          <span className="truncate">{tool.name}</span>
-        </Link>
-      </div>
-      {/* Sub-items for Explorer: saved charts + explorer dashboards */}
-      {tool.id === "explorer" &&
-        (isActive ||
-          location.pathname === "/adhoc/explorer" ||
-          location.pathname === "/adhoc/explorer-dashboard") && (
-          <div className="ml-6 mt-0.5 space-y-0.5">
-            {(explorerDashboards ?? []).map((d) => {
-              const href = `/adhoc/explorer-dashboard?id=${d.id}`;
-              const isSubActive =
-                location.pathname === "/adhoc/explorer-dashboard" &&
-                location.search.includes(d.id);
-              return (
-                <Link
-                  key={`ed-${d.id}`}
-                  to={href}
-                  className={cn(
-                    "flex items-center gap-2 rounded-md px-3 py-1 text-[11px] transition-all hover:text-primary truncate",
-                    isSubActive
-                      ? "bg-primary/10 text-primary"
-                      : "text-muted-foreground/70 hover:bg-sidebar-accent/50",
-                  )}
-                >
-                  <IconLayoutDashboard className="h-3 w-3 shrink-0" />
-                  {d.name}
-                </Link>
-              );
-            })}
-            {(savedCharts ?? []).map((c) => {
-              const href = `/adhoc/explorer?config=${c.id}`;
-              const isSubActive =
-                location.pathname === "/adhoc/explorer" &&
-                location.search.includes(c.id);
-              return (
-                <Link
-                  key={`sc-${c.id}`}
-                  to={href}
-                  className={cn(
-                    "flex items-center gap-2 rounded-md px-3 py-1 text-[11px] transition-all hover:text-primary truncate",
-                    isSubActive
-                      ? "bg-primary/10 text-primary"
-                      : "text-muted-foreground/70 hover:bg-sidebar-accent/50",
-                  )}
-                >
-                  <IconChartBar className="h-3 w-3 shrink-0" />
-                  {c.name}
-                </Link>
-              );
-            })}
-            <NewExplorerDashboardButton />
-          </div>
-        )}
-    </>
-  );
-}
-
 // --- Sidebar ---
 
 export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
@@ -440,7 +248,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const { logout } = useAuth();
 
   const [dashOpen, setDashOpen] = useState(true);
-  const [toolsOpen, setToolsOpen] = useState(true);
 
   const [light, setLight] = useState(() =>
     typeof document !== "undefined"
@@ -475,21 +282,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const [dashboardOrderState, setDashboardOrderState] = useState(() =>
     typeof window === "undefined" ? [] : getDashboardOrder(),
   );
-  const [toolsOrderState, setToolsOrderState] = useState(() =>
-    typeof window === "undefined" ? [] : getToolsOrder(),
-  );
-
-  const { data: savedCharts = [] } = useQuery({
-    queryKey: ["explorer-configs-sidebar"],
-    queryFn: fetchSavedCharts,
-    staleTime: 30_000,
-  });
-
-  const { data: explorerDashboards = [] } = useQuery({
-    queryKey: ["explorer-dashboards-sidebar"],
-    queryFn: fetchExplorerDashboards,
-    staleTime: 30_000,
-  });
 
   const { data: sqlDashboards = [] } = useQuery({
     queryKey: ["sql-dashboards-sidebar"],
@@ -509,11 +301,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     }
     return applyOrder(filtered, dashboardOrderState);
   }, [hiddenIds, favoriteIds, dashboardOrderState]);
-
-  const orderedTools = useMemo(
-    () => applyOrder(defaultTools, toolsOrderState),
-    [toolsOrderState],
-  );
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -537,23 +324,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       });
     },
     [visibleDashboards],
-  );
-
-  const handleToolsDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      const { active, over } = event;
-      if (!over || active.id === over.id) return;
-      setToolsOrderState((prev) => {
-        const ids = prev.length > 0 ? prev : orderedTools.map((t) => t.id);
-        const oldIndex = ids.indexOf(active.id as string);
-        const newIndex = ids.indexOf(over.id as string);
-        if (oldIndex === -1 || newIndex === -1) return prev;
-        const newOrder = arrayMove(ids, oldIndex, newIndex);
-        setToolsOrder(newOrder);
-        return newOrder;
-      });
-    },
-    [orderedTools],
   );
 
   const handleResizeStart = useCallback(
@@ -613,20 +383,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       </div>
       <div className="flex-1 overflow-auto py-2">
         <nav className="grid items-start px-2 text-sm font-medium lg:px-4 space-y-1">
-          {/* IconHome link */}
-          <Link
-            to="/"
-            className={cn(
-              "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
-              location.pathname === "/"
-                ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                : "text-muted-foreground hover:bg-sidebar-accent/50",
-            )}
-          >
-            <IconHome className="h-4 w-4" />
-            Home
-          </Link>
-
           {/* Data Sources link */}
           <Link
             to="/data-sources"
@@ -701,61 +457,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                     </Link>
                   ))}
                   <NewDashboardDialog />
-                </div>
-              </SortableContext>
-            </DndContext>
-          )}
-
-          {/* Tools section */}
-          <button
-            onClick={() => setToolsOpen(!toolsOpen)}
-            className={cn(
-              "flex w-full items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary text-left",
-              location.pathname.startsWith("/adhoc/explorer")
-                ? "text-sidebar-accent-foreground"
-                : "text-muted-foreground hover:bg-sidebar-accent/50",
-            )}
-          >
-            <IconHammer className="h-4 w-4" />
-            <span className="flex-1">Tools</span>
-            <IconChevronDown
-              className={cn(
-                "h-3.5 w-3.5 transition-transform",
-                !toolsOpen && "-rotate-90",
-              )}
-            />
-          </button>
-
-          {toolsOpen && (
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleToolsDragEnd}
-            >
-              <SortableContext
-                items={orderedTools.map((t) => t.id)}
-                strategy={verticalListSortingStrategy}
-              >
-                <div className="ml-4 space-y-0.5">
-                  {orderedTools.map((tool) => (
-                    <SortableToolItem
-                      key={tool.id}
-                      tool={tool}
-                      isActive={
-                        location.pathname === tool.href ||
-                        (tool.id === "explorer" &&
-                          (location.pathname === "/adhoc/explorer" ||
-                            location.pathname === "/adhoc/explorer-dashboard"))
-                      }
-                      savedCharts={
-                        tool.id === "explorer" ? savedCharts : undefined
-                      }
-                      explorerDashboards={
-                        tool.id === "explorer" ? explorerDashboards : undefined
-                      }
-                      location={location}
-                    />
-                  ))}
                 </div>
               </SortableContext>
             </DndContext>
