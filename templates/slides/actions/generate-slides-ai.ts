@@ -1,23 +1,24 @@
 import { defineAction } from "@agent-native/core";
 import type { GeneratedSlide } from "@shared/api";
+import { z } from "zod";
 
 export default defineAction({
   description: "Generate slide deck content using Gemini AI.",
-  parameters: {
-    topic: { type: "string", description: "Presentation topic (required)" },
-    slideCount: {
-      type: "string",
-      description: "Number of slides to generate (default: 8)",
-    },
-    style: {
-      type: "string",
-      description: "Presentation style (e.g. minimal, corporate)",
-    },
-    includeImages: {
-      type: "string",
-      description: "Whether to include image prompts (default: true)",
-    },
-  },
+  schema: z.object({
+    topic: z.string().optional().describe("Presentation topic (required)"),
+    slideCount: z.coerce
+      .number()
+      .optional()
+      .describe("Number of slides to generate (default: 8)"),
+    style: z
+      .string()
+      .optional()
+      .describe("Presentation style (e.g. minimal, corporate)"),
+    includeImages: z.coerce
+      .boolean()
+      .optional()
+      .describe("Whether to include image prompts (default: true)"),
+  }),
   run: async (args) => {
     if (!process.env.GEMINI_API_KEY) {
       throw new Error(
@@ -30,9 +31,9 @@ export default defineAction({
       throw new Error("Topic is required");
     }
 
-    const slideCount = parseInt(args.slideCount || "8", 10);
+    const slideCount = args.slideCount ?? 8;
     const style = args.style;
-    const includeImages = args.includeImages !== "false";
+    const includeImages = args.includeImages !== false;
 
     const { GoogleGenAI } = await import("@google/genai");
     const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });

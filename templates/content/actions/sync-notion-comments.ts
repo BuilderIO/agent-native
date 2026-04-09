@@ -1,12 +1,13 @@
 import { defineAction } from "@agent-native/core";
 import { getDbExec, isPostgres } from "@agent-native/core/db";
+import { z } from "zod";
 
 export default defineAction({
   description:
     "Sync comments bidirectionally with Notion. Pulls new Notion comments and pushes local ones.",
-  parameters: {
-    documentId: { type: "string", description: "Document ID (required)" },
-  },
+  schema: z.object({
+    documentId: z.string().optional().describe("Document ID (required)"),
+  }),
   http: false,
   run: async (args) => {
     const documentId = args.documentId;

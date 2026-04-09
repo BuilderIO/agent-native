@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import { getClient } from "../server/lib/jira-auth.js";
 import { jiraSearchIssues } from "../server/lib/jira-api.js";
 
@@ -24,20 +25,23 @@ const DEFAULT_FIELDS = [
 
 export default defineAction({
   description: "List Jira issues for a view",
-  parameters: {
-    view: {
-      type: "string",
-      description: "View: my-issues (default), project, recent",
-    },
-    projectKey: {
-      type: "string",
-      description: "Project key (for project view)",
-    },
-    jql: { type: "string", description: "Custom JQL query" },
-    q: { type: "string", description: "Text search" },
-    nextPageToken: { type: "string", description: "Pagination token" },
-    maxResults: { type: "string", description: "Max results (default 50)" },
-  },
+  schema: z.object({
+    view: z
+      .string()
+      .optional()
+      .describe("View: my-issues (default), project, recent"),
+    projectKey: z
+      .string()
+      .optional()
+      .describe("Project key (for project view)"),
+    jql: z.string().optional().describe("Custom JQL query"),
+    q: z.string().optional().describe("Text search"),
+    nextPageToken: z.string().optional().describe("Pagination token"),
+    maxResults: z.coerce
+      .number()
+      .optional()
+      .describe("Max results (default 50)"),
+  }),
   http: { method: "GET" },
   run: async (args) => {
     const { view, projectKey, q, nextPageToken, maxResults } = args;
@@ -76,7 +80,7 @@ export default defineAction({
     return await jiraSearchIssues(client.cloudId, client.accessToken, {
       jql,
       nextPageToken,
-      maxResults: Number(maxResults) || 50,
+      maxResults: maxResults || 50,
       fields: DEFAULT_FIELDS,
     });
   },

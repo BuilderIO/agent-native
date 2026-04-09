@@ -2,12 +2,13 @@ import { defineAction } from "@agent-native/core";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { parseDocumentFavorite } from "../server/lib/documents.js";
+import { z } from "zod";
 
 export default defineAction({
   description: "Get a single document by ID with full content.",
-  parameters: {
-    id: { type: "string", description: "Document ID (required)" },
-  },
+  schema: z.object({
+    id: z.string().optional().describe("Document ID (required)"),
+  }),
   http: { method: "GET" },
   run: async (args) => {
     if (!args.id) throw new Error("--id is required");

@@ -96,10 +96,13 @@ export function mountActionRoutes(
 
           return result;
         } catch (err: any) {
-          setResponseStatus(event, 500);
-          return {
-            error: err?.message ?? String(err),
-          };
+          const msg = err?.message ?? String(err);
+          // Return 400 for validation errors, 500 for everything else
+          setResponseStatus(
+            event,
+            msg.startsWith("Invalid action parameters:") ? 400 : 500,
+          );
+          return { error: msg };
         }
       }),
     );

@@ -1,15 +1,16 @@
 import { defineAction } from "@agent-native/core";
 import * as gh from "../server/lib/greenhouse-api.js";
 import { withOrgContext } from "../server/lib/greenhouse-api.js";
+import { z } from "zod";
 
-async function listJobs(args: Record<string, string>) {
+async function listJobs(args: { status?: string; compact?: boolean }) {
   const jobs = await gh.listJobs({
     status: args.status,
     per_page: 100,
     page: 1,
   });
 
-  if (args.compact === "true") {
+  if (args.compact) {
     return jobs.map((j) => ({
       id: j.id,
       name: j.name,
@@ -23,18 +24,16 @@ async function listJobs(args: Record<string, string>) {
 
 export default defineAction({
   description: "List all jobs from Greenhouse with optional status filter",
-  parameters: {
-    status: {
-      type: "string",
-      description: "Filter by status",
-      enum: ["open", "closed", "draft"],
-    },
-    compact: {
-      type: "string",
-      description: "Return compact output with fewer fields",
-      enum: ["true", "false"],
-    },
-  },
+  schema: z.object({
+    status: z
+      .enum(["open", "closed", "draft"])
+      .optional()
+      .describe("Filter by status"),
+    compact: z.coerce
+      .boolean()
+      .optional()
+      .describe("Return compact output with fewer fields"),
+  }),
   http: { method: "GET" },
   run: async (args) => {
     const orgId = process.env.AGENT_ORG_ID;

@@ -1,11 +1,12 @@
 import { defineAction } from "@agent-native/core";
 import { pushDocumentToNotion } from "../server/lib/notion-sync.js";
+import { z } from "zod";
 
 export default defineAction({
   description: "Push local document content to a linked Notion page.",
-  parameters: {
-    documentId: { type: "string", description: "Document ID (required)" },
-  },
+  schema: z.object({
+    documentId: z.string().optional().describe("Document ID (required)"),
+  }),
   http: false,
   run: async (args) => {
     const documentId = args.documentId || args.id;

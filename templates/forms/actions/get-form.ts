@@ -1,19 +1,16 @@
 import { defineAction } from "@agent-native/core";
 import { eq, sql } from "drizzle-orm";
+import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import type { FormField, FormSettings } from "../shared/types.js";
 
 export default defineAction({
   description: "Get a single form by ID with all fields and settings.",
-  parameters: {
-    id: { type: "string", description: "Form ID" },
-  },
+  schema: z.object({
+    id: z.string().describe("Form ID"),
+  }),
   http: { method: "GET" },
   run: async (args) => {
-    if (!args.id) {
-      throw new Error("--id is required");
-    }
-
     const db = getDb();
     const row = await db
       .select()

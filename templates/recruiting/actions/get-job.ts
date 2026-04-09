@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import * as gh from "../server/lib/greenhouse-api.js";
 import { withOrgContext } from "../server/lib/greenhouse-api.js";
+import { z } from "zod";
 import type { GreenhouseCandidate } from "@shared/types";
 
 /** Fetch items in batches to avoid Greenhouse API rate limits (50 req/10s) */
@@ -25,9 +26,9 @@ async function batchFetch<T>(
   return results;
 }
 
-async function getJob(args: Record<string, string>) {
+async function getJob(args: { id?: number }) {
   if (!args.id) throw new Error("--id is required");
-  const id = Number(args.id);
+  const id = args.id;
 
   const [job, stages, applications] = await Promise.all([
     gh.getJob(id),
@@ -86,9 +87,9 @@ async function getJob(args: Record<string, string>) {
 export default defineAction({
   description:
     "Get details about a specific job including pipeline stage summary",
-  parameters: {
-    id: { type: "string", description: "Job ID (required)" },
-  },
+  schema: z.object({
+    id: z.coerce.number().optional().describe("Job ID (required)"),
+  }),
   http: { method: "GET" },
   run: async (args) => {
     const orgId = process.env.AGENT_ORG_ID;

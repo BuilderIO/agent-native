@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core";
 import * as gh from "../server/lib/greenhouse-api.js";
 import { withOrgContext } from "../server/lib/greenhouse-api.js";
 import { getSetting } from "@agent-native/core/settings";
+import { z } from "zod";
 import type {
   GreenhouseScorecard,
   GreenhouseApplication,
@@ -331,13 +332,12 @@ function buildSlackBlocks(data: any, customMessage?: string): any[] {
 export default defineAction({
   description:
     "Send a recruiting pipeline status update to the configured Slack channel.",
-  parameters: {
-    customMessage: {
-      type: "string",
-      description:
-        "Optional custom message to include at the top of the update",
-    },
-  },
+  schema: z.object({
+    customMessage: z
+      .string()
+      .optional()
+      .describe("Optional custom message to include at the top of the update"),
+  }),
   http: false,
   run: async (args) => {
     const orgId = process.env.AGENT_ORG_ID || null;

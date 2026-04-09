@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { writeAppState } from "@agent-native/core/application-state";
+import { z } from "zod";
 
 async function deleteRecursive(
   db: ReturnType<typeof getDb>,
@@ -32,9 +33,9 @@ async function deleteRecursive(
 
 export default defineAction({
   description: "Delete a document and all its children recursively.",
-  parameters: {
-    id: { type: "string", description: "Document ID (required)" },
-  },
+  schema: z.object({
+    id: z.string().optional().describe("Document ID (required)"),
+  }),
   run: async (args) => {
     const id = args.id;
     if (!id) throw new Error("--id is required");

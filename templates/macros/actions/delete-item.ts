@@ -1,19 +1,19 @@
 import { defineAction } from "@agent-native/core";
 import { db, schema } from "../server/db/index.js";
 import { eq } from "drizzle-orm";
+import { z } from "zod";
 
 export default defineAction({
   description: "Delete a meal, exercise, or weight entry by ID",
-  parameters: {
-    type: {
-      type: "string",
-      enum: ["meal", "exercise", "weight"],
-      description: "Type of item to delete",
-    },
-    id: { type: "string", description: "ID of the item to delete" },
-  },
+  schema: z.object({
+    type: z
+      .enum(["meal", "exercise", "weight"])
+      .optional()
+      .describe("Type of item to delete"),
+    id: z.coerce.number().optional().describe("ID of the item to delete"),
+  }),
   run: async (args) => {
-    const id = Number(args.id);
+    const id = args.id!;
 
     if (args.type === "meal") {
       await db().delete(schema.meals).where(eq(schema.meals.id, id));

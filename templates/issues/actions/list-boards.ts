@@ -1,14 +1,21 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import { getClient } from "../server/lib/jira-auth.js";
 import { agileListBoards, AtlassianApiError } from "../server/lib/jira-api.js";
 
 export default defineAction({
   description: "List Jira boards",
-  parameters: {
-    startAt: { type: "string", description: "Start index for pagination" },
-    maxResults: { type: "string", description: "Max results (default 50)" },
-    projectKeyOrId: { type: "string", description: "Filter by project" },
-  },
+  schema: z.object({
+    startAt: z.coerce
+      .number()
+      .optional()
+      .describe("Start index for pagination"),
+    maxResults: z.coerce
+      .number()
+      .optional()
+      .describe("Max results (default 50)"),
+    projectKeyOrId: z.string().optional().describe("Filter by project"),
+  }),
   http: { method: "GET" },
   run: async (args) => {
     const { startAt, maxResults, projectKeyOrId } = args;
@@ -18,8 +25,8 @@ export default defineAction({
 
     try {
       return await agileListBoards(client.cloudId, client.accessToken, {
-        startAt: startAt ? Number(startAt) : 0,
-        maxResults: maxResults ? Number(maxResults) : 50,
+        startAt: startAt ?? 0,
+        maxResults: maxResults ?? 50,
         projectKeyOrId,
       });
     } catch (err) {

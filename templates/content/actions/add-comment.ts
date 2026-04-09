@@ -1,18 +1,16 @@
 import { defineAction } from "@agent-native/core";
 import { getDbExec, isPostgres } from "@agent-native/core/db";
+import { z } from "zod";
 
 export default defineAction({
   description: "Add a comment to a document. For new threads, omit threadId.",
-  parameters: {
-    documentId: { type: "string", description: "Document ID (required)" },
-    content: { type: "string", description: "Comment text (required)" },
-    threadId: { type: "string", description: "Thread ID (for replies)" },
-    parentId: {
-      type: "string",
-      description: "Parent comment ID (for replies)",
-    },
-    quotedText: { type: "string", description: "Quoted text for the thread" },
-  },
+  schema: z.object({
+    documentId: z.string().optional().describe("Document ID (required)"),
+    content: z.string().optional().describe("Comment text (required)"),
+    threadId: z.string().optional().describe("Thread ID (for replies)"),
+    parentId: z.string().optional().describe("Parent comment ID (for replies)"),
+    quotedText: z.string().optional().describe("Quoted text for the thread"),
+  }),
   run: async (args) => {
     const documentId = args.documentId;
     const content = args.content;

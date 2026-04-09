@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import { getClient } from "../server/lib/jira-auth.js";
 import {
   jiraGetTransitions,
@@ -7,17 +8,17 @@ import {
 
 export default defineAction({
   description: "Change the status of a Jira issue",
-  parameters: {
-    key: { type: "string", description: "Issue key" },
-    status: {
-      type: "string",
-      description: "Target status name (e.g. 'In Progress', 'Done')",
-    },
-    transitionId: {
-      type: "string",
-      description: "Transition ID (used by frontend, bypasses status lookup)",
-    },
-  },
+  schema: z.object({
+    key: z.string().optional().describe("Issue key"),
+    status: z
+      .string()
+      .optional()
+      .describe("Target status name (e.g. 'In Progress', 'Done')"),
+    transitionId: z
+      .string()
+      .optional()
+      .describe("Transition ID (used by frontend, bypasses status lookup)"),
+  }),
   run: async (args) => {
     const { key, status, transitionId } = args;
 

@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { eq } from "drizzle-orm";
+import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import type { FormField, FormSettings } from "../shared/types.js";
 
@@ -13,24 +14,19 @@ function slugify(text: string): string {
 
 export default defineAction({
   description: "Update an existing form.",
-  parameters: {
-    id: { type: "string", description: "Form ID (required)" },
-    title: { type: "string", description: "New title" },
-    description: { type: "string", description: "New description" },
-    slug: { type: "string", description: "New URL slug" },
-    fields: { type: "string", description: "JSON array of form fields" },
-    settings: { type: "string", description: "JSON object of form settings" },
-    status: {
-      type: "string",
-      description: "New status",
-      enum: ["draft", "published", "closed"],
-    },
-  },
+  schema: z.object({
+    id: z.string().describe("Form ID (required)"),
+    title: z.string().optional().describe("New title"),
+    description: z.string().optional().describe("New description"),
+    slug: z.string().optional().describe("New URL slug"),
+    fields: z.string().optional().describe("JSON array of form fields"),
+    settings: z.string().optional().describe("JSON object of form settings"),
+    status: z
+      .enum(["draft", "published", "closed"])
+      .optional()
+      .describe("New status"),
+  }),
   run: async (args) => {
-    if (!args.id) {
-      throw new Error("--id is required");
-    }
-
     const db = getDb();
     const existing = await db
       .select()

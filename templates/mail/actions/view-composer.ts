@@ -3,6 +3,7 @@ import {
   readAppState,
   listAppState,
 } from "@agent-native/core/application-state";
+import { z } from "zod";
 
 /** Reject IDs that could escape via path traversal. */
 function sanitizeDraftId(id: string): string | null {
@@ -11,12 +12,9 @@ function sanitizeDraftId(id: string): string | null {
 
 export default defineAction({
   description: "See all open compose drafts in the compose panel.",
-  parameters: {
-    id: {
-      type: "string",
-      description: "Specific draft ID to view (optional)",
-    },
-  },
+  schema: z.object({
+    id: z.string().optional().describe("Specific draft ID to view (optional)"),
+  }),
   http: false,
   run: async (args) => {
     if (args.id) {

@@ -1,22 +1,20 @@
 import { defineAction } from "@agent-native/core";
 import { db, schema } from "../server/db/index.js";
+import { z } from "zod";
 
 export default defineAction({
   description: "Log a meal with calories and optional macros",
-  parameters: {
-    name: { type: "string", description: "Meal name" },
-    calories: { type: "string", description: "Calories (number)" },
-    protein: {
-      type: "string",
-      description: "Protein in grams (optional)",
-    },
-    carbs: { type: "string", description: "Carbs in grams (optional)" },
-    fat: { type: "string", description: "Fat in grams (optional)" },
-    date: {
-      type: "string",
-      description: "Date in YYYY-MM-DD format (defaults to today)",
-    },
-  },
+  schema: z.object({
+    name: z.string().optional().describe("Meal name"),
+    calories: z.coerce.number().optional().describe("Calories"),
+    protein: z.coerce.number().optional().describe("Protein in grams"),
+    carbs: z.coerce.number().optional().describe("Carbs in grams"),
+    fat: z.coerce.number().optional().describe("Fat in grams"),
+    date: z
+      .string()
+      .optional()
+      .describe("Date in YYYY-MM-DD format (defaults to today)"),
+  }),
   run: async (args) => {
     const today = new Date();
     const date =
@@ -27,10 +25,10 @@ export default defineAction({
       .insert(schema.meals)
       .values({
         name: args.name,
-        calories: parseInt(args.calories) || 0,
-        protein: args.protein ? parseFloat(args.protein) : null,
-        carbs: args.carbs ? parseFloat(args.carbs) : null,
-        fat: args.fat ? parseFloat(args.fat) : null,
+        calories: args.calories || 0,
+        protein: args.protein ?? null,
+        carbs: args.carbs ?? null,
+        fat: args.fat ?? null,
         date: String(date).split("T")[0],
         image_url: null,
         notes: null,

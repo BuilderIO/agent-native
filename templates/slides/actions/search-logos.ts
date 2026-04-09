@@ -1,10 +1,11 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 
 export default defineAction({
   description: "Search for company logos by name or domain.",
-  parameters: {
-    q: { type: "string", description: "Company name or domain to search" },
-  },
+  schema: z.object({
+    q: z.string().optional().describe("Company name or domain to search"),
+  }),
   http: { method: "GET" },
   run: async (args) => {
     const q = (args.q || "").trim().toLowerCase();

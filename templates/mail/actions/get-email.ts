@@ -2,13 +2,14 @@ import { defineAction } from "@agent-native/core";
 import { getAccessTokens, fetchLabelMap } from "./helpers.js";
 import { gmailGetMessage } from "../server/lib/google-api.js";
 import { gmailToEmailMessage } from "../server/lib/google-auth.js";
+import { z } from "zod";
 
 export default defineAction({
   description:
     "Get a single email by ID, including its full body and metadata.",
-  parameters: {
-    id: { type: "string", description: "Email message ID" },
-  },
+  schema: z.object({
+    id: z.string().optional().describe("Email message ID"),
+  }),
   http: { method: "GET" },
   run: async (args) => {
     if (!args.id) return "Error: --id is required";

@@ -1,20 +1,21 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import type { CalendarEvent } from "../shared/api.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 
 export default defineAction({
   description: "Create a calendar event on Google Calendar",
-  parameters: {
-    title: { type: "string", description: "Event title (required)" },
-    start: { type: "string", description: "Start time, ISO format (required)" },
-    end: { type: "string", description: "End time, ISO format (required)" },
-    description: { type: "string", description: "Event description" },
-    location: { type: "string", description: "Event location" },
-    accountEmail: {
-      type: "string",
-      description: "Account email to create the event on",
-    },
-  },
+  schema: z.object({
+    title: z.string().optional().describe("Event title (required)"),
+    start: z.string().optional().describe("Start time, ISO format (required)"),
+    end: z.string().optional().describe("End time, ISO format (required)"),
+    description: z.string().optional().describe("Event description"),
+    location: z.string().optional().describe("Event location"),
+    accountEmail: z
+      .string()
+      .optional()
+      .describe("Account email to create the event on"),
+  }),
   run: async (args) => {
     if (!args.title) throw new Error("title is required");
     if (!args.start) throw new Error("start is required (ISO date format)");

@@ -3,6 +3,7 @@ import { eq, sql } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { parseDocumentFavorite } from "../server/lib/documents.js";
 import { writeAppState } from "@agent-native/core/application-state";
+import { z } from "zod";
 
 function nanoid(size = 12): string {
   const chars =
@@ -15,12 +16,12 @@ function nanoid(size = 12): string {
 
 export default defineAction({
   description: "Create a new document.",
-  parameters: {
-    title: { type: "string", description: "Document title (required)" },
-    content: { type: "string", description: "Markdown content" },
-    parentId: { type: "string", description: "Parent document ID for nesting" },
-    icon: { type: "string", description: "Emoji icon" },
-  },
+  schema: z.object({
+    title: z.string().optional().describe("Document title (required)"),
+    content: z.string().optional().describe("Markdown content"),
+    parentId: z.string().optional().describe("Parent document ID for nesting"),
+    icon: z.string().optional().describe("Emoji icon"),
+  }),
   run: async (args) => {
     const title = args.title;
     if (!title) throw new Error("--title is required");

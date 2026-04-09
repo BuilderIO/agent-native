@@ -1,17 +1,22 @@
 import { defineAction } from "@agent-native/core";
 import * as gh from "../server/lib/greenhouse-api.js";
 import { withOrgContext } from "../server/lib/greenhouse-api.js";
+import { z } from "zod";
 
-async function moveCandidate(args: Record<string, string>) {
+async function moveCandidate(args: {
+  applicationId?: number;
+  fromStageId?: number;
+  toStageId?: number;
+}) {
   if (!args.applicationId || !args.fromStageId || !args.toStageId) {
     throw new Error(
       "--applicationId, --fromStageId, and --toStageId are required",
     );
   }
   await gh.moveApplication(
-    Number(args.applicationId),
-    Number(args.fromStageId),
-    Number(args.toStageId),
+    args.applicationId,
+    args.fromStageId,
+    args.toStageId,
   );
   return {
     success: true,
@@ -21,20 +26,20 @@ async function moveCandidate(args: Record<string, string>) {
 
 export default defineAction({
   description: "Move a candidate's application to a specific stage",
-  parameters: {
-    applicationId: {
-      type: "string",
-      description: "Application ID (required)",
-    },
-    fromStageId: {
-      type: "string",
-      description: "Current stage ID (required)",
-    },
-    toStageId: {
-      type: "string",
-      description: "Target stage ID (required)",
-    },
-  },
+  schema: z.object({
+    applicationId: z.coerce
+      .number()
+      .optional()
+      .describe("Application ID (required)"),
+    fromStageId: z.coerce
+      .number()
+      .optional()
+      .describe("Current stage ID (required)"),
+    toStageId: z.coerce
+      .number()
+      .optional()
+      .describe("Target stage ID (required)"),
+  }),
   run: async (args) => {
     const orgId = process.env.AGENT_ORG_ID;
     if (orgId) {

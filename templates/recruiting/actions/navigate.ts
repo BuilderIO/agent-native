@@ -1,24 +1,24 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
+import { z } from "zod";
 
 export default defineAction({
   description: "Navigate the UI to a specific view, job, or candidate page.",
-  parameters: {
-    view: {
-      type: "string",
-      description: "View to navigate to",
-      enum: [
+  schema: z.object({
+    view: z
+      .enum([
         "dashboard",
         "action-items",
         "jobs",
         "candidates",
         "interviews",
         "settings",
-      ],
-    },
-    jobId: { type: "string", description: "Job ID to open" },
-    candidateId: { type: "string", description: "Candidate ID to open" },
-  },
+      ])
+      .optional()
+      .describe("View to navigate to"),
+    jobId: z.string().optional().describe("Job ID to open"),
+    candidateId: z.string().optional().describe("Candidate ID to open"),
+  }),
   http: false,
   run: async (args) => {
     if (!args.view && !args.jobId && !args.candidateId) {

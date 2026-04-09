@@ -1,21 +1,22 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import { putUserSetting, putSetting } from "@agent-native/core/settings";
 import type { Settings } from "../shared/api.js";
 
 export default defineAction({
   description: "Update calendar settings",
-  parameters: {
-    timezone: { type: "string", description: "Timezone" },
-    bookingPageTitle: { type: "string", description: "Booking page title" },
-    bookingPageDescription: {
-      type: "string",
-      description: "Booking page description",
-    },
-    defaultEventDuration: {
-      type: "string",
-      description: "Default event duration in minutes",
-    },
-  },
+  schema: z.object({
+    timezone: z.string().optional().describe("Timezone"),
+    bookingPageTitle: z.string().optional().describe("Booking page title"),
+    bookingPageDescription: z
+      .string()
+      .optional()
+      .describe("Booking page description"),
+    defaultEventDuration: z
+      .string()
+      .optional()
+      .describe("Default event duration in minutes"),
+  }),
   run: async (args) => {
     const email = process.env.AGENT_USER_EMAIL || "local@localhost";
     // The frontend sends the full settings object as the body

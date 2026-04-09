@@ -1,17 +1,17 @@
 import { defineAction } from "@agent-native/core";
 import { sql } from "drizzle-orm";
+import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import type { FormField, FormSettings } from "../shared/types.js";
 
 export default defineAction({
   description: "List all forms with response counts.",
-  parameters: {
-    status: {
-      type: "string",
-      description: "Filter by status: draft, published, or closed",
-      enum: ["draft", "published", "closed"],
-    },
-  },
+  schema: z.object({
+    status: z
+      .enum(["draft", "published", "closed"])
+      .optional()
+      .describe("Filter by status: draft, published, or closed"),
+  }),
   http: { method: "GET" },
   run: async (args) => {
     const db = getDb();

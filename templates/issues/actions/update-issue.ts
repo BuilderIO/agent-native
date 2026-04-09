@@ -1,17 +1,18 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import { getClient } from "../server/lib/jira-auth.js";
 import { jiraUpdateIssue } from "../server/lib/jira-api.js";
 
 export default defineAction({
   description: "Update fields on a Jira issue",
-  parameters: {
-    key: { type: "string", description: "Issue key" },
-    summary: { type: "string", description: "New summary" },
-    description: { type: "string", description: "New description" },
-    priority: { type: "string", description: "New priority" },
-    assignee: { type: "string", description: "New assignee account ID" },
-    labels: { type: "string", description: "Comma-separated labels" },
-  },
+  schema: z.object({
+    key: z.string().optional().describe("Issue key"),
+    summary: z.string().optional().describe("New summary"),
+    description: z.string().optional().describe("New description"),
+    priority: z.string().optional().describe("New priority"),
+    assignee: z.string().optional().describe("New assignee account ID"),
+    labels: z.string().optional().describe("Comma-separated labels"),
+  }),
   run: async (args: Record<string, any>) => {
     const { key, summary, description, priority, assignee, labels } = args;
 

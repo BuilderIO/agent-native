@@ -1,10 +1,11 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 
 export default defineAction({
   description: "Search for images using Google Custom Search API.",
-  parameters: {
-    q: { type: "string", description: "Search query (required)" },
-  },
+  schema: z.object({
+    q: z.string().optional().describe("Search query (required)"),
+  }),
   http: { method: "GET" },
   run: async (args) => {
     const q = args.q;

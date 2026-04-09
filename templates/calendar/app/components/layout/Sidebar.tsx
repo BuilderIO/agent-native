@@ -384,7 +384,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
     useCalendarContext();
   const googleStatus = useGoogleAuthStatus();
   const { session } = useSession();
-  const { data: overlayPeople = [] } = useOverlayPeople();
+  const { data: rawOverlayPeople } = useOverlayPeople();
+  const overlayPeople = Array.isArray(rawOverlayPeople) ? rawOverlayPeople : [];
   const removePerson = useRemoveOverlayPerson();
   const isConnected = googleStatus.data?.connected ?? false;
   const isLocalMode = session?.email === "local@localhost";

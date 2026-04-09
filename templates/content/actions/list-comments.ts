@@ -1,11 +1,12 @@
 import { defineAction } from "@agent-native/core";
 import { getDbExec } from "@agent-native/core/db";
+import { z } from "zod";
 
 export default defineAction({
   description: "List all comments on a document, grouped by thread.",
-  parameters: {
-    documentId: { type: "string", description: "Document ID (required)" },
-  },
+  schema: z.object({
+    documentId: z.string().optional().describe("Document ID (required)"),
+  }),
   http: { method: "GET" },
   run: async (args) => {
     const documentId = args.documentId;

@@ -1,15 +1,13 @@
 import { defineAction } from "@agent-native/core";
 import { getAccessTokens } from "./helpers.js";
 import { gmailGetMessage, gmailTrashThread } from "../server/lib/google-api.js";
+import { z } from "zod";
 
 export default defineAction({
   description: "Move one or more emails to trash by ID.",
-  parameters: {
-    id: {
-      type: "string",
-      description: "Email ID(s) to trash, comma-separated",
-    },
-  },
+  schema: z.object({
+    id: z.string().optional().describe("Email ID(s) to trash, comma-separated"),
+  }),
   run: async (args) => {
     const ids = args.id
       ?.split(",")

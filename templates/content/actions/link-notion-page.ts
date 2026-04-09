@@ -1,15 +1,13 @@
 import { defineAction } from "@agent-native/core";
 import { linkDocumentToNotionPage } from "../server/lib/notion-sync.js";
+import { z } from "zod";
 
 export default defineAction({
   description: "Link a document to a Notion page for syncing.",
-  parameters: {
-    documentId: { type: "string", description: "Document ID (required)" },
-    pageId: {
-      type: "string",
-      description: "Notion page ID or URL (required)",
-    },
-  },
+  schema: z.object({
+    documentId: z.string().optional().describe("Document ID (required)"),
+    pageId: z.string().optional().describe("Notion page ID or URL (required)"),
+  }),
   http: false,
   run: async (args) => {
     const owner = process.env.AGENT_USER_EMAIL || "local@localhost";

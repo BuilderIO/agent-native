@@ -1,19 +1,21 @@
 import { defineAction } from "@agent-native/core";
 import { getSetting, putSetting } from "@agent-native/core/settings";
+import { z } from "zod";
 
 export default defineAction({
   description:
     "Archive emails older than N days from inbox (local data only — use archive-email for Gmail-connected accounts).",
-  parameters: {
-    "older-than": {
-      type: "string",
-      description:
+  schema: z.object({
+    "older-than": z.coerce
+      .number()
+      .optional()
+      .describe(
         "Number of days; emails older than this will be archived (default: 30)",
-    },
-  },
+      ),
+  }),
   http: false,
   run: async (args) => {
-    const days = args["older-than"] ? parseInt(args["older-than"], 10) : 30;
+    const days = args["older-than"] ?? 30;
     if (isNaN(days) || days < 1)
       return "Error: --older-than must be a positive integer (days)";
 

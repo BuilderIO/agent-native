@@ -1,12 +1,13 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import { getClient } from "../server/lib/jira-auth.js";
 import { jiraGetComments } from "../server/lib/jira-api.js";
 
 export default defineAction({
   description: "Get comments for a Jira issue",
-  parameters: {
-    key: { type: "string", description: "Issue key (e.g. PROJ-123)" },
-  },
+  schema: z.object({
+    key: z.string().optional().describe("Issue key (e.g. PROJ-123)"),
+  }),
   http: { method: "GET" },
   run: async (args) => {
     const { key } = args;

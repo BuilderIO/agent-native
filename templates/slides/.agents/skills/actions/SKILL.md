@@ -40,23 +40,29 @@ export default async function myAction(args: string[]) {
 }
 ```
 
-### Using `defineAction` (recommended for new actions)
+### Using `defineAction` with Zod schema (recommended for new actions)
 
 ```ts
+import { z } from "zod";
 import { defineAction } from "@agent-native/core";
 
 export default defineAction({
   description: "Process some data",
-  parameters: {
-    input: { type: "string", description: "Input file path" },
-    output: { type: "string", description: "Output file path" },
-  },
+  schema: z.object({
+    input: z.string().describe("Input file path"),
+    output: z.string().optional().describe("Output file path"),
+  }),
   run: async (args) => {
+    // args is fully typed: { input: string; output?: string }
     // do work
     return "Done";
   },
 });
 ```
+
+The `schema` field accepts a Zod schema (or any Standard Schema-compatible library). It provides runtime validation with clear error messages, TypeScript type inference for `run()` args, and auto-generated JSON Schema for the agent's tool definition. `zod` is a dependency of all templates.
+
+The legacy `parameters` field (plain JSON Schema object) still works as a fallback.
 
 ## How to Run
 
@@ -81,7 +87,7 @@ This is the canonical approach for new apps. Action names must be lowercase with
 - **Use `parseArgs()`** for structured argument parsing. It converts `--key value` pairs to a `Record<string, string>`.
 - **Use `loadEnv()`** if the action needs environment variables (API keys, etc.).
 - **Use `fail()`** for user-friendly error messages (exits with message, no stack trace).
-- **Write results to files.** The agent and UI will pick them up via the file watcher.
+- **Write results to the database.** The agent and UI will pick them up via db sync polling.
 - **Use `agentChat.submit()`** to report results or errors back to the agent chat.
 - **Import from `@agent-native/core`** -- Don't redefine `parseArgs()` or other utilities locally.
 
@@ -127,10 +133,10 @@ export default async function transform(args: string[]) {
 
 - **Action not found** -- Check that the filename matches the command name exactly. `pnpm action foo-bar` looks for `actions/foo-bar.ts`.
 - **Args not parsing** -- Ensure args use `--key value` or `--key=value` format. Boolean flags use `--flag` (sets value to `"true"`).
-- **Action runs but UI doesn't update** -- Make sure results are written to a path under `data/` that the file watcher monitors.
+- **Action runs but UI doesn't update** -- Make sure results are written to the database so db sync polling picks them up.
 
 ## Related Skills
 
 - **storing-data** -- Actions read/write data via SQL
 - **delegate-to-agent** -- The agent invokes actions via `pnpm action <name>`
-- **sse-file-watcher** -- File writes from actions trigger SSE events to update the UI
+- **real-time-sync** -- Database writes from actions trigger poll events to update the UI

@@ -2,12 +2,16 @@ import { defineAction } from "@agent-native/core";
 import { asc } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { parseDocumentFavorite } from "../server/lib/documents.js";
+import { z } from "zod";
 
 export default defineAction({
   description: "List all documents ordered by position.",
-  parameters: {
-    format: { type: "string", description: 'Output format: "json" or "tree"' },
-  },
+  schema: z.object({
+    format: z
+      .enum(["json", "tree"])
+      .optional()
+      .describe('Output format: "json" or "tree"'),
+  }),
   http: { method: "GET" },
   run: async (args) => {
     const db = getDb();

@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
+import { z } from "zod";
 
 function stripHtml(html: string): string {
   return html
@@ -15,14 +16,13 @@ function stripHtml(html: string): string {
 export default defineAction({
   description:
     "Get a specific deck with all slides. Returns full deck JSON including slide content.",
-  parameters: {
-    id: { type: "string", description: "Deck ID (required)" },
-    compact: {
-      type: "string",
-      description: "Set to 'true' for compact output (slide summaries only)",
-      enum: ["true", "false"],
-    },
-  },
+  schema: z.object({
+    id: z.string().optional().describe("Deck ID (required)"),
+    compact: z
+      .enum(["true", "false"])
+      .optional()
+      .describe("Set to 'true' for compact output (slide summaries only)"),
+  }),
   http: { method: "GET" },
   run: async (args) => {
     if (!args.id) {

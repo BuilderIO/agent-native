@@ -3,15 +3,20 @@ import * as gh from "../server/lib/greenhouse-api.js";
 import { withOrgContext } from "../server/lib/greenhouse-api.js";
 import { listRecentCandidates } from "../server/lib/candidate-search.js";
 import { filterCandidates } from "../server/lib/resume-filter.js";
+import { z } from "zod";
 import type { FilterResponse } from "@shared/types";
 
-async function doFilter(args: Record<string, string>) {
+async function doFilter(args: {
+  prompt?: string;
+  jobId?: number;
+  limit?: number;
+}) {
   if (!args.prompt) {
     throw new Error("--prompt is required");
   }
 
-  const jobId = args.jobId ? Number(args.jobId) : undefined;
-  const limit = Math.min(Number(args.limit) || 50, 100);
+  const jobId = args.jobId;
+  const limit = Math.min(args.limit || 50, 100);
 
   let candidates;
   if (jobId) {
@@ -72,21 +77,22 @@ async function doFilter(args: Record<string, string>) {
 export default defineAction({
   description:
     "Filter candidates using AI. Evaluates resumes and profiles against a natural language prompt.",
-  parameters: {
-    prompt: {
-      type: "string",
-      description:
+  schema: z.object({
+    prompt: z
+      .string()
+      .optional()
+      .describe(
         'The filter criteria in natural language, e.g. "5+ years Python, strong ML background"',
-    },
-    jobId: {
-      type: "string",
-      description: "Optional job ID to filter candidates for a specific role",
-    },
-    limit: {
-      type: "string",
-      description: "Max candidates to evaluate (default 50, max 100)",
-    },
-  },
+      ),
+    jobId: z.coerce
+      .number()
+      .optional()
+      .describe("Optional job ID to filter candidates for a specific role"),
+    limit: z.coerce
+      .number()
+      .optional()
+      .describe("Max candidates to evaluate (default 50, max 100)"),
+  }),
   http: false,
   run: async (args) => {
     const orgId = process.env.AGENT_ORG_ID;

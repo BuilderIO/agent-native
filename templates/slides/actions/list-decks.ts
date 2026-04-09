@@ -1,16 +1,16 @@
 import { defineAction } from "@agent-native/core";
 import { desc } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
+import { z } from "zod";
 
 export default defineAction({
   description: "List all decks from the database with metadata.",
-  parameters: {
-    compact: {
-      type: "string",
-      description: "Set to 'true' for compact output",
-      enum: ["true", "false"],
-    },
-  },
+  schema: z.object({
+    compact: z
+      .enum(["true", "false"])
+      .optional()
+      .describe("Set to 'true' for compact output"),
+  }),
   http: { method: "GET" },
   run: async (args) => {
     const db = getDb();

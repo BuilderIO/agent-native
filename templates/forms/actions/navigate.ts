@@ -1,19 +1,20 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import { writeAppState } from "@agent-native/core/application-state";
 
 export default defineAction({
   description:
     "Navigate the UI to a view or form. Views: forms, form, responses, settings.",
-  parameters: {
-    view: {
-      type: "string",
-      description: "View to navigate to (forms, form, responses, settings)",
-    },
-    formId: {
-      type: "string",
-      description: "Form to open (for form or responses view)",
-    },
-  },
+  schema: z.object({
+    view: z
+      .string()
+      .optional()
+      .describe("View to navigate to (forms, form, responses, settings)"),
+    formId: z
+      .string()
+      .optional()
+      .describe("Form to open (for form or responses view)"),
+  }),
   http: false,
   run: async (args) => {
     const { view, formId } = args;

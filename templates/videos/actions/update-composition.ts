@@ -1,18 +1,19 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
   description: "Update an existing composition by ID",
-  parameters: {
-    id: { type: "string", description: "Composition ID" },
-    title: { type: "string", description: "New title (optional)" },
-    type: { type: "string", description: "New type (optional)" },
-    data: {
-      type: "string",
-      description: "New composition data as JSON string (optional)",
-    },
-  },
+  schema: z.object({
+    id: z.string().optional().describe("Composition ID"),
+    title: z.string().optional().describe("New title (optional)"),
+    type: z.string().optional().describe("New type (optional)"),
+    data: z
+      .string()
+      .optional()
+      .describe("New composition data as JSON string (optional)"),
+  }),
   run: async (args) => {
     if (!args.id) {
       return { error: "Composition id is required" };

@@ -1,13 +1,14 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import { getClient } from "../server/lib/jira-auth.js";
 import { jiraDeleteComment } from "../server/lib/jira-api.js";
 
 export default defineAction({
   description: "Delete a comment from a Jira issue",
-  parameters: {
-    key: { type: "string", description: "Issue key" },
-    commentId: { type: "string", description: "Comment ID" },
-  },
+  schema: z.object({
+    key: z.string().optional().describe("Issue key"),
+    commentId: z.string().optional().describe("Comment ID"),
+  }),
   run: async (args) => {
     const { key, commentId } = args;
     if (!key) throw new Error("key is required");

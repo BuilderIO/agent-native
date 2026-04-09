@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import fs from "fs";
 import path from "path";
+import { z } from "zod";
 
 function upsertEnvLine(lines: string[], key: string, value: string): string[] {
   if (/[\r\n\0]/.test(value)) {
@@ -22,16 +23,12 @@ function upsertEnvLine(lines: string[], key: string, value: string): string[] {
 export default defineAction({
   description:
     "Write DATABASE_URL and optional DATABASE_AUTH_TOKEN to .env file.",
-  parameters: {
-    url: { type: "string", description: "DATABASE_URL value (required)" },
-    token: { type: "string", description: "DATABASE_AUTH_TOKEN value" },
-  },
+  schema: z.object({
+    url: z.string().describe("DATABASE_URL value (required)"),
+    token: z.string().optional().describe("DATABASE_AUTH_TOKEN value"),
+  }),
   http: false,
   run: async (args) => {
-    if (!args.url) {
-      throw new Error("--url is required");
-    }
-
     const envPath = path.join(process.cwd(), ".env");
     let lines: string[] = [];
 

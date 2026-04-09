@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core";
 import { getDbExec, isPostgres } from "@agent-native/core/db";
 import { writeAppState } from "@agent-native/core/application-state";
 import { hasCollabState } from "@agent-native/core/collab";
+import { z } from "zod";
 
 interface TextEdit {
   find: string;
@@ -11,18 +12,18 @@ interface TextEdit {
 export default defineAction({
   description:
     "Surgically edit document content using search-and-replace. Preferred over update-document for modifications.",
-  parameters: {
-    id: { type: "string", description: "Document ID (required)" },
-    find: { type: "string", description: "Text to find (single edit mode)" },
-    replace: {
-      type: "string",
-      description: 'Replacement text (single edit mode, default: "")',
-    },
-    edits: {
-      type: "string",
-      description: "JSON array of {find, replace} objects (batch mode)",
-    },
-  },
+  schema: z.object({
+    id: z.string().optional().describe("Document ID (required)"),
+    find: z.string().optional().describe("Text to find (single edit mode)"),
+    replace: z
+      .string()
+      .optional()
+      .describe('Replacement text (single edit mode, default: "")'),
+    edits: z
+      .string()
+      .optional()
+      .describe("JSON array of {find, replace} objects (batch mode)"),
+  }),
   http: false,
   run: async (args) => {
     const id = args.id;

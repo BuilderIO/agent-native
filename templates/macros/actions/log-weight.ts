@@ -1,19 +1,17 @@
 import { defineAction } from "@agent-native/core";
 import { db, schema } from "../server/db/index.js";
+import { z } from "zod";
 
 export default defineAction({
   description: "Log a weight entry",
-  parameters: {
-    weight: {
-      type: "string",
-      description: "Weight in pounds (number)",
-    },
-    date: {
-      type: "string",
-      description: "Date in YYYY-MM-DD format (defaults to today)",
-    },
-    notes: { type: "string", description: "Optional notes" },
-  },
+  schema: z.object({
+    weight: z.coerce.number().optional().describe("Weight in pounds"),
+    date: z
+      .string()
+      .optional()
+      .describe("Date in YYYY-MM-DD format (defaults to today)"),
+    notes: z.string().optional().describe("Optional notes"),
+  }),
   run: async (args) => {
     const today = new Date();
     const date =
@@ -23,7 +21,7 @@ export default defineAction({
     const result = await db()
       .insert(schema.weights)
       .values({
-        weight: parseFloat(args.weight),
+        weight: args.weight!,
         date: String(date).split("T")[0],
         notes: args.notes || null,
         created_at: new Date(),

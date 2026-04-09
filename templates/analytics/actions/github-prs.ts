@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import {
   searchOrgPRs,
   searchPRs,
@@ -12,24 +13,24 @@ import {
 export default defineAction({
   description:
     "Query GitHub PRs and issues. Use --pr, --issue, --search, --repo, or --graphql for different modes. Default: search org PRs.",
-  parameters: {
-    pr: { type: "string", description: "PR in format owner/repo/number" },
-    issue: { type: "string", description: "Issue in format owner/repo/number" },
-    search: { type: "string", description: "GitHub search query" },
-    type: {
-      type: "string",
-      description: "Search type: pr or issue (default pr)",
-    },
-    repo: {
-      type: "string",
-      description: "List PRs for repo in format owner/repo",
-    },
-    graphql: { type: "string", description: "Raw GraphQL query" },
-    org: { type: "string", description: "GitHub org name" },
-    query: { type: "string", description: "Query filter for org PR search" },
-    state: { type: "string", description: "Filter by state" },
-    limit: { type: "string", description: "Max results (default 30)" },
-  },
+  schema: z.object({
+    pr: z.string().optional().describe("PR in format owner/repo/number"),
+    issue: z.string().optional().describe("Issue in format owner/repo/number"),
+    search: z.string().optional().describe("GitHub search query"),
+    type: z
+      .string()
+      .optional()
+      .describe("Search type: pr or issue (default pr)"),
+    repo: z
+      .string()
+      .optional()
+      .describe("List PRs for repo in format owner/repo"),
+    graphql: z.string().optional().describe("Raw GraphQL query"),
+    org: z.string().optional().describe("GitHub org name"),
+    query: z.string().optional().describe("Query filter for org PR search"),
+    state: z.string().optional().describe("Filter by state"),
+    limit: z.coerce.number().optional().describe("Max results (default 30)"),
+  }),
   http: false,
   run: async (args) => {
     if (args.pr) {
@@ -50,7 +51,7 @@ export default defineAction({
 
     if (args.search) {
       const type = args.type === "issue" ? "issue" : "pr";
-      const limit = args.limit ? parseInt(args.limit) : 30;
+      const limit = args.limit ?? 30;
       if (type === "issue") {
         const issues = await searchIssues({ query: args.search, limit });
         return { issues, total: issues.length, query: args.search };
@@ -66,7 +67,7 @@ export default defineAction({
         return { error: "--repo must be in format owner/repo" };
       const [owner, repo] = parts;
       const state = (args.state as "open" | "closed" | "all") ?? "open";
-      const limit = args.limit ? parseInt(args.limit) : 30;
+      const limit = args.limit ?? 30;
       const prs = await listPRs(owner, repo, { state, limit });
       return { prs, total: prs.length, repo: args.repo, state };
     }
@@ -80,7 +81,7 @@ export default defineAction({
     const org = args.org ?? (process.env.GITHUB_ORG || "your-org");
     const query = args.query ?? "";
     const state = args.state as "OPEN" | "CLOSED" | "MERGED" | undefined;
-    const limit = args.limit ? parseInt(args.limit) : 30;
+    const limit = args.limit ?? 30;
 
     const prs = await searchOrgPRs({ org, query, state, limit });
     return { prs, total: prs.length, org, query };

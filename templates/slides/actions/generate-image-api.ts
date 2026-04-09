@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import type { ImageGenResponse } from "@shared/api";
 import { DEFAULT_STYLE_REFERENCE_URLS } from "../shared/api.js";
+import { z } from "zod";
 
 interface ReferenceImage {
   data: string; // base64
@@ -31,10 +32,10 @@ function dataUrlToReferenceImage(dataUrl: string): ReferenceImage | null {
 export default defineAction({
   description:
     "Generate an image using Gemini with optional reference images for style matching.",
-  parameters: {
-    prompt: { type: "string", description: "Image description (required)" },
-    model: { type: "string", description: "Model name (default: gemini)" },
-  },
+  schema: z.object({
+    prompt: z.string().optional().describe("Image description (required)"),
+    model: z.string().optional().describe("Model name (default: gemini)"),
+  }),
   run: async (args) => {
     const prompt = args.prompt;
     if (!prompt?.trim()) {

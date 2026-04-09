@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import * as gh from "../server/lib/greenhouse-api.js";
 import { withOrgContext } from "../server/lib/greenhouse-api.js";
+import { z } from "zod";
 import type { GreenhouseCandidate, PipelineStage } from "@shared/types";
 
 /** Fetch items in batches to avoid Greenhouse API rate limits */
@@ -25,9 +26,9 @@ async function batchFetch<T>(
   return results;
 }
 
-async function getPipeline(args: Record<string, string>) {
+async function getPipeline(args: { jobId?: number; compact?: boolean }) {
   if (!args.jobId) throw new Error("--jobId is required");
-  const jobId = Number(args.jobId);
+  const jobId = args.jobId;
 
   const [stages, applications] = await Promise.all([
     gh.getJobStages(jobId),
@@ -84,7 +85,7 @@ async function getPipeline(args: Record<string, string>) {
       })),
   }));
 
-  if (args.compact === "true") {
+  if (args.compact) {
     return pipeline.map((s: any) => ({
       stage: s.stage.name,
       count: s.applications.length,
@@ -100,14 +101,10 @@ async function getPipeline(args: Record<string, string>) {
 
 export default defineAction({
   description: "Get pipeline view for a job — candidates grouped by stage",
-  parameters: {
-    jobId: { type: "string", description: "Job ID (required)" },
-    compact: {
-      type: "string",
-      description: "Return compact output",
-      enum: ["true", "false"],
-    },
-  },
+  schema: z.object({
+    jobId: z.coerce.number().optional().describe("Job ID (required)"),
+    compact: z.coerce.boolean().optional().describe("Return compact output"),
+  }),
   http: { method: "GET" },
   run: async (args) => {
     const orgId = process.env.AGENT_ORG_ID;

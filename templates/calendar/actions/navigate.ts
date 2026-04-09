@@ -1,30 +1,29 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import { writeAppState } from "@agent-native/core/application-state";
 
 export default defineAction({
   description:
     "Navigate the UI to a specific view, date, or event. Writes a navigate command to application state which the UI reads and auto-deletes.",
-  parameters: {
-    view: {
-      type: "string",
-      description:
+  schema: z.object({
+    view: z
+      .string()
+      .optional()
+      .describe(
         "View to navigate to (calendar, availability, booking-links, bookings, settings)",
-    },
-    calendarViewMode: {
-      type: "string",
-      description:
+      ),
+    calendarViewMode: z
+      .enum(["day", "week", "month"])
+      .optional()
+      .describe(
         "Calendar display mode: day, week, or month. Use this to switch between day/week/month views.",
-      enum: ["day", "week", "month"],
-    },
-    date: {
-      type: "string",
-      description: "Date to jump to on the calendar (YYYY-MM-DD)",
-    },
-    eventId: {
-      type: "string",
-      description: "Event ID to open",
-    },
-  },
+      ),
+    date: z
+      .string()
+      .optional()
+      .describe("Date to jump to on the calendar (YYYY-MM-DD)"),
+    eventId: z.string().optional().describe("Event ID to open"),
+  }),
   http: false,
   run: async (args) => {
     if (!args.view && !args.date && !args.eventId && !args.calendarViewMode) {

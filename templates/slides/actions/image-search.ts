@@ -1,12 +1,16 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 
 export default defineAction({
   description:
     "Search for images using Google Custom Search API (agent CLI tool).",
-  parameters: {
-    query: { type: "string", description: "Search query (required)" },
-    count: { type: "string", description: "Number of results (default: 10)" },
-  },
+  schema: z.object({
+    query: z.string().optional().describe("Search query (required)"),
+    count: z.coerce
+      .number()
+      .optional()
+      .describe("Number of results (default: 10)"),
+  }),
   http: false,
   run: async (args) => {
     const query = args.query;
@@ -21,7 +25,7 @@ export default defineAction({
       return "Error: GOOGLE_API_KEY and GOOGLE_SEARCH_CX environment variables are required.";
     }
 
-    const count = Math.min(parseInt(args.count || "10"), 10);
+    const count = Math.min(args.count ?? 10, 10);
 
     const params = new URLSearchParams({
       key: apiKey,

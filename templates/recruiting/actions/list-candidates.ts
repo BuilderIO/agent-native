@@ -5,10 +5,15 @@ import {
   searchCandidates,
 } from "../server/lib/candidate-search.js";
 import * as gh from "../server/lib/greenhouse-api.js";
+import { z } from "zod";
 
-async function listCandidates(args: Record<string, string>) {
-  const jobId = args.jobId ? Number(args.jobId) : undefined;
-  const limit = Number(args.limit) || 100;
+async function listCandidates(args: {
+  search?: string;
+  jobId?: number;
+  compact?: boolean;
+}) {
+  const jobId = args.jobId;
+  const limit = 100;
 
   const thirtyDaysAgo = new Date(
     Date.now() - 30 * 24 * 60 * 60 * 1000,
@@ -35,7 +40,7 @@ async function listCandidates(args: Record<string, string>) {
 
   const mapped = results.map(mapCandidateListItem);
 
-  if (args.compact === "true") {
+  if (args.compact) {
     return mapped.map((c) => ({
       id: c.id,
       name: `${c.first_name} ${c.last_name}`,
@@ -50,18 +55,14 @@ async function listCandidates(args: Record<string, string>) {
 
 export default defineAction({
   description: "Search and list candidates from Greenhouse",
-  parameters: {
-    search: {
-      type: "string",
-      description: "Search term (name, email, company)",
-    },
-    jobId: { type: "string", description: "Filter by job ID" },
-    compact: {
-      type: "string",
-      description: "Return compact output",
-      enum: ["true", "false"],
-    },
-  },
+  schema: z.object({
+    search: z
+      .string()
+      .optional()
+      .describe("Search term (name, email, company)"),
+    jobId: z.coerce.number().optional().describe("Filter by job ID"),
+    compact: z.coerce.boolean().optional().describe("Return compact output"),
+  }),
   http: { method: "GET" },
   run: async (args) => {
     const orgId = process.env.AGENT_ORG_ID;

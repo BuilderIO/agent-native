@@ -13,21 +13,19 @@
  */
 
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import { writeAppState } from "@agent-native/core/application-state";
 
 export default defineAction({
   description:
     "Navigate the UI to a specific composition or view. Writes a navigate command to application state which the UI reads and auto-deletes.",
-  parameters: {
-    view: {
-      type: "string",
-      description: "Top-level view to navigate to (home, components)",
-    },
-    compositionId: {
-      type: "string",
-      description: "Composition ID to open",
-    },
-  },
+  schema: z.object({
+    view: z
+      .string()
+      .optional()
+      .describe("Top-level view to navigate to (home, components)"),
+    compositionId: z.string().optional().describe("Composition ID to open"),
+  }),
   http: false,
   run: async (args) => {
     if (!args.view && !args.compositionId) {

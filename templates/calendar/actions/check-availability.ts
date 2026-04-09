@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import { readSetting } from "@agent-native/core/settings";
 
 interface AvailabilitySchedule {
@@ -21,22 +22,23 @@ function formatMinutes(minutes: number): string {
 
 export default defineAction({
   description: "Check available time slots for a given date",
-  parameters: {
-    date: {
-      type: "string",
-      description: "Date to check (YYYY-MM-DD, required)",
-    },
-    duration: {
-      type: "string",
-      description: "Minimum slot duration in minutes (default: 30)",
-    },
-  },
+  schema: z.object({
+    date: z
+      .string()
+      .optional()
+      .describe("Date to check (YYYY-MM-DD, required)"),
+    duration: z.coerce
+      .number()
+      .optional()
+      .default(30)
+      .describe("Minimum slot duration in minutes (default: 30)"),
+  }),
   http: false,
   run: async (args) => {
     if (!args.date) throw new Error("date is required (YYYY-MM-DD format)");
 
     const dateStr = args.date;
-    const duration = parseInt(args.duration || "30", 10);
+    const duration = args.duration;
 
     let availability: AvailabilitySchedule;
     const stored = await readSetting("calendar-availability");

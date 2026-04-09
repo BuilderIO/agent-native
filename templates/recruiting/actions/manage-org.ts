@@ -1,28 +1,28 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import { localFetch } from "./helpers.js";
 
 export default defineAction({
   description:
     "Manage organizations: view info, list members, invite, create, or switch active org.",
-  parameters: {
-    action: {
-      type: "string",
-      description: "Action to perform",
-      enum: ["info", "list-members", "invite", "create", "switch"],
-    },
-    email: {
-      type: "string",
-      description: "Email address to invite (for invite action)",
-    },
-    name: {
-      type: "string",
-      description: "Organization name (for create action)",
-    },
-    orgId: {
-      type: "string",
-      description: "Organization ID to switch to (for switch action)",
-    },
-  },
+  schema: z.object({
+    action: z
+      .enum(["info", "list-members", "invite", "create", "switch"])
+      .optional()
+      .describe("Action to perform"),
+    email: z
+      .string()
+      .optional()
+      .describe("Email address to invite (for invite action)"),
+    name: z
+      .string()
+      .optional()
+      .describe("Organization name (for create action)"),
+    orgId: z
+      .string()
+      .optional()
+      .describe("Organization ID to switch to (for switch action)"),
+  }),
   http: false,
   run: async (args) => {
     switch (args.action) {

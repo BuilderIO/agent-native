@@ -1,20 +1,22 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
+import { z } from "zod";
 
 export default defineAction({
   description:
     "Navigate the UI to a document or view. Use --path for URL paths or --documentId as shorthand.",
-  parameters: {
-    path: {
-      type: "string",
-      description:
+  schema: z.object({
+    path: z
+      .string()
+      .optional()
+      .describe(
         'URL path to navigate to (e.g. "/" for list, "/abc123" for a document)',
-    },
-    documentId: {
-      type: "string",
-      description: "Document ID to open (shorthand for --path=/<id>)",
-    },
-  },
+      ),
+    documentId: z
+      .string()
+      .optional()
+      .describe("Document ID to open (shorthand for --path=/<id>)"),
+  }),
   http: false,
   run: async (args) => {
     let path = args.path;

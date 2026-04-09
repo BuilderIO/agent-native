@@ -2,21 +2,21 @@ import { defineAction } from "@agent-native/core";
 import { getAccessTokens, fetchLabelMap } from "./helpers.js";
 import { gmailGetThread } from "../server/lib/google-api.js";
 import { gmailToEmailMessage } from "../server/lib/google-auth.js";
+import { z } from "zod";
 
 export default defineAction({
   description: "Get all messages in an email thread by thread ID.",
-  parameters: {
-    id: { type: "string", description: "Thread ID" },
-    compact: {
-      type: "string",
-      description: "Set to 'true' for compact summary",
-      enum: ["true", "false"],
-    },
-  },
+  schema: z.object({
+    id: z.string().optional().describe("Thread ID"),
+    compact: z.coerce
+      .boolean()
+      .optional()
+      .describe("Set to true for compact summary"),
+  }),
   http: { method: "GET" },
   run: async (args) => {
     if (!args.id) return "Error: --id is required";
-    const compact = args.compact === "true";
+    const compact = args.compact === true;
 
     const accounts = await getAccessTokens();
     if (accounts.length === 0) return "Error: No Google account connected.";

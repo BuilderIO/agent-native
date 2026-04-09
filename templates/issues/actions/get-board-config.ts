@@ -1,12 +1,13 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import { getClient } from "../server/lib/jira-auth.js";
 import { agileGetBoardConfig } from "../server/lib/jira-api.js";
 
 export default defineAction({
   description: "Get board configuration (columns, statuses)",
-  parameters: {
-    boardId: { type: "string", description: "Board ID" },
-  },
+  schema: z.object({
+    boardId: z.string().optional().describe("Board ID"),
+  }),
   http: { method: "GET" },
   run: async (args) => {
     const { boardId } = args;

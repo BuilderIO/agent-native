@@ -40,23 +40,29 @@ export default async function myAction(args: string[]) {
 }
 ```
 
-### Using `defineAction` (recommended for new actions)
+### Using `defineAction` with Zod schema (recommended for new actions)
 
 ```ts
+import { z } from "zod";
 import { defineAction } from "@agent-native/core";
 
 export default defineAction({
   description: "Process some data",
-  parameters: {
-    input: { type: "string", description: "Input file path" },
-    output: { type: "string", description: "Output file path" },
-  },
+  schema: z.object({
+    input: z.string().describe("Input file path"),
+    output: z.string().optional().describe("Output file path"),
+  }),
   run: async (args) => {
+    // args is fully typed: { input: string; output?: string }
     // do work
     return "Done";
   },
 });
 ```
+
+The `schema` field accepts a Zod schema (or any Standard Schema-compatible library). It provides runtime validation with clear error messages, TypeScript type inference for `run()` args, and auto-generated JSON Schema for the agent's tool definition. `zod` is a dependency of all templates.
+
+The legacy `parameters` field (plain JSON Schema object) still works as a fallback.
 
 ## How to Run
 

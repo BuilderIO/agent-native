@@ -1,35 +1,38 @@
 import { defineAction } from "@agent-native/core";
 import { nanoid } from "nanoid";
 import { eq, and } from "drizzle-orm";
+import { z } from "zod";
 
 export default defineAction({
   description:
     "Create, list, update, or delete email automation rules. Rules are processed automatically against new inbox emails using AI.",
-  parameters: {
-    action: {
-      type: "string",
-      enum: ["list", "create", "update", "delete", "enable", "disable"],
-      description: "Action to perform",
-    },
-    id: {
-      type: "string",
-      description: "Rule ID (for update/delete/enable/disable)",
-    },
-    name: {
-      type: "string",
-      description: "Human-readable rule name",
-    },
-    condition: {
-      type: "string",
-      description:
+  schema: z.object({
+    action: z
+      .enum(["list", "create", "update", "delete", "enable", "disable"])
+      .optional()
+      .describe("Action to perform"),
+    id: z
+      .string()
+      .optional()
+      .describe("Rule ID (for update/delete/enable/disable)"),
+    name: z.string().optional().describe("Human-readable rule name"),
+    condition: z
+      .string()
+      .optional()
+      .describe(
         'Natural language condition, e.g. "from a newsletter" or "subject contains invoice"',
-    },
-    actions: {
-      type: "string",
-      description:
+      ),
+    actions: z
+      .string()
+      .optional()
+      .describe(
         'JSON array of actions, e.g. [{"type":"label","labelName":"newsletters"}]. Action types: label, archive, mark_read, star, trash',
-    },
-  },
+      ),
+    enabled: z.coerce
+      .boolean()
+      .optional()
+      .describe("Whether the rule is enabled"),
+  }),
   run: async (args) => {
     const { action } = args;
 
@@ -105,8 +108,7 @@ export default defineAction({
             return "Error: --actions must be valid JSON array";
           }
         }
-        if (args.enabled !== undefined)
-          updates.enabled = args.enabled === "true" ? 1 : 0;
+        if (args.enabled !== undefined) updates.enabled = args.enabled ? 1 : 0;
 
         await db
           .update(schema.automationRules)

@@ -4,7 +4,6 @@ import { getDb } from "../server/db/index.js";
 
 export default defineAction({
   description: "Check database health and connectivity",
-  parameters: {},
   http: { method: "GET" },
   run: async () => {
     const isLocal = (

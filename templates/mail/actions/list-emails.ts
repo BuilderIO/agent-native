@@ -7,6 +7,7 @@ import {
   fetchGmailLabelMap,
   isConnected,
 } from "../server/lib/google-auth.js";
+import { z } from "zod";
 
 const VIEW_QUERIES: Record<string, string> = {
   inbox: "in:inbox",
@@ -46,11 +47,9 @@ async function readLocalEmails(): Promise<any[]> {
 export default defineAction({
   description:
     "List emails from a view (inbox, unread, starred, sent, drafts, archive, trash) with optional search query.",
-  parameters: {
-    view: {
-      type: "string",
-      description: "View to list (default: inbox)",
-      enum: [
+  schema: z.object({
+    view: z
+      .enum([
         "inbox",
         "unread",
         "starred",
@@ -59,30 +58,31 @@ export default defineAction({
         "archive",
         "trash",
         "all",
-      ],
-    },
-    q: { type: "string", description: "Full-text search query" },
-    account: {
-      type: "string",
-      description:
+      ])
+      .optional()
+      .describe("View to list (default: inbox)"),
+    q: z.string().optional().describe("Full-text search query"),
+    account: z
+      .string()
+      .optional()
+      .describe(
         "Filter to a specific account email address. By default searches all connected accounts.",
-    },
-    limit: {
-      type: "string",
-      description: "Max number of emails to return (default: 50)",
-    },
-    compact: {
-      type: "string",
-      description: "Set to 'true' for compact output",
-      enum: ["true", "false"],
-    },
-  },
+      ),
+    limit: z.coerce
+      .number()
+      .optional()
+      .describe("Max number of emails to return (default: 50)"),
+    compact: z.coerce
+      .boolean()
+      .optional()
+      .describe("Set to true for compact output"),
+  }),
   http: { method: "GET" },
   run: async (args) => {
     const view = args.view ?? "inbox";
     const query = args.q;
-    const limit = args.limit ? parseInt(args.limit, 10) : 50;
-    const compact = args.compact !== "false";
+    const limit = args.limit ?? 50;
+    const compact = args.compact !== false;
     const accountFilter = args.account?.toLowerCase();
     const ownerEmail = process.env.AGENT_USER_EMAIL || "local@localhost";
 

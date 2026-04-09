@@ -1,24 +1,24 @@
 import { defineAction } from "@agent-native/core";
 import { getAccessTokens } from "./helpers.js";
 import { gmailModifyMessage } from "../server/lib/google-api.js";
+import { z } from "zod";
 
 export default defineAction({
   description: "Mark one or more emails as read or unread.",
-  parameters: {
-    id: { type: "string", description: "Email ID(s), comma-separated" },
-    unread: {
-      type: "string",
-      description: "Set to 'true' to mark as unread instead of read",
-      enum: ["true", "false"],
-    },
-  },
+  schema: z.object({
+    id: z.string().optional().describe("Email ID(s), comma-separated"),
+    unread: z.coerce
+      .boolean()
+      .optional()
+      .describe("Set to true to mark as unread instead of read"),
+  }),
   run: async (args) => {
     const ids = args.id
       ?.split(",")
       .map((s) => s.trim())
       .filter(Boolean);
     if (!ids || ids.length === 0) return "Error: --id is required";
-    const markUnread = args.unread === "true";
+    const markUnread = args.unread === true;
 
     const accounts = await getAccessTokens();
     if (accounts.length === 0) return "Error: No Google account connected.";

@@ -1,10 +1,11 @@
 import { defineAction } from "@agent-native/core";
 import * as gh from "../server/lib/greenhouse-api.js";
 import { withOrgContext } from "../server/lib/greenhouse-api.js";
+import { z } from "zod";
 import type { GreenhouseApplication, GreenhouseCandidate } from "@shared/types";
 
-async function pipelineHealth(args: Record<string, string>) {
-  const stuckThresholdDays = Number(args.stuckDays) || 5;
+async function pipelineHealth(args: { stuckDays?: number }) {
+  const stuckThresholdDays = args.stuckDays || 5;
   const now = new Date();
 
   const openJobs = await gh.listJobs({ status: "open" });
@@ -66,13 +67,14 @@ async function pipelineHealth(args: Record<string, string>) {
 export default defineAction({
   description:
     "Check pipeline health -- find candidates stuck in a stage with no activity.",
-  parameters: {
-    stuckDays: {
-      type: "string",
-      description:
+  schema: z.object({
+    stuckDays: z.coerce
+      .number()
+      .optional()
+      .describe(
         "Number of days of inactivity before a candidate is considered stuck (default: 5)",
-    },
-  },
+      ),
+  }),
   http: { method: "GET" },
   run: async (args) => {
     const orgId = process.env.AGENT_ORG_ID;

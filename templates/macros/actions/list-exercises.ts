@@ -1,15 +1,16 @@
 import { defineAction } from "@agent-native/core";
 import { db, schema } from "../server/db/index.js";
 import { eq, desc } from "drizzle-orm";
+import { z } from "zod";
 
 export default defineAction({
   description: "List exercises logged for a specific date",
-  parameters: {
-    date: {
-      type: "string",
-      description: "Date in YYYY-MM-DD format (defaults to today)",
-    },
-  },
+  schema: z.object({
+    date: z
+      .string()
+      .optional()
+      .describe("Date in YYYY-MM-DD format (defaults to today)"),
+  }),
   http: { method: "GET" },
   run: async (args) => {
     const today = new Date();

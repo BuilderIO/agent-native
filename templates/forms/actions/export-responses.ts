@@ -1,19 +1,16 @@
 import { defineAction } from "@agent-native/core";
 import fs from "fs";
 import { eq, desc } from "drizzle-orm";
+import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
   description: "Export form responses to CSV or JSON file.",
-  parameters: {
-    form: { type: "string", description: "Form ID (required)" },
-    output: { type: "string", description: "Output file path" },
-    format: {
-      type: "string",
-      description: "Export format",
-      enum: ["csv", "json"],
-    },
-  },
+  schema: z.object({
+    form: z.string().describe("Form ID (required)"),
+    output: z.string().optional().describe("Output file path"),
+    format: z.enum(["csv", "json"]).optional().describe("Export format"),
+  }),
   http: false,
   run: async (args) => {
     const formId = args.form;

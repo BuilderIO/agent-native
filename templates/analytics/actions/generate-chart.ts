@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import { ChartJSNodeCanvas } from "chartjs-node-canvas";
 import type { ChartConfiguration, ChartType } from "chart.js";
 import { writeFileSync, readFileSync, existsSync, mkdirSync } from "fs";
@@ -61,31 +62,34 @@ interface SeriesData {
 export default defineAction({
   description:
     "Generate a chart image (bar, line, or area) and save it to the media directory.",
-  parameters: {
-    title: { type: "string", description: "Chart title (required)" },
-    labels: { type: "string", description: "JSON array of x-axis labels" },
-    data: {
-      type: "string",
-      description:
-        "JSON array of numbers or array of {label,data,color} objects",
-    },
-    type: {
-      type: "string",
-      description: "Chart type: bar, line, or area",
-      enum: ["bar", "line", "area"],
-    },
-    subtitle: { type: "string", description: "Chart subtitle" },
-    width: { type: "string", description: "Width in pixels (default 800)" },
-    height: { type: "string", description: "Height in pixels (default 400)" },
-    theme: {
-      type: "string",
-      description: "Theme: dark or light",
-      enum: ["dark", "light"],
-    },
-    color: { type: "string", description: "Primary color hex" },
-    stacked: { type: "string", description: "Stack bars (true/false)" },
-    filename: { type: "string", description: "Output filename (without .png)" },
-  },
+  schema: z.object({
+    title: z.string().optional().describe("Chart title (required)"),
+    labels: z.string().optional().describe("JSON array of x-axis labels"),
+    data: z
+      .string()
+      .optional()
+      .describe("JSON array of numbers or array of {label,data,color} objects"),
+    type: z
+      .enum(["bar", "line", "area"])
+      .optional()
+      .describe("Chart type: bar, line, or area"),
+    subtitle: z.string().optional().describe("Chart subtitle"),
+    width: z.coerce
+      .number()
+      .optional()
+      .describe("Width in pixels (default 800)"),
+    height: z.coerce
+      .number()
+      .optional()
+      .describe("Height in pixels (default 400)"),
+    theme: z
+      .enum(["dark", "light"])
+      .optional()
+      .describe("Theme: dark or light"),
+    color: z.string().optional().describe("Primary color hex"),
+    stacked: z.coerce.boolean().optional().describe("Stack bars"),
+    filename: z.string().optional().describe("Output filename (without .png)"),
+  }),
   http: false,
   run: async (args) => {
     if (!args.title) return { error: "--title is required" };
@@ -96,12 +100,12 @@ export default defineAction({
           "--data is required (JSON array of numbers or array of {label,data,color})",
       };
 
-    const chartType = (args.type || "bar") as "bar" | "line" | "area";
+    const chartType = args.type || "bar";
     const title = args.title;
     const subtitle = args.subtitle || "";
-    const width = parseInt(args.width || "800", 10);
-    const height = parseInt(args.height || "400", 10);
-    const themeName = (args.theme as "dark" | "light") || getTheme();
+    const width = args.width ?? 800;
+    const height = args.height ?? 400;
+    const themeName = args.theme || getTheme();
     const theme = THEMES[themeName];
     const primaryColor = args.color || PALETTE[0];
 
@@ -132,7 +136,7 @@ export default defineAction({
     }
 
     const isArea = chartType === "area";
-    const isStacked = args.stacked === "true";
+    const isStacked = args.stacked === true;
     const jsChartType: ChartType = isArea ? "line" : chartType;
 
     const chartConfig: ChartConfiguration = {

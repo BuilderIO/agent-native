@@ -1,15 +1,17 @@
 import { defineAction } from "@agent-native/core";
 import { getSetting } from "@agent-native/core/settings";
+import { z } from "zod";
 
 export default defineAction({
   description: "Export emails for a given view as JSON.",
-  parameters: {
-    view: {
-      type: "string",
-      description:
+  schema: z.object({
+    view: z
+      .string()
+      .optional()
+      .describe(
         "View to export (inbox, starred, sent, drafts, archive, trash, all). Default: inbox",
-    },
-  },
+      ),
+  }),
   http: false,
   run: async (args) => {
     const view = args.view ?? "inbox";

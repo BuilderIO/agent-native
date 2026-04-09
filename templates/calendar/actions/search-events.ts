@@ -1,23 +1,25 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 
 export default defineAction({
   description: "Search calendar events by title",
-  parameters: {
-    query: {
-      type: "string",
-      description:
+  schema: z.object({
+    query: z
+      .string()
+      .optional()
+      .describe(
         "Search term (case-insensitive substring match on title, required)",
-    },
-    from: {
-      type: "string",
-      description: "Start date filter (ISO date, default: 7 days ago)",
-    },
-    to: {
-      type: "string",
-      description: "End date filter (ISO date, default: 30 days forward)",
-    },
-  },
+      ),
+    from: z
+      .string()
+      .optional()
+      .describe("Start date filter (ISO date, default: 7 days ago)"),
+    to: z
+      .string()
+      .optional()
+      .describe("End date filter (ISO date, default: 30 days forward)"),
+  }),
   http: false,
   run: async (args) => {
     const query = args.query;

@@ -1,23 +1,21 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import { getClient } from "../server/lib/jira-auth.js";
 import { jiraCreateIssue } from "../server/lib/jira-api.js";
 
 export default defineAction({
   description: "Create a new Jira issue",
-  parameters: {
-    project: { type: "string", description: "Project key" },
-    type: {
-      type: "string",
-      description: "Issue type: Task, Bug, Story, Epic",
-    },
-    summary: { type: "string", description: "Issue summary/title" },
-    description: { type: "string", description: "Issue description" },
-    priority: {
-      type: "string",
-      description: "Priority: Highest, High, Medium, Low, Lowest",
-    },
-    assignee: { type: "string", description: "Assignee account ID" },
-  },
+  schema: z.object({
+    project: z.string().optional().describe("Project key"),
+    type: z.string().optional().describe("Issue type: Task, Bug, Story, Epic"),
+    summary: z.string().optional().describe("Issue summary/title"),
+    description: z.string().optional().describe("Issue description"),
+    priority: z
+      .string()
+      .optional()
+      .describe("Priority: Highest, High, Medium, Low, Lowest"),
+    assignee: z.string().optional().describe("Assignee account ID"),
+  }),
   run: async (args: Record<string, any>) => {
     const client = await getClient(process.env.AGENT_USER_EMAIL);
     if (!client) throw new Error("Jira not connected");

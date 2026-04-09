@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import { nanoid } from "nanoid";
 import { eq } from "drizzle-orm";
 import type { BookingLink } from "../shared/api.js";
@@ -43,15 +44,15 @@ function rowToBookingLink(
 
 export default defineAction({
   description: "Create a new booking link",
-  parameters: {
-    title: { type: "string", description: "Booking link title (required)" },
-    slug: { type: "string", description: "URL slug (required)" },
-    duration: {
-      type: "string",
-      description: "Default duration in minutes (required)",
-    },
-    description: { type: "string", description: "Description" },
-  },
+  schema: z.object({
+    title: z.string().optional().describe("Booking link title (required)"),
+    slug: z.string().optional().describe("URL slug (required)"),
+    duration: z.coerce
+      .number()
+      .optional()
+      .describe("Default duration in minutes (required)"),
+    description: z.string().optional().describe("Description"),
+  }),
   run: async (args) => {
     const body = args as Record<string, any>;
 
@@ -84,7 +85,7 @@ export default defineAction({
         slug,
         title: String(body.title).trim(),
         description: body.description ? String(body.description).trim() : null,
-        duration: Number(body.duration),
+        duration: body.duration,
         durations: body.durations ? JSON.stringify(body.durations) : null,
         customFields: body.customFields
           ? JSON.stringify(body.customFields)

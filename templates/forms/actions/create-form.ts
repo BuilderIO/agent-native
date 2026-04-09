@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { customAlphabet } from "nanoid";
 import { eq } from "drizzle-orm";
+import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import type { FormField, FormSettings } from "../shared/types.js";
 
@@ -18,24 +19,17 @@ function slugify(text: string): string {
 
 export default defineAction({
   description: "Create a new form.",
-  parameters: {
-    title: { type: "string", description: "Form title" },
-    description: { type: "string", description: "Form description" },
-    fields: {
-      type: "string",
-      description: "JSON array of form fields",
-    },
-    settings: {
-      type: "string",
-      description: "JSON object of form settings",
-    },
-    slug: { type: "string", description: "Custom URL slug" },
-    status: {
-      type: "string",
-      description: "Form status",
-      enum: ["draft", "published", "closed"],
-    },
-  },
+  schema: z.object({
+    title: z.string().optional().describe("Form title"),
+    description: z.string().optional().describe("Form description"),
+    fields: z.string().optional().describe("JSON array of form fields"),
+    settings: z.string().optional().describe("JSON object of form settings"),
+    slug: z.string().optional().describe("Custom URL slug"),
+    status: z
+      .enum(["draft", "published", "closed"])
+      .optional()
+      .describe("Form status"),
+  }),
   run: async (args) => {
     const id = nanoid(10);
     const now = new Date().toISOString();

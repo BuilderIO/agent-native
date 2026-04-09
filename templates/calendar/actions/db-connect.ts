@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import { readFileSync, writeFileSync, existsSync } from "fs";
 
 function upsertEnvLine(content: string, key: string, value: string): string {
@@ -16,14 +17,15 @@ function upsertEnvLine(content: string, key: string, value: string): string {
 
 export default defineAction({
   description: "Configure a remote database connection",
-  parameters: {
-    url: { type: "string", description: "DATABASE_URL (required)" },
-    token: {
-      type: "string",
-      description:
+  schema: z.object({
+    url: z.string().optional().describe("DATABASE_URL (required)"),
+    token: z
+      .string()
+      .optional()
+      .describe(
         "DATABASE_AUTH_TOKEN (optional, required for most remote providers)",
-    },
-  },
+      ),
+  }),
   http: false,
   run: async (args) => {
     if (!args.url) {

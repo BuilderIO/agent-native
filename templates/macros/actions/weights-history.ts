@@ -1,19 +1,17 @@
 import { defineAction } from "@agent-native/core";
 import { db, schema } from "../server/db/index.js";
 import { and, gte, lte, asc, desc } from "drizzle-orm";
+import { z } from "zod";
 
 export default defineAction({
   description: "Get weight trend history for a date range",
-  parameters: {
-    startDate: {
-      type: "string",
-      description: "Start date in YYYY-MM-DD format",
-    },
-    endDate: {
-      type: "string",
-      description: "End date in YYYY-MM-DD format",
-    },
-  },
+  schema: z.object({
+    startDate: z
+      .string()
+      .optional()
+      .describe("Start date in YYYY-MM-DD format"),
+    endDate: z.string().optional().describe("End date in YYYY-MM-DD format"),
+  }),
   http: { method: "GET" },
   run: async (args) => {
     if (!args.startDate || !args.endDate) return [];

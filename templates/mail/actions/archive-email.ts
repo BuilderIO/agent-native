@@ -5,16 +5,17 @@ import {
   gmailModifyThread,
 } from "../server/lib/google-api.js";
 import { writeAppState } from "@agent-native/core/application-state";
+import { z } from "zod";
 
 export default defineAction({
   description:
     "Archive one or more emails by ID. The UI handles navigation to the next email automatically.",
-  parameters: {
-    id: {
-      type: "string",
-      description: "Email ID(s) to archive, comma-separated",
-    },
-  },
+  schema: z.object({
+    id: z
+      .string()
+      .optional()
+      .describe("Email ID(s) to archive, comma-separated"),
+  }),
   run: async (args) => {
     const ids = args.id
       ?.split(",")

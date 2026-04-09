@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import { getClient } from "../server/lib/jira-auth.js";
 import {
   jiraGetProject,
@@ -7,9 +8,9 @@ import {
 
 export default defineAction({
   description: "Get a Jira project with its statuses",
-  parameters: {
-    projectKey: { type: "string", description: "Project key" },
-  },
+  schema: z.object({
+    projectKey: z.string().optional().describe("Project key"),
+  }),
   http: { method: "GET" },
   run: async (args) => {
     const { projectKey } = args;

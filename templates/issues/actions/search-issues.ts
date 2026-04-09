@@ -1,15 +1,16 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import { getClient } from "../server/lib/jira-auth.js";
 import { jiraSearchIssues } from "../server/lib/jira-api.js";
 
 export default defineAction({
   description: "Search Jira issues via JQL or text",
-  parameters: {
-    jql: { type: "string", description: "JQL query" },
-    q: { type: "string", description: "Free-text search" },
-    compact: { type: "string", description: "Compact output (true/false)" },
-    maxResults: { type: "string", description: "Max results" },
-  },
+  schema: z.object({
+    jql: z.string().optional().describe("JQL query"),
+    q: z.string().optional().describe("Free-text search"),
+    compact: z.coerce.boolean().optional().describe("Compact output"),
+    maxResults: z.coerce.number().optional().describe("Max results"),
+  }),
   http: { method: "GET" },
   run: async (args) => {
     const { jql, q, compact, maxResults } = args;
@@ -23,7 +24,7 @@ export default defineAction({
 
     return await jiraSearchIssues(client.cloudId, client.accessToken, {
       jql: query,
-      maxResults: Number(maxResults) || 25,
+      maxResults: maxResults || 25,
       fields: [
         "summary",
         "status",

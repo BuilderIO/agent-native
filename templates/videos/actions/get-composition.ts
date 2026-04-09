@@ -1,12 +1,13 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
   description: "Get a single composition by ID",
-  parameters: {
-    id: { type: "string", description: "Composition ID" },
-  },
+  schema: z.object({
+    id: z.string().optional().describe("Composition ID"),
+  }),
   http: { method: "GET" },
   run: async (args) => {
     if (!args.id) {

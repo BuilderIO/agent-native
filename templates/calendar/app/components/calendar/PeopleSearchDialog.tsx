@@ -48,7 +48,8 @@ export function PeopleSearchDialog({
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
   const listRef = useRef<HTMLDivElement>(null);
 
-  const { data: overlayPeople = [] } = useOverlayPeople();
+  const { data: rawOverlayPeople } = useOverlayPeople();
+  const overlayPeople = Array.isArray(rawOverlayPeople) ? rawOverlayPeople : [];
   const addPerson = useAddOverlayPerson();
   const removePerson = useRemoveOverlayPerson();
 

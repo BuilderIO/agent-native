@@ -4,7 +4,6 @@ import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
   description: "List all compositions ordered by most recently updated",
-  parameters: {},
   http: { method: "GET" },
   run: async () => {
     const db = getDb();

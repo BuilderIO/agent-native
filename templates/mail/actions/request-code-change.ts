@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 
 /** Generate a deterministic-looking but unique project branch ID */
 function generateBranchId(description: string): string {
@@ -16,18 +17,18 @@ function generateBranchId(description: string): string {
 export default defineAction({
   description:
     "Request a code change via the Builder.io background agent. Use this in production whenever the user asks to modify the UI, add features, change styles, or update any source code.",
-  parameters: {
-    description: {
-      type: "string",
-      description:
-        "A clear description of the code change requested by the user",
-    },
-    files: {
-      type: "string",
-      description:
+  schema: z.object({
+    description: z
+      .string()
+      .optional()
+      .describe("A clear description of the code change requested by the user"),
+    files: z
+      .string()
+      .optional()
+      .describe(
         "Optional comma-separated list of files likely involved in the change",
-    },
-  },
+      ),
+  }),
   http: false,
   run: async (args) => {
     const { description, files } = args;

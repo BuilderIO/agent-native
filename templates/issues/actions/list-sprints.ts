@@ -1,13 +1,14 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import { getClient } from "../server/lib/jira-auth.js";
 import { agileListSprints } from "../server/lib/jira-api.js";
 
 export default defineAction({
   description: "List sprints for a board",
-  parameters: {
-    boardId: { type: "string", description: "Board ID" },
-    state: { type: "string", description: "Sprint state filter" },
-  },
+  schema: z.object({
+    boardId: z.string().optional().describe("Board ID"),
+    state: z.string().optional().describe("Sprint state filter"),
+  }),
   http: { method: "GET" },
   run: async (args) => {
     const { boardId, state } = args;

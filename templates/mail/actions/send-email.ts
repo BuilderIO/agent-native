@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { getAccessTokens } from "./helpers.js";
+import { z } from "zod";
 import {
   gmailGetMessage,
   gmailSendMessage,
@@ -179,28 +180,26 @@ async function readSettings(): Promise<{ name: string; email: string }> {
 
 export default defineAction({
   description: "Send an email via Gmail.",
-  parameters: {
-    to: {
-      type: "string",
-      description: "Recipient email(s), comma-separated",
-    },
-    subject: { type: "string", description: "Email subject" },
-    body: {
-      type: "string",
-      description:
+  schema: z.object({
+    to: z.string().optional().describe("Recipient email(s), comma-separated"),
+    subject: z.string().optional().describe("Email subject"),
+    body: z
+      .string()
+      .optional()
+      .describe(
         "Email body in markdown. Use [text](url) for links, **bold**, *italic*, - lists, etc.",
-    },
-    cc: { type: "string", description: "CC email(s), comma-separated" },
-    bcc: { type: "string", description: "BCC email(s), comma-separated" },
-    replyToId: {
-      type: "string",
-      description: "Message ID being replied to (for threading)",
-    },
-    account: {
-      type: "string",
-      description: "Specific account email to send from",
-    },
-  },
+      ),
+    cc: z.string().optional().describe("CC email(s), comma-separated"),
+    bcc: z.string().optional().describe("BCC email(s), comma-separated"),
+    replyToId: z
+      .string()
+      .optional()
+      .describe("Message ID being replied to (for threading)"),
+    account: z
+      .string()
+      .optional()
+      .describe("Specific account email to send from"),
+  }),
   run: async (args) => {
     if (!args.to) return "Error: --to is required";
     if (!args.subject) return "Error: --subject is required";

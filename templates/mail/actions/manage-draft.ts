@@ -5,6 +5,7 @@ import {
   deleteAppState,
   deleteAppStateByPrefix,
 } from "@agent-native/core/application-state";
+import { z } from "zod";
 
 /** Reject IDs that could escape via path traversal. */
 function sanitizeDraftId(id: string): string | null {
@@ -14,41 +15,38 @@ function sanitizeDraftId(id: string): string | null {
 export default defineAction({
   description:
     "Create, update, or delete a compose draft. Opening a draft makes it appear in the compose panel UI automatically.",
-  parameters: {
-    action: {
-      type: "string",
-      description: "Action to perform",
-      enum: ["create", "update", "delete", "delete-all"],
-    },
-    id: {
-      type: "string",
-      description:
+  schema: z.object({
+    action: z
+      .enum(["create", "update", "delete", "delete-all"])
+      .optional()
+      .describe("Action to perform"),
+    id: z
+      .string()
+      .optional()
+      .describe(
         "Draft ID (auto-generated for create; required for update/delete)",
-    },
-    to: { type: "string", description: "Recipient email(s)" },
-    cc: { type: "string", description: "CC email(s)" },
-    bcc: { type: "string", description: "BCC email(s)" },
-    subject: { type: "string", description: "Email subject" },
-    body: {
-      type: "string",
-      description:
+      ),
+    to: z.string().optional().describe("Recipient email(s)"),
+    cc: z.string().optional().describe("CC email(s)"),
+    bcc: z.string().optional().describe("BCC email(s)"),
+    subject: z.string().optional().describe("Email subject"),
+    body: z
+      .string()
+      .optional()
+      .describe(
         "Email body in markdown. Use [text](url) for links, **bold**, *italic*, - lists, etc.",
-    },
-    mode: {
-      type: "string",
-      description: "compose, reply, or forward",
-      enum: ["compose", "reply", "forward"],
-    },
-    replyToId: { type: "string", description: "Message ID being replied to" },
-    replyToThreadId: {
-      type: "string",
-      description: "Thread ID for grouping",
-    },
-    accountEmail: {
-      type: "string",
-      description: "The 'from' account email address to send from",
-    },
-  },
+      ),
+    mode: z
+      .enum(["compose", "reply", "forward"])
+      .optional()
+      .describe("compose, reply, or forward"),
+    replyToId: z.string().optional().describe("Message ID being replied to"),
+    replyToThreadId: z.string().optional().describe("Thread ID for grouping"),
+    accountEmail: z
+      .string()
+      .optional()
+      .describe("The 'from' account email address to send from"),
+  }),
   run: async (args) => {
     const action = args.action;
     if (!action)

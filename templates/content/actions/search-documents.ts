@@ -1,12 +1,13 @@
 import { defineAction } from "@agent-native/core";
 import { sql } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
+import { z } from "zod";
 
 export default defineAction({
   description: "Search documents by title and content.",
-  parameters: {
-    query: { type: "string", description: "Search text (required)" },
-  },
+  schema: z.object({
+    query: z.string().optional().describe("Search text (required)"),
+  }),
   http: { method: "GET" },
   run: async (args) => {
     const query = args.query;

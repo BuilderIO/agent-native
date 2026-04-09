@@ -3,6 +3,7 @@ import { eq, desc } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { parseDocumentFavorite } from "../server/lib/documents.js";
 import { writeAppState } from "@agent-native/core/application-state";
+import { z } from "zod";
 
 function nanoid(size = 12): string {
   const chars =
@@ -18,13 +19,16 @@ const SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 export default defineAction({
   description:
     "Update an existing document's title, content, icon, or favorite status.",
-  parameters: {
-    id: { type: "string", description: "Document ID (required)" },
-    title: { type: "string", description: "New title" },
-    content: { type: "string", description: "New markdown content" },
-    icon: { type: "string", description: "New emoji icon" },
-    isFavorite: { type: "string", description: "Favorite status (true/false)" },
-  },
+  schema: z.object({
+    id: z.string().optional().describe("Document ID (required)"),
+    title: z.string().optional().describe("New title"),
+    content: z.string().optional().describe("New markdown content"),
+    icon: z.string().optional().describe("New emoji icon"),
+    isFavorite: z.coerce
+      .boolean()
+      .optional()
+      .describe("Favorite status (true/false)"),
+  }),
   run: async (args) => {
     const id = args.id;
     if (!id) throw new Error("--id is required");
@@ -85,7 +89,7 @@ export default defineAction({
     if (content !== undefined) updates.content = content;
     if (args.icon !== undefined) updates.icon = args.icon;
     if (args.isFavorite !== undefined)
-      updates.isFavorite = args.isFavorite === "true" ? 1 : 0;
+      updates.isFavorite = args.isFavorite ? 1 : 0;
 
     await db
       .update(schema.documents)

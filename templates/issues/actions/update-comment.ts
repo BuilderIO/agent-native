@@ -1,15 +1,16 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import { getClient } from "../server/lib/jira-auth.js";
 import { jiraUpdateComment } from "../server/lib/jira-api.js";
 import { markdownToAdf } from "../server/lib/adf.js";
 
 export default defineAction({
   description: "Update a comment on a Jira issue",
-  parameters: {
-    key: { type: "string", description: "Issue key" },
-    commentId: { type: "string", description: "Comment ID" },
-    body: { type: "string", description: "Updated comment text" },
-  },
+  schema: z.object({
+    key: z.string().optional().describe("Issue key"),
+    commentId: z.string().optional().describe("Comment ID"),
+    body: z.string().optional().describe("Updated comment text"),
+  }),
   run: async (args) => {
     const { key, commentId, body } = args;
     if (!key) throw new Error("key is required");

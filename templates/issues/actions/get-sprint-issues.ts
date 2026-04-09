@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import { getClient } from "../server/lib/jira-auth.js";
 import {
   agileGetSprintIssues,
@@ -7,11 +8,17 @@ import {
 
 export default defineAction({
   description: "Get issues in a sprint",
-  parameters: {
-    sprintId: { type: "string", description: "Sprint ID" },
-    startAt: { type: "string", description: "Start index for pagination" },
-    maxResults: { type: "string", description: "Max results (default 50)" },
-  },
+  schema: z.object({
+    sprintId: z.string().optional().describe("Sprint ID"),
+    startAt: z.coerce
+      .number()
+      .optional()
+      .describe("Start index for pagination"),
+    maxResults: z.coerce
+      .number()
+      .optional()
+      .describe("Max results (default 50)"),
+  }),
   http: { method: "GET" },
   run: async (args) => {
     const { sprintId, startAt, maxResults } = args;
@@ -26,8 +33,8 @@ export default defineAction({
         client.accessToken,
         sprintId,
         {
-          startAt: startAt ? Number(startAt) : 0,
-          maxResults: maxResults ? Number(maxResults) : 50,
+          startAt: startAt ?? 0,
+          maxResults: maxResults ?? 50,
         },
       );
     } catch (err) {

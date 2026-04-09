@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
+import { z } from "zod";
 import {
   isConnected,
   getClients,
@@ -174,14 +175,14 @@ async function fetchThreadMessages(threadId: string): Promise<any | null> {
 export default defineAction({
   description:
     "See what the user is currently looking at on screen. Returns the current view, email list, and open thread (if any). Always call this first before taking any action.",
-  parameters: {
-    full: {
-      type: "string",
-      description:
-        "Set to 'true' for full detail (deprecated, now always returns full detail)",
-      enum: ["true", "false"],
-    },
-  },
+  schema: z.object({
+    full: z.coerce
+      .boolean()
+      .optional()
+      .describe(
+        "Set to true for full detail (deprecated, now always returns full detail)",
+      ),
+  }),
   http: false,
   run: async () => {
     const navigation = await readAppState("navigation");

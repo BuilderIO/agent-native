@@ -1,8 +1,9 @@
 import { defineAction } from "@agent-native/core";
 import * as gh from "../server/lib/greenhouse-api.js";
 import { withOrgContext } from "../server/lib/greenhouse-api.js";
+import { z } from "zod";
 
-async function listInterviews(args: Record<string, string>) {
+async function listInterviews(args: { compact?: boolean }) {
   const defaultAfter = new Date(
     Date.now() - 365 * 24 * 60 * 60 * 1000,
   ).toISOString();
@@ -20,7 +21,7 @@ async function listInterviews(args: Record<string, string>) {
         new Date(b.start.date_time).getTime(),
     );
 
-  if (args.compact === "true") {
+  if (args.compact) {
     return upcoming.map((i) => ({
       id: i.id,
       start: i.start.date_time,
@@ -35,13 +36,9 @@ async function listInterviews(args: Record<string, string>) {
 
 export default defineAction({
   description: "List upcoming scheduled interviews",
-  parameters: {
-    compact: {
-      type: "string",
-      description: "Return compact output",
-      enum: ["true", "false"],
-    },
-  },
+  schema: z.object({
+    compact: z.coerce.boolean().optional().describe("Return compact output"),
+  }),
   http: { method: "GET" },
   run: async (args) => {
     const orgId = process.env.AGENT_ORG_ID;

@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import * as gh from "../server/lib/greenhouse-api.js";
 import { withOrgContext } from "../server/lib/greenhouse-api.js";
+import { z } from "zod";
 import type {
   GreenhouseScheduledInterview,
   GreenhouseScorecard,
@@ -30,8 +31,11 @@ async function batchFetch<T>(
   return results;
 }
 
-async function checkScorecards(args: Record<string, string>) {
-  const overdueThresholdHours = Number(args.overdueHours) || 24;
+async function checkScorecards(args: {
+  overdueHours?: number;
+  section?: string;
+}) {
+  const overdueThresholdHours = args.overdueHours || 24;
   const now = new Date();
 
   const fourteenDaysAgo = new Date(
@@ -184,19 +188,20 @@ async function checkScorecards(args: Record<string, string>) {
 export default defineAction({
   description:
     "Check scorecard status -- find overdue scorecards, pending feedback, and recently submitted scorecards.",
-  parameters: {
-    overdueHours: {
-      type: "string",
-      description:
+  schema: z.object({
+    overdueHours: z.coerce
+      .number()
+      .optional()
+      .describe(
         "Hours after interview to consider a scorecard overdue (default: 24)",
-    },
-    section: {
-      type: "string",
-      description:
+      ),
+    section: z
+      .enum(["overdue", "pending", "recent", "all"])
+      .optional()
+      .describe(
         "Which section to return: overdue, pending, recent, or all (default: all)",
-      enum: ["overdue", "pending", "recent", "all"],
-    },
-  },
+      ),
+  }),
   http: { method: "GET" },
   run: async (args) => {
     const orgId = process.env.AGENT_ORG_ID;

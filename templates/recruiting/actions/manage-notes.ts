@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import { eq, and, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { db, schema } from "../server/db/index.js";
@@ -78,24 +79,19 @@ async function deleteNote(id: string) {
 export default defineAction({
   description:
     "Create, list, or delete AI notes on candidates. Use this to save analysis results.",
-  parameters: {
-    action: {
-      type: "string",
-      description: "Action to perform",
-      enum: ["create", "list", "delete"],
-    },
-    candidateId: { type: "string", description: "Candidate ID" },
-    content: {
-      type: "string",
-      description: "Note content (for create)",
-    },
-    type: {
-      type: "string",
-      description: "Note type (for create)",
-      enum: ["resume_analysis", "comparison", "interview_prep", "general"],
-    },
-    id: { type: "string", description: "Note ID (for delete)" },
-  },
+  schema: z.object({
+    action: z
+      .enum(["create", "list", "delete"])
+      .optional()
+      .describe("Action to perform"),
+    candidateId: z.coerce.number().optional().describe("Candidate ID"),
+    content: z.string().optional().describe("Note content (for create)"),
+    type: z
+      .enum(["resume_analysis", "comparison", "interview_prep", "general"])
+      .optional()
+      .describe("Note type (for create)"),
+    id: z.string().optional().describe("Note ID (for delete)"),
+  }),
   run: async (args) => {
     switch (args.action) {
       case "create": {
@@ -104,13 +100,13 @@ export default defineAction({
             "--candidateId, --content, and --type are required for create",
           );
         }
-        return createNote(Number(args.candidateId), args.content, args.type);
+        return createNote(args.candidateId, args.content, args.type);
       }
       case "list": {
         if (!args.candidateId) {
           throw new Error("--candidateId is required for list");
         }
-        return listNotes(Number(args.candidateId));
+        return listNotes(args.candidateId);
       }
       case "delete": {
         if (!args.id) {

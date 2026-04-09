@@ -1,18 +1,19 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import type { CalendarEvent } from "../shared/api.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 
 export default defineAction({
   description:
     "List calendar events from Google Calendar for a date range, optionally with overlay people's events",
-  parameters: {
-    from: { type: "string", description: "Start date (ISO string)" },
-    to: { type: "string", description: "End date (ISO string)" },
-    overlayEmails: {
-      type: "string",
-      description: "Comma-separated emails for overlay calendar view",
-    },
-  },
+  schema: z.object({
+    from: z.string().optional().describe("Start date (ISO string)"),
+    to: z.string().optional().describe("End date (ISO string)"),
+    overlayEmails: z
+      .string()
+      .optional()
+      .describe("Comma-separated emails for overlay calendar view"),
+  }),
   http: { method: "GET" },
   run: async (args) => {
     const email = process.env.AGENT_USER_EMAIL || "local@localhost";

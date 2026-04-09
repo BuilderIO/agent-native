@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import {
   getMemberByEmail,
   getMembers,
@@ -8,15 +9,18 @@ import {
 export default defineAction({
   description:
     "Query Common Room community members by email, query, or list segments.",
-  parameters: {
-    email: { type: "string", description: "Look up member by email" },
-    query: { type: "string", description: "Search query" },
-    segments: { type: "string", description: "Set to 'true' to list segments" },
-    limit: { type: "string", description: "Max results (default 25)" },
-  },
+  schema: z.object({
+    email: z.string().optional().describe("Look up member by email"),
+    query: z.string().optional().describe("Search query"),
+    segments: z.coerce
+      .boolean()
+      .optional()
+      .describe("Set to true to list segments"),
+    limit: z.coerce.number().optional().describe("Max results (default 25)"),
+  }),
   http: { method: "GET" },
   run: async (args) => {
-    if (args.segments === "true") {
+    if (args.segments) {
       const segments = await getSegments();
       return { segments };
     } else if (args.email) {
@@ -25,7 +29,7 @@ export default defineAction({
     } else {
       const result = await getMembers({
         query: args.query,
-        limit: args.limit ? parseInt(args.limit) : 25,
+        limit: args.limit ?? 25,
       });
       return { members: result.items, total: result.items?.length ?? 0 };
     }

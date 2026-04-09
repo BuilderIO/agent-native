@@ -1,24 +1,24 @@
 import { defineAction } from "@agent-native/core";
 import { getAccessTokens } from "./helpers.js";
 import { gmailModifyMessage } from "../server/lib/google-api.js";
+import { z } from "zod";
 
 export default defineAction({
   description: "Star or unstar one or more emails.",
-  parameters: {
-    id: { type: "string", description: "Email ID(s), comma-separated" },
-    unstar: {
-      type: "string",
-      description: "Set to 'true' to remove star",
-      enum: ["true", "false"],
-    },
-  },
+  schema: z.object({
+    id: z.string().optional().describe("Email ID(s), comma-separated"),
+    unstar: z.coerce
+      .boolean()
+      .optional()
+      .describe("Set to true to remove star"),
+  }),
   run: async (args) => {
     const ids = args.id
       ?.split(",")
       .map((s) => s.trim())
       .filter(Boolean);
     if (!ids || ids.length === 0) return "Error: --id is required";
-    const unstar = args.unstar === "true";
+    const unstar = args.unstar === true;
 
     const accounts = await getAccessTokens();
     if (accounts.length === 0) return "Error: No Google account connected.";

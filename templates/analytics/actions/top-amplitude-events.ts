@@ -1,17 +1,18 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import { runQuery } from "../server/lib/bigquery";
 
 export default defineAction({
   description: "Get the top 20 Amplitude events by count from BigQuery.",
-  parameters: {
-    days: {
-      type: "string",
-      description: "Number of days to look back (default 90)",
-    },
-  },
+  schema: z.object({
+    days: z.coerce
+      .number()
+      .optional()
+      .describe("Number of days to look back (default 90)"),
+  }),
   http: false,
   run: async (args) => {
-    const days = parseInt(args.days || "90", 10);
+    const days = args.days ?? 90;
 
     const sql = `
 SELECT

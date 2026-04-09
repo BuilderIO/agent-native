@@ -1,18 +1,20 @@
 import { defineAction } from "@agent-native/core";
 import { db, schema } from "../server/db/index.js";
 import { and, gte, lte, asc, desc } from "drizzle-orm";
+import { z } from "zod";
 
 export default defineAction({
   description: "Get calorie and weight analytics/history data",
-  parameters: {
-    days: {
-      type: "string",
-      description: "Number of days to look back (default: 30)",
-    },
-  },
+  schema: z.object({
+    days: z.coerce
+      .number()
+      .optional()
+      .default(30)
+      .describe("Number of days to look back"),
+  }),
   http: { method: "GET" },
   run: async (args) => {
-    const days = parseInt(args.days || "30");
+    const days = args.days!;
     const end = new Date();
     const start = new Date(end);
     start.setDate(start.getDate() - days);

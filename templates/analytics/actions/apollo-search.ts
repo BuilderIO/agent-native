@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import {
   searchPeople,
   enrichPerson,
@@ -9,13 +10,13 @@ import {
 export default defineAction({
   description:
     "Search and enrich contacts/companies via Apollo.io. Pass email, domain, company, name, or title.",
-  parameters: {
-    email: { type: "string", description: "Enrich a person by email" },
-    domain: { type: "string", description: "Enrich an organization by domain" },
-    company: { type: "string", description: "Search by company name" },
-    name: { type: "string", description: "Search by person name" },
-    title: { type: "string", description: "Search by job title" },
-  },
+  schema: z.object({
+    email: z.string().optional().describe("Enrich a person by email"),
+    domain: z.string().optional().describe("Enrich an organization by domain"),
+    company: z.string().optional().describe("Search by company name"),
+    name: z.string().optional().describe("Search by person name"),
+    title: z.string().optional().describe("Search by job title"),
+  }),
   http: { method: "GET" },
   run: async (args) => {
     if (args.email) {

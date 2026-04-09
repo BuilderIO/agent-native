@@ -465,21 +465,29 @@ Actions are the primary way to add operations to your app. Define them once — 
 Create `actions/list-events.ts`:
 
 ```ts
+import { z } from "zod";
 import { defineAction } from "@agent-native/core";
 
 export default defineAction({
   description: "List calendar events",
-  parameters: {
-    from: { type: "string", description: "Start date (ISO)" },
-    to: { type: "string", description: "End date (ISO)" },
-  },
+  schema: z.object({
+    from: z.string().describe("Start date (ISO)"),
+    to: z.string().describe("End date (ISO)"),
+  }),
   http: { method: "GET" },
   run: async (args) => {
+    // args is fully typed: { from: string; to: string }
     const events = await fetchEvents(args.from, args.to);
     return events;
   },
 });
 ```
+
+The `schema` field accepts a Zod schema (or any Standard Schema-compatible library like Valibot or ArkType). It provides runtime validation, TypeScript type inference for `run()` args, and auto-generated JSON Schema for the agent's tool definition. `zod` is a dependency of all templates.
+
+Use `.describe()` for parameter descriptions, `.optional()` for optional params, and `z.coerce.number()` / `z.coerce.boolean()` for params that arrive as strings from HTTP. Invalid inputs get clear error messages (400 for HTTP, error result for agent).
+
+The legacy `parameters` field (plain JSON Schema) still works as a fallback but does not provide runtime validation or type inference.
 
 The agent calls this as a tool. The frontend calls it via `useActionQuery("list-events", { from, to })`.
 
@@ -494,16 +502,16 @@ The agent calls this as a tool. The frontend calls it via `useActionQuery("list-
 
 ### Frontend Hooks (End-to-End Type Safety)
 
-Action types are **automatically inferred** from the `defineAction` return type — similar to tRPC. A Vite plugin generates `.generated/action-types.d.ts` which augments the `ActionRegistry` interface, giving `useActionQuery` and `useActionMutation` full type inference for action names, parameters, and return types.
+Action types are **automatically inferred** from the `defineAction` schema and return type — similar to tRPC. A Vite plugin generates `.generated/action-types.d.ts` which augments the `ActionRegistry` interface, giving `useActionQuery` and `useActionMutation` full type inference for action names, parameters, and return types.
 
 ```ts
 import { useActionQuery, useActionMutation } from "@agent-native/core/client";
 
-// Types are inferred from the action's run() return type — no manual generic needed
+// Types are inferred from the action's schema + run() return type — no manual generic needed
 const { data } = useActionQuery("list-events", { from, to });
 //      ^? CalendarEvent[]  (inferred from actions/list-events.ts)
 
-// Mutations too
+// Mutations too — params are typed from the Zod schema
 const { mutate } = useActionMutation("create-event");
 mutate({ title: "Standup", date: "2025-01-15" });
 ```

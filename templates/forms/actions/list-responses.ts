@@ -1,20 +1,22 @@
 import { defineAction } from "@agent-native/core";
 import { eq, desc, sql } from "drizzle-orm";
+import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import type { FormResponse } from "../shared/types.js";
 
 export default defineAction({
   description: "List responses for a form.",
-  parameters: {
-    formId: { type: "string", description: "Form ID (required)" },
-    limit: {
-      type: "string",
-      description: "Max responses to return (default 100)",
-    },
-  },
+  schema: z.object({
+    formId: z.string().describe("Form ID (required)"),
+    limit: z.coerce
+      .number()
+      .optional()
+      .default(100)
+      .describe("Max responses to return (default 100)"),
+  }),
   http: { method: "GET" },
   run: async (args) => {
-    const formId = args.formId || args.form;
+    const formId = args.formId;
     if (!formId) {
       throw new Error("--formId is required");
     }
@@ -30,7 +32,7 @@ export default defineAction({
       throw new Error(`Form ${formId} not found`);
     }
 
-    const limit = parseInt(args.limit || "100", 10);
+    const limit = args.limit;
     const rows = await db
       .select()
       .from(schema.responses)

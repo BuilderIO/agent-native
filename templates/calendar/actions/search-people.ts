@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 
 function getDomain(email: string): string | null {
@@ -42,9 +43,9 @@ function extractPeople(people: any[]): PersonResult[] {
 
 export default defineAction({
   description: "Search people in the Google Workspace directory",
-  parameters: {
-    q: { type: "string", description: "Search query (name or email)" },
-  },
+  schema: z.object({
+    q: z.string().optional().describe("Search query (name or email)"),
+  }),
   http: { method: "GET" },
   run: async (args) => {
     const email = process.env.AGENT_USER_EMAIL || "local@localhost";

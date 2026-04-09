@@ -24,7 +24,8 @@ const statusDots: Record<string, string> = {
 export function Sidebar() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { data: forms = [] } = useForms();
+  const { data: formsData } = useForms();
+  const forms = Array.isArray(formsData) ? formsData : [];
   const createForm = useCreateForm();
   const { send } = useSendToAgentChat();
   const [popoverOpen, setPopoverOpen] = useState(false);
