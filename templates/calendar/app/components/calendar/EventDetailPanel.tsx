@@ -87,12 +87,20 @@ export function EventDetailPanel({
     if (!event) return;
     const trimmed = editDescription.trim();
     if (trimmed !== lastSavedDescriptionRef.current.trim()) {
-      updateEvent.mutate({
-        id: event.id,
-        accountEmail: event.accountEmail,
-        description: trimmed,
-      });
+      const prev = lastSavedDescriptionRef.current;
       lastSavedDescriptionRef.current = trimmed;
+      updateEvent.mutate(
+        {
+          id: event.id,
+          accountEmail: event.accountEmail,
+          description: trimmed,
+        },
+        {
+          onError: () => {
+            lastSavedDescriptionRef.current = prev;
+          },
+        },
+      );
     }
   }, [editDescription, event, updateEvent]);
 
@@ -270,7 +278,7 @@ export function EventDetailPanel({
                         onKeyDown={(e) => {
                           if (e.key === "Escape") {
                             e.preventDefault();
-                            setEditDescription(event.description || "");
+                            setEditDescription(lastSavedDescriptionRef.current);
                           }
                           if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
                             e.preventDefault();
