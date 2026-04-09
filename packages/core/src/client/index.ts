@@ -124,6 +124,7 @@ export {
 } from "./use-action.js";
 export {
   useAvatarUrl,
+  uploadAvatar,
   useUploadAvatar,
   invalidateAvatarCache,
 } from "./use-avatar.js";

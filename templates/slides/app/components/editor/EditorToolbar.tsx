@@ -23,7 +23,7 @@ import type { Slide, SlideLayout } from "@/context/DeckContext";
 import {
   AgentToggleButton,
   useAvatarUrl,
-  useUploadAvatar,
+  uploadAvatar,
   emailToColor,
   emailToName,
   type CollabUser,
@@ -94,41 +94,51 @@ const backgroundOptions = [
   "bg-[#ffffff]",
 ];
 
+function AvatarFace({
+  avatarUrl,
+  name,
+  color,
+  className,
+}: {
+  avatarUrl: string | null;
+  name: string;
+  color: string;
+  className: string;
+}) {
+  return (
+    <div className={className} style={{ backgroundColor: color }}>
+      {avatarUrl ? (
+        <img
+          src={avatarUrl}
+          alt={name}
+          className="w-full h-full object-cover"
+        />
+      ) : (
+        name.charAt(0).toUpperCase()
+      )}
+    </div>
+  );
+}
+
 function PresenceAvatar({ user }: { user: CollabUser }) {
   const avatarUrl = useAvatarUrl(user.email);
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <div
+        <AvatarFace
+          avatarUrl={avatarUrl}
+          name={user.name}
+          color={user.color}
           className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white ring-2 ring-[hsl(240,5%,6%)] overflow-hidden cursor-default"
-          style={{ backgroundColor: user.color }}
-        >
-          {avatarUrl ? (
-            <img
-              src={avatarUrl}
-              alt={user.name}
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            user.name.charAt(0).toUpperCase()
-          )}
-        </div>
+        />
       </TooltipTrigger>
       <TooltipContent side="bottom" className="flex items-center gap-2 p-2">
-        <div
+        <AvatarFace
+          avatarUrl={avatarUrl}
+          name={user.name}
+          color={user.color}
           className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 overflow-hidden"
-          style={{ backgroundColor: user.color }}
-        >
-          {avatarUrl ? (
-            <img
-              src={avatarUrl}
-              alt={user.name}
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            user.name.charAt(0).toUpperCase()
-          )}
-        </div>
+        />
         <div className="flex flex-col min-w-0">
           <span className="text-xs font-medium text-white leading-tight">
             {user.name}
@@ -144,7 +154,6 @@ function PresenceAvatar({ user }: { user: CollabUser }) {
 
 function CurrentUserAvatar({ email }: { email: string }) {
   const avatarUrl = useAvatarUrl(email);
-  const uploadAvatar = useUploadAvatar();
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {

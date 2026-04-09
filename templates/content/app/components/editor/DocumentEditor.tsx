@@ -10,7 +10,7 @@ import {
   emailToName,
   useSession,
   useAvatarUrl,
-  useUploadAvatar,
+  uploadAvatar,
   type CollabUser,
 } from "@agent-native/core/client";
 import { IconLoader2, IconSparkles } from "@tabler/icons-react";
@@ -74,7 +74,6 @@ function ContentPresenceAvatar({ user }: { user: CollabUser }) {
 
 function ContentCurrentUserAvatar({ email }: { email: string }) {
   const avatarUrl = useAvatarUrl(email);
-  const uploadAvatar = useUploadAvatar();
   const inputRef = useRef<HTMLInputElement>(null);
   const color = emailToColor(email);
   const name = emailToName(email);

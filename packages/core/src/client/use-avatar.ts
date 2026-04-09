@@ -84,24 +84,19 @@ async function compressAvatar(file: File): Promise<string> {
   });
 }
 
-/**
- * Returns a function that compresses and uploads an avatar image for the
- * currently authenticated user.
- */
-export function useUploadAvatar(): (
-  file: File,
-  email: string,
-) => Promise<void> {
-  return async (file: File, email: string) => {
-    const image = await compressAvatar(file);
-    await fetch("/_agent-native/avatar", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ image }),
-    });
-    // Invalidate cache so next useAvatarUrl call re-fetches
-    invalidateAvatarCache(email);
-    // Force re-read by setting cache to new value immediately
-    _cache.set(email, image);
-  };
+/** Compress and upload an avatar image for the given user. */
+export async function uploadAvatar(file: File, email: string): Promise<void> {
+  const image = await compressAvatar(file);
+  await fetch("/_agent-native/avatar", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ image }),
+  });
+  _cache.set(email, image);
+  _inFlight.delete(email);
+}
+
+/** @deprecated Use `uploadAvatar` directly — this hook wrapper is unnecessary. */
+export function useUploadAvatar(): typeof uploadAvatar {
+  return uploadAvatar;
 }
