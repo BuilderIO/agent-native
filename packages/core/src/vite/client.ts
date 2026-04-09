@@ -141,11 +141,19 @@ export interface ClientConfigOptions {
 }
 
 /**
- * Vite plugin that auto-reloads the page when Vite's dependency optimizer
- * invalidates modules (the "504 outdated optimize dep" error). Instead of
- * leaving the app in a broken state requiring a manual refresh, this
- * injects a tiny client script that listens for these errors and reloads
- * automatically after a brief delay to let the optimizer finish.
+ * Vite plugin that recovers the page when Vite's dependency optimizer
+ * invalidates modules mid-load (the "504 Outdated Optimize Dep" error).
+ *
+ * Without this, the page silently fails: <script type="module"> tags 504,
+ * React never mounts, and the user is stuck on a blank screen until they
+ * manually refresh. We catch the failure modes and auto-reload, with a
+ * visible overlay so the user knows what's happening, and a loop guard
+ * so we never thrash forever.
+ *
+ * Catches three failure modes:
+ *   1. <script type="module"> 504 — window "error" event, capture phase
+ *   2. Dynamic import 504 — "unhandledrejection" with "dynamically imported module"
+ *   3. Vite HMR error channel — fallback for cases where Vite reports it
  */
 function autoReloadOnOptimizeDep(): Plugin {
   return {
@@ -157,25 +165,137 @@ function autoReloadOnOptimizeDep(): Plugin {
           tag: "script",
           attrs: { type: "module" },
           children: `
-if (import.meta.hot) {
-  let reloadTimer;
-  // Vite sends "error" payloads when module fetches fail (504 outdated dep)
-  import.meta.hot.on("vite:error", (payload) => {
-    const msg = payload?.err?.message || "";
-    if (msg.includes("504") || msg.includes("outdated")) {
-      if (!reloadTimer) {
-        console.log("[agent-native] Dependency optimizer updated, reloading...");
-        reloadTimer = setTimeout(() => window.location.reload(), 800);
-      }
+(() => {
+  const RELOAD_KEY = "__an_optimize_reload";
+  const MAX_RELOADS = 3;
+  const RESET_AFTER_MS = 8000;
+
+  let reloadTimer = null;
+  let overlayShown = false;
+
+  // Track recent reloads in sessionStorage. If we reload too many times
+  // in a short window, stop and show a manual-refresh message instead of
+  // looping forever.
+  function readReloadHistory() {
+    try {
+      const raw = sessionStorage.getItem(RELOAD_KEY);
+      if (!raw) return [];
+      const arr = JSON.parse(raw);
+      const cutoff = Date.now() - 30000;
+      return Array.isArray(arr) ? arr.filter((t) => t > cutoff) : [];
+    } catch { return []; }
+  }
+  function recordReload() {
+    try {
+      const history = readReloadHistory();
+      history.push(Date.now());
+      sessionStorage.setItem(RELOAD_KEY, JSON.stringify(history));
+    } catch {}
+  }
+  // Reset the counter after a stable period (page didn't fail again).
+  setTimeout(() => {
+    try { sessionStorage.removeItem(RELOAD_KEY); } catch {}
+  }, RESET_AFTER_MS);
+
+  function showOverlay(title, subtitle) {
+    if (overlayShown) return;
+    overlayShown = true;
+    const mount = () => {
+      if (!document.body) return setTimeout(mount, 16);
+      const el = document.createElement("div");
+      el.id = "__an-reload-overlay";
+      el.style.cssText = [
+        "position:fixed","inset:0","z-index:2147483647",
+        "display:flex","align-items:center","justify-content:center",
+        "background:rgba(0,0,0,0.6)","backdrop-filter:blur(8px)",
+        "-webkit-backdrop-filter:blur(8px)",
+        "font-family:-apple-system,BlinkMacSystemFont,system-ui,sans-serif",
+        "color:#fff","font-size:14px",
+      ].join(";");
+      el.innerHTML =
+        '<div style="background:#171717;padding:20px 24px;border-radius:12px;' +
+        'border:1px solid rgba(255,255,255,0.1);max-width:340px;text-align:center;' +
+        'box-shadow:0 20px 60px rgba(0,0,0,0.5)">' +
+        '<div style="font-weight:600;margin-bottom:6px">' + title + '</div>' +
+        '<div style="font-size:12px;opacity:0.7">' + subtitle + '</div>' +
+        '</div>';
+      document.body.appendChild(el);
+    };
+    mount();
+  }
+
+  function scheduleReload(reason) {
+    if (reloadTimer) return;
+    const history = readReloadHistory();
+    if (history.length >= MAX_RELOADS) {
+      console.warn("[agent-native] Dev server keeps re-bundling. Manual refresh needed.", reason);
+      showOverlay(
+        "Dev server out of sync",
+        "Auto-reload gave up after " + MAX_RELOADS + " tries. Refresh the page (\u2318R / Ctrl+R)."
+      );
+      return;
+    }
+    console.log("[agent-native] Vite re-bundled deps (" + reason + "), reloading\u2026");
+    recordReload();
+    // First reload is silent — one refresh almost always fixes it and the
+    // overlay flash is more disruptive than the reload itself. Only show
+    // the overlay starting on the second attempt, when something is clearly
+    // taking longer than expected.
+    if (history.length >= 1) {
+      showOverlay("Updating dev server\u2026", "Reloading the page");
+    }
+    reloadTimer = setTimeout(() => window.location.reload(), 300);
+  }
+
+  function looksLikeViteDep(url) {
+    if (!url) return false;
+    return url.indexOf("/node_modules/.vite/deps/") !== -1
+        || url.indexOf("/@fs/") !== -1
+        || url.indexOf("?v=") !== -1
+        || url.indexOf("?import") !== -1;
+  }
+
+  // 1) <script type="module"> / <link> 504 — fires on the element, not window,
+  //    so we use capture phase to catch resource load errors.
+  window.addEventListener("error", (e) => {
+    const t = e.target;
+    if (!t || t === window) return;
+    const tag = t.tagName;
+    if (tag !== "SCRIPT" && tag !== "LINK") return;
+    const url = t.src || t.href || "";
+    if (looksLikeViteDep(url)) {
+      scheduleReload("script 504: " + url.split("/").pop());
+    }
+  }, true);
+
+  // 2) Dynamic import failures (React Router code splitting, lazy components)
+  window.addEventListener("unhandledrejection", (e) => {
+    const msg = String((e.reason && (e.reason.message || e.reason)) || "");
+    if (
+      msg.indexOf("Failed to fetch dynamically imported module") !== -1 ||
+      msg.indexOf("error loading dynamically imported module") !== -1 ||
+      msg.indexOf("Importing a module script failed") !== -1 ||
+      msg.indexOf("Outdated Optimize Dep") !== -1 ||
+      (msg.indexOf("504") !== -1 && msg.indexOf(".vite/deps") !== -1)
+    ) {
+      scheduleReload("dynamic import");
     }
   });
-  // Vite also fires beforeUpdate before a full reload from optimizer changes.
-  // If we get a vite:beforeFullReload after an error, clear our timer so
-  // Vite handles it natively.
-  import.meta.hot.on("vite:beforeFullReload", () => {
-    if (reloadTimer) { clearTimeout(reloadTimer); reloadTimer = null; }
-  });
-}`,
+
+  // 3) Vite HMR error channel — fallback for cases where Vite reports it itself.
+  if (import.meta.hot) {
+    import.meta.hot.on("vite:error", (payload) => {
+      const msg = (payload && payload.err && payload.err.message) || "";
+      if (msg.indexOf("504") !== -1 || msg.indexOf("Outdated") !== -1) {
+        scheduleReload("vite:error");
+      }
+    });
+    // If Vite triggers its own full reload first, let it handle things.
+    import.meta.hot.on("vite:beforeFullReload", () => {
+      if (reloadTimer) { clearTimeout(reloadTimer); reloadTimer = null; }
+    });
+  }
+})();`,
           injectTo: "head",
         },
       ];
