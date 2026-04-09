@@ -121,7 +121,9 @@ export function SlideInlineEditor({
   // Guard flag: prevents the seeding setContent from triggering onContentChange
   const isSettingContent = useRef(false);
 
-  const initialContent = extractEditableContent(slide.content);
+  const initialContent = extractEditableContent(
+    typeof slide.content === "string" ? slide.content : "",
+  );
 
   const editor = useEditor({
     extensions: [
@@ -170,7 +172,9 @@ export function SlideInlineEditor({
     if (!editor || !ydoc || editor.isDestroyed) return;
     const fragment = ydoc.getXmlFragment("default");
     if (fragment.length === 0) {
-      const html = extractEditableContent(slide.content);
+      const html = extractEditableContent(
+        typeof slide.content === "string" ? slide.content : "",
+      );
       if (html) {
         isSettingContent.current = true;
         editor.commands.setContent(html, { emitUpdate: false });

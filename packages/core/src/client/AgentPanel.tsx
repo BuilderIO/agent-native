@@ -1868,7 +1868,7 @@ export function AgentToggleButton({ className }: { className?: string }) {
     <button
       onClick={() => window.dispatchEvent(new Event("agent-panel:toggle"))}
       className={cn(
-        "flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
+        "ml-1.5 flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
         className,
       )}
       title="Toggle agent"

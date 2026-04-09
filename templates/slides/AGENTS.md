@@ -78,6 +78,14 @@ The current screen state (including deck/slide context) is automatically include
 
 **Always use `pnpm action <name>` for operations** -- never curl or raw HTTP.
 
+**Running actions from the frame:** The terminal cwd is the framework root. Always `cd` to this template's root before running any action:
+
+```bash
+cd templates/slides && pnpm action <name> [args]
+```
+
+`.env` is loaded automatically — **never manually set `DATABASE_URL` or other env vars**.
+
 ### Reading & Searching
 
 | Action        | Args            | Purpose                        |
@@ -121,16 +129,16 @@ Always prefer `update-slide` with `--find/--replace` over full deck rewrites. It
 
 ### Common Tasks
 
-| User request                       | What to do                                                 |
-| ---------------------------------- | ---------------------------------------------------------- |
-| "What am I looking at?"            | `pnpm action view-screen`                                  |
-| "List my decks"                    | `pnpm action list-decks`                                   |
-| "Create a new deck about X"        | Create deck via `POST /api/decks`, then navigate to it     |
-| "Add a slide about Y"              | Get deck, add slide to data, `PUT /api/decks/:id`          |
-| "Generate an image for this slide" | `pnpm action generate-image --prompt "..." --deck-id <id>` |
-| "Open deck abc123"                 | `pnpm action navigate --deckId=abc123`                     |
-| "Go to the deck list"              | `pnpm action navigate --view=list`                         |
-| "Find the company logo for X"      | `pnpm action logo-lookup --domain x.com`                   |
+| User request                       | What to do                                                             |
+| ---------------------------------- | ---------------------------------------------------------------------- |
+| "What am I looking at?"            | `pnpm action view-screen`                                              |
+| "List my decks"                    | `pnpm action list-decks`                                               |
+| "Create a new deck about X"        | Read `create-deck` skill, use `pnpm action create-deck`, then navigate |
+| "Add a slide about Y"              | Read `create-deck` skill for HTML templates, use `update-slide`        |
+| "Generate an image for this slide" | `pnpm action generate-image --prompt "..." --deck-id <id>`             |
+| "Open deck abc123"                 | `pnpm action navigate --deckId=abc123`                                 |
+| "Go to the deck list"              | `pnpm action navigate --view=list`                                     |
+| "Find the company logo for X"      | `pnpm action logo-lookup --domain x.com`                               |
 
 ## Slide Styling Rules
 
@@ -152,16 +160,17 @@ When generating outbound content (deck slides, marketing copy), consult **`data/
 
 ## Skills
 
-| Skill                 | When to read                                 |
-| --------------------- | -------------------------------------------- |
-| `deck-management`     | Before reading/writing deck data             |
-| `slide-editing`       | Before editing slide content or layout       |
-| `slide-images`        | Before generating or sourcing images         |
-| `storing-data`        | Before storing or reading any app state      |
-| `delegate-to-agent`   | Before adding LLM calls or AI delegation     |
-| `actions`             | Before creating or modifying scripts         |
-| `self-modifying-code` | Before editing source, components, or styles |
-| `frontend-design`     | Before building or restyling any UI          |
+| Skill                 | When to read                                                      |
+| --------------------- | ----------------------------------------------------------------- |
+| `create-deck`         | Before creating a deck or adding slides — has full HTML templates |
+| `deck-management`     | Before reading/writing deck data                                  |
+| `slide-editing`       | Before editing existing slide content or layout                   |
+| `slide-images`        | Before generating or sourcing images                              |
+| `storing-data`        | Before storing or reading any app state                           |
+| `delegate-to-agent`   | Before adding LLM calls or AI delegation                          |
+| `actions`             | Before creating or modifying scripts                              |
+| `self-modifying-code` | Before editing source, components, or styles                      |
+| `frontend-design`     | Before building or restyling any UI                               |
 
 ## API Routes
 

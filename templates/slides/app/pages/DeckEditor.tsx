@@ -387,7 +387,7 @@ export default function DeckEditor() {
         onUpdateSlide={(updates) =>
           currentSlide && updateSlide(id, currentSlide.id, updates)
         }
-        activeUsers={slideActiveUsers}
+        activeUsers={slideActiveUsers.filter((u) => u.email !== session?.email)}
         agentActive={agentActive}
         commentsOpen={commentsOpen}
         onToggleComments={() => setCommentsOpen((o) => !o)}

@@ -17,6 +17,7 @@ export function useDeckPresence(options: {
   user?: CollabUser;
 }) {
   const { deckId, activeSlideId, user } = options;
+  const selfEmail = user?.email;
 
   const { awareness } = useCollaborativeDoc({
     docId: deckId ? `deck-${deckId}` : null,
@@ -47,7 +48,7 @@ export function useDeckPresence(options: {
         if (clientId === selfId) return;
         const u = state.user as CollabUser | undefined;
         const slide = state.slide as string | undefined;
-        if (u && slide) {
+        if (u && slide && u.email !== selfEmail) {
           if (!map.has(slide)) map.set(slide, []);
           map.get(slide)!.push(u);
         }

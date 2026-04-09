@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, forwardRef } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router";
 import {
@@ -94,19 +94,12 @@ const backgroundOptions = [
   "bg-[#ffffff]",
 ];
 
-function AvatarFace({
-  avatarUrl,
-  name,
-  color,
-  className,
-}: {
-  avatarUrl: string | null;
-  name: string;
-  color: string;
-  className: string;
-}) {
+const AvatarFace = forwardRef<
+  HTMLDivElement,
+  { avatarUrl: string | null; name: string; color: string; className: string }
+>(function AvatarFace({ avatarUrl, name, color, className }, ref) {
   return (
-    <div className={className} style={{ backgroundColor: color }}>
+    <div ref={ref} className={className} style={{ backgroundColor: color }}>
       {avatarUrl ? (
         <img
           src={avatarUrl}
@@ -118,7 +111,7 @@ function AvatarFace({
       )}
     </div>
   );
-}
+});
 
 function PresenceAvatar({ user }: { user: CollabUser }) {
   const avatarUrl = useAvatarUrl(user.email);
@@ -334,6 +327,8 @@ export default function EditorToolbar({
       {/* Spacer */}
       <div className="flex-1 min-w-2" />
 
+      {currentUserEmail && <CurrentUserAvatar email={currentUserEmail} />}
+
       {/* Slide settings cog menu */}
       {currentSlide && onUpdateSlide && (
         <>
@@ -478,32 +473,33 @@ graph TD
                 <IconPencil className="w-3 h-3" />
                 Excalidraw Canvas
               </button>
-              {currentSlide?.content?.includes('class="mermaid"') && (
-                <button
-                  onClick={async () => {
-                    if (!onUpdateSlide || !currentSlide) return;
-                    try {
-                      const match = currentSlide.content.match(
-                        /<div\s+class="mermaid"[^>]*>([\s\S]*?)<\/div>/i,
-                      );
-                      if (!match) return;
-                      const { convertMermaidToExcalidraw } =
-                        await import("./MermaidToExcalidrawPanel");
-                      const data = await convertMermaidToExcalidraw(
-                        match[1].trim(),
-                      );
-                      onUpdateSlide({ excalidrawData: data });
-                      setLayoutOpen(false);
-                    } catch (err: any) {
-                      console.error("Mermaid to Excalidraw failed:", err);
-                    }
-                  }}
-                  className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[#00E5FF]/80 hover:text-[#00E5FF] hover:bg-white/[0.04] transition-colors"
-                >
-                  <IconTransform className="w-3 h-3" />
-                  Convert Mermaid → Excalidraw
-                </button>
-              )}
+              {typeof currentSlide?.content === "string" &&
+                currentSlide.content.includes('class="mermaid"') && (
+                  <button
+                    onClick={async () => {
+                      if (!onUpdateSlide || !currentSlide) return;
+                      try {
+                        const match = currentSlide.content.match(
+                          /<div\s+class="mermaid"[^>]*>([\s\S]*?)<\/div>/i,
+                        );
+                        if (!match) return;
+                        const { convertMermaidToExcalidraw } =
+                          await import("./MermaidToExcalidrawPanel");
+                        const data = await convertMermaidToExcalidraw(
+                          match[1].trim(),
+                        );
+                        onUpdateSlide({ excalidrawData: data });
+                        setLayoutOpen(false);
+                      } catch (err: any) {
+                        console.error("Mermaid to Excalidraw failed:", err);
+                      }
+                    }}
+                    className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[#00E5FF]/80 hover:text-[#00E5FF] hover:bg-white/[0.04] transition-colors"
+                  >
+                    <IconTransform className="w-3 h-3" />
+                    Convert Mermaid → Excalidraw
+                  </button>
+                )}
               {currentSlide?.excalidrawData && (
                 <button
                   onClick={() => {
@@ -656,7 +652,6 @@ graph TD
         <span className="hidden sm:inline">Present</span>
       </Link>
       <AgentToggleButton className="flex-shrink-0 text-white/40 hover:text-white/70 hover:bg-white/[0.06]" />
-      {currentUserEmail && <CurrentUserAvatar email={currentUserEmail} />}
     </div>
   );
 }

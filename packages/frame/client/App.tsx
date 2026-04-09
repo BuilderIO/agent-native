@@ -199,7 +199,11 @@ export function App() {
       }
       // Relay submitChat from the iframe — MultiTabAssistantChat rejects
       // cross-origin messages, so re-dispatch same-origin so it accepts it.
-      if (event.data.type === "builder.submitChat") {
+      // Only relay cross-origin messages to avoid re-triggering this handler.
+      if (
+        event.data.type === "builder.submitChat" &&
+        event.origin !== window.location.origin
+      ) {
         window.postMessage(event.data, window.location.origin);
         return;
       }
