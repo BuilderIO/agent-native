@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { db, schema } from "../server/db/index.js";
-import { eq } from "drizzle-orm";
+import { eq, and, or, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 export default defineAction({
@@ -10,7 +10,20 @@ export default defineAction({
   }),
   run: async (args) => {
     const id = args.id!;
-    await db().delete(schema.weights).where(eq(schema.weights.id, id));
+    const ownerEmail = process.env.AGENT_USER_EMAIL;
+    await db()
+      .delete(schema.weights)
+      .where(
+        and(
+          eq(schema.weights.id, id),
+          ownerEmail
+            ? or(
+                eq(schema.weights.owner_email, ownerEmail),
+                isNull(schema.weights.owner_email),
+              )
+            : undefined,
+        ),
+      );
     return { success: true };
   },
 });

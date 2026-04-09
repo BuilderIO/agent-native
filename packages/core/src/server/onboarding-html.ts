@@ -20,9 +20,19 @@ function hasGoogleOAuth(): boolean {
   return !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
 }
 
-export function getOnboardingHtml(): string {
-  const showLocalMode = !isProductionEnv();
+export interface OnboardingHtmlOptions {
+  /**
+   * Hide email/password forms and show ONLY the Google sign-in button.
+   * Useful for templates (mail, calendar) where Google is required anyway.
+   * If Google OAuth env vars are not configured, an error message is shown.
+   */
+  googleOnly?: boolean;
+}
+
+export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
+  const showLocalMode = !isProductionEnv() && !opts.googleOnly;
   const showGoogle = hasGoogleOAuth();
+  const googleOnly = !!opts.googleOnly;
   const localModeBlock = showLocalMode
     ? `
   <div class="divider">or</div>
@@ -205,12 +215,21 @@ ${
     Sign in with Google
   </button>
   <p class="google-error" id="google-err"></p>
-
-  <div class="divider">or</div>
+${googleOnly ? "" : `\n  <div class="divider">or</div>\n`}
 `
-    : ""
+    : googleOnly
+      ? `
+  <p style="color:#f87171;font-size:0.875rem;text-align:center;padding:1rem 0">
+    Google sign-in is not configured. Set <code>GOOGLE_CLIENT_ID</code> and
+    <code>GOOGLE_CLIENT_SECRET</code> environment variables to enable login.
+  </p>
+`
+      : ""
 }
-  <div class="tabs">
+${
+  googleOnly
+    ? ""
+    : `  <div class="tabs">
     <button class="tab active" data-tab="signup">Create account</button>
     <button class="tab" data-tab="login">Sign in</button>
   </div>
@@ -233,11 +252,15 @@ ${
     <input id="l-pass" type="password" autocomplete="current-password" placeholder="Enter password" required />
     <button type="submit">Sign in</button>
     <p class="msg error" id="l-msg"></p>
-  </form>
+  </form>`
+}
 ${localModeBlock}
 </div>
 <script>
-  var tabs = document.querySelectorAll('.tab');
+${
+  googleOnly
+    ? ""
+    : `  var tabs = document.querySelectorAll('.tab');
   var forms = document.querySelectorAll('.form');
   tabs.forEach(function(t) { t.addEventListener('click', function() {
     tabs.forEach(function(x) { x.classList.remove('active'); });
@@ -301,7 +324,8 @@ ${localModeBlock}
       msg.classList.add('show');
     }
   });
-${localModeScript}
+`
+}${localModeScript}
 ${
   showGoogle
     ? `

@@ -1,12 +1,12 @@
 import {
   defineEventHandler,
-  readBody,
   getRouterParam,
   getHeader,
   setResponseStatus,
   type H3Event,
 } from "h3";
 import { getSetting, putSetting, deleteSetting } from "./store.js";
+import { readBody } from "../server/h3-helpers.js";
 
 function safeKey(key: string): string {
   return key.replace(/[^a-zA-Z0-9_-]/g, "");

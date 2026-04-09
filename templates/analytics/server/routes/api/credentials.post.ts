@@ -1,6 +1,7 @@
-import { defineEventHandler, readBody, setResponseStatus } from "h3";
+import { defineEventHandler, setResponseStatus } from "h3";
 import { saveCredential } from "../../lib/credentials";
 import { credentialKeys } from "../../lib/credential-keys";
+import { readBody } from "@agent-native/core/server";
 
 const ALLOWED_KEYS = new Set(credentialKeys.map((k) => k.key));
 

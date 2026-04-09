@@ -21,10 +21,10 @@ export default defineAction({
     const result = await db()
       .insert(schema.weights)
       .values({
+        owner_email: process.env.AGENT_USER_EMAIL ?? null,
         weight: args.weight!,
         date: String(date).split("T")[0],
         notes: args.notes || null,
-        created_at: new Date(),
       })
       .returning();
 

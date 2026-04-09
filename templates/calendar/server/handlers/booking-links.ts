@@ -1,7 +1,6 @@
 import {
   defineEventHandler,
   getRouterParam,
-  readBody,
   setResponseStatus,
   type H3Event,
 } from "h3";
@@ -9,6 +8,7 @@ import { nanoid } from "nanoid";
 import { desc, eq } from "drizzle-orm";
 import type { BookingLink } from "../../shared/api.js";
 import { getDb, schema } from "../db/index.js";
+import { readBody } from "@agent-native/core/server";
 
 function rowToBookingLink(
   row: typeof schema.bookingLinks.$inferSelect,

@@ -1,7 +1,8 @@
-import { defineEventHandler, readBody, setResponseStatus } from "h3";
+import { defineEventHandler, setResponseStatus } from "h3";
 import { requireCredential } from "../lib/credentials";
 import { runQuery } from "../lib/bigquery";
 import { getDbExec } from "@agent-native/core/db";
+import { readBody } from "@agent-native/core/server";
 
 export const handleSqlQuery = defineEventHandler(async (event) => {
   const { query, source } = await readBody(event);

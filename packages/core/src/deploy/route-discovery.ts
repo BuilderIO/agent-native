@@ -186,15 +186,23 @@ export async function discoverActionFiles(
     const name = file.replace(/\.(ts|js)$/, "");
     const absPath = path.join(actionsDir, file);
 
-    // Try to detect the HTTP method from the file content
+    // Only mount actions that use defineAction. CLI-style scripts
+    // (export default async function()) often use Node-only APIs
+    // (fs, path) that can't run on edge runtimes — they're meant
+    // to be invoked via `pnpm action <name>`, not as HTTP endpoints.
     let method = "post"; // default
     try {
       const content = fs.readFileSync(absPath, "utf-8");
-      if (content.includes('"GET"') || content.includes("'GET'")) {
+      if (!content.includes("defineAction")) continue;
+      if (content.includes("http: false")) continue;
+      if (
+        content.includes('method: "GET"') ||
+        content.includes("method: 'GET'")
+      ) {
         method = "get";
       }
     } catch {
-      // Default to POST
+      continue;
     }
 
     actions.push({ name, absPath, method });

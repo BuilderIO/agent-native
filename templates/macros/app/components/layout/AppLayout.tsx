@@ -78,9 +78,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         <header className="sticky top-0 z-20 bg-background/80 backdrop-blur-md border-b border-white/[0.08] px-3 sm:px-4 py-2.5 sm:py-3">
           <div className="max-w-3xl lg:max-w-6xl mx-auto flex items-center justify-between gap-2">
             {/* Logo */}
-            <span className="font-logo font-bold tracking-tight text-lg sm:text-xl">
-              <span className="text-foreground">mac</span>
-              <span className="text-foreground/50">ros</span>
+            <span className="font-logo font-bold tracking-tight text-lg sm:text-xl text-foreground">
+              macros
             </span>
 
             {/* Tab Navigation */}

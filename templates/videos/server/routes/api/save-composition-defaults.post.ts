@@ -1,11 +1,7 @@
-import {
-  defineEventHandler,
-  readBody,
-  setResponseStatus,
-  type H3Event,
-} from "h3";
+import { defineEventHandler, setResponseStatus, type H3Event } from "h3";
 import fs from "fs/promises";
 import path from "path";
+import { readBody } from "@agent-native/core/server";
 
 export default defineEventHandler(async (event: H3Event) => {
   // Block source file writes in production (treat undefined NODE_ENV as production for edge runtimes)

@@ -12,7 +12,6 @@ async function getFs(): Promise<typeof import("fs")> {
 }
 import {
   defineEventHandler,
-  readBody,
   getMethod,
   getQuery,
   setResponseHeader,
@@ -20,13 +19,21 @@ import {
   getCookie,
   setCookie,
   deleteCookie,
-  toWebRequest,
 } from "h3";
-import type { App as H3App, H3Event } from "h3";
+import type { H3Event } from "h3";
+import type { H3AppShim } from "./framework-request-handler.js";
+
+// In h3 v2, `event.req` IS the web Request — no conversion needed.
+function toWebRequest(event: H3Event): Request {
+  return (event as any).req as Request;
+}
+
+type H3App = H3AppShim;
 import { getDbExec, isPostgres, intType } from "../db/client.js";
 import { getBetterAuth, getBetterAuthSync } from "./better-auth-instance.js";
 import type { BetterAuthConfig } from "./better-auth-instance.js";
 import { getOnboardingHtml } from "./onboarding-html.js";
+import { readBody } from "../server/h3-helpers.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -62,6 +69,13 @@ export interface AuthOptions {
    * Use this for custom login flows (e.g., "Sign in with Google" button).
    */
   loginHtml?: string;
+  /**
+   * Hide email/password forms on the built-in login page and show only the
+   * Google sign-in button. Use this for templates (mail, calendar) where
+   * Google connection is required anyway. Has no effect when `loginHtml`
+   * is provided.
+   */
+  googleOnly?: boolean;
   /**
    * Additional Better Auth configuration (social providers, plugins, etc.)
    */
@@ -586,6 +600,12 @@ async function mountBetterAuthRoutes(
 ): Promise<void> {
   const publicPaths = [...(options.publicPaths ?? [])];
 
+  // The A2A agent card is part of an open protocol — other agents must be
+  // able to discover it without auth. Same for favicons and similar probes.
+  for (const pp of ["/.well-known", "/favicon.ico", "/favicon.png"]) {
+    if (!publicPaths.includes(pp)) publicPaths.push(pp);
+  }
+
   // Auto-add Google OAuth routes when credentials are configured
   if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
     for (const gp of [
@@ -783,7 +803,8 @@ async function mountBetterAuthRoutes(
 
   // Auth guard — stored both in framework middleware registry AND in
   // _authGuardFn so the server middleware can enforce it on ALL routes.
-  const loginHtml = options.loginHtml ?? getOnboardingHtml();
+  const loginHtml =
+    options.loginHtml ?? getOnboardingHtml({ googleOnly: options.googleOnly });
   const guardFn = createAuthGuardFn(loginHtml, publicPaths);
   _authGuardFn = guardFn;
   app.use(defineEventHandler(guardFn));
@@ -1024,7 +1045,9 @@ export async function autoMountAuth(
     // CRITICAL: Even if Better Auth fails, register the auth guard so
     // unauthenticated users can't access the app. They'll see the login
     // page but won't be able to sign in until the DB is available.
-    const loginHtml = options.loginHtml ?? getOnboardingHtml();
+    const loginHtml =
+      options.loginHtml ??
+      getOnboardingHtml({ googleOnly: options.googleOnly });
     const guardFn = createAuthGuardFn(loginHtml, publicPaths);
     _authGuardFn = guardFn;
     app.use(defineEventHandler(guardFn));

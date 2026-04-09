@@ -1,7 +1,8 @@
 import path from "path";
 import { createReadStream } from "fs";
 import { stat } from "fs/promises";
-import { defineEventHandler, sendStream, setResponseStatus } from "h3";
+import { defineEventHandler, setResponseStatus } from "h3";
+import { streamFile } from "@agent-native/core/server";
 
 export default defineEventHandler(async (event) => {
   let mediaDir: string;
@@ -22,7 +23,7 @@ export default defineEventHandler(async (event) => {
   }
   try {
     await stat(filepath);
-    return sendStream(event, createReadStream(filepath));
+    return streamFile(createReadStream(filepath));
   } catch {
     setResponseStatus(event, 404);
     return { error: "Not found" };

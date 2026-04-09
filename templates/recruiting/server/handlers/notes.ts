@@ -1,14 +1,8 @@
-import {
-  defineEventHandler,
-  getQuery,
-  getRouterParam,
-  readBody,
-  createError,
-} from "h3";
+import { defineEventHandler, getQuery, getRouterParam, createError } from "h3";
 import { eq, and, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { db, schema } from "../db/index.js";
-import { getSession } from "@agent-native/core/server";
+import { readBody, getSession } from "@agent-native/core/server";
 import { getOrgContext } from "../lib/org-context.js";
 import type { AgentNote } from "@shared/types";
 

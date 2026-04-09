@@ -245,15 +245,27 @@ async function threadHasReplySinceSnooze(
 export async function listPendingJobs(
   ownerEmail: string,
 ): Promise<ScheduledJobRecord[]> {
-  const jobs = await db
-    .select()
-    .from(schema.scheduledJobs)
-    .where(inArray(schema.scheduledJobs.status, ["pending", "processing"]));
+  // The scheduled_jobs table is created by the db-migrations plugin at
+  // startup. If migrations failed (e.g. fresh deploy where the DB driver
+  // couldn't initialize) the query throws — return an empty list instead
+  // of bubbling a 500 to the inbox endpoint.
+  try {
+    const jobs = await db
+      .select()
+      .from(schema.scheduledJobs)
+      .where(inArray(schema.scheduledJobs.status, ["pending", "processing"]));
 
-  return jobs.filter((job) => {
-    const jobOwner = job.ownerEmail || job.accountEmail;
-    return !jobOwner || jobOwner === ownerEmail;
-  }) as ScheduledJobRecord[];
+    return jobs.filter((job) => {
+      const jobOwner = job.ownerEmail || job.accountEmail;
+      return !jobOwner || jobOwner === ownerEmail;
+    }) as ScheduledJobRecord[];
+  } catch (err) {
+    console.warn(
+      "[mail] listPendingJobs failed (table may not exist yet):",
+      (err as Error).message,
+    );
+    return [];
+  }
 }
 
 export async function createScheduledJobRecord(input: {
