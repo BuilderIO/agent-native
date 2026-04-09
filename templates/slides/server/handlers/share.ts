@@ -1,10 +1,6 @@
-import {
-  defineEventHandler,
-  readBody,
-  getRouterParam,
-  setResponseStatus,
-} from "h3";
+import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
 import crypto from "crypto";
+import { readBody } from "@agent-native/core/server";
 import type {
   ShareDeckRequest,
   ShareDeckResponse,

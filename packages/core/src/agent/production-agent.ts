@@ -1,7 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import {
   defineEventHandler,
-  readBody,
   setResponseHeader,
   setResponseStatus,
   getMethod,
@@ -23,6 +22,7 @@ import {
   abortRun,
 } from "./run-manager.js";
 import type { ActiveRun } from "./run-manager.js";
+import { readBody } from "../server/h3-helpers.js";
 
 /** Context passed to action run() for emitting intermediate events */
 export interface ActionRunContext {

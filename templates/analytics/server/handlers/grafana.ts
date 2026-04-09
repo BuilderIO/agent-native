@@ -1,5 +1,6 @@
-import { defineEventHandler, getQuery, readBody, setResponseStatus } from "h3";
+import { defineEventHandler, getQuery, setResponseStatus } from "h3";
 import { requireCredential } from "../lib/credentials";
+import { readBody } from "@agent-native/core/server";
 import {
   listDashboards,
   getDashboard,

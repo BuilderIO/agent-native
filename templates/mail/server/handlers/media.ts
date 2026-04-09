@@ -5,9 +5,9 @@ import {
   getRouterParam,
   setResponseStatus,
   setResponseHeader,
-  sendStream,
   type H3Event,
 } from "h3";
+import { streamFile } from "@agent-native/core/server";
 import fs from "node:fs";
 import path from "node:path";
 import { nanoid } from "nanoid";
@@ -104,5 +104,5 @@ export const serveMedia = defineEventHandler(async (event: H3Event) => {
     "Cache-Control",
     "public, max-age=31536000, immutable",
   );
-  return sendStream(event, fs.createReadStream(filePath));
+  return streamFile(fs.createReadStream(filePath));
 });

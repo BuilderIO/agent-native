@@ -5,14 +5,9 @@
  * defineAction to expose as GET. Use `http: false` to mark as agent-only.
  */
 import { getH3App } from "./framework-request-handler.js";
-import {
-  defineEventHandler,
-  readBody,
-  setResponseStatus,
-  getMethod,
-  getQuery,
-} from "h3";
+import { defineEventHandler, setResponseStatus, getMethod, getQuery } from "h3";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { readBody } from "../server/h3-helpers.js";
 
 const ROUTE_PREFIX = "/_agent-native/actions";
 

@@ -32,7 +32,7 @@
     "@tabler/icons-react": "^3.40.0",
     "dotenv": "^17.2.1",
     "drizzle-orm": "^0.44.0",
-    "h3": "^1.15.3",
+    "h3": "^2.0.1-rc.20",
     "isbot": "^5",
     "mermaid": "^11.14.0",
     "nanoid": "^4.0.2",

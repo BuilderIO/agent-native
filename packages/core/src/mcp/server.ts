@@ -2,12 +2,12 @@ import * as jose from "jose";
 import { getH3App } from "../server/framework-request-handler.js";
 import {
   defineEventHandler,
-  readBody,
   setResponseStatus,
   getMethod,
   getRequestHeader,
 } from "h3";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { readBody } from "../server/h3-helpers.js";
 
 export interface MCPConfig {
   /** App name shown in MCP server info */
@@ -222,8 +222,17 @@ export function mountMCP(
       const server = await createMCPServerForRequest(config);
       await server.connect(transport);
 
-      // Delegate to the transport — it writes directly to the Node response
-      await transport.handleRequest(event.node.req, event.node.res, body);
+      // Delegate to the transport — it writes directly to the Node response.
+      // MCP's HTTP transport requires Node streams; this route is Node-only.
+      const nodeReq =
+        (event as any).node?.req ?? (event as any).req?.runtime?.node?.req;
+      const nodeRes =
+        (event as any).node?.res ?? (event as any).req?.runtime?.node?.res;
+      if (!nodeReq || !nodeRes) {
+        setResponseStatus(event, 501);
+        return { error: "MCP requires Node runtime" };
+      }
+      await transport.handleRequest(nodeReq, nodeRes, body);
 
       // Prevent H3 from double-writing the response
       (event as any)._handled = true;

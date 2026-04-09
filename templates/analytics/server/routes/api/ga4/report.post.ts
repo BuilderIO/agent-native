@@ -1,5 +1,6 @@
-import { defineEventHandler, readBody, createError } from "h3";
+import { defineEventHandler, createError } from "h3";
 import { resolveCredential } from "../../../lib/credentials";
+import { readBody } from "@agent-native/core/server";
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event);

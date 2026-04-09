@@ -1,4 +1,4 @@
-import { defineEventHandler, getQuery, readBody, setResponseStatus } from "h3";
+import { defineEventHandler, getQuery, setResponseStatus } from "h3";
 import {
   getUserPersona,
   setUserPersona,
@@ -7,6 +7,7 @@ import {
 } from "../lib/user-persona";
 import { runQuery } from "../lib/bigquery";
 import { calculateValidationPoints } from "../lib/contribution-scoring";
+import { readBody } from "@agent-native/core/server";
 
 // In-memory stores (temporary until we have Firestore permissions)
 interface UserPoints {

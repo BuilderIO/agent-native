@@ -4,6 +4,8 @@ export {
   type CreateServerOptions,
   type EnvKeyConfig,
 } from "./create-server.js";
+
+export { readBody, streamFile } from "./h3-helpers.js";
 export { createSSEHandler, type SSEHandlerOptions } from "./sse.js";
 export {
   mountAuthMiddleware,
@@ -91,13 +93,7 @@ export {
 } from "./agent-teams.js";
 export { isOAuthConnected, getOAuthAccounts } from "./oauth-helpers.js";
 export { wrapWithAnalytics } from "./analytics.js";
-export {
-  handleFrameworkRequest,
-  registerFrameworkRoute,
-  registerFrameworkMiddleware,
-  getH3App,
-} from "./framework-request-handler.js";
-export { polyfillH3Event, polyfillH3EventSync } from "./h3-polyfill.js";
+export { getH3App, type H3AppShim } from "./framework-request-handler.js";
 export {
   autoDiscoverActions,
   autoDiscoverScripts,

@@ -56,10 +56,9 @@ function generateWorkerEntry(
   for (let i = 0; i < routes.length; i++) {
     const r = routes[i];
     const varName = `route_${i}`;
-    // Use the absolute path for the import
     routeImports.push(`import ${varName} from ${JSON.stringify(r.absPath)};`);
     routeRegistrations.push(
-      `  router.${r.method}(${JSON.stringify(r.route)}, ${varName});`,
+      `  app.on(${JSON.stringify(r.method.toUpperCase())}, ${JSON.stringify(r.route)}, ${varName});`,
     );
   }
 
@@ -70,14 +69,12 @@ function generateWorkerEntry(
     const a = actions[i];
     const varName = `action_${i}`;
     actionImports.push(`import ${varName} from ${JSON.stringify(a.absPath)};`);
-    // Mount action as /_agent-native/actions/:name
-    // Actions export { tool, run, schema?, http? } from defineAction
     const routePath = `/_agent-native/actions/${a.name}`;
     actionRegistrations.push(
-      `  router.${a.method}(${JSON.stringify(routePath)}, defineEventHandler(async (event) => {
-    const params = ${a.method === "get" ? "Object.fromEntries(new URL(event.url || event.req?.url || '/', 'http://localhost').searchParams)" : "await event.req.json().catch(() => ({}))"};
+      `  app.on(${JSON.stringify(a.method.toUpperCase())}, ${JSON.stringify(routePath)}, defineEventHandler(async (event) => {
+    const params = ${a.method === "get" ? "Object.fromEntries(event.url.searchParams)" : "(await readBody(event)) ?? {}"};
     try {
-      const result = await (${varName}.schema ? ${varName}.run(params) : ${varName}.run(params));
+      const result = await ${varName}.run(params);
       if (typeof result === "string") { try { return JSON.parse(result); } catch { return result; } }
       return result;
     } catch (err) {
@@ -98,7 +95,7 @@ function generateWorkerEntry(
       `import ${varName} from ${JSON.stringify(edgePlugins[i])};`,
     );
     pluginCalls.push(`  if (typeof ${varName} === "function") {
-    await ${varName}({ h3App: app });
+    await ${varName}(nitroApp);
   }`);
   }
 
@@ -115,13 +112,13 @@ function generateWorkerEntry(
       `import { ${exportName} as ${varName} } from "@agent-native/core/server";`,
     );
     pluginCalls.push(`  if (typeof ${varName} === "function") {
-    await ${varName}({ h3App: app });
+    await ${varName}(nitroApp);
   }`);
   }
 
   return `
 // Auto-generated worker entry point for ${preset}
-import { createApp, createRouter, toWebHandler, defineEventHandler, toWebRequest } from "h3";
+import { H3, defineEventHandler, readBody } from "h3";
 import { createRequestHandler } from "react-router";
 import * as serverBuild from "./server-build.js";
 
@@ -139,27 +136,34 @@ let _handler;
 async function getHandler() {
   if (_handler) return _handler;
 
-  const app = createApp();
-  const router = createRouter();
+  const app = new H3();
 
-  // CORS
+  // Build a fake nitroApp surface so framework plugins (which expect
+  // \`nitroApp.h3["~middleware"]\`) can register routes via getH3App().
+  const noop = () => {};
+  const nitroApp = {
+    h3: app,
+    hooks: { hook: noop, callHook: noop, hookOnce: noop },
+    captureError: noop,
+  };
+
+  // CORS — applied as global middleware via .use(handler)
   app.use(defineEventHandler((event) => {
-    const headers = event.node?.res || event.res;
-    if (headers?.setHeader) {
-      headers.setHeader("Access-Control-Allow-Origin", "*");
-      headers.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
-      headers.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization,X-Requested-With");
-    }
-    if (event.method === "OPTIONS" || event.node?.req?.method === "OPTIONS") {
-      return new Response(null, { status: 204 });
+    if (event.req.method === "OPTIONS") {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Requested-With",
+        },
+      });
     }
   }));
 
-  // Run plugins BEFORE routes — auth middleware must be mounted first
+  // Run plugins — they call getH3App(nitroApp).use(path, handler) which
+  // pushes path-prefix middleware onto app["~middleware"].
 ${pluginCalls.join("\n")}
-
-  // Mount router AFTER plugins so auth middleware runs first
-  app.use(router);
 
   // Register API routes
 ${routeRegistrations.join("\n")}
@@ -169,12 +173,11 @@ ${actionRegistrations.join("\n")}
 
   // SSR catch-all for React Router
   const rrHandler = createRequestHandler(() => serverBuild);
-  router.get("/**", defineEventHandler(async (event) => {
-    const webReq = toWebRequest(event);
-    return rrHandler(webReq);
+  app.all("/**", defineEventHandler(async (event) => {
+    return rrHandler(event.req);
   }));
 
-  _handler = toWebHandler(app);
+  _handler = app.fetch.bind(app);
   return _handler;
 }
 
@@ -205,7 +208,6 @@ export default {
         // Asset fetch failed — fall through to SSR
       }
     }
-
 
     const handler = await getHandler();
     return handler(request);
@@ -630,63 +632,6 @@ async function buildWithNitro() {
     );
   }
 
-  // Patch H3 for Web-standard runtimes (Netlify Functions v2, etc.).
-  // H3 v2 beta accesses event.node.req internally but event.node is undefined
-  // in Web runtimes. Patch the Nitro main.mjs onRequest hook to populate
-  // event.node with a Node-like facade derived from the Web Request.
-  // Find the Nitro server entry — varies by preset:
-  // netlify: .netlify/functions-internal/server/main.mjs
-  // cloudflare-pages: dist/_worker.js/index.js
-  const serverOutputDir = nitro.options.output.serverDir;
-  const entryFiles = [
-    serverOutputDir && path.join(serverOutputDir, "main.mjs"),
-    serverOutputDir && path.join(serverOutputDir, "index.js"),
-    path.join(cwd, "dist", "_worker.js", "index.js"),
-  ].filter(Boolean) as string[];
-  const mainMjs = entryFiles.find((f) => fs.existsSync(f));
-  if (mainMjs) {
-    let code = fs.readFileSync(mainMjs, "utf-8");
-    if (
-      code.includes(".config.onRequest") &&
-      !code.includes("__h3_web_compat__")
-    ) {
-      const marker = ".config.onRequest=";
-      const endMarker = ".config.onResponse";
-      const startIdx = code.indexOf(marker);
-      const endIdx = code.indexOf(endMarker, startIdx);
-      if (startIdx !== -1 && endIdx !== -1) {
-        const segment = code.slice(startIdx + marker.length, endIdx);
-        const arrowIdx = segment.indexOf("=>");
-        const param = segment.slice(0, arrowIdx);
-        const bodyWithTrailing = segment.slice(arrowIdx + 2);
-        const lastComma = bodyWithTrailing.lastIndexOf(",");
-        const body = bodyWithTrailing.slice(0, lastComma);
-        const trailing = bodyWithTrailing.slice(lastComma);
-
-        const shimBody = [
-          "/* __h3_web_compat__ */",
-          `if(!${param}.node&&(${param}.method||${param}.url||${param}.headers)){`,
-          `var _u,_h={},_n=function(){};`,
-          `try{_u=new URL(${param}.url||${param}.path||"/",${param}.headers?.get?.("host")?"https://"+${param}.headers.get("host"):"https://localhost")}catch(x){_u=new URL("https://localhost/")}`,
-          `if(${param}.headers?.forEach)${param}.headers.forEach(function(v,k){_h[k]=v});`,
-          `else if(${param}.headers)for(var _k in ${param}.headers)_h[_k]=${param}.headers[_k];`,
-          `var _nd={req:{method:${param}.method||"GET",url:_u.pathname+_u.search,headers:_h,originalUrl:_u.pathname+_u.search,socket:{remoteAddress:void 0},connection:{encrypted:_u.protocol==="https:"},on:_n,rawBody:void 0,body:void 0},res:{statusCode:200,setHeader:_n,getHeader:function(){},writeHead:_n,write:_n,end:_n,headersSent:false}};`,
-          `try{${param}.node=_nd}catch(x){Object.defineProperty(${param},"node",{value:_nd,writable:true,configurable:true})}}`,
-        ].join("");
-
-        const newSegment = `${param}=>{${shimBody};return ${body}}${trailing}`;
-        const patched =
-          code.slice(0, startIdx + marker.length) +
-          newSegment +
-          code.slice(endIdx);
-        fs.writeFileSync(mainMjs, patched);
-        console.log(
-          "[deploy] Patched H3 for Web-standard runtime compatibility",
-        );
-      }
-    }
-  }
-
   // Resolve remaining bare npm imports by bundling them into _libs/.
   // Nitro sometimes leaves small packages as externals even with noExternals.
   if (preset.startsWith("cloudflare") || preset.startsWith("deno")) {
@@ -970,21 +915,7 @@ async function buildWithNitro() {
         if (changed) fs.writeFileSync(filePath, code);
       }
     }
-    // 3. Patch the route finder in index.js/main entry.
-    // Nitro's route finder does e.req.method and e.url.pathname but on CF
-    // Pages, e is a Web Request (no .req, .url is string not URL object).
-    if (mainMjs) {
-      let entryCode = fs.readFileSync(mainMjs, "utf-8");
-      if (entryCode.includes("e.req.method,e.url.pathname")) {
-        entryCode = entryCode.replace(
-          /e\.req\.method,e\.url\.pathname/g,
-          '(e.req?.method||e.method),(typeof e.url==="string"?new URL(e.url).pathname:e.url?.pathname||"/")',
-        );
-        fs.writeFileSync(mainMjs, entryCode);
-      }
-    }
-
-    // 4. Create stub modules in _libs/ for native deps that Nitro's rolldown
+    // 3. Create stub modules in _libs/ for native deps that Nitro's rolldown
     // bundler references but can't resolve on CF Workers, and rewrite
     // bare imports to point to the stub files.
     const libsDir2 = path.join(

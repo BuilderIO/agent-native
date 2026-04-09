@@ -1,12 +1,12 @@
 import {
   defineEventHandler,
   getQuery,
-  readBody,
   sendRedirect,
   setResponseStatus,
   type H3Event,
 } from "h3";
 import {
+  readBody,
   getSession,
   isElectron,
   getOrigin,
@@ -102,10 +102,10 @@ export const handleAtlassianCallback = defineEventHandler(
       if (msg.includes("invalid_grant") || msg.includes("authorization_code")) {
         const { connected } = await getAuthStatus();
         if (connected) {
-          return sendRedirect(event, "/");
+          return sendRedirect(event, "/", 302);
         }
         // Not connected — redirect back to try again with a fresh auth URL
-        return sendRedirect(event, "/?connect=retry");
+        return sendRedirect(event, "/?connect=retry", 302);
       }
       return oauthErrorPage(`Connection failed: ${msg}`);
     }

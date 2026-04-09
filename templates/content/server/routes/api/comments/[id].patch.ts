@@ -1,10 +1,6 @@
-import {
-  defineEventHandler,
-  readBody,
-  setResponseStatus,
-  getRouterParam,
-} from "h3";
+import { defineEventHandler, setResponseStatus, getRouterParam } from "h3";
 import { getDbExec, isPostgres } from "@agent-native/core/db";
+import { readBody } from "@agent-native/core/server";
 
 /**
  * PATCH /api/comments/:id

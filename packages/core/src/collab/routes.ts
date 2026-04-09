@@ -4,16 +4,12 @@
  * Mounted under /_agent-native/collab/ by the collab plugin.
  */
 
-import {
-  defineEventHandler,
-  readBody,
-  setResponseStatus,
-  getRouterParam,
-} from "h3";
+import { defineEventHandler, setResponseStatus, getRouterParam } from "h3";
 import type { H3Event } from "h3";
 import * as manager from "./ydoc-manager.js";
 import { searchAndReplace as doSearchAndReplace } from "./ydoc-manager.js";
 import { uint8ArrayToBase64, base64ToUint8Array } from "./storage.js";
+import { readBody } from "../server/h3-helpers.js";
 
 /**
  * GET /_agent-native/collab/:docId/state

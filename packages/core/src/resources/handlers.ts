@@ -1,6 +1,5 @@
 import {
   defineEventHandler,
-  readBody,
   getQuery,
   getRouterParam,
   setResponseHeader,
@@ -23,6 +22,7 @@ import {
   type ResourceMeta,
 } from "./store.js";
 import { getSession } from "../server/auth.js";
+import { readBody } from "../server/h3-helpers.js";
 
 // ---------------------------------------------------------------------------
 // Owner resolution
@@ -245,7 +245,7 @@ export async function handleGetResource(event: any) {
       : Buffer.from(resource.content, "base64");
 
     setResponseHeader(event, "Content-Type", resource.mimeType);
-    setResponseHeader(event, "Content-Length", buf.length);
+    setResponseHeader(event, "Content-Length", String(buf.length));
     return new Response(buf);
   }
 
@@ -387,8 +387,8 @@ export async function handleUploadResource(event: any) {
   const isText =
     mimeType.startsWith("text/") || mimeType === "application/json";
   const content = isText
-    ? filePart.data.toString("utf-8")
-    : filePart.data.toString("base64");
+    ? Buffer.from(filePart.data).toString("utf-8")
+    : Buffer.from(filePart.data).toString("base64");
 
   const owner = await resolveOwner(event, shared);
   const resource = await resourcePut(owner, path, content, mimeType);

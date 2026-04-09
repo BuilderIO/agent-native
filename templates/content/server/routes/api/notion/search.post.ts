@@ -1,9 +1,10 @@
-import { defineEventHandler, readBody, createError } from "h3";
+import { defineEventHandler, createError } from "h3";
 import {
   getDocumentOwnerEmail,
   getNotionConnectionForOwner,
   notionFetch,
 } from "../../../lib/notion.js";
+import { readBody } from "@agent-native/core/server";
 import type {
   NotionSearchResponse,
   NotionSearchResult,

@@ -21,7 +21,6 @@ import {
 } from "../agent/thread-data-builder.js";
 import {
   defineEventHandler,
-  readBody,
   setResponseStatus,
   setResponseHeader,
   getMethod,
@@ -46,6 +45,7 @@ import {
   SHARED_OWNER,
 } from "../resources/store.js";
 import nodePath from "node:path";
+import { readBody } from "./h3-helpers.js";
 
 // Lazy fs — loaded via dynamic import() on first use.
 // This avoids require() which bundlers convert to createRequire(import.meta.url)
@@ -760,7 +760,7 @@ function generateActionsPrompt(registry: Record<string, ActionEntry>): string {
  * Usage in templates:
  * ```ts
  * // server/plugins/agent-chat.ts
- * import { createAgentChatPlugin } from "@agent-native/core/server";
+ * import { readBody, createAgentChatPlugin } from "@agent-native/core/server";
  * import { scriptRegistry } from "../../scripts/registry.js";
  *
  * export default createAgentChatPlugin({

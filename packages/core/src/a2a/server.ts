@@ -2,7 +2,6 @@ import * as jose from "jose";
 import { getH3App } from "../server/framework-request-handler.js";
 import {
   defineEventHandler,
-  readBody,
   setResponseHeader,
   setResponseStatus,
   getMethod,
@@ -11,6 +10,7 @@ import {
 import type { A2AConfig } from "./types.js";
 import { generateAgentCard } from "./agent-card.js";
 import { handleJsonRpcH3 } from "./handlers.js";
+import { readBody } from "../server/h3-helpers.js";
 
 /**
  * Verify an inbound A2A JWT signed with the shared A2A_SECRET.
@@ -55,10 +55,9 @@ export function mountA2A(
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
       }
-      const req = event.node?.req;
       const protocol =
         getRequestHeader(event, "x-forwarded-proto") ||
-        (req?.socket && "encrypted" in req.socket ? "https" : "http");
+        (event.url?.protocol?.replace(":", "") ?? "http");
       const host = getRequestHeader(event, "host") ?? "localhost";
       const baseUrl = `${protocol}://${host}`;
       return generateAgentCard(config, baseUrl);

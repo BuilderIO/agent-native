@@ -4,13 +4,13 @@ import {
   defineEventHandler,
   getMethod,
   getRequestHeader,
-  readBody,
   setResponseHeader,
   setResponseStatus,
   type H3Event,
 } from "h3";
 import path from "path";
 import { agentEnv } from "../shared/agent-env.js";
+import { readBody } from "../server/h3-helpers.js";
 
 export interface EnvKeyConfig {
   /** Environment variable name (e.g. "HUBSPOT_ACCESS_TOKEN") */

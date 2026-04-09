@@ -41,12 +41,23 @@ export function runMigrations(
         const current = (results?.v as number) ?? 0;
 
         for (const m of migrations.filter((m) => m.version > current)) {
-          await d1.batch([
-            d1.prepare(m.sql),
-            d1
-              .prepare(`INSERT OR IGNORE INTO _migrations VALUES (?)`)
-              .bind(m.version),
-          ]);
+          try {
+            await d1.batch([
+              d1.prepare(m.sql),
+              d1
+                .prepare(`INSERT OR IGNORE INTO _migrations VALUES (?)`)
+                .bind(m.version),
+            ]);
+            console.log(`[db] Applied migration v${m.version}`);
+          } catch (err) {
+            console.error(
+              `[db] Migration v${m.version} FAILED:`,
+              (err as Error).message,
+              "\nSQL:",
+              m.sql,
+            );
+            throw err;
+          }
         }
         return;
       }
@@ -68,13 +79,35 @@ export function runMigrations(
         ? `INSERT INTO _migrations VALUES (?) ON CONFLICT DO NOTHING`
         : `INSERT OR IGNORE INTO _migrations VALUES (?)`;
 
-      for (const m of migrations.filter((m) => m.version > current)) {
+      const pending = migrations.filter((m) => m.version > current);
+      if (pending.length > 0) {
+        console.log(
+          `[db] Applying ${pending.length} migration(s) on ${pg ? "Postgres" : "SQLite/libsql"}…`,
+        );
+      }
+
+      for (const m of pending) {
         const sql = pg ? adaptSqlForPostgres(m.sql) : adaptSqlForSqlite(m.sql);
-        await exec.execute(sql);
-        await exec.execute({ sql: insertSql, args: [m.version] });
+        try {
+          await exec.execute(sql);
+          await exec.execute({ sql: insertSql, args: [m.version] });
+          console.log(`[db] Applied migration v${m.version}`);
+        } catch (err) {
+          console.error(
+            `[db] Migration v${m.version} FAILED:`,
+            (err as Error).message,
+            "\nSQL:",
+            sql,
+          );
+          throw err;
+        }
       }
     } catch (err) {
-      console.error("[db] Migration failed:", err);
+      console.error("[db] Migration failed:", (err as Error).message);
+      // In Node.js, hard-fail so dev catches errors immediately. On web
+      // runtimes (Cloudflare Workers, Netlify Functions) we keep the
+      // process alive — the app will return 500s for routes that depend
+      // on the missing tables, but at least other routes still work.
       if (
         typeof globalThis.process?.exit === "function" &&
         !globalThis.navigator

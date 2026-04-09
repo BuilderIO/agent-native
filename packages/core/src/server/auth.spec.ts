@@ -275,10 +275,24 @@ function createMockEvent(opts?: {
     .join("&");
   const url = qs ? `/?${qs}` : "/";
   return {
+    // h3 v2 shape: event.req is the web Request, event.url is a parsed URL,
+    // event.res holds the response headers map.
+    req: {
+      method: "GET",
+      url: `http://localhost${url}`,
+      headers: new Headers({ host: "localhost" }),
+    },
+    url: new URL(`http://localhost${url}`),
+    res: {
+      headers: new Headers(),
+      status: 200,
+    },
+    // Legacy v1 shape kept for any code paths still using event.node.req
     node: {
       req: {
         headers: { host: "localhost" },
         url,
+        method: "GET",
       },
       res: {
         setHeader: vi.fn(),
