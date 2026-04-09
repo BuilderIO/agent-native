@@ -1,5 +1,8 @@
 import { getH3App } from "../server/framework-request-handler.js";
 import { isNodeRuntime } from "../shared/runtime.js";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { createRequire } from "node:module";
 /**
  * Nitro Plugin — Agent Terminal
  *
@@ -11,6 +14,42 @@ import { isNodeRuntime } from "../shared/runtime.js";
  */
 
 import { defineEventHandler } from "h3";
+
+// ─── module-load self-heal: chmod node-pty's spawn-helper ─────────────────
+// pnpm can extract node-pty's prebuilds tarball without running the
+// post-install that chmods spawn-helper, leaving it as `-rw-r--r--` instead
+// of `-rwxr-xr-x`. Every PTY spawn then fails with `posix_spawnp failed`.
+// Run the fix synchronously at module load (static imports, sync fs calls)
+// so by the time ANY plugin worker starts spawning PTYs, the helper is
+// already executable.
+(function fixSpawnHelperPermissions() {
+  if (!isNodeRuntime()) return;
+  try {
+    const req = createRequire(import.meta.url);
+    const ptyPkg = req.resolve("node-pty/package.json");
+    const ptyDir = path.dirname(ptyPkg);
+    const helper = path.join(
+      ptyDir,
+      "prebuilds",
+      `${process.platform}-${process.arch}`,
+      "spawn-helper",
+    );
+    if (fs.existsSync(helper)) {
+      const mode = fs.statSync(helper).mode;
+      if (!(mode & 0o100)) {
+        fs.chmodSync(helper, 0o755);
+        console.log(
+          `[terminal] Fixed non-executable node-pty spawn-helper at ${helper}`,
+        );
+      }
+    }
+  } catch (err) {
+    console.warn(
+      "[terminal] Could not verify node-pty spawn-helper permissions:",
+      (err as Error).message,
+    );
+  }
+})();
 
 export interface TerminalPluginOptions {
   /** CLI command to run. Defaults to AGENT_CLI_COMMAND env or 'builder' */
