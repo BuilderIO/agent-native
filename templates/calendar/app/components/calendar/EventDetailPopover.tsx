@@ -942,57 +942,64 @@ export function EventDetailPopover({
               </div>
             ) : null}
 
-            {/* Description — always shown, editable */}
-            <div className="mx-4 my-2 border-t border-border/50" />
-            <div className="px-4 py-1.5">
-              <div className="flex items-start gap-3">
-                <IconAlignLeft className="mt-1.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                {isOverlay ? (
-                  event.description ? (
-                    (() => {
-                      const cleanedHtml = descriptionIsHtml
-                        ? stripGcalInviteHtml(sanitizeHtml(event.description))
-                        : null;
-                      const hasContent = cleanedHtml
-                        ? cleanedHtml.replace(/<[^>]*>/g, "").trim().length > 0
-                        : true;
-                      if (!hasContent) return null;
-                      return descriptionIsHtml ? (
-                        <div
-                          className="rounded-lg bg-muted/30 px-3 py-2.5 text-sm leading-relaxed text-foreground/80 prose prose-sm prose-invert prose-p:my-1 prose-a:text-primary"
-                          dangerouslySetInnerHTML={{ __html: cleanedHtml! }}
-                        />
-                      ) : (
-                        <p className="text-sm leading-relaxed text-foreground/80 whitespace-pre-wrap">
-                          {event.description}
-                        </p>
-                      );
-                    })()
-                  ) : null
-                ) : (
-                  <textarea
-                    ref={descriptionRef}
-                    value={editDescription}
-                    onChange={(e) => setEditDescription(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Escape") {
-                        e.preventDefault();
-                        setEditDescription(event.description || "");
-                      }
-                      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                        e.preventDefault();
-                        handleSaveDescription();
-                      }
-                      e.stopPropagation();
-                    }}
-                    onBlur={handleSaveDescription}
-                    placeholder="Add description"
-                    rows={3}
-                    className="flex-1 w-full bg-transparent border-none outline-none text-sm text-foreground placeholder:text-muted-foreground/40 focus:ring-0 resize-none"
-                  />
-                )}
-              </div>
-            </div>
+            {/* Description — always shown for editable events; hidden for overlay events with no description */}
+            {(!isOverlay || event.description) && (
+              <>
+                <div className="mx-4 my-2 border-t border-border/50" />
+                <div className="px-4 py-1.5">
+                  <div className="flex items-start gap-3">
+                    <IconAlignLeft className="mt-1.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                    {isOverlay ? (
+                      event.description ? (
+                        (() => {
+                          const cleanedHtml = descriptionIsHtml
+                            ? stripGcalInviteHtml(
+                                sanitizeHtml(event.description),
+                              )
+                            : null;
+                          const hasContent = cleanedHtml
+                            ? cleanedHtml.replace(/<[^>]*>/g, "").trim()
+                                .length > 0
+                            : true;
+                          if (!hasContent) return null;
+                          return descriptionIsHtml ? (
+                            <div
+                              className="rounded-lg bg-muted/30 px-3 py-2.5 text-sm leading-relaxed text-foreground/80 prose prose-sm prose-invert prose-p:my-1 prose-a:text-primary"
+                              dangerouslySetInnerHTML={{ __html: cleanedHtml! }}
+                            />
+                          ) : (
+                            <p className="text-sm leading-relaxed text-foreground/80 whitespace-pre-wrap">
+                              {event.description}
+                            </p>
+                          );
+                        })()
+                      ) : null
+                    ) : (
+                      <textarea
+                        ref={descriptionRef}
+                        value={editDescription}
+                        onChange={(e) => setEditDescription(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape") {
+                            e.preventDefault();
+                            setEditDescription(event.description || "");
+                          }
+                          if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                            e.preventDefault();
+                            handleSaveDescription();
+                          }
+                          e.stopPropagation();
+                        }}
+                        onBlur={handleSaveDescription}
+                        placeholder="Add description"
+                        rows={3}
+                        className="flex-1 w-full bg-transparent border-none outline-none text-sm text-foreground placeholder:text-muted-foreground/40 focus:ring-0 resize-none"
+                      />
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
 
             {/* Reminders */}
             {event.reminders && event.reminders.length > 0 && (

@@ -68,11 +68,13 @@ export function EventDetailPanel({
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
   const updateEvent = useUpdateEvent();
   const isOverlay = !!event?.overlayEmail;
+  const lastSavedDescriptionRef = useRef(event?.description || "");
 
   // Reset editing state when event changes
   useEffect(() => {
     setIsEditingTitle(false);
     setEditDescription(event?.description || "");
+    lastSavedDescriptionRef.current = event?.description || "";
   }, [event?.id]);
 
   useEffect(() => {
@@ -84,12 +86,13 @@ export function EventDetailPanel({
   const handleSaveDescription = useCallback(() => {
     if (!event) return;
     const trimmed = editDescription.trim();
-    if (trimmed !== (event.description || "").trim()) {
+    if (trimmed !== lastSavedDescriptionRef.current.trim()) {
       updateEvent.mutate({
         id: event.id,
         accountEmail: event.accountEmail,
         description: trimmed,
       });
+      lastSavedDescriptionRef.current = trimmed;
     }
   }, [editDescription, event, updateEvent]);
 
@@ -227,58 +230,62 @@ export function EventDetailPanel({
                   </div>
                 )}
 
-                {/* Description — always shown, editable */}
-                <div className="flex items-start gap-2.5">
-                  <IconAlignLeft className="mt-1.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                  {isOverlay ? (
-                    event.description ? (
-                      (() => {
-                        const descIsHtml = isHtml(event.description);
-                        if (descIsHtml) {
-                          const cleanedHtml = stripGcalInviteHtml(
-                            sanitizeHtml(event.description),
-                          );
-                          const hasContent =
-                            cleanedHtml.replace(/<[^>]*>/g, "").trim().length >
-                            0;
-                          if (!hasContent) return null;
+                {/* Description — always shown, editable; hidden for overlay events with no description */}
+                {(!isOverlay || event.description) && (
+                  <div className="flex items-start gap-2.5">
+                    <IconAlignLeft className="mt-1.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                    {isOverlay ? (
+                      event.description ? (
+                        (() => {
+                          const descIsHtml = isHtml(event.description);
+                          if (descIsHtml) {
+                            const cleanedHtml = stripGcalInviteHtml(
+                              sanitizeHtml(event.description),
+                            );
+                            const hasContent =
+                              cleanedHtml.replace(/<[^>]*>/g, "").trim()
+                                .length > 0;
+                            if (!hasContent) return null;
+                            return (
+                              <div
+                                className="rounded-md bg-muted/50 px-3 py-2.5 text-sm leading-relaxed text-foreground prose prose-sm dark:prose-invert prose-p:my-1 prose-a:text-primary"
+                                dangerouslySetInnerHTML={{
+                                  __html: cleanedHtml,
+                                }}
+                              />
+                            );
+                          }
                           return (
-                            <div
-                              className="rounded-md bg-muted/50 px-3 py-2.5 text-sm leading-relaxed text-foreground prose prose-sm dark:prose-invert prose-p:my-1 prose-a:text-primary"
-                              dangerouslySetInnerHTML={{ __html: cleanedHtml }}
-                            />
+                            <p className="text-sm leading-relaxed text-foreground/80 whitespace-pre-wrap">
+                              {event.description}
+                            </p>
                           );
-                        }
-                        return (
-                          <p className="text-sm leading-relaxed text-foreground/80 whitespace-pre-wrap">
-                            {event.description}
-                          </p>
-                        );
-                      })()
-                    ) : null
-                  ) : (
-                    <textarea
-                      ref={descriptionRef}
-                      value={editDescription}
-                      onChange={(e) => setEditDescription(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Escape") {
-                          e.preventDefault();
-                          setEditDescription(event.description || "");
-                        }
-                        if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                          e.preventDefault();
-                          handleSaveDescription();
-                        }
-                        e.stopPropagation();
-                      }}
-                      onBlur={handleSaveDescription}
-                      placeholder="Add description"
-                      rows={3}
-                      className="flex-1 w-full bg-transparent border-none outline-none text-sm text-foreground placeholder:text-muted-foreground/40 focus:ring-0 resize-none"
-                    />
-                  )}
-                </div>
+                        })()
+                      ) : null
+                    ) : (
+                      <textarea
+                        ref={descriptionRef}
+                        value={editDescription}
+                        onChange={(e) => setEditDescription(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape") {
+                            e.preventDefault();
+                            setEditDescription(event.description || "");
+                          }
+                          if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                            e.preventDefault();
+                            handleSaveDescription();
+                          }
+                          e.stopPropagation();
+                        }}
+                        onBlur={handleSaveDescription}
+                        placeholder="Add description"
+                        rows={3}
+                        className="flex-1 w-full bg-transparent border-none outline-none text-sm text-foreground placeholder:text-muted-foreground/40 focus:ring-0 resize-none"
+                      />
+                    )}
+                  </div>
+                )}
 
                 {/* Attachments */}
                 {event.attachments && event.attachments.length > 0 && (

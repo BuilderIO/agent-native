@@ -62,6 +62,23 @@ When a user logs a meal, ALWAYS estimate and include protein, carbs, and fat —
 
 If the user provides calories but no macros, estimate a reasonable macro split for that food. If they provide some macros, fill in the rest. Always log all three: protein, carbs, fat.
 
+## Short-Form Input
+
+Users often speak or type in ultra-short form. Parse aggressively:
+- "lunch 550" → log a lunch entry at 550 calories
+- "breakfast 400" → log breakfast at 400 calories
+- A meal name + number always means log that meal at that many calories
+- Numbers without a unit are always calories (not grams, not time)
+
+## Voice Transcription Quirks
+
+Speech recognition frequently mishears numbers as times:
+- "lunch 5:50" → they mean 550 calories, not a time — log lunch at 550 cal
+- "dinner 3:00" → 300 calories
+- "snack 2:50" → 250 calories
+- Any time-like format (H:MM) after a food name should be treated as calories (multiply H×100 + MM, so 5:50 = 550, 3:00 = 300)
+- Apply this same logic to any number that looks like a clock time after a food name
+
 ## Voice Command Processing
 
 When processing voice commands or quick text, be FAST and MINIMAL:
