@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   startOfMonth,
   endOfMonth,
@@ -58,9 +58,17 @@ export function MonthView({
   const calendarEnd = endOfWeek(monthEnd);
   const days = eachDayOfInterval({ start: calendarStart, end: calendarEnd });
 
-  function getEventsForDay(day: Date) {
-    return events.filter((e) => isSameDay(parseISO(e.start), day));
-  }
+  // Pre-group events by date key once so each cell does O(1) lookup
+  const eventsByDay = useMemo(() => {
+    const map = new Map<string, CalendarEvent[]>();
+    for (const e of events) {
+      const key = format(parseISO(e.start), "yyyy-MM-dd");
+      const list = map.get(key);
+      if (list) list.push(e);
+      else map.set(key, [e]);
+    }
+    return map;
+  }, [events]);
 
   function handleDragOver(e: React.DragEvent, dayKey: string) {
     e.preventDefault();
@@ -95,7 +103,7 @@ export function MonthView({
       {/* Day grid */}
       <div className="grid flex-1 auto-rows-fr grid-cols-7">
         {days.map((day) => {
-          const dayEvents = getEventsForDay(day);
+          const dayEvents = eventsByDay.get(format(day, "yyyy-MM-dd")) ?? [];
           const inMonth = isSameMonth(day, selectedDate);
           const today = isToday(day);
           const selected = isSameDay(day, selectedDate);

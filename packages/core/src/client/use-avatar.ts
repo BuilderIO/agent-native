@@ -71,7 +71,11 @@ export function useAvatarUrl(email: string | null | undefined): string | null {
     _listeners.get(email)!.add(listener);
     return () => {
       cancelled = true;
-      _listeners.get(email)?.delete(listener);
+      const set = _listeners.get(email);
+      if (set) {
+        set.delete(listener);
+        if (set.size === 0) _listeners.delete(email);
+      }
     };
   }, [email]);
 

@@ -51,7 +51,10 @@ export default function TableOfContents({ items }: { items: TocItem[] }) {
     // Set immediately on mount so the sidebar isn't blank
     setActiveId(getActiveId());
 
-    const onScroll = () => setActiveId(getActiveId());
+    const onScroll = () => {
+      const next = getActiveId();
+      setActiveId((prev) => (prev === next ? prev : next));
+    };
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, [items]);
