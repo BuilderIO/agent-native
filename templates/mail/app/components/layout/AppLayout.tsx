@@ -390,7 +390,9 @@ export function AppLayout({ children }: AppLayoutProps) {
     if (focusedListId) {
       return currentViewEmails.find((e) => e.id === focusedListId);
     }
-    return undefined;
+    // Fall back to the first email in the list — if it's auto-focused in the
+    // UI but the navigation state hasn't synced yet, shortcuts should still work.
+    return currentViewEmails[0] ?? undefined;
   }, [threadId, focusedListId, currentViewEmails]);
 
   const dismissEmail = useCallback((emailId: string) => {

@@ -1,29 +1,32 @@
-#!/usr/bin/env tsx
-/**
- * Get all HubSpot deals with their properties.
- *
- * Usage:
- *   npx tsx scripts/run.ts hubspot-deals
- */
-import { output } from "./helpers";
-import { getAllDeals, getDealPipelines } from "../server/lib/hubspot";
+import { defineAction } from "@agent-native/core";
+import {
+  getAllDeals,
+  getDealPipelines,
+  getVisiblePipelines,
+} from "../server/lib/hubspot";
 
-const [deals, pipelines] = await Promise.all([
-  getAllDeals(),
-  getDealPipelines(),
-]);
+export default defineAction({
+  description:
+    "Get all HubSpot deals with their properties, filtered to visible pipelines.",
+  parameters: {},
+  http: { method: "GET" },
+  run: async () => {
+    const [allDeals, allPipelines] = await Promise.all([
+      getAllDeals(),
+      getDealPipelines(),
+    ]);
 
-const stageMap = new Map<string, string>();
-for (const p of pipelines) {
-  for (const s of p.stages) {
-    stageMap.set(s.id, `${p.label} → ${s.label}`);
-  }
-}
+    const visiblePipelines = getVisiblePipelines(allPipelines);
+    const visibleIds = new Set(visiblePipelines.map((p) => p.id));
+    const deals = allDeals.filter((d) => visibleIds.has(d.properties.pipeline));
 
-output({
-  deals: deals.map((d) => ({
-    ...d,
-    stageLabel: stageMap.get(d.properties.dealstage) ?? d.properties.dealstage,
-  })),
-  totalDeals: deals.length,
+    const stageLabels: Record<string, string> = {};
+    for (const p of visiblePipelines) {
+      for (const s of p.stages) {
+        stageLabels[s.id] = s.label;
+      }
+    }
+
+    return { deals, stageLabels, total: deals.length };
+  },
 });

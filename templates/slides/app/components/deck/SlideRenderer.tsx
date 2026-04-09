@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import type { Slide } from "@/context/DeckContext";
 import { Skeleton } from "@/components/ui/skeleton";
+import { MermaidRenderer } from "./MermaidRenderer";
+import { ExcalidrawThumbnail, parseExcalidrawData } from "./ExcalidrawSlide";
 
 interface SlideRendererProps {
   slide: Slide;
@@ -60,10 +62,36 @@ function LazyImage({
 
 const markdownComponents = {
   img: (props: any) => <LazyImage {...props} />,
+  code: ({ className, children, ...props }: any) => {
+    const match = /language-mermaid/.exec(className || "");
+    if (match) {
+      return (
+        <MermaidRenderer
+          definition={String(children).replace(/\n$/, "")}
+          className="my-4"
+        />
+      );
+    }
+    return (
+      <code className={className} {...props}>
+        {children}
+      </code>
+    );
+  },
+  pre: ({ children, ...props }: any) => {
+    // If the child is a mermaid code block, don't wrap in <pre>
+    const child = Array.isArray(children) ? children[0] : children;
+    if (child?.props?.className === "language-mermaid") {
+      return <>{children}</>;
+    }
+    return <pre {...props}>{children}</pre>;
+  },
 };
 
 /** Renders blank slide HTML content and applies white filter to logo images */
 function BlankSlideContent({ content }: { content: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+
   // Apply white filter to all logo images (brandfetch, logo.dev, etc.) for dark backgrounds
   const processedContent = content.replace(
     /(<img\s+(?=[^>]*src="[^"]*(?:brandfetch|logo\.dev)[^"]*")[^>]*)(\/?>)/gi,
@@ -78,11 +106,65 @@ function BlankSlideContent({ content }: { content: string }) {
     },
   );
 
+  // Extract mermaid blocks from HTML content for React-based rendering
+  const mermaidBlocks: string[] = [];
+  const htmlWithPlaceholders = processedContent.replace(
+    /<div\s+class="mermaid"[^>]*>([\s\S]*?)<\/div>/gi,
+    (_, definition) => {
+      mermaidBlocks.push(definition.trim());
+      return `<div data-mermaid-index="${mermaidBlocks.length - 1}"></div>`;
+    },
+  );
+
+  if (mermaidBlocks.length > 0) {
+    return (
+      <div className="slide-content text-white/90 w-full block h-full">
+        <MermaidHtmlContent
+          html={htmlWithPlaceholders}
+          mermaidBlocks={mermaidBlocks}
+        />
+      </div>
+    );
+  }
+
   return (
     <div
+      ref={containerRef}
       className="slide-content text-white/90 w-full block h-full"
       dangerouslySetInnerHTML={{ __html: processedContent }}
     />
+  );
+}
+
+/** Renders HTML content with mermaid placeholders replaced by React MermaidRenderer */
+function MermaidHtmlContent({
+  html,
+  mermaidBlocks,
+}: {
+  html: string;
+  mermaidBlocks: string[];
+}) {
+  // Split on mermaid placeholders and interleave HTML + MermaidRenderer
+  const parts = html.split(/(<div data-mermaid-index="\d+"><\/div>)/);
+
+  return (
+    <>
+      {parts.map((part, i) => {
+        const match = part.match(/data-mermaid-index="(\d+)"/);
+        if (match) {
+          const idx = parseInt(match[1], 10);
+          return (
+            <MermaidRenderer
+              key={`mermaid-${i}`}
+              definition={mermaidBlocks[idx]}
+              className="my-4 w-full"
+            />
+          );
+        }
+        if (!part.trim()) return null;
+        return <div key={i} dangerouslySetInnerHTML={{ __html: part }} />;
+      })}
+    </>
   );
 }
 
@@ -93,6 +175,21 @@ export function SlideInner({ slide }: { slide: Slide }) {
   const bgStyle = !isGradientClass ? { background: bg } : undefined;
   const bgClass = isGradientClass ? bg : "";
   const isCentered = slide.layout === "title";
+
+  // If slide has excalidraw data, render it as a static SVG thumbnail
+  if (
+    slide.excalidrawData &&
+    parseExcalidrawData(slide.excalidrawData)?.elements?.length
+  ) {
+    return (
+      <div
+        className={`w-[960px] h-[540px] relative ${bgClass}`}
+        style={bgStyle}
+      >
+        <ExcalidrawThumbnail data={slide.excalidrawData} />
+      </div>
+    );
+  }
 
   const imageLoadingOverlay = slide.imageLoading && (
     <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">

@@ -2,23 +2,12 @@
  * See what the user is currently looking at on screen.
  *
  * Reads navigation state and fetches the matching issue data via the Jira API.
- *
- * Usage:
- *   pnpm action view-screen
  */
 
+import { defineAction } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
-import { getAtlassianClient, jiraUrl, jiraFetch } from "./helpers.js";
-import type { ActionTool } from "@agent-native/core";
-
-export const tool: ActionTool = {
-  description:
-    "See what the user is currently looking at on screen. Returns the current view, issue list, and open issue details (if any). Always call this first before taking any action.",
-  parameters: {
-    type: "object",
-    properties: {},
-  },
-};
+import { getClient } from "../server/lib/jira-auth.js";
+import { jiraSearchIssues, jiraGetIssue } from "../server/lib/jira-api.js";
 
 const FIELDS = [
   "summary",
@@ -54,7 +43,7 @@ async function fetchIssueList(
         if (nav.projectKey) {
           jql = `project = "${nav.projectKey}" ORDER BY updated DESC`;
         } else {
-          return null; // projects listing, no issue list
+          return null;
         }
         break;
       case "board":
@@ -77,18 +66,11 @@ async function fetchIssueList(
       jql = `text ~ "${nav.search}" AND (${base}) ORDER BY ${order}`;
     }
 
-    const result = await jiraFetch(
-      jiraUrl(cloudId, "/search/jql"),
-      accessToken,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          jql,
-          maxResults: 50,
-          fields: FIELDS,
-        }),
-      },
-    );
+    const result = await jiraSearchIssues(cloudId, accessToken, {
+      jql,
+      maxResults: 50,
+      fields: FIELDS,
+    });
 
     return result.issues || [];
   } catch {
@@ -102,114 +84,97 @@ async function fetchIssueDetail(
   cloudId: string,
 ): Promise<any | null> {
   try {
-    return await jiraFetch(
-      jiraUrl(cloudId, `/issue/${issueKey}?fields=${FIELDS.join(",")}`),
-      accessToken,
-    );
+    return await jiraGetIssue(cloudId, accessToken, issueKey, {
+      fields: FIELDS,
+    });
   } catch {
     return null;
   }
 }
 
-export async function run(): Promise<string> {
-  const navigation = await readAppState("navigation");
+export default defineAction({
+  description:
+    "See what the user is currently looking at on screen. Returns the current view, issue list, and open issue details (if any). Always call this first before taking any action.",
+  http: false,
+  run: async () => {
+    const navigation = await readAppState("navigation");
 
-  const screen: Record<string, unknown> = {};
-  if (navigation) screen.navigation = navigation;
+    const screen: Record<string, unknown> = {};
+    if (navigation) screen.navigation = navigation;
 
-  const nav = (navigation || {}) as Record<string, string>;
+    const nav = (navigation || {}) as Record<string, string>;
 
-  // Try to get Jira client for API calls
-  let client: { accessToken: string; cloudId: string } | null = null;
-  try {
-    client = await getAtlassianClient();
-  } catch {
-    // Jira not connected — still return navigation state
-  }
+    let client: { accessToken: string; cloudId: string } | null = null;
+    try {
+      client = await getClient(process.env.AGENT_USER_EMAIL);
+    } catch {
+      // Jira not connected
+    }
 
-  if (client) {
-    // Fetch the issue list for the current view
-    if (nav.view && nav.view !== "settings") {
-      const issues = await fetchIssueList(
-        nav,
-        client.accessToken,
-        client.cloudId,
-      );
-      if (issues) {
-        const compact = (Array.isArray(issues) ? issues : [])
-          .slice(0, 50)
-          .map((issue: any) => ({
+    if (client) {
+      if (nav.view && nav.view !== "settings") {
+        const issues = await fetchIssueList(
+          nav,
+          client.accessToken,
+          client.cloudId,
+        );
+        if (issues) {
+          const compact = (Array.isArray(issues) ? issues : [])
+            .slice(0, 50)
+            .map((issue: any) => ({
+              key: issue.key,
+              summary: issue.fields?.summary,
+              status: issue.fields?.status?.name,
+              statusCategory: issue.fields?.status?.statusCategory?.key,
+              priority: issue.fields?.priority?.name,
+              assignee: issue.fields?.assignee?.displayName ?? "Unassigned",
+              type: issue.fields?.issuetype?.name,
+              updated: issue.fields?.updated,
+            }));
+          screen.issueList = {
+            view: nav.view,
+            projectKey: nav.projectKey ?? null,
+            boardId: nav.boardId ?? null,
+            count: compact.length,
+            issues: compact,
+          };
+        }
+      }
+
+      if (nav.issueKey) {
+        const issue = await fetchIssueDetail(
+          nav.issueKey,
+          client.accessToken,
+          client.cloudId,
+        );
+        if (issue) {
+          screen.issue = {
             key: issue.key,
             summary: issue.fields?.summary,
             status: issue.fields?.status?.name,
             statusCategory: issue.fields?.status?.statusCategory?.key,
             priority: issue.fields?.priority?.name,
             assignee: issue.fields?.assignee?.displayName ?? "Unassigned",
+            reporter: issue.fields?.reporter?.displayName ?? "Unknown",
             type: issue.fields?.issuetype?.name,
+            project: issue.fields?.project?.key,
+            labels: issue.fields?.labels ?? [],
+            created: issue.fields?.created,
             updated: issue.fields?.updated,
-          }));
-        screen.issueList = {
-          view: nav.view,
-          projectKey: nav.projectKey ?? null,
-          boardId: nav.boardId ?? null,
-          count: compact.length,
-          issues: compact,
-        };
+            sprint: issue.fields?.sprint?.name ?? null,
+            commentCount: issue.fields?.comment?.total ?? 0,
+            subtaskCount: issue.fields?.subtasks?.length ?? 0,
+          };
+        }
       }
+    } else if (nav.view) {
+      screen.jiraStatus =
+        "Not connected. Ask the user to connect via Settings.";
     }
 
-    // Fetch full issue detail if viewing a specific issue
-    if (nav.issueKey) {
-      const issue = await fetchIssueDetail(
-        nav.issueKey,
-        client.accessToken,
-        client.cloudId,
-      );
-      if (issue) {
-        screen.issue = {
-          key: issue.key,
-          summary: issue.fields?.summary,
-          status: issue.fields?.status?.name,
-          statusCategory: issue.fields?.status?.statusCategory?.key,
-          priority: issue.fields?.priority?.name,
-          assignee: issue.fields?.assignee?.displayName ?? "Unassigned",
-          reporter: issue.fields?.reporter?.displayName ?? "Unknown",
-          type: issue.fields?.issuetype?.name,
-          project: issue.fields?.project?.key,
-          labels: issue.fields?.labels ?? [],
-          created: issue.fields?.created,
-          updated: issue.fields?.updated,
-          sprint: issue.fields?.sprint?.name ?? null,
-          commentCount: issue.fields?.comment?.total ?? 0,
-          subtaskCount: issue.fields?.subtasks?.length ?? 0,
-        };
-      }
+    if (Object.keys(screen).length === 0) {
+      return "No application state found. The UI may not be open.";
     }
-  } else if (nav.view) {
-    screen.jiraStatus = "Not connected. Ask the user to connect via Settings.";
-  }
-
-  if (Object.keys(screen).length === 0) {
-    return "No application state found. The UI may not be open.";
-  }
-  return JSON.stringify(screen, null, 2);
-}
-
-export default async function main(): Promise<void> {
-  const result = await run();
-
-  try {
-    const parsed = JSON.parse(result);
-    const nav = parsed.navigation;
-    const issueCount = parsed.issueList?.count ?? 0;
-
-    console.error(
-      `Current view: ${nav?.view ?? "unknown"}` +
-        (nav?.issueKey ? ` (issue: ${nav.issueKey})` : "") +
-        ` — ${issueCount} issue(s) on screen`,
-    );
-    console.log(JSON.stringify(parsed, null, 2));
-  } catch {
-    console.log(result);
-  }
-}
+    return JSON.stringify(screen, null, 2);
+  },
+});

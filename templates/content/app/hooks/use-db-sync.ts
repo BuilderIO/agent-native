@@ -8,8 +8,7 @@ export function useDbSync() {
     const eventSource = new EventSource("/_agent-native/events");
 
     eventSource.onmessage = () => {
-      queryClient.invalidateQueries({ queryKey: ["documents"] });
-      queryClient.invalidateQueries({ queryKey: ["document"] });
+      queryClient.invalidateQueries({ queryKey: ["action"] });
     };
 
     eventSource.onerror = () => {
@@ -20,8 +19,7 @@ export function useDbSync() {
     // refetches from the API. If the data hasn't changed, React Query's
     // structural sharing means no re-render occurs.
     const interval = setInterval(() => {
-      queryClient.invalidateQueries({ queryKey: ["documents"] });
-      queryClient.invalidateQueries({ queryKey: ["document"] });
+      queryClient.invalidateQueries({ queryKey: ["action"] });
     }, 2000);
 
     return () => {

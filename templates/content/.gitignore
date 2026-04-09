@@ -53,3 +53,5 @@ content/.builder-auth.json
 learnings.md
 
 build
+
+.generated/

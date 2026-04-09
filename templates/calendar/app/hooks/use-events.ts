@@ -4,6 +4,7 @@ import {
   useQueryClient,
   keepPreviousData,
 } from "@tanstack/react-query";
+import { useActionQuery } from "@agent-native/core/client";
 import type { CalendarEvent } from "@shared/api";
 
 export function useEvents(
@@ -11,30 +12,19 @@ export function useEvents(
   to?: string,
   overlayEmails?: string[],
 ) {
-  const params = new URLSearchParams();
-  if (from) params.set("from", from);
-  if (to) params.set("to", to);
+  const params: Record<string, string> = {};
+  if (from) params.from = from;
+  if (to) params.to = to;
   if (overlayEmails && overlayEmails.length > 0) {
-    params.set("overlayEmails", overlayEmails.join(","));
+    params.overlayEmails = overlayEmails.join(",");
   }
-  const qs = params.toString();
 
-  const query = useQuery<CalendarEvent[]>({
-    queryKey: ["events", from, to, overlayEmails?.join(",") ?? ""],
-    queryFn: async () => {
-      const res = await fetch(`/api/events${qs ? `?${qs}` : ""}`);
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || "Failed to fetch events");
-      }
-      return res.json();
-    },
+  return useActionQuery<CalendarEvent[]>("list-events", params, {
     retry: false,
     staleTime: 30_000,
     gcTime: 30 * 60 * 1000,
     placeholderData: keepPreviousData,
   });
-  return query;
 }
 
 export function useEvent(id: string) {
@@ -54,28 +44,25 @@ export function useCreateEvent() {
   return useMutation({
     mutationFn: async (
       data: Omit<CalendarEvent, "id" | "createdAt" | "updatedAt" | "source"> & {
-        /** Temporary client-side ID used for optimistic rendering */
         _tempId?: string;
       },
     ) => {
       const { _tempId, ...eventData } = data;
-      const res = await fetch("/api/events", {
+      const res = await fetch("/_agent-native/actions/create-event", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(eventData),
       });
       if (!res.ok) throw new Error("Failed to create event");
       const result = await res.json();
-      // Return tempId so onSuccess can map it
       return { ...result, _tempId };
     },
     onMutate: async (newData) => {
       if (!newData._tempId) return;
-      await queryClient.cancelQueries({ queryKey: ["events"] });
+      await queryClient.cancelQueries({ queryKey: ["action", "list-events"] });
       const previous = queryClient.getQueriesData<CalendarEvent[]>({
-        queryKey: ["events"],
+        queryKey: ["action", "list-events"],
       });
-      // Optimistically add the event to all matching queries
       const optimisticEvent: CalendarEvent = {
         id: newData._tempId,
         title: newData.title,
@@ -89,7 +76,7 @@ export function useCreateEvent() {
         updatedAt: new Date().toISOString(),
       };
       queryClient.setQueriesData<CalendarEvent[]>(
-        { queryKey: ["events"] },
+        { queryKey: ["action", "list-events"] },
         (old) => (old ? [...old, optimisticEvent] : [optimisticEvent]),
       );
       return { previous };
@@ -102,7 +89,7 @@ export function useCreateEvent() {
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["events"] });
+      queryClient.invalidateQueries({ queryKey: ["action", "list-events"] });
     },
   });
 }
@@ -123,12 +110,12 @@ export function useUpdateEvent() {
       return res.json();
     },
     onMutate: async (newData) => {
-      await queryClient.cancelQueries({ queryKey: ["events"] });
+      await queryClient.cancelQueries({ queryKey: ["action", "list-events"] });
       const previous = queryClient.getQueriesData<CalendarEvent[]>({
-        queryKey: ["events"],
+        queryKey: ["action", "list-events"],
       });
       queryClient.setQueriesData<CalendarEvent[]>(
-        { queryKey: ["events"] },
+        { queryKey: ["action", "list-events"] },
         (old) =>
           old?.map((e) => (e.id === newData.id ? { ...e, ...newData } : e)),
       );
@@ -142,7 +129,7 @@ export function useUpdateEvent() {
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["events"] });
+      queryClient.invalidateQueries({ queryKey: ["action", "list-events"] });
     },
   });
 }
@@ -170,12 +157,12 @@ export function useDeleteEvent() {
       return res.json();
     },
     onMutate: async ({ id }) => {
-      await queryClient.cancelQueries({ queryKey: ["events"] });
+      await queryClient.cancelQueries({ queryKey: ["action", "list-events"] });
       const previous = queryClient.getQueriesData<CalendarEvent[]>({
-        queryKey: ["events"],
+        queryKey: ["action", "list-events"],
       });
       queryClient.setQueriesData<CalendarEvent[]>(
-        { queryKey: ["events"] },
+        { queryKey: ["action", "list-events"] },
         (old) => old?.filter((e) => e.id !== id),
       );
       return { previous };
@@ -188,7 +175,7 @@ export function useDeleteEvent() {
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["events"] });
+      queryClient.invalidateQueries({ queryKey: ["action", "list-events"] });
     },
   });
 }
@@ -216,7 +203,7 @@ export function useRsvpEvent() {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["events"] });
+      queryClient.invalidateQueries({ queryKey: ["action", "list-events"] });
     },
   });
 }

@@ -557,6 +557,30 @@ async function setAuthModeLocal(): Promise<boolean> {
   }
 }
 
+async function removeAuthModeLocal(): Promise<boolean> {
+  try {
+    const fs = await getFs();
+    const envPath = path.resolve(process.cwd(), ".env");
+    let content = "";
+    try {
+      content = fs.readFileSync(envPath, "utf-8");
+    } catch {
+      return true; // No .env file means nothing to remove
+    }
+
+    // Remove AUTH_MODE=local line entirely
+    content = content
+      .split("\n")
+      .filter((line) => !line.match(/^\s*AUTH_MODE\s*=/))
+      .join("\n");
+    fs.writeFileSync(envPath, content, "utf-8");
+    delete process.env.AUTH_MODE;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // mountBetterAuthRoutes — Better Auth powered auth with backward-compat routes
 // ---------------------------------------------------------------------------
@@ -611,6 +635,23 @@ async function mountBetterAuthRoutes(
       if (!ok) {
         setResponseStatus(event, 500);
         return { error: "Failed to set AUTH_MODE=local in .env" };
+      }
+      return { ok: true };
+    }),
+  );
+
+  // POST /_agent-native/auth/exit-local-mode — switch back to real auth
+  app.use(
+    "/_agent-native/auth/exit-local-mode",
+    defineEventHandler(async (event) => {
+      if (getMethod(event) !== "POST") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      const ok = await removeAuthModeLocal();
+      if (!ok) {
+        setResponseStatus(event, 500);
+        return { error: "Failed to remove AUTH_MODE from .env" };
       }
       return { ok: true };
     }),
@@ -841,6 +882,22 @@ function mountLocalModeRoutes(app: H3App): void {
   app.use(
     "/_agent-native/auth/logout",
     defineEventHandler(() => ({ ok: true })),
+  );
+  // Allow exiting local mode to switch to real auth
+  app.use(
+    "/_agent-native/auth/exit-local-mode",
+    defineEventHandler(async (event) => {
+      if (getMethod(event) !== "POST") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      const ok = await removeAuthModeLocal();
+      if (!ok) {
+        setResponseStatus(event, 500);
+        return { error: "Failed to remove AUTH_MODE from .env" };
+      }
+      return { ok: true };
+    }),
   );
 }
 

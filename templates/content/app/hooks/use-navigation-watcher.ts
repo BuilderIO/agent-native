@@ -46,7 +46,9 @@ export function useNavigationWatcher() {
           if (navEvent) {
             handledVersionRef.current = navEvent.version;
             // Fetch the navigation path from app state
-            const stateRes = await fetch("/api/app-state/navigate");
+            const stateRes = await fetch(
+              "/_agent-native/application-state/navigate",
+            );
             if (stateRes.ok) {
               const stateData = (await stateRes.json()) as {
                 path?: string;

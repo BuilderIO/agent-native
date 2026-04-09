@@ -170,6 +170,9 @@ async function fetchEmailSnapshot(
         labelMap,
       );
     }
+    console.warn(
+      `[snooze] Gmail connected but no valid token for ${preferredAccountEmail ?? ownerEmail}`,
+    );
   }
 
   const emails = await readEmails(ownerEmail);

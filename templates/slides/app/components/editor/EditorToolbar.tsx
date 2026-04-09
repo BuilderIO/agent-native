@@ -13,6 +13,9 @@ import {
   IconArrowForwardUp,
   IconFolderOpen,
   IconSettings,
+  IconSchema,
+  IconPencil,
+  IconTransform,
 } from "@tabler/icons-react";
 import type { Slide, SlideLayout } from "@/context/DeckContext";
 
@@ -288,6 +291,92 @@ export default function EditorToolbar({
                 <IconFolderOpen className="w-3 h-3" />
                 Asset Library
               </button>
+
+              {/* Diagrams section */}
+              <div className="mx-2 my-1.5 border-t border-white/[0.06]" />
+              <div className="px-3 py-1.5 text-[10px] font-medium text-white/30 uppercase tracking-wider">
+                Diagrams
+              </div>
+              <button
+                onClick={() => {
+                  if (!onUpdateSlide || !currentSlide) return;
+                  const mermaidTemplate = `<div class="fmd-slide" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;padding:60px 80px;font-family:'Poppins',sans-serif;">
+<div class="mermaid">
+graph TD
+    A[Start] --> B{Decision}
+    B -->|Yes| C[Action A]
+    B -->|No| D[Action B]
+    C --> E[End]
+    D --> E
+</div>
+</div>`;
+                  onUpdateSlide({
+                    content: mermaidTemplate,
+                    layout: "blank",
+                  });
+                  setLayoutOpen(false);
+                }}
+                className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-white/60 hover:text-white hover:bg-white/[0.04] transition-colors"
+              >
+                <IconSchema className="w-3 h-3" />
+                Insert Mermaid Diagram
+              </button>
+              <button
+                onClick={() => {
+                  if (!onUpdateSlide) return;
+                  onUpdateSlide({
+                    excalidrawData: JSON.stringify({
+                      elements: [],
+                      appState: { viewBackgroundColor: "transparent" },
+                      files: {},
+                    }),
+                  });
+                  setLayoutOpen(false);
+                }}
+                className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-white/60 hover:text-white hover:bg-white/[0.04] transition-colors"
+              >
+                <IconPencil className="w-3 h-3" />
+                Excalidraw Canvas
+              </button>
+              {currentSlide?.content?.includes('class="mermaid"') && (
+                <button
+                  onClick={async () => {
+                    if (!onUpdateSlide || !currentSlide) return;
+                    try {
+                      const match = currentSlide.content.match(
+                        /<div\s+class="mermaid"[^>]*>([\s\S]*?)<\/div>/i,
+                      );
+                      if (!match) return;
+                      const { convertMermaidToExcalidraw } =
+                        await import("./MermaidToExcalidrawPanel");
+                      const data = await convertMermaidToExcalidraw(
+                        match[1].trim(),
+                      );
+                      onUpdateSlide({ excalidrawData: data });
+                      setLayoutOpen(false);
+                    } catch (err: any) {
+                      console.error("Mermaid to Excalidraw failed:", err);
+                    }
+                  }}
+                  className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[#00E5FF]/80 hover:text-[#00E5FF] hover:bg-white/[0.04] transition-colors"
+                >
+                  <IconTransform className="w-3 h-3" />
+                  Convert Mermaid → Excalidraw
+                </button>
+              )}
+              {currentSlide?.excalidrawData && (
+                <button
+                  onClick={() => {
+                    if (!onUpdateSlide) return;
+                    onUpdateSlide({ excalidrawData: undefined });
+                    setLayoutOpen(false);
+                  }}
+                  className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-white/40 hover:text-white/60 hover:bg-white/[0.04] transition-colors"
+                >
+                  <IconPencil className="w-3 h-3" />
+                  Remove Excalidraw Canvas
+                </button>
+              )}
             </div>
           </ToolbarPopover>
         </>

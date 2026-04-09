@@ -40,3 +40,5 @@ media/theme.json
 learnings.md
 
 build
+
+.generated/

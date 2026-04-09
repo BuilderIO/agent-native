@@ -12,6 +12,7 @@ import type { Slide } from "@/context/DeckContext";
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import CodeEditor from "./CodeEditor";
 import ImageOverlay from "./ImageOverlay";
+import { ExcalidrawSlide } from "@/components/deck/ExcalidrawSlide";
 
 let builderIdCounter = 0;
 
@@ -237,20 +238,29 @@ export default function SlideEditor({
     <div className="flex-1 flex flex-col h-full overflow-hidden">
       <div className="flex-1 overflow-hidden">
         {activeTab === "visual" ? (
-          <div className="h-full flex items-center justify-center p-2 sm:p-4 md:p-8 bg-[hsl(240,5%,5%)]">
-            <div
-              ref={containerRef}
-              className="w-full max-w-4xl slide-image-clickable"
-              onClick={handleSlideClick}
-              onContextMenu={handleSlideContextMenu}
-              onDoubleClick={handleSlideDoubleClick}
-            >
-              <SlideRenderer
-                slide={slide}
-                className="shadow-2xl shadow-black/40"
+          slide.excalidrawData ? (
+            <div className="h-full bg-[hsl(240,5%,5%)]">
+              <ExcalidrawSlide
+                initialData={slide.excalidrawData}
+                onChange={(data) => onUpdateSlide({ excalidrawData: data })}
               />
             </div>
-          </div>
+          ) : (
+            <div className="h-full flex items-center justify-center p-2 sm:p-4 md:p-8 bg-[hsl(240,5%,5%)]">
+              <div
+                ref={containerRef}
+                className="w-full max-w-4xl slide-image-clickable"
+                onClick={handleSlideClick}
+                onContextMenu={handleSlideContextMenu}
+                onDoubleClick={handleSlideDoubleClick}
+              >
+                <SlideRenderer
+                  slide={slide}
+                  className="shadow-2xl shadow-black/40"
+                />
+              </div>
+            </div>
+          )
         ) : (
           <CodeEditor slide={slide} onUpdateSlide={onUpdateSlide} />
         )}

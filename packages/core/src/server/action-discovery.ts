@@ -260,7 +260,11 @@ export async function autoDiscoverActions(
 
       if (mod.tool && typeof mod.run === "function") {
         // Full interface: has both tool definition and run function
-        registry[name] = { tool: mod.tool, run: mod.run };
+        registry[name] = {
+          tool: mod.tool,
+          run: mod.run,
+          ...(mod.http !== undefined ? { http: mod.http } : {}),
+        };
       } else if (
         mod.default &&
         typeof mod.default === "object" &&
@@ -268,7 +272,11 @@ export async function autoDiscoverActions(
         typeof mod.default.run === "function"
       ) {
         // defineAction style: default export has tool + run
-        registry[name] = { tool: mod.default.tool, run: mod.default.run };
+        registry[name] = {
+          tool: mod.default.tool,
+          run: mod.default.run,
+          ...(mod.default.http !== undefined ? { http: mod.default.http } : {}),
+        };
       } else if (typeof mod.default === "function") {
         // CLI-style: only has a default export function
         registry[name] = wrapDefaultExport(name, mod.default);

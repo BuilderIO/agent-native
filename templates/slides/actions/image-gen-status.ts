@@ -1,27 +1,11 @@
-/**
- * Check which image generation providers are configured.
- */
+import { defineAction } from "@agent-native/core";
 
-const config = async () => {
-  try {
-    const m = await import("dotenv");
-    m.config();
-  } catch {}
-};
-
-export default async function main(_args: string[]) {
-  await config();
-
-  console.log("Image Generation Status:");
-  console.log("========================");
-  console.log(
-    `Gemini: ${process.env.GEMINI_API_KEY ? "Configured" : "Not configured"}`,
-  );
-  console.log("");
-
-  if (!process.env.GEMINI_API_KEY) {
-    console.log(
-      "To configure Gemini, set the GEMINI_API_KEY environment variable.",
-    );
-  }
-}
+export default defineAction({
+  description:
+    "Check which image generation providers are configured (agent CLI tool).",
+  parameters: {},
+  http: false,
+  run: async () => {
+    return `Image Generation Status:\n========================\nGemini: ${process.env.GEMINI_API_KEY ? "Configured" : "Not configured"}`;
+  },
+});

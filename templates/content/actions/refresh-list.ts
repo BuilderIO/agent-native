@@ -1,24 +1,12 @@
-/**
- * Refresh the document list in the UI.
- *
- * Triggers the UI to refetch documents by writing a signal to application state.
- *
- * Usage:
- *   pnpm action refresh-list
- */
-
-import { parseArgs } from "./_utils.js";
+import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 
-export default async function main(args: string[]) {
-  const opts = parseArgs(args);
-
-  if (opts.help) {
-    console.log("Usage: pnpm action refresh-list");
-    console.log("Triggers the UI to refetch the document list.");
-    return;
-  }
-
-  await writeAppState("refresh-signal", { ts: Date.now() });
-  console.log("Triggered UI refresh");
-}
+export default defineAction({
+  description:
+    "Refresh the document list in the UI by writing a signal to application state.",
+  http: false,
+  run: async () => {
+    await writeAppState("refresh-signal", { ts: Date.now() });
+    return "Triggered UI refresh";
+  },
+});

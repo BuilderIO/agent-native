@@ -1,29 +1,35 @@
-#!/usr/bin/env tsx
-/**
- * Query Google Analytics 4 report data.
- *
- * Usage:
- *   pnpm action ga4-report --metrics=activeUsers,sessions
- *   pnpm action ga4-report --metrics=activeUsers --dimensions=date --days=7
- *   pnpm action ga4-report --metrics=sessions,conversions --dimensions=date,source --days=90
- */
-import { parseArgs, output, fatal } from "./helpers";
+import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import { runReport } from "../server/lib/google-analytics";
 
-const args = parseArgs();
-const metricsArg = args.metrics;
-if (!metricsArg)
-  fatal("--metrics is required. Example: --metrics=activeUsers,sessions");
+export default defineAction({
+  description: "Query Google Analytics 4 report data.",
+  schema: z.object({
+    metrics: z
+      .string()
+      .optional()
+      .describe(
+        "Comma-separated metrics (required). E.g. activeUsers,sessions",
+      ),
+    dimensions: z
+      .string()
+      .optional()
+      .describe("Comma-separated dimensions. E.g. date,source"),
+    days: z.coerce.number().optional().describe("Number of days (default 30)"),
+  }),
+  http: false,
+  run: async (args) => {
+    if (!args.metrics) return { error: "metrics is required" };
 
-const metrics = metricsArg.split(",").map((m) => m.trim());
-const dimensions = args.dimensions
-  ? args.dimensions.split(",").map((d) => d.trim())
-  : [];
-const days = parseInt(args.days || "30", 10);
+    const metrics = args.metrics.split(",").map((m) => m.trim());
+    const dimensions = args.dimensions
+      ? args.dimensions.split(",").map((d) => d.trim())
+      : [];
+    const days = args.days ?? 30;
 
-const result = await runReport(dimensions, metrics, {
-  startDate: `${days}daysAgo`,
-  endDate: "today",
+    return await runReport(dimensions, metrics, {
+      startDate: `${days}daysAgo`,
+      endDate: "today",
+    });
+  },
 });
-
-output(result);

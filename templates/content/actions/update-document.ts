@@ -1,103 +1,127 @@
-/**
- * Update an existing document.
- *
- * Usage:
- *   pnpm action update-document --id abc123 --title "New Title"
- *   pnpm action update-document --id abc123 --content "# Updated content"
- *   pnpm action update-document --id abc123 --title "New" --content "New body"
- *   pnpm action update-document --id abc123 --icon "📝"
- *
- * Options:
- *   --id        Document ID (required)
- *   --title     New title
- *   --content   New markdown content
- *   --icon      New emoji icon
- */
-
-import { parseArgs, fail } from "./_utils.js";
-import { getDbExec, isPostgres } from "@agent-native/core/db";
+import { defineAction } from "@agent-native/core";
+import { eq, desc } from "drizzle-orm";
+import { getDb, schema } from "../server/db/index.js";
+import { parseDocumentFavorite } from "../server/lib/documents.js";
 import { writeAppState } from "@agent-native/core/application-state";
+import { z } from "zod";
 
-export default async function main(args: string[]) {
-  const opts = parseArgs(args);
+function nanoid(size = 12): string {
+  const chars =
+    "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+  let id = "";
+  const bytes = crypto.getRandomValues(new Uint8Array(size));
+  for (const byte of bytes) id += chars[byte % chars.length];
+  return id;
+}
 
-  if (opts.help) {
-    console.log(
-      'Usage: pnpm action update-document --id <id> [--title "New Title"] [--content "# New"]',
-    );
-    return;
-  }
+const SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
-  const id = opts.id;
-  if (!id) fail("--id is required");
+export default defineAction({
+  description:
+    "Update an existing document's title, content, icon, or favorite status.",
+  schema: z.object({
+    id: z.string().optional().describe("Document ID (required)"),
+    title: z.string().optional().describe("New title"),
+    content: z.string().optional().describe("New markdown content"),
+    icon: z.string().optional().describe("New emoji icon"),
+    isFavorite: z.coerce
+      .boolean()
+      .optional()
+      .describe("Favorite status (true/false)"),
+  }),
+  run: async (args) => {
+    const id = args.id;
+    if (!id) throw new Error("--id is required");
 
-  if (!opts.title && !opts.content && !opts.icon) {
-    fail("At least one of --title, --content, or --icon is required");
-  }
+    const db = getDb();
+    const [existing] = await db
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, id));
 
-  // Verify document exists
-  const client = getDbExec();
-  const existing = await client.execute({
-    sql: "SELECT id, title FROM documents WHERE id = ?",
-    args: [id],
-  });
-  if (!existing.rows || existing.rows.length === 0) {
-    fail(`Document "${id}" not found`);
-  }
+    if (!existing) throw new Error(`Document "${id}" not found`);
 
-  // Strip leading H1 that duplicates the title (AI often generates "# Title" + title field)
-  if (opts.content) {
-    const titleToCheck = opts.title || ((existing.rows[0] as any)?.title ?? "");
-    if (titleToCheck) {
-      const h1Match = opts.content.match(/^#\s+(.+?)(\r?\n|$)/);
-      if (
-        h1Match &&
-        h1Match[1].trim().toLowerCase() === titleToCheck.trim().toLowerCase()
-      ) {
-        opts.content = opts.content.slice(h1Match[0].length).trimStart();
+    // Strip leading H1 that duplicates the title
+    let content = args.content;
+    if (content !== undefined) {
+      const titleToCheck = args.title || existing.title;
+      if (titleToCheck) {
+        const h1Match = content.match(/^#\s+(.+?)(\r?\n|$)/);
+        if (
+          h1Match &&
+          h1Match[1].trim().toLowerCase() === titleToCheck.trim().toLowerCase()
+        ) {
+          content = content.slice(h1Match[0].length).trimStart();
+        }
       }
     }
-  }
 
-  // Build SET clause dynamically
-  const setClauses: string[] = [];
-  const params: any[] = [];
+    // Snapshot the current state before applying content/title changes
+    if (args.title !== undefined || content !== undefined) {
+      const [latestVersion] = await db
+        .select({ createdAt: schema.documentVersions.createdAt })
+        .from(schema.documentVersions)
+        .where(eq(schema.documentVersions.documentId, id))
+        .orderBy(desc(schema.documentVersions.createdAt))
+        .limit(1);
 
-  if (opts.title !== undefined) {
-    setClauses.push("title = ?");
-    params.push(opts.title);
-  }
-  if (opts.content !== undefined) {
-    setClauses.push("content = ?");
-    params.push(opts.content);
-  }
-  if (opts.icon !== undefined) {
-    setClauses.push("icon = ?");
-    params.push(opts.icon);
-  }
+      const shouldSnapshot =
+        !latestVersion ||
+        Date.now() - new Date(latestVersion.createdAt).getTime() >
+          SNAPSHOT_INTERVAL_MS;
 
-  const nowExpr = isPostgres() ? "NOW()::text" : "datetime('now')";
-  setClauses.push(`updated_at = ${nowExpr}`);
+      if (shouldSnapshot) {
+        await db.insert(schema.documentVersions).values({
+          id: nanoid(),
+          documentId: id,
+          title: existing.title,
+          content: existing.content,
+          createdAt: new Date().toISOString(),
+        });
+      }
+    }
 
-  params.push(id);
+    const updates: Record<string, unknown> = {
+      updatedAt: new Date().toISOString(),
+    };
 
-  await client.execute({
-    sql: `UPDATE documents SET ${setClauses.join(", ")} WHERE id = ?`,
-    args: params,
-  });
+    if (args.title !== undefined) updates.title = args.title;
+    if (content !== undefined) updates.content = content;
+    if (args.icon !== undefined) updates.icon = args.icon;
+    if (args.isFavorite !== undefined)
+      updates.isFavorite = args.isFavorite ? 1 : 0;
 
-  // NOTE: We do NOT call /collab/{id}/text here — that endpoint writes to
-  // Y.Text("content") which is a different Yjs type than the Y.XmlFragment
-  // ("default") that TipTap uses. Instead, the SQL update + refresh-signal
-  // triggers the client to detect the content change and apply it through the
-  // TipTap editor, which correctly updates the XmlFragment.
+    await db
+      .update(schema.documents)
+      .set(updates)
+      .where(eq(schema.documents.id, id));
 
-  // Trigger UI refresh
-  await writeAppState("refresh-signal", { ts: Date.now() });
+    const [doc] = await db
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, id));
 
-  const updated: string[] = [];
-  if (opts.title) updated.push(`title="${opts.title}"`);
-  if (opts.content) updated.push("content");
-  if (opts.icon) updated.push(`icon="${opts.icon}"`);
-  console.log(`Updated document ${id}: ${updated.join(", ")}`);
-}
+    // Trigger UI refresh
+    await writeAppState("refresh-signal", { ts: Date.now() });
+
+    const updated: string[] = [];
+    if (args.title) updated.push(`title="${args.title}"`);
+    if (content !== undefined) updated.push("content");
+    if (args.icon) updated.push(`icon="${args.icon}"`);
+    if (updated.length > 0) {
+      console.log(`Updated document ${id}: ${updated.join(", ")}`);
+    }
+
+    return {
+      id: doc.id,
+      parentId: doc.parentId,
+      title: doc.title,
+      content: doc.content,
+      icon: doc.icon,
+      position: doc.position,
+      isFavorite: parseDocumentFavorite(doc.isFavorite),
+      createdAt: doc.createdAt,
+      updatedAt: doc.updatedAt,
+    };
+  },
+});

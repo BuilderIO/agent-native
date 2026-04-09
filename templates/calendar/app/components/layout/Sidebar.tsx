@@ -11,6 +11,7 @@ import {
   IconX,
   IconPalette,
   IconKeyboard,
+  IconLogin,
 } from "@tabler/icons-react";
 import {
   startOfMonth,
@@ -37,6 +38,7 @@ import {
   useGoogleAuthUrl,
   useGoogleAddAccountUrl,
 } from "@/hooks/use-google-auth";
+import { useSession } from "@agent-native/core/client";
 import { EVENT_CATEGORY_COLORS } from "@/lib/event-colors";
 import {
   useOverlayPeople,
@@ -281,6 +283,13 @@ function GoogleAccountsSection({
           >
             <IconPlus className="h-3.5 w-3.5" />
           </button>
+          <Link
+            to="/settings"
+            className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+            title="Google Calendar settings"
+          >
+            <IconSettings className="h-3.5 w-3.5" />
+          </Link>
         </div>
       </div>
 
@@ -374,9 +383,12 @@ export function Sidebar({ open, onClose }: SidebarProps) {
   const { selectedDate, setSelectedDate, setPeopleSearchOpen } =
     useCalendarContext();
   const googleStatus = useGoogleAuthStatus();
-  const { data: overlayPeople = [] } = useOverlayPeople();
+  const { session } = useSession();
+  const { data: rawOverlayPeople } = useOverlayPeople();
+  const overlayPeople = Array.isArray(rawOverlayPeople) ? rawOverlayPeople : [];
   const removePerson = useRemoveOverlayPerson();
   const isConnected = googleStatus.data?.connected ?? false;
+  const isLocalMode = session?.email === "local@localhost";
 
   return (
     <>
@@ -487,6 +499,25 @@ export function Sidebar({ open, onClose }: SidebarProps) {
 
         {isConnected && googleStatus.data?.accounts?.length > 0 && (
           <GoogleAccountsSection accounts={googleStatus.data.accounts} />
+        )}
+
+        {/* Sign in prompt for local-mode users */}
+        {isLocalMode && (
+          <div className="border-t border-border px-3 py-2">
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+              onClick={async () => {
+                await fetch("/_agent-native/auth/exit-local-mode", {
+                  method: "POST",
+                });
+                window.location.reload();
+              }}
+            >
+              <IconLogin className="h-3.5 w-3.5" />
+              Sign in or create account
+            </button>
+          </div>
         )}
 
         {/* Theme toggle */}

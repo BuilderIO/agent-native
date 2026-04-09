@@ -1,96 +1,103 @@
+import { defineAction } from "@agent-native/core";
 import { customAlphabet } from "nanoid";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+import { getDb, schema } from "../server/db/index.js";
+import type { FormField, FormSettings } from "../shared/types.js";
 
 const nanoid = customAlphabet(
   "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
 );
-import { getDb, schema } from "../server/db/index.js";
-import type { FormField, FormSettings } from "../shared/types.js";
 
-function parseArgs(args: string[]): Record<string, string> {
-  const result: Record<string, string> = {};
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg.startsWith("--")) {
-      const key = arg.slice(2);
-      const next = args[i + 1];
-      if (next && !next.startsWith("--")) {
-        result[key] = next;
-        i++;
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 60);
+}
+
+export default defineAction({
+  description: "Create a new form.",
+  schema: z.object({
+    title: z.string().optional().describe("Form title"),
+    description: z.string().optional().describe("Form description"),
+    fields: z.string().optional().describe("JSON array of form fields"),
+    settings: z.string().optional().describe("JSON object of form settings"),
+    slug: z.string().optional().describe("Custom URL slug"),
+    status: z
+      .enum(["draft", "published", "closed"])
+      .optional()
+      .describe("Form status"),
+  }),
+  run: async (args) => {
+    const id = nanoid(10);
+    const now = new Date().toISOString();
+    const title = args.title || "Untitled Form";
+    const slug = args.slug || slugify(title) + "-" + id.slice(0, 6);
+
+    let fields: FormField[] = [];
+    if (args.fields) {
+      if (typeof args.fields === "string") {
+        try {
+          fields = JSON.parse(args.fields);
+        } catch {
+          throw new Error("--fields must be valid JSON");
+        }
       } else {
-        result[key] = "true";
+        fields = args.fields as unknown as FormField[];
       }
     }
-  }
-  return result;
-}
 
-export default async function main(args: string[]) {
-  const { title, description, fields: fieldsJson, help } = parseArgs(args);
+    const defaultSettings: FormSettings = {
+      submitText: "Submit",
+      successMessage: "Thank you! Your response has been recorded.",
+      showProgressBar: false,
+    };
 
-  if (help) {
-    console.log(
-      'Usage: pnpm action create-form --title "My Form" [--description "..."] [--fields \'[...]\']',
-    );
-    return;
-  }
-
-  if (!title) {
-    console.error("Error: --title is required");
-    throw new Error("Script failed");
-  }
-
-  const id = nanoid();
-  const now = new Date().toISOString();
-  const slug =
-    title
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "")
-      .slice(0, 60) +
-    "-" +
-    id.slice(0, 6);
-
-  let fields: FormField[] = [];
-  if (fieldsJson) {
-    try {
-      fields = JSON.parse(fieldsJson);
-    } catch {
-      console.error("Error: --fields must be valid JSON");
-      throw new Error("Script failed");
+    let settings = defaultSettings;
+    if (args.settings) {
+      if (typeof args.settings === "string") {
+        try {
+          settings = JSON.parse(args.settings);
+        } catch {
+          throw new Error("--settings must be valid JSON");
+        }
+      } else {
+        settings = args.settings as unknown as FormSettings;
+      }
     }
-  }
 
-  const defaultSettings: FormSettings = {
-    primaryColor: "#2563eb",
-    backgroundColor: "#ffffff",
-    fontFamily: "Inter",
-    submitText: "Submit",
-    successMessage: "Thank you! Your response has been recorded.",
-    showProgressBar: false,
-  };
-
-  const db = getDb();
-  await db
-    .insert(schema.forms)
-    .values({
+    const db = getDb();
+    await db.insert(schema.forms).values({
       id,
       title,
-      description: description || null,
+      description: args.description || null,
       slug,
       fields: JSON.stringify(fields),
-      settings: JSON.stringify(defaultSettings),
-      status: "draft",
+      settings: JSON.stringify(settings),
+      status: args.status || "draft",
       createdAt: now,
       updatedAt: now,
-    })
-    .run();
+    });
 
-  console.log(`\nForm created successfully!`);
-  console.log(`  ID: ${id}`);
-  console.log(`  Title: ${title}`);
-  console.log(`  Slug: ${slug}`);
-  console.log(`  Status: draft`);
-  console.log(
-    `\n  To publish: pnpm action update-form --id ${id} --status published`,
-  );
-}
+    const row = await db
+      .select()
+      .from(schema.forms)
+      .where(eq(schema.forms.id, id))
+      .get();
+
+    return {
+      id: row!.id,
+      title: row!.title,
+      description: row!.description ?? undefined,
+      slug: row!.slug,
+      fields: JSON.parse(row!.fields) as FormField[],
+      settings: JSON.parse(row!.settings) as FormSettings,
+      status: row!.status,
+      responseCount: 0,
+      createdAt: row!.createdAt,
+      updatedAt: row!.updatedAt,
+    };
+  },
+});

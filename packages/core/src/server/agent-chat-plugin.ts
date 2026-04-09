@@ -945,6 +945,7 @@ export function createAgentChatPlugin(
       ...callAgentScript,
       ...devScriptsForA2A,
     };
+
     const { mountA2A } = await import("../a2a/server.js");
     mountA2A(nitroApp, {
       name: options?.appId
@@ -1137,6 +1138,71 @@ export function createAgentChatPlugin(
     const basePrompt = prodPrompt;
     const devPrefix = options?.devSystemPrompt ?? DEFAULT_DEV_PROMPT;
 
+    // Mount MCP remote server — same action registry as A2A + agent chat
+    const { mountMCP } = await import("../mcp/server.js");
+    mountMCP(nitroApp, {
+      name: options?.appId
+        ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
+        : "Agent",
+      description: `Agent-native ${options?.appId ?? "app"} agent`,
+      actions: allScripts,
+      askAgent: async (message: string) => {
+        const Anthropic = (await import("@anthropic-ai/sdk")).default;
+        const apiKey = options?.apiKey ?? process.env.ANTHROPIC_API_KEY;
+        if (!apiKey) return "Anthropic API key is not configured.";
+
+        const client = new Anthropic({ apiKey });
+        const model =
+          options?.model ??
+          (canToggle ? "claude-sonnet-4-6" : "claude-haiku-4-5-20251001");
+
+        // Same actions as A2A — without call-agent to prevent loops
+        const mcpActions = canToggle
+          ? {
+              ...discoveredActions,
+              ...templateScripts,
+              ...resourceScripts,
+              ...chatScripts,
+              ...devScriptsForA2A,
+            }
+          : { ...templateScripts, ...resourceScripts, ...chatScripts };
+
+        const tools: any[] = Object.entries(mcpActions).map(
+          ([name, entry]) => ({
+            name,
+            description: entry.tool.description,
+            input_schema: entry.tool.parameters ?? {
+              type: "object" as const,
+              properties: {},
+            },
+          }),
+        );
+
+        const resources = await loadResourcesForPrompt("local@localhost");
+        const systemPrompt = canToggle
+          ? devPrompt + resources
+          : basePrompt + resources;
+
+        let accumulatedText = "";
+        const controller = new AbortController();
+
+        await runAgentLoop({
+          client,
+          model,
+          systemPrompt,
+          tools,
+          messages: [{ role: "user", content: message }],
+          actions: mcpActions,
+          send: (event) => {
+            if (event.type === "text") accumulatedText += event.text;
+          },
+          signal: controller.signal,
+        });
+
+        return accumulatedText || "(no response)";
+      },
+    });
+
     // Resolve owner from the H3 event's session — matches how resources are created
     const getOwnerFromEvent = async (event: any): Promise<string> => {
       try {
@@ -1146,6 +1212,18 @@ export function createAgentChatPlugin(
         return "local@localhost";
       }
     };
+
+    // Auto-mount template actions as HTTP endpoints under /_agent-native/actions/
+    // Only template actions (discoveredActions + templateScripts) are exposed — not
+    // built-in resource/chat/dev tools.
+    const httpActions = { ...discoveredActions, ...templateScripts };
+    if (Object.keys(httpActions).length > 0) {
+      const { mountActionRoutes } = await import("./action-routes.js");
+      mountActionRoutes(nitroApp, httpActions, {
+        getOwnerFromEvent,
+        resolveOrgId: options?.resolveOrgId,
+      });
+    }
 
     // Callback to persist agent response when run finishes (even if client disconnected).
     // Reconstructs the assistant message from buffered events and appends to thread_data.

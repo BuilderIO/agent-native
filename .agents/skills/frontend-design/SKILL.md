@@ -62,8 +62,10 @@ In the agent-native framework context:
 - Fonts can be loaded from Google Fonts via `@import` in a CSS file or `<link>` in `index.html`
 - Animation libraries: prefer CSS transitions and keyframes; use Framer Motion for complex sequences
 - All new UI components should be placed in `app/components/`
+- **Data fetching**: Use `useActionQuery` and `useActionMutation` from `@agent-native/core/client` to call actions. Actions are auto-exposed as HTTP endpoints — no need to create separate `/api/` routes for standard CRUD.
 
 ## Related Skills
 
 - **self-modifying-code** — The agent can edit source code to apply design changes
-- **files-as-database** — Design configuration can be stored as JSON in `data/` for agent-editable theming
+- **storing-data** — All data lives in SQL; use actions for data access
+- **actions** — `useActionQuery`/`useActionMutation` hooks for frontend data fetching

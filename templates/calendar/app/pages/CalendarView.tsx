@@ -92,7 +92,8 @@ export default function CalendarView() {
 
   const queryClient = useQueryClient();
   const googleStatus = useGoogleAuthStatus();
-  const { data: overlayPeople = [] } = useOverlayPeople();
+  const { data: rawOverlayPeople } = useOverlayPeople();
+  const overlayPeople = Array.isArray(rawOverlayPeople) ? rawOverlayPeople : [];
   const overlayEmails = useMemo(
     () => overlayPeople.map((p) => p.email),
     [overlayPeople],
@@ -130,10 +131,11 @@ export default function CalendarView() {
   }, [viewMode, selectedDate]);
 
   const {
-    data: rawEvents = [],
+    data: rawEventsData,
     error: eventsError,
     isLoading,
   } = useEvents(from, to, overlayEmails);
+  const rawEvents = Array.isArray(rawEventsData) ? rawEventsData : [];
 
   // Show skeleton only when loading with no cached data (new date range).
   // Tab refocus keeps cached data visible and refetches in background.
@@ -344,7 +346,7 @@ export default function CalendarView() {
           // quickEditEventId to the real ID.
           const { _tempId, ...realEvent } = result;
           queryClient.setQueriesData<CalendarEvent[]>(
-            { queryKey: ["events"] },
+            { queryKey: ["action", "list-events"] },
             (old) =>
               old?.map((e) => (e.id === _tempId ? { ...e, ...realEvent } : e)),
           );

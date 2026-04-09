@@ -2,10 +2,6 @@ import { createAgentChatPlugin } from "@agent-native/core/server";
 
 export default createAgentChatPlugin({
   appId: "mail",
-  actions: async () => {
-    const { actionRegistry } = await import("../../actions/registry.js");
-    return actionRegistry;
-  },
   mentionProviders: {
     emails: {
       label: "Emails",

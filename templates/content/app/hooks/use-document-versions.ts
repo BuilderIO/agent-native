@@ -14,7 +14,10 @@ export function useDocumentVersions(documentId: string | null) {
       fetchJson<DocumentVersionListResponse>(
         `/api/documents/${documentId}/versions`,
       ),
-    select: (data) => data.versions,
+    select: (data: any) => {
+      const versions = data?.versions ?? data;
+      return Array.isArray(versions) ? versions : [];
+    },
     enabled: !!documentId,
   });
 }
@@ -28,8 +31,7 @@ export function useRestoreDocumentVersion(documentId: string) {
         { method: "POST" },
       ),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["documents"] });
-      queryClient.invalidateQueries({ queryKey: ["document", documentId] });
+      queryClient.invalidateQueries({ queryKey: ["action"] });
       queryClient.invalidateQueries({
         queryKey: ["document-versions", documentId],
       });

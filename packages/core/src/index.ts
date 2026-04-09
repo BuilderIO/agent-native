@@ -13,7 +13,7 @@ export {
   type AgentChatRequest,
   type AgentChatEvent,
 } from "./agent/index.js";
-export { defineAction } from "./action.js";
+export { defineAction, type ActionHttpConfig } from "./action.js";
 export { createDevScriptRegistry } from "./scripts/dev/index.js";
 export {
   createAgentChatPlugin,
@@ -53,6 +53,8 @@ export {
   type ProductionAgentMessage,
   type UseProductionAgentResult,
   type ProductionAgentPanelProps,
+  useActionQuery,
+  useActionMutation,
 } from "./client/index.js";
 
 // Shared (isomorphic)

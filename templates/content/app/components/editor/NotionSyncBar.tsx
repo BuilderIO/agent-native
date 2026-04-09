@@ -47,8 +47,7 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
       lastSyncedRef.current &&
       lastSyncedRef.current !== syncStatus.lastSyncedAt
     ) {
-      queryClient.invalidateQueries({ queryKey: ["document", documentId] });
-      queryClient.invalidateQueries({ queryKey: ["documents"] });
+      queryClient.invalidateQueries({ queryKey: ["action"] });
     }
     lastSyncedRef.current = syncStatus.lastSyncedAt;
   }, [syncStatus?.lastSyncedAt, queryClient, documentId]);

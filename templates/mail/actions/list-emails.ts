@@ -1,27 +1,4 @@
-/**
- * List emails with filtering and search.
- *
- * Fetches directly from Gmail API. Falls back to local store if no account is connected.
- *
- * Usage:
- *   pnpm action list-emails
- *   pnpm action list-emails --view=inbox
- *   pnpm action list-emails --view=unread
- *   pnpm action list-emails --view=starred --q=meeting
- *   pnpm action list-emails --view=inbox --fields=from,subject,date,snippet
- *   pnpm action list-emails --compact
- *
- * Options:
- *   --view     inbox (default), unread, starred, sent, drafts, archive, trash, all
- *   --q        Full-text search across subject, body, sender
- *   --limit    Max number of emails to return (default: 50)
- *   --account  Filter to a specific account email (default: search all accounts)
- *   --fields   Comma-separated fields to include (default: all)
- *   --compact  Output compact summary (id, from, subject, date, snippet)
- *   --grep     Filter output by keyword (built-in helper)
- */
-
-import { parseArgs, output } from "./helpers.js";
+import { defineAction } from "@agent-native/core";
 import { getSetting } from "@agent-native/core/settings";
 import {
   getClients,
@@ -30,155 +7,7 @@ import {
   fetchGmailLabelMap,
   isConnected,
 } from "../server/lib/google-auth.js";
-import type { ActionTool } from "@agent-native/core";
-
-export const tool: ActionTool = {
-  description:
-    "List emails from a view (inbox, unread, starred, sent, drafts, archive, trash) with optional search query.",
-  parameters: {
-    type: "object",
-    properties: {
-      view: {
-        type: "string",
-        description: "View to list (default: inbox)",
-        enum: [
-          "inbox",
-          "unread",
-          "starred",
-          "sent",
-          "drafts",
-          "archive",
-          "trash",
-          "all",
-        ],
-      },
-      q: { type: "string", description: "Full-text search query" },
-      account: {
-        type: "string",
-        description:
-          "Filter to a specific account email address. By default searches all connected accounts.",
-      },
-      limit: {
-        type: "string",
-        description: "Max number of emails to return (default: 50)",
-      },
-      compact: {
-        type: "string",
-        description: "Set to 'true' for compact output",
-        enum: ["true", "false"],
-      },
-    },
-  },
-};
-
-async function readLocalEmails(): Promise<any[]> {
-  const data = await getSetting("local-emails");
-  if (data && Array.isArray((data as any).emails)) {
-    return (data as any).emails;
-  }
-  return [];
-}
-
-export async function run(args: Record<string, string>): Promise<string> {
-  const view = args.view ?? "inbox";
-  const query = args.q;
-  const limit = args.limit ? parseInt(args.limit, 10) : 50;
-  const compact = args.compact !== "false";
-  const accountFilter = args.account?.toLowerCase();
-  const ownerEmail = process.env.AGENT_USER_EMAIL || "local@localhost";
-
-  if (await isConnected(ownerEmail)) {
-    const clients = await getClients(ownerEmail);
-    const labelMap = new Map<string, string>();
-    await Promise.all(
-      clients.map(async ({ accessToken }) => {
-        try {
-          const map = await fetchGmailLabelMap(accessToken);
-          for (const [id, name] of map) labelMap.set(id, name);
-        } catch {}
-      }),
-    );
-
-    const viewPrefix = VIEW_QUERIES[view] ?? `label:${view}`;
-    const gmailQuery = [viewPrefix, query].filter(Boolean).join(" ");
-    const { messages, errors } = await listGmailMessages(
-      gmailQuery || "in:inbox",
-      limit,
-      ownerEmail,
-    );
-
-    if (errors.length > 0 && messages.length === 0) {
-      return `Error: ${errors.map((e) => `${e.email}: ${e.error}`).join("; ")}`;
-    }
-
-    let emails = messages
-      .map((m) => gmailToEmailMessage(m, m._accountEmail, labelMap))
-      .sort(
-        (a: any, b: any) =>
-          new Date(b.date).getTime() - new Date(a.date).getTime(),
-      );
-
-    if (accountFilter) {
-      emails = emails.filter(
-        (e: any) => e.accountEmail?.toLowerCase() === accountFilter,
-      );
-    }
-
-    emails = emails.slice(0, limit);
-
-    return JSON.stringify(compact ? toCompact(emails) : emails, null, 2);
-  }
-
-  // Fallback: local store
-  let emails = await readLocalEmails();
-
-  switch (view) {
-    case "inbox":
-      emails = emails.filter(
-        (e) => !e.isArchived && !e.isTrashed && !e.isDraft && !e.isSent,
-      );
-      break;
-    case "unread":
-      emails = emails.filter(
-        (e) =>
-          !e.isRead && !e.isArchived && !e.isTrashed && !e.isDraft && !e.isSent,
-      );
-      break;
-    case "starred":
-      emails = emails.filter((e) => e.isStarred && !e.isTrashed);
-      break;
-    case "sent":
-      emails = emails.filter((e) => e.isSent && !e.isTrashed);
-      break;
-    case "drafts":
-      emails = emails.filter((e) => e.isDraft);
-      break;
-    case "archive":
-      emails = emails.filter((e) => e.isArchived && !e.isTrashed);
-      break;
-    case "trash":
-      emails = emails.filter((e) => e.isTrashed);
-      break;
-  }
-
-  if (query) {
-    const q = query.toLowerCase();
-    emails = emails.filter(
-      (e) =>
-        e.subject?.toLowerCase().includes(q) ||
-        e.snippet?.toLowerCase().includes(q) ||
-        e.body?.toLowerCase().includes(q) ||
-        e.from?.name?.toLowerCase().includes(q) ||
-        e.from?.email?.toLowerCase().includes(q),
-    );
-  }
-
-  return JSON.stringify(
-    compact ? toCompact(emails.slice(0, limit)) : emails.slice(0, limit),
-    null,
-    2,
-  );
-}
+import { z } from "zod";
 
 const VIEW_QUERIES: Record<string, string> = {
   inbox: "in:inbox",
@@ -207,113 +36,150 @@ function toCompact(emails: any[]): any[] {
   }));
 }
 
-export default async function main(): Promise<void> {
-  const args = parseArgs();
-  const view = args.view ?? "inbox";
-  const query = args.q;
-  const limit = args.limit ? parseInt(args.limit, 10) : 50;
-  const compact = args.compact === "true";
-  const accountFilter = args.account?.toLowerCase();
-  const ownerEmail = process.env.AGENT_USER_EMAIL || "local@localhost";
-
-  if (await isConnected(ownerEmail)) {
-    const clients = await getClients(ownerEmail);
-    const labelMap = new Map<string, string>();
-    await Promise.all(
-      clients.map(async ({ accessToken }) => {
-        try {
-          const map = await fetchGmailLabelMap(accessToken);
-          for (const [id, name] of map) labelMap.set(id, name);
-        } catch {}
-      }),
-    );
-
-    const viewPrefix = VIEW_QUERIES[view] ?? `label:${view}`;
-    const gmailQuery = [viewPrefix, query].filter(Boolean).join(" ");
-
-    const { messages, errors } = await listGmailMessages(
-      gmailQuery || "in:inbox",
-      limit,
-      ownerEmail,
-    );
-
-    if (errors.length > 0 && messages.length === 0) {
-      console.error(
-        `Gmail error: ${errors.map((e) => `${e.email}: ${e.error}`).join("; ")}`,
-      );
-      throw new Error("Script failed");
-    }
-
-    let emails = messages
-      .map((m) => gmailToEmailMessage(m, m._accountEmail, labelMap))
-      .sort(
-        (a: any, b: any) =>
-          new Date(b.date).getTime() - new Date(a.date).getTime(),
-      );
-
-    if (accountFilter) {
-      emails = emails.filter(
-        (e: any) => e.accountEmail?.toLowerCase() === accountFilter,
-      );
-    }
-
-    emails = emails.slice(0, limit);
-
-    console.error(
-      `Found ${emails.length} email(s) in "${view}" (source: gmail)`,
-    );
-    output(compact ? toCompact(emails) : emails);
-    return;
+async function readLocalEmails(): Promise<any[]> {
+  const data = await getSetting("local-emails");
+  if (data && Array.isArray((data as any).emails)) {
+    return (data as any).emails;
   }
+  return [];
+}
 
-  // Fallback: local store
-  let emails = await readLocalEmails();
+export default defineAction({
+  description:
+    "List emails from a view (inbox, unread, starred, sent, drafts, archive, trash) with optional search query.",
+  schema: z.object({
+    view: z
+      .enum([
+        "inbox",
+        "unread",
+        "starred",
+        "sent",
+        "drafts",
+        "archive",
+        "trash",
+        "all",
+      ])
+      .optional()
+      .describe("View to list (default: inbox)"),
+    q: z.string().optional().describe("Full-text search query"),
+    account: z
+      .string()
+      .optional()
+      .describe(
+        "Filter to a specific account email address. By default searches all connected accounts.",
+      ),
+    limit: z.coerce
+      .number()
+      .optional()
+      .describe("Max number of emails to return (default: 50)"),
+    compact: z.coerce
+      .boolean()
+      .optional()
+      .describe("Set to true for compact output"),
+  }),
+  http: { method: "GET" },
+  run: async (args) => {
+    const view = args.view ?? "inbox";
+    const query = args.q;
+    const limit = args.limit ?? 50;
+    const compact = args.compact !== false;
+    const accountFilter = args.account?.toLowerCase();
+    const ownerEmail = process.env.AGENT_USER_EMAIL || "local@localhost";
 
-  switch (view) {
-    case "inbox":
-      emails = emails.filter(
-        (e) => !e.isArchived && !e.isTrashed && !e.isDraft && !e.isSent,
+    if (await isConnected(ownerEmail)) {
+      const clients = await getClients(ownerEmail);
+      const labelMap = new Map<string, string>();
+      await Promise.all(
+        clients.map(async ({ accessToken }) => {
+          try {
+            const map = await fetchGmailLabelMap(accessToken);
+            for (const [id, name] of map) labelMap.set(id, name);
+          } catch {}
+        }),
       );
-      break;
-    case "unread":
+
+      const viewPrefix = VIEW_QUERIES[view] ?? `label:${view}`;
+      const gmailQuery = [viewPrefix, query].filter(Boolean).join(" ");
+      const { messages, errors } = await listGmailMessages(
+        gmailQuery || "in:inbox",
+        limit,
+        ownerEmail,
+      );
+
+      if (errors.length > 0 && messages.length === 0) {
+        return `Error: ${errors.map((e) => `${e.email}: ${e.error}`).join("; ")}`;
+      }
+
+      let emails = messages
+        .map((m) => gmailToEmailMessage(m, m._accountEmail, labelMap))
+        .sort(
+          (a: any, b: any) =>
+            new Date(b.date).getTime() - new Date(a.date).getTime(),
+        );
+
+      if (accountFilter) {
+        emails = emails.filter(
+          (e: any) => e.accountEmail?.toLowerCase() === accountFilter,
+        );
+      }
+
+      emails = emails.slice(0, limit);
+
+      return JSON.stringify(compact ? toCompact(emails) : emails, null, 2);
+    }
+
+    // Fallback: local store
+    let emails = await readLocalEmails();
+
+    switch (view) {
+      case "inbox":
+        emails = emails.filter(
+          (e) => !e.isArchived && !e.isTrashed && !e.isDraft && !e.isSent,
+        );
+        break;
+      case "unread":
+        emails = emails.filter(
+          (e) =>
+            !e.isRead &&
+            !e.isArchived &&
+            !e.isTrashed &&
+            !e.isDraft &&
+            !e.isSent,
+        );
+        break;
+      case "starred":
+        emails = emails.filter((e) => e.isStarred && !e.isTrashed);
+        break;
+      case "sent":
+        emails = emails.filter((e) => e.isSent && !e.isTrashed);
+        break;
+      case "drafts":
+        emails = emails.filter((e) => e.isDraft);
+        break;
+      case "archive":
+        emails = emails.filter((e) => e.isArchived && !e.isTrashed);
+        break;
+      case "trash":
+        emails = emails.filter((e) => e.isTrashed);
+        break;
+    }
+
+    if (query) {
+      const q = query.toLowerCase();
       emails = emails.filter(
         (e) =>
-          !e.isRead && !e.isArchived && !e.isTrashed && !e.isDraft && !e.isSent,
+          e.subject?.toLowerCase().includes(q) ||
+          e.snippet?.toLowerCase().includes(q) ||
+          e.body?.toLowerCase().includes(q) ||
+          e.from?.name?.toLowerCase().includes(q) ||
+          e.from?.email?.toLowerCase().includes(q),
       );
-      break;
-    case "starred":
-      emails = emails.filter((e) => e.isStarred && !e.isTrashed);
-      break;
-    case "sent":
-      emails = emails.filter((e) => e.isSent && !e.isTrashed);
-      break;
-    case "drafts":
-      emails = emails.filter((e) => e.isDraft);
-      break;
-    case "archive":
-      emails = emails.filter((e) => e.isArchived && !e.isTrashed);
-      break;
-    case "trash":
-      emails = emails.filter((e) => e.isTrashed);
-      break;
-  }
+    }
 
-  if (query) {
-    const q = query.toLowerCase();
-    emails = emails.filter(
-      (e) =>
-        e.subject?.toLowerCase().includes(q) ||
-        e.snippet?.toLowerCase().includes(q) ||
-        e.body?.toLowerCase().includes(q) ||
-        e.from?.name?.toLowerCase().includes(q) ||
-        e.from?.email?.toLowerCase().includes(q),
+    return JSON.stringify(
+      compact ? toCompact(emails.slice(0, limit)) : emails.slice(0, limit),
+      null,
+      2,
     );
-  }
-
-  emails = emails
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-    .slice(0, limit);
-
-  console.error(`Found ${emails.length} email(s) in "${view}" (source: local)`);
-  output(compact ? toCompact(emails) : emails);
-}
+  },
+});

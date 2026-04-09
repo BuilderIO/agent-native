@@ -3,6 +3,7 @@ import fs from "fs";
 import { createRequire } from "module";
 import type { Plugin, UserConfig } from "vite";
 import { nitro as nitroVitePlugin } from "nitro/vite";
+import { actionTypesPlugin } from "./action-types-plugin.js";
 
 import { fileURLToPath } from "url";
 
@@ -321,6 +322,7 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
       noExternal: /^(?!node:)/,
     },
     plugins: [
+      actionTypesPlugin(),
       autoReloadOnOptimizeDep(),
       baseRedirectGuard(),
       portExposer(),

@@ -117,8 +117,7 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
       lastSyncedRef.current &&
       lastSyncedRef.current !== syncStatus.lastSyncedAt
     ) {
-      queryClient.invalidateQueries({ queryKey: ["document", documentId] });
-      queryClient.invalidateQueries({ queryKey: ["documents"] });
+      queryClient.invalidateQueries({ queryKey: ["action"] });
     }
     lastSyncedRef.current = syncStatus.lastSyncedAt;
   }, [syncStatus?.lastSyncedAt, queryClient, documentId]);
@@ -170,9 +169,7 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
         { direction },
         {
           onSuccess: () => {
-            queryClient.invalidateQueries({
-              queryKey: ["document", documentId],
-            });
+            queryClient.invalidateQueries({ queryKey: ["action"] });
             queryClient.invalidateQueries({
               queryKey: ["document-sync", documentId],
             });

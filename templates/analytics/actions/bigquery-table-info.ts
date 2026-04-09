@@ -1,11 +1,4 @@
-#!/usr/bin/env tsx
-/**
- * Print BigQuery table/column mappings, join paths, and SQL patterns.
- * Call this before writing SQL so you know the correct table and column names.
- *
- * Usage:
- *   npx tsx scripts/run.ts bigquery-table-info
- */
+import { defineAction } from "@agent-native/core";
 
 const TABLE_INFO = `## BigQuery Tables
 
@@ -38,6 +31,12 @@ const TABLE_INFO = `## BigQuery Tables
 - Blog metadata table has duplicates — deduplicate with REGEXP_EXTRACT(SUOHFYGIOG, r'/blog/([^/?#]+)') and ROW_NUMBER
 `;
 
-export default async function () {
-  console.log(TABLE_INFO);
-}
+export default defineAction({
+  description:
+    "Print BigQuery table/column mappings, join paths, and SQL patterns. Call this before writing SQL so you know the correct table and column names.",
+  parameters: {},
+  http: false,
+  run: async () => {
+    return TABLE_INFO;
+  },
+});

@@ -1,11 +1,12 @@
-#!/usr/bin/env tsx
-/**
- * Get SEO metrics for all blog pages.
- *
- * Usage:
- *   npx tsx scripts/run.ts seo-blog-pages
- */
-import { output } from "./helpers";
+import { defineAction } from "@agent-native/core";
 import { getAllBlogPagesSeo } from "../server/lib/dataforseo";
 
-output(await getAllBlogPagesSeo());
+export default defineAction({
+  description: "Get SEO metrics for all blog pages.",
+  parameters: {},
+  http: { method: "GET" },
+  run: async () => {
+    const pages = await getAllBlogPagesSeo();
+    return { pages, total: Object.keys(pages).length };
+  },
+});

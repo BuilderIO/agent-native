@@ -1,10 +1,14 @@
-#!/usr/bin/env tsx
+import { defineAction } from "@agent-native/core";
 import { runQuery } from "../server/lib/bigquery";
-import { output } from "./helpers";
 
-async function main() {
-  const sql = `
-    SELECT 
+export default defineAction({
+  description:
+    "Check contacts with signup timestamps from BigQuery dim_hs_contacts.",
+  parameters: {},
+  http: false,
+  run: async () => {
+    const sql = `
+    SELECT
       contact_id,
       email,
       builder_user_id,
@@ -16,9 +20,7 @@ async function main() {
     LIMIT 10
   `;
 
-  const result = await runQuery(sql);
-  console.error(`Found ${result.totalRows} contacts with sign_up_time_stamp`);
-  output(result.rows);
-}
-
-export default main;
+    const result = await runQuery(sql);
+    return result.rows;
+  },
+});

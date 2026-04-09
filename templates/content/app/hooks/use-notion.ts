@@ -22,8 +22,7 @@ function invalidateDocumentQueries(
   queryClient: ReturnType<typeof useQueryClient>,
   documentId: string,
 ) {
-  queryClient.invalidateQueries({ queryKey: ["documents"] });
-  queryClient.invalidateQueries({ queryKey: ["document", documentId] });
+  queryClient.invalidateQueries({ queryKey: ["action"] });
   queryClient.invalidateQueries({ queryKey: ["document-sync", documentId] });
 }
 

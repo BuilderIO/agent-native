@@ -1,40 +1,35 @@
-/**
- * Navigate the UI to a document or view.
- *
- * Writes a navigate command to application state which the UI reads and auto-deletes.
- *
- * Usage:
- *   pnpm action navigate --path=/
- *   pnpm action navigate --path=/abc123
- *   pnpm action navigate --documentId=abc123
- *
- * Options:
- *   --path        URL path to navigate to (e.g. "/" for list, "/abc123" for a document)
- *   --documentId  Document ID to open (shorthand for --path=/<id>)
- */
-
-import { parseArgs, fail } from "./_utils.js";
+import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
+import { z } from "zod";
 
-export default async function main(args: string[]) {
-  const opts = parseArgs(args);
+export default defineAction({
+  description:
+    "Navigate the UI to a document or view. Use --path for URL paths or --documentId as shorthand.",
+  schema: z.object({
+    path: z
+      .string()
+      .optional()
+      .describe(
+        'URL path to navigate to (e.g. "/" for list, "/abc123" for a document)',
+      ),
+    documentId: z
+      .string()
+      .optional()
+      .describe("Document ID to open (shorthand for --path=/<id>)"),
+  }),
+  http: false,
+  run: async (args) => {
+    let path = args.path;
 
-  if (opts.help) {
-    console.log("Usage: pnpm action navigate --path=/ | --documentId=abc123");
-    console.log("Navigates the UI to a document or view.");
-    return;
-  }
+    if (!path && args.documentId) {
+      path = `/${args.documentId}`;
+    }
 
-  let path = opts.path;
+    if (!path) {
+      throw new Error("At least --path or --documentId is required");
+    }
 
-  if (!path && opts.documentId) {
-    path = `/${opts.documentId}`;
-  }
-
-  if (!path) {
-    fail("At least --path or --documentId is required");
-  }
-
-  await writeAppState("navigate", { path, ts: Date.now() });
-  console.log(`Navigating to ${path}`);
-}
+    await writeAppState("navigate", { path, ts: Date.now() });
+    return `Navigating to ${path}`;
+  },
+});

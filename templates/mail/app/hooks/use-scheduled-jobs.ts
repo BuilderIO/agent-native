@@ -81,7 +81,9 @@ export function useSnoozeEmail() {
       const threadId = target?.threadId || data.emailId;
       suppressThread(threadId, "snooze");
       qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
-        old?.filter((e) => (e.threadId || e.id) !== threadId),
+        Array.isArray(old)
+          ? old.filter((e) => (e.threadId || e.id) !== threadId)
+          : old,
       );
       return { previous, threadId };
     },

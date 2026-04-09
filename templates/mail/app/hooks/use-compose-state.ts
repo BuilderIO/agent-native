@@ -30,9 +30,12 @@ function hasDraftContent(draft: ComposeState): boolean {
   );
 }
 
-/** Save a compose draft to persistent storage (emails with isDraft=true) */
-async function saveDraftToEmails(draft: ComposeState): Promise<void> {
-  await apiFetch("/api/emails/draft", {
+/** Save a compose draft to persistent storage (emails with isDraft=true).
+ *  Returns the draftId so callers can track it for subsequent updates. */
+async function saveDraftToEmails(
+  draft: ComposeState,
+): Promise<string | undefined> {
+  const result = await apiFetch<{ draftId?: string }>("/api/emails/draft", {
     method: "POST",
     body: JSON.stringify({
       to: draft.to,
@@ -45,6 +48,7 @@ async function saveDraftToEmails(draft: ComposeState): Promise<void> {
       replyToThreadId: draft.replyToThreadId,
     }),
   });
+  return result?.draftId;
 }
 
 export function useComposeState() {
@@ -52,6 +56,9 @@ export function useComposeState() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const dirtyRef = useRef<Record<string, boolean>>({});
   const debounceRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const gmailSaveRef = useRef<Record<string, ReturnType<typeof setTimeout>>>(
+    {},
+  );
 
   // Fetch all drafts — short staleTime so agent-written drafts appear quickly
   const query = useQuery<ComposeState[]>({
@@ -121,7 +128,36 @@ export function useComposeState() {
     [qc, putMutation],
   );
 
-  /** Update a specific draft (debounced 300ms). */
+  /** Auto-save a draft to Gmail/persistent storage, storing the returned draftId. */
+  const autoSaveToGmail = useCallback(
+    (id: string) => {
+      const current = (
+        qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? []
+      ).find((d) => d.id === id);
+      if (!current || !hasDraftContent(current)) return;
+
+      saveDraftToEmails(current).then((draftId) => {
+        if (draftId && draftId !== current.savedDraftId) {
+          // Store the Gmail draft ID back so subsequent saves update rather than create
+          qc.setQueryData<ComposeState[]>(["compose-drafts"], (old) =>
+            (old ?? []).map((d) =>
+              d.id === id ? { ...d, savedDraftId: draftId } : d,
+            ),
+          );
+          // Also persist the savedDraftId to application-state
+          const updated = (
+            qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? []
+          ).find((d) => d.id === id);
+          if (updated) {
+            putMutation.mutate({ ...updated, savedDraftId: draftId });
+          }
+        }
+      });
+    },
+    [qc, putMutation],
+  );
+
+  /** Update a specific draft (debounced 300ms for app-state, 3s for Gmail). */
   const update = useCallback(
     (id: string, partial: Partial<ComposeState>) => {
       dirtyRef.current[id] = true;
@@ -131,7 +167,7 @@ export function useComposeState() {
         (old ?? []).map((d) => (d.id === id ? { ...d, ...partial } : d)),
       );
 
-      // Debounced write
+      // Debounced write to application-state (300ms)
       if (debounceRef.current[id]) clearTimeout(debounceRef.current[id]);
       debounceRef.current[id] = setTimeout(() => {
         const current = (
@@ -145,17 +181,25 @@ export function useComposeState() {
           });
         }
       }, 300);
+
+      // Debounced auto-save to Gmail (3s)
+      if (gmailSaveRef.current[id]) clearTimeout(gmailSaveRef.current[id]);
+      gmailSaveRef.current[id] = setTimeout(() => {
+        autoSaveToGmail(id);
+      }, 3_000);
     },
-    [qc, putMutation],
+    [qc, putMutation, autoSaveToGmail],
   );
 
   /** Close a single draft tab — auto-saves to Drafts if it has content. */
   const close = useCallback(
     (id: string) => {
-      // Clear debounce timer
+      // Clear debounce timers
       if (debounceRef.current[id]) clearTimeout(debounceRef.current[id]);
+      if (gmailSaveRef.current[id]) clearTimeout(gmailSaveRef.current[id]);
       delete dirtyRef.current[id];
       delete debounceRef.current[id];
+      delete gmailSaveRef.current[id];
 
       // Get the draft before removing it
       const currentDrafts =
@@ -185,17 +229,30 @@ export function useComposeState() {
     [qc, deleteMutation, resolvedActiveId],
   );
 
-  /** Discard a single draft — closes WITHOUT saving to Drafts. */
+  /** Discard a single draft — closes WITHOUT saving to Drafts.
+   *  If a Gmail draft was already created by auto-save, delete it. */
   const discard = useCallback(
     (id: string) => {
       if (debounceRef.current[id]) clearTimeout(debounceRef.current[id]);
+      if (gmailSaveRef.current[id]) clearTimeout(gmailSaveRef.current[id]);
       delete dirtyRef.current[id];
       delete debounceRef.current[id];
+      delete gmailSaveRef.current[id];
 
       const currentDrafts =
         qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? [];
+      const draft = currentDrafts.find((d) => d.id === id);
       const idx = currentDrafts.findIndex((d) => d.id === id);
       const remaining = currentDrafts.filter((d) => d.id !== id);
+
+      // Delete the Gmail draft if one was auto-saved
+      if (draft?.savedDraftId) {
+        fetch(`/api/emails/draft/${draft.savedDraftId}`, {
+          method: "DELETE",
+        }).then(() => {
+          qc.invalidateQueries({ queryKey: ["emails"] });
+        });
+      }
 
       if (id === resolvedActiveId) {
         const nextDraft = remaining[Math.min(idx, remaining.length - 1)];
@@ -223,7 +280,10 @@ export function useComposeState() {
     }
 
     for (const timer of Object.values(debounceRef.current)) clearTimeout(timer);
+    for (const timer of Object.values(gmailSaveRef.current))
+      clearTimeout(timer);
     debounceRef.current = {};
+    gmailSaveRef.current = {};
     dirtyRef.current = {};
 
     setActiveId(null);
@@ -235,15 +295,18 @@ export function useComposeState() {
   const flush = useCallback(
     (id: string) => {
       if (debounceRef.current[id]) clearTimeout(debounceRef.current[id]);
+      if (gmailSaveRef.current[id]) clearTimeout(gmailSaveRef.current[id]);
       const current = (
         qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? []
       ).find((d) => d.id === id);
       if (current) {
         dirtyRef.current[id] = false;
+        // Also trigger Gmail save immediately
+        if (hasDraftContent(current)) autoSaveToGmail(id);
         return putMutation.mutateAsync(current);
       }
     },
-    [qc, putMutation],
+    [qc, putMutation, autoSaveToGmail],
   );
 
   return {
