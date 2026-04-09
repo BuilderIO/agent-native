@@ -320,7 +320,9 @@ export function createProductionAgentHandler(
     ([name, entry]) => ({
       name,
       description: entry.tool.description,
-      input_schema: entry.tool.parameters as Anthropic.Tool["input_schema"],
+      input_schema: (entry.tool.parameters ?? {
+        type: "object",
+      }) as Anthropic.Tool["input_schema"],
     }),
   );
 
@@ -544,7 +546,12 @@ export function createProductionAgentHandler(
                   for await (const task of client.stream(
                     {
                       role: "user",
-                      parts: [{ type: "text", text: message }],
+                      parts: [
+                        {
+                          type: "text",
+                          text: enrichedMessage + screenContext,
+                        },
+                      ],
                     },
                     Object.keys(a2aMetadata).length > 0
                       ? { metadata: a2aMetadata }
@@ -572,7 +579,10 @@ export function createProductionAgentHandler(
                 } catch {
                   // Streaming failed — fall back to blocking call
                   if (!responseText) {
-                    responseText = await callAgent(ref.path, message);
+                    responseText = await callAgent(
+                      ref.path,
+                      enrichedMessage + screenContext,
+                    );
                   }
                 }
 

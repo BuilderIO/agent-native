@@ -73,9 +73,8 @@ export function Turnstile({
 }: TurnstileProps) {
   const resolvedKey =
     siteKey ||
-    (typeof import.meta !== "undefined"
-      ? (import.meta as any).env?.VITE_TURNSTILE_SITE_KEY
-      : undefined);
+    (import.meta.env as Record<string, string | undefined>)
+      ?.VITE_TURNSTILE_SITE_KEY;
 
   const containerRef = useRef<HTMLDivElement>(null);
   const widgetIdRef = useRef<string | null>(null);

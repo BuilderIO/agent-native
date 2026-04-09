@@ -191,9 +191,10 @@ export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
       process.once("SIGINT", cleanup);
       process.once("exit", cleanup);
 
-      console.log(
-        `[terminal] Agent terminal ready (command: ${command}, port: ${result.port})`,
-      );
+      if (process.env.DEBUG)
+        console.log(
+          `[terminal] Agent terminal ready (command: ${command}, port: ${result.port})`,
+        );
     } catch (err) {
       // Clear the running flag so a retry can spawn a fresh server
       delete process.env.__AGENT_TERMINAL_RUNNING;

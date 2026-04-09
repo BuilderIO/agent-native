@@ -120,7 +120,7 @@ export function mountA2A(
       // Store verified caller email on the event context so the handler
       // can set AGENT_USER_EMAIL from a trusted source instead of metadata
       if (verifiedCallerEmail) {
-        (event.context as any).__a2aVerifiedEmail = verifiedCallerEmail;
+        event.context.__a2aVerifiedEmail = verifiedCallerEmail;
       }
 
       const body = await readBody(event);

@@ -120,28 +120,26 @@ function useAvailableClis() {
   return clis;
 }
 
-function useCliSelection() {
+function useCliSelection(keyPrefix: string) {
+  const cliKey = `${CLI_STORAGE_KEY}${keyPrefix}`;
   const [selected, setSelected] = useState(CLI_DEFAULT);
   useEffect(() => {
     try {
-      const saved = localStorage.getItem(CLI_STORAGE_KEY);
+      const saved = localStorage.getItem(cliKey);
       if (saved) setSelected(saved);
     } catch {}
-  }, []);
+  }, [cliKey]);
   const select = (cmd: string) => {
     setSelected(cmd);
     try {
-      localStorage.setItem(CLI_STORAGE_KEY, cmd);
+      localStorage.setItem(cliKey, cmd);
     } catch {}
   };
   return [selected, select] as const;
 }
 
 // Detect dev mode at build time (Vite replaces this)
-const IS_DEV: boolean =
-  typeof import.meta !== "undefined" &&
-  typeof (import.meta as any).env !== "undefined" &&
-  (import.meta as any).env.DEV === true;
+const IS_DEV: boolean = import.meta.env?.DEV === true;
 
 interface SettingsSelectOption {
   value: string;
@@ -715,6 +713,8 @@ export interface AgentPanelProps extends Omit<
   onCollapse?: () => void;
   /** URL of the app being developed (shown as "Open app in new tab" in settings). Set by frame. */
   devAppUrl?: string;
+  /** Namespace for localStorage keys — used to isolate chat state per app in the frame. */
+  storageKey?: string;
 }
 
 function useClientOnly() {
@@ -732,31 +732,39 @@ export function AgentPanel({
   showHeader = true,
   onCollapse,
   devAppUrl,
+  storageKey,
 }: AgentPanelProps) {
   const mounted = useClientOnly();
+  const keyPrefix = storageKey ? `:${storageKey}` : "";
+  const execModeKey = `${EXEC_MODE_KEY}${keyPrefix}`;
+  const panelModeKey = `agent-native-panel-mode${keyPrefix}`;
+
   const [execMode, setExecMode] = useState<ExecMode>(() => {
     try {
-      const saved = localStorage.getItem(EXEC_MODE_KEY);
+      const saved = localStorage.getItem(execModeKey);
       if (saved === "build" || saved === "plan") return saved;
     } catch {}
     return "build";
   });
 
-  const switchExecMode = useCallback((next: ExecMode) => {
-    setExecMode(next);
-    try {
-      localStorage.setItem(EXEC_MODE_KEY, next);
-    } catch {}
-    window.dispatchEvent(
-      new CustomEvent("agent-panel:exec-mode-change", {
-        detail: { mode: next },
-      }),
-    );
-  }, []);
+  const switchExecMode = useCallback(
+    (next: ExecMode) => {
+      setExecMode(next);
+      try {
+        localStorage.setItem(execModeKey, next);
+      } catch {}
+      window.dispatchEvent(
+        new CustomEvent("agent-panel:exec-mode-change", {
+          detail: { mode: next },
+        }),
+      );
+    },
+    [execModeKey],
+  );
 
   const [mode, setMode] = useState<"chat" | "cli" | "resources">(() => {
     try {
-      const saved = localStorage.getItem("agent-native-panel-mode");
+      const saved = localStorage.getItem(panelModeKey);
       if (saved === "chat" || saved === "cli" || saved === "resources")
         return saved;
     } catch {}
@@ -764,9 +772,9 @@ export function AgentPanel({
   });
   useEffect(() => {
     try {
-      localStorage.setItem("agent-native-panel-mode", mode);
+      localStorage.setItem(panelModeKey, mode);
     } catch {}
-  }, [mode]);
+  }, [mode, panelModeKey]);
   const switchMode = useCallback((m: "chat" | "cli" | "resources") => {
     startTransition(() => setMode(m));
   }, []);
@@ -824,7 +832,7 @@ export function AgentPanel({
   }, []);
 
   const availableClis = useAvailableClis();
-  const [selectedCli, selectCli] = useCliSelection();
+  const [selectedCli, selectCli] = useCliSelection(keyPrefix);
   const selectedLabel =
     availableClis.find((c) => c.command === selectedCli)?.label || selectedCli;
   const { isDevMode, canToggle, setDevMode } = useDevMode(apiUrl);
@@ -1449,6 +1457,7 @@ export function AgentPanel({
             onSwitchToCli={() => switchMode("cli")}
             execMode={execMode}
             onExecModeChange={switchExecMode}
+            storageKey={storageKey}
           />
         )}
       </div>

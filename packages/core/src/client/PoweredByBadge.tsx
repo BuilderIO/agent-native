@@ -48,8 +48,8 @@ export function PoweredByBadge({
 }: PoweredByBadgeProps) {
   // Allow hiding via env var
   const hidden =
-    typeof import.meta !== "undefined" &&
-    (import.meta as any).env?.VITE_HIDE_BRANDING === "true";
+    (import.meta.env as Record<string, string | undefined>)
+      ?.VITE_HIDE_BRANDING === "true";
 
   if (hidden) return null;
 

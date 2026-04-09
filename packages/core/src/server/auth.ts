@@ -98,18 +98,27 @@ const DEFAULT_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
  *
  * Returns true when:
  * - AUTH_MODE=local is explicitly set (escape hatch)
- * - In dev environment (NODE_ENV=development) with no explicit auth configured
- *   (no ACCESS_TOKEN, no GOOGLE_CLIENT_ID). This makes dev "just work" without
- *   requiring auth setup, while still respecting auth when configured.
+ * - In dev environment (NODE_ENV=development) with no explicit auth token
+ *   configured (no ACCESS_TOKEN, no BYOA). This makes dev "just work"
+ *   without requiring auth setup, while still respecting auth when configured.
+ *
+ * NOTE: GOOGLE_CLIENT_ID is intentionally NOT checked here — it is used for
+ * Google Calendar / Gmail API access as well as Google Sign-In, and its
+ * presence alone should not force authentication. Only ACCESS_TOKEN/ACCESS_TOKENS
+ * (explicit token-based auth) or a custom getSession (BYOA) signal that the
+ * developer has explicitly opted into requiring authentication.
+ *
+ * BYOA (customGetSession) opts out of dev auto-local — templates that provide
+ * their own auth (e.g. Supabase) shouldn't be silently bypassed in dev.
  */
 function isLocalMode(): boolean {
   if (process.env.AUTH_MODE === "local") return true;
-  // Default to local mode in dev when no auth is explicitly configured
+  // Default to local mode in dev when no explicit auth is configured
   if (
     isDevEnvironment() &&
     !process.env.ACCESS_TOKEN &&
     !process.env.ACCESS_TOKENS &&
-    !process.env.GOOGLE_CLIENT_ID
+    !customGetSession
   ) {
     return true;
   }
@@ -243,6 +252,19 @@ let customGetSession: ((event: H3Event) => Promise<AuthSession | null>) | null =
 let authDisabledMode = false;
 
 /**
+ * Mutable config for the auth guard. Stored separately from the guard function
+ * so that a custom auth plugin can update the login HTML / public paths even
+ * after the default plugin has already installed the middleware (a race that
+ * occurs in production serverless environments where the default plugin is
+ * auto-mounted before the template's custom auth plugin runs).
+ */
+interface AuthGuardConfig {
+  loginHtml: string;
+  publicPaths: string[];
+}
+let _authGuardConfig: AuthGuardConfig | null = null;
+
+/**
  * Module-level auth guard function. Set by autoMountAuth() when auth is active.
  * Called by the server middleware to enforce auth on ALL requests (not just
  * /_agent-native/* routes).
@@ -275,12 +297,19 @@ const LOCAL_SESSION: AuthSession = { email: "local@localhost" };
  * Create an auth guard function that checks session and blocks
  * unauthenticated requests. Returns the login HTML for page routes
  * or a 401 JSON response for API routes.
+ *
+ * Reads loginHtml and publicPaths from _authGuardConfig on every request
+ * so that a custom plugin can update them after the default has already
+ * installed this middleware (the production race condition fix).
  */
-function createAuthGuardFn(
-  loginHtml: string,
-  publicPaths: string[],
-): (event: H3Event) => Promise<Response | object | string | void> {
+function createAuthGuardFn(): (
+  event: H3Event,
+) => Promise<Response | object | string | void> {
   return async (event: H3Event) => {
+    const config = _authGuardConfig;
+    if (!config) return;
+    const { loginHtml, publicPaths } = config;
+
     const url = event.node?.req?.url ?? event.path ?? "/";
     const p = url.split("?")[0];
 
@@ -805,7 +834,8 @@ async function mountBetterAuthRoutes(
   // _authGuardFn so the server middleware can enforce it on ALL routes.
   const loginHtml =
     options.loginHtml ?? getOnboardingHtml({ googleOnly: options.googleOnly });
-  const guardFn = createAuthGuardFn(loginHtml, publicPaths);
+  _authGuardConfig = { loginHtml, publicPaths };
+  const guardFn = createAuthGuardFn();
   _authGuardFn = guardFn;
   app.use(defineEventHandler(guardFn));
 }
@@ -871,7 +901,8 @@ function mountTokenOnlyRoutes(
     }),
   );
 
-  const guardFn = createAuthGuardFn(TOKEN_LOGIN_HTML, publicPaths);
+  _authGuardConfig = { loginHtml: TOKEN_LOGIN_HTML, publicPaths };
+  const guardFn = createAuthGuardFn();
   _authGuardFn = guardFn;
   app.use(defineEventHandler(guardFn));
 }
@@ -938,12 +969,26 @@ export async function autoMountAuth(
   app: H3App,
   options: AuthOptions = {},
 ): Promise<boolean> {
-  // If auth is already mounted (e.g., custom plugin ran first), skip.
-  // On serverless runtimes (Netlify, CF Workers), the framework can't read
-  // the filesystem to detect custom plugins, so it auto-mounts defaults
-  // that may duplicate a custom plugin. This guard prevents the default
-  // from overriding the custom plugin's configuration.
+  // If auth is already mounted (e.g., default plugin ran before custom plugin),
+  // don't re-mount routes — but DO update the live config if custom options
+  // like googleOnly or loginHtml were provided. This fixes the production race
+  // where the default plugin (no googleOnly) mounts first, and the template's
+  // custom auth plugin runs later. Because createAuthGuardFn() reads from
+  // _authGuardConfig on every request, updating it here takes effect immediately.
   if (_authGuardFn) {
+    if (_authGuardConfig) {
+      if (options.googleOnly || options.loginHtml) {
+        _authGuardConfig.loginHtml =
+          options.loginHtml ??
+          getOnboardingHtml({ googleOnly: options.googleOnly });
+      }
+      if (options.publicPaths) {
+        _authGuardConfig.publicPaths = [
+          ...(_authGuardConfig.publicPaths ?? []),
+          ...options.publicPaths,
+        ];
+      }
+    }
     return true;
   }
 
@@ -1005,7 +1050,8 @@ export async function autoMountAuth(
     );
 
     const byoaLoginHtml = options.loginHtml ?? TOKEN_LOGIN_HTML;
-    const guardFn = createAuthGuardFn(byoaLoginHtml, publicPaths);
+    _authGuardConfig = { loginHtml: byoaLoginHtml, publicPaths };
+    const guardFn = createAuthGuardFn();
     _authGuardFn = guardFn;
     app.use(defineEventHandler(guardFn));
 
@@ -1048,7 +1094,8 @@ export async function autoMountAuth(
     const loginHtml =
       options.loginHtml ??
       getOnboardingHtml({ googleOnly: options.googleOnly });
-    const guardFn = createAuthGuardFn(loginHtml, publicPaths);
+    _authGuardConfig = { loginHtml, publicPaths };
+    const guardFn = createAuthGuardFn();
     _authGuardFn = guardFn;
     app.use(defineEventHandler(guardFn));
     console.log(

@@ -10,11 +10,11 @@ export default defineAction({
   }),
   run: async (args) => {
     const db = getDb();
-    const existing = await db
+    const [existing] = await db
       .select()
       .from(schema.forms)
       .where(eq(schema.forms.id, args.id))
-      .get();
+      .limit(1);
 
     if (!existing) {
       throw new Error(`Form ${args.id} not found`);

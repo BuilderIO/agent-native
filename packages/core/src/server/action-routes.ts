@@ -122,9 +122,8 @@ export function mountActionRoutes(
     mounted.push(`${method} ${routePath}`);
   }
 
-  if (mounted.length > 0) {
+  if (mounted.length > 0 && process.env.DEBUG)
     console.log(
       `[action-routes] Mounted ${mounted.length} action route(s): ${mounted.join(", ")}`,
     );
-  }
 }

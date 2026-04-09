@@ -188,9 +188,10 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
       terminal: (terminalModule as any).defaultTerminalPlugin,
     };
 
-    console.log(
-      `[agent-native] Auto-mounting ${missing.length} default plugin(s): ${missing.join(", ")}`,
-    );
+    if (process.env.DEBUG)
+      console.log(
+        `[agent-native] Auto-mounting ${missing.length} default plugin(s): ${missing.join(", ")}`,
+      );
 
     for (const stem of missing) {
       const impl = impls[stem];

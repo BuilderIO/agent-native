@@ -7,10 +7,11 @@
 import {
   createAuthPlugin,
   addSession,
+  getSessionEmail,
   getH3App,
   readBody,
 } from "@agent-native/core/server";
-import { defineEventHandler } from "h3";
+import { defineEventHandler, getCookie } from "h3";
 import { createClient } from "@supabase/supabase-js";
 
 let _supabase: ReturnType<typeof createClient> | null = null;
@@ -117,5 +118,18 @@ export default (nitroApp: any) => {
     }),
   );
 
-  return createAuthPlugin({ loginHtml: LOGIN_HTML })(nitroApp);
+  return createAuthPlugin({
+    loginHtml: LOGIN_HTML,
+    // Resolve sessions from the framework's legacy session table, where
+    // supabase-login stores them via addSession(). Providing a custom
+    // getSession marks this template as BYOA — the framework will not
+    // silently bypass auth in dev mode.
+    getSession: async (event) => {
+      const cookie = getCookie(event, "an_session");
+      if (!cookie) return null;
+      const email = await getSessionEmail(cookie);
+      if (!email) return null;
+      return { email, token: cookie };
+    },
+  })(nitroApp);
 };

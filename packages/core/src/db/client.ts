@@ -76,7 +76,7 @@ export function getDialect(): Dialect {
     return _dialect;
   }
 
-  const d1 = (globalThis as any).__cf_env?.DB;
+  const d1 = globalThis.__cf_env?.DB;
   if (d1) {
     _dialect = "d1";
     return _dialect;
@@ -121,7 +121,7 @@ async function initClient(): Promise<void> {
 
   // Cloudflare D1
   if (dialect === "d1") {
-    const d1 = (globalThis as any).__cf_env?.DB;
+    const d1 = globalThis.__cf_env?.DB;
     _exec = {
       async execute(sql) {
         if (typeof sql === "string") {
@@ -151,7 +151,7 @@ async function initClient(): Promise<void> {
   if (dialect === "postgres") {
     const { default: postgres } = await import("postgres");
     const isWorkers =
-      typeof (globalThis as any).__cf_env !== "undefined" ||
+      "__cf_env" in globalThis ||
       (typeof navigator !== "undefined" &&
         navigator.userAgent === "Cloudflare-Workers");
 

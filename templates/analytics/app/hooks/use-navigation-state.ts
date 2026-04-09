@@ -22,7 +22,10 @@ export function useNavigationState() {
     } else if (path.startsWith("/adhoc/")) {
       state.view = "adhoc";
       const match = path.match(/\/adhoc\/(.+)/);
-      if (match) state.dashboardId = match[1];
+      if (match) {
+        state.dashboardId = match[1];
+        localStorage.setItem("last-dashboard-id", match[1]);
+      }
     } else if (path === "/query") {
       state.view = "query";
     } else if (path === "/data-sources") {

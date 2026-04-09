@@ -47,6 +47,7 @@ export interface ResolveDocumentSyncConflictRequest {
 }
 
 export interface DocumentCreateRequest {
+  id?: string;
   title?: string;
   parentId?: string | null;
   content?: string;

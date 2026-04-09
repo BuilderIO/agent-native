@@ -18,6 +18,7 @@ import {
   IconTrash,
   IconStar,
   IconSettings,
+  IconHammer,
   IconGripVertical,
   IconHome,
   IconChartBar,
@@ -715,7 +716,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                 : "text-muted-foreground hover:bg-sidebar-accent/50",
             )}
           >
-            <IconSettings className="h-4 w-4" />
+            <IconHammer className="h-4 w-4" />
             <span className="flex-1">Tools</span>
             <IconChevronDown
               className={cn(

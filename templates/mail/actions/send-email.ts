@@ -181,11 +181,10 @@ async function readSettings(): Promise<{ name: string; email: string }> {
 export default defineAction({
   description: "Send an email via Gmail.",
   schema: z.object({
-    to: z.string().optional().describe("Recipient email(s), comma-separated"),
-    subject: z.string().optional().describe("Email subject"),
+    to: z.string().describe("Recipient email(s), comma-separated"),
+    subject: z.string().describe("Email subject"),
     body: z
       .string()
-      .optional()
       .describe(
         "Email body in markdown. Use [text](url) for links, **bold**, *italic*, - lists, etc.",
       ),
@@ -201,10 +200,6 @@ export default defineAction({
       .describe("Specific account email to send from"),
   }),
   run: async (args) => {
-    if (!args.to) return "Error: --to is required";
-    if (!args.subject) return "Error: --subject is required";
-    if (!args.body) return "Error: --body is required";
-
     const settings = await readSettings();
     const accounts = await getAccessTokens();
     if (accounts.length === 0) return "Error: No Google account connected.";

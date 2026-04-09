@@ -1,5 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { useNavigate } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
+import type { Document } from "@shared/api";
 import {
   IconPlus,
   IconSearch,
@@ -22,6 +24,13 @@ import {
 } from "@/hooks/use-documents";
 import { cn } from "@/lib/utils";
 
+function nanoid(size = 12): string {
+  const chars =
+    "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+  const bytes = crypto.getRandomValues(new Uint8Array(size));
+  return Array.from(bytes, (b) => chars[b % chars.length]).join("");
+}
+
 interface DocumentSidebarProps {
   activeDocumentId: string | null;
   collapsed: boolean;
@@ -40,6 +49,7 @@ export function DocumentSidebar({
   onResize,
 }: DocumentSidebarProps) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { data: documents = [], isLoading } = useDocuments();
   const createDocument = useCreateDocument();
   const deleteDocument = useDeleteDocument();
@@ -100,20 +110,56 @@ export function DocumentSidebar({
 
   const handleCreatePage = useCallback(
     async (parentId?: string) => {
+      const id = nanoid();
+      const now = new Date().toISOString();
+      const tempDoc: Document = {
+        id,
+        parentId: parentId ?? null,
+        title: "",
+        content: "",
+        icon: null,
+        position: 9999,
+        isFavorite: false,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      // Optimistically inject into caches so UI updates immediately
+      queryClient.setQueryData(
+        ["action", "list-documents", undefined],
+        (old: any) => {
+          const docs: Document[] =
+            old?.documents ?? (Array.isArray(old) ? old : []);
+          return { documents: [...docs, tempDoc] };
+        },
+      );
+      queryClient.setQueryData(["action", "get-document", { id }], tempDoc);
+
+      navigate(`/page/${id}`);
+      onNavigate?.();
+
       try {
-        const doc = await createDocument.mutateAsync({
-          parentId: parentId ?? null,
+        await createDocument.mutateAsync({
+          id,
+          title: "",
+          parentId: parentId ?? undefined,
         });
-        navigate(`/page/${doc.id}`);
-        onNavigate?.();
       } catch (err) {
+        // Revert optimistic updates
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-documents"],
+        });
+        queryClient.removeQueries({
+          queryKey: ["action", "get-document", { id }],
+        });
+        navigate("/");
         toast.error("Failed to create page", {
           description:
             err instanceof Error ? err.message : "Something went wrong",
         });
       }
     },
-    [createDocument, navigate, onNavigate],
+    [createDocument, navigate, onNavigate, queryClient],
   );
 
   const handleDelete = useCallback(

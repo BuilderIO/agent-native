@@ -10,6 +10,7 @@ import {
   addMinutes,
 } from "date-fns";
 import { cn } from "@/lib/utils";
+import { shouldSuppressAfterPopoverClose } from "@/lib/popover-click-guard";
 import { getEventAutoColor, allOtherDeclined } from "@/lib/event-colors";
 import { IconAlertTriangleFilled } from "@tabler/icons-react";
 import { EventDetailPopover } from "./EventDetailPopover";
@@ -274,7 +275,13 @@ export function DayView({
           className="absolute inset-0 ml-[40px] mr-2 sm:ml-[56px] sm:mr-4"
           onClick={(e) => {
             if ((e.target as HTMLElement).closest("button")) return;
-            if (!onClickTimeSlot || isDragging || shouldSuppressClick()) return;
+            if (
+              !onClickTimeSlot ||
+              isDragging ||
+              shouldSuppressClick() ||
+              shouldSuppressAfterPopoverClose()
+            )
+              return;
             const rect = e.currentTarget.getBoundingClientRect();
             const y = e.clientY - rect.top;
             const totalMinutes =
