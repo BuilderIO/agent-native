@@ -9,6 +9,8 @@ import {
   emailToColor,
   emailToName,
   useSession,
+  useAvatarUrl,
+  useUploadAvatar,
   type CollabUser,
 } from "@agent-native/core/client";
 import { IconLoader2, IconSparkles } from "@tabler/icons-react";
@@ -23,6 +25,104 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 
 const TAB_ID = generateTabId();
+
+function ContentPresenceAvatar({ user }: { user: CollabUser }) {
+  const avatarUrl = useAvatarUrl(user.email);
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div
+          className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-medium text-white border-2 border-background cursor-default overflow-hidden"
+          style={{ backgroundColor: user.color }}
+        >
+          {avatarUrl ? (
+            <img
+              src={avatarUrl}
+              alt={user.name}
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            user.name.charAt(0).toUpperCase()
+          )}
+        </div>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" className="flex items-center gap-2 p-2">
+        <div
+          className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 overflow-hidden"
+          style={{ backgroundColor: user.color }}
+        >
+          {avatarUrl ? (
+            <img
+              src={avatarUrl}
+              alt={user.name}
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            user.name.charAt(0).toUpperCase()
+          )}
+        </div>
+        <div className="flex flex-col min-w-0">
+          <span className="text-xs font-medium leading-tight">{user.name}</span>
+          <span className="text-[10px] opacity-60 leading-tight truncate">
+            {user.email}
+          </span>
+        </div>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function ContentCurrentUserAvatar({ email }: { email: string }) {
+  const avatarUrl = useAvatarUrl(email);
+  const uploadAvatar = useUploadAvatar();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const color = emailToColor(email);
+  const name = emailToName(email);
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await uploadAvatar(file, email);
+    if (inputRef.current) inputRef.current.value = "";
+  };
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          onClick={() => inputRef.current?.click()}
+          className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-medium text-white border-2 border-background cursor-pointer hover:opacity-80 overflow-hidden"
+          style={{ backgroundColor: color }}
+          aria-label="Update your avatar"
+        >
+          {avatarUrl ? (
+            <img
+              src={avatarUrl}
+              alt={name}
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            name.charAt(0).toUpperCase()
+          )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent
+        side="bottom"
+        className="flex flex-col items-center gap-0.5"
+      >
+        <span className="text-xs font-medium">{email}</span>
+        <span className="text-[10px] opacity-60">Click to update photo</span>
+      </TooltipContent>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleFileChange}
+      />
+    </Tooltip>
+  );
+}
 
 interface DocumentEditorProps {
   documentId: string;
@@ -207,7 +307,8 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
           const otherUsers = activeUsers.filter(
             (u) => u.email !== session?.email,
           );
-          return isSaving || otherUsers.length > 0 || agentActive ? (
+          const hasActivity = isSaving || otherUsers.length > 0 || agentActive;
+          return hasActivity || session?.email ? (
             <div className="absolute top-12 right-4 flex items-center gap-2 z-10">
               {agentActive && (
                 <Tooltip>
@@ -225,19 +326,7 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
               {otherUsers.length > 0 && (
                 <div className="flex -space-x-2">
                   {otherUsers.map((u, i) => (
-                    <Tooltip key={`${u.email}-${i}`}>
-                      <TooltipTrigger asChild>
-                        <div
-                          className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-medium text-white border-2 border-background cursor-default"
-                          style={{ backgroundColor: u.color }}
-                        >
-                          {u.name.charAt(0).toUpperCase()}
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent side="bottom">
-                        <span>{u.name}</span>
-                      </TooltipContent>
-                    </Tooltip>
+                    <ContentPresenceAvatar key={`${u.email}-${i}`} user={u} />
                   ))}
                 </div>
               )}
@@ -246,6 +335,9 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
                   <IconLoader2 size={12} className="animate-spin" />
                   Saving...
                 </div>
+              )}
+              {session?.email && (
+                <ContentCurrentUserAvatar email={session.email} />
               )}
             </div>
           ) : null;

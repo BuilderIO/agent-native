@@ -20,7 +20,19 @@ import {
 } from "@tabler/icons-react";
 import type { Slide, SlideLayout } from "@/context/DeckContext";
 
-import { AgentToggleButton, type CollabUser } from "@agent-native/core/client";
+import {
+  AgentToggleButton,
+  useAvatarUrl,
+  useUploadAvatar,
+  emailToColor,
+  emailToName,
+  type CollabUser,
+} from "@agent-native/core/client";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface EditorToolbarProps {
   deckId: string;
@@ -56,6 +68,8 @@ interface EditorToolbarProps {
   onToggleComments?: () => void;
   /** Number of unresolved comments on the current slide */
   unresolvedCommentCount?: number;
+  /** Current user email for avatar display */
+  currentUserEmail?: string;
 }
 
 const slideLayoutOptions: { value: SlideLayout; label: string }[] = [
@@ -79,6 +93,106 @@ const backgroundOptions = [
   "bg-gradient-to-br from-[#0a0a0a] to-[#0f1a14]",
   "bg-[#ffffff]",
 ];
+
+function PresenceAvatar({ user }: { user: CollabUser }) {
+  const avatarUrl = useAvatarUrl(user.email);
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div
+          className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white ring-2 ring-[hsl(240,5%,6%)] overflow-hidden cursor-default"
+          style={{ backgroundColor: user.color }}
+        >
+          {avatarUrl ? (
+            <img
+              src={avatarUrl}
+              alt={user.name}
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            user.name.charAt(0).toUpperCase()
+          )}
+        </div>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" className="flex items-center gap-2 p-2">
+        <div
+          className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 overflow-hidden"
+          style={{ backgroundColor: user.color }}
+        >
+          {avatarUrl ? (
+            <img
+              src={avatarUrl}
+              alt={user.name}
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            user.name.charAt(0).toUpperCase()
+          )}
+        </div>
+        <div className="flex flex-col min-w-0">
+          <span className="text-xs font-medium text-white leading-tight">
+            {user.name}
+          </span>
+          <span className="text-[10px] text-white/50 leading-tight truncate">
+            {user.email}
+          </span>
+        </div>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function CurrentUserAvatar({ email }: { email: string }) {
+  const avatarUrl = useAvatarUrl(email);
+  const uploadAvatar = useUploadAvatar();
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await uploadAvatar(file, email);
+    if (inputRef.current) inputRef.current.value = "";
+  };
+
+  const initials = emailToName(email).charAt(0).toUpperCase();
+  const color = emailToColor(email);
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          onClick={() => inputRef.current?.click()}
+          className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white ring-2 ring-[hsl(240,5%,6%)] overflow-hidden hover:opacity-80"
+          style={{ backgroundColor: color }}
+          aria-label="Update your avatar"
+        >
+          {avatarUrl ? (
+            <img
+              src={avatarUrl}
+              alt="You"
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            initials
+          )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">
+        <div className="flex flex-col items-center gap-1">
+          <span className="text-xs font-medium">{email}</span>
+          <span className="text-[10px] opacity-60">Click to update photo</span>
+        </div>
+      </TooltipContent>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleFileChange}
+      />
+    </Tooltip>
+  );
+}
 
 /** Popover anchored to a button ref */
 function ToolbarPopover({
@@ -161,6 +275,7 @@ export default function EditorToolbar({
   commentsOpen,
   onToggleComments,
   unresolvedCommentCount = 0,
+  currentUserEmail,
 }: EditorToolbarProps) {
   const [layoutOpen, setLayoutOpen] = useState(false);
   const layoutRef = useRef<HTMLButtonElement>(null);
@@ -469,23 +584,20 @@ graph TD
       {((activeUsers && activeUsers.length > 0) || agentActive) && (
         <div className="flex items-center -space-x-1.5 flex-shrink-0 mr-0.5">
           {agentActive && (
-            <div
-              className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white ring-2 ring-[hsl(240,5%,6%)] animate-pulse z-10"
-              style={{ backgroundColor: "#a78bfa" }}
-              title="AI is editing"
-            >
-              AI
-            </div>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div
+                  className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white ring-2 ring-[hsl(240,5%,6%)] animate-pulse z-10 cursor-default"
+                  style={{ backgroundColor: "#a78bfa" }}
+                >
+                  AI
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">AI is editing</TooltipContent>
+            </Tooltip>
           )}
           {(activeUsers ?? []).slice(0, 5).map((u, i) => (
-            <div
-              key={i}
-              className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white ring-2 ring-[hsl(240,5%,6%)]"
-              style={{ backgroundColor: u.color }}
-              title={u.name}
-            >
-              {u.name.charAt(0).toUpperCase()}
-            </div>
+            <PresenceAvatar key={i} user={u} />
           ))}
           {(activeUsers?.length ?? 0) > 5 && (
             <div className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white/50 bg-white/10 ring-2 ring-[hsl(240,5%,6%)]">
@@ -535,6 +647,7 @@ graph TD
         <span className="hidden sm:inline">Present</span>
       </Link>
       <AgentToggleButton className="flex-shrink-0 text-white/40 hover:text-white/70 hover:bg-white/[0.06]" />
+      {currentUserEmail && <CurrentUserAvatar email={currentUserEmail} />}
     </div>
   );
 }

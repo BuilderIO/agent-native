@@ -122,3 +122,8 @@ export {
   useActionMutation,
   type ActionRegistry,
 } from "./use-action.js";
+export {
+  useAvatarUrl,
+  useUploadAvatar,
+  invalidateAvatarCache,
+} from "./use-avatar.js";

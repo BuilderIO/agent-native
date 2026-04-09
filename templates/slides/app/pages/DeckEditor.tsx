@@ -392,6 +392,7 @@ export default function DeckEditor() {
         commentsOpen={commentsOpen}
         onToggleComments={() => setCommentsOpen((o) => !o)}
         unresolvedCommentCount={unresolvedCommentCount}
+        currentUserEmail={session?.email}
       />
 
       <div className="flex-1 flex overflow-hidden relative">

@@ -21,7 +21,12 @@ import SlideRenderer from "@/components/deck/SlideRenderer";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { useCallback } from "react";
-import type { CollabUser } from "@agent-native/core/client";
+import { type CollabUser, useAvatarUrl } from "@agent-native/core/client";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface EditorSidebarProps {
   slides: Slide[];
@@ -33,6 +38,66 @@ interface EditorSidebarProps {
   onDeleteSlide: (id: string) => void;
   /** Presence map: slideId → list of users currently viewing that slide */
   slidePresence?: Map<string, CollabUser[]>;
+}
+
+/** Small presence avatar circle with hover card showing name + email */
+function PresenceAvatarTip({
+  user,
+  size = 16,
+}: {
+  user: CollabUser;
+  size?: number;
+}) {
+  const avatarUrl = useAvatarUrl(user.email);
+  const initial = user.name.slice(0, 2).toUpperCase();
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div
+          className="rounded-full overflow-hidden flex items-center justify-center font-bold text-white/90 flex-shrink-0 ring-1 ring-black/40 cursor-default"
+          style={{
+            width: size,
+            height: size,
+            backgroundColor: avatarUrl ? undefined : user.color,
+          }}
+        >
+          {avatarUrl ? (
+            <img
+              src={avatarUrl}
+              alt={user.name}
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <span style={{ fontSize: size * 0.45 }}>{initial}</span>
+          )}
+        </div>
+      </TooltipTrigger>
+      <TooltipContent side="right" className="flex items-center gap-2 p-2">
+        <div
+          className="w-7 h-7 rounded-full overflow-hidden flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0"
+          style={{ backgroundColor: avatarUrl ? undefined : user.color }}
+        >
+          {avatarUrl ? (
+            <img
+              src={avatarUrl}
+              alt={user.name}
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            user.name.charAt(0).toUpperCase()
+          )}
+        </div>
+        <div className="flex flex-col min-w-0">
+          <span className="text-[12px] font-medium text-white leading-tight">
+            {user.name}
+          </span>
+          <span className="text-[10px] text-white/50 truncate">
+            {user.email}
+          </span>
+        </div>
+      </TooltipContent>
+    </Tooltip>
+  );
 }
 
 function SortableSlideThumb({
@@ -110,14 +175,7 @@ function SortableSlideThumb({
           {presenceUsers.length > 0 && (
             <div className="flex items-center gap-0.5 mt-1 px-0.5">
               {presenceUsers.slice(0, 4).map((u, i) => (
-                <div
-                  key={i}
-                  className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white/90 flex-shrink-0 ring-1 ring-black/40"
-                  style={{ backgroundColor: u.color }}
-                  title={u.name}
-                >
-                  {u.name.slice(0, 2).toUpperCase()}
-                </div>
+                <PresenceAvatarTip key={i} user={u} size={16} />
               ))}
               {presenceUsers.length > 4 && (
                 <span className="text-[9px] text-white/30 ml-0.5">

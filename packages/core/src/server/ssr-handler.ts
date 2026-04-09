@@ -21,6 +21,7 @@ export const ssrHandler = defineEventHandler(async (event) => {
   if (
     p.startsWith("/.well-known/") ||
     p.startsWith("/_agent-native/") ||
+    p.startsWith("/api/") ||
     p === "/favicon.ico" ||
     p === "/favicon.png"
   ) {

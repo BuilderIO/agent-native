@@ -300,7 +300,6 @@ export function App() {
                 onCollapse={() => setSidebarOpen(false)}
                 devAppUrl={appUrl}
                 storageKey={appId}
-                apiUrl={`/_agent-native/agent-chat?_app=${appId}`}
               />
             </Suspense>
           </div>

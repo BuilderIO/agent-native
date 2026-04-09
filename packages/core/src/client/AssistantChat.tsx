@@ -577,6 +577,11 @@ const richMentionPattern = /@\[([^\]|]+)\|([^\]]+)\]/g;
 const plainMentionPattern = /((?:^|(?<=\s))@(\w+))/g;
 
 function UserMessageText({ text }: { text: string }) {
+  // Strip injected <context>...</context> blocks before display
+  const displayText = text
+    .replace(/<context>[\s\S]*?<\/context>\n?/g, "")
+    .trim();
+
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -584,11 +589,11 @@ function UserMessageText({ text }: { text: string }) {
 
   // First try rich mentions (@[label|icon])
   richMentionPattern.lastIndex = 0;
-  while ((match = richMentionPattern.exec(text)) !== null) {
+  while ((match = richMentionPattern.exec(displayText)) !== null) {
     hasRichMentions = true;
     const matchStart = match.index;
     if (matchStart > lastIndex) {
-      parts.push(text.slice(lastIndex, matchStart));
+      parts.push(displayText.slice(lastIndex, matchStart));
     }
     const label = match[1];
     const icon = match[2];
@@ -606,18 +611,18 @@ function UserMessageText({ text }: { text: string }) {
   }
 
   if (hasRichMentions) {
-    if (lastIndex < text.length) {
-      parts.push(text.slice(lastIndex));
+    if (lastIndex < displayText.length) {
+      parts.push(displayText.slice(lastIndex));
     }
     return <>{parts}</>;
   }
 
   // Fallback: plain @word mentions (for older messages)
   plainMentionPattern.lastIndex = 0;
-  while ((match = plainMentionPattern.exec(text)) !== null) {
+  while ((match = plainMentionPattern.exec(displayText)) !== null) {
     const matchStart = match.index;
     if (matchStart > lastIndex) {
-      parts.push(text.slice(lastIndex, matchStart));
+      parts.push(displayText.slice(lastIndex, matchStart));
     }
     const mentionName = match[2];
     parts.push(
@@ -632,11 +637,11 @@ function UserMessageText({ text }: { text: string }) {
     lastIndex = matchStart + match[0].length;
   }
 
-  if (lastIndex < text.length) {
-    parts.push(text.slice(lastIndex));
+  if (lastIndex < displayText.length) {
+    parts.push(displayText.slice(lastIndex));
   }
 
-  return <>{parts.length > 0 ? parts : text}</>;
+  return <>{parts.length > 0 ? parts : displayText}</>;
 }
 
 function UserMessageAttachments() {
