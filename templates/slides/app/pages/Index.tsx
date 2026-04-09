@@ -35,23 +35,22 @@ export default function Index() {
     prompt: string,
     files: UploadedFile[],
   ) => {
-    const deck = createDeck(undefined, { noDefaultSlides: true });
     const fileContext =
       files.length > 0
         ? `\n\nThe user uploaded ${files.length} file(s) for context:\n${files.map((f) => `- ${f.originalName} (${f.type}, ${(f.size / 1024).toFixed(1)}KB) at path: ${f.path}`).join("\n")}`
         : "";
 
     const context = [
-      `Create slides for a new deck "${deck.title}" (id: ${deck.id}).`,
       `User request: "${prompt}"`,
       fileContext,
       "",
-      "Generate slide content and populate this deck. The deck already exists with default slides — replace them with the generated content.",
+      "Use the `create-deck` action to create a new deck with all the slides (read the create-deck skill for HTML templates).",
+      "After creating the deck, call `navigate --deckId=<returned-id>` to open it.",
+      "Do NOT call db-schema or search-files — just call create-deck directly.",
     ].join("\n");
 
     agentSubmit(`Create deck: ${prompt}`, context);
     setShowNewDeckPrompt(false);
-    navigate(`/deck/${deck.id}?generating=1`);
   };
 
   const handleConfirmDelete = () => {

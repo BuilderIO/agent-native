@@ -140,6 +140,40 @@ Always prefer `update-slide` with `--find/--replace` over full deck rewrites. It
 | "Go to the deck list"              | `pnpm action navigate --view=list`                                     |
 | "Find the company logo for X"      | `pnpm action logo-lookup --domain x.com`                               |
 
+## Delegating to Sub-Agents
+
+When spawning a sub-agent for slide work, you MUST write an explicit task description — never vague. The sub-agent has the same actions you do and will use them if you tell it to.
+
+**Always include in every slide-creation task description:**
+
+1. **The exact deckId** if working on an existing deck (from `<current-screen>` or from the `create-deck` return value)
+2. **Exact action names**: `create-deck`, `update-slide`, `navigate`
+3. **The full slide structure you want** — don't make the sub-agent figure it out
+
+**Example — adding slides to an open deck:**
+
+```
+Add 5 slides to deck ID "deck-1234567-abc" about "AI trends in 2025".
+
+Use update-slide for each slide with --fullContent containing the HTML.
+Read the create-deck skill for HTML slide templates before writing HTML.
+
+DO NOT use db-schema, search-files, or any shell exploration.
+The update-slide action connects directly to the deck — just call it.
+```
+
+**Example — creating a new deck:**
+
+```
+Create a new deck titled "AI Trends 2025" with 5 slides using the create-deck action.
+Read the create-deck skill for HTML templates.
+After creating it, call navigate --deckId=<returned-id>.
+
+DO NOT use db-schema or search-files. Call create-deck directly.
+```
+
+**If the user has a deck open** (visible in `<current-screen>`), include the `deckId` from the screen state in your task. Never make the sub-agent guess or discover the deckId on its own.
+
 ## Slide Styling Rules
 
 All generated slides follow these conventions (see `.agents/skills/slide-editing` for full details):

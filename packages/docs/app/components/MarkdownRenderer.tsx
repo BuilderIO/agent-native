@@ -23,19 +23,20 @@ function createRenderer() {
     // Extract custom ID from {#my-id} syntax
     const idMatch = text.match(/\s*\{#([\w-]+)\}\s*$/);
     let id: string;
-    let cleanText: string;
+    let displayText: string;
     if (idMatch) {
       id = idMatch[1];
-      cleanText = text.replace(/\s*\{#[\w-]+\}\s*$/, "");
+      displayText = text.replace(/\s*\{#[\w-]+\}\s*$/, "");
     } else {
-      cleanText = text.replace(/<[^>]+>/g, "").replace(/`([^`]+)`/g, "$1");
-      id = cleanText
+      displayText = text;
+      const plain = text.replace(/<[^>]+>/g, "").replace(/`([^`]+)`/g, "$1");
+      id = plain
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-|-$/g, "");
     }
     const tag = `h${depth}`;
-    return `<${tag} id="${id}">${cleanText}</${tag}>\n`;
+    return `<${tag} id="${id}">${displayText}</${tag}>\n`;
   };
 
   return renderer;

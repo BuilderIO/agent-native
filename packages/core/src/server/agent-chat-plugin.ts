@@ -761,7 +761,11 @@ function generateActionsPrompt(registry: Record<string, ActionEntry>): string {
     return `- \`${name}\` — ${desc}`;
   });
 
-  return `\n\n## Available Actions\n\nThese are your registered template actions. ALWAYS prefer these over raw db-query/db-exec when a matching action exists:\n\n${lines.join("\n")}`;
+  return `\n\n## Available Actions
+
+**Use these actions directly to accomplish tasks. Do NOT use \`db-schema\`, \`search-files\`, or \`shell\` to explore the app — these actions already connect to the correct database and services.**
+
+${lines.join("\n")}`;
 }
 
 /**
@@ -1362,6 +1366,7 @@ export function createAgentChatPlugin(
         ...templateScripts,
         ...resourceScripts,
         ...chatScripts,
+        ...(canToggle ? devScriptsForA2A : {}),
       }),
       getApiKey: () => options?.apiKey ?? process.env.ANTHROPIC_API_KEY ?? "",
       getModel: () => resolvedModel,

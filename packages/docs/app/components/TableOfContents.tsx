@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 interface TocItem {
   id: string;
@@ -11,7 +11,6 @@ export default function TableOfContents({ items }: { items: TocItem[] }) {
   const [headingLevels, setHeadingLevels] = useState<Record<string, number>>(
     {},
   );
-  const observerRef = useRef<IntersectionObserver | null>(null);
 
   useEffect(() => {
     // Detect heading levels for indentation
@@ -27,53 +26,34 @@ export default function TableOfContents({ items }: { items: TocItem[] }) {
   }, [items]);
 
   useEffect(() => {
-    observerRef.current?.disconnect();
-
     const headings = items
       .map((item) => document.getElementById(item.id))
       .filter(Boolean) as HTMLElement[];
 
     if (headings.length === 0) return;
 
-    // Track which headings are visible; pick the topmost one
-    const visibleIds = new Set<string>();
+    // How far from the top of the viewport a heading is considered "active"
+    const OFFSET = 120;
 
-    observerRef.current = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting) {
-            visibleIds.add(entry.target.id);
-          } else {
-            visibleIds.delete(entry.target.id);
-          }
+    const getActiveId = () => {
+      // Walk headings in order; the last one whose top edge is above OFFSET is active
+      let active = headings[0]?.id ?? "";
+      for (const heading of headings) {
+        if (heading.getBoundingClientRect().top <= OFFSET) {
+          active = heading.id;
+        } else {
+          break;
         }
+      }
+      return active;
+    };
 
-        // Pick the first visible heading in document order
-        for (const item of items) {
-          if (visibleIds.has(item.id)) {
-            setActiveId(item.id);
-            return;
-          }
-        }
+    // Set immediately on mount so the sidebar isn't blank
+    setActiveId(getActiveId());
 
-        // If nothing visible, find the last heading above viewport
-        const scrollY = window.scrollY + 80;
-        let closest = items[0]?.id ?? "";
-        for (const heading of headings) {
-          if (heading.offsetTop <= scrollY) {
-            closest = heading.id;
-          }
-        }
-        setActiveId(closest);
-      },
-      { rootMargin: "-64px 0px -60% 0px", threshold: 0 },
-    );
-
-    for (const heading of headings) {
-      observerRef.current.observe(heading);
-    }
-
-    return () => observerRef.current?.disconnect();
+    const onScroll = () => setActiveId(getActiveId());
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
   }, [items]);
 
   return (

@@ -143,6 +143,14 @@ The current screen state (including email IDs to act on) is automatically includ
 
 **Always use `pnpm action <name>` for mail actions** — scripts call Gmail directly and do NOT require `pnpm dev` to be running. Never use `curl` or raw HTTP requests. When no script exists, use `node -e` inline JavaScript.
 
+**Running actions from the frame:** The terminal cwd is the framework root. Always `cd` to this template's root before running any action:
+
+```bash
+cd templates/mail && pnpm action <name> [args]
+```
+
+`.env` is loaded automatically — **never manually set `DATABASE_URL` or other env vars**.
+
 **After any backend change** (archive, trash, star, mark-read, send, etc.) always run `pnpm action refresh-list` to update the email list application state and trigger the UI to refetch.
 
 Common operations:

@@ -103,6 +103,14 @@ Dashboard configs, explorer configs, and theme settings are stored in SQL via th
 
 **Always use `pnpm action <name>` for all operations.** Never use `curl` or raw HTTP requests.
 
+**Running actions from the frame:** The terminal cwd is the framework root. Always `cd` to this template's root before running any action:
+
+```bash
+cd templates/analytics && pnpm action <name> [args]
+```
+
+`.env` is loaded automatically — **never manually set `DATABASE_URL` or other env vars**.
+
 ### Context & Navigation
 
 | Action        | Args                                 | Purpose                    |

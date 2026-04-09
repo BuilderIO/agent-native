@@ -221,28 +221,33 @@ function ComposerAttachmentPreviewStrip() {
   );
 }
 
-// ─── Tool Call Fallback ─────────────────────────────────────────────────────
+// ─── Tool Call Display ──────────────────────────────────────────────────────
+// Shared presentational component for rendering a tool call pill + result.
+// Used by both the normal message path (ToolCallFallback) and the reconnect
+// stream path (ReconnectStreamMessage). All state is passed as props — no
+// assistant-ui hooks here.
 
-function ToolCallFallback({
+function ToolCallDisplay({
   toolName,
-  args,
   argsText,
+  args,
   result,
-}: ToolCallMessagePartProps) {
+  isRunning,
+}: {
+  toolName: string;
+  argsText?: string;
+  args: Record<string, unknown>;
+  result?: string;
+  isRunning: boolean;
+}) {
   const streamRef = useRef<HTMLDivElement>(null);
-  const thread = useThread();
-  const isRunning = result === undefined && thread.isRunning;
-
   const isAgentCall = toolName.startsWith("agent:");
-  // Agent calls default to expanded; regular tools default to collapsed
   const [expanded, setExpanded] = useState(isAgentCall);
   const agentName = isAgentCall ? toolName.slice(6) : null;
   const isAgentError = isAgentCall && result === "Error calling agent";
-  // For agent calls, argsText holds the streaming response text
   const agentStreamText = isAgentCall ? (argsText ?? "") : "";
   const hasStreamText = agentStreamText.length > 0;
 
-  // Auto-scroll streaming text to bottom as new content arrives
   // NOTE: All hooks must be above any conditional returns
   useEffect(() => {
     if (isAgentCall && isRunning && streamRef.current) {
@@ -250,12 +255,10 @@ function ToolCallFallback({
     }
   }, [agentStreamText, isAgentCall, isRunning]);
 
-  // Render spawn-task as AgentTaskCard
-  if (toolName === "spawn-task" && result !== undefined) {
+  // Render spawn-task as AgentTaskCard once the result is available
+  if (toolName === "spawn-task" && result) {
     try {
-      const resultStr =
-        typeof result === "string" ? result : JSON.stringify(result);
-      const parsed = JSON.parse(resultStr);
+      const parsed = JSON.parse(result);
       if (parsed.taskId && parsed.threadId) {
         return (
           <AgentTaskCard
@@ -284,13 +287,13 @@ function ToolCallFallback({
         );
       }
     } catch {
-      // Fall through to default rendering
+      // Fall through to default pill rendering
     }
   }
 
   const argsStr = isAgentCall
     ? ""
-    : Object.entries(args as Record<string, unknown>)
+    : Object.entries(args)
         .map(
           ([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`,
         )
@@ -304,7 +307,6 @@ function ToolCallFallback({
         : `Asked ${agentName}`
     : toolName;
 
-  // Agent calls expand only when there's text to show, toggleable when done
   const canExpand = isAgentCall ? hasStreamText : result !== undefined;
   const isExpanded = isAgentCall ? hasStreamText && expanded : expanded;
 
@@ -364,137 +366,34 @@ function ToolCallFallback({
   );
 }
 
+function ToolCallFallback({
+  toolName,
+  args,
+  argsText,
+  result,
+}: ToolCallMessagePartProps) {
+  const thread = useThread();
+  const isRunning = result === undefined && thread.isRunning;
+  return (
+    <ToolCallDisplay
+      toolName={toolName}
+      args={args as Record<string, unknown>}
+      argsText={argsText}
+      result={
+        typeof result === "string"
+          ? result
+          : result !== undefined
+            ? JSON.stringify(result)
+            : undefined
+      }
+      isRunning={isRunning}
+    />
+  );
+}
+
 // ─── Reconnect Stream Message ───────────────────────────────────────────────
 // Renders the agent's in-progress response during reconnection (outside
 // assistant-ui's runtime). Uses the same visual styling as normal messages.
-
-function ReconnectStreamToolCall({
-  toolName,
-  argsText,
-  args,
-  result,
-}: {
-  toolName: string;
-  argsText?: string;
-  args: Record<string, string>;
-  result?: string;
-}) {
-  // NOTE: All hooks must be above any conditional returns
-  const streamRef = useRef<HTMLDivElement>(null);
-  const isRunning = result === undefined;
-  const isAgentCall = toolName.startsWith("agent:");
-  const [expanded, setExpanded] = useState(isAgentCall);
-  const agentName = isAgentCall ? toolName.slice(6) : null;
-  const isAgentError = isAgentCall && result === "Error calling agent";
-  const agentStreamText = isAgentCall ? (argsText ?? "") : "";
-  const hasStreamText = agentStreamText.length > 0;
-  const argsStr = isAgentCall
-    ? ""
-    : Object.entries(args)
-        .map(
-          ([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`,
-        )
-        .join(", ");
-
-  const displayName = isAgentCall
-    ? isRunning
-      ? `Asking ${agentName}...`
-      : isAgentError
-        ? `Error asking ${agentName}`
-        : `Asked ${agentName}`
-    : toolName;
-
-  const canExpand = isAgentCall ? hasStreamText : result !== undefined;
-  const isExpanded = isAgentCall ? hasStreamText && expanded : expanded;
-
-  useEffect(() => {
-    if (isAgentCall && isRunning && streamRef.current) {
-      streamRef.current.scrollTop = streamRef.current.scrollHeight;
-    }
-  }, [agentStreamText, isAgentCall, isRunning]);
-
-  // Render spawn-task as AgentTaskCard
-  if (toolName === "spawn-task" && result) {
-    try {
-      const parsed = JSON.parse(result);
-      if (parsed.taskId && parsed.threadId) {
-        return (
-          <AgentTaskCard
-            taskId={parsed.taskId}
-            threadId={parsed.threadId}
-            description={parsed.description || args?.task || "Sub-agent task"}
-            onOpen={(threadId) => {
-              window.dispatchEvent(
-                new CustomEvent("agent-task-open", {
-                  detail: {
-                    threadId,
-                    description: parsed.description || args?.task || "",
-                    name: parsed.name || "",
-                  },
-                }),
-              );
-            }}
-          />
-        );
-      }
-    } catch {
-      // Fall through
-    }
-  }
-
-  return (
-    <div className="my-1 overflow-hidden">
-      <button
-        onClick={() => canExpand && setExpanded(!isExpanded)}
-        className={cn(
-          "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-mono w-full text-left overflow-hidden",
-          isRunning
-            ? "bg-muted text-muted-foreground"
-            : "bg-muted text-muted-foreground hover:bg-accent",
-        )}
-      >
-        <span className="shrink-0">
-          {isRunning ? (
-            <IconLoader2 className="h-3 w-3 animate-spin" />
-          ) : isAgentError ? (
-            <IconCircleX className="h-3 w-3 text-destructive" />
-          ) : (
-            <IconCheck className="h-3 w-3 text-emerald-500" />
-          )}
-        </span>
-        <span className="truncate min-w-0">
-          <span className="font-medium">{displayName}</span>
-          {argsStr && <span className="opacity-60 ml-1">({argsStr})</span>}
-        </span>
-        {canExpand && !isRunning && (
-          <IconChevronDown
-            className={cn(
-              "ml-auto h-3 w-3 shrink-0 opacity-40",
-              isExpanded && "rotate-180",
-            )}
-          />
-        )}
-      </button>
-      {isExpanded && isAgentCall && hasStreamText && (
-        <div
-          ref={streamRef}
-          className="mt-1 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground break-words max-h-48 overflow-y-auto agent-markdown prose prose-sm prose-invert max-w-none"
-        >
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-            {agentStreamText}
-          </ReactMarkdown>
-        </div>
-      )}
-      {isExpanded && !isAgentCall && result !== undefined && (
-        <div className="mt-1 rounded-md bg-muted/50 px-3 py-2 text-xs font-mono text-muted-foreground whitespace-pre-wrap break-all max-h-48 overflow-y-auto">
-          {typeof result === "string"
-            ? result
-            : JSON.stringify(result, null, 2)}
-        </div>
-      )}
-    </div>
-  );
-}
 
 function ReconnectStreamMessage({ content }: { content: ContentPart[] }) {
   const endRef = useRef<HTMLDivElement>(null);
@@ -509,7 +408,10 @@ function ReconnectStreamMessage({ content }: { content: ContentPart[] }) {
         {content.map((part, i) => {
           if (part.type === "text") {
             return (
-              <div key={`reconnect-text-${i}`} className="agent-markdown break-words">
+              <div
+                key={`reconnect-text-${i}`}
+                className="agent-markdown break-words"
+              >
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
                   {part.text}
                 </ReactMarkdown>
@@ -518,12 +420,13 @@ function ReconnectStreamMessage({ content }: { content: ContentPart[] }) {
           }
           if (part.type === "tool-call") {
             return (
-              <ReconnectStreamToolCall
+              <ToolCallDisplay
                 key={`reconnect-tool-${i}`}
                 toolName={part.toolName}
                 argsText={part.argsText}
                 args={part.args}
                 result={part.result}
+                isRunning={part.result === undefined}
               />
             );
           }
@@ -1256,32 +1159,48 @@ const AssistantChatInner = forwardRef<
                     // Stream error or abort — fall through to re-fetch
                   }
 
-                  // Re-fetch thread data from server to load final state
-                  try {
-                    const refreshRes = await fetch(
-                      `${apiUrl}/threads/${encodeURIComponent(threadId)}`,
-                    );
-                    if (refreshRes.ok) {
-                      const refreshData = await refreshRes.json();
-                      if (refreshData.threadData) {
-                        const repo =
-                          typeof refreshData.threadData === "string"
-                            ? JSON.parse(refreshData.threadData)
-                            : refreshData.threadData;
-                        if (repo?.messages?.length > 0) {
-                          threadRuntime.import(ensureMessageMetadata(repo));
-                          // Thread data restored — clear any frozen reconnect snapshot
-                          setReconnectContent([]);
-                          setReconnectFrozen(false);
+                  // Poll for thread data — server's updateThreadData may not have
+                  // committed yet when the SSE `done` event fires, so retry until
+                  // an assistant message appears (up to ~5 s) before clearing.
+                  setReconnectFrozen(true);
+                  let loaded = false;
+                  for (let attempt = 0; attempt < 10; attempt++) {
+                    await new Promise((r) => setTimeout(r, 500));
+                    // If the stop button fired mid-poll, bail out
+                    if (!reconnectRunIdRef.current) break;
+                    try {
+                      const refreshRes = await fetch(
+                        `${apiUrl}/threads/${encodeURIComponent(threadId)}`,
+                      );
+                      if (refreshRes.ok) {
+                        const refreshData = await refreshRes.json();
+                        if (refreshData.threadData) {
+                          const repo =
+                            typeof refreshData.threadData === "string"
+                              ? JSON.parse(refreshData.threadData)
+                              : refreshData.threadData;
+                          const hasAssistant = repo?.messages?.some(
+                            (m: {
+                              message?: { role?: string };
+                              role?: string;
+                            }) => (m.message?.role ?? m.role) === "assistant",
+                          );
+                          if (hasAssistant) {
+                            threadRuntime.import(ensureMessageMetadata(repo));
+                            setReconnectContent([]);
+                            setReconnectFrozen(false);
+                            loaded = true;
+                            break;
+                          }
                         }
                       }
-                    }
-                  } catch {}
+                    } catch {}
+                  }
                   // Only clean up if the stop button hasn't already done it
                   if (reconnectRunIdRef.current) {
                     reconnectAbortRef.current = null;
-                    setReconnectContent([]);
-                    setReconnectFrozen(false);
+                    // If loaded=true, reconnectContent already cleared above.
+                    // If loaded=false (timeout), keep content frozen so user sees what happened.
                     setIsReconnecting(false);
                     reconnectRunIdRef.current = null;
                     window.dispatchEvent(
@@ -1710,12 +1629,11 @@ const AssistantChatInner = forwardRef<
                 </button>
               </div>
             )}
-            {(isReconnecting || reconnectFrozen) && reconnectContent.length > 0 && (
-              <ReconnectStreamMessage content={reconnectContent} />
-            )}
-            {isRunning && (
-              <ThinkingIndicator />
-            )}
+            {(isReconnecting || reconnectFrozen) &&
+              reconnectContent.length > 0 && (
+                <ReconnectStreamMessage content={reconnectContent} />
+              )}
+            {isRunning && <ThinkingIndicator />}
             {queuedMessages.map((msg, i) => (
               <div key={`queued-${i}`} className="flex justify-end">
                 <div className="max-w-[85%] rounded-lg bg-accent/50 text-foreground/60 px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words">
