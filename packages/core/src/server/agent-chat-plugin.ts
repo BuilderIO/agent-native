@@ -1752,12 +1752,26 @@ export function createAgentChatPlugin(
 
         const stream = new ReadableStream({
           async start(controller) {
+            const MAX_RESULTS = 50;
+            let totalSent = 0;
+            let cancelled = false;
+
             const flush = (batch: MentionItemResponse[]) => {
+              if (cancelled) return;
               const filtered = batch.filter(matchesQuery);
-              if (filtered.length > 0) {
-                controller.enqueue(
-                  enc.encode(JSON.stringify({ items: filtered }) + "\n"),
-                );
+              if (filtered.length === 0) return;
+              const remaining = MAX_RESULTS - totalSent;
+              const toSend = filtered.slice(0, remaining);
+              if (toSend.length > 0) {
+                totalSent += toSend.length;
+                try {
+                  controller.enqueue(
+                    enc.encode(JSON.stringify({ items: toSend }) + "\n"),
+                  );
+                } catch {
+                  // Stream was closed by client
+                  cancelled = true;
+                }
               }
             };
 
@@ -1874,7 +1888,10 @@ export function createAgentChatPlugin(
             );
 
             await Promise.all(sources);
-            controller.close();
+            if (!cancelled) controller.close();
+          },
+          cancel() {
+            // Client disconnected — stop enqueuing
           },
         });
 

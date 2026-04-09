@@ -122,6 +122,7 @@ export const SlashMenuUI = forwardRef<
 
   return createPortal(
     <div
+      data-slash-menu="true"
       className="fixed z-[9999] w-60 rounded-lg bg-[#1c1c1c] border border-white/10 shadow-2xl overflow-hidden py-1"
       style={{ top: position.y, left: position.x }}
     >
@@ -228,11 +229,12 @@ export function useSlashMenu(editor: Editor | null) {
   const executeCommand = useCallback(
     (cmd: SlashCommand) => {
       if (!editor) return;
+      // Capture position BEFORE closeMenu() nulls slashPosRef
+      const slashPos = slashPosRef.current;
+      const { from } = editor.state.selection;
       closeMenu();
 
       // Delete the slash + any query text typed
-      const { from } = editor.state.selection;
-      const slashPos = slashPosRef.current;
       if (slashPos !== null) {
         editor.chain().focus().deleteRange({ from: slashPos, to: from }).run();
       }

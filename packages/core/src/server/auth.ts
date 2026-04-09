@@ -976,10 +976,18 @@ export async function autoMountAuth(
   // custom auth plugin runs later. Because createAuthGuardFn() reads from
   // _authGuardConfig on every request, updating it here takes effect immediately.
   if (_authGuardFn) {
-    if ((options.googleOnly || options.loginHtml) && _authGuardConfig) {
-      _authGuardConfig.loginHtml =
-        options.loginHtml ??
-        getOnboardingHtml({ googleOnly: options.googleOnly });
+    if (_authGuardConfig) {
+      if (options.googleOnly || options.loginHtml) {
+        _authGuardConfig.loginHtml =
+          options.loginHtml ??
+          getOnboardingHtml({ googleOnly: options.googleOnly });
+      }
+      if (options.publicPaths) {
+        _authGuardConfig.publicPaths = [
+          ...(_authGuardConfig.publicPaths ?? []),
+          ...options.publicPaths,
+        ];
+      }
     }
     return true;
   }
