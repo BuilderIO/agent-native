@@ -917,6 +917,15 @@ export async function autoMountAuth(
   app: H3App,
   options: AuthOptions = {},
 ): Promise<boolean> {
+  // If auth is already mounted (e.g., custom plugin ran first), skip.
+  // On serverless runtimes (Netlify, CF Workers), the framework can't read
+  // the filesystem to detect custom plugins, so it auto-mounts defaults
+  // that may duplicate a custom plugin. This guard prevents the default
+  // from overriding the custom plugin's configuration.
+  if (_authGuardFn) {
+    return true;
+  }
+
   if (!app) {
     if (isLocalMode() || isDevEnvironment()) {
       authDisabledMode = false;
