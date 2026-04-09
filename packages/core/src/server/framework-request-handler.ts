@@ -16,6 +16,7 @@ import {
   getMethod,
 } from "h3";
 import type { EventHandler } from "h3";
+import { polyfillH3Event } from "./h3-polyfill.js";
 import {
   DEFAULT_PLUGIN_REGISTRY,
   getMissingDefaultPlugins,
@@ -187,8 +188,24 @@ function matchRoute(requestPath: string): {
 export async function handleFrameworkRequest(event: any): Promise<any> {
   await ensureInitialized();
 
-  const url = event.node?.req?.url ?? event.path ?? "";
-  const path = url.split("?")[0];
+  // Polyfill v2 events with v1-compatible shape (event.node, event.web,
+  // event._requestBody). The framework's handlers and h3 v1 helpers all
+  // read from event.node.req which is undefined on web runtimes.
+  await polyfillH3Event(event);
+
+  const url =
+    event.node?.req?.url ?? event.req?.url ?? event.path ?? event.url?.href ?? "";
+  // event.node.req.url is already path+search; event.req.url may be a full URL.
+  let pathOnly = url;
+  try {
+    if (pathOnly && /^https?:\/\//i.test(pathOnly)) {
+      const u = new URL(pathOnly);
+      pathOnly = u.pathname + u.search;
+    }
+  } catch {
+    // leave as-is
+  }
+  const path = pathOnly.split("?")[0];
 
   // Run middlewares first
   for (const mw of middlewares) {
