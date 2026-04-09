@@ -77,4 +77,20 @@ export default runMigrations([
       return `SELECT 1`;
     },
   },
+  // v6: repair rows where v5 left created_at as a stringified epoch (e.g.
+  // "1704067200000") instead of an ISO timestamp. Lexicographic ORDER BY
+  // can't mix these with new ISO values, so we convert any all-digit
+  // strings to ISO via to_timestamp(epoch_ms / 1000.0). Only touches rows
+  // matching ^[0-9]+$ so ISO strings written by new code are left alone.
+  {
+    version: 6,
+    get sql() {
+      if (isPostgres()) {
+        const iso = (tbl: string) =>
+          `UPDATE ${tbl} SET created_at = to_char(to_timestamp(created_at::bigint / 1000.0) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') WHERE created_at ~ '^[0-9]+$';`;
+        return `${iso("meals")}\n${iso("exercises")}\n${iso("weights")}`;
+      }
+      return `SELECT 1`;
+    },
+  },
 ]);
