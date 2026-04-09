@@ -21,7 +21,6 @@ interface MonthViewProps {
   events: CalendarEvent[];
   selectedDate: Date;
   onDateSelect: (date: Date) => void;
-  onEditEvent?: (event: CalendarEvent) => void;
   onDeleteEvent?: (eventId: string) => void;
   onEventDrop?: (eventId: string, newDate: Date) => void;
   isLoading?: boolean;
@@ -45,7 +44,6 @@ export function MonthView({
   events,
   selectedDate,
   onDateSelect,
-  onEditEvent,
   onDeleteEvent,
   onEventDrop,
   isLoading = false,
@@ -164,7 +162,6 @@ export function MonthView({
                     <EventDetailPopover
                       key={event.id}
                       event={event}
-                      onEdit={onEditEvent ?? (() => {})}
                       onDelete={onDeleteEvent ?? (() => {})}
                     >
                       <div onClick={(e) => e.stopPropagation()}>

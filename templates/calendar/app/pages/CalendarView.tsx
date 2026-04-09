@@ -185,10 +185,6 @@ export default function CalendarView() {
     setViewMode("day");
   }
 
-  function handleEditEvent(_event: CalendarEvent) {
-    setCreateDialogOpen(true);
-  }
-
   function handleDirectDelete(ev: CalendarEvent) {
     const isOrganizer =
       ev.organizer?.self ||
@@ -646,7 +642,6 @@ export default function CalendarView() {
                 events={events}
                 selectedDate={selectedDate}
                 onDateSelect={handleDateSelect}
-                onEditEvent={handleEditEvent}
                 onDeleteEvent={handleDeleteEvent}
                 onEventDrop={handleEventDrop}
                 isLoading={eventsLoading}
@@ -657,7 +652,6 @@ export default function CalendarView() {
                 events={events}
                 selectedDate={selectedDate}
                 onDateSelect={handleDateSelect}
-                onEditEvent={handleEditEvent}
                 onDeleteEvent={handleDeleteEvent}
                 onEventTimeChange={handleEventTimeChange}
                 onClickTimeSlot={handleClickTimeSlot}
@@ -671,7 +665,6 @@ export default function CalendarView() {
               <DayView
                 events={dayEvents}
                 date={selectedDate}
-                onEditEvent={handleEditEvent}
                 onDeleteEvent={handleDeleteEvent}
                 onEventTimeChange={handleEventTimeChange}
                 onClickTimeSlot={handleClickTimeSlot}
@@ -689,7 +682,6 @@ export default function CalendarView() {
           <EventDetailPanel
             event={sidebarEvent}
             onClose={() => setSidebarEvent(null)}
-            onEdit={handleEditEvent}
             onDelete={handleDeleteEvent}
             onTitleSave={(eventId, title) =>
               updateEvent.mutate({ id: eventId, title })

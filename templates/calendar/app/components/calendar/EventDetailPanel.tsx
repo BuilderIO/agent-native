@@ -1,19 +1,14 @@
-import { useState, useRef, useEffect } from "react";
-import {
-  format,
-  parseISO,
-  differenceInMinutes,
-  differenceInHours,
-} from "date-fns";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { format, parseISO, differenceInMinutes } from "date-fns";
 import {
   IconX,
   IconClock,
   IconMapPin,
   IconTrash,
-  IconEdit,
   IconLayoutSidebarRightCollapse,
   IconExternalLink,
   IconFileText,
+  IconAlignLeft,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -28,12 +23,16 @@ import type { CalendarEvent } from "@shared/api";
 import { ResearchMeetingButton } from "@/components/calendar/ApolloPanel";
 import { EventAttendeesSection } from "@/components/calendar/EventAttendeesSection";
 import { useCalendarContext } from "@/components/layout/AppLayout";
-import { sanitizeHtml, stripGcalInviteHtml } from "@/lib/sanitize-description";
+import {
+  sanitizeHtml,
+  stripGcalInviteHtml,
+  isHtml,
+} from "@/lib/sanitize-description";
+import { useUpdateEvent } from "@/hooks/use-events";
 
 interface EventDetailPanelProps {
   event: CalendarEvent | null;
   onClose: () => void;
-  onEdit: (event: CalendarEvent) => void;
   onDelete: (eventId: string) => void;
   onTitleSave?: (eventId: string, title: string) => void;
 }
@@ -54,7 +53,6 @@ function getEventColor(event: CalendarEvent): string {
 export function EventDetailPanel({
   event,
   onClose,
-  onEdit,
   onDelete,
   onTitleSave,
 }: EventDetailPanelProps) {
@@ -63,11 +61,18 @@ export function EventDetailPanel({
   const color = event ? getEventColor(event) : null;
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editingTitle, setEditingTitle] = useState("");
+  const [editDescription, setEditDescription] = useState(
+    event?.description || "",
+  );
   const titleInputRef = useRef<HTMLInputElement>(null);
+  const descriptionRef = useRef<HTMLTextAreaElement>(null);
+  const updateEvent = useUpdateEvent();
+  const isOverlay = !!event?.overlayEmail;
 
   // Reset editing state when event changes
   useEffect(() => {
     setIsEditingTitle(false);
+    setEditDescription(event?.description || "");
   }, [event?.id]);
 
   useEffect(() => {
@@ -75,6 +80,18 @@ export function EventDetailPanel({
       requestAnimationFrame(() => titleInputRef.current?.focus());
     }
   }, [isEditingTitle]);
+
+  const handleSaveDescription = useCallback(() => {
+    if (!event) return;
+    const trimmed = editDescription.trim();
+    if (trimmed !== (event.description || "").trim()) {
+      updateEvent.mutate({
+        id: event.id,
+        accountEmail: event.accountEmail,
+        description: trimmed,
+      });
+    }
+  }, [editDescription, event, updateEvent]);
 
   const handleUnpin = () => {
     setEventDetailSidebar(false);
@@ -210,30 +227,58 @@ export function EventDetailPanel({
                   </div>
                 )}
 
-                {/* Description — sanitize HTML and strip gcal invitation cruft */}
-                {event.description &&
-                  (() => {
-                    const hasHtml = /<[a-z][\s\S]*>/i.test(event.description);
-                    if (hasHtml) {
-                      const cleanedHtml = stripGcalInviteHtml(
-                        sanitizeHtml(event.description),
-                      );
-                      const hasContent =
-                        cleanedHtml.replace(/<[^>]*>/g, "").trim().length > 0;
-                      if (!hasContent) return null;
-                      return (
-                        <div
-                          className="rounded-md bg-muted/50 px-3 py-2.5 text-sm leading-relaxed text-foreground prose prose-sm dark:prose-invert prose-p:my-1 prose-a:text-primary"
-                          dangerouslySetInnerHTML={{ __html: cleanedHtml }}
-                        />
-                      );
-                    }
-                    return (
-                      <p className="rounded-md bg-muted/50 px-3 py-2.5 text-sm leading-relaxed text-foreground whitespace-pre-wrap">
-                        {event.description}
-                      </p>
-                    );
-                  })()}
+                {/* Description — always shown, editable */}
+                <div className="flex items-start gap-2.5">
+                  <IconAlignLeft className="mt-1.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                  {isOverlay ? (
+                    event.description ? (
+                      (() => {
+                        const descIsHtml = isHtml(event.description);
+                        if (descIsHtml) {
+                          const cleanedHtml = stripGcalInviteHtml(
+                            sanitizeHtml(event.description),
+                          );
+                          const hasContent =
+                            cleanedHtml.replace(/<[^>]*>/g, "").trim().length >
+                            0;
+                          if (!hasContent) return null;
+                          return (
+                            <div
+                              className="rounded-md bg-muted/50 px-3 py-2.5 text-sm leading-relaxed text-foreground prose prose-sm dark:prose-invert prose-p:my-1 prose-a:text-primary"
+                              dangerouslySetInnerHTML={{ __html: cleanedHtml }}
+                            />
+                          );
+                        }
+                        return (
+                          <p className="text-sm leading-relaxed text-foreground/80 whitespace-pre-wrap">
+                            {event.description}
+                          </p>
+                        );
+                      })()
+                    ) : null
+                  ) : (
+                    <textarea
+                      ref={descriptionRef}
+                      value={editDescription}
+                      onChange={(e) => setEditDescription(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") {
+                          e.preventDefault();
+                          setEditDescription(event.description || "");
+                        }
+                        if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                          e.preventDefault();
+                          handleSaveDescription();
+                        }
+                        e.stopPropagation();
+                      }}
+                      onBlur={handleSaveDescription}
+                      placeholder="Add description"
+                      rows={3}
+                      className="flex-1 w-full bg-transparent border-none outline-none text-sm text-foreground placeholder:text-muted-foreground/40 focus:ring-0 resize-none"
+                    />
+                  )}
+                </div>
 
                 {/* Attachments */}
                 {event.attachments && event.attachments.length > 0 && (
@@ -276,26 +321,19 @@ export function EventDetailPanel({
               </div>
 
               {/* Actions */}
-              <div className="shrink-0 border-t border-border px-4 py-3 flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                  onClick={() => onDelete(event.id)}
-                >
-                  <IconTrash className="mr-1.5 h-3.5 w-3.5" />
-                  Delete
-                </Button>
-                <div className="flex-1" />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => onEdit(event)}
-                >
-                  <IconEdit className="mr-1.5 h-3.5 w-3.5" />
-                  Edit
-                </Button>
-              </div>
+              {!isOverlay && (
+                <div className="shrink-0 border-t border-border px-4 py-3 flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                    onClick={() => onDelete(event.id)}
+                  >
+                    <IconTrash className="mr-1.5 h-3.5 w-3.5" />
+                    Delete
+                  </Button>
+                </div>
+              )}
             </>
           )}
         </div>
