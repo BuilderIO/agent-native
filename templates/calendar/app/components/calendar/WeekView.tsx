@@ -27,7 +27,6 @@ interface WeekViewProps {
   events: CalendarEvent[];
   selectedDate: Date;
   onDateSelect: (date: Date) => void;
-  onEditEvent: (event: CalendarEvent) => void;
   onDeleteEvent: (eventId: string) => void;
   onEventTimeChange?: (eventId: string, newStart: Date, newEnd: Date) => void;
   onClickTimeSlot?: (date: Date, startTime: string, endTime: string) => void;
@@ -174,7 +173,6 @@ export function WeekView({
   events,
   selectedDate,
   onDateSelect,
-  onEditEvent,
   onDeleteEvent,
   onEventTimeChange,
   onClickTimeSlot,
@@ -440,7 +438,6 @@ export function WeekView({
                   <EventDetailPopover
                     key={event.id}
                     event={event}
-                    onEdit={onEditEvent}
                     onDelete={onDeleteEvent}
                   >
                     <button
@@ -814,7 +811,6 @@ export function WeekView({
                       <EventDetailPopover
                         key={event.id}
                         event={event}
-                        onEdit={onEditEvent}
                         onDelete={onDeleteEvent}
                         defaultOpen={quickEditEventId === event.id}
                         onTitleSave={onQuickEditSave}

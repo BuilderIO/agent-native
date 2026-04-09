@@ -20,7 +20,6 @@ import { useEventDrag } from "@/hooks/use-event-drag";
 interface DayViewProps {
   events: CalendarEvent[];
   date: Date;
-  onEditEvent: (event: CalendarEvent) => void;
   onDeleteEvent: (eventId: string) => void;
   onEventTimeChange?: (eventId: string, newStart: Date, newEnd: Date) => void;
   onClickTimeSlot?: (date: Date, startTime: string, endTime: string) => void;
@@ -97,7 +96,6 @@ function computeLayout(dayEvents: CalendarEvent[]): Map<string, LayoutInfo> {
 export function DayView({
   events,
   date,
-  onEditEvent,
   onDeleteEvent,
   onEventTimeChange,
   onClickTimeSlot,
@@ -210,7 +208,6 @@ export function DayView({
                 <EventDetailPopover
                   key={event.id}
                   event={event}
-                  onEdit={onEditEvent}
                   onDelete={onDeleteEvent}
                 >
                   <button
@@ -536,7 +533,6 @@ export function DayView({
                 <EventDetailPopover
                   key={event.id}
                   event={event}
-                  onEdit={onEditEvent}
                   onDelete={onDeleteEvent}
                   defaultOpen={quickEditEventId === event.id}
                   onTitleSave={onQuickEditSave}

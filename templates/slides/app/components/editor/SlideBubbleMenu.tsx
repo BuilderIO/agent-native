@@ -132,7 +132,10 @@ export function SlideBubbleMenu({ editor }: SlideBubbleMenuProps) {
 
   return (
     <BubbleMenu editor={editor}>
-      <div className="flex items-center gap-0.5 px-1.5 py-1 rounded-lg bg-[#1c1c1c] border border-white/10 shadow-xl">
+      <div
+        data-bubble-menu="true"
+        className="flex items-center gap-0.5 px-1.5 py-1 rounded-lg bg-[#1c1c1c] border border-white/10 shadow-xl"
+      >
         {showLinkInput ? (
           <div className="flex items-center gap-1.5 px-1">
             <input

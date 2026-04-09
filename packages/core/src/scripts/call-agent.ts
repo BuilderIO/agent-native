@@ -5,14 +5,14 @@ import { A2AClient, callAgent } from "../a2a/client.js";
 
 export const tool: ActionTool = {
   description:
-    "Call another agent to ask a question or request a task. Use this to get information from other apps (e.g., ask Analytics for data, ask Mail to search emails, ask Content for documents).",
+    "Call a separate external agent app to ask a question or delegate a task. Only use this when you need to communicate with a *different* deployed app's agent. Do NOT use this for operations your own app can handle directly — use your own actions instead.",
   parameters: {
     type: "object",
     properties: {
       agent: {
         type: "string",
         description:
-          "Agent name or ID. Includes built-in agents (e.g., 'analytics', 'mail', 'content') and any custom agents configured in resources.",
+          "Agent name or URL of an external agent app to call (e.g., a separately deployed app). Must be a known external agent — do not guess names.",
       },
       message: {
         type: "string",

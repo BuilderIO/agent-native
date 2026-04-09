@@ -8,7 +8,6 @@ import {
   getOAuthTokens,
   saveOAuthTokens,
   deleteOAuthTokens,
-  listOAuthAccounts,
   listOAuthAccountsByOwner,
   hasOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
@@ -155,17 +154,12 @@ export async function getClient(email?: string): Promise<{
   email: string;
   cloudName?: string;
 } | null> {
-  const accounts = await listOAuthAccounts("atlassian");
+  if (!email) return null;
+
+  const accounts = await listOAuthAccountsByOwner("atlassian", email);
   if (accounts.length === 0) return null;
 
-  let account: (typeof accounts)[0] | undefined;
-  if (email && email !== "local@localhost") {
-    account = accounts.find((a) => a.accountId === email);
-    if (!account) return null;
-  } else {
-    account = accounts[0];
-  }
-
+  const account = accounts[0];
   const tokens = account.tokens as unknown as AtlassianTokens;
   if (!tokens || !tokens.cloud_id) return null;
 
@@ -188,9 +182,8 @@ export async function getClients(forEmail?: string): Promise<
     cloudName?: string;
   }>
 > {
-  const accounts = forEmail
-    ? await listOAuthAccountsByOwner("atlassian", forEmail)
-    : await listOAuthAccounts("atlassian");
+  if (!forEmail) return [];
+  const accounts = await listOAuthAccountsByOwner("atlassian", forEmail);
 
   const results: Array<{
     email: string;
