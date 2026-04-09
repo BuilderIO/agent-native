@@ -1,8 +1,51 @@
 import { createAgentChatPlugin } from "@agent-native/core/server";
 
+// Static action imports — ensures Nitro bundles them for serverless deployments
+// where filesystem-based discovery (autoDiscoverActions) is unavailable.
+import deleteExercise from "../../actions/delete-exercise.js";
+import deleteItem from "../../actions/delete-item.js";
+import deleteMeal from "../../actions/delete-meal.js";
+import deleteWeight from "../../actions/delete-weight.js";
+import editItem from "../../actions/edit-item.js";
+import getAnalytics from "../../actions/get-analytics.js";
+import listExercises from "../../actions/list-exercises.js";
+import listMeals from "../../actions/list-meals.js";
+import listWeights from "../../actions/list-weights.js";
+import logExercise from "../../actions/log-exercise.js";
+import logMeal from "../../actions/log-meal.js";
+import logWeight from "../../actions/log-weight.js";
+import mealsHistory from "../../actions/meals-history.js";
+import navigate from "../../actions/navigate.js";
+import updateExercise from "../../actions/update-exercise.js";
+import updateMeal from "../../actions/update-meal.js";
+import updateWeight from "../../actions/update-weight.js";
+import viewScreen from "../../actions/view-screen.js";
+import weightsHistory from "../../actions/weights-history.js";
+
 export default createAgentChatPlugin({
   appId: "macros",
   model: "claude-haiku-4-5-20251001",
+  actions: {
+    "delete-exercise": deleteExercise,
+    "delete-item": deleteItem,
+    "delete-meal": deleteMeal,
+    "delete-weight": deleteWeight,
+    "edit-item": editItem,
+    "get-analytics": getAnalytics,
+    "list-exercises": listExercises,
+    "list-meals": listMeals,
+    "list-weights": listWeights,
+    "log-exercise": logExercise,
+    "log-meal": logMeal,
+    "log-weight": logWeight,
+    "meals-history": mealsHistory,
+    navigate,
+    "update-exercise": updateExercise,
+    "update-meal": updateMeal,
+    "update-weight": updateWeight,
+    "view-screen": viewScreen,
+    "weights-history": weightsHistory,
+  },
   systemPrompt: `You are the AI assistant for Macros, an agent-native macro tracker. Everything the user can do in the UI, you can do — and vice versa. You help users log meals, exercises, and weight, and you always estimate macros.
 
 ## Context Awareness

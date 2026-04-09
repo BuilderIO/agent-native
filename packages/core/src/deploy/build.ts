@@ -21,9 +21,11 @@ import { createRequire } from "module";
 import {
   discoverApiRoutes,
   discoverPlugins,
+  discoverActionFiles,
   getMissingDefaultPlugins,
   DEFAULT_PLUGIN_REGISTRY,
   type DiscoveredRoute,
+  type DiscoveredAction,
 } from "./route-discovery.js";
 
 const cwd = process.cwd();
@@ -46,6 +48,7 @@ function generateWorkerEntry(
   routes: DiscoveredRoute[],
   pluginPaths: string[],
   defaultPluginStems: string[] = [],
+  actions: DiscoveredAction[] = [],
 ): string {
   const routeImports: string[] = [];
   const routeRegistrations: string[] = [];
@@ -57,6 +60,30 @@ function generateWorkerEntry(
     routeImports.push(`import ${varName} from ${JSON.stringify(r.absPath)};`);
     routeRegistrations.push(
       `  router.${r.method}(${JSON.stringify(r.route)}, ${varName});`,
+    );
+  }
+
+  // Action route imports and registrations
+  const actionImports: string[] = [];
+  const actionRegistrations: string[] = [];
+  for (let i = 0; i < actions.length; i++) {
+    const a = actions[i];
+    const varName = `action_${i}`;
+    actionImports.push(`import ${varName} from ${JSON.stringify(a.absPath)};`);
+    // Mount action as /_agent-native/actions/:name
+    // Actions export { tool, run, schema?, http? } from defineAction
+    const routePath = `/_agent-native/actions/${a.name}`;
+    actionRegistrations.push(
+      `  router.${a.method}(${JSON.stringify(routePath)}, defineEventHandler(async (event) => {
+    const params = ${a.method === "get" ? "Object.fromEntries(new URL(event.url || event.req?.url || '/', 'http://localhost').searchParams)" : "await event.req.json().catch(() => ({}))"};
+    try {
+      const result = await (${varName}.schema ? ${varName}.run(params) : ${varName}.run(params));
+      if (typeof result === "string") { try { return JSON.parse(result); } catch { return result; } }
+      return result;
+    } catch (err) {
+      return new Response(JSON.stringify({ error: err?.message || "Action failed" }), { status: err?.message?.startsWith("Invalid action parameters:") ? 400 : 500, headers: { "Content-Type": "application/json" } });
+    }
+  }));`,
     );
   }
 
@@ -101,6 +128,9 @@ import * as serverBuild from "./server-build.js";
 // API route handlers
 ${routeImports.join("\n")}
 
+// Action handlers (auto-discovered from actions/)
+${actionImports.join("\n")}
+
 // Server plugins
 ${pluginImports.join("\n")}
 
@@ -133,6 +163,9 @@ ${pluginCalls.join("\n")}
 
   // Register API routes
 ${routeRegistrations.join("\n")}
+
+  // Register action routes (/_agent-native/actions/*)
+${actionRegistrations.join("\n")}
 
   // SSR catch-all for React Router
   const rrHandler = createRequestHandler(() => serverBuild);
@@ -222,17 +255,23 @@ async function buildCloudflarePages() {
     "export default {}; export const watch = () => ({ close() {} }); export const Database = class {};\n",
   );
 
-  // Discover routes and plugins
+  // Discover routes, plugins, and actions
   const routes = await discoverApiRoutes(cwd);
   const plugins = await discoverPlugins(cwd);
+  const actions = await discoverActionFiles(cwd);
   const missingDefaults = await getMissingDefaultPlugins(cwd);
 
   console.log(
-    `[deploy] ${routes.length} API routes, ${plugins.length} plugins (${plugins.filter((p) => isNodeOnlyPlugin(p)).length} skipped as Node-only), ${missingDefaults.length} auto-mounted defaults`,
+    `[deploy] ${routes.length} API routes, ${actions.length} actions, ${plugins.length} plugins (${plugins.filter((p) => isNodeOnlyPlugin(p)).length} skipped as Node-only), ${missingDefaults.length} auto-mounted defaults`,
   );
 
   // Generate the worker entry
-  const entrySource = generateWorkerEntry(routes, plugins, missingDefaults);
+  const entrySource = generateWorkerEntry(
+    routes,
+    plugins,
+    missingDefaults,
+    actions,
+  );
 
   // Create _worker.js output directory
   const workerOutDir = path.join(distDir, "_worker.js");

@@ -144,6 +144,65 @@ export const DEFAULT_PLUGIN_REGISTRY: Record<string, string> = {
   terminal: "defaultTerminalPlugin",
 };
 
+/** Files to skip during action discovery (mirrors action-discovery.ts). */
+const SKIP_ACTION_FILES = new Set([
+  "helpers",
+  "run",
+  "db-connect",
+  "db-status",
+  "registry",
+]);
+
+export interface DiscoveredAction {
+  /** Action name (filename without extension) */
+  name: string;
+  /** Absolute path to the action file */
+  absPath: string;
+  /** HTTP method (from defineAction's http config, default POST) */
+  method: string;
+}
+
+/**
+ * Discover action files in the actions/ directory.
+ * These become `/_agent-native/actions/:name` HTTP endpoints.
+ */
+export async function discoverActionFiles(
+  cwd: string,
+): Promise<DiscoveredAction[]> {
+  const fs = await getFs();
+  const actionsDir = path.join(cwd, "actions");
+  if (!fs.existsSync(actionsDir)) return [];
+
+  const files = fs.readdirSync(actionsDir).filter((f) => {
+    if (!f.endsWith(".ts") && !f.endsWith(".js")) return false;
+    const name = f.replace(/\.(ts|js)$/, "");
+    if (name.startsWith("_")) return false;
+    if (SKIP_ACTION_FILES.has(name)) return false;
+    return true;
+  });
+
+  const actions: DiscoveredAction[] = [];
+  for (const file of files) {
+    const name = file.replace(/\.(ts|js)$/, "");
+    const absPath = path.join(actionsDir, file);
+
+    // Try to detect the HTTP method from the file content
+    let method = "post"; // default
+    try {
+      const content = fs.readFileSync(absPath, "utf-8");
+      if (content.includes('"GET"') || content.includes("'GET'")) {
+        method = "get";
+      }
+    } catch {
+      // Default to POST
+    }
+
+    actions.push({ name, absPath, method });
+  }
+
+  return actions;
+}
+
 /**
  * Returns the stems of default plugins that are missing from the project.
  */
