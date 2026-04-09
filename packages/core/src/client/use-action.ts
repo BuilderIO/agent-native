@@ -163,19 +163,20 @@ export function useActionMutation<
   },
 ) {
   const queryClient = useQueryClient();
-  const method = options?.method ?? "POST";
+  const { method: methodOpt, onSuccess, ...restOptions } = options ?? ({} as any);
+  const method = methodOpt ?? "POST";
 
   type D = TData extends undefined ? ActionResult<TName> : TData;
   type V = TVariables extends undefined ? ActionParams<TName> : TVariables;
 
   return useMutation<D, Error, V>({
+    ...restOptions,
     mutationFn: (params) =>
       actionFetch<D>(actionName, method, params as Record<string, any>),
     onSuccess: (...args: [any, any, any]) => {
       // Invalidate related action queries
       queryClient.invalidateQueries({ queryKey: ["action"] });
-      (options?.onSuccess as Function)?.(...args);
+      (onSuccess as Function)?.(...args);
     },
-    ...options,
   });
 }
