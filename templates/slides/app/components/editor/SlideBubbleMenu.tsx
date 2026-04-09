@@ -11,6 +11,7 @@ import {
   IconH3,
   IconList,
   IconListNumbers,
+  IconMessageCircle,
 } from "@tabler/icons-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -33,9 +34,10 @@ interface DividerItem {
 
 interface SlideBubbleMenuProps {
   editor: Editor;
+  onComment?: (quotedText: string) => void;
 }
 
-export function SlideBubbleMenu({ editor }: SlideBubbleMenuProps) {
+export function SlideBubbleMenu({ editor, onComment }: SlideBubbleMenuProps) {
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
 
@@ -130,6 +132,9 @@ export function SlideBubbleMenu({ editor }: SlideBubbleMenuProps) {
     },
   ];
 
+  // Comment button — only when onComment is provided
+  const hasCommentBtn = !!onComment;
+
   return (
     <BubbleMenu editor={editor}>
       <div
@@ -170,29 +175,51 @@ export function SlideBubbleMenu({ editor }: SlideBubbleMenuProps) {
             </button>
           </div>
         ) : (
-          buttons.map((item, i) => {
-            if (item.type === "divider") {
-              return <div key={i} className="w-px h-4 bg-white/15 mx-0.5" />;
-            }
-            const btn = item as ButtonItem;
-            const Icon = btn.icon;
-            const active = btn.isActive() ?? false;
-            return (
-              <button
-                key={i}
-                title={btn.title}
-                onClick={btn.action}
-                className={cn(
-                  "p-1.5 rounded",
-                  active
-                    ? "bg-white/20 text-white"
-                    : "text-white/70 hover:text-white hover:bg-white/10",
-                )}
-              >
-                <Icon size={14} stroke={2} />
-              </button>
-            );
-          })
+          <>
+            {buttons.map((item, i) => {
+              if (item.type === "divider") {
+                return <div key={i} className="w-px h-4 bg-white/15 mx-0.5" />;
+              }
+              const btn = item as ButtonItem;
+              const Icon = btn.icon;
+              const active = btn.isActive() ?? false;
+              return (
+                <button
+                  key={i}
+                  title={btn.title}
+                  onClick={btn.action}
+                  className={cn(
+                    "p-1.5 rounded",
+                    active
+                      ? "bg-white/20 text-white"
+                      : "text-white/70 hover:text-white hover:bg-white/10",
+                  )}
+                >
+                  <Icon size={14} stroke={2} />
+                </button>
+              );
+            })}
+            {hasCommentBtn && (
+              <>
+                <div className="w-px h-4 bg-white/15 mx-0.5" />
+                <button
+                  title="Comment"
+                  onClick={() => {
+                    const { from, to } = editor.state.selection;
+                    const quotedText = editor.state.doc.textBetween(
+                      from,
+                      to,
+                      " ",
+                    );
+                    onComment!(quotedText);
+                  }}
+                  className="p-1.5 rounded text-white/70 hover:text-white hover:bg-white/10"
+                >
+                  <IconMessageCircle size={14} stroke={2} />
+                </button>
+              </>
+            )}
+          </>
         )}
       </div>
     </BubbleMenu>

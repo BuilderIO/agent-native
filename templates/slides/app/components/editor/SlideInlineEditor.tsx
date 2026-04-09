@@ -27,6 +27,8 @@ interface SlideInlineEditorProps {
   collabUser?: { name: string; color: string };
   /** True briefly when the AI agent is making edits. */
   agentActive?: boolean;
+  /** Called when the user clicks the comment button with selected text. */
+  onComment?: (quotedText: string) => void;
 }
 
 /** Resolve bg class / style from slide.background */
@@ -112,6 +114,7 @@ export function SlideInlineEditor({
   awareness,
   collabUser,
   agentActive,
+  onComment,
 }: SlideInlineEditorProps) {
   const { bgClass, bgStyle } = resolveBackground(slide.background);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -230,7 +233,7 @@ export function SlideInlineEditor({
       <ScaleHelper targetWidth={960} />
 
       {/* Bubble menu & slash menu live outside the scaled canvas so they render at screen scale */}
-      {editor && <SlideBubbleMenu editor={editor} />}
+      {editor && <SlideBubbleMenu editor={editor} onComment={onComment} />}
       <SlashMenuUI
         ref={menuRef}
         editor={editor!}
