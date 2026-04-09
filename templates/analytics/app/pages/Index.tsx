@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { Layout } from "@/components/layout/Layout";
 import {
   Card,
@@ -9,23 +9,13 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import {
-  IconChartBar,
-  IconDatabase,
-  IconPlus,
-  IconArrowRight,
-  IconCheck,
-  IconCircle,
-} from "@tabler/icons-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { IconChartBar, IconPlus, IconArrowRight } from "@tabler/icons-react";
 import { getIdToken } from "@/lib/auth";
-import {
-  dataSources,
-  categoryLabels,
-  type DataSource,
-} from "@/lib/data-sources";
+import { dataSources, type DataSource } from "@/lib/data-sources";
 import { dashboards } from "@/pages/adhoc/registry";
 import { useSendToAgentChat } from "@agent-native/core/client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 interface EnvKeyStatus {
   key: string;
@@ -135,7 +125,16 @@ async function fetchSqlDashboards(): Promise<
 }
 
 export default function Index() {
-  const { data: envStatus = [] } = useQuery({
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const lastId = localStorage.getItem("last-dashboard-id");
+    if (lastId) {
+      navigate(`/adhoc/${lastId}`, { replace: true });
+    }
+  }, [navigate]);
+
+  const { data: envStatus, isLoading: envLoading } = useQuery({
     queryKey: ["env-status"],
     queryFn: fetchEnvStatus,
     staleTime: 10_000,
@@ -148,9 +147,15 @@ export default function Index() {
   });
 
   const connectedSources = dataSources.filter((s) =>
-    isSourceConnected(s, envStatus),
+    isSourceConnected(s, envStatus ?? []),
   );
   const hasConnections = connectedSources.length > 0;
+
+  const lastDashboardId =
+    typeof window !== "undefined"
+      ? localStorage.getItem("last-dashboard-id")
+      : null;
+  if (lastDashboardId) return null;
 
   return (
     <Layout>
@@ -163,8 +168,21 @@ export default function Index() {
           </p>
         </div>
 
-        {/* Connected sources summary */}
-        {hasConnections && (
+        {/* Connected sources summary / skeleton / get started */}
+        {envLoading ? (
+          <Card className="bg-card border-border/50">
+            <CardHeader className="pb-3">
+              <Skeleton className="h-4 w-36" />
+            </CardHeader>
+            <CardContent className="pt-0">
+              <div className="flex flex-wrap gap-2">
+                <Skeleton className="h-6 w-24 rounded-full" />
+                <Skeleton className="h-6 w-20 rounded-full" />
+                <Skeleton className="h-6 w-28 rounded-full" />
+              </div>
+            </CardContent>
+          </Card>
+        ) : hasConnections ? (
           <Card className="bg-card border-border/50">
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
@@ -196,10 +214,7 @@ export default function Index() {
               </div>
             </CardContent>
           </Card>
-        )}
-
-        {/* Quick start when no sources connected */}
-        {!hasConnections && (
+        ) : (
           <Card className="bg-card border-border/50">
             <CardHeader>
               <CardTitle className="text-base">Get Started</CardTitle>
@@ -299,7 +314,7 @@ export default function Index() {
         )}
 
         {/* Suggested dashboards based on connected sources */}
-        {hasConnections && (
+        {!envLoading && hasConnections && (
           <div className="space-y-3">
             <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
               Suggested Dashboards

@@ -1740,111 +1740,146 @@ export function createAgentChatPlugin(
           section?: string;
         }
 
-        const items: MentionItemResponse[] = [];
+        const matchesQuery = (item: MentionItemResponse) =>
+          !q ||
+          item.label.toLowerCase().includes(q) ||
+          (item.description?.toLowerCase().includes(q) ?? false);
 
-        // 1. Built-in: files from codebase (dev mode only)
-        if (currentDevMode) {
-          const codebaseFiles: Array<{
-            path: string;
-            name: string;
-            type: "file" | "folder";
-          }> = [];
-          try {
-            await collectFiles(process.cwd(), "", 0, codebaseFiles);
-          } catch {}
-          for (const f of codebaseFiles) {
-            items.push({
-              id: `codebase:${f.path}`,
-              label: f.name,
-              description: f.path !== f.name ? f.path : undefined,
-              icon: f.type,
-              source: "codebase",
-              refType: "file",
-              refPath: f.path,
-              section: "Files",
-            });
-          }
-        }
+        const enc = new TextEncoder();
 
-        // 2. Built-in: resources from SQL
-        try {
-          const resources = currentDevMode
-            ? await resourceListAccessible("local@localhost")
-            : await resourceList(SHARED_OWNER);
-          for (const r of resources) {
-            const isShared = r.owner === SHARED_OWNER;
-            items.push({
-              id: `resource:${r.path}`,
-              label: r.path.split("/").pop() || r.path,
-              description: r.path,
-              icon: "file",
-              source: isShared ? "resource:shared" : "resource:private",
-              refType: "file",
-              refPath: r.path,
-              section: "Files",
-            });
-          }
-        } catch {}
+        // Stream NDJSON — each source flushes its batch as soon as it's ready.
+        setResponseHeader(event, "Content-Type", "application/x-ndjson");
+        setResponseHeader(event, "Cache-Control", "no-cache");
 
-        // 3. Custom mention providers
-        const providerResults = await Promise.all(
-          Object.entries(mentionProviders).map(async ([key, provider]) => {
-            try {
-              const providerItems = await provider.search(q, event);
-              return providerItems.map((item) => ({
-                id: item.id,
-                label: item.label,
-                description: item.description,
-                icon: item.icon || provider.icon || "file",
-                source: key,
-                refType: item.refType,
-                refPath: item.refPath,
-                refId: item.refId,
-                section: provider.label,
-              }));
-            } catch (e) {
-              console.error(
-                `[agent-native] Mention provider "${key}" failed:`,
-                e,
+        const stream = new ReadableStream({
+          async start(controller) {
+            const flush = (batch: MentionItemResponse[]) => {
+              const filtered = batch.filter(matchesQuery);
+              if (filtered.length > 0) {
+                controller.enqueue(
+                  enc.encode(JSON.stringify({ items: filtered }) + "\n"),
+                );
+              }
+            };
+
+            // All sources run in parallel; each flushes independently.
+            const sources: Promise<void>[] = [];
+
+            // 1. Resources from SQL (fast — flush first)
+            sources.push(
+              (async () => {
+                try {
+                  const resources = currentDevMode
+                    ? await resourceListAccessible("local@localhost")
+                    : await resourceList(SHARED_OWNER);
+                  flush(
+                    resources.map((r) => {
+                      const isShared = r.owner === SHARED_OWNER;
+                      return {
+                        id: `resource:${r.path}`,
+                        label: r.path.split("/").pop() || r.path,
+                        description: r.path,
+                        icon: "file",
+                        source: isShared
+                          ? "resource:shared"
+                          : "resource:private",
+                        refType: "file",
+                        refPath: r.path,
+                        section: "Files",
+                      };
+                    }),
+                  );
+                } catch {}
+              })(),
+            );
+
+            // 2. Codebase files (dev mode only — can be slow on large repos)
+            if (currentDevMode) {
+              sources.push(
+                (async () => {
+                  const codebaseFiles: Array<{
+                    path: string;
+                    name: string;
+                    type: "file" | "folder";
+                  }> = [];
+                  try {
+                    await collectFiles(process.cwd(), "", 0, codebaseFiles);
+                  } catch {}
+                  flush(
+                    codebaseFiles.map((f) => ({
+                      id: `codebase:${f.path}`,
+                      label: f.name,
+                      description: f.path !== f.name ? f.path : undefined,
+                      icon: f.type,
+                      source: "codebase",
+                      refType: "file",
+                      refPath: f.path,
+                      section: "Files",
+                    })),
+                  );
+                })(),
               );
-              return [];
             }
-          }),
-        );
-        for (const batch of providerResults) {
-          items.push(...batch);
-        }
 
-        // 4. Discovered peer agents
-        try {
-          const agents = await discoverAgents(options?.appId);
-          for (const agent of agents) {
-            items.push({
-              id: `agent:${agent.id}`,
-              label: agent.name,
-              description: agent.description,
-              icon: "agent",
-              source: "agent",
-              refType: "agent",
-              refPath: agent.url,
-              refId: agent.id,
-              section: "Agents",
-            });
-          }
-        } catch (e) {
-          console.error("[agent-native] Agent discovery failed:", e);
-        }
+            // 3. Custom mention providers (each flushes independently)
+            for (const [key, provider] of Object.entries(mentionProviders)) {
+              sources.push(
+                (async () => {
+                  try {
+                    const providerItems = await provider.search(q, event);
+                    flush(
+                      providerItems.map((item) => ({
+                        id: item.id,
+                        label: item.label,
+                        description: item.description,
+                        icon: item.icon || provider.icon || "file",
+                        source: key,
+                        refType: item.refType,
+                        refPath: item.refPath,
+                        refId: item.refId,
+                        section: provider.label,
+                      })),
+                    );
+                  } catch (e) {
+                    console.error(
+                      `[agent-native] Mention provider "${key}" failed:`,
+                      e,
+                    );
+                  }
+                })(),
+              );
+            }
 
-        // Filter by query and limit
-        const filtered = q
-          ? items.filter(
-              (item) =>
-                item.label.toLowerCase().includes(q) ||
-                (item.description?.toLowerCase().includes(q) ?? false),
-            )
-          : items;
+            // 4. Peer agent discovery (network call — often slowest)
+            sources.push(
+              (async () => {
+                try {
+                  const agents = await discoverAgents(options?.appId);
+                  flush(
+                    agents.map((agent) => ({
+                      id: `agent:${agent.id}`,
+                      label: agent.name,
+                      description: agent.description,
+                      icon: "agent",
+                      source: "agent",
+                      refType: "agent",
+                      refPath: agent.url,
+                      refId: agent.id,
+                      section: "Agents",
+                    })),
+                  );
+                } catch (e) {
+                  console.error("[agent-native] Agent discovery failed:", e);
+                }
+              })(),
+            );
 
-        return { items: filtered.slice(0, 30) };
+            await Promise.all(sources);
+            controller.close();
+          },
+        });
+
+        return stream;
       }),
     );
 
@@ -1863,10 +1898,12 @@ export function createAgentChatPlugin(
           setResponseStatus(event, 400);
           return { error: "message is required" };
         }
+        // Strip mention markup: @[Name|type] → @Name
+        const cleanMessage = message.replace(/@\[([^\]|]+)\|[^\]]*\]/g, "@$1");
         const apiKey = process.env.ANTHROPIC_API_KEY;
         if (!apiKey) {
           // Fallback: truncate the message
-          return { title: message.trim().slice(0, 60) };
+          return { title: cleanMessage.trim().slice(0, 60) };
         }
         try {
           const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -1882,21 +1919,21 @@ export function createAgentChatPlugin(
               messages: [
                 {
                   role: "user",
-                  content: `Generate a very short title (3-6 words, no quotes) for a chat that starts with this message:\n\n${message.slice(0, 500)}`,
+                  content: `Generate a very short title (3-6 words, no quotes) for a chat that starts with this message:\n\n${cleanMessage.slice(0, 500)}`,
                 },
               ],
             }),
           });
           if (!res.ok) {
-            return { title: message.trim().slice(0, 60) };
+            return { title: cleanMessage.trim().slice(0, 60) };
           }
           const data = (await res.json()) as {
             content?: Array<{ type: string; text?: string }>;
           };
           const text = data.content?.[0]?.text?.trim();
-          return { title: text || message.trim().slice(0, 60) };
+          return { title: text || cleanMessage.trim().slice(0, 60) };
         } catch {
-          return { title: message.trim().slice(0, 60) };
+          return { title: cleanMessage.trim().slice(0, 60) };
         }
       }),
     );

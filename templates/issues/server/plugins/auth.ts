@@ -49,7 +49,7 @@ const ATLASSIAN_LOGIN_HTML = `<!DOCTYPE html>
   button:disabled { opacity: 0.5; cursor: wait; }
   .error { margin-top: 0.75rem; font-size: 0.8125rem; color: #f87171; display: none; }
   .error.show { display: block; }
-  svg { width: 18px; height: 18px; }
+  svg { width: 20px; height: 20px; }
 </style>
 </head>
 <body>
@@ -57,7 +57,7 @@ const ATLASSIAN_LOGIN_HTML = `<!DOCTYPE html>
   <h1>Sign in</h1>
   <p class="subtitle">Continue with your Atlassian account</p>
   <button id="btn" onclick="signIn()">
-    <svg viewBox="0 0 24 24" fill="none"><path d="M7.36 20.93c-.27 0-.54-.1-.73-.33a1 1 0 0 1-.1-1.07c1.1-2.23.85-3.4-1.6-7.64C3.3 8.96 2 6.86 2 4.64A1 1 0 0 1 3.05 3.7h5.38c.38 0 .72.21.89.55 2.3 4.53 3.06 6.66 3.06 10.56 0 3.29-1.65 5.47-4.1 6.03-.3.07-.6.1-.92.1ZM16.64 20.93c2.44-.56 4.1-2.74 4.1-6.03 0-3.9-.76-6.03-3.06-10.56a1 1 0 0 0-.89-.55h-5.38a1 1 0 0 0-.95 1.33c.32.9.73 1.79 1.24 2.78 1.84 3.56 2.7 5.44 2.7 8 0 1.85-.5 3.32-1.45 4.43a1 1 0 0 0 .1 1.07c.2.23.46.33.73.33.32 0 .62-.03.92-.1l1.94-.7Z" fill="#2684FF"/></svg>
+    <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="atl-grad" x1="0.993" y1="0.404" x2="0.123" y2="0.971" gradientUnits="objectBoundingBox"><stop offset="0" stop-color="#0052cc"/><stop offset="1" stop-color="#2684ff"/></linearGradient></defs><path d="M3.84 23.16 14.1 3.84a1.47 1.47 0 0 0-2.57-1.41L.35 21.75A1.47 1.47 0 0 0 1.63 24h3.5a1.47 1.47 0 0 0 1.32-.84z" fill="url(#atl-grad)" transform="translate(0.5 0.5)"/><path d="M17.9 3.84 7.64 23.16a1.47 1.47 0 0 1-1.32.84h15.1A1.47 1.47 0 0 0 22.7 21.75L11.47 2.43a1.47 1.47 0 0 0-2.57 0z" fill="#2684ff" transform="translate(8.5 0.5)"/></svg>
     Sign in with Atlassian
   </button>
   <p class="error" id="err"></p>

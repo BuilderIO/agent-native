@@ -6,9 +6,9 @@ import * as googleCalendar from "../server/lib/google-calendar.js";
 export default defineAction({
   description: "Create a calendar event on Google Calendar",
   schema: z.object({
-    title: z.string().optional().describe("Event title (required)"),
-    start: z.string().optional().describe("Start time, ISO format (required)"),
-    end: z.string().optional().describe("End time, ISO format (required)"),
+    title: z.string().describe("Event title"),
+    start: z.string().describe("Start time, ISO format"),
+    end: z.string().describe("End time, ISO format"),
     description: z.string().optional().describe("Event description"),
     location: z.string().optional().describe("Event location"),
     accountEmail: z
@@ -17,10 +17,6 @@ export default defineAction({
       .describe("Account email to create the event on"),
   }),
   run: async (args) => {
-    if (!args.title) throw new Error("title is required");
-    if (!args.start) throw new Error("start is required (ISO date format)");
-    if (!args.end) throw new Error("end is required (ISO date format)");
-
     const email = process.env.AGENT_USER_EMAIL || "local@localhost";
 
     if (!(await googleCalendar.isConnected(email))) {

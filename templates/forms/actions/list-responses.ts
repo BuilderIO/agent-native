@@ -17,10 +17,6 @@ export default defineAction({
   http: { method: "GET" },
   run: async (args) => {
     const formId = args.formId;
-    if (!formId) {
-      throw new Error("--formId is required");
-    }
-
     const db = getDb();
     const form = await db
       .select()

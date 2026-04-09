@@ -57,10 +57,7 @@ function AutoFocus() {
     document.addEventListener("visibilitychange", handleVisibility);
     document.addEventListener("click", handleFocusRestore, true);
     // Restore focus when cursor re-enters the app (e.g. after using the agent chat panel)
-    document.documentElement.addEventListener(
-      "mouseenter",
-      handleFocusRestore,
-    );
+    document.documentElement.addEventListener("mouseenter", handleFocusRestore);
     return () => {
       document.removeEventListener("visibilitychange", handleVisibility);
       document.removeEventListener("click", handleFocusRestore, true);

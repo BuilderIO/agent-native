@@ -13,6 +13,7 @@ import SlideRenderer from "@/components/deck/SlideRenderer";
 import CodeEditor from "./CodeEditor";
 import ImageOverlay from "./ImageOverlay";
 import { ExcalidrawSlide } from "@/components/deck/ExcalidrawSlide";
+import { SlideInlineEditor } from "./SlideInlineEditor";
 
 let builderIdCounter = 0;
 
@@ -77,6 +78,7 @@ export default function SlideEditor({
   onLogoSearch,
   onToggleObjectFit,
 }: SlideEditorProps) {
+  const [isEditing, setIsEditing] = useState(false);
   const [imageOverlay, setImageOverlay] = useState<{
     rect: DOMRect;
     src: string;
@@ -85,6 +87,21 @@ export default function SlideEditor({
   const [selectedImg, setSelectedImg] = useState<HTMLImageElement | null>(null);
   const [selectionRect, setSelectionRect] = useState<DOMRect | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Exit edit mode when switching slides
+  useEffect(() => {
+    setIsEditing(false);
+  }, [slide.id]);
+
+  // Exit edit mode on Escape key
+  useEffect(() => {
+    if (!isEditing) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsEditing(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isEditing]);
 
   // Keep selection rect in sync with the element (scroll, resize)
   useEffect(() => {
@@ -220,16 +237,8 @@ export default function SlideEditor({
         return;
       }
 
-      // For text elements, enter text editing mode
-      const selector = getBuilderSelector(target);
-      if (selector) {
-        console.log(
-          "[SlideEditor] dblclick text selector:",
-          selector,
-          document.querySelector(selector),
-        );
-        enterSelectionMode("builder.enterTextEditing", { selector });
-      }
+      // Enter inline text editing mode
+      setIsEditing(true);
     },
     [showImageOverlay],
   );
@@ -246,18 +255,43 @@ export default function SlideEditor({
               />
             </div>
           ) : (
-            <div className="h-full flex items-center justify-center p-2 sm:p-4 md:p-8 bg-[hsl(240,5%,5%)]">
-              <div
-                ref={containerRef}
-                className="w-full max-w-4xl slide-image-clickable"
-                onClick={handleSlideClick}
-                onContextMenu={handleSlideContextMenu}
-                onDoubleClick={handleSlideDoubleClick}
-              >
-                <SlideRenderer
-                  slide={slide}
-                  className="shadow-2xl shadow-black/40"
-                />
+            <div
+              className="h-full flex items-center justify-center p-2 sm:p-4 md:p-8 bg-[hsl(240,5%,5%)]"
+              onMouseDown={(e) => {
+                // Click outside the slide canvas → exit edit mode
+                if (
+                  isEditing &&
+                  containerRef.current &&
+                  !containerRef.current.contains(e.target as Node)
+                ) {
+                  setIsEditing(false);
+                }
+              }}
+            >
+              <div ref={containerRef} className="w-full max-w-4xl">
+                {isEditing ? (
+                  <SlideInlineEditor
+                    slide={slide}
+                    onContentChange={(html) => onUpdateSlide({ content: html })}
+                    onExitEdit={() => setIsEditing(false)}
+                  />
+                ) : (
+                  <div
+                    className="slide-image-clickable"
+                    onClick={handleSlideClick}
+                    onContextMenu={handleSlideContextMenu}
+                    onDoubleClick={handleSlideDoubleClick}
+                  >
+                    <SlideRenderer
+                      slide={slide}
+                      className="shadow-2xl shadow-black/40"
+                    />
+                    {/* Double-click hint */}
+                    <div className="absolute bottom-2 left-1/2 -translate-x-1/2 text-xs text-white/20 pointer-events-none select-none opacity-0 group-hover:opacity-100">
+                      Double-click to edit text
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )

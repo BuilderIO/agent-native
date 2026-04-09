@@ -30,7 +30,7 @@ export default defineAction({
     // Otherwise build from flat params (agent path)
     const { project, type, summary, description, priority, assignee } = args;
 
-    if (!project) throw new Error("project is required (project key)");
+    if (!project) throw new Error("project key is required");
     if (!summary) throw new Error("summary is required");
 
     const fields: Record<string, unknown> = {
