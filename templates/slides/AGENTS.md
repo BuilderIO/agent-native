@@ -90,10 +90,10 @@ The current screen state (including deck/slide context) is automatically include
 
 Always prefer `update-slide` with `--find/--replace` over full deck rewrites. It syncs live to open editors via Yjs CRDT and shows the agent as a presence participant.
 
-| Action         | Args                                                            | Purpose                                    |
-| -------------- | --------------------------------------------------------------- | ------------------------------------------ |
-| `update-slide` | `--deckId <id> --slideId <id> --find "old" --replace "new"`     | Surgical text edit — syncs live to editors |
-| `update-slide` | `--deckId <id> --slideId <id> --fullContent "<html>"`           | Full slide content replacement             |
+| Action         | Args                                                        | Purpose                                    |
+| -------------- | ----------------------------------------------------------- | ------------------------------------------ |
+| `update-slide` | `--deckId <id> --slideId <id> --find "old" --replace "new"` | Surgical text edit — syncs live to editors |
+| `update-slide` | `--deckId <id> --slideId <id> --fullContent "<html>"`       | Full slide content replacement             |
 
 ### Navigation
 
