@@ -51,4 +51,30 @@ export default runMigrations([
     )`;
     },
   },
+  // v4: add owner_email for per-user data scoping
+  {
+    version: 4,
+    get sql() {
+      return `ALTER TABLE meals ADD COLUMN IF NOT EXISTS owner_email TEXT;
+              ALTER TABLE exercises ADD COLUMN IF NOT EXISTS owner_email TEXT;
+              ALTER TABLE weights ADD COLUMN IF NOT EXISTS owner_email TEXT;`;
+    },
+  },
+  // v5: ensure created_at is TEXT (ISO timestamp) on Postgres.
+  // The schema now stores ISO strings via $defaultFn(() => new Date().toISOString()).
+  // Use USING to convert any existing INTEGER/timestamp values to text.
+  // For SQLite, the column type is dynamic so no migration is needed.
+  {
+    version: 5,
+    get sql() {
+      if (isPostgres()) {
+        return `
+          ALTER TABLE meals ALTER COLUMN created_at TYPE TEXT USING created_at::text;
+          ALTER TABLE exercises ALTER COLUMN created_at TYPE TEXT USING created_at::text;
+          ALTER TABLE weights ALTER COLUMN created_at TYPE TEXT USING created_at::text;
+        `;
+      }
+      return `SELECT 1`;
+    },
+  },
 ]);
