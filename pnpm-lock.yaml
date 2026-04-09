@@ -1595,10 +1595,10 @@ importers:
         version: 1.2.8(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@react-router/dev':
         specifier: ^7.13.1
-        version: 7.14.0(@types/node@24.12.2)(lightningcss@1.32.0)(react-router@7.14.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(terser@5.46.1)(typescript@5.9.3)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.19.12)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0))(wrangler@4.81.0)
+        version: 7.14.0(@types/node@24.12.2)(lightningcss@1.32.0)(react-router@7.14.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(terser@5.46.1)(typescript@5.9.3)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0))(wrangler@4.81.0)
       '@react-router/fs-routes':
         specifier: ^7.13.1
-        version: 7.14.0(@react-router/dev@7.14.0(@types/node@24.12.2)(lightningcss@1.32.0)(react-router@7.14.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(terser@5.46.1)(typescript@5.9.3)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.19.12)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0))(wrangler@4.81.0))(typescript@5.9.3)
+        version: 7.14.0(@react-router/dev@7.14.0(@types/node@24.12.2)(lightningcss@1.32.0)(react-router@7.14.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(terser@5.46.1)(typescript@5.9.3)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0))(wrangler@4.81.0))(typescript@5.9.3)
       '@tanstack/react-query':
         specifier: ^5.84.2
         version: 5.96.2(react@18.3.1)
@@ -1670,7 +1670,7 @@ importers:
         version: 5.9.3
       vite:
         specifier: ^8.0.0
-        version: 8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.19.12)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)
+        version: 8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)
       vitest:
         specifier: ^3.2.4
         version: 3.2.4(@types/debug@4.1.13)(@types/node@24.12.2)(happy-dom@20.8.9)(jiti@2.6.1)(jsdom@28.1.0(@noble/hashes@2.0.1)(canvas@3.2.3))(lightningcss@1.32.0)(terser@5.46.1)(tsx@4.21.0)
@@ -1680,6 +1680,9 @@ importers:
       '@agent-native/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@supabase/supabase-js':
+        specifier: ^2.101.1
+        version: 2.101.1
       '@tabler/icons-react':
         specifier: ^3.40.0
         version: 3.41.1(react@18.3.1)
@@ -1785,10 +1788,10 @@ importers:
         version: 1.2.8(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@react-router/dev':
         specifier: ^7.13.1
-        version: 7.14.0(@types/node@24.12.2)(lightningcss@1.32.0)(react-router@7.14.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(terser@5.46.1)(typescript@5.9.3)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0))(wrangler@4.81.0)
+        version: 7.14.0(@types/node@24.12.2)(lightningcss@1.32.0)(react-router@7.14.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(terser@5.46.1)(typescript@5.9.3)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.19.12)(jiti@1.21.7)(terser@5.46.1)(tsx@4.21.0))(wrangler@4.81.0)
       '@react-router/fs-routes':
         specifier: ^7.13.1
-        version: 7.14.0(@react-router/dev@7.14.0(@types/node@24.12.2)(lightningcss@1.32.0)(react-router@7.14.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(terser@5.46.1)(typescript@5.9.3)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0))(wrangler@4.81.0))(typescript@5.9.3)
+        version: 7.14.0(@react-router/dev@7.14.0(@types/node@24.12.2)(lightningcss@1.32.0)(react-router@7.14.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(terser@5.46.1)(typescript@5.9.3)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.19.12)(jiti@1.21.7)(terser@5.46.1)(tsx@4.21.0))(wrangler@4.81.0))(typescript@5.9.3)
       '@swc/core':
         specifier: ^1.13.3
         version: 1.15.21
@@ -1809,7 +1812,7 @@ importers:
         version: 18.3.7(@types/react@18.3.28)
       '@vitejs/plugin-react-swc':
         specifier: ^4.0.0
-        version: 4.3.0(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0))
+        version: 4.3.0(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.19.12)(jiti@1.21.7)(terser@5.46.1)(tsx@4.21.0))
       autoprefixer:
         specifier: ^10.4.21
         version: 10.4.27(postcss@8.5.8)
@@ -1881,10 +1884,10 @@ importers:
         version: 1.1.2(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       vite:
         specifier: ^8.0.0
-        version: 8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)
+        version: 8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.19.12)(jiti@1.21.7)(terser@5.46.1)(tsx@4.21.0)
       vitest:
         specifier: ^3.2.4
-        version: 3.2.4(@types/debug@4.1.13)(@types/node@24.12.2)(happy-dom@20.8.9)(jiti@2.6.1)(jsdom@28.1.0(@noble/hashes@2.0.1)(canvas@3.2.3))(lightningcss@1.32.0)(terser@5.46.1)(tsx@4.21.0)
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@24.12.2)(happy-dom@20.8.9)(jiti@1.21.7)(jsdom@28.1.0(@noble/hashes@2.0.1)(canvas@3.2.3))(lightningcss@1.32.0)(terser@5.46.1)(tsx@4.21.0)
 
   templates/mail:
     dependencies:
@@ -2912,10 +2915,10 @@ importers:
         version: 1.2.8(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@react-router/dev':
         specifier: ^7.13.1
-        version: 7.14.0(@types/node@24.12.2)(lightningcss@1.32.0)(react-router@7.14.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(terser@5.46.1)(typescript@5.9.3)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@1.21.7)(terser@5.46.1)(tsx@4.21.0))(wrangler@4.81.0)
+        version: 7.14.0(@types/node@24.12.2)(lightningcss@1.32.0)(react-router@7.14.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(terser@5.46.1)(typescript@5.9.3)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0))(wrangler@4.81.0)
       '@react-router/fs-routes':
         specifier: ^7.13.1
-        version: 7.14.0(@react-router/dev@7.14.0(@types/node@24.12.2)(lightningcss@1.32.0)(react-router@7.14.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(terser@5.46.1)(typescript@5.9.3)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@1.21.7)(terser@5.46.1)(tsx@4.21.0))(wrangler@4.81.0))(typescript@5.9.3)
+        version: 7.14.0(@react-router/dev@7.14.0(@types/node@24.12.2)(lightningcss@1.32.0)(react-router@7.14.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(terser@5.46.1)(typescript@5.9.3)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0))(wrangler@4.81.0))(typescript@5.9.3)
       '@react-three/drei':
         specifier: ^9.122.0
         version: 9.122.0(@react-three/fiber@8.18.0(a4f87a1c9cd5afeda248b1850f15afe1))(@types/react@18.3.28)(@types/three@0.176.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(three@0.176.0)(use-sync-external-store@1.6.0(react@18.3.1))
@@ -2945,7 +2948,7 @@ importers:
         version: 0.176.0
       '@vitejs/plugin-react-swc':
         specifier: ^4.0.0
-        version: 4.3.0(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@1.21.7)(terser@5.46.1)(tsx@4.21.0))
+        version: 4.3.0(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0))
       autoprefixer:
         specifier: ^10.4.21
         version: 10.4.27(postcss@8.5.8)
@@ -3032,10 +3035,10 @@ importers:
         version: 1.1.2(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       vite:
         specifier: ^8.0.0
-        version: 8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@1.21.7)(terser@5.46.1)(tsx@4.21.0)
+        version: 8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)
       vitest:
         specifier: ^3.2.4
-        version: 3.2.4(@types/debug@4.1.13)(@types/node@24.12.2)(happy-dom@20.8.9)(jiti@1.21.7)(jsdom@28.1.0(@noble/hashes@2.0.1)(canvas@3.2.3))(lightningcss@1.32.0)(terser@5.46.1)(tsx@4.21.0)
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@24.12.2)(happy-dom@20.8.9)(jiti@2.6.1)(jsdom@28.1.0(@noble/hashes@2.0.1)(canvas@3.2.3))(lightningcss@1.32.0)(terser@5.46.1)(tsx@4.21.0)
 
 packages:
 
@@ -19021,7 +19024,7 @@ snapshots:
       - supports-color
       - terser
 
-  '@react-router/dev@7.14.0(@types/node@24.12.2)(lightningcss@1.32.0)(react-router@7.14.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(terser@5.46.1)(typescript@5.9.3)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.19.12)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0))(wrangler@4.81.0)':
+  '@react-router/dev@7.14.0(@types/node@24.12.2)(lightningcss@1.32.0)(react-router@7.14.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(terser@5.46.1)(typescript@5.9.3)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.19.12)(jiti@1.21.7)(terser@5.46.1)(tsx@4.21.0))(wrangler@4.81.0)':
     dependencies:
       '@babel/core': 7.29.0
       '@babel/generator': 7.29.1
@@ -19051,54 +19054,7 @@ snapshots:
       semver: 7.7.4
       tinyglobby: 0.2.15
       valibot: 1.3.1(typescript@5.9.3)
-      vite: 8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.19.12)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)
-      vite-node: 3.2.4(@types/node@24.12.2)(lightningcss@1.32.0)(terser@5.46.1)
-    optionalDependencies:
-      typescript: 5.9.3
-      wrangler: 4.81.0
-    transitivePeerDependencies:
-      - '@types/node'
-      - babel-plugin-macros
-      - less
-      - lightningcss
-      - sass
-      - sass-embedded
-      - stylus
-      - sugarss
-      - supports-color
-      - terser
-
-  '@react-router/dev@7.14.0(@types/node@24.12.2)(lightningcss@1.32.0)(react-router@7.14.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(terser@5.46.1)(typescript@5.9.3)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@1.21.7)(terser@5.46.1)(tsx@4.21.0))(wrangler@4.81.0)':
-    dependencies:
-      '@babel/core': 7.29.0
-      '@babel/generator': 7.29.1
-      '@babel/parser': 7.29.2
-      '@babel/plugin-syntax-jsx': 7.28.6(@babel/core@7.29.0)
-      '@babel/preset-typescript': 7.28.5(@babel/core@7.29.0)
-      '@babel/traverse': 7.29.0
-      '@babel/types': 7.29.0
-      '@react-router/node': 7.14.0(react-router@7.14.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@5.9.3)
-      '@remix-run/node-fetch-server': 0.13.0
-      arg: 5.0.2
-      babel-dead-code-elimination: 1.0.12
-      chokidar: 4.0.3
-      dedent: 1.7.2
-      es-module-lexer: 1.7.0
-      exit-hook: 2.2.1
-      isbot: 5.1.37
-      jsesc: 3.0.2
-      lodash: 4.18.1
-      p-map: 7.0.4
-      pathe: 1.1.2
-      picocolors: 1.1.1
-      pkg-types: 2.3.0
-      prettier: 3.8.1
-      react-refresh: 0.14.2
-      react-router: 7.14.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      semver: 7.7.4
-      tinyglobby: 0.2.15
-      valibot: 1.3.1(typescript@5.9.3)
-      vite: 8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@1.21.7)(terser@5.46.1)(tsx@4.21.0)
+      vite: 8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.19.12)(jiti@1.21.7)(terser@5.46.1)(tsx@4.21.0)
       vite-node: 3.2.4(@types/node@24.12.2)(lightningcss@1.32.0)(terser@5.46.1)
     optionalDependencies:
       typescript: 5.9.3
@@ -19216,16 +19172,9 @@ snapshots:
     optionalDependencies:
       typescript: 5.9.3
 
-  '@react-router/fs-routes@7.14.0(@react-router/dev@7.14.0(@types/node@24.12.2)(lightningcss@1.32.0)(react-router@7.14.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(terser@5.46.1)(typescript@5.9.3)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.19.12)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0))(wrangler@4.81.0))(typescript@5.9.3)':
+  '@react-router/fs-routes@7.14.0(@react-router/dev@7.14.0(@types/node@24.12.2)(lightningcss@1.32.0)(react-router@7.14.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(terser@5.46.1)(typescript@5.9.3)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.19.12)(jiti@1.21.7)(terser@5.46.1)(tsx@4.21.0))(wrangler@4.81.0))(typescript@5.9.3)':
     dependencies:
-      '@react-router/dev': 7.14.0(@types/node@24.12.2)(lightningcss@1.32.0)(react-router@7.14.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(terser@5.46.1)(typescript@5.9.3)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.19.12)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0))(wrangler@4.81.0)
-      minimatch: 10.2.5
-    optionalDependencies:
-      typescript: 5.9.3
-
-  '@react-router/fs-routes@7.14.0(@react-router/dev@7.14.0(@types/node@24.12.2)(lightningcss@1.32.0)(react-router@7.14.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(terser@5.46.1)(typescript@5.9.3)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@1.21.7)(terser@5.46.1)(tsx@4.21.0))(wrangler@4.81.0))(typescript@5.9.3)':
-    dependencies:
-      '@react-router/dev': 7.14.0(@types/node@24.12.2)(lightningcss@1.32.0)(react-router@7.14.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(terser@5.46.1)(typescript@5.9.3)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@1.21.7)(terser@5.46.1)(tsx@4.21.0))(wrangler@4.81.0)
+      '@react-router/dev': 7.14.0(@types/node@24.12.2)(lightningcss@1.32.0)(react-router@7.14.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(terser@5.46.1)(typescript@5.9.3)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.19.12)(jiti@1.21.7)(terser@5.46.1)(tsx@4.21.0))(wrangler@4.81.0)
       minimatch: 10.2.5
     optionalDependencies:
       typescript: 5.9.3
@@ -20693,11 +20642,11 @@ snapshots:
     transitivePeerDependencies:
       - '@swc/helpers'
 
-  '@vitejs/plugin-react-swc@4.3.0(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@1.21.7)(terser@5.46.1)(tsx@4.21.0))':
+  '@vitejs/plugin-react-swc@4.3.0(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.19.12)(jiti@1.21.7)(terser@5.46.1)(tsx@4.21.0))':
     dependencies:
       '@rolldown/pluginutils': 1.0.0-rc.7
       '@swc/core': 1.15.21
-      vite: 8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@1.21.7)(terser@5.46.1)(tsx@4.21.0)
+      vite: 8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.19.12)(jiti@1.21.7)(terser@5.46.1)(tsx@4.21.0)
     transitivePeerDependencies:
       - '@swc/helpers'
 
@@ -27760,7 +27709,7 @@ snapshots:
       - '@emnapi/core'
       - '@emnapi/runtime'
 
-  vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.19.12)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0):
+  vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.19.12)(jiti@1.21.7)(terser@5.46.1)(tsx@4.21.0):
     dependencies:
       lightningcss: 1.32.0
       picomatch: 4.0.4
@@ -27770,24 +27719,6 @@ snapshots:
     optionalDependencies:
       '@types/node': 24.12.2
       esbuild: 0.19.12
-      fsevents: 2.3.3
-      jiti: 2.6.1
-      terser: 5.46.1
-      tsx: 4.21.0
-    transitivePeerDependencies:
-      - '@emnapi/core'
-      - '@emnapi/runtime'
-
-  vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@1.21.7)(terser@5.46.1)(tsx@4.21.0):
-    dependencies:
-      lightningcss: 1.32.0
-      picomatch: 4.0.4
-      postcss: 8.5.8
-      rolldown: 1.0.0-rc.12(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)
-      tinyglobby: 0.2.15
-    optionalDependencies:
-      '@types/node': 24.12.2
-      esbuild: 0.27.7
       fsevents: 2.3.3
       jiti: 1.21.7
       terser: 5.46.1

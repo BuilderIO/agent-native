@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@agent-native/core": "workspace:*",
+    "@supabase/supabase-js": "^2.101.1",
     "@tabler/icons-react": "^3.40.0",
     "drizzle-orm": "^0.44.0",
     "h3": "^1.13.0",

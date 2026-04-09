@@ -270,14 +270,9 @@ function createAuthGuardFn(
     const url = event.node?.req?.url ?? event.path ?? "/";
     const p = url.split("?")[0];
 
-    // Skip auth routes
+    // Skip auth routes (all /_agent-native/auth/* and /_agent-native/google/*)
     if (
-      p === "/_agent-native/auth/login" ||
-      p === "/_agent-native/auth/logout" ||
-      p === "/_agent-native/auth/session" ||
-      p === "/_agent-native/auth/register" ||
-      p === "/_agent-native/auth/local-mode" ||
-      p.startsWith("/_agent-native/auth/ba/") ||
+      p.startsWith("/_agent-native/auth/") ||
       p.startsWith("/_agent-native/google/")
     ) {
       return;
