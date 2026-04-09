@@ -86,6 +86,15 @@ The current screen state (including deck/slide context) is automatically include
 | `list-decks`  | `[--compact]`   | List all decks with metadata   |
 | `get-deck`    | `--id <deckId>` | Get a deck with all slides     |
 
+### Slide Editing (Surgical — Preferred)
+
+Always prefer `update-slide` with `--find/--replace` over full deck rewrites. It syncs live to open editors via Yjs CRDT and shows the agent as a presence participant.
+
+| Action         | Args                                                            | Purpose                                    |
+| -------------- | --------------------------------------------------------------- | ------------------------------------------ |
+| `update-slide` | `--deckId <id> --slideId <id> --find "old" --replace "new"`     | Surgical text edit — syncs live to editors |
+| `update-slide` | `--deckId <id> --slideId <id> --fullContent "<html>"`           | Full slide content replacement             |
+
 ### Navigation
 
 | Action     | Args                               | Purpose                  |

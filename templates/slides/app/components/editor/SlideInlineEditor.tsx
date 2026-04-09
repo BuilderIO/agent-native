@@ -2,7 +2,11 @@ import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
+import Collaboration from "@tiptap/extension-collaboration";
+import CollaborationCaret from "@tiptap/extension-collaboration-caret";
 import { useEffect, useRef, useCallback } from "react";
+import type * as Y from "yjs";
+import type { Awareness } from "y-protocols/awareness";
 import type { Slide } from "@/context/DeckContext";
 import { SlideBubbleMenu } from "./SlideBubbleMenu";
 import {
@@ -15,6 +19,14 @@ interface SlideInlineEditorProps {
   slide: Slide;
   onContentChange: (html: string) => void;
   onExitEdit: () => void;
+  /** Yjs document for collaborative editing. When provided, enables real-time collab. */
+  ydoc?: Y.Doc | null;
+  /** Yjs Awareness for cursor/presence sync. */
+  awareness?: Awareness | null;
+  /** Current user's display name and color for the cursor caret. */
+  collabUser?: { name: string; color: string };
+  /** True briefly when the AI agent is making edits. */
+  agentActive?: boolean;
 }
 
 /** Resolve bg class / style from slide.background */
@@ -96,15 +108,22 @@ export function SlideInlineEditor({
   slide,
   onContentChange,
   onExitEdit,
+  ydoc,
+  awareness,
+  collabUser,
+  agentActive,
 }: SlideInlineEditorProps) {
   const { bgClass, bgStyle } = resolveBackground(slide.background);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Guard flag: prevents the seeding setContent from triggering onContentChange
+  const isSettingContent = useRef(false);
 
   const initialContent = extractEditableContent(slide.content);
 
   const editor = useEditor({
     extensions: [
-      StarterKit,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      StarterKit.configure(ydoc ? ({ history: false } as any) : {}),
       Placeholder.configure({
         placeholder: "Start typing… or press / for commands",
       }),
@@ -115,16 +134,49 @@ export function SlideInlineEditor({
         },
       }),
       SlashCommandExtension,
+      // Collaboration extensions — only active when ydoc is provided
+      ...(ydoc
+        ? [
+            Collaboration.configure({ document: ydoc }),
+            ...(awareness
+              ? [
+                  CollaborationCaret.configure({
+                    provider: { awareness },
+                    user: collabUser,
+                  }),
+                ]
+              : []),
+          ]
+        : []),
     ],
-    content: initialContent || "<p></p>",
+    // When collab is active, content comes from Y.XmlFragment (seeded below).
+    // When non-collab, use static initial content.
+    content: ydoc ? undefined : initialContent || "<p></p>",
     autofocus: "end",
     onUpdate: ({ editor }) => {
+      if (isSettingContent.current) return;
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       saveTimerRef.current = setTimeout(() => {
         onContentChange(editor.getHTML());
       }, 300);
     },
   });
+
+  // Seed the Y.XmlFragment from existing slide content on first open
+  useEffect(() => {
+    if (!editor || !ydoc || editor.isDestroyed) return;
+    const fragment = ydoc.getXmlFragment("default");
+    if (fragment.length === 0) {
+      const html = extractEditableContent(slide.content);
+      if (html) {
+        isSettingContent.current = true;
+        editor.commands.setContent(html, { emitUpdate: false });
+        isSettingContent.current = false;
+      }
+    }
+    // Only re-run when editor instance or ydoc changes, not on slide content updates
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, ydoc]);
 
   const { menuPosition, query, menuRef, closeMenu, executeCommand } =
     useSlashMenu(editor);
@@ -187,6 +239,14 @@ export function SlideInlineEditor({
         onClose={closeMenu}
         onCommand={executeCommand}
       />
+
+      {/* AI editing indicator — shown briefly when agent makes edits */}
+      {agentActive && (
+        <div className="absolute top-2 right-2 z-10 flex items-center gap-1.5 px-2 py-1 rounded-full bg-[#a78bfa]/20 border border-[#a78bfa]/40 text-[#a78bfa] text-xs font-medium animate-pulse pointer-events-none">
+          <div className="w-1.5 h-1.5 rounded-full bg-[#a78bfa]" />
+          AI editing
+        </div>
+      )}
     </div>
   );
 }
@@ -227,24 +287,25 @@ function SlideEditorCanvas({
 
 /** Mirrors SlideRenderer's ScaleHelper */
 function ScaleHelper({ targetWidth = 960 }: { targetWidth?: number }) {
-  return (
-    <div
-      className="absolute inset-0 pointer-events-none"
-      ref={(el) => {
-        if (!el) return;
-        const parent = el.parentElement;
-        if (!parent) return;
+  const cleanup = useCallback(
+    (el: HTMLDivElement | null) => {
+      if (!el) return;
+      const parent = el.parentElement;
+      if (!parent) return;
 
-        const updateScale = () => {
-          const w = parent.offsetWidth;
-          parent.style.setProperty("--slide-scale", String(w / targetWidth));
-        };
-        updateScale();
+      const updateScale = () => {
+        const w = parent.offsetWidth;
+        parent.style.setProperty("--slide-scale", String(w / targetWidth));
+      };
+      updateScale();
 
-        const observer = new ResizeObserver(updateScale);
-        observer.observe(parent);
-        (el as any).__cleanup = () => observer.disconnect();
-      }}
-    />
+      const observer = new ResizeObserver(updateScale);
+      observer.observe(parent);
+      (el as unknown as { __cleanup: () => void }).__cleanup = () =>
+        observer.disconnect();
+    },
+    [targetWidth],
   );
+
+  return <div className="absolute inset-0 pointer-events-none" ref={cleanup} />;
 }

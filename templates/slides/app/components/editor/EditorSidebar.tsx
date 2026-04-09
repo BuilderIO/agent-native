@@ -21,6 +21,7 @@ import SlideRenderer from "@/components/deck/SlideRenderer";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { useCallback } from "react";
+import type { CollabUser } from "@agent-native/core/client";
 
 interface EditorSidebarProps {
   slides: Slide[];
@@ -30,6 +31,8 @@ interface EditorSidebarProps {
   onSelectSlide: (id: string) => void;
   onDuplicateSlide: (id: string) => void;
   onDeleteSlide: (id: string) => void;
+  /** Presence map: slideId → list of users currently viewing that slide */
+  slidePresence?: Map<string, CollabUser[]>;
 }
 
 function SortableSlideThumb({
@@ -39,6 +42,7 @@ function SortableSlideThumb({
   onSelect,
   onDuplicate,
   onDelete,
+  presenceUsers = [],
 }: {
   slide: Slide;
   index: number;
@@ -46,6 +50,7 @@ function SortableSlideThumb({
   onSelect: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
+  presenceUsers?: CollabUser[];
 }) {
   const {
     attributes,
@@ -90,9 +95,37 @@ function SortableSlideThumb({
 
         {/* Thumbnail */}
         <div className="flex-1 min-w-0">
-          <div className="w-full overflow-hidden rounded border border-white/[0.06]">
+          <div
+            className="w-full overflow-hidden rounded border"
+            style={{
+              borderColor:
+                presenceUsers.length > 0
+                  ? presenceUsers[0].color + "66"
+                  : "rgba(255,255,255,0.06)",
+            }}
+          >
             <SlideRenderer slide={slide} />
           </div>
+          {/* Presence avatars — show who's on this slide */}
+          {presenceUsers.length > 0 && (
+            <div className="flex items-center gap-0.5 mt-1 px-0.5">
+              {presenceUsers.slice(0, 4).map((u, i) => (
+                <div
+                  key={i}
+                  className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white/90 flex-shrink-0 ring-1 ring-black/40"
+                  style={{ backgroundColor: u.color }}
+                  title={u.name}
+                >
+                  {u.name.slice(0, 2).toUpperCase()}
+                </div>
+              ))}
+              {presenceUsers.length > 4 && (
+                <span className="text-[9px] text-white/30 ml-0.5">
+                  +{presenceUsers.length - 4}
+                </span>
+              )}
+            </div>
+          )}
         </div>
       </button>
 
@@ -381,6 +414,7 @@ export default function EditorSidebar({
   onSelectSlide,
   onDuplicateSlide,
   onDeleteSlide,
+  slidePresence,
 }: EditorSidebarProps) {
   const activeIndex = slides.findIndex((s) => s.id === activeSlideId);
   const [addOpen, setAddOpen] = useState(false);
@@ -459,6 +493,7 @@ export default function EditorSidebar({
               onSelect={() => onSelectSlide(slide.id)}
               onDuplicate={() => onDuplicateSlide(slide.id)}
               onDelete={() => onDeleteSlide(slide.id)}
+              presenceUsers={slidePresence?.get(slide.id) ?? []}
             />
           ))}
         </SortableContext>

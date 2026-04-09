@@ -14,6 +14,8 @@ import CodeEditor from "./CodeEditor";
 import ImageOverlay from "./ImageOverlay";
 import { ExcalidrawSlide } from "@/components/deck/ExcalidrawSlide";
 import { SlideInlineEditor } from "./SlideInlineEditor";
+import type * as Y from "yjs";
+import type { Awareness } from "y-protocols/awareness";
 
 let builderIdCounter = 0;
 
@@ -44,6 +46,14 @@ interface SlideEditorProps {
   onSearchImage: (replaceSrc: string) => void;
   onLogoSearch: (replaceSrc: string) => void;
   onToggleObjectFit: (imgSrc: string, newFit: string) => void;
+  /** Yjs document for collaborative editing */
+  ydoc?: Y.Doc | null;
+  /** Yjs Awareness for cursor/presence sync */
+  awareness?: Awareness | null;
+  /** Current user display info for cursor caret */
+  collabUser?: { name: string; color: string };
+  /** True briefly when AI agent is making edits */
+  agentActive?: boolean;
 }
 
 /** Selection outline rendered over a selected image */
@@ -77,6 +87,10 @@ export default function SlideEditor({
   onSearchImage,
   onLogoSearch,
   onToggleObjectFit,
+  ydoc,
+  awareness,
+  collabUser,
+  agentActive,
 }: SlideEditorProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [imageOverlay, setImageOverlay] = useState<{
@@ -279,6 +293,10 @@ export default function SlideEditor({
                     slide={slide}
                     onContentChange={(html) => onUpdateSlide({ content: html })}
                     onExitEdit={() => setIsEditing(false)}
+                    ydoc={ydoc}
+                    awareness={awareness}
+                    collabUser={collabUser}
+                    agentActive={agentActive}
                   />
                 ) : (
                   <div

@@ -21,6 +21,16 @@ import LogoSearchPanel from "@/components/editor/LogoSearchPanel";
 import ShareDialog from "@/components/editor/ShareDialog";
 import HistoryPanel from "@/components/editor/HistoryPanel";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
+import {
+  useCollaborativeDoc,
+  useSession,
+  emailToColor,
+  emailToName,
+} from "@agent-native/core/client";
+import { useDeckPresence } from "@/hooks/use-deck-presence";
+
+// Stable tab ID for jitter prevention (module-level = never recreated)
+const COLLAB_TAB_ID = `slides-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 export default function DeckEditor() {
   const { id } = useParams<{ id: string }>();
@@ -285,6 +295,16 @@ export default function DeckEditor() {
   const currentSlideRef =
     useRef<typeof deck extends undefined ? null : any>(null);
 
+  // Session for collab user identity
+  const { session } = useSession();
+  const currentUser = session?.email
+    ? {
+        email: session.email,
+        name: emailToName(session.email),
+        color: emailToColor(session.email),
+      }
+    : undefined;
+
   if (loading) return <div className="h-screen bg-[hsl(240,5%,5%)]" />;
   if (!deck || !id) return <Navigate to="/" replace />;
 
@@ -292,6 +312,30 @@ export default function DeckEditor() {
     deck.slides.find((s) => s.id === activeSlideId) || deck.slides[0];
   const currentIndex = deck.slides.findIndex((s) => s.id === currentSlide?.id);
   currentSlideRef.current = currentSlide;
+
+  // Slide-level collab: one Yjs doc per slide
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const slideDocId =
+    id && currentSlide ? `deck-${id}-slide-${currentSlide.id}` : null;
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const {
+    ydoc,
+    awareness,
+    activeUsers: slideActiveUsers,
+    agentActive,
+  } = useCollaborativeDoc({
+    docId: slideDocId,
+    requestSource: COLLAB_TAB_ID,
+    user: currentUser,
+  });
+
+  // Deck-level presence: tracks which slide each user is viewing
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const { slidePresence } = useDeckPresence({
+    deckId: id ?? null,
+    activeSlideId: currentSlide?.id ?? null,
+    user: currentUser,
+  });
 
   return (
     <div className="h-screen flex flex-col bg-[hsl(240,5%,5%)]">
@@ -324,6 +368,8 @@ export default function DeckEditor() {
         onUpdateSlide={(updates) =>
           currentSlide && updateSlide(id, currentSlide.id, updates)
         }
+        activeUsers={slideActiveUsers}
+        agentActive={agentActive}
       />
 
       <div className="flex-1 flex overflow-hidden relative">
@@ -356,6 +402,7 @@ export default function DeckEditor() {
                       deck.slides[idx + 1] || deck.slides[idx - 1];
                     if (nextSlide) setActiveSlideId(nextSlide.id);
                   }}
+                  slidePresence={slidePresence}
                 />
               </DndContext>
             </div>
@@ -389,6 +436,14 @@ export default function DeckEditor() {
               setLogoSearchOpen(true);
             }}
             onToggleObjectFit={toggleObjectFit}
+            ydoc={ydoc}
+            awareness={awareness}
+            collabUser={
+              currentUser
+                ? { name: currentUser.name, color: currentUser.color }
+                : undefined
+            }
+            agentActive={agentActive}
           />
         )}
       </div>
