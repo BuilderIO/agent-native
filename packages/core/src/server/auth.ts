@@ -98,21 +98,26 @@ const DEFAULT_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
  *
  * Returns true when:
  * - AUTH_MODE=local is explicitly set (escape hatch)
- * - In dev environment (NODE_ENV=development) with no explicit auth configured
- *   (no ACCESS_TOKEN, no GOOGLE_CLIENT_ID, no BYOA). This makes dev "just work"
+ * - In dev environment (NODE_ENV=development) with no explicit auth token
+ *   configured (no ACCESS_TOKEN, no BYOA). This makes dev "just work"
  *   without requiring auth setup, while still respecting auth when configured.
+ *
+ * NOTE: GOOGLE_CLIENT_ID is intentionally NOT checked here — it is used for
+ * Google Calendar / Gmail API access as well as Google Sign-In, and its
+ * presence alone should not force authentication. Only ACCESS_TOKEN/ACCESS_TOKENS
+ * (explicit token-based auth) or a custom getSession (BYOA) signal that the
+ * developer has explicitly opted into requiring authentication.
  *
  * BYOA (customGetSession) opts out of dev auto-local — templates that provide
  * their own auth (e.g. Supabase) shouldn't be silently bypassed in dev.
  */
 function isLocalMode(): boolean {
   if (process.env.AUTH_MODE === "local") return true;
-  // Default to local mode in dev when no auth is explicitly configured
+  // Default to local mode in dev when no explicit auth is configured
   if (
     isDevEnvironment() &&
     !process.env.ACCESS_TOKEN &&
     !process.env.ACCESS_TOKENS &&
-    !process.env.GOOGLE_CLIENT_ID &&
     !customGetSession
   ) {
     return true;
