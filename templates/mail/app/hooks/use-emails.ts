@@ -211,9 +211,9 @@ function applyOverrides(emails: EmailMessage[]): EmailMessage[] {
 
 import type { InfiniteData } from "@tanstack/react-query";
 
-type InfiniteEmails = InfiniteData<EmailsPage, string | undefined>;
+export type InfiniteEmails = InfiniteData<EmailsPage, string | undefined>;
 
-function mapInfiniteEmails(
+export function mapInfiniteEmails(
   old: InfiniteEmails | undefined,
   fn: (emails: EmailMessage[]) => EmailMessage[],
 ): InfiniteEmails | undefined {
@@ -224,7 +224,7 @@ function mapInfiniteEmails(
   };
 }
 
-function flattenInfiniteEmails(
+export function flattenInfiniteEmails(
   data: InfiniteEmails | undefined,
 ): EmailMessage[] {
   return data?.pages.flatMap((p) => p.emails) ?? [];

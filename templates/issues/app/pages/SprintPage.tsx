@@ -33,21 +33,20 @@ export function SprintPage({
   const isLoading = sprintsLoading || issuesLoading;
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full w-full min-w-0">
       <div
         className={cn(
           "flex flex-col overflow-hidden",
           selectedIssueKey
-            ? "hidden lg:flex lg:w-[340px] lg:shrink-0 lg:border-r lg:border-border"
-            : "flex-1",
+            ? "hidden lg:flex lg:w-[320px] lg:min-w-[200px] lg:border-r lg:border-border"
+            : "min-w-0 flex-1",
         )}
       >
-        <div className="flex items-center gap-2 border-b border-border px-3 py-3 sm:gap-3 sm:px-4">
-          <h1 className="text-sm font-semibold text-foreground">
+        <div className="flex min-w-0 items-center gap-2 border-b border-border px-3 py-3">
+          <h1 className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
             Sprint Planning
           </h1>
-          <div className="flex-1" />
-          <AgentToggleButton className="h-9 w-9 rounded-md border border-border bg-background" />
+          <AgentToggleButton className="h-9 w-9 shrink-0 rounded-md border border-border bg-background" />
         </div>
 
         <div className="flex-1 overflow-y-auto">

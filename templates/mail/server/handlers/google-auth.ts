@@ -117,10 +117,14 @@ export const handleGoogleCallback = defineEventHandler(
       }
 
       // 3. Create session token (after we have the email)
-      const { sessionToken } = await createOAuthSession(event, email, {
-        hasProductionSession,
-        desktop,
-      });
+      // Skip for add-account flows — adding a second account must not switch
+      // the current session (the token is stored under the original owner).
+      const { sessionToken } = addAccount
+        ? { sessionToken: undefined }
+        : await createOAuthSession(event, email, {
+            hasProductionSession,
+            desktop,
+          });
 
       // 4. Return platform-appropriate response
       return oauthCallbackResponse(event, email, {
