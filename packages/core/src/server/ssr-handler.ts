@@ -38,8 +38,16 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
     try {
       return await handler(event.req as Request);
     } catch (err) {
+      // Log the full stack server-side, but never leak it to the client.
+      // Stack traces expose file paths, library versions, and code structure
+      // that aid reconnaissance attacks. In dev we surface the message text
+      // so devtools shows something useful; in prod we return a bare 500.
       console.error("[ssr-handler] SSR error:", err);
-      return new Response(`SSR error: ${(err as Error)?.stack ?? err}`, {
+      const isProd = process.env.NODE_ENV === "production";
+      const body = isProd
+        ? "Internal Server Error"
+        : `Internal Server Error: ${(err as Error)?.message ?? err}`;
+      return new Response(body, {
         status: 500,
         headers: { "content-type": "text/plain" },
       });
