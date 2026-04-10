@@ -1036,8 +1036,12 @@ const AssistantChatInner = forwardRef<
   const [reconnectFrozen, setReconnectFrozen] = useState(false);
   const reconnectRunIdRef = useRef<string | null>(null);
   const reconnectAbortRef = useRef<AbortController | null>(null);
-  // Treat reconnecting to an active run the same as running for UI purposes
-  const isRunning = isRuntimeRunning || isReconnecting;
+  // Nuclear stop: user clicked stop but runtime hasn't cleared isRunning yet
+  const [forceStopped, setForceStopped] = useState(false);
+  // Treat reconnecting to an active run the same as running for UI purposes.
+  // forceStopped lets the stop button immediately clear the indicator even if
+  // the underlying runtime or reconnect state hasn't caught up yet.
+  const isRunning = !forceStopped && (isRuntimeRunning || isReconnecting);
   const wasRunningRef = useRef(false);
   const tiptapRef = useRef<TiptapComposerHandle>(null);
 
@@ -1120,9 +1124,11 @@ const AssistantChatInner = forwardRef<
                   }),
                 );
 
+                // Create AbortController before the async call so stop button
+                // can abort it even if clicked before the function body runs.
+                const abortCtrl = new AbortController();
+                reconnectAbortRef.current = abortCtrl;
                 const streamReconnect = async () => {
-                  const abortCtrl = new AbortController();
-                  reconnectAbortRef.current = abortCtrl;
                   try {
                     const sseRes = await fetch(
                       `${apiUrl}/runs/${encodeURIComponent(runInfo.runId)}/events?after=0`,
@@ -1401,12 +1407,25 @@ const AssistantChatInner = forwardRef<
 
   // Clear frozen reconnect content when a new run starts so stale content
   // from a prior reconnect doesn't persist across the next user submission.
+  // Also clear forceStopped so the next run's indicator shows normally.
   useEffect(() => {
-    if (isRuntimeRunning && reconnectFrozen) {
-      setReconnectFrozen(false);
-      setReconnectContent([]);
+    if (isRuntimeRunning) {
+      if (reconnectFrozen) {
+        setReconnectFrozen(false);
+        setReconnectContent([]);
+      }
+      if (forceStopped) {
+        setForceStopped(false);
+      }
     }
-  }, [isRuntimeRunning, reconnectFrozen]);
+  }, [isRuntimeRunning, reconnectFrozen, forceStopped]);
+
+  // Also clear forceStopped when entering reconnect mode (e.g. after page reload)
+  useEffect(() => {
+    if (isReconnecting && forceStopped) {
+      setForceStopped(false);
+    }
+  }, [isReconnecting, forceStopped]);
 
   const addToQueue = useCallback(
     (text: string, images?: string[], references?: Reference[]) => {
@@ -1749,30 +1768,40 @@ const AssistantChatInner = forwardRef<
               isRunning ? (
                 <button
                   onClick={() => {
-                    if (isReconnecting && reconnectRunIdRef.current) {
-                      // Abort the server-side run
-                      fetch(
-                        `${apiUrl}/runs/${encodeURIComponent(reconnectRunIdRef.current)}/abort`,
-                        { method: "POST" },
-                      );
-                      // Abort the client-side SSE stream so we don't hang
+                    // Immediately force the indicator off — belt-and-suspenders
+                    // so the UI is never stuck even if the runtime or reconnect
+                    // state takes time (or fails) to clear on its own.
+                    setForceStopped(true);
+
+                    if (isReconnecting) {
+                      // Abort the server-side run (fire-and-forget)
+                      if (reconnectRunIdRef.current) {
+                        fetch(
+                          `${apiUrl}/runs/${encodeURIComponent(reconnectRunIdRef.current)}/abort`,
+                          { method: "POST" },
+                        );
+                      }
+                      // Abort the client-side SSE stream
                       reconnectAbortRef.current?.abort();
                       reconnectAbortRef.current = null;
                       reconnectRunIdRef.current = null;
                       setIsReconnecting(false);
                       // Keep reconnectContent visible (frozen) — don't wipe it
-                      setReconnectFrozen(true);
-                      window.dispatchEvent(
-                        new CustomEvent("builder.chatRunning", {
-                          detail: {
-                            isRunning: false,
-                            tabId: tabId || threadId,
-                          },
-                        }),
-                      );
-                    } else {
-                      threadRuntime.cancelRun();
+                      setReconnectFrozen(reconnectContent.length > 0);
                     }
+
+                    // Always try to cancel the runtime run too (handles the
+                    // normal non-reconnect path and is a no-op if not running)
+                    threadRuntime.cancelRun();
+
+                    window.dispatchEvent(
+                      new CustomEvent("builder.chatRunning", {
+                        detail: {
+                          isRunning: false,
+                          tabId: tabId || threadId,
+                        },
+                      }),
+                    );
                   }}
                   className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90"
                   title="Stop generating"

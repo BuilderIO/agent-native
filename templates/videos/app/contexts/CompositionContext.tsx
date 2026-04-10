@@ -231,7 +231,22 @@ export function CompositionProvider({
   );
 
   const handleDelete = useCallback(
-    (id: string) => {
+    async (id: string) => {
+      // Remove from in-memory registry so sidebar updates immediately
+      const idx = compositions.findIndex((c) => c.id === id);
+      if (idx !== -1) compositions.splice(idx, 1);
+
+      // Delete from DB (best-effort)
+      try {
+        await fetch(`/_agent-native/actions/delete-composition`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id }),
+        });
+      } catch {
+        // ignore
+      }
+
       const remaining = compositions.filter((c) => c.id !== id);
       if (id === compositionId && remaining.length > 0) {
         navigate(`/c/${remaining[0].id}`, { replace: true });

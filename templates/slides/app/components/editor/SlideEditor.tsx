@@ -13,7 +13,6 @@ import SlideRenderer from "@/components/deck/SlideRenderer";
 import CodeEditor from "./CodeEditor";
 import ImageOverlay from "./ImageOverlay";
 import { ExcalidrawSlide } from "@/components/deck/ExcalidrawSlide";
-import { SlideInlineEditor } from "./SlideInlineEditor";
 import type * as Y from "yjs";
 import type { Awareness } from "y-protocols/awareness";
 
@@ -34,6 +33,58 @@ function getBuilderSelector(el: HTMLElement): string | null {
   const id = el.getAttribute("data-builder-id");
   if (id) return `[data-builder-id="${id}"]`;
   return null;
+}
+
+/** Inline tags allowed inside a "text leaf" element */
+const INLINE_TAGS = new Set([
+  "SPAN",
+  "STRONG",
+  "EM",
+  "B",
+  "I",
+  "U",
+  "A",
+  "BR",
+  "CODE",
+  "SUB",
+  "SUP",
+  "MARK",
+  "SMALL",
+  "S",
+]);
+
+/**
+ * A "text leaf" is a block-level element whose children are only text nodes
+ * or inline elements — i.e. it's safe to make contentEditable without
+ * exposing layout containers to editing.
+ */
+function isTextLeaf(el: HTMLElement): boolean {
+  if (!el || el.tagName === "IMG") return false;
+  if (el.classList.contains("fmd-img-placeholder")) return false;
+  // Must contain some text
+  if (!el.textContent?.trim()) return false;
+  for (const child of Array.from(el.children)) {
+    if (!INLINE_TAGS.has(child.tagName)) return false;
+  }
+  return true;
+}
+
+/** Walk up from target to find the nearest text-leaf ancestor within root. */
+function findTextLeaf(
+  target: HTMLElement,
+  root: HTMLElement,
+): HTMLElement | null {
+  let el: HTMLElement | null = target;
+  while (el && root.contains(el)) {
+    if (isTextLeaf(el)) return el;
+    el = el.parentElement;
+  }
+  return null;
+}
+
+/** Strip data-builder-id attributes from an HTML string */
+function stripBuilderIds(html: string): string {
+  return html.replace(/\s*data-builder-id="[^"]*"/g, "");
 }
 
 interface SlideEditorProps {
@@ -89,13 +140,8 @@ export default function SlideEditor({
   onSearchImage,
   onLogoSearch,
   onToggleObjectFit,
-  ydoc,
-  awareness,
-  collabUser,
   agentActive,
-  onComment,
 }: SlideEditorProps) {
-  const [isEditing, setIsEditing] = useState(false);
   const [isHoveringText, setIsHoveringText] = useState(false);
   const [imageOverlay, setImageOverlay] = useState<{
     rect: DOMRect;
@@ -105,21 +151,95 @@ export default function SlideEditor({
   const [selectedImg, setSelectedImg] = useState<HTMLImageElement | null>(null);
   const [selectionRect, setSelectionRect] = useState<DOMRect | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  /** Currently-edited text-leaf element (per-element inline editing) */
+  const editingElRef = useRef<HTMLElement | null>(null);
+  /** Latest onUpdateSlide in a ref so blur handlers always see the current version */
+  const onUpdateSlideRef = useRef(onUpdateSlide);
+  useEffect(() => {
+    onUpdateSlideRef.current = onUpdateSlide;
+  }, [onUpdateSlide]);
+
+  /** Exit per-element edit mode, saving changes to slide.content */
+  const exitInlineEdit = useCallback(() => {
+    const el = editingElRef.current;
+    if (!el) return;
+    el.contentEditable = "false";
+    el.removeAttribute("data-editing-leaf");
+    editingElRef.current = null;
+
+    const slideContent = containerRef.current?.querySelector(
+      ".slide-content",
+    ) as HTMLElement | null;
+    if (slideContent) {
+      const html = stripBuilderIds(slideContent.innerHTML);
+      onUpdateSlideRef.current({ content: html });
+    }
+  }, []);
+
+  /** Enter per-element edit mode on a text-leaf element */
+  const enterInlineEdit = useCallback(
+    (el: HTMLElement) => {
+      if (editingElRef.current === el) return;
+      if (editingElRef.current) exitInlineEdit();
+
+      el.contentEditable = "true";
+      el.setAttribute("data-editing-leaf", "true");
+      el.focus();
+      // Select all text in the element so typing replaces it
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+      editingElRef.current = el;
+    },
+    [exitInlineEdit],
+  );
 
   // Exit edit mode when switching slides
   useEffect(() => {
-    setIsEditing(false);
+    if (editingElRef.current) {
+      editingElRef.current.contentEditable = "false";
+      editingElRef.current.removeAttribute("data-editing-leaf");
+      editingElRef.current = null;
+    }
   }, [slide.id]);
 
-  // Exit edit mode on Escape key
+  // Global keyboard handling while inline-editing a text leaf
   useEffect(() => {
-    if (!isEditing) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setIsEditing(false);
+      const editing = editingElRef.current;
+      if (!editing) return;
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        exitInlineEdit();
+      } else if (e.key === "Enter" && !e.shiftKey) {
+        // Enter on a single-line leaf should commit and exit, not break layout
+        const isHeading = /^H[1-6]$/.test(editing.tagName);
+        if (isHeading || editing.children.length === 0) {
+          e.preventDefault();
+          exitInlineEdit();
+        }
+      }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [isEditing]);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [exitInlineEdit]);
+
+  // Click-outside: exit inline edit mode
+  useEffect(() => {
+    const onDocMouseDown = (e: MouseEvent) => {
+      const editing = editingElRef.current;
+      if (!editing) return;
+      const target = e.target as Node;
+      if (editing.contains(target)) return;
+      // Clicking another text leaf → let the click handler transition
+      exitInlineEdit();
+    };
+    document.addEventListener("mousedown", onDocMouseDown);
+    return () => document.removeEventListener("mousedown", onDocMouseDown);
+  }, [exitInlineEdit]);
 
   // Keep selection rect in sync with the element (scroll, resize)
   useEffect(() => {
@@ -200,17 +320,16 @@ export default function SlideEditor({
 
   const handleSlideClick = useCallback(
     (e: React.MouseEvent) => {
+      // If currently editing a text leaf, clicks inside it are for the
+      // caret — don't select/style-edit.
+      if (editingElRef.current?.contains(e.target as Node)) return;
+
       showImageOverlay(e.target as HTMLElement);
 
       // Send style-editing postMessage with a unique selector for the clicked element
       const target = e.target as HTMLElement;
       const selector = getBuilderSelector(target);
       if (selector) {
-        console.log(
-          "[SlideEditor] click selector:",
-          selector,
-          document.querySelector(selector),
-        );
         enterSelectionMode("builder.enterStyleEditing", { selector });
       }
     },
@@ -245,13 +364,6 @@ export default function SlideEditor({
     agentChat.submit("Apply the pending visual updates");
   }, []);
 
-  // Stable onContentChange ref so SlideInlineEditor's cleanup effect
-  // doesn't re-register every time SlideEditor re-renders.
-  const handleContentChange = useCallback(
-    (html: string) => onUpdateSlide({ content: html }),
-    [onUpdateSlide],
-  );
-
   const handleSlideDoubleClick = useCallback(
     (e: ReactMouseEvent) => {
       const target = e.target as HTMLElement;
@@ -262,10 +374,28 @@ export default function SlideEditor({
         return;
       }
 
-      // Enter inline text editing mode
-      setIsEditing(true);
+      // Per-element inline editing only works for HTML-backed slides
+      // (fmd-slide / raw HTML layouts). Markdown-rendered slides would
+      // round-trip through React reconciliation and lose content.
+      const content = typeof slide.content === "string" ? slide.content : "";
+      const isHtmlSlide =
+        content.includes('class="fmd-slide"') ||
+        ["blank", "section", "statement", "full-image"].includes(slide.layout);
+      if (!isHtmlSlide) return;
+
+      // Find the nearest text-leaf ancestor and make just that element editable
+      const slideContent = containerRef.current?.querySelector(
+        ".slide-content",
+      ) as HTMLElement | null;
+      if (!slideContent) return;
+      const leaf = findTextLeaf(target, slideContent);
+      if (!leaf) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      enterInlineEdit(leaf);
     },
-    [showImageOverlay],
+    [showImageOverlay, enterInlineEdit, slide.content, slide.layout],
   );
 
   return (
@@ -280,57 +410,33 @@ export default function SlideEditor({
               />
             </div>
           ) : (
-            <div
-              className="h-full flex items-center justify-center p-2 sm:p-4 md:p-8 bg-[hsl(240,5%,5%)]"
-              onMouseDown={(e) => {
-                // Click outside the slide canvas → exit edit mode.
-                // But don't exit if clicking on portaled overlays (slash menu,
-                // bubble menu) which live in document.body outside containerRef.
-                const target = e.target as Element;
-                if (
-                  isEditing &&
-                  containerRef.current &&
-                  !containerRef.current.contains(target) &&
-                  !target.closest('[data-slash-menu="true"]') &&
-                  !target.closest('[data-bubble-menu="true"]')
-                ) {
-                  setIsEditing(false);
-                }
-              }}
-            >
+            <div className="h-full flex items-center justify-center p-2 sm:p-4 md:p-8 bg-[hsl(240,5%,5%)]">
               <div ref={containerRef} className="w-full max-w-4xl">
-                {isEditing ? (
-                  <SlideInlineEditor
+                <div
+                  className="slide-image-clickable relative"
+                  onClick={handleSlideClick}
+                  onContextMenu={handleSlideContextMenu}
+                  onDoubleClick={handleSlideDoubleClick}
+                  onMouseEnter={() => setIsHoveringText(true)}
+                  onMouseLeave={() => setIsHoveringText(false)}
+                >
+                  <SlideRenderer
                     slide={slide}
-                    onContentChange={handleContentChange}
-                    onExitEdit={() => setIsEditing(false)}
-                    ydoc={ydoc}
-                    awareness={awareness}
-                    collabUser={collabUser}
-                    agentActive={agentActive}
-                    onComment={onComment}
+                    className={`shadow-2xl shadow-black/40 ${isHoveringText ? "ring-2 ring-[#609FF8]/60" : ""}`}
                   />
-                ) : (
-                  <div
-                    className="slide-image-clickable relative"
-                    onClick={handleSlideClick}
-                    onContextMenu={handleSlideContextMenu}
-                    onDoubleClick={handleSlideDoubleClick}
-                    onMouseEnter={() => setIsHoveringText(true)}
-                    onMouseLeave={() => setIsHoveringText(false)}
-                  >
-                    <SlideRenderer
-                      slide={slide}
-                      className={`shadow-2xl shadow-black/40 ${isHoveringText ? "ring-2 ring-[#609FF8]/60" : ""}`}
-                    />
-                    {/* Double-click hint */}
-                    {isHoveringText && (
-                      <div className="absolute bottom-2 left-1/2 -translate-x-1/2 text-xs text-white/40 pointer-events-none select-none bg-black/60 px-2 py-0.5 rounded">
-                        Double-click to edit text
-                      </div>
-                    )}
-                  </div>
-                )}
+                  {/* Double-click hint */}
+                  {isHoveringText && !editingElRef.current && (
+                    <div className="absolute bottom-2 left-1/2 -translate-x-1/2 text-xs text-white/40 pointer-events-none select-none bg-black/60 px-2 py-0.5 rounded">
+                      Double-click any text to edit
+                    </div>
+                  )}
+                  {agentActive && (
+                    <div className="absolute top-2 right-2 z-10 flex items-center gap-1.5 px-2 py-1 rounded-full bg-[#a78bfa]/20 border border-[#a78bfa]/40 text-[#a78bfa] text-xs font-medium animate-pulse pointer-events-none">
+                      <div className="w-1.5 h-1.5 rounded-full bg-[#a78bfa]" />
+                      AI editing
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )

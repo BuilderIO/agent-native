@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useNavigate } from "react-router";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { EmptyState } from "@/components/EmptyState";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useDocuments } from "@/hooks/use-documents";
 
 export function meta() {
@@ -16,9 +17,28 @@ export function HydrateFallback() {
   );
 }
 
+function DocumentSkeleton() {
+  return (
+    <div className="flex-1 flex items-start justify-center bg-background overflow-hidden">
+      <div className="w-full max-w-3xl px-12 pt-24 space-y-6">
+        <Skeleton className="h-10 w-2/3" />
+        <div className="space-y-3 pt-4">
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-11/12" />
+          <Skeleton className="h-4 w-4/5" />
+        </div>
+        <div className="space-y-3 pt-6">
+          <Skeleton className="h-4 w-3/4" />
+          <Skeleton className="h-4 w-5/6" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function IndexRoute() {
   const navigate = useNavigate();
-  const { data: documents } = useDocuments();
+  const { data: documents, isLoading } = useDocuments();
 
   // Auto-select the first favorite, or the first document if no favorites
   useEffect(() => {
@@ -29,9 +49,13 @@ export default function IndexRoute() {
     }
   }, [documents, navigate]);
 
+  // While loading, or when we have documents but haven't navigated yet,
+  // show a skeleton instead of the "no page selected" empty state.
+  const showSkeleton = isLoading || (documents && documents.length > 0);
+
   return (
     <AppLayout activeDocumentId={null}>
-      <EmptyState />
+      {showSkeleton ? <DocumentSkeleton /> : <EmptyState />}
     </AppLayout>
   );
 }
