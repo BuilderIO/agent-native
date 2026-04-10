@@ -254,7 +254,22 @@ export default function SlideEditor({
     setEditingEl(el);
   }, []);
 
-  // Exit edit mode when switching slides
+  // Continuously persist typed edits while a block is being edited.
+  // Without this, free-typing inside a contentEditable block is only
+  // saved on explicit exit (Escape, click-outside, Enter on a heading).
+  // Switching slides mid-edit would otherwise discard typed text because
+  // the slide-change effect can't read the old DOM (it's already gone).
+  useEffect(() => {
+    if (!editingEl) return;
+    const onInput = () => saveBlockContent();
+    editingEl.addEventListener("input", onInput);
+    return () => editingEl.removeEventListener("input", onInput);
+  }, [editingEl, saveBlockContent]);
+
+  // Exit edit mode when switching slides. Edits are already persisted
+  // via the onInput effect above, so we just need to tear down the
+  // contentEditable state without trying to re-serialize from the DOM
+  // (which now belongs to the new slide).
   useEffect(() => {
     setEditingEl((el) => {
       if (el) {
