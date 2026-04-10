@@ -15,6 +15,7 @@ import {
   IPC,
   type ActiveWebviewTarget,
   type InterAppMessage,
+  type UpdateStatus,
 } from "@shared/ipc-channels";
 import { FRAME_PORT } from "@shared/app-registry";
 import type { AppConfig } from "@shared/app-registry";
@@ -96,21 +97,130 @@ app.on("open-url", (event, url) => {
   }
 });
 
-// ---------- Auto-updates (production only) ----------
+// ---------- Auto-updates ----------
+//
+// In production, electron-updater pulls release metadata from the
+// `publish:` target in electron-builder.yml (currently the BuilderIO/agent-native
+// GitHub repo). We auto-download in the background, surface progress and
+// readiness to the renderer over IPC, and let the user trigger
+// quitAndInstall from a sidebar pill / restart prompt. The app also
+// installs queued updates automatically on quit.
+//
+// In dev, autoUpdater is unsupported (no app signature, no dev-app-update.yml),
+// so we report an "unsupported" status and skip all autoUpdater calls.
+
+let currentUpdateStatus: UpdateStatus = IS_DEV
+  ? { state: "unsupported", reason: "Auto-update is disabled in development" }
+  : { state: "idle" };
+
+function broadcastUpdateStatus(status: UpdateStatus) {
+  currentUpdateStatus = status;
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send(IPC.UPDATE_STATUS_CHANGED, status);
+    }
+  }
+}
 
 if (!IS_DEV) {
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
 
+  autoUpdater.on("checking-for-update", () => {
+    broadcastUpdateStatus({ state: "checking" });
+  });
+
+  autoUpdater.on("update-available", (info) => {
+    broadcastUpdateStatus({
+      state: "available",
+      version: info.version,
+      releaseNotes:
+        typeof info.releaseNotes === "string" ? info.releaseNotes : undefined,
+    });
+  });
+
+  autoUpdater.on("update-not-available", (info) => {
+    broadcastUpdateStatus({
+      state: "not-available",
+      currentVersion: info.version ?? app.getVersion(),
+    });
+  });
+
+  autoUpdater.on("download-progress", (progress) => {
+    broadcastUpdateStatus({
+      state: "downloading",
+      percent: Math.round(progress.percent ?? 0),
+      bytesPerSecond: progress.bytesPerSecond,
+      transferred: progress.transferred,
+      total: progress.total,
+    });
+  });
+
+  autoUpdater.on("update-downloaded", (info) => {
+    broadcastUpdateStatus({
+      state: "downloaded",
+      version: info.version,
+      releaseNotes:
+        typeof info.releaseNotes === "string" ? info.releaseNotes : undefined,
+    });
+  });
+
+  autoUpdater.on("error", (err) => {
+    broadcastUpdateStatus({
+      state: "error",
+      message: err?.message ?? String(err),
+    });
+  });
+
   app.whenReady().then(() => {
-    autoUpdater.checkForUpdatesAndNotify();
+    autoUpdater.checkForUpdates().catch(() => {
+      // Errors are surfaced via the 'error' event above; swallow the
+      // promise rejection so it doesn't become an unhandled rejection.
+    });
     // Re-check every 4 hours
     setInterval(
-      () => autoUpdater.checkForUpdatesAndNotify(),
+      () => {
+        autoUpdater.checkForUpdates().catch(() => {});
+      },
       4 * 60 * 60 * 1000,
     );
   });
 }
+
+ipcMain.handle(IPC.UPDATE_GET_STATUS, (): UpdateStatus => currentUpdateStatus);
+
+ipcMain.handle(IPC.UPDATE_CHECK, async (): Promise<UpdateStatus> => {
+  if (IS_DEV) return currentUpdateStatus;
+  try {
+    await autoUpdater.checkForUpdates();
+  } catch (err) {
+    broadcastUpdateStatus({
+      state: "error",
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+  return currentUpdateStatus;
+});
+
+ipcMain.handle(IPC.UPDATE_DOWNLOAD, async (): Promise<UpdateStatus> => {
+  if (IS_DEV) return currentUpdateStatus;
+  try {
+    await autoUpdater.downloadUpdate();
+  } catch (err) {
+    broadcastUpdateStatus({
+      state: "error",
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+  return currentUpdateStatus;
+});
+
+ipcMain.handle(IPC.UPDATE_INSTALL, () => {
+  if (IS_DEV) return;
+  // isSilent=false so any installer UI shows; isForceRunAfter=true so the
+  // app relaunches after the update completes.
+  autoUpdater.quitAndInstall(false, true);
+});
 
 function createWindow(): BrowserWindow {
   const isMac = process.platform === "darwin";

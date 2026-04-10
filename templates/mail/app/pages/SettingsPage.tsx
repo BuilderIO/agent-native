@@ -8,7 +8,9 @@ import {
   IconLoader2,
   IconBolt,
   IconX,
+  IconCpu,
 } from "@tabler/icons-react";
+import { AgentEnginePicker } from "@/components/agent-engine-picker";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -736,9 +738,28 @@ function AutomationsSection() {
   );
 }
 
+// ─── Agent Engine Section ─────────────────────────────────────────────────────
+
+function AgentEngineSection() {
+  return (
+    <div className="flex-1 p-4 sm:p-8 overflow-y-auto">
+      <div className="mb-6">
+        <h2 className="text-[16px] font-semibold text-foreground">
+          Agent Engine
+        </h2>
+        <p className="text-[13px] text-muted-foreground mt-0.5">
+          Choose which AI model powers the agent. The default is Claude
+          (Anthropic).
+        </p>
+      </div>
+      <AgentEnginePicker />
+    </div>
+  );
+}
+
 // ─── Settings Page ────────────────────────────────────────────────────────────
 
-type SettingsSection = "aliases" | "automations";
+type SettingsSection = "automations" | "aliases" | "agent";
 
 const navItems: {
   id: SettingsSection;
@@ -747,6 +768,7 @@ const navItems: {
 }[] = [
   { id: "automations", label: "Automations", icon: IconBolt },
   { id: "aliases", label: "Aliases", icon: IconUsers },
+  { id: "agent", label: "Agent", icon: IconCpu },
 ];
 
 export function SettingsPage() {
@@ -790,6 +812,7 @@ export function SettingsPage() {
       <div className="flex flex-1 overflow-hidden bg-background">
         {activeSection === "automations" && <AutomationsSection />}
         {activeSection === "aliases" && <AliasesSection />}
+        {activeSection === "agent" && <AgentEngineSection />}
       </div>
     </div>
   );

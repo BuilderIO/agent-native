@@ -1,3 +1,20 @@
+/** Auto-update status surfaced from electron-updater (mirrors shared/ipc-channels.ts). */
+type UpdateStatus =
+  | { state: "idle" }
+  | { state: "unsupported"; reason: string }
+  | { state: "checking" }
+  | { state: "available"; version: string; releaseNotes?: string }
+  | { state: "not-available"; currentVersion: string }
+  | {
+      state: "downloading";
+      percent: number;
+      bytesPerSecond?: number;
+      transferred?: number;
+      total?: number;
+    }
+  | { state: "downloaded"; version: string; releaseNotes?: string }
+  | { state: "error"; message: string };
+
 /** Electron APIs exposed to the renderer via the preload contextBridge */
 interface ElectronAPI {
   platform: string;
@@ -40,6 +57,14 @@ interface ElectronAPI {
       mode: "dev" | "prod";
       prodUrl?: string;
     }>;
+  };
+
+  updater: {
+    check(): Promise<UpdateStatus>;
+    download(): Promise<UpdateStatus>;
+    install(): void;
+    getStatus(): Promise<UpdateStatus>;
+    onStatusChange(cb: (status: UpdateStatus) => void): () => void;
   };
 
   appConfig: {

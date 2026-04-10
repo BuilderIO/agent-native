@@ -3,6 +3,7 @@ import {
   IPC,
   type ActiveWebviewTarget,
   type InterAppMessage,
+  type UpdateStatus,
 } from "@shared/ipc-channels";
 
 /** The API surface exposed to the renderer via window.electronAPI */
@@ -70,6 +71,27 @@ const electronAPI = {
     load: (): Promise<any> => ipcRenderer.invoke(IPC.FRAME_LOAD),
     update: (settings: any): Promise<any> =>
       ipcRenderer.invoke(IPC.FRAME_UPDATE, settings),
+  },
+
+  /** Auto-update controls + status */
+  updater: {
+    check: (): Promise<UpdateStatus> => ipcRenderer.invoke(IPC.UPDATE_CHECK),
+    download: (): Promise<UpdateStatus> =>
+      ipcRenderer.invoke(IPC.UPDATE_DOWNLOAD),
+    install: (): void => {
+      ipcRenderer.invoke(IPC.UPDATE_INSTALL);
+    },
+    getStatus: (): Promise<UpdateStatus> =>
+      ipcRenderer.invoke(IPC.UPDATE_GET_STATUS),
+
+    /** Subscribe to update status changes. Returns an unsubscribe fn. */
+    onStatusChange: (cb: (status: UpdateStatus) => void): (() => void) => {
+      const handler = (_: Electron.IpcRendererEvent, status: UpdateStatus) =>
+        cb(status);
+      ipcRenderer.on(IPC.UPDATE_STATUS_CHANGED, handler);
+      return () =>
+        ipcRenderer.removeListener(IPC.UPDATE_STATUS_CHANGED, handler);
+    },
   },
 
   /** Inter-app communication — relay messages between loaded apps */
