@@ -260,9 +260,13 @@ export function CompositionProvider({
         return;
       }
 
-      // DB delete succeeded; now safe to update the in-memory registry
+      // DB delete succeeded; now safe to update the in-memory registry.
+      // Note: compositions is a module-singleton imported by Sidebar etc.,
+      // so mutating it doesn't on its own trigger a React re-render. Force
+      // one via the same setPropsOverrides trick handleTitleChange uses.
       const idx = compositions.findIndex((c) => c.id === id);
       if (idx !== -1) compositions.splice(idx, 1);
+      setPropsOverrides((prev) => ({ ...prev }));
 
       const remaining = compositions.filter((c) => c.id !== id);
       if (id === compositionId && remaining.length > 0) {
