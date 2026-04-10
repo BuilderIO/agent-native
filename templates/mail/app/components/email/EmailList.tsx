@@ -630,6 +630,84 @@ export function EmailList({
     toggleStar.mutate({ id: email.id, isStarred: !email.isStarred });
   };
 
+  // ── Swipe gesture handlers ─────────────────────────────────────────────
+  // Swipe targets exactly one thread (the swiped one) — unlike the keyboard
+  // `e` shortcut, which respects multi-selection.
+  const handleSwipeArchive = useCallback(
+    (thread: ThreadSummary) => {
+      const id = thread.latestMessage.id;
+      const tid = thread.latestMessage.threadId || id;
+
+      // Advance focus past the row that's about to disappear.
+      const idx = threads.findIndex((t) => t.latestMessage.id === id);
+      if (threads.length > 1) {
+        const nextIdx =
+          idx < threads.length - 1 ? idx + 1 : Math.max(0, idx - 1);
+        setFocusedId(threads[nextIdx].latestMessage.id);
+      } else {
+        setFocusedId(null);
+      }
+
+      // Snapshot so undo can restore.
+      const snapshots = emails.filter((e) => (e.threadId || e.id) === tid);
+      onArchived?.(id);
+
+      const undo = () => {
+        queryClient.setQueriesData<InfiniteEmails>(
+          { queryKey: ["emails"] },
+          (old) => {
+            if (!old) return old;
+            const firstPage = old.pages[0];
+            const restored = [...(firstPage?.emails ?? []), ...snapshots].sort(
+              (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+            );
+            return {
+              ...old,
+              pages: [
+                { ...firstPage, emails: restored },
+                ...old.pages.slice(1),
+              ],
+            };
+          },
+        );
+        unarchiveEmail.mutate(id);
+      };
+      setUndoAction(undo);
+      toast("Marked as Done.", {
+        action: { label: "UNDO", onClick: undo },
+      });
+      archiveEmail.mutate({
+        id,
+        accountEmail: thread.latestMessage.accountEmail,
+        removeLabel: labelParam || undefined,
+      });
+    },
+    [
+      threads,
+      emails,
+      archiveEmail,
+      unarchiveEmail,
+      onArchived,
+      labelParam,
+      setFocusedId,
+      queryClient,
+    ],
+  );
+
+  // Snooze fires a global event that AppLayout's SnoozeModal listens for.
+  // Routing through an event (instead of prop drilling) avoids coupling
+  // the list to the layout's modal state.
+  const handleSwipeSnooze = useCallback((thread: ThreadSummary) => {
+    window.dispatchEvent(
+      new CustomEvent("email:request-snooze", {
+        detail: {
+          emailId: thread.latestMessage.id,
+          accountEmail: thread.latestMessage.accountEmail,
+        },
+      }),
+    );
+  }, []);
+
   // Error state
   if (emailsError) {
     const needsCredentials =
@@ -751,6 +829,8 @@ export function EmailList({
                 staleTime: 30_000,
               });
             }}
+            onSwipeArchive={() => handleSwipeArchive(thread)}
+            onSwipeSnooze={() => handleSwipeSnooze(thread)}
           />
         ))}
         {/* Sentinel for infinite scroll + loading indicator */}
