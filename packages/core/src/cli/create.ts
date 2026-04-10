@@ -64,16 +64,20 @@ const TEMPLATES = [
     label: "Recruiting",
     hint: "AI-native Greenhouse — manage candidates and recruiting pipelines",
   },
+  {
+    value: "starter",
+    label: "Starter",
+    hint: "Minimal scaffold with the agent chat and core architecture wired up",
+  },
 ] as const;
 
 /**
  * Known first-party template names (for validation).
- * Includes aliases like "video" → "videos" and "starter" for backwards compat.
+ * Includes the alias "video" → "videos" for backwards compat.
  */
 const KNOWN_TEMPLATES = [
   ...TEMPLATES.map((t) => t.value).filter((v) => v !== "blank"),
   "video",
-  "starter",
 ];
 
 /**
