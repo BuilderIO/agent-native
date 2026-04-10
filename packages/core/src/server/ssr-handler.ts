@@ -4,9 +4,8 @@
  * Templates wire this up via:
  *
  *   // server/routes/[...page].get.ts
- *   import { createH3SSRHandler } from "@agent-native/core/server";
+ *   import { createH3SSRHandler } from "@agent-native/core/server/ssr-handler";
  *   export default createH3SSRHandler(
- *     // @ts-expect-error virtual module
  *     () => import("virtual:react-router/server-build"),
  *   );
  *
@@ -23,9 +22,7 @@ import { defineEventHandler } from "h3";
  * Create an h3 catch-all that hands page routes to React Router and
  * returns 404 for framework / asset paths that React Router doesn't own.
  */
-export function createH3SSRHandler(
-  getBuild: () => Promise<unknown> | unknown,
-) {
+export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
   const handler = createRequestHandler(getBuild as any);
   return defineEventHandler(async (event) => {
     const p = event.url.pathname;
@@ -42,13 +39,10 @@ export function createH3SSRHandler(
       return await handler(event.req as Request);
     } catch (err) {
       console.error("[ssr-handler] SSR error:", err);
-      return new Response(
-        `SSR error: ${(err as Error)?.stack ?? err}`,
-        {
-          status: 500,
-          headers: { "content-type": "text/plain" },
-        },
-      );
+      return new Response(`SSR error: ${(err as Error)?.stack ?? err}`, {
+        status: 500,
+        headers: { "content-type": "text/plain" },
+      });
     }
   });
 }

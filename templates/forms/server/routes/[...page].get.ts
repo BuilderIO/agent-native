@@ -3,7 +3,6 @@ import { defineEventHandler, getRequestURL } from "h3";
 import { renderPublicForm } from "../lib/public-form-ssr.js";
 
 const ssr = createH3SSRHandler(
-  // @ts-expect-error — virtual module provided by React Router Vite plugin
   () => import("virtual:react-router/server-build"),
 );
 

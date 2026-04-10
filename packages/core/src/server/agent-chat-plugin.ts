@@ -1155,18 +1155,12 @@ export function createAgentChatPlugin(
                   const m = window.match(
                     /method\s*:\s*['"`](GET|POST|PUT|DELETE)['"`]/,
                   );
-                  const p = window.match(
-                    /path\s*:\s*['"`]([^'"`]+)['"`]/,
-                  );
+                  const p = window.match(/path\s*:\s*['"`]([^'"`]+)['"`]/);
                   if (m || p) {
                     httpConfig = {
                       ...(m
                         ? {
-                            method: m[1] as
-                              | "GET"
-                              | "POST"
-                              | "PUT"
-                              | "DELETE",
+                            method: m[1] as "GET" | "POST" | "PUT" | "DELETE",
                           }
                         : {}),
                       ...(p ? { path: p[1] } : {}),
