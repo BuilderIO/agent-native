@@ -105,13 +105,13 @@ button[title="Open agent sidebar"] {
 
 /* Per-element inline text editing — highlight the text leaf that is
    currently being edited so the user can see which block is active. */
-.slide-content [data-editing-leaf="true"] {
+.slide-content [data-editing-block="true"] {
   outline: 2px solid #609ff8;
   outline-offset: 4px;
   border-radius: 2px;
   cursor: text;
 }
-.slide-content [data-editing-leaf="true"]:focus {
+.slide-content [data-editing-block="true"]:focus {
   outline: 2px solid #609ff8;
 }
 /* Subtle hover highlight on editable text leaves to hint clickability */

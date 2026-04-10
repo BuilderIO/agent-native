@@ -14,6 +14,7 @@ import { IssueProperties } from "./IssueProperties";
 import { IssueDescription } from "./IssueDescription";
 import { IssueComments } from "./IssueComments";
 import { IssueActivity } from "./IssueActivity";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { JiraIssue } from "@shared/types";
 
 interface IssueDetailProps {
@@ -29,8 +30,31 @@ export function IssueDetail({ issueKey, closePath }: IssueDetailProps) {
 
   if (isLoading) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <div className="text-sm text-muted-foreground">Loading...</div>
+      <div className="flex h-full flex-col">
+        <div className="flex items-center justify-between border-b border-border px-3 py-2 sm:px-4 sm:py-3">
+          <Skeleton className="h-4 w-20" />
+          <Skeleton className="h-9 w-9 rounded-md" />
+        </div>
+        <div className="flex-1 overflow-y-auto p-3 sm:p-5 space-y-5">
+          <div className="space-y-2">
+            <Skeleton className="h-5 w-3/4" />
+            <Skeleton className="h-5 w-1/2" />
+          </div>
+          <div className="space-y-2 pt-2">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-3">
+                <Skeleton className="h-3 w-20" />
+                <Skeleton className="h-3 flex-1 max-w-xs" />
+              </div>
+            ))}
+          </div>
+          <div className="space-y-2 pt-3">
+            <Skeleton className="h-3 w-24" />
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-3 w-2/3" />
+          </div>
+        </div>
       </div>
     );
   }

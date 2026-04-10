@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router";
 import { ArrowUp, Plus, Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   Popover,
@@ -24,7 +25,7 @@ const statusDots: Record<string, string> = {
 export function Sidebar() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { data: formsData } = useForms();
+  const { data: formsData, isLoading: formsLoading } = useForms();
   const forms = Array.isArray(formsData) ? formsData : [];
   const createForm = useCreateForm();
   const { send } = useSendToAgentChat();
@@ -148,6 +149,20 @@ export function Sidebar() {
 
       <ScrollArea className="flex-1">
         <div className="py-2">
+          {formsLoading && forms.length === 0
+            ? Array.from({ length: 5 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 min-h-[44px]"
+                >
+                  <Skeleton className="h-1.5 w-1.5 shrink-0 rounded-full" />
+                  <Skeleton
+                    className="h-3.5"
+                    style={{ width: `${50 + ((i * 17) % 40)}%` }}
+                  />
+                </div>
+              ))
+            : null}
           {forms.map((form) => {
             const isActive =
               location.pathname === `/forms/${form.id}` ||

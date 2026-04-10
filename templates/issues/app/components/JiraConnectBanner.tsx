@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useJiraAuthUrl } from "@/hooks/use-jira-auth";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   IconExternalLink,
   IconCopy,
@@ -237,7 +238,7 @@ export function JiraConnectBanner() {
                   "OAuth credentials not configured. Set ATLASSIAN_CLIENT_ID and ATLASSIAN_CLIENT_SECRET and restart."}
               </p>
             ) : (
-              <p className="text-[13px] text-muted-foreground">Loading...</p>
+              <Skeleton className="mt-2 h-9 w-48 rounded-md" />
             )}
           </StepCard>
         </div>

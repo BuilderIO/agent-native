@@ -12,6 +12,7 @@ import {
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -98,8 +99,37 @@ export function FormsListPage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <p className="text-muted-foreground">Loading forms...</p>
+      <div className="p-3 pt-14 sm:p-6 sm:pt-6 max-w-5xl mx-auto md:pt-6">
+        <div className="flex items-center justify-between mb-6 sm:mb-8 gap-3">
+          <div className="space-y-2">
+            <Skeleton className="h-7 w-24" />
+            <Skeleton className="h-4 w-44" />
+          </div>
+          <Skeleton className="h-9 w-24 shrink-0" />
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div
+              key={i}
+              className="border border-border rounded-xl p-4 sm:p-5 bg-card"
+            >
+              <div className="flex items-start justify-between mb-3 gap-2">
+                <div className="flex-1 min-w-0 space-y-2">
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="h-3 w-1/2" />
+                </div>
+                <Skeleton className="h-8 w-8 rounded-md shrink-0" />
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <Skeleton className="h-4 w-14 rounded-full" />
+                <div className="flex items-center gap-3">
+                  <Skeleton className="h-3 w-16" />
+                  <Skeleton className="h-3 w-10" />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
