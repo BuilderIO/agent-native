@@ -102,6 +102,29 @@ button[title="Open agent sidebar"] {
 .slide-content {
   font-family: "Poppins", sans-serif;
 }
+
+/* Per-element inline text editing — highlight the text leaf that is
+   currently being edited so the user can see which block is active. */
+.slide-content [data-editing-block="true"] {
+  outline: 2px solid #609ff8;
+  outline-offset: 4px;
+  border-radius: 2px;
+  cursor: text;
+}
+.slide-content [data-editing-block="true"]:focus {
+  outline: 2px solid #609ff8;
+}
+/* Subtle hover highlight on editable text leaves to hint clickability */
+.slide-image-clickable .slide-content p:hover,
+.slide-image-clickable .slide-content h1:hover,
+.slide-image-clickable .slide-content h2:hover,
+.slide-image-clickable .slide-content h3:hover,
+.slide-image-clickable .slide-content h4:hover,
+.slide-image-clickable .slide-content span:hover {
+  outline: 1px dashed rgba(96, 159, 248, 0.4);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
 .slide-content h1 {
   @apply text-5xl font-bold mb-6 leading-tight tracking-tight;
   color: #ffffff;

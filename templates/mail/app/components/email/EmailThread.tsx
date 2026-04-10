@@ -653,7 +653,7 @@ export function EmailThread({
   );
 
   const buildReplyQuote = (target: EmailMessage) =>
-    `\n\n— On ${new Date(target.date).toLocaleDateString()}, ${target.from.name || target.from.email} wrote:\n\n${target.body
+    `\n\n\n\n— On ${new Date(target.date).toLocaleDateString()}, ${target.from.name || target.from.email} wrote:\n\n${target.body
       .split("\n")
       .map((l) => `> ${l}`)
       .join("\n")}`;
@@ -764,7 +764,7 @@ export function EmailThread({
         subject: msg.subject.startsWith("Fwd:")
           ? msg.subject
           : `Fwd: ${msg.subject}`,
-        body: `\n\n— Forwarded message —\nFrom: ${msg.from.name} <${msg.from.email}>\n\n${msg.body}`,
+        body: `\n\n\n\n— Forwarded message —\nFrom: ${msg.from.name} <${msg.from.email}>\n\n${msg.body}`,
         mode: "forward",
         replyToId: msg.id,
         replyToThreadId: msg.threadId,

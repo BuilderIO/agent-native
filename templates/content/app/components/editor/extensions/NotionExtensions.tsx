@@ -385,7 +385,14 @@ export const NotionToggle = Node.create({
   addStorage() {
     return {
       markdown: {
-        serialize: (_state: any, node: any) => {
+        // NOTE: must be a regular function (not arrow) so that
+        // tiptap-markdown's `serialize.bind({editor, options})` actually
+        // sets `this`. Arrow functions ignore .bind() — that left
+        // `this.editor` undefined inside `serializeInnerMarkdown`,
+        // which silently fell back to `node.textContent` and stripped
+        // every paragraph break, blockquote marker, and inline mark
+        // from the toggle's contents on save.
+        serialize: function (_state: any, node: any) {
           const attrs: Record<string, string> = {};
           if (node.attrs.color) attrs.color = String(node.attrs.color);
           if (node.attrs.headingLevel) {
@@ -476,7 +483,8 @@ export const NotionCallout = Node.create({
   addStorage() {
     return {
       markdown: {
-        serialize: (_state: any, node: any) => {
+        // Regular function — see NotionToggle.serialize for why.
+        serialize: function (_state: any, node: any) {
           const inner = serializeInnerMarkdown((this as any).editor, node);
           _state.write(
             serializeContainerTag(
@@ -517,7 +525,8 @@ export const NotionColumns = Node.create({
   addStorage() {
     return {
       markdown: {
-        serialize: (_state: any, node: any) => {
+        // Regular function — see NotionToggle.serialize for why.
+        serialize: function (_state: any, node: any) {
           const inner = serializeInnerMarkdown((this as any).editor, node);
           _state.write(serializeContainerTag("columns", {}, inner));
           _state.closeBlock(node);
@@ -548,7 +557,8 @@ export const NotionColumn = Node.create({
   addStorage() {
     return {
       markdown: {
-        serialize: (_state: any, node: any) => {
+        // Regular function — see NotionToggle.serialize for why.
+        serialize: function (_state: any, node: any) {
           const inner = serializeInnerMarkdown((this as any).editor, node);
           _state.write(serializeContainerTag("column", {}, inner));
           _state.closeBlock(node);

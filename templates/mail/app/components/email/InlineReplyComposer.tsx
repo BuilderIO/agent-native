@@ -43,8 +43,8 @@ import { ComposeEditor, type ComposeEditorHandle } from "./ComposeEditor";
 import { openFilePicker, uploadFile, formatFileSize } from "@/lib/upload";
 
 function splitQuotedContent(body: string): [string, string] {
-  const replyMatch = body.match(/\n?\n?— On .+? wrote:\n/);
-  const fwdMatch = body.match(/\n?\n?— Forwarded message —\n/);
+  const replyMatch = body.match(/\n*— On .+? wrote:\n/);
+  const fwdMatch = body.match(/\n*— Forwarded message —\n/);
   const match = replyMatch || fwdMatch;
   if (!match || match.index === undefined) return [body, ""];
   return [body.slice(0, match.index), body.slice(match.index)];

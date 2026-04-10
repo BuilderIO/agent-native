@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { VisualEditor } from "./VisualEditor";
 import { DocumentToolbar } from "./DocumentToolbar";
+import { NotionConflictBanner } from "./NotionConflictBanner";
 import { EmojiPicker } from "./EmojiPicker";
 import { useDocument, useUpdateDocument } from "@/hooks/use-documents";
 import {
@@ -16,6 +17,9 @@ import { CommentsSidebar } from "./CommentsSidebar";
 import { useComments } from "@/hooks/use-comments";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { useLocalStorage } from "@/hooks/use-local-storage";
+import { useQueryClient } from "@tanstack/react-query";
+import type { DocumentSyncStatus } from "@shared/api";
 
 const TAB_ID = generateTabId();
 
@@ -26,6 +30,9 @@ interface DocumentEditorProps {
 export function DocumentEditor({ documentId }: DocumentEditorProps) {
   const { data: document, isLoading } = useDocument(documentId);
   const updateDocument = useUpdateDocument();
+  const queryClient = useQueryClient();
+  // Shared with DocumentToolbar via the same localStorage key — both read it.
+  const [autoSync] = useLocalStorage(`notion-auto-sync:${documentId}`, false);
   const [localTitle, setLocalTitle] = useState("");
   const [localContent, setLocalContent] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -121,12 +128,38 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
         try {
           await updateDocument.mutateAsync({ id: documentId, ...updates });
           lastSavedRef.current = { title, content };
+
+          // Push-on-save: when auto-sync is on, trigger a Notion push
+          // immediately after the save lands in SQL. This eliminates the
+          // off-by-one race where a fixed-interval poll could fire between
+          // the debounce and the next save, reading the previous content.
+          // Pulls remain driven by the polling refetch in useDocumentSyncStatus.
+          if (autoSync) {
+            const status = queryClient.getQueryData<DocumentSyncStatus>([
+              "document-sync",
+              documentId,
+            ]);
+            if (status?.pageId && !status.hasConflict) {
+              try {
+                const res = await fetch(
+                  `/api/documents/${documentId}/notion/push`,
+                  { method: "POST" },
+                );
+                if (res.ok) {
+                  const next = (await res.json()) as DocumentSyncStatus;
+                  queryClient.setQueryData(["document-sync", documentId], next);
+                }
+              } catch {
+                // Non-fatal — next polling refetch will surface any error.
+              }
+            }
+          }
         } finally {
           setIsSaving(false);
         }
       }, 500);
     },
-    [documentId, updateDocument],
+    [documentId, updateDocument, autoSync, queryClient],
   );
 
   const handleTitleChange = useCallback(
@@ -202,6 +235,8 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
           isSaving={isSaving}
           currentUserEmail={session?.email}
         />
+
+        <NotionConflictBanner documentId={documentId} />
 
         <div
           ref={scrollContainerRef}

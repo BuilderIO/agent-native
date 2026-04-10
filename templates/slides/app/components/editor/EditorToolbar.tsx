@@ -17,7 +17,7 @@ import {
   IconPencil,
   IconTransform,
   IconMessage,
-  IconSparkles,
+  IconWand,
 } from "@tabler/icons-react";
 import type { Slide, SlideLayout } from "@/context/DeckContext";
 
@@ -568,7 +568,7 @@ graph TD
           title="Element animations"
           aria-label="Element animations"
         >
-          <IconSparkles className="w-3.5 h-3.5" />
+          <IconWand className="w-3.5 h-3.5" />
         </button>
       )}
 

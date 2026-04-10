@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -206,9 +207,14 @@ export function AgentEnginePicker() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center gap-2 py-8 justify-center text-muted-foreground/50">
-        <IconLoader2 className="h-4 w-4 animate-spin" />
-        <span className="text-[13px]">Loading engines…</span>
+      <div className="space-y-3">
+        <Skeleton className="h-9 w-full rounded-md" />
+        <Skeleton className="h-9 w-full rounded-md" />
+        <div className="flex items-center gap-2 pt-1">
+          <Skeleton className="h-5 w-16 rounded-full" />
+          <Skeleton className="h-5 w-16 rounded-full" />
+          <Skeleton className="h-5 w-16 rounded-full" />
+        </div>
       </div>
     );
   }

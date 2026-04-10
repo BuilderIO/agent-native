@@ -4,6 +4,7 @@ import { adfToHtml } from "@/lib/adf-client";
 import { sanitizeHtml } from "@/lib/sanitize-html";
 import { format } from "date-fns";
 import { IconSend } from "@tabler/icons-react";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface IssueCommentsProps {
   issueKey: string;
@@ -49,7 +50,22 @@ export function IssueComments({ issueKey }: IssueCommentsProps) {
 
       {/* Comments list */}
       {isLoading ? (
-        <p className="text-[13px] text-muted-foreground">Loading comments...</p>
+        <div className="space-y-4">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div
+              key={i}
+              className="rounded-md border border-border/50 p-3 space-y-2"
+            >
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-5 w-5 rounded-full" />
+                <Skeleton className="h-3 w-24" />
+                <Skeleton className="ml-auto h-3 w-16" />
+              </div>
+              <Skeleton className="h-3 w-full" />
+              <Skeleton className="h-3 w-3/4" />
+            </div>
+          ))}
+        </div>
       ) : comments.length === 0 ? (
         <p className="text-[13px] text-muted-foreground">No comments yet.</p>
       ) : (

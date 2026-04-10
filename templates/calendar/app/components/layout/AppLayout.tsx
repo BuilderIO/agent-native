@@ -4,9 +4,11 @@ import { IconMenu } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { AgentSidebar } from "@agent-native/core/client";
 import { Sidebar } from "./Sidebar";
+import { AddCalendarDialog } from "@/components/calendar/AddCalendarDialog";
 import { GoogleConnectBanner } from "@/components/calendar/GoogleConnectBanner";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 import { useNavigationState } from "@/hooks/use-navigation-state";
+import { useHiddenCalendars } from "@/hooks/use-hidden-calendars";
 import { useIsMobile } from "@/hooks/use-mobile";
 import type { CalendarEvent } from "@shared/api";
 
@@ -21,6 +23,13 @@ interface CalendarContextValue {
   setViewMode: (mode: ViewMode) => void;
   peopleSearchOpen: boolean;
   setPeopleSearchOpen: (open: boolean) => void;
+  addCalendarOpen: boolean;
+  setAddCalendarOpen: (open: boolean) => void;
+  addCalendarDefaultTab: "people" | "url";
+  setAddCalendarDefaultTab: (tab: "people" | "url") => void;
+  hiddenCalendars: ReturnType<typeof useHiddenCalendars>["hidden"];
+  toggleHiddenCalendar: ReturnType<typeof useHiddenCalendars>["toggle"];
+  isHiddenCalendar: ReturnType<typeof useHiddenCalendars>["isHidden"];
   /** Whether to show event details in sidebar instead of popover */
   eventDetailSidebar: boolean;
   setEventDetailSidebar: (sidebar: boolean) => void;
@@ -39,6 +48,13 @@ const CalendarContext = createContext<CalendarContextValue>({
   setViewMode: () => {},
   peopleSearchOpen: false,
   setPeopleSearchOpen: () => {},
+  addCalendarOpen: false,
+  setAddCalendarOpen: () => {},
+  addCalendarDefaultTab: "people",
+  setAddCalendarDefaultTab: () => {},
+  hiddenCalendars: { people: [], external: [], accounts: [] },
+  toggleHiddenCalendar: () => {},
+  isHiddenCalendar: () => false,
   eventDetailSidebar: false,
   setEventDetailSidebar: () => {},
   sidebarEvent: null,
@@ -70,6 +86,15 @@ export function AppLayout({ children }: AppLayoutProps) {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>(isMobile ? "day" : "week");
   const [peopleSearchOpen, setPeopleSearchOpen] = useState(false);
+  const [addCalendarOpen, setAddCalendarOpen] = useState(false);
+  const [addCalendarDefaultTab, setAddCalendarDefaultTab] = useState<
+    "people" | "url"
+  >("people");
+  const {
+    hidden: hiddenCalendars,
+    toggle: toggleHiddenCalendar,
+    isHidden: isHiddenCalendar,
+  } = useHiddenCalendars();
   const [eventDetailSidebar, setEventDetailSidebarState] = useState(false);
   const [sidebarEvent, setSidebarEvent] = useState<CalendarEvent | null>(null);
   const [focusedEvent, setFocusedEvent] = useState<CalendarEvent | null>(null);
@@ -101,6 +126,13 @@ export function AppLayout({ children }: AppLayoutProps) {
         setViewMode,
         peopleSearchOpen,
         setPeopleSearchOpen,
+        addCalendarOpen,
+        setAddCalendarOpen,
+        addCalendarDefaultTab,
+        setAddCalendarDefaultTab,
+        hiddenCalendars,
+        toggleHiddenCalendar,
+        isHiddenCalendar,
         eventDetailSidebar,
         setEventDetailSidebar,
         sidebarEvent,
@@ -110,6 +142,11 @@ export function AppLayout({ children }: AppLayoutProps) {
       }}
     >
       <NavigationSync />
+      <AddCalendarDialog
+        open={addCalendarOpen}
+        onOpenChange={setAddCalendarOpen}
+        defaultTab={addCalendarDefaultTab}
+      />
       <div className="flex h-screen overflow-hidden bg-background">
         <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
         <AgentSidebar

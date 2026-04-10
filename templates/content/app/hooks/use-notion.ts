@@ -50,7 +50,10 @@ export function useDocumentSyncStatus(
         },
       ),
     enabled: !!documentId,
-    refetchInterval: options?.autoSync ? 10_000 : 30_000,
+    // Poll Notion aggressively when auto-sync is on so remote changes appear
+    // within ~2s. Server throttles match (see REFRESH_THROTTLE_AUTO_SYNC_MS in
+    // notion-sync.ts) so we make at most one real Notion request per 2s per doc.
+    refetchInterval: options?.autoSync ? 2_000 : 30_000,
   });
 }
 

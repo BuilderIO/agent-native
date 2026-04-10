@@ -43,6 +43,10 @@ export {
   getChangesSince,
 } from "./poll.js";
 export { createAuthPlugin, defaultAuthPlugin } from "./auth-plugin.js";
+// Re-export the org plugin so the auto-discovery's DEFAULT_PLUGIN_REGISTRY
+// (which references "defaultOrgPlugin" from @agent-native/core/server) can
+// resolve it during the deploy build worker-entry generation.
+export { createOrgPlugin, defaultOrgPlugin } from "../org/plugin.js";
 export {
   createGoogleAuthPlugin,
   type GoogleAuthPluginOptions,

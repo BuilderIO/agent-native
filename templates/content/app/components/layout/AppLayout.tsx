@@ -1,6 +1,7 @@
 import { ReactNode, useCallback, useState } from "react";
 import { DocumentSidebar } from "@/components/sidebar/DocumentSidebar";
 import { AgentSidebar } from "@agent-native/core/client";
+import { InvitationBanner } from "@agent-native/core/client/org";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { IconMenu2 } from "@tabler/icons-react";
@@ -82,6 +83,7 @@ export function AppLayout({ activeDocumentId, children }: AppLayoutProps) {
         ]}
       >
         <main className="relative flex min-w-0 min-h-0 flex-1 flex-col">
+          <InvitationBanner />
           {children}
         </main>
       </AgentSidebar>

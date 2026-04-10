@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useParams } from "react-router";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { FieldRenderer } from "@/components/builder/FieldRenderer";
 import { Turnstile, PoweredByBadge } from "@agent-native/core/client";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -114,9 +115,22 @@ export function FormFillPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="animate-pulse text-muted-foreground">
-          Loading form...
+      <div className="min-h-screen bg-background py-10 px-4">
+        <div className="max-w-xl mx-auto space-y-6">
+          <div className="space-y-3">
+            <Skeleton className="h-8 w-2/3" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-3/4" />
+          </div>
+          <div className="space-y-5 pt-2">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="space-y-2">
+                <Skeleton className="h-3.5 w-32" />
+                <Skeleton className="h-10 w-full rounded-md" />
+              </div>
+            ))}
+          </div>
+          <Skeleton className="h-10 w-32 rounded-md" />
         </div>
       </div>
     );

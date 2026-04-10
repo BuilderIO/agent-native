@@ -351,7 +351,7 @@ export function InboxPage() {
           subject: email.subject.startsWith("Re:")
             ? email.subject
             : `Re: ${email.subject}`,
-          body: `\n\n— On ${new Date(email.date).toLocaleDateString()}, ${email.from.name || email.from.email} wrote:\n\n${email.body
+          body: `\n\n\n\n— On ${new Date(email.date).toLocaleDateString()}, ${email.from.name || email.from.email} wrote:\n\n${email.body
             .split("\n")
             .map((l) => `> ${l}`)
             .join("\n")}`,
@@ -365,7 +365,7 @@ export function InboxPage() {
           subject: email.subject.startsWith("Fwd:")
             ? email.subject
             : `Fwd: ${email.subject}`,
-          body: `\n\n— Forwarded message —\nFrom: ${email.from.name} <${email.from.email}>\n\n${email.body}`,
+          body: `\n\n\n\n— Forwarded message —\nFrom: ${email.from.name} <${email.from.email}>\n\n${email.body}`,
           mode: "forward",
           replyToId: email.id,
           replyToThreadId: email.threadId,

@@ -140,6 +140,7 @@ export const DEFAULT_PLUGIN_REGISTRY: Record<string, string> = {
   auth: "defaultAuthPlugin",
   "core-routes": "defaultCoreRoutesPlugin",
   integrations: "defaultIntegrationsPlugin",
+  org: "defaultOrgPlugin",
   resources: "defaultResourcesPlugin",
   terminal: "defaultTerminalPlugin",
 };

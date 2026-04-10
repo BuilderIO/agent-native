@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useParams } from "react-router";
-import { IconLoader2, IconAlertCircle } from "@tabler/icons-react";
+import { IconAlertCircle } from "@tabler/icons-react";
 import type { SharedDeckResponse } from "@shared/api";
 import type { Slide } from "@/context/DeckContext";
 import PresentationView from "@/components/presentation/PresentationView";
@@ -35,11 +35,8 @@ export default function SharedPresentation() {
 
   if (loading) {
     return (
-      <div className="fixed inset-0 bg-black flex items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <IconLoader2 className="w-8 h-8 text-[#609FF8] animate-spin" />
-          <span className="text-sm text-white/50">Loading presentation...</span>
-        </div>
+      <div className="fixed inset-0 bg-black flex items-center justify-center p-8">
+        <div className="w-full max-w-5xl aspect-video rounded-xl bg-white/[0.04] animate-pulse" />
       </div>
     );
   }

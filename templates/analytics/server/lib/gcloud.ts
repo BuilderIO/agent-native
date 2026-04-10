@@ -31,7 +31,43 @@ async function getServiceAccountCredentials() {
   if (!credsJson) {
     throw new Error("GOOGLE_APPLICATION_CREDENTIALS_JSON env var required");
   }
-  return JSON.parse(credsJson);
+
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(credsJson);
+  } catch {
+    throw new Error(
+      "GOOGLE_APPLICATION_CREDENTIALS_JSON is not valid JSON. Upload the service account key file you downloaded from Google Cloud.",
+    );
+  }
+
+  // Detect OAuth client credential mistakenly uploaded as a service account key
+  if (
+    parsed &&
+    typeof parsed === "object" &&
+    ("web" in parsed || "installed" in parsed)
+  ) {
+    throw new Error(
+      "This looks like an OAuth 2.0 client credential, not a service account key. Go to Google Cloud Console → IAM → Service Accounts → Keys → Add Key → Create new key → JSON, then upload that file instead.",
+    );
+  }
+
+  if (
+    parsed.type !== "service_account" ||
+    typeof parsed.private_key !== "string" ||
+    typeof parsed.client_email !== "string"
+  ) {
+    throw new Error(
+      'Invalid service account JSON: expected fields "type": "service_account", "private_key", and "client_email". Download a fresh key from Google Cloud Console → IAM → Service Accounts → Keys.',
+    );
+  }
+
+  return parsed as {
+    type: string;
+    private_key: string;
+    client_email: string;
+    token_uri?: string;
+  };
 }
 
 async function signJwt(

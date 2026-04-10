@@ -7,7 +7,7 @@ import {
 } from "@tanstack/react-query";
 import type { EmailMessage, Label, UserSettings } from "@shared/types";
 import { TAB_ID } from "@/lib/tab-id";
-import { markdownToHtml } from "@/lib/utils";
+import { bodyToHtml } from "@/lib/utils";
 
 // ─── API helpers ─────────────────────────────────────────────────────────────
 
@@ -89,7 +89,7 @@ export function useAddOptimisticReply() {
       subject: data.subject || "(no subject)",
       snippet: data.body.slice(0, 120).replace(/\n/g, " "),
       body: data.body,
-      bodyHtml: markdownToHtml(data.body),
+      bodyHtml: bodyToHtml(data.body),
       date: new Date().toISOString(),
       isRead: true,
       isStarred: false,
@@ -211,9 +211,9 @@ function applyOverrides(emails: EmailMessage[]): EmailMessage[] {
 
 import type { InfiniteData } from "@tanstack/react-query";
 
-type InfiniteEmails = InfiniteData<EmailsPage, string | undefined>;
+export type InfiniteEmails = InfiniteData<EmailsPage, string | undefined>;
 
-function mapInfiniteEmails(
+export function mapInfiniteEmails(
   old: InfiniteEmails | undefined,
   fn: (emails: EmailMessage[]) => EmailMessage[],
 ): InfiniteEmails | undefined {
@@ -224,7 +224,7 @@ function mapInfiniteEmails(
   };
 }
 
-function flattenInfiniteEmails(
+export function flattenInfiniteEmails(
   data: InfiniteEmails | undefined,
 ): EmailMessage[] {
   return data?.pages.flatMap((p) => p.emails) ?? [];

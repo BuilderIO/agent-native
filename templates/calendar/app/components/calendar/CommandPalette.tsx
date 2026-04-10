@@ -6,6 +6,8 @@ import {
   IconPlus,
   IconBolt,
   IconArrowRight,
+  IconUsers,
+  IconLink,
 } from "@tabler/icons-react";
 import { CommandMenu } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
@@ -22,6 +24,8 @@ interface CommandPaletteProps {
   onCreateEvent: () => void;
   onViewChange: (view: ViewMode) => void;
   onToday: () => void;
+  onAddPeopleCalendar?: () => void;
+  onAddUrlCalendar?: () => void;
 }
 
 const DATE_FORMATS = [
@@ -43,6 +47,8 @@ export function CommandPalette({
   onCreateEvent,
   onViewChange,
   onToday,
+  onAddPeopleCalendar,
+  onAddUrlCalendar,
 }: CommandPaletteProps) {
   const [query, setQuery] = useState("");
 
@@ -150,6 +156,40 @@ export function CommandPalette({
           Go to today
           <CommandMenu.Shortcut>T</CommandMenu.Shortcut>
         </CommandMenu.Item>
+        {onAddPeopleCalendar && (
+          <CommandMenu.Item
+            onSelect={onAddPeopleCalendar}
+            keywords={[
+              "people",
+              "team",
+              "overlay",
+              "colleague",
+              "add",
+              "calendar",
+            ]}
+          >
+            <IconUsers className="h-4 w-4" />
+            View a teammate's calendar
+          </CommandMenu.Item>
+        )}
+        {onAddUrlCalendar && (
+          <CommandMenu.Item
+            onSelect={onAddUrlCalendar}
+            keywords={[
+              "ical",
+              "ics",
+              "webcal",
+              "subscribe",
+              "url",
+              "feed",
+              "external",
+              "calendar",
+            ]}
+          >
+            <IconLink className="h-4 w-4" />
+            Add calendar from URL
+          </CommandMenu.Item>
+        )}
       </CommandMenu.Group>
 
       <CommandMenu.Separator />

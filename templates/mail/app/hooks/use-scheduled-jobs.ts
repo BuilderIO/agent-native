@@ -1,6 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import type { EmailMessage } from "@shared/types";
-import { suppressThread, unsuppressThread } from "./use-emails";
+import {
+  suppressThread,
+  unsuppressThread,
+  mapInfiniteEmails,
+  flattenInfiniteEmails,
+  type InfiniteEmails,
+} from "./use-emails";
 
 export interface ScheduledJob {
   id: string;
@@ -72,18 +77,18 @@ export function useSnoozeEmail() {
     },
     onMutate: async (data) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
-      const previous = qc.getQueriesData<EmailMessage[]>({
+      const previous = qc.getQueriesData<InfiniteEmails>({
         queryKey: ["emails"],
       });
       const target = previous
-        .flatMap(([, emails]) => emails ?? [])
+        .flatMap(([, d]) => flattenInfiniteEmails(d))
         .find((e) => e.id === data.emailId);
       const threadId = target?.threadId || data.emailId;
       suppressThread(threadId, "snooze");
-      qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
-        Array.isArray(old)
-          ? old.filter((e) => (e.threadId || e.id) !== threadId)
-          : old,
+      qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
+        mapInfiniteEmails(old, (emails) =>
+          emails.filter((e) => (e.threadId || e.id) !== threadId),
+        ),
       );
       return { previous, threadId };
     },

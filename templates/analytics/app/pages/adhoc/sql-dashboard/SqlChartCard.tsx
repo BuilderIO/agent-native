@@ -14,12 +14,14 @@ import type { SqlPanel } from "./types";
 
 interface SqlChartCardProps {
   panel: SqlPanel;
+  resolvedSql?: string;
   onRemove: () => void;
   onToggleWidth: () => void;
 }
 
 export function SqlChartCard({
   panel,
+  resolvedSql,
   onRemove,
   onToggleWidth,
 }: SqlChartCardProps) {
@@ -71,7 +73,7 @@ export function SqlChartCard({
             </button>
             {panel.sql && (
               <Link
-                to={`/query?sql=${encodeURIComponent(panel.sql)}`}
+                to={`/query?sql=${encodeURIComponent(resolvedSql ?? panel.sql)}`}
                 className="p-1 rounded text-muted-foreground hover:text-foreground"
                 title="Open in Query Explorer"
               >
@@ -88,7 +90,7 @@ export function SqlChartCard({
           </div>
         </CardHeader>
         <CardContent className="pt-0">
-          <SqlChart panel={panel} />
+          <SqlChart panel={panel} resolvedSql={resolvedSql} />
         </CardContent>
       </Card>
     </div>

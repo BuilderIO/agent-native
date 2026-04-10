@@ -64,14 +64,21 @@ You do NOT get auto-injected screen state. **Call `pnpm action view-screen` at t
 
 ### Actions
 
-| Action        | Args                              | Purpose                         |
-| ------------- | --------------------------------- | ------------------------------- |
-| `view-screen` |                                   | See current UI state            |
-| `navigate`    | `--view <name>` or `--path <url>` | Navigate the UI                 |
-| `hello`       | `[--name <name>]`                 | Example script                  |
-| `db-schema`   |                                   | Show all tables, columns, types |
-| `db-query`    | `--sql "SELECT ..."`              | Run a SELECT query              |
-| `db-exec`     | `--sql "INSERT ..."`              | Run INSERT/UPDATE/DELETE        |
+| Action        | Args                                                                           | Purpose                                                                                 |
+| ------------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| `view-screen` |                                                                                | See current UI state                                                                    |
+| `navigate`    | `--view <name>` or `--path <url>`                                              | Navigate the UI                                                                         |
+| `hello`       | `[--name <name>]`                                                              | Example script                                                                          |
+| `db-schema`   |                                                                                | Show all tables, columns, types                                                         |
+| `db-query`    | `--sql "SELECT ..."`                                                           | Run a SELECT query                                                                      |
+| `db-exec`     | `--sql "INSERT ..."`                                                           | Run INSERT/UPDATE/DELETE (use for short/multi-column writes)                            |
+| `db-patch`    | `--table <t> --column <c> --where "<clause>" --find "<old>" --replace "<new>"` | Surgical search/replace on a large text column — sends a diff instead of the full value |
+
+**Pick the right SQL tool:**
+
+- Use `db-exec UPDATE` for short columns, multi-column writes, or computed updates.
+- Use `db-patch` when you only need to tweak a small slice of a **large** text/JSON column (documents, slide HTML, dashboard/form JSON). It saves tokens by sending `{find, replace}` instead of re-transmitting the whole column. Targets exactly one row per call — narrow `--where` by primary key. Supports `--edits '[{find,replace},...]'` for batch edits and `--all` for replace-every-occurrence.
+- If a template-specific action exists (e.g. `edit-document`, `update-slide`), prefer it — those also push live updates to any open collaborative editor.
 
 ## Skills
 

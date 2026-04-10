@@ -50,7 +50,7 @@ The `org_id` is automatically resolved from the user's active organization in Be
 
 ## How Scoping Works {#how-scoping-works}
 
-When an agent runs `db-query` or `db-exec` in production mode:
+When an agent runs `db-query`, `db-exec`, or `db-patch` in production mode:
 
 1. The framework discovers all tables and their columns via schema introspection
 2. For each table with `owner_email` and/or `org_id`, a temporary view is created:

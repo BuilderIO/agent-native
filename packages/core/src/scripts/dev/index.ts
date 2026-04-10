@@ -65,12 +65,14 @@ export async function createDevScriptRegistry(): Promise<
   let dbEntries: Record<string, ActionEntry> = {};
   try {
     // Dynamic imports — these are part of @agent-native/core
-    const [dbSchema, dbQuery, dbExec, dbCheckScoping] = await Promise.all([
-      import("../db/schema.js"),
-      import("../db/query.js"),
-      import("../db/exec.js"),
-      import("../db/check-scoping.js"),
-    ]);
+    const [dbSchema, dbQuery, dbExec, dbPatch, dbCheckScoping] =
+      await Promise.all([
+        import("../db/schema.js"),
+        import("../db/query.js"),
+        import("../db/exec.js"),
+        import("../db/patch.js"),
+        import("../db/check-scoping.js"),
+      ]);
 
     dbEntries = {
       "db-schema": wrapCliScript(
@@ -129,6 +131,59 @@ export async function createDevScriptRegistry(): Promise<
           },
         },
         dbExec.default,
+      ),
+      "db-patch": wrapCliScript(
+        {
+          description:
+            "Surgical search-and-replace on a text column in a SQL table. Prefer over `db-exec UPDATE` for large text fields (documents, slides, dashboards, JSON blobs) where you only need to change a small slice — avoids re-sending the full column value. Targets exactly one row at a time (narrow --where by primary key). If a template-specific action exists for the table (e.g. `edit-document`, `update-slide`), use that instead — it will also push live updates to open collaborative editors.",
+          parameters: {
+            type: "object",
+            properties: {
+              table: {
+                type: "string",
+                description: "Target table name (plain identifier, no quoting)",
+              },
+              column: {
+                type: "string",
+                description:
+                  "Target text column name (plain identifier, no quoting)",
+              },
+              where: {
+                type: "string",
+                description:
+                  "SQL WHERE clause that matches exactly one row, e.g. \"id = 'abc123'\". Must not contain semicolons or DDL keywords.",
+              },
+              find: {
+                type: "string",
+                description:
+                  "Text to find (single-edit mode). Pair with --replace.",
+              },
+              replace: {
+                type: "string",
+                description:
+                  'Replacement text (single-edit mode). Defaults to "" (delete the match).',
+              },
+              edits: {
+                type: "string",
+                description:
+                  'Batch mode: JSON array of {find, replace} objects. Example: \'[{"find":"Q3","replace":"Q4"},{"find":"$1M","replace":"$1.2M"}]\'',
+              },
+              all: {
+                type: "string",
+                description:
+                  'Set to "true" to replace every occurrence of each find (default: first occurrence only).',
+                enum: ["true", "false"],
+              },
+              format: {
+                type: "string",
+                description: 'Output format: "json" or "text" (default: text)',
+                enum: ["json", "text"],
+              },
+            },
+            required: ["table", "column", "where"],
+          },
+        },
+        dbPatch.default,
       ),
       "db-check-scoping": wrapCliScript(
         {

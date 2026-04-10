@@ -1,6 +1,7 @@
 import { Link } from "react-router";
 import { IconFolder } from "@tabler/icons-react";
 import { useProjects } from "@/hooks/use-projects";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export function ProjectListPage() {
   const { data, isLoading } = useProjects();
@@ -13,7 +14,20 @@ export function ProjectListPage() {
       </h1>
 
       {isLoading ? (
-        <div className="text-sm text-muted-foreground">Loading...</div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="rounded-lg border border-border p-4">
+              <div className="flex items-center gap-3">
+                <Skeleton className="h-8 w-8 rounded" />
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <Skeleton className="h-3.5 w-2/3" />
+                  <Skeleton className="h-3 w-1/3" />
+                </div>
+              </div>
+              <Skeleton className="mt-3 h-3 w-24" />
+            </div>
+          ))}
+        </div>
       ) : projects.length === 0 ? (
         <div className="text-sm text-muted-foreground">No projects found.</div>
       ) : (

@@ -5,7 +5,7 @@ import {
   deleteSetting,
 } from "@agent-native/core/settings";
 import { validateApiKey } from "../lib/greenhouse-api.js";
-import { getOrgContext } from "../lib/org-context.js";
+import { getOrgContext } from "@agent-native/core/org";
 import { readBody } from "@agent-native/core/server";
 
 function greenhouseSettingsKey(orgId: string | null): string {

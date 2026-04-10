@@ -11,8 +11,10 @@ import {
   IconPlus,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebar,
+  IconUsers,
 } from "@tabler/icons-react";
 import { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";
+import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
 import { cn } from "@/lib/utils";
 import { useProjects } from "@/hooks/use-projects";
 import { useBoards } from "@/hooks/use-boards";
@@ -180,12 +182,24 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         {/* Bottom */}
         <div className="border-t border-border p-2">
           <NavItem
+            to="/team"
+            icon={<IconUsers className="h-4 w-4" />}
+            label="Team"
+            active={isActive("/team")}
+            collapsed={sidebarCollapsed}
+          />
+          <NavItem
             to="/settings"
             icon={<IconSettings className="h-4 w-4" />}
             label="Settings"
             active={isActive("/settings")}
             collapsed={sidebarCollapsed}
           />
+          {!sidebarCollapsed && (
+            <div className="mt-2 px-1">
+              <OrgSwitcher />
+            </div>
+          )}
           <div className={cn("mt-1", sidebarCollapsed ? "px-0.5" : "px-1")}>
             <ThemeToggle collapsed={sidebarCollapsed} />
           </div>
@@ -205,8 +219,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               Issues
             </span>
           </div>
+          <InvitationBanner />
           <main className="flex min-w-0 flex-1 overflow-hidden">
-            {isConnected || isActive("/settings") ? (
+            {isConnected || isActive("/settings") || isActive("/team") ? (
               children
             ) : (
               <JiraConnectBanner />

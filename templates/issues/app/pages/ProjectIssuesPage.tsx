@@ -60,45 +60,46 @@ export function ProjectIssuesPage({
   });
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full w-full min-w-0">
       <div
         className={cn(
           "flex flex-col overflow-hidden",
           selectedIssueKey
-            ? "hidden lg:flex lg:w-[340px] lg:shrink-0 lg:border-r lg:border-border"
-            : "flex-1",
+            ? "hidden lg:flex lg:w-[320px] lg:min-w-[200px] lg:border-r lg:border-border"
+            : "min-w-0 flex-1",
         )}
       >
-        <div className="flex items-center gap-2 border-b border-border px-3 py-3 sm:gap-3 sm:px-4">
-          <h1 className="shrink-0 text-sm font-semibold text-foreground truncate">
+        <div className="flex min-w-0 items-center gap-2 border-b border-border px-3 py-3">
+          <h1 className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
             {project?.name || projectKey}
           </h1>
-          <div className="flex-1" />
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              setSearchParams(search ? { q: search } : {});
-            }}
-            className="relative"
-          >
-            <IconSearch className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <input
-              id="project-search"
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search..."
-              className="h-9 w-32 rounded-md border border-border bg-background pl-8 pr-3 text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring sm:w-48"
-            />
-          </form>
-          <button
-            onClick={() => setCreateOpen(true)}
-            className="flex h-9 items-center gap-1.5 rounded-md bg-primary px-3 text-[13px] font-medium text-primary-foreground hover:opacity-90"
-          >
-            <IconPlus className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">New</span>
-          </button>
-          <AgentToggleButton className="h-9 w-9 rounded-md border border-border bg-background" />
+          <div className="flex shrink-0 items-center gap-2">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                setSearchParams(search ? { q: search } : {});
+              }}
+              className="relative"
+            >
+              <IconSearch className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <input
+                id="project-search"
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search..."
+                className="h-9 w-28 rounded-md border border-border bg-background pl-8 pr-3 text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </form>
+            <button
+              onClick={() => setCreateOpen(true)}
+              className="flex h-9 items-center gap-1.5 rounded-md bg-primary px-3 text-[13px] font-medium text-primary-foreground hover:opacity-90"
+            >
+              <IconPlus className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">New</span>
+            </button>
+            <AgentToggleButton className="h-9 w-9 rounded-md border border-border bg-background" />
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto">

@@ -540,14 +540,22 @@ Legacy actions are still auto-exposed as HTTP endpoints (POST by default). Use `
 
 ### Core Actions (available automatically)
 
-| Action             | Purpose                          | Example                                            |
-| ------------------ | -------------------------------- | -------------------------------------------------- |
-| `db-schema`        | Show all tables, columns, types  | `pnpm action db-schema`                            |
-| `db-query`         | Run a SELECT query               | `pnpm action db-query --sql "SELECT * FROM forms"` |
-| `db-exec`          | Run INSERT/UPDATE/DELETE         | `pnpm action db-exec --sql "UPDATE forms SET ..."` |
-| `db-check-scoping` | Validate ownership columns exist | `pnpm action db-check-scoping --require-org`       |
+| Action             | Purpose                                                          | Example                                                                                         |
+| ------------------ | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `db-schema`        | Show all tables, columns, types                                  | `pnpm action db-schema`                                                                         |
+| `db-query`         | Run a SELECT query                                               | `pnpm action db-query --sql "SELECT * FROM forms"`                                              |
+| `db-exec`          | Run INSERT/UPDATE/DELETE                                         | `pnpm action db-exec --sql "UPDATE forms SET ..."`                                              |
+| `db-patch`         | Surgical search/replace on a large text column (token-efficient) | `pnpm action db-patch --table decks --column data --where "id='d1'" --find "Q3" --replace "Q4"` |
+| `db-check-scoping` | Validate ownership columns exist                                 | `pnpm action db-check-scoping --require-org`                                                    |
 
-Per-user data scoping is automatic in production mode via `AGENT_USER_EMAIL`.
+Per-user data scoping is automatic in production mode via `AGENT_USER_EMAIL` — it applies to every one of these tools (including `db-patch`'s read and write).
+
+#### When to pick which SQL tool
+
+- **Short field or multi-column write** — use `db-exec UPDATE` (e.g. `SET status = 'published'`, or `SET calories = calories + 50`).
+- **Change a small slice of a large text/JSON column** — use `db-patch`. Instead of re-sending the whole column (which burns tokens on multi-kilobyte documents, slide HTML, dashboard/form JSON), the agent sends `{find, replace}` pairs and the script applies them server-side. Targets exactly one row per call — narrow `--where` by primary key.
+- **A template-specific action exists** (e.g. `edit-document`, `update-slide`) — always prefer that action. It encodes business rules and pushes live Yjs updates to any open collaborative editor; raw SQL does neither. `db-patch` is the generic fallback for tables without a bespoke edit action.
+- **Read** — `db-query`. Don't re-add `WHERE owner_email = ...` — scoping already applies it.
 
 ## Conventions
 

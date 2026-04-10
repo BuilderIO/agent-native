@@ -88,14 +88,14 @@ export function isInFrame(): boolean {
 }
 
 /**
- * Get the best origin for OAuth callbacks — frame origin if available,
- * otherwise the current window origin.
+ * Get the origin for OAuth callbacks.
+ * Always uses the app's own origin (window.location.origin), NOT the frame
+ * origin. The redirect URI registered in Google Cloud Console (or any OAuth
+ * provider) must match the template app's direct URL, not the dev frame's
+ * proxy URL, so this must be consistent regardless of how the app is accessed.
  */
 export function getCallbackOrigin(): string {
-  return (
-    _frameOrigin ||
-    (typeof window !== "undefined" ? window.location.origin : "")
-  );
+  return typeof window !== "undefined" ? window.location.origin : "";
 }
 
 // ---------------------------------------------------------------------------

@@ -6,7 +6,7 @@ export interface CalendarEvent {
   end: string; // ISO 8601
   location: string;
   allDay: boolean;
-  source: "local" | "google";
+  source: "local" | "google" | "ical";
   googleEventId?: string;
   accountEmail?: string;
   /** Set when this event belongs to an overlaid person's calendar */
@@ -155,6 +155,13 @@ export interface BookingLink {
 export interface GoogleAuthStatus {
   connected: boolean;
   accounts: Array<{ email: string; expiresAt?: string }>;
+}
+
+export interface ExternalCalendar {
+  id: string;
+  name: string;
+  url: string;
+  color: string;
 }
 
 export interface Settings {

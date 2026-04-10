@@ -60,6 +60,21 @@ export const handleGoogleCallback = defineEventHandler(
   async (event: H3Event) => {
     try {
       const query = getQuery(event);
+
+      // Handle Google authorization errors (e.g. user denied access, invalid client)
+      const googleError = query.error as string | undefined;
+      if (googleError) {
+        const errorDesc =
+          (query.error_description as string | undefined) || googleError;
+        const isPermission =
+          googleError === "access_denied" ||
+          errorDesc.includes("Insufficient Permission");
+        const userMessage = isPermission
+          ? "Access was denied. Make sure to check all the permission boxes on the consent screen. If the app is in testing mode, add this email as a test user in Google Cloud Console."
+          : `Connection failed: ${errorDesc}`;
+        return oauthErrorPage(userMessage);
+      }
+
       const code = query.code as string;
       if (!code) {
         setResponseStatus(event, 400);
@@ -117,16 +132,25 @@ export const handleGoogleCallback = defineEventHandler(
       }
 
       // 3. Create session token (after we have the email)
-      const { sessionToken } = await createOAuthSession(event, email, {
-        hasProductionSession,
-        desktop,
-      });
+      // Skip for add-account flows — adding a second account must not switch
+      // the current session (the token is stored under the original owner).
+      // Fallback: if the authenticated email differs from the session owner,
+      // treat it as an add-account regardless of the state flag (guards against
+      // state decode failures where addAccount is missing).
+      const isAddAccount =
+        addAccount || (owner !== undefined && email !== owner);
+      const { sessionToken } = isAddAccount
+        ? { sessionToken: undefined }
+        : await createOAuthSession(event, email, {
+            hasProductionSession,
+            desktop,
+          });
 
       // 4. Return platform-appropriate response
       return oauthCallbackResponse(event, email, {
         sessionToken,
         desktop,
-        addAccount,
+        addAccount: isAddAccount,
       });
     } catch (error: any) {
       const msg = error.message || "Unknown error";
@@ -176,6 +200,21 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
     try {
       const session = await getSession(event);
       const query = getQuery(event);
+
+      // Handle Google authorization errors (e.g. user denied access, invalid client)
+      const googleError = query.error as string | undefined;
+      if (googleError) {
+        const errorDesc =
+          (query.error_description as string | undefined) || googleError;
+        const isPermission =
+          googleError === "access_denied" ||
+          errorDesc.includes("Insufficient Permission");
+        const userMessage = isPermission
+          ? "Access was denied. Make sure to check all the permission boxes on the consent screen. If the app is in testing mode, add this email as a test user in Google Cloud Console."
+          : `Connection failed: ${errorDesc}`;
+        return oauthErrorPage(userMessage);
+      }
+
       const {
         redirectUri,
         owner: stateOwner,

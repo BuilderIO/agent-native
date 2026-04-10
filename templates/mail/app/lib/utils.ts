@@ -127,6 +127,67 @@ export function markdownToHtml(markdown: string): string {
   return `<div>${html}</div>`;
 }
 
+/**
+ * Split a compose body at the reply/forward quote separator.
+ * Returns null for non-reply bodies (no separator found).
+ * Mirrors `splitReplyQuote` in server/handlers/emails.ts.
+ */
+function splitReplyQuote(body: string): {
+  newContent: string;
+  attribution: string;
+  quotedBody: string;
+} | null {
+  const replyMatch = body.match(/\n*— On (.+? wrote):\n/);
+  const fwdMatch = body.match(/\n*(— Forwarded message —)\n/);
+  const match = replyMatch || fwdMatch;
+  if (!match || match.index === undefined) return null;
+
+  const newContent = body.slice(0, match.index);
+  const attribution = replyMatch ? `On ${match[1]}:` : "Forwarded message";
+  const afterSeparator = body.slice(match.index + match[0].length);
+  return { newContent, attribution, quotedBody: afterSeparator };
+}
+
+/**
+ * Convert quoted content into Gmail-compatible HTML blockquote.
+ * Strips leading `> ` prefixes from each line before converting to HTML.
+ * Mirrors `quotedContentToHtml` in server/handlers/emails.ts.
+ */
+function quotedContentToHtml(attribution: string, quotedBody: string): string {
+  const stripped = quotedBody
+    .split("\n")
+    .map((line) => {
+      if (line.startsWith("> ")) return line.slice(2);
+      if (line === ">") return "";
+      return line;
+    })
+    .join("\n");
+  const innerHtml = markdownToHtml(stripped);
+  return (
+    `<div class="gmail_quote" style="margin-top:2.5em">` +
+    `<div class="gmail_attr">${escapeHtml(attribution)}</div>` +
+    `<blockquote class="gmail_quote" style="margin:0 0 0 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex">` +
+    innerHtml +
+    `</blockquote></div>`
+  );
+}
+
+/**
+ * Convert a compose body to HTML, properly formatting reply/forward quotes
+ * with Gmail-compatible blockquote structure. Mirrors `bodyToHtml` in
+ * server/handlers/emails.ts so the optimistic reply preview renders
+ * identically to the real sent message.
+ */
+export function bodyToHtml(body: string): string {
+  const split = splitReplyQuote(body);
+  if (split) {
+    const newHtml = markdownToHtml(split.newContent);
+    const quoteHtml = quotedContentToHtml(split.attribution, split.quotedBody);
+    return newHtml + quoteHtml;
+  }
+  return markdownToHtml(body);
+}
+
 export function truncate(str: string, maxLen: number): string {
   if (str.length <= maxLen) return str;
   return str.slice(0, maxLen) + "…";

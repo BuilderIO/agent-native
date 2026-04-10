@@ -44,8 +44,8 @@ import { useAccountFilter } from "@/hooks/use-account-filter";
  */
 function splitQuotedContent(body: string): [string, string] {
   // Match "— On ..., ... wrote:" (reply) or "— Forwarded message —" (forward)
-  const replyMatch = body.match(/\n?\n?— On .+? wrote:\n/);
-  const fwdMatch = body.match(/\n?\n?— Forwarded message —\n/);
+  const replyMatch = body.match(/\n*— On .+? wrote:\n/);
+  const fwdMatch = body.match(/\n*— Forwarded message —\n/);
 
   const match = replyMatch || fwdMatch;
   if (!match || match.index === undefined) return [body, ""];

@@ -123,7 +123,34 @@ interface BigQueryGetQueryResultsResponse {
  * Convert BigQuery REST API row format to plain objects.
  * BigQuery returns rows as { f: [{ v: value }, ...] } arrays
  * mapped to the schema fields.
+ *
+ * The REST API serializes every value as a string (even numeric types
+ * — FLOAT64 comes back as Java-style "6.925207756232687E-4"). Coerce
+ * numeric and boolean columns to real JS types using the schema so
+ * downstream formatters and charts can work with them.
  */
+const NUMERIC_BQ_TYPES = new Set([
+  "INTEGER",
+  "INT64",
+  "FLOAT",
+  "FLOAT64",
+  "NUMERIC",
+  "BIGNUMERIC",
+]);
+
+function coerceCell(value: unknown, type: string): unknown {
+  if (value == null) return value;
+  const upper = type.toUpperCase();
+  if (NUMERIC_BQ_TYPES.has(upper) && typeof value === "string") {
+    const n = Number(value);
+    return Number.isNaN(n) ? value : n;
+  }
+  if ((upper === "BOOL" || upper === "BOOLEAN") && typeof value === "string") {
+    return value === "true";
+  }
+  return value;
+}
+
 function rowsToObjects(
   rows: { f: { v: unknown }[] }[],
   fields: BigQueryField[],
@@ -131,7 +158,8 @@ function rowsToObjects(
   return rows.map((row) => {
     const obj: Record<string, unknown> = {};
     row.f.forEach((cell, i) => {
-      obj[fields[i].name] = cell.v;
+      const field = fields[i];
+      obj[field.name] = coerceCell(cell.v, field.type);
     });
     return obj;
   });

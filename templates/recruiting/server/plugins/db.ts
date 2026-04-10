@@ -13,37 +13,6 @@ export default runMigrations([
   )`,
   },
   {
-    version: 2,
-    sql: `CREATE TABLE IF NOT EXISTS organizations (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    created_by TEXT NOT NULL,
-    created_at INTEGER NOT NULL
-  )`,
-  },
-  {
-    version: 3,
-    sql: `CREATE TABLE IF NOT EXISTS org_members (
-    id TEXT PRIMARY KEY,
-    org_id TEXT NOT NULL,
-    email TEXT NOT NULL,
-    role TEXT NOT NULL,
-    joined_at INTEGER NOT NULL,
-    UNIQUE(org_id, email)
-  )`,
-  },
-  {
-    version: 4,
-    sql: `CREATE TABLE IF NOT EXISTS org_invitations (
-    id TEXT PRIMARY KEY,
-    org_id TEXT NOT NULL,
-    email TEXT NOT NULL,
-    invited_by TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
-    status TEXT NOT NULL
-  )`,
-  },
-  {
     version: 5,
     sql: `ALTER TABLE agent_notes ADD COLUMN org_id TEXT`,
   },

@@ -1,5 +1,6 @@
 import { Sidebar } from "./Sidebar";
 import { AgentSidebar } from "@agent-native/core/client";
+import { InvitationBanner } from "@agent-native/core/client/org";
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -20,7 +21,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           "Add a rating field",
         ]}
       >
-        <main className="flex-1 overflow-auto">{children}</main>
+        <main className="flex-1 overflow-auto">
+          <InvitationBanner />
+          {children}
+        </main>
       </AgentSidebar>
     </div>
   );
