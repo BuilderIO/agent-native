@@ -1575,8 +1575,8 @@ function splitReplyQuote(body: string): {
   attribution: string;
   quotedBody: string;
 } | null {
-  const replyMatch = body.match(/\n?\n?— On (.+? wrote):\n/);
-  const fwdMatch = body.match(/\n?\n?(— Forwarded message —)\n/);
+  const replyMatch = body.match(/\n*— On (.+? wrote):\n/);
+  const fwdMatch = body.match(/\n*(— Forwarded message —)\n/);
   const match = replyMatch || fwdMatch;
   if (!match || match.index === undefined) return null;
 
@@ -1601,7 +1601,7 @@ function quotedContentToHtml(attribution: string, quotedBody: string): string {
     .join("\n");
   const innerHtml = markdownToHtml(stripped);
   return (
-    `<div class="gmail_quote">` +
+    `<div class="gmail_quote" style="margin-top:2.5em">` +
     `<div class="gmail_attr">${escapeHtml(attribution)}</div>` +
     `<blockquote class="gmail_quote" style="margin:0 0 0 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex">` +
     innerHtml +

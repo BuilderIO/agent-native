@@ -4,7 +4,7 @@ import { VideoPlayer, type VideoPlayerHandle } from "@/components/VideoPlayer";
 import { Timeline } from "@/components/Timeline";
 import { CameraToolbar } from "@/components/CameraToolbar";
 import { CursorPositioningOverlay } from "@/components/CursorPositioningOverlay";
-import { IconDeviceFloppy } from "@tabler/icons-react";
+import { IconDeviceFloppy, IconTrash } from "@tabler/icons-react";
 import { useDevMode } from "@agent-native/core/client";
 import { useComposition } from "@/contexts/CompositionContext";
 import { useTimeline } from "@/contexts/TimelineContext";
@@ -56,6 +56,7 @@ export default function CompositionView({
     isNew,
     effectiveComposition: composition,
     currentProps,
+    onDelete,
   } = useComposition();
 
   const {
@@ -77,6 +78,7 @@ export default function CompositionView({
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
   const [showSaveError, setShowSaveError] = useState(false);
   const [saveErrorMessage, setSaveErrorMessage] = useState("");
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   // All hooks must be called before any early returns (React rules of hooks)
   const playerRef = useRef<VideoPlayerHandle>(null);
@@ -389,6 +391,13 @@ export default function CompositionView({
               <IconDeviceFloppy className="w-3.5 h-3.5" />
               Save
             </button>
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              className="p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 border border-transparent hover:border-destructive/20"
+              title="Delete composition"
+            >
+              <IconTrash className="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
 
@@ -491,6 +500,33 @@ export default function CompositionView({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogAction>OK</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete confirmation dialog */}
+      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete "{composition.title}"?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                // Await the delete so the dialog stays open if it fails
+                // (handleDelete bails out silently on error). On success,
+                // navigate() inside handleDelete will unmount this view.
+                await onDelete(composition.id);
+                setShowDeleteConfirm(false);
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

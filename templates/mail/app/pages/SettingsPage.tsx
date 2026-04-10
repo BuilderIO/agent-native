@@ -14,6 +14,7 @@ import { AgentEnginePicker } from "@/components/agent-engine-picker";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -304,12 +305,20 @@ function AliasesSection() {
         )}
 
         {/* Loading state */}
-        {isLoading && (
-          <div className="flex items-center gap-2 py-8 justify-center text-muted-foreground/50">
-            <IconLoader2 className="h-4 w-4 animate-spin" />
-            <span className="text-[13px]">Loading aliases…</span>
-          </div>
-        )}
+        {isLoading &&
+          Array.from({ length: 3 }).map((_, i) => (
+            <div
+              key={i}
+              className="flex items-center gap-3 rounded-lg border border-border/20 bg-card/50 p-3"
+            >
+              <Skeleton className="h-8 w-8 rounded-full" />
+              <div className="flex-1 space-y-1.5">
+                <Skeleton className="h-3 w-32" />
+                <Skeleton className="h-3 w-48" />
+              </div>
+              <Skeleton className="h-7 w-7 rounded-md" />
+            </div>
+          ))}
 
         {/* Empty state */}
         {!isLoading && aliases.length === 0 && !showNewForm && (
@@ -698,12 +707,20 @@ function AutomationsSection() {
         )}
 
         {/* Loading state */}
-        {isLoading && (
-          <div className="flex items-center gap-2 py-8 justify-center text-muted-foreground/50">
-            <IconLoader2 className="h-4 w-4 animate-spin" />
-            <span className="text-[13px]">Loading automations…</span>
-          </div>
-        )}
+        {isLoading &&
+          Array.from({ length: 4 }).map((_, i) => (
+            <div
+              key={i}
+              className="flex items-center gap-3 rounded-lg border border-border/20 bg-card/50 p-3"
+            >
+              <Skeleton className="h-8 w-8 rounded-md" />
+              <div className="flex-1 space-y-1.5">
+                <Skeleton className="h-3 w-40" />
+                <Skeleton className="h-3 w-56" />
+              </div>
+              <Skeleton className="h-5 w-9 rounded-full" />
+            </div>
+          ))}
 
         {/* Empty state */}
         {!isLoading && rules.length === 0 && !showNewForm && (

@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { IconCheck, IconSelector, IconLoader2 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Command,
   CommandEmpty,
@@ -76,10 +77,11 @@ export function EventCombobox({ value, onChange }: EventComboboxProps) {
           <CommandList className="max-h-[350px]">
             <CommandEmpty>
               {isLoading ? (
-                <span className="flex items-center justify-center gap-2 text-muted-foreground">
-                  <IconLoader2 className="h-4 w-4 animate-spin" /> Loading
-                  events...
-                </span>
+                <div className="space-y-1.5 p-1">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <Skeleton key={i} className="h-7 w-full rounded-sm" />
+                  ))}
+                </div>
               ) : (
                 "No events found."
               )}
@@ -160,9 +162,10 @@ export function EventCombobox({ value, onChange }: EventComboboxProps) {
             )}
             {isLoading && extraEvents.length === 0 && (
               <CommandGroup>
-                <div className="flex items-center justify-center py-4 text-muted-foreground text-xs gap-2">
-                  <IconLoader2 className="h-3 w-3 animate-spin" /> Loading from
-                  BigQuery...
+                <div className="space-y-1.5 p-1">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <Skeleton key={i} className="h-7 w-full rounded-sm" />
+                  ))}
                 </div>
               </CommandGroup>
             )}

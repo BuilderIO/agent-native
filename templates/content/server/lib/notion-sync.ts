@@ -3,6 +3,7 @@
 import { and, eq } from "drizzle-orm";
 import type { InferSelectModel } from "drizzle-orm";
 import { getDb, schema } from "../db/index.js";
+import { deleteCollabState, releaseDoc } from "@agent-native/core/collab";
 import {
   createNotionPageWithMarkdown,
   fetchNotionPage,
@@ -259,22 +260,46 @@ export async function pullDocumentFromNotion(
     });
   }
 
-  const updatedAt = nowIso();
-  await db
-    .update(schema.documents)
-    .set({
-      title: pageContent.title || document.title,
-      content: pageContent.content ?? document.content,
-      icon: pageContent.icon,
-      updatedAt,
-    })
-    .where(eq(schema.documents.id, documentId));
+  const newTitle = pageContent.title || document.title;
+  const newContent = pageContent.content ?? document.content;
+  const newIcon = pageContent.icon;
+  const contentChanged =
+    newTitle !== document.title ||
+    newContent !== document.content ||
+    newIcon !== document.icon;
+
+  // Only bump documents.updated_at when something actually changed. A no-op
+  // pull must not move the local-clock forward, otherwise the next conflict
+  // check will mistake the unchanged document for a fresh local edit.
+  const updatedAt = contentChanged ? nowIso() : document.updatedAt;
+  if (contentChanged) {
+    await db
+      .update(schema.documents)
+      .set({
+        title: newTitle,
+        content: newContent,
+        icon: newIcon,
+        updatedAt,
+      })
+      .where(eq(schema.documents.id, documentId));
+
+    // Reset the Yjs collaborative state so it no longer holds the pre-sync
+    // content. Connected clients re-seed their Y.XmlFragment from the new
+    // `documents.content` value via VisualEditor's content-sync effect, and
+    // a fresh page load starts from an empty server state and seeds from SQL.
+    try {
+      await deleteCollabState(documentId);
+      releaseDoc(documentId);
+    } catch {
+      // Non-fatal — the client-side sync will still reconcile via setContent.
+    }
+  }
 
   await upsertSyncLink({
     documentId,
     remotePageId: link.remotePageId,
     state: "linked",
-    lastSyncedAt: updatedAt,
+    lastSyncedAt: nowIso(),
     lastPulledRemoteUpdatedAt: pageContent.lastEditedTime,
     lastPushedLocalUpdatedAt: updatedAt,
     lastKnownRemoteUpdatedAt: pageContent.lastEditedTime,
@@ -372,6 +397,11 @@ export async function pushDocumentToNotion(
 
 const lastRefreshAt = new Map<string, number>();
 const REFRESH_THROTTLE_MS = 10_000;
+// When auto-sync is on, the user has explicitly opted into fast polling so
+// downstream Notion changes surface within a couple seconds. We still throttle
+// to at most one real Notion request per doc per ~2s to stay well under
+// Notion's ~3 req/s per-integration rate limit.
+const REFRESH_THROTTLE_AUTO_SYNC_MS = 2_000;
 
 export async function refreshDocumentSyncStatus(
   owner: string,
@@ -380,9 +410,12 @@ export async function refreshDocumentSyncStatus(
 ): Promise<DocumentSyncStatus> {
   // Throttle Notion API calls per document (prevents excessive requests from
   // multiple tabs or rapid polling). Best-effort in serverless environments.
+  const throttleMs = options?.autoSync
+    ? REFRESH_THROTTLE_AUTO_SYNC_MS
+    : REFRESH_THROTTLE_MS;
   const now = Date.now();
   const lastCall = lastRefreshAt.get(documentId) ?? 0;
-  if (now - lastCall < REFRESH_THROTTLE_MS) {
+  if (now - lastCall < throttleMs) {
     const document = await getDocument(documentId);
     const link = await getSyncLink(documentId);
     const connection = await getNotionConnectionForOwner(owner);
@@ -403,6 +436,36 @@ export async function refreshDocumentSyncStatus(
     // Only auto-push when the user has explicitly enabled auto-sync
     if (options?.autoSync && status.localChanged && !status.remoteChanged) {
       return pushDocumentToNotion(owner, documentId, true);
+    }
+    // Both sides changed since last sync — mark as conflict so the user can
+    // pick which side wins. Without this, auto-sync silently stalls whenever
+    // the user has unpushed local edits AND Notion also changed, and pulls
+    // never happen. Matches the conflict handling in pull/pushDocumentToNotion.
+    if (status.localChanged && status.remoteChanged) {
+      const link = await getSyncLink(documentId);
+      if (link) {
+        await upsertSyncLink({
+          documentId,
+          remotePageId: link.remotePageId,
+          state: "conflict",
+          lastSyncedAt: link.lastSyncedAt,
+          lastPulledRemoteUpdatedAt: link.lastPulledRemoteUpdatedAt,
+          lastPushedLocalUpdatedAt: link.lastPushedLocalUpdatedAt,
+          lastKnownRemoteUpdatedAt: status.lastKnownRemoteUpdatedAt,
+          lastError: null,
+          warnings: parseWarnings(link),
+          hasConflict: true,
+        });
+        const document = await getDocument(documentId);
+        const updatedLink = await getSyncLink(documentId);
+        return buildStatus({
+          connected: true,
+          documentId,
+          link: updatedLink,
+          remoteUpdatedAt: status.lastKnownRemoteUpdatedAt,
+          documentUpdatedAt: document.updatedAt,
+        });
+      }
     }
   }
   return status;

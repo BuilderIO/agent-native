@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useSearchParams, useParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { IconPencil, IconTrash } from "@tabler/icons-react";
 import { getIdToken } from "@/lib/auth";
 import { SqlChartCard } from "./SqlChartCard";
+import {
+  DashboardFilterBar,
+  FILTER_PARAM_PREFIX,
+  resolveFilterVars,
+} from "./DashboardFilterBar";
+import { interpolate } from "./interpolate";
 import type { SqlDashboardConfig } from "./types";
 import {
   DndContext,
@@ -41,7 +47,13 @@ async function fetchDashboard(id: string): Promise<SqlDashboardConfig | null> {
   const res = await fetchWithAuth(`/api/sql-dashboards/${id}`);
   if (!res.ok) return null;
   const data = await res.json();
-  return { name: data.name ?? "Untitled Dashboard", panels: data.panels ?? [] };
+  return {
+    name: data.name ?? "Untitled Dashboard",
+    description: data.description,
+    filters: data.filters,
+    variables: data.variables,
+    panels: data.panels ?? [],
+  };
 }
 
 async function saveDashboard(id: string, data: SqlDashboardConfig) {
@@ -144,6 +156,16 @@ export default function SqlDashboardPage() {
     setEditingName(false);
   }, [dashboard, nameInput, persist]);
 
+  const vars = useMemo<Record<string, string>>(() => {
+    const filterValues = dashboard?.filters
+      ? resolveFilterVars(
+          dashboard.filters,
+          (key) => searchParams.get(FILTER_PARAM_PREFIX + key) ?? "",
+        )
+      : {};
+    return { ...(dashboard?.variables ?? {}), ...filterValues };
+  }, [dashboard?.variables, dashboard?.filters, searchParams]);
+
   const handleDelete = useCallback(async () => {
     if (!dashboardId) return;
     await fetchWithAuth(`/api/sql-dashboards/${dashboardId}`, {
@@ -213,6 +235,11 @@ export default function SqlDashboardPage() {
         </Button>
       </div>
 
+      {/* Filters */}
+      {dashboard.filters && dashboard.filters.length > 0 && (
+        <DashboardFilterBar filters={dashboard.filters} />
+      )}
+
       {/* Panels grid */}
       {dashboard.panels.length === 0 ? (
         <Card>
@@ -237,6 +264,7 @@ export default function SqlDashboardPage() {
                 <SqlChartCard
                   key={panel.id}
                   panel={panel}
+                  resolvedSql={interpolate(panel.sql, vars)}
                   onRemove={() => removePanel(panel.id)}
                   onToggleWidth={() => toggleWidth(panel.id)}
                 />

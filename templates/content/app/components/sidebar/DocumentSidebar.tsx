@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Document } from "@shared/api";
 import {
@@ -9,10 +9,12 @@ import {
   IconFileText,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
+  IconUsers,
 } from "@tabler/icons-react";
 import { toast } from "sonner";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { OrgSwitcher } from "@agent-native/core/client/org";
 import { NotionButton } from "./NotionButton";
 import { DocumentTreeItem } from "./DocumentTreeItem";
 import {
@@ -49,6 +51,7 @@ export function DocumentSidebar({
   onResize,
 }: DocumentSidebarProps) {
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const { data: documents = [], isLoading } = useDocuments();
   const createDocument = useCreateDocument();
@@ -383,9 +386,27 @@ export function DocumentSidebar({
         </div>
       </ScrollArea>
 
+      {/* Pinned nav + footer */}
+      <div className="px-3 pt-2">
+        <Link
+          to="/team"
+          onClick={() => onNavigate?.()}
+          className={cn(
+            "flex w-full items-center gap-2 rounded-md px-3 py-[5px] text-sm",
+            location.pathname === "/team"
+              ? "bg-accent text-accent-foreground"
+              : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+          )}
+        >
+          <IconUsers size={14} className="shrink-0" />
+          <span>Team</span>
+        </Link>
+      </div>
+
       {/* Footer */}
-      <div className="flex items-center justify-end px-3 py-2 border-t border-border">
-        <div className="flex items-center gap-0.5">
+      <div className="border-t border-border px-3 py-2 space-y-2 mt-2">
+        <OrgSwitcher />
+        <div className="flex items-center justify-end gap-0.5">
           <NotionButton />
           <ThemeToggle />
         </div>

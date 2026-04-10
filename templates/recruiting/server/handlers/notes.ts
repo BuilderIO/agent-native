@@ -3,7 +3,7 @@ import { eq, and, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { db, schema } from "../db/index.js";
 import { readBody, getSession } from "@agent-native/core/server";
-import { getOrgContext } from "../lib/org-context.js";
+import { getOrgContext } from "@agent-native/core/org";
 import type { AgentNote } from "@shared/types";
 
 export const listNotesHandler = defineEventHandler(async (event) => {

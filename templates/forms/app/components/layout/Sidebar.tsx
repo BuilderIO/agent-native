@@ -1,8 +1,11 @@
 import { useState, useRef, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { ArrowUp, Plus, Menu, X } from "lucide-react";
+import { IconUsers } from "@tabler/icons-react";
+import { OrgSwitcher } from "@agent-native/core/client/org";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   Popover,
@@ -24,7 +27,7 @@ const statusDots: Record<string, string> = {
 export function Sidebar() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { data: formsData } = useForms();
+  const { data: formsData, isLoading: formsLoading } = useForms();
   const forms = Array.isArray(formsData) ? formsData : [];
   const createForm = useCreateForm();
   const { send } = useSendToAgentChat();
@@ -148,6 +151,20 @@ export function Sidebar() {
 
       <ScrollArea className="flex-1">
         <div className="py-2">
+          {formsLoading && forms.length === 0
+            ? Array.from({ length: 5 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 min-h-[44px]"
+                >
+                  <Skeleton className="h-1.5 w-1.5 shrink-0 rounded-full" />
+                  <Skeleton
+                    className="h-3.5"
+                    style={{ width: `${50 + ((i * 17) % 40)}%` }}
+                  />
+                </div>
+              ))
+            : null}
           {forms.map((form) => {
             const isActive =
               location.pathname === `/forms/${form.id}` ||
@@ -184,9 +201,29 @@ export function Sidebar() {
         </div>
       </ScrollArea>
 
+      {/* Pinned nav + footer */}
+      <div className="px-3 pt-2">
+        <Link
+          to="/team"
+          onClick={() => isMobile && setMobileOpen(false)}
+          className={cn(
+            "flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm min-h-[44px]",
+            location.pathname === "/team"
+              ? "bg-accent text-accent-foreground"
+              : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+          )}
+        >
+          <IconUsers size={14} className="shrink-0" />
+          <span>Team</span>
+        </Link>
+      </div>
+
       {/* Footer */}
-      <div className="flex items-center justify-end border-t border-border px-3 py-2">
-        <ThemeToggle />
+      <div className="border-t border-border px-3 py-2 space-y-2 mt-2">
+        <OrgSwitcher />
+        <div className="flex items-center justify-end">
+          <ThemeToggle />
+        </div>
       </div>
     </div>
   );

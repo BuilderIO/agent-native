@@ -26,6 +26,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -210,8 +211,44 @@ export function FormBuilderPage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <p className="text-muted-foreground">Loading...</p>
+      <div className="flex flex-col h-full">
+        {/* Top bar */}
+        <div className="flex items-center justify-between border-b border-border pl-12 pr-2 sm:px-4 md:pl-4 h-14 shrink-0 min-w-0">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <Skeleton className="h-5 w-48" />
+            <Skeleton className="h-4 w-14 rounded-full" />
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Skeleton className="h-8 w-8 rounded-md" />
+            <Skeleton className="h-8 w-20 rounded-md" />
+          </div>
+        </div>
+        {/* Body: builder + properties */}
+        <div className="flex flex-1 overflow-hidden">
+          <div className="flex-1 overflow-auto p-4 sm:p-6">
+            <div className="max-w-2xl mx-auto space-y-4">
+              <Skeleton className="h-8 w-2/3" />
+              <Skeleton className="h-4 w-1/2" />
+              <div className="space-y-3 pt-4">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="border border-border rounded-lg p-4 space-y-3"
+                  >
+                    <Skeleton className="h-3 w-24" />
+                    <Skeleton className="h-9 w-full" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="hidden lg:block w-72 border-l border-border p-4 space-y-4">
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="h-9 w-full" />
+            <Skeleton className="h-9 w-full" />
+            <Skeleton className="h-9 w-full" />
+          </div>
+        </div>
       </div>
     );
   }
@@ -809,8 +846,28 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center flex-1">
-        <p className="text-muted-foreground">Loading responses...</p>
+      <div className="flex flex-col flex-1 overflow-hidden">
+        <div className="flex items-center justify-between px-3 sm:px-4 py-2 border-b border-border">
+          <Skeleton className="h-5 w-24 rounded-full" />
+          <Skeleton className="h-8 w-24 rounded-md" />
+        </div>
+        <div className="flex-1 overflow-auto">
+          <div className="border-b border-border bg-muted/30 px-3 sm:px-4 py-2 flex gap-4">
+            <Skeleton className="h-3 w-24" />
+            <Skeleton className="h-3 w-20" />
+            <Skeleton className="h-3 w-28" />
+          </div>
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div
+              key={i}
+              className="border-b border-border px-3 sm:px-4 py-3 flex gap-4 items-center"
+            >
+              <Skeleton className="h-4 w-32" />
+              <Skeleton className="h-4 w-20" />
+              <Skeleton className="h-4 w-40" />
+            </div>
+          ))}
+        </div>
       </div>
     );
   }

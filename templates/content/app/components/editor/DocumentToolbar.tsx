@@ -339,6 +339,12 @@ export function DocumentToolbar({
           </TooltipContent>
         </Tooltip>
       )}
+      {isSaving && (
+        <div className="flex items-center gap-1 text-xs text-muted-foreground mr-1">
+          <IconLoader2 size={12} className="animate-spin" />
+          <span className="hidden sm:inline">Saving...</span>
+        </div>
+      )}
       {otherUsers.length > 0 && (
         <div className="flex -space-x-1.5 mr-0.5">
           {otherUsers.map((u, i) => (
@@ -349,12 +355,6 @@ export function DocumentToolbar({
       {currentUserEmail && (
         <div className="mr-1">
           <CurrentUserAvatar email={currentUserEmail} />
-        </div>
-      )}
-      {isSaving && (
-        <div className="flex items-center gap-1 text-xs text-muted-foreground mr-1">
-          <IconLoader2 size={12} className="animate-spin" />
-          <span className="hidden sm:inline">Saving...</span>
         </div>
       )}
       <button

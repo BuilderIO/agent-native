@@ -44,8 +44,23 @@ The agent uses actions to read/write the database:
 
 - `pnpm action db-schema` — Show all tables, columns, types
 - `pnpm action db-query --sql "SELECT * FROM forms"` — Run SELECT queries
-- `pnpm action db-exec --sql "INSERT INTO ..."` — Run INSERT/UPDATE/DELETE
-- App-specific actions for domain operations (auto-exposed as HTTP endpoints)
+- `pnpm action db-exec --sql "INSERT INTO ..."` — Run INSERT / UPDATE / DELETE. Use for short columns, multi-column writes, computed updates.
+- `pnpm action db-patch --table <t> --column <c> --where "<clause>" --find "<old>" --replace "<new>"` — **Surgical search/replace on a large text column.** Sends the diff instead of re-transmitting the whole value, so it's dramatically more token-efficient than `db-exec UPDATE` when editing multi-kilobyte documents, slide HTML, dashboard/form JSON, etc. Targets exactly one row per call — narrow `--where` by primary key. Supports `--edits '[{find,replace},...]'` for batch edits and `--all` to replace every occurrence.
+- App-specific actions for domain operations (auto-exposed as HTTP endpoints) — **always prefer these over raw SQL when one exists.** They encode business rules, and for editor-backed tables (documents, slides) they also push live Yjs updates to open collaborative editors. `db-patch` is the generic fallback for tables without a dedicated edit action.
+
+**How to choose between `db-exec UPDATE` and `db-patch`:**
+
+| Scenario                                                       | Use          |
+| -------------------------------------------------------------- | ------------ |
+| `SET status = 'published'` on one row                          | `db-exec`    |
+| `SET calories = calories + 50`                                 | `db-exec`    |
+| Updating several columns at once                               | `db-exec`    |
+| Fixing a typo in a 50KB markdown document's `content` column   | `db-patch`   |
+| Changing a single key in a dashboard's JSON blob               | `db-patch`   |
+| Tweaking one paragraph of slide HTML stored in `decks.data`    | `db-patch`   |
+| Any edit where you'd otherwise re-send thousands of characters | `db-patch`   |
+
+All of these honor the per-user / per-org data scoping — you can't read or write rows outside the current user's data, regardless of which tool you choose.
 
 ### Frontend Access
 
@@ -81,7 +96,8 @@ Polling streams database changes to the UI. When the agent writes to the databas
 - Use the `settings` store for app configuration and user preferences
 - Use `application-state` for ephemeral UI state that the agent and UI share
 - Use `oauth-tokens` for OAuth credentials
-- Use core DB scripts (`db-schema`, `db-query`, `db-exec`) for ad-hoc database operations
+- Use core DB scripts (`db-schema`, `db-query`, `db-exec`, `db-patch`) for ad-hoc database operations
+- Reach for `db-patch` instead of `db-exec UPDATE` whenever you're making a small change to a large text/JSON column — it's much cheaper on tokens
 
 ## Don't
 

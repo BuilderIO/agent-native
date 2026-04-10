@@ -81,6 +81,9 @@ export const forms = sqliteTable("forms", {
 pnpm action db-schema           # show all tables
 pnpm action db-query --sql "SELECT * FROM forms"
 pnpm action db-exec --sql "INSERT INTO forms ..."
+# Surgical find/replace on a large text column — sends a diff, not the whole value
+pnpm action db-patch --table documents --column content \
+  --where "id='doc-1'" --find "old heading" --replace "new heading"
 ```
 
 ## Agent chat bridge {#agent-chat-bridge}

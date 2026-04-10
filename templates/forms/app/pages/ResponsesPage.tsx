@@ -4,6 +4,7 @@ import { ArrowLeft, Download, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useForm } from "@/hooks/use-forms";
 import { useFormResponses } from "@/hooks/use-responses";
 import type { FormField } from "@shared/types";
@@ -46,8 +47,34 @@ export function ResponsesPage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <p className="text-muted-foreground">Loading responses...</p>
+      <div className="flex flex-col h-full">
+        <div className="flex items-center justify-between border-b border-border pl-12 pr-2 sm:px-4 md:pl-4 h-14 shrink-0 gap-2 min-w-0">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <Skeleton className="h-8 w-24 rounded-md" />
+            <Skeleton className="h-4 w-40 hidden sm:block" />
+            <Skeleton className="h-5 w-20 rounded-full" />
+          </div>
+          <Skeleton className="h-8 w-24 rounded-md shrink-0" />
+        </div>
+        <div className="flex-1 overflow-auto">
+          <div className="border-b border-border bg-muted/30 px-4 py-2.5 flex gap-6">
+            <Skeleton className="h-3 w-6" />
+            <Skeleton className="h-3 w-20" />
+            <Skeleton className="h-3 w-24" />
+            <Skeleton className="h-3 w-24" />
+          </div>
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div
+              key={i}
+              className="border-b border-border px-4 py-2.5 flex gap-6 items-center"
+            >
+              <Skeleton className="h-3 w-6" />
+              <Skeleton className="h-3 w-24" />
+              <Skeleton className="h-3 w-32" />
+              <Skeleton className="h-3 w-40" />
+            </div>
+          ))}
+        </div>
       </div>
     );
   }

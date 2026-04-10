@@ -84,9 +84,14 @@ export function CompositionProvider({
   const navigate = useNavigate();
 
   const isNew = compositionId === "new";
+  // Bumped whenever the singleton `compositions` array is mutated in place
+  // (delete, rename, etc.). Included in dependent memos so React recomputes
+  // them — without this, mutating the singleton would never propagate to
+  // consumers because no React state is changing.
+  const [registryVersion, setRegistryVersion] = useState(0);
   const selected = useMemo(
     () => compositions.find((c) => c.id === compositionId),
-    [compositionId],
+    [compositionId, registryVersion],
   );
 
   // ── Composition settings (duration + fps) ─────────────────────────────────
@@ -231,7 +236,44 @@ export function CompositionProvider({
   );
 
   const handleDelete = useCallback(
-    (id: string) => {
+    async (id: string) => {
+      // Delete from DB FIRST. If this fails, we leave the in-memory
+      // registry untouched so the composition doesn't reappear on reload.
+      // Note: action routes return HTTP 200 even when the action body
+      // contains `{ error }`, so we have to check the body too.
+      try {
+        const res = await fetch(`/_agent-native/actions/delete-composition`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id }),
+        });
+        if (!res.ok) {
+          throw new Error(`delete-composition failed: ${res.status}`);
+        }
+        const data = (await res.json().catch(() => null)) as {
+          success?: boolean;
+          error?: string;
+        } | null;
+        if (!data?.success) {
+          throw new Error(
+            data?.error ?? "delete-composition returned no success flag",
+          );
+        }
+      } catch (err) {
+        console.error("[Videos] Failed to delete composition:", err);
+        // Bail out — UI stays in sync with the database
+        return;
+      }
+
+      // DB delete succeeded; now safe to update the in-memory registry.
+      // compositions is a module-singleton imported directly by Sidebar etc.,
+      // so mutating it doesn't on its own trigger a React re-render. Bump
+      // registryVersion so the dependent memos (selected, the context value)
+      // recompute and consumers re-read the now-mutated array.
+      const idx = compositions.findIndex((c) => c.id === id);
+      if (idx !== -1) compositions.splice(idx, 1);
+      setRegistryVersion((v) => v + 1);
+
       const remaining = compositions.filter((c) => c.id !== id);
       if (id === compositionId && remaining.length > 0) {
         navigate(`/c/${remaining[0].id}`, { replace: true });
@@ -288,6 +330,7 @@ export function CompositionProvider({
       handlePropsChange,
       handleTitleChange,
       handleCompSettingsChange,
+      registryVersion,
     ],
   );
 

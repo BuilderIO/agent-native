@@ -78,19 +78,6 @@ export function IssueListItem({
         {fields.summary}
       </span>
 
-      {fields.labels && fields.labels.length > 0 && (
-        <div className="hidden items-center gap-1 md:flex">
-          {fields.labels.slice(0, 2).map((label) => (
-            <span
-              key={label}
-              className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground"
-            >
-              {label}
-            </span>
-          ))}
-        </div>
-      )}
-
       <PriorityIcon name={fields.priority?.name} />
 
       {fields.assignee ? (

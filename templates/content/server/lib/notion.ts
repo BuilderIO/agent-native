@@ -342,11 +342,13 @@ export async function readNotionPageAsDocument(
   };
 }
 
-async function fetchChildPageIds(
+type ChildRef = { kind: "page" | "database"; id: string };
+
+async function fetchChildRefs(
   accessToken: string,
   pageId: string,
-): Promise<string[]> {
-  const ids: string[] = [];
+): Promise<ChildRef[]> {
+  const refs: ChildRef[] = [];
   let cursor: string | undefined;
 
   do {
@@ -360,8 +362,10 @@ async function fetchChildPageIds(
     }>(`/blocks/${pageId}/children${query}`, accessToken);
 
     for (const block of response.results) {
-      if (block.type === "child_page" || block.type === "child_database") {
-        ids.push(block.id);
+      if (block.type === "child_page") {
+        refs.push({ kind: "page", id: block.id });
+      } else if (block.type === "child_database") {
+        refs.push({ kind: "database", id: block.id });
       }
     }
 
@@ -371,12 +375,30 @@ async function fetchChildPageIds(
         : undefined;
   } while (cursor);
 
-  return ids;
+  return refs;
 }
 
-function appendChildPageTags(markdown: string, childPageIds: string[]): string {
-  if (childPageIds.length === 0) return markdown;
-  const tags = childPageIds.map((id) => `<page id="${id}" />`).join("\n");
+/**
+ * Build a Notion URL from a block ID. The canonical `https://www.notion.so/<id>`
+ * form (hyphens stripped) is accepted by Notion's markdown API and resolves to
+ * the correct page/database. Using `url` attribute (not `id`) is required —
+ * Notion's `replace_content` markdown validator looks for the URL attribute
+ * when checking whether children are preserved.
+ */
+function notionUrlForId(id: string): string {
+  return `https://www.notion.so/${id.replace(/-/g, "")}`;
+}
+
+function appendChildRefTags(markdown: string, refs: ChildRef[]): string {
+  if (refs.length === 0) return markdown;
+  const tags = refs
+    .map((ref) => {
+      const url = notionUrlForId(ref.id);
+      return ref.kind === "database"
+        ? `<database url="${url}" />`
+        : `<page url="${url}" />`;
+    })
+    .join("\n");
   return `${markdown}\n${tags}`;
 }
 
@@ -387,14 +409,14 @@ export async function pushDocumentToNotionPage(args: {
   content: string;
   icon?: string | null;
 }): Promise<NotionPageContent> {
-  const [page, childPageIds] = await Promise.all([
+  const [page, childRefs] = await Promise.all([
     fetchNotionPage(args.accessToken, args.pageId),
-    fetchChildPageIds(args.accessToken, args.pageId),
+    fetchChildRefs(args.accessToken, args.pageId),
   ]);
 
-  const markdown = appendChildPageTags(
+  const markdown = appendChildRefTags(
     normalizeNfmForStorage(args.content),
-    childPageIds,
+    childRefs,
   );
 
   try {

@@ -7,6 +7,7 @@ import { useIssues } from "@/hooks/use-issues";
 import { useTransitionIssue } from "@/hooks/use-transitions";
 import { IssueDetail } from "@/components/issues/IssueDetail";
 import { KanbanBoard } from "@/components/board/KanbanBoard";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface BoardPageProps {
   boardId: string;
@@ -70,27 +71,51 @@ export function BoardPage({
   const isLoading = configLoading || issuesLoading;
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full w-full min-w-0">
       <div
         className={cn(
           "flex flex-col overflow-hidden",
           selectedIssueKey
-            ? "hidden lg:flex lg:w-1/2 lg:shrink-0 lg:border-r lg:border-border"
-            : "flex-1",
+            ? "hidden lg:flex lg:w-1/2 lg:min-w-[280px] lg:border-r lg:border-border"
+            : "min-w-0 flex-1",
         )}
       >
-        <div className="flex items-center gap-2 border-b border-border px-3 py-3 sm:gap-3 sm:px-4">
-          <h1 className="truncate text-sm font-semibold text-foreground">
+        <div className="flex min-w-0 items-center gap-2 border-b border-border px-3 py-3">
+          <h1 className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
             {boardConfig?.name || "Board"}
           </h1>
-          <div className="flex-1" />
-          <AgentToggleButton className="h-9 w-9 rounded-md border border-border bg-background" />
+          <AgentToggleButton className="h-9 w-9 shrink-0 rounded-md border border-border bg-background" />
         </div>
 
         <div className="flex-1 overflow-x-auto overflow-y-hidden p-3 sm:p-4">
           {isLoading ? (
-            <div className="flex h-32 items-center justify-center">
-              <span className="text-sm text-muted-foreground">Loading...</span>
+            <div className="flex h-full gap-3">
+              {Array.from({ length: 4 }).map((_, col) => (
+                <div
+                  key={col}
+                  className="flex w-72 shrink-0 flex-col gap-2 rounded-md border border-border bg-muted/20 p-3"
+                >
+                  <div className="flex items-center justify-between">
+                    <Skeleton className="h-4 w-20" />
+                    <Skeleton className="h-4 w-6 rounded-full" />
+                  </div>
+                  <div className="flex flex-col gap-2 pt-1">
+                    {Array.from({ length: 3 + ((col * 2) % 3) }).map((_, j) => (
+                      <div
+                        key={j}
+                        className="space-y-2 rounded-md border border-border bg-background p-3"
+                      >
+                        <Skeleton className="h-3 w-3/4" />
+                        <Skeleton className="h-3 w-1/2" />
+                        <div className="flex items-center justify-between pt-1">
+                          <Skeleton className="h-4 w-12 rounded" />
+                          <Skeleton className="h-5 w-5 rounded-full" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
           ) : (
             <KanbanBoard

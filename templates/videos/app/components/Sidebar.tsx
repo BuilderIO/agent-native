@@ -242,6 +242,7 @@ export function Sidebar({
                 composition={comp}
                 isSelected={comp.id === compositionId}
                 onClick={() => onNavigate(`/c/${comp.id}`)}
+                onDelete={onDelete}
               />
             ))}
           </TabsContent>

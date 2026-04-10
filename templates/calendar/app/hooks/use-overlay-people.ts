@@ -35,6 +35,34 @@ export function useAddOverlayPerson() {
   });
 }
 
+export function useUpdateOverlayPersonColor() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ email, color }: { email: string; color: string }) => {
+      const current: OverlayPerson[] =
+        queryClient.getQueryData(["action", "get-overlay-people", undefined]) ??
+        [];
+      const updated = current.map((p) =>
+        p.email === email ? { ...p, color } : p,
+      );
+      const res = await fetch("/_agent-native/actions/update-overlay-people", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updated),
+      });
+      if (!res.ok) throw new Error("Failed to save");
+      return updated;
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(
+        ["action", "get-overlay-people", undefined],
+        data,
+      );
+      queryClient.invalidateQueries({ queryKey: ["action", "list-events"] });
+    },
+  });
+}
+
 export function useRemoveOverlayPerson() {
   const queryClient = useQueryClient();
   return useMutation({

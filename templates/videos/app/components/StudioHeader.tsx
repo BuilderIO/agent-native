@@ -3,6 +3,7 @@ import {
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebar,
   IconShare2,
+  IconUsers,
 } from "@tabler/icons-react";
 import { Link, useLocation } from "react-router";
 import { AgentToggleButton } from "@agent-native/core/client";
@@ -21,6 +22,7 @@ export function StudioHeader({
 }: StudioHeaderProps) {
   const location = useLocation();
   const isComponentLibrary = location.pathname === "/components";
+  const isTeam = location.pathname === "/team";
   const { isLocal } = useDbStatus();
   const [showCloudUpgrade, setShowCloudUpgrade] = useState(false);
 
@@ -53,7 +55,7 @@ export function StudioHeader({
               to="/"
               className={cn(
                 "px-2 sm:px-3 py-1.5 text-xs font-medium rounded-md",
-                !isComponentLibrary
+                !isComponentLibrary && !isTeam
                   ? "bg-secondary text-foreground"
                   : "text-muted-foreground hover:text-foreground hover:bg-secondary/50",
               )}
@@ -70,6 +72,18 @@ export function StudioHeader({
               )}
             >
               Components
+            </Link>
+            <Link
+              to="/team"
+              className={cn(
+                "px-2 sm:px-3 py-1.5 text-xs font-medium rounded-md flex items-center gap-1.5",
+                isTeam
+                  ? "bg-secondary text-foreground"
+                  : "text-muted-foreground hover:text-foreground hover:bg-secondary/50",
+              )}
+            >
+              <IconUsers size={14} />
+              <span className="hidden sm:inline">Team</span>
             </Link>
           </nav>
         </div>

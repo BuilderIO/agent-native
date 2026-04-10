@@ -4,6 +4,7 @@ import { AgentToggleButton } from "@agent-native/core/client";
 import { useSprints, useSprintIssues } from "@/hooks/use-boards";
 import { IssueList } from "@/components/issues/IssueList";
 import { IssueDetail } from "@/components/issues/IssueDetail";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 interface SprintPageProps {
@@ -32,27 +33,41 @@ export function SprintPage({
   const isLoading = sprintsLoading || issuesLoading;
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full w-full min-w-0">
       <div
         className={cn(
           "flex flex-col overflow-hidden",
           selectedIssueKey
-            ? "hidden lg:flex lg:w-[340px] lg:shrink-0 lg:border-r lg:border-border"
-            : "flex-1",
+            ? "hidden lg:flex lg:w-[320px] lg:min-w-[200px] lg:border-r lg:border-border"
+            : "min-w-0 flex-1",
         )}
       >
-        <div className="flex items-center gap-2 border-b border-border px-3 py-3 sm:gap-3 sm:px-4">
-          <h1 className="text-sm font-semibold text-foreground">
+        <div className="flex min-w-0 items-center gap-2 border-b border-border px-3 py-3">
+          <h1 className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
             Sprint Planning
           </h1>
-          <div className="flex-1" />
-          <AgentToggleButton className="h-9 w-9 rounded-md border border-border bg-background" />
+          <AgentToggleButton className="h-9 w-9 shrink-0 rounded-md border border-border bg-background" />
         </div>
 
         <div className="flex-1 overflow-y-auto">
           {isLoading ? (
-            <div className="flex h-32 items-center justify-center">
-              <span className="text-sm text-muted-foreground">Loading...</span>
+            <div>
+              <div className="flex flex-wrap items-center gap-2 border-b border-border/30 bg-muted/30 px-3 py-2.5 sm:px-4">
+                <Skeleton className="h-4 w-12 rounded-full" />
+                <Skeleton className="h-3.5 w-32" />
+                <Skeleton className="ml-auto h-3 w-14" />
+              </div>
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="flex items-center gap-3 border-b border-border/30 px-3 py-2.5 sm:px-4"
+                >
+                  <Skeleton className="h-4 w-4 rounded" />
+                  <Skeleton className="h-3 w-16" />
+                  <Skeleton className="h-3 flex-1" />
+                  <Skeleton className="ml-auto h-5 w-5 rounded-full" />
+                </div>
+              ))}
             </div>
           ) : (
             <>

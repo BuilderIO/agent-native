@@ -56,8 +56,22 @@ export default defineAction({
       }
     }
 
+    // Detect actual changes — a no-op call (e.g. the editor echoing back the
+    // same content after a Notion pull) must NOT bump updated_at, otherwise
+    // the next sync sees a phantom local change and reports a conflict.
+    const titleChanged =
+      args.title !== undefined && args.title !== existing.title;
+    const contentChanged =
+      content !== undefined && content !== existing.content;
+    const iconChanged = args.icon !== undefined && args.icon !== existing.icon;
+    const favoriteChanged =
+      args.isFavorite !== undefined &&
+      (args.isFavorite ? 1 : 0) !== (existing.isFavorite ?? 0);
+    const anyChange =
+      titleChanged || contentChanged || iconChanged || favoriteChanged;
+
     // Snapshot the current state before applying content/title changes
-    if (args.title !== undefined || content !== undefined) {
+    if (titleChanged || contentChanged) {
       const [latestVersion] = await db
         .select({ createdAt: schema.documentVersions.createdAt })
         .from(schema.documentVersions)
@@ -81,20 +95,21 @@ export default defineAction({
       }
     }
 
-    const updates: Record<string, unknown> = {
-      updatedAt: new Date().toISOString(),
-    };
+    if (anyChange) {
+      const updates: Record<string, unknown> = {
+        updatedAt: new Date().toISOString(),
+      };
 
-    if (args.title !== undefined) updates.title = args.title;
-    if (content !== undefined) updates.content = content;
-    if (args.icon !== undefined) updates.icon = args.icon;
-    if (args.isFavorite !== undefined)
-      updates.isFavorite = args.isFavorite ? 1 : 0;
+      if (titleChanged) updates.title = args.title;
+      if (contentChanged) updates.content = content;
+      if (iconChanged) updates.icon = args.icon;
+      if (favoriteChanged) updates.isFavorite = args.isFavorite ? 1 : 0;
 
-    await db
-      .update(schema.documents)
-      .set(updates)
-      .where(eq(schema.documents.id, id));
+      await db
+        .update(schema.documents)
+        .set(updates)
+        .where(eq(schema.documents.id, id));
+    }
 
     const [doc] = await db
       .select()

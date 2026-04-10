@@ -54,6 +54,29 @@ function getPresets(): Option[] {
   ];
 }
 
+// Weekday autocomplete options — next occurrence of each weekday at 8am.
+// Only used when the user starts typing a day-of-week prefix.
+function getWeekdayOptions(): Option[] {
+  const now = new Date();
+  const names = [
+    "sunday",
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+  ];
+  const today = now.getDay();
+  return names.map((name, idx) => {
+    const daysUntil = (idx - today + 7) % 7 || 7; // next occurrence, never today
+    const d = new Date(now);
+    d.setDate(now.getDate() + daysUntil);
+    d.setHours(8, 0, 0, 0);
+    return { label: name, date: d };
+  });
+}
+
 function formatRight(date: Date, sublabel?: string): string {
   if (sublabel) return sublabel;
   const day = date
@@ -128,19 +151,21 @@ export function SnoozeModal({
     };
   }, [nlInput]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Filter presets by prefix match (e.g. "tom" → "tomorrow", "next" → "next week")
-  const filteredPresets = nlInput.trim()
-    ? presets.filter((p) =>
-        p.label.toLowerCase().startsWith(nlInput.trim().toLowerCase()),
+  // Filter presets + weekdays by prefix match
+  // (e.g. "tom" → "tomorrow", "next" → "next week", "mond" → "monday")
+  const query = nlInput.trim().toLowerCase();
+  const filteredMatches = query
+    ? [...presets, ...getWeekdayOptions()].filter((p) =>
+        p.label.toLowerCase().startsWith(query),
       )
     : presets;
 
-  // Which options list to show — presets that prefix-match, plus server-parsed custom date
-  // (skip custom if it duplicates a preset)
-  const options: Option[] = nlInput.trim()
+  // Which options list to show — prefix matches, plus server-parsed custom date
+  // (skip custom if it duplicates a match)
+  const options: Option[] = query
     ? [
-        ...filteredPresets,
-        ...(parsedDate && filteredPresets.length === 0
+        ...filteredMatches,
+        ...(parsedDate && filteredMatches.length === 0
           ? [
               {
                 label: nlInput,
@@ -219,6 +244,7 @@ export function SnoozeModal({
       <DialogContent
         className="top-[5vh] translate-y-0 max-w-lg gap-0 p-0 overflow-hidden"
         onKeyDown={handleKeyDown}
+        hideClose
       >
         {/* Header / input row */}
         <div className="flex items-center border-b px-3">

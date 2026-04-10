@@ -97,6 +97,7 @@ function StepItem({
   index,
   isComplete,
   isActive,
+  isSaved,
   inputValues,
   onInputChange,
 }: {
@@ -104,6 +105,7 @@ function StepItem({
   index: number;
   isComplete: boolean;
   isActive: boolean;
+  isSaved: boolean;
   inputValues: Record<string, string>;
   onInputChange: (key: string, value: string) => void;
 }) {
@@ -178,7 +180,7 @@ function StepItem({
               <textarea
                 value={inputValues[step.inputKey] || ""}
                 onChange={(e) => onInputChange(step.inputKey!, e.target.value)}
-                placeholder={step.inputPlaceholder}
+                placeholder={isSaved ? "••••••••" : step.inputPlaceholder}
                 className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 min-h-[80px] resize-y font-mono"
               />
             ) : (
@@ -186,9 +188,15 @@ function StepItem({
                 type={step.inputType || "text"}
                 value={inputValues[step.inputKey] || ""}
                 onChange={(e) => onInputChange(step.inputKey!, e.target.value)}
-                placeholder={step.inputPlaceholder}
+                placeholder={isSaved ? "••••••••" : step.inputPlaceholder}
                 className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
               />
+            )}
+            {isSaved && !inputValues[step.inputKey] && (
+              <p className="text-xs text-muted-foreground">
+                A value is already saved. Leave blank to keep it, or enter a new
+                value to replace it.
+              </p>
             )}
           </div>
         )}
@@ -251,7 +259,12 @@ function ConnectedView({
 
   const testMutation = useMutation({
     mutationFn: () => testConnection(source.id),
-    onSuccess: (result) => setTestResult(result),
+    onSuccess: (result) => {
+      setTestResult(result);
+      // Refresh envStatus so the per-key "Configured"/"Missing" labels
+      // reflect reality after a test that revealed missing credentials.
+      onSaved();
+    },
   });
 
   const hasInputValues = Object.values(inputValues).some((v) => v.trim());
@@ -311,7 +324,7 @@ function ConnectedView({
                       [step.inputKey!]: e.target.value,
                     }))
                   }
-                  placeholder={`Enter new value to update`}
+                  placeholder="••••••••"
                   className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 min-h-[80px] resize-y font-mono"
                 />
               ) : (
@@ -324,10 +337,17 @@ function ConnectedView({
                       [step.inputKey!]: e.target.value,
                     }))
                   }
-                  placeholder={`Enter new value to update`}
+                  placeholder="••••••••"
                   className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
                 />
               )}
+              {envStatus.find((s) => s.key === step.inputKey)?.configured &&
+                !inputValues[step.inputKey!] && (
+                  <p className="text-xs text-muted-foreground">
+                    A value is already saved. Leave blank to keep it, or enter a
+                    new value to replace it.
+                  </p>
+                )}
             </div>
           ))}
         <div className="flex items-center gap-2 pt-2">
@@ -359,7 +379,7 @@ function ConnectedView({
           </Button>
         </div>
         {saveMutation.isError && (
-          <div className="flex items-center gap-2 text-xs text-destructive">
+          <div className="flex items-center gap-2 text-xs text-rose-400">
             <IconAlertCircle className="h-3.5 w-3.5" />
             {(saveMutation.error as Error).message}
           </div>
@@ -373,6 +393,8 @@ function ConnectedView({
       {/* Credential summary */}
       <div className="space-y-2">
         {source.envKeys.map((key) => {
+          const configured =
+            envStatus.find((s) => s.key === key)?.configured ?? false;
           return (
             <div
               key={key}
@@ -381,10 +403,17 @@ function ConnectedView({
               <span className="text-muted-foreground">
                 {keyLabels[key] || key}
               </span>
-              <span className="text-emerald-500 flex items-center gap-1">
-                <IconCheck className="h-3 w-3" />
-                Configured
-              </span>
+              {configured ? (
+                <span className="text-emerald-500 flex items-center gap-1">
+                  <IconCheck className="h-3 w-3" />
+                  Configured
+                </span>
+              ) : (
+                <span className="text-rose-400 flex items-center gap-1">
+                  <IconAlertCircle className="h-3 w-3" />
+                  Missing
+                </span>
+              )}
             </div>
           );
         })}
@@ -448,7 +477,7 @@ function ConnectedView({
 
       {testResult && (
         <div
-          className={`flex items-center gap-2 text-xs ${testResult.ok ? "text-emerald-500" : "text-destructive"}`}
+          className={`flex items-center gap-2 text-xs ${testResult.ok ? "text-emerald-500" : "text-rose-400"}`}
         >
           {testResult.ok ? (
             <>
@@ -580,6 +609,10 @@ function DataSourceCard({
               {/* Current step */}
               {(() => {
                 const step = source.walkthroughSteps[currentStep];
+                const isSaved = !!(
+                  step.inputKey &&
+                  envStatus.find((s) => s.key === step.inputKey)?.configured
+                );
                 return (
                   <StepItem
                     key={currentStep}
@@ -587,6 +620,7 @@ function DataSourceCard({
                     index={currentStep}
                     isComplete={false}
                     isActive={true}
+                    isSaved={isSaved}
                     inputValues={inputValues}
                     onInputChange={(key, value) =>
                       setInputValues((prev) => ({ ...prev, [key]: value }))
@@ -660,7 +694,7 @@ function DataSourceCard({
               </div>
 
               {saveMutation.isError && (
-                <div className="mt-3 flex items-center gap-2 text-xs text-destructive">
+                <div className="mt-3 flex items-center gap-2 text-xs text-rose-400">
                   <IconAlertCircle className="h-3.5 w-3.5" />
                   {(saveMutation.error as Error).message}
                 </div>

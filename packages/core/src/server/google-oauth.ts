@@ -235,7 +235,16 @@ export function oauthCallbackResponse(
     );
   }
 
-  // Desktop: deep link back to Electron app
+  // Desktop add-account: close-tab page (must come before general desktop check
+  // to ensure no deep link fires and the existing session is never switched).
+  if (opts.desktop && opts.addAccount) {
+    const msg = email ? `Connected ${email}!` : "Connected!";
+    return htmlResponse(
+      `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:8px"><p style="font-size:16px">${msg}</p><p style="font-size:13px;color:#888">You can close this tab and return to Agent Native.</p></body></html>`,
+    );
+  }
+
+  // Desktop login: deep link back to Electron app
   if (opts.desktop) {
     return desktopSuccessPage(event, email, opts.sessionToken);
   }
