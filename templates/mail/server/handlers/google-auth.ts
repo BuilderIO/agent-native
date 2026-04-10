@@ -134,7 +134,12 @@ export const handleGoogleCallback = defineEventHandler(
       // 3. Create session token (after we have the email)
       // Skip for add-account flows — adding a second account must not switch
       // the current session (the token is stored under the original owner).
-      const { sessionToken } = addAccount
+      // Fallback: if the authenticated email differs from the session owner,
+      // treat it as an add-account regardless of the state flag (guards against
+      // state decode failures where addAccount is missing).
+      const isAddAccount =
+        addAccount || (owner !== undefined && email !== owner);
+      const { sessionToken } = isAddAccount
         ? { sessionToken: undefined }
         : await createOAuthSession(event, email, {
             hasProductionSession,
@@ -145,7 +150,7 @@ export const handleGoogleCallback = defineEventHandler(
       return oauthCallbackResponse(event, email, {
         sessionToken,
         desktop,
-        addAccount,
+        addAccount: isAddAccount,
       });
     } catch (error: any) {
       const msg = error.message || "Unknown error";
