@@ -383,25 +383,28 @@ export function DocumentSidebar({
             <IconPlus size={14} className="shrink-0" />
             <span>New page</span>
           </button>
-
-          <Link
-            to="/team"
-            onClick={() => onNavigate?.()}
-            className={cn(
-              "flex w-full items-center gap-2 rounded-md px-3 py-[5px] text-sm",
-              location.pathname === "/team"
-                ? "bg-accent text-accent-foreground"
-                : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-            )}
-          >
-            <IconUsers size={14} className="shrink-0" />
-            <span>Team</span>
-          </Link>
         </div>
       </ScrollArea>
 
+      {/* Pinned nav + footer */}
+      <div className="px-3 pt-2">
+        <Link
+          to="/team"
+          onClick={() => onNavigate?.()}
+          className={cn(
+            "flex w-full items-center gap-2 rounded-md px-3 py-[5px] text-sm",
+            location.pathname === "/team"
+              ? "bg-accent text-accent-foreground"
+              : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+          )}
+        >
+          <IconUsers size={14} className="shrink-0" />
+          <span>Team</span>
+        </Link>
+      </div>
+
       {/* Footer */}
-      <div className="border-t border-border px-3 py-2 space-y-2">
+      <div className="border-t border-border px-3 py-2 space-y-2 mt-2">
         <OrgSwitcher />
         <div className="flex items-center justify-end gap-0.5">
           <NotionButton />

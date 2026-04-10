@@ -381,33 +381,26 @@ function GoogleAccountsSection({
               </button>
             </PopoverTrigger>
             <PopoverContent side="right" align="start" className="w-auto p-2">
-              <div className="mb-2 flex gap-1 border-b border-border pb-2">
-                <button
-                  type="button"
-                  onClick={handleSetMulti}
-                  className={cn(
-                    "rounded px-2 py-0.5 text-[10px] font-medium",
-                    colorMode === "multi"
-                      ? "bg-primary/15 text-primary"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  By type
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handlePickColor(singleColor)}
-                  className={cn(
-                    "rounded px-2 py-0.5 text-[10px] font-medium",
-                    colorMode === "single"
-                      ? "bg-primary/15 text-primary"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  Single color
-                </button>
-              </div>
-              <div className="flex flex-wrap gap-1.5" style={{ width: 116 }}>
+              <div className="flex flex-wrap gap-1.5" style={{ width: 132 }}>
+                {/* Multicolor "by type" option */}
+                <Tooltip delayDuration={700}>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={handleSetMulti}
+                      className="relative flex h-5 w-5 items-center justify-center rounded-full"
+                    >
+                      <MultiColorDot className="h-5 w-5" />
+                      {colorMode === "multi" && (
+                        <IconCheck className="absolute inset-0 m-auto h-3 w-3 text-white drop-shadow" />
+                      )}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-[160px] text-xs">
+                    Color by meeting type (external, internal, 1:1, group, etc.)
+                  </TooltipContent>
+                </Tooltip>
+                {/* Single color options */}
                 {CALENDAR_COLORS.map((c) => (
                   <button
                     key={c}
@@ -456,7 +449,6 @@ export function Sidebar({ open, onClose }: SidebarProps) {
   const {
     selectedDate,
     setSelectedDate,
-    setPeopleSearchOpen,
     setAddCalendarOpen,
     setAddCalendarDefaultTab,
     toggleHiddenCalendar,
@@ -533,196 +525,6 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           })}
         </nav>
 
-        {/* People overlay + Other Calendars */}
-        <div className="border-t border-border px-3 py-2 space-y-1.5">
-          {/* People */}
-          <div>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1">
-                <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                  People
-                </span>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="flex items-center text-muted-foreground/40 hover:text-muted-foreground cursor-default">
-                      <IconInfoCircle className="h-3 w-3" />
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">
-                    <p>View teammates' calendars</p>
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setAddCalendarDefaultTab("people");
-                  setAddCalendarOpen(true);
-                  setPeopleSearchOpen(false);
-                }}
-                className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground"
-              >
-                <IconPlus className="h-3.5 w-3.5" />
-              </button>
-            </div>
-            {overlayPeople.length > 0 && (
-              <div className="mt-1 space-y-0.5">
-                {overlayPeople.map((person) => (
-                  <div
-                    key={person.email}
-                    className="group flex items-center gap-2 text-xs"
-                  >
-                    <ColorPickerPopover
-                      color={person.color}
-                      onColorChange={(color) =>
-                        updatePersonColor.mutate({ email: person.email, color })
-                      }
-                    >
-                      <button
-                        type="button"
-                        className="shrink-0 cursor-pointer rounded-full p-0.5 hover:ring-2 hover:ring-border"
-                      >
-                        <span
-                          className={cn(
-                            "block h-2.5 w-2.5 rounded-full",
-                            isHiddenCalendar("people", person.email) &&
-                              "opacity-40",
-                          )}
-                          style={{ backgroundColor: person.color }}
-                        />
-                      </button>
-                    </ColorPickerPopover>
-                    <span
-                      className={cn(
-                        "min-w-0 flex-1 truncate",
-                        isHiddenCalendar("people", person.email)
-                          ? "text-muted-foreground/40"
-                          : "text-muted-foreground",
-                      )}
-                    >
-                      {person.name || person.email}
-                    </span>
-                    <div className="flex items-center opacity-0 group-hover:opacity-100">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          toggleHiddenCalendar("people", person.email)
-                        }
-                        className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground"
-                      >
-                        {isHiddenCalendar("people", person.email) ? (
-                          <IconEyeOff className="h-3 w-3" />
-                        ) : (
-                          <IconEye className="h-3 w-3" />
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => removePerson.mutate(person.email)}
-                        className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground"
-                      >
-                        <IconX className="h-3 w-3" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Other Calendars (ICS feeds) */}
-          <div>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1">
-                <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                  Other Calendars
-                </span>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="flex items-center text-muted-foreground/40 hover:text-muted-foreground cursor-default">
-                      <IconInfoCircle className="h-3 w-3" />
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">
-                    <p>Subscribe to ICS/webcal feeds</p>
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setAddCalendarDefaultTab("url");
-                  setAddCalendarOpen(true);
-                }}
-                className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground"
-              >
-                <IconPlus className="h-3.5 w-3.5" />
-              </button>
-            </div>
-            {externalCalendars.length > 0 && (
-              <div className="mt-1 space-y-0.5">
-                {externalCalendars.map((cal) => (
-                  <div
-                    key={cal.id}
-                    className="group flex items-center gap-2 text-xs"
-                  >
-                    <ColorPickerPopover
-                      color={cal.color}
-                      onColorChange={(color) =>
-                        updateExternalColor.mutate({ id: cal.id, color })
-                      }
-                    >
-                      <button
-                        type="button"
-                        className="shrink-0 cursor-pointer rounded-full p-0.5 hover:ring-2 hover:ring-border"
-                      >
-                        <span
-                          className={cn(
-                            "block h-2.5 w-2.5 rounded-full",
-                            isHiddenCalendar("external", cal.id) &&
-                              "opacity-40",
-                          )}
-                          style={{ backgroundColor: cal.color }}
-                        />
-                      </button>
-                    </ColorPickerPopover>
-                    <span
-                      className={cn(
-                        "min-w-0 flex-1 truncate",
-                        isHiddenCalendar("external", cal.id)
-                          ? "text-muted-foreground/40"
-                          : "text-muted-foreground",
-                      )}
-                    >
-                      {cal.name}
-                    </span>
-                    <div className="flex items-center opacity-0 group-hover:opacity-100">
-                      <button
-                        type="button"
-                        onClick={() => toggleHiddenCalendar("external", cal.id)}
-                        className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground"
-                      >
-                        {isHiddenCalendar("external", cal.id) ? (
-                          <IconEyeOff className="h-3 w-3" />
-                        ) : (
-                          <IconEye className="h-3 w-3" />
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => removeExternal.mutate(cal.id)}
-                        className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground"
-                      >
-                        <IconX className="h-3 w-3" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
         {/* Google status / connect CTA */}
         {!googleStatus.isLoading && !isConnected && (
           <GoogleConnectSidebarButton />
@@ -731,6 +533,158 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         {isConnected && googleStatus.data?.accounts?.length > 0 && (
           <GoogleAccountsSection accounts={googleStatus.data.accounts} />
         )}
+
+        {/* Other Calendars — people overlays + external ICS feeds combined */}
+        <div className="border-t border-border px-3 py-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1">
+              <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                Other Calendars
+              </span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="flex items-center text-muted-foreground/40 hover:text-muted-foreground cursor-default">
+                    <IconInfoCircle className="h-3 w-3" />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="right">
+                  <p>
+                    View teammates' calendars or subscribe to ICS/webcal feeds
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setAddCalendarDefaultTab("people");
+                setAddCalendarOpen(true);
+              }}
+              className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+            >
+              <IconPlus className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          {(overlayPeople.length > 0 || externalCalendars.length > 0) && (
+            <div className="mt-1 space-y-0.5">
+              {overlayPeople.map((person) => (
+                <div
+                  key={person.email}
+                  className="group flex items-center gap-2 text-xs"
+                >
+                  <ColorPickerPopover
+                    color={person.color}
+                    onColorChange={(color) =>
+                      updatePersonColor.mutate({ email: person.email, color })
+                    }
+                  >
+                    <button
+                      type="button"
+                      className="shrink-0 cursor-pointer rounded-full p-0.5 hover:ring-2 hover:ring-border"
+                    >
+                      <span
+                        className={cn(
+                          "block h-2.5 w-2.5 rounded-full",
+                          isHiddenCalendar("people", person.email) &&
+                            "opacity-40",
+                        )}
+                        style={{ backgroundColor: person.color }}
+                      />
+                    </button>
+                  </ColorPickerPopover>
+                  <span
+                    className={cn(
+                      "min-w-0 flex-1 truncate",
+                      isHiddenCalendar("people", person.email)
+                        ? "text-muted-foreground/40"
+                        : "text-muted-foreground",
+                    )}
+                  >
+                    {person.name || person.email}
+                  </span>
+                  <div className="flex items-center opacity-0 group-hover:opacity-100">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        toggleHiddenCalendar("people", person.email)
+                      }
+                      className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground"
+                    >
+                      {isHiddenCalendar("people", person.email) ? (
+                        <IconEyeOff className="h-3 w-3" />
+                      ) : (
+                        <IconEye className="h-3 w-3" />
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removePerson.mutate(person.email)}
+                      className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground"
+                    >
+                      <IconX className="h-3 w-3" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {externalCalendars.map((cal) => (
+                <div
+                  key={cal.id}
+                  className="group flex items-center gap-2 text-xs"
+                >
+                  <ColorPickerPopover
+                    color={cal.color}
+                    onColorChange={(color) =>
+                      updateExternalColor.mutate({ id: cal.id, color })
+                    }
+                  >
+                    <button
+                      type="button"
+                      className="shrink-0 cursor-pointer rounded-full p-0.5 hover:ring-2 hover:ring-border"
+                    >
+                      <span
+                        className={cn(
+                          "block h-2.5 w-2.5 rounded-full",
+                          isHiddenCalendar("external", cal.id) && "opacity-40",
+                        )}
+                        style={{ backgroundColor: cal.color }}
+                      />
+                    </button>
+                  </ColorPickerPopover>
+                  <span
+                    className={cn(
+                      "min-w-0 flex-1 truncate",
+                      isHiddenCalendar("external", cal.id)
+                        ? "text-muted-foreground/40"
+                        : "text-muted-foreground",
+                    )}
+                  >
+                    {cal.name}
+                  </span>
+                  <div className="flex items-center opacity-0 group-hover:opacity-100">
+                    <button
+                      type="button"
+                      onClick={() => toggleHiddenCalendar("external", cal.id)}
+                      className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground"
+                    >
+                      {isHiddenCalendar("external", cal.id) ? (
+                        <IconEyeOff className="h-3 w-3" />
+                      ) : (
+                        <IconEye className="h-3 w-3" />
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removeExternal.mutate(cal.id)}
+                      className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground"
+                    >
+                      <IconX className="h-3 w-3" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* Sign in prompt for local-mode users */}
         {isLocalMode && (

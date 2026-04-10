@@ -429,6 +429,36 @@ export async function refreshDocumentSyncStatus(
     if (options?.autoSync && status.localChanged && !status.remoteChanged) {
       return pushDocumentToNotion(owner, documentId, true);
     }
+    // Both sides changed since last sync — mark as conflict so the user can
+    // pick which side wins. Without this, auto-sync silently stalls whenever
+    // the user has unpushed local edits AND Notion also changed, and pulls
+    // never happen. Matches the conflict handling in pull/pushDocumentToNotion.
+    if (status.localChanged && status.remoteChanged) {
+      const link = await getSyncLink(documentId);
+      if (link) {
+        await upsertSyncLink({
+          documentId,
+          remotePageId: link.remotePageId,
+          state: "conflict",
+          lastSyncedAt: link.lastSyncedAt,
+          lastPulledRemoteUpdatedAt: link.lastPulledRemoteUpdatedAt,
+          lastPushedLocalUpdatedAt: link.lastPushedLocalUpdatedAt,
+          lastKnownRemoteUpdatedAt: status.lastKnownRemoteUpdatedAt,
+          lastError: null,
+          warnings: parseWarnings(link),
+          hasConflict: true,
+        });
+        const document = await getDocument(documentId);
+        const updatedLink = await getSyncLink(documentId);
+        return buildStatus({
+          connected: true,
+          documentId,
+          link: updatedLink,
+          remoteUpdatedAt: status.lastKnownRemoteUpdatedAt,
+          documentUpdatedAt: document.updatedAt,
+        });
+      }
+    }
   }
   return status;
 }
