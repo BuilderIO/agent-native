@@ -1411,11 +1411,16 @@ const AssistantChatInner = forwardRef<
     wasRunningRef.current = isRunning;
   }, [isRunning, queuedMessages, threadRuntime]);
 
-  // Clear frozen reconnect content when a new run starts so stale content
-  // from a prior reconnect doesn't persist across the next user submission.
-  // Also clear forceStopped so the next run's indicator shows normally.
+  // Clear frozen reconnect content + forceStopped only on the false→true
+  // transition of isRuntimeRunning (i.e. a NEW run is actually starting).
+  // Reacting to "isRuntimeRunning is currently true" would clear the
+  // nuclear-stop flag immediately after the user clicks stop, since
+  // cancellation is async and isRuntimeRunning is still true at that moment.
+  const prevIsRuntimeRunningRef = useRef(isRuntimeRunning);
   useEffect(() => {
-    if (isRuntimeRunning) {
+    const wasRunning = prevIsRuntimeRunningRef.current;
+    prevIsRuntimeRunningRef.current = isRuntimeRunning;
+    if (isRuntimeRunning && !wasRunning) {
       if (reconnectFrozen) {
         setReconnectFrozen(false);
         setReconnectContent([]);
@@ -1426,9 +1431,13 @@ const AssistantChatInner = forwardRef<
     }
   }, [isRuntimeRunning, reconnectFrozen, forceStopped]);
 
-  // Also clear forceStopped when entering reconnect mode (e.g. after page reload)
+  // Same transition guard for isReconnecting: only clear forceStopped on
+  // the false→true edge (a new reconnect starting on page load).
+  const prevIsReconnectingRef = useRef(isReconnecting);
   useEffect(() => {
-    if (isReconnecting && forceStopped) {
+    const wasReconnecting = prevIsReconnectingRef.current;
+    prevIsReconnectingRef.current = isReconnecting;
+    if (isReconnecting && !wasReconnecting && forceStopped) {
       setForceStopped(false);
     }
   }, [isReconnecting, forceStopped]);
