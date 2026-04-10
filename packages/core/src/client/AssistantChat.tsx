@@ -1646,9 +1646,7 @@ const AssistantChatInner = forwardRef<
                 including during reconnect. The indicator sits BELOW any
                 already-streamed reconnect content so the user sees both
                 "what it did so far" and "it's still working". */}
-            {isRunning && !(isReconnecting && reconnectContent.length > 0) && (
-              <ThinkingIndicator />
-            )}
+            {isRunning && <ThinkingIndicator />}
             {queuedMessages.map((msg, i) => (
               <div key={`queued-${i}`} className="flex justify-end">
                 <div className="max-w-[85%] rounded-lg bg-accent/50 text-foreground/60 px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words">
