@@ -254,22 +254,15 @@ export default function SlideEditor({
     setEditingEl(el);
   }, []);
 
-  // Continuously persist typed edits while a block is being edited.
-  // Without this, free-typing inside a contentEditable block is only
-  // saved on explicit exit (Escape, click-outside, Enter on a heading).
-  // Switching slides mid-edit would otherwise discard typed text because
-  // the slide-change effect can't read the old DOM (it's already gone).
-  useEffect(() => {
-    if (!editingEl) return;
-    const onInput = () => saveBlockContent();
-    editingEl.addEventListener("input", onInput);
-    return () => editingEl.removeEventListener("input", onInput);
-  }, [editingEl, saveBlockContent]);
-
-  // Exit edit mode when switching slides. Edits are already persisted
-  // via the onInput effect above, so we just need to tear down the
-  // contentEditable state without trying to re-serialize from the DOM
-  // (which now belongs to the new slide).
+  // Exit edit mode when switching slides.
+  // NOTE: SlideRenderer uses dangerouslySetInnerHTML, which means any
+  // React state update detaches the contentEditable subtree. We can't
+  // safely autosave on every keystroke (the listener gets detached after
+  // the first input). Pending typed edits are persisted only on explicit
+  // exit (Escape, click-outside, Enter on heading, bubble-menu format).
+  // Switching slides mid-edit currently discards unsaved typing — to fix
+  // properly we need to either freeze SlideRenderer during edit mode or
+  // refactor SlideRenderer to stop using dangerouslySetInnerHTML.
   useEffect(() => {
     setEditingEl((el) => {
       if (el) {
