@@ -84,9 +84,14 @@ export function CompositionProvider({
   const navigate = useNavigate();
 
   const isNew = compositionId === "new";
+  // Bumped whenever the singleton `compositions` array is mutated in place
+  // (delete, rename, etc.). Included in dependent memos so React recomputes
+  // them — without this, mutating the singleton would never propagate to
+  // consumers because no React state is changing.
+  const [registryVersion, setRegistryVersion] = useState(0);
   const selected = useMemo(
     () => compositions.find((c) => c.id === compositionId),
-    [compositionId],
+    [compositionId, registryVersion],
   );
 
   // ── Composition settings (duration + fps) ─────────────────────────────────
@@ -261,12 +266,13 @@ export function CompositionProvider({
       }
 
       // DB delete succeeded; now safe to update the in-memory registry.
-      // Note: compositions is a module-singleton imported by Sidebar etc.,
-      // so mutating it doesn't on its own trigger a React re-render. Force
-      // one via the same setPropsOverrides trick handleTitleChange uses.
+      // compositions is a module-singleton imported directly by Sidebar etc.,
+      // so mutating it doesn't on its own trigger a React re-render. Bump
+      // registryVersion so the dependent memos (selected, the context value)
+      // recompute and consumers re-read the now-mutated array.
       const idx = compositions.findIndex((c) => c.id === id);
       if (idx !== -1) compositions.splice(idx, 1);
-      setPropsOverrides((prev) => ({ ...prev }));
+      setRegistryVersion((v) => v + 1);
 
       const remaining = compositions.filter((c) => c.id !== id);
       if (id === compositionId && remaining.length > 0) {
@@ -324,6 +330,7 @@ export function CompositionProvider({
       handlePropsChange,
       handleTitleChange,
       handleCompSettingsChange,
+      registryVersion,
     ],
   );
 
