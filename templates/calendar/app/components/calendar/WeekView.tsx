@@ -315,9 +315,9 @@ export function WeekView({
     return assignments;
   }, [allDaySpans]);
 
-  const allDayRowHeight = 26;
+  const allDayRowHeight = 20;
   const allDaySectionHeight = hasAnyAllDay
-    ? allDayRows * allDayRowHeight + 8
+    ? allDayRows * allDayRowHeight + 6
     : 0;
 
   // Timezone abbreviation
@@ -402,8 +402,8 @@ export function WeekView({
         {/* All-day events row */}
         {hasAnyAllDay && (
           <div
-            className="relative flex border-t border-border"
-            style={{ height: `${allDaySectionHeight}px` }}
+            className="relative flex border-t border-border overflow-y-auto"
+            style={{ maxHeight: 88, height: `${allDaySectionHeight}px` }}
           >
             {/* Gutter label */}
             <div
@@ -441,7 +441,7 @@ export function WeekView({
                     onDelete={onDeleteEvent}
                   >
                     <button
-                      className="absolute flex items-center gap-1 truncate rounded px-2 py-0.5 text-left text-xs font-medium text-foreground transition-opacity hover:opacity-80"
+                      className="absolute flex items-center gap-1 truncate rounded px-1.5 text-left text-[11px] font-medium text-foreground transition-opacity hover:opacity-80"
                       style={{
                         top: `${rowIdx * allDayRowHeight + 4}px`,
                         left: `${leftPct}%`,

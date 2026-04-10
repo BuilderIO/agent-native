@@ -13,7 +13,8 @@ import {
   IconLogin,
   IconInfoCircle,
   IconCheck,
-  IconPalette,
+  IconEye,
+  IconEyeOff,
 } from "@tabler/icons-react";
 import {
   startOfMonth,
@@ -236,7 +237,7 @@ function MultiColorDot({ className }: { className?: string }) {
     .join(", ");
   return (
     <span
-      className={cn("shrink-0 rounded-full", className)}
+      className={cn("inline-block shrink-0 rounded-full", className)}
       style={{ background: `conic-gradient(${stops})` }}
     />
   );
@@ -281,6 +282,7 @@ function GoogleAccountsSection({
 }: {
   accounts: Array<{ email: string }>;
 }) {
+  const { toggleHiddenCalendar, isHiddenCalendar } = useCalendarContext();
   const [wantAddAccount, setWantAddAccount] = useState(false);
   const addAccountUrl = useGoogleAddAccountUrl(wantAddAccount);
   const [colorMode, setColorMode] = useState<"multi" | "single">(() => {
@@ -348,7 +350,10 @@ function GoogleAccountsSection({
       </div>
 
       {accounts.map((account) => (
-        <div key={account.email} className="flex items-center gap-2 py-0.5">
+        <div
+          key={account.email}
+          className="group flex items-center gap-2 py-0.5"
+        >
           <Popover>
             <PopoverTrigger asChild>
               <button
@@ -356,10 +361,20 @@ function GoogleAccountsSection({
                 className="shrink-0 cursor-pointer rounded-full p-0.5 hover:ring-2 hover:ring-border"
               >
                 {colorMode === "multi" ? (
-                  <MultiColorDot className="h-2.5 w-2.5" />
+                  <MultiColorDot
+                    className={cn(
+                      "h-2.5 w-2.5",
+                      isHiddenCalendar("accounts", account.email) &&
+                        "opacity-40",
+                    )}
+                  />
                 ) : (
                   <span
-                    className="block h-2.5 w-2.5 rounded-full"
+                    className={cn(
+                      "block h-2.5 w-2.5 rounded-full",
+                      isHiddenCalendar("accounts", account.email) &&
+                        "opacity-40",
+                    )}
                     style={{ backgroundColor: singleColor }}
                   />
                 )}
@@ -409,9 +424,27 @@ function GoogleAccountsSection({
               </div>
             </PopoverContent>
           </Popover>
-          <p className="truncate text-xs text-muted-foreground">
+          <p
+            className={cn(
+              "min-w-0 flex-1 truncate text-xs",
+              isHiddenCalendar("accounts", account.email)
+                ? "text-muted-foreground/40"
+                : "text-muted-foreground",
+            )}
+          >
             {account.email}
           </p>
+          <button
+            type="button"
+            onClick={() => toggleHiddenCalendar("accounts", account.email)}
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground/60 opacity-0 hover:text-foreground group-hover:opacity-100"
+          >
+            {isHiddenCalendar("accounts", account.email) ? (
+              <IconEyeOff className="h-3 w-3" />
+            ) : (
+              <IconEye className="h-3 w-3" />
+            )}
+          </button>
         </div>
       ))}
     </div>
@@ -426,6 +459,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
     setPeopleSearchOpen,
     setAddCalendarOpen,
     setAddCalendarDefaultTab,
+    toggleHiddenCalendar,
+    isHiddenCalendar,
   } = useCalendarContext();
   const googleStatus = useGoogleAuthStatus();
   const { session } = useSession();
@@ -537,20 +572,58 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                     key={person.email}
                     className="group flex items-center gap-2 text-xs"
                   >
+                    <ColorPickerPopover
+                      color={person.color}
+                      onColorChange={(color) =>
+                        updatePersonColor.mutate({ email: person.email, color })
+                      }
+                    >
+                      <button
+                        type="button"
+                        className="shrink-0 cursor-pointer rounded-full p-0.5 hover:ring-2 hover:ring-border"
+                      >
+                        <span
+                          className={cn(
+                            "block h-2.5 w-2.5 rounded-full",
+                            isHiddenCalendar("people", person.email) &&
+                              "opacity-40",
+                          )}
+                          style={{ backgroundColor: person.color }}
+                        />
+                      </button>
+                    </ColorPickerPopover>
                     <span
-                      className="h-2 w-2 shrink-0 rounded-full"
-                      style={{ backgroundColor: person.color }}
-                    />
-                    <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                      className={cn(
+                        "min-w-0 flex-1 truncate",
+                        isHiddenCalendar("people", person.email)
+                          ? "text-muted-foreground/40"
+                          : "text-muted-foreground",
+                      )}
+                    >
                       {person.name || person.email}
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => removePerson.mutate(person.email)}
-                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground/60 opacity-0 hover:text-foreground group-hover:opacity-100"
-                    >
-                      <IconX className="h-3.5 w-3.5" />
-                    </button>
+                    <div className="flex items-center opacity-0 group-hover:opacity-100">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          toggleHiddenCalendar("people", person.email)
+                        }
+                        className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground"
+                      >
+                        {isHiddenCalendar("people", person.email) ? (
+                          <IconEyeOff className="h-3 w-3" />
+                        ) : (
+                          <IconEye className="h-3 w-3" />
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removePerson.mutate(person.email)}
+                        className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground"
+                      >
+                        <IconX className="h-3 w-3" />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -593,20 +666,56 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                     key={cal.id}
                     className="group flex items-center gap-2 text-xs"
                   >
+                    <ColorPickerPopover
+                      color={cal.color}
+                      onColorChange={(color) =>
+                        updateExternalColor.mutate({ id: cal.id, color })
+                      }
+                    >
+                      <button
+                        type="button"
+                        className="shrink-0 cursor-pointer rounded-full p-0.5 hover:ring-2 hover:ring-border"
+                      >
+                        <span
+                          className={cn(
+                            "block h-2.5 w-2.5 rounded-full",
+                            isHiddenCalendar("external", cal.id) &&
+                              "opacity-40",
+                          )}
+                          style={{ backgroundColor: cal.color }}
+                        />
+                      </button>
+                    </ColorPickerPopover>
                     <span
-                      className="h-2 w-2 shrink-0 rounded-full"
-                      style={{ backgroundColor: cal.color }}
-                    />
-                    <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                      className={cn(
+                        "min-w-0 flex-1 truncate",
+                        isHiddenCalendar("external", cal.id)
+                          ? "text-muted-foreground/40"
+                          : "text-muted-foreground",
+                      )}
+                    >
                       {cal.name}
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => removeExternal.mutate(cal.id)}
-                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground/60 opacity-0 hover:text-foreground group-hover:opacity-100"
-                    >
-                      <IconX className="h-3.5 w-3.5" />
-                    </button>
+                    <div className="flex items-center opacity-0 group-hover:opacity-100">
+                      <button
+                        type="button"
+                        onClick={() => toggleHiddenCalendar("external", cal.id)}
+                        className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground"
+                      >
+                        {isHiddenCalendar("external", cal.id) ? (
+                          <IconEyeOff className="h-3 w-3" />
+                        ) : (
+                          <IconEye className="h-3 w-3" />
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeExternal.mutate(cal.id)}
+                        className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground"
+                      >
+                        <IconX className="h-3 w-3" />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>

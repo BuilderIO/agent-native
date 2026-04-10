@@ -84,6 +84,7 @@ export default function CalendarView() {
     sidebarEvent,
     setSidebarEvent,
     focusedEvent,
+    hiddenCalendars,
   } = useCalendarContext();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [createDefaultStart, setCreateDefaultStart] = useState<string>();
@@ -145,16 +146,37 @@ export default function CalendarView() {
   // Tab refocus keeps cached data visible and refetches in background.
   const eventsLoading = isLoading;
 
-  // Apply overlay colors to events
+  // Apply overlay colors and filter hidden calendars
   const events = useMemo(() => {
     const colorMap = new Map(overlayPeople.map((p) => [p.email, p.color]));
-    return rawEvents.map((e) => {
-      if (e.overlayEmail && colorMap.has(e.overlayEmail)) {
-        return { ...e, color: colorMap.get(e.overlayEmail) };
-      }
-      return e;
-    });
-  }, [rawEvents, overlayPeople]);
+    return rawEvents
+      .map((e) => {
+        if (e.overlayEmail && colorMap.has(e.overlayEmail)) {
+          return { ...e, color: colorMap.get(e.overlayEmail) };
+        }
+        return e;
+      })
+      .filter((e) => {
+        // Hide events from hidden people overlays
+        if (e.overlayEmail && hiddenCalendars.people.includes(e.overlayEmail))
+          return false;
+        // Hide events from hidden Google accounts
+        if (
+          e.accountEmail &&
+          !e.overlayEmail &&
+          hiddenCalendars.accounts.includes(e.accountEmail)
+        )
+          return false;
+        // Hide events from hidden external calendars
+        if (e.source === "ical") {
+          const hiddenMatch = hiddenCalendars.external.some((calId) =>
+            e.id.startsWith(`ical-${calId}-`),
+          );
+          if (hiddenMatch) return false;
+        }
+        return true;
+      });
+  }, [rawEvents, overlayPeople, hiddenCalendars]);
 
   // Filter events for day view
   const dayEvents = useMemo(

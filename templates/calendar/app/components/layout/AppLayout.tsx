@@ -8,6 +8,7 @@ import { AddCalendarDialog } from "@/components/calendar/AddCalendarDialog";
 import { GoogleConnectBanner } from "@/components/calendar/GoogleConnectBanner";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 import { useNavigationState } from "@/hooks/use-navigation-state";
+import { useHiddenCalendars } from "@/hooks/use-hidden-calendars";
 import { useIsMobile } from "@/hooks/use-mobile";
 import type { CalendarEvent } from "@shared/api";
 
@@ -26,6 +27,9 @@ interface CalendarContextValue {
   setAddCalendarOpen: (open: boolean) => void;
   addCalendarDefaultTab: "people" | "url";
   setAddCalendarDefaultTab: (tab: "people" | "url") => void;
+  hiddenCalendars: ReturnType<typeof useHiddenCalendars>["hidden"];
+  toggleHiddenCalendar: ReturnType<typeof useHiddenCalendars>["toggle"];
+  isHiddenCalendar: ReturnType<typeof useHiddenCalendars>["isHidden"];
   /** Whether to show event details in sidebar instead of popover */
   eventDetailSidebar: boolean;
   setEventDetailSidebar: (sidebar: boolean) => void;
@@ -48,6 +52,9 @@ const CalendarContext = createContext<CalendarContextValue>({
   setAddCalendarOpen: () => {},
   addCalendarDefaultTab: "people",
   setAddCalendarDefaultTab: () => {},
+  hiddenCalendars: { people: [], external: [], accounts: [] },
+  toggleHiddenCalendar: () => {},
+  isHiddenCalendar: () => false,
   eventDetailSidebar: false,
   setEventDetailSidebar: () => {},
   sidebarEvent: null,
@@ -83,6 +90,11 @@ export function AppLayout({ children }: AppLayoutProps) {
   const [addCalendarDefaultTab, setAddCalendarDefaultTab] = useState<
     "people" | "url"
   >("people");
+  const {
+    hidden: hiddenCalendars,
+    toggle: toggleHiddenCalendar,
+    isHidden: isHiddenCalendar,
+  } = useHiddenCalendars();
   const [eventDetailSidebar, setEventDetailSidebarState] = useState(false);
   const [sidebarEvent, setSidebarEvent] = useState<CalendarEvent | null>(null);
   const [focusedEvent, setFocusedEvent] = useState<CalendarEvent | null>(null);
@@ -118,6 +130,9 @@ export function AppLayout({ children }: AppLayoutProps) {
         setAddCalendarOpen,
         addCalendarDefaultTab,
         setAddCalendarDefaultTab,
+        hiddenCalendars,
+        toggleHiddenCalendar,
+        isHiddenCalendar,
         eventDetailSidebar,
         setEventDetailSidebar,
         sidebarEvent,
