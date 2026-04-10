@@ -83,6 +83,8 @@ export function GoogleConnectBanner({
   const accounts = googleStatus.data?.accounts ?? [];
   const hasAccounts = accounts.length > 0;
 
+  const [authError, setAuthError] = useState<string | null>(null);
+
   // Wizard state
   const [currentStep, setCurrentStep] = useState(0);
   const [saving, setSaving] = useState(false);
@@ -119,16 +121,18 @@ export function GoogleConnectBanner({
   // When auth URL is ready, open it and poll for connection
   useEffect(() => {
     if (authUrl.data?.url) {
+      const url = authUrl.data.url;
       // In a React Native WebView, window.open() is silently blocked (WKWebView
-      // doesn't support it without onOpenWindow). Use window.location.href
-      // instead — the native WebView's URL interceptor catches Google domains
-      // and opens Safari. The navigation is cancelled so the page stays intact.
-      const isNativeWebView =
-        typeof (window as any).ReactNativeWebView !== "undefined";
+      // doesn't support it without onOpenWindow). Use postMessage to ask the
+      // native wrapper to open the URL in the system browser (Safari), falling
+      // back to window.location.href which triggers onShouldStartLoadWithRequest.
+      const rnWebView = (window as any).ReactNativeWebView;
+      const isNativeWebView = typeof rnWebView !== "undefined";
       if (isNativeWebView) {
-        window.location.href = authUrl.data.url;
+        // postMessage is the most reliable bridge to the native layer
+        rnWebView.postMessage(JSON.stringify({ type: "openUrl", url }));
       } else {
-        window.open(authUrl.data.url, "_blank");
+        window.open(url, "_blank");
       }
       setWantAuthUrl(false);
 
@@ -153,12 +157,15 @@ export function GoogleConnectBanner({
     }
   }, [authUrl.data]);
 
-  // When auth URL fails with missing credentials, show wizard instead of error toast
+  // When auth URL fails, show wizard (for missing credentials) or an error message
   useEffect(() => {
     if (authUrl.error) {
       setWantAuthUrl(false);
       setShowWizard(true);
       fetchStatus();
+      setAuthError(
+        (authUrl.error as any)?.message || "Failed to connect. Try again.",
+      );
     }
   }, [authUrl.error, fetchStatus]);
 
@@ -277,7 +284,10 @@ export function GoogleConnectBanner({
         <Button
           size="sm"
           className="mt-8 gap-2 px-5 h-9 text-sm font-medium bg-white text-black hover:bg-white/90"
-          onClick={handleConnect}
+          onClick={() => {
+            setAuthError(null);
+            handleConnect();
+          }}
           disabled={authUrl.isLoading || authUrl.isFetching}
         >
           <GoogleIcon className="h-4 w-4" />
@@ -287,6 +297,10 @@ export function GoogleConnectBanner({
               ? "Sign in with Google"
               : "Set up Google"}
         </Button>
+
+        {authError && allConfigured && (
+          <p className="mt-3 text-xs text-red-400">{authError}</p>
+        )}
 
         {showWizard && !allConfigured && (
           <div className="mt-10 w-full max-w-lg text-left">
@@ -455,7 +469,7 @@ export function GoogleConnectBanner({
   }
 
   // Connected with accounts — show compact account strip
-  if (hasAccounts && allConfigured) {
+  if (hasAccounts) {
     return (
       <div className="border-b border-border/30 bg-card">
         <div className="flex items-center justify-between gap-3 px-4 py-1.5">
@@ -526,7 +540,10 @@ export function GoogleConnectBanner({
             <Button
               size="sm"
               className="gap-1.5 text-xs h-7 font-medium bg-white text-black hover:bg-white/90"
-              onClick={handleConnect}
+              onClick={() => {
+                setAuthError(null);
+                handleConnect();
+              }}
               disabled={authUrl.isLoading || authUrl.isFetching}
             >
               <GoogleIcon className="h-3 w-3" />

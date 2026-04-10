@@ -294,7 +294,7 @@ export function GoogleConnectBanner({
   }
 
   // Connected with accounts — show compact account strip
-  if (hasAccounts && allConfigured) {
+  if (hasAccounts) {
     return (
       <div className="border-b border-border/30 bg-card">
         <div className="flex items-center justify-between gap-3 px-4 py-1.5">
