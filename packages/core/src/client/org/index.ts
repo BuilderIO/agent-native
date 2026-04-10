@@ -12,7 +12,10 @@ export {
 } from "./hooks.js";
 
 export { OrgSwitcher, type OrgSwitcherProps } from "./OrgSwitcher.js";
-export { InvitationBanner, type InvitationBannerProps } from "./InvitationBanner.js";
+export {
+  InvitationBanner,
+  type InvitationBannerProps,
+} from "./InvitationBanner.js";
 export { TeamPage, type TeamPageProps } from "./TeamPage.js";
 
 // Re-export the shared types so consumers can import them from one place.

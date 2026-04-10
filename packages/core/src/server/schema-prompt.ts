@@ -8,7 +8,7 @@
  * (SQLite), cached briefly to keep latency down but never hard-coded.
  *
  * The block also:
- *   - points at the db-query / db-exec / db-schema tools for runtime access
+ *   - points at the db-query / db-exec / db-patch / db-schema tools for runtime access
  *   - lists Postgres column descriptions (`COMMENT ON COLUMN ...`) if present
  *   - explains the current user/org data scoping so the agent doesn't re-filter
  *     by hand (which would be redundant and easy to get wrong)
@@ -248,7 +248,7 @@ function formatTable(table: TableSchema): string {
 export async function loadSchemaPromptBlock(opts: {
   owner?: string | null;
   orgId?: string | null;
-  /** If true, mention db-query/db-exec/db-schema as available tools. */
+  /** If true, mention db-query/db-exec/db-patch/db-schema as available tools. */
   hasRawDbTools?: boolean;
 }): Promise<string> {
   let tables: TableSchema[];
@@ -327,7 +327,21 @@ export async function loadSchemaPromptBlock(opts: {
       "- `db-exec` — run INSERT / UPDATE / DELETE (writes already scoped; owner_email and org_id are auto-injected on INSERT)",
     );
     lines.push(
-      "Prefer template-specific actions when one exists — they encode business rules. Drop to raw SQL only when no action fits.",
+      "- `db-patch` — surgical search-and-replace on a large text column. Send `{find, replace}` pairs instead of the full new value. Use this for edits to large fields (documents, slide HTML, dashboard/form JSON) — it avoids re-sending multi-kilobyte strings and saves tokens. Targets exactly one row (narrow `--where` by primary key). Uses the same per-user/per-org scoping as db-exec.",
+    );
+    lines.push("");
+    lines.push("### When to pick which SQL tool");
+    lines.push(
+      "- Set a short column outright, update multiple columns, or do computed updates (`calories = calories + 50`) → `db-exec UPDATE`.",
+    );
+    lines.push(
+      "- Change a small slice of a large text/JSON column → `db-patch`. Much cheaper token-wise than re-sending the whole column.",
+    );
+    lines.push(
+      "- A template-specific action exists for the table (`edit-document`, `update-slide`, etc.) → use that action. It encodes business rules and pushes live Yjs updates to any open collaborative editor; raw SQL does neither.",
+    );
+    lines.push(
+      "- Read data → `db-query`. Never re-add `WHERE owner_email = ...` — scoping already applies it.",
     );
     lines.push("");
   } else {

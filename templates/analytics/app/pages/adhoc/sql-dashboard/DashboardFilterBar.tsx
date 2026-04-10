@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/select";
 import type { DashboardFilter } from "./types";
 
-const FILTER_PARAM_PREFIX = "f_";
+export const FILTER_PARAM_PREFIX = "f_";
 
 function daysAgo(n: number): string {
   const d = new Date();
@@ -32,9 +32,27 @@ function resolveDefault(raw: string | undefined): string {
   return raw;
 }
 
+export function resolveFilterVars(
+  filters: DashboardFilter[],
+  getParam: (key: string) => string,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const f of filters) {
+    if (f.type === "date-range") {
+      const startKey = `${f.id}Start`;
+      const endKey = `${f.id}End`;
+      out[startKey] = getParam(startKey) || resolveDefault(f.default);
+      out[endKey] = getParam(endKey) || daysAgo(0);
+    } else {
+      const v = getParam(f.id);
+      out[f.id] = v || resolveDefault(f.default);
+    }
+  }
+  return out;
+}
+
 interface DashboardFilterBarProps {
   filters: DashboardFilter[];
-  onChange?: (vars: Record<string, string>) => void;
 }
 
 /**
@@ -42,10 +60,7 @@ interface DashboardFilterBarProps {
  * filter inputs, and emits a `vars` dict (suitable for SQL interpolation) to the
  * parent. Date-range filters emit `<id>Start` and `<id>End` keys.
  */
-export function DashboardFilterBar({
-  filters,
-  onChange,
-}: DashboardFilterBarProps) {
+export function DashboardFilterBar({ filters }: DashboardFilterBarProps) {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const getParam = useCallback(
@@ -72,27 +87,10 @@ export function DashboardFilterBar({
   );
 
   // Compute the live vars dict (URL value or default) for every filter.
-  const vars = useMemo(() => {
-    const out: Record<string, string> = {};
-    for (const f of filters) {
-      if (f.type === "date-range") {
-        const startKey = `${f.id}Start`;
-        const endKey = `${f.id}End`;
-        out[startKey] = getParam(startKey) || resolveDefault(f.default);
-        out[endKey] = getParam(endKey) || daysAgo(0);
-      } else {
-        const v = getParam(f.id);
-        out[f.id] = v || resolveDefault(f.default);
-      }
-    }
-    return out;
-  }, [filters, getParam]);
-
-  // Emit vars upward whenever they change.
-  useEffect(() => {
-    onChange?.(vars);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(vars)]);
+  const vars = useMemo(
+    () => resolveFilterVars(filters, getParam),
+    [filters, getParam],
+  );
 
   return (
     <div className="rounded-lg border border-border bg-card p-3 space-y-3">

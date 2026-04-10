@@ -20,7 +20,6 @@ function OrgSection() {
   return <TeamPage title="Organization" />;
 }
 
-
 export function SettingsPage() {
   const { data: status } = useGreenhouseStatus();
   const disconnect = useGreenhouseDisconnect();

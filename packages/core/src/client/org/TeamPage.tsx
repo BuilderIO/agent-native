@@ -126,7 +126,14 @@ function CreateOrgCard() {
             <button
               type="button"
               disabled={!name.trim() || createOrg.isPending}
-              onClick={() => createOrg.mutate(name.trim(), { onSuccess: () => { setName(""); setShowForm(false); } })}
+              onClick={() =>
+                createOrg.mutate(name.trim(), {
+                  onSuccess: () => {
+                    setName("");
+                    setShowForm(false);
+                  },
+                })
+              }
               className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90 disabled:opacity-50"
             >
               {createOrg.isPending ? (
@@ -181,8 +188,8 @@ function MembersCard() {
           <div>
             <div className="text-sm font-medium">{org.orgName}</div>
             <div className="text-xs text-muted-foreground">
-              {members.length} member{members.length !== 1 ? "s" : ""} · You
-              are {org.role}
+              {members.length} member{members.length !== 1 ? "s" : ""} · You are{" "}
+              {org.role}
             </div>
           </div>
         </div>
@@ -220,19 +227,17 @@ function MembersCard() {
                 </span>
               )}
             </div>
-            {isOwnerOrAdmin &&
-              m.email !== org.email &&
-              m.role !== "owner" && (
-                <button
-                  type="button"
-                  disabled={removeMember.isPending}
-                  onClick={() => removeMember.mutate(m.email)}
-                  className="text-muted-foreground hover:text-red-500 disabled:opacity-50"
-                  title="Remove member"
-                >
-                  <IconTrash className="h-3.5 w-3.5" />
-                </button>
-              )}
+            {isOwnerOrAdmin && m.email !== org.email && m.role !== "owner" && (
+              <button
+                type="button"
+                disabled={removeMember.isPending}
+                onClick={() => removeMember.mutate(m.email)}
+                className="text-muted-foreground hover:text-red-500 disabled:opacity-50"
+                title="Remove member"
+              >
+                <IconTrash className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
         ))}
         {pendingInvites.map((inv) => (

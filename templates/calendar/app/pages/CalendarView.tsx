@@ -76,6 +76,10 @@ export default function CalendarView() {
     setViewMode,
     peopleSearchOpen,
     setPeopleSearchOpen,
+    addCalendarOpen,
+    setAddCalendarOpen,
+    addCalendarDefaultTab,
+    setAddCalendarDefaultTab,
     eventDetailSidebar,
     sidebarEvent,
     setSidebarEvent,
@@ -705,6 +709,16 @@ export default function CalendarView() {
           }}
           onViewChange={setViewMode}
           onToday={handleToday}
+          onAddPeopleCalendar={() => {
+            setCommandPaletteOpen(false);
+            setAddCalendarDefaultTab("people");
+            setAddCalendarOpen(true);
+          }}
+          onAddUrlCalendar={() => {
+            setCommandPaletteOpen(false);
+            setAddCalendarDefaultTab("url");
+            setAddCalendarOpen(true);
+          }}
         />
         <KeyboardShortcutsHelp
           open={shortcutsHelpOpen}

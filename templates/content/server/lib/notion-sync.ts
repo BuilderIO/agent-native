@@ -3,6 +3,7 @@
 import { and, eq } from "drizzle-orm";
 import type { InferSelectModel } from "drizzle-orm";
 import { getDb, schema } from "../db/index.js";
+import { deleteCollabState, releaseDoc } from "@agent-native/core/collab";
 import {
   createNotionPageWithMarkdown,
   fetchNotionPage,
@@ -259,22 +260,46 @@ export async function pullDocumentFromNotion(
     });
   }
 
-  const updatedAt = nowIso();
-  await db
-    .update(schema.documents)
-    .set({
-      title: pageContent.title || document.title,
-      content: pageContent.content ?? document.content,
-      icon: pageContent.icon,
-      updatedAt,
-    })
-    .where(eq(schema.documents.id, documentId));
+  const newTitle = pageContent.title || document.title;
+  const newContent = pageContent.content ?? document.content;
+  const newIcon = pageContent.icon;
+  const contentChanged =
+    newTitle !== document.title ||
+    newContent !== document.content ||
+    newIcon !== document.icon;
+
+  // Only bump documents.updated_at when something actually changed. A no-op
+  // pull must not move the local-clock forward, otherwise the next conflict
+  // check will mistake the unchanged document for a fresh local edit.
+  const updatedAt = contentChanged ? nowIso() : document.updatedAt;
+  if (contentChanged) {
+    await db
+      .update(schema.documents)
+      .set({
+        title: newTitle,
+        content: newContent,
+        icon: newIcon,
+        updatedAt,
+      })
+      .where(eq(schema.documents.id, documentId));
+
+    // Reset the Yjs collaborative state so it no longer holds the pre-sync
+    // content. Connected clients re-seed their Y.XmlFragment from the new
+    // `documents.content` value via VisualEditor's content-sync effect, and
+    // a fresh page load starts from an empty server state and seeds from SQL.
+    try {
+      await deleteCollabState(documentId);
+      releaseDoc(documentId);
+    } catch {
+      // Non-fatal — the client-side sync will still reconcile via setContent.
+    }
+  }
 
   await upsertSyncLink({
     documentId,
     remotePageId: link.remotePageId,
     state: "linked",
-    lastSyncedAt: updatedAt,
+    lastSyncedAt: nowIso(),
     lastPulledRemoteUpdatedAt: pageContent.lastEditedTime,
     lastPushedLocalUpdatedAt: updatedAt,
     lastKnownRemoteUpdatedAt: pageContent.lastEditedTime,

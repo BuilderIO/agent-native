@@ -9,9 +9,11 @@ import {
   IconChevronDown,
   IconPlus,
   IconX,
-  IconPalette,
   IconKeyboard,
   IconLogin,
+  IconInfoCircle,
+  IconCheck,
+  IconPalette,
 } from "@tabler/icons-react";
 import {
   startOfMonth,
@@ -43,7 +45,18 @@ import { EVENT_CATEGORY_COLORS } from "@/lib/event-colors";
 import {
   useOverlayPeople,
   useRemoveOverlayPerson,
+  useUpdateOverlayPersonColor,
 } from "@/hooks/use-overlay-people";
+import {
+  useExternalCalendars,
+  useRemoveExternalCalendar,
+  useUpdateExternalCalendarColor,
+} from "@/hooks/use-external-calendars";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { useCalendarContext } from "./AppLayout";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
@@ -214,6 +227,55 @@ const CALENDAR_COLORS = [
 const COLOR_MODE_KEY = "calendar-color-mode";
 const CALENDAR_COLOR_KEY = "calendar-single-color";
 
+/** A conic-gradient dot indicating "multiple colors" (by-type mode) */
+function MultiColorDot({ className }: { className?: string }) {
+  const colors = Object.values(EVENT_CATEGORY_COLORS).filter((_, i) => i < 4);
+  const pct = 100 / colors.length;
+  const stops = colors
+    .map((c, i) => `${c} ${i * pct}% ${(i + 1) * pct}%`)
+    .join(", ");
+  return (
+    <span
+      className={cn("shrink-0 rounded-full", className)}
+      style={{ background: `conic-gradient(${stops})` }}
+    />
+  );
+}
+
+/** Popover color picker for a single-color selection */
+function ColorPickerPopover({
+  color,
+  onColorChange,
+  children,
+}: {
+  color: string;
+  onColorChange: (color: string) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>{children}</PopoverTrigger>
+      <PopoverContent side="right" align="start" className="w-auto p-2">
+        <div className="flex flex-wrap gap-1.5" style={{ width: 120 }}>
+          {CALENDAR_COLORS.map((c) => (
+            <button
+              key={c}
+              type="button"
+              onClick={() => onColorChange(c)}
+              className="relative h-5 w-5 rounded-full"
+              style={{ backgroundColor: c }}
+            >
+              {c === color && (
+                <IconCheck className="absolute inset-0 m-auto h-3 w-3 text-white drop-shadow" />
+              )}
+            </button>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function GoogleAccountsSection({
   accounts,
 }: {
@@ -237,7 +299,6 @@ function GoogleAccountsSection({
       return CALENDAR_COLORS[0];
     }
   });
-  const [showColors, setShowColors] = useState(false);
 
   useEffect(() => {
     if (!wantAddAccount || !addAccountUrl.data?.url) return;
@@ -245,18 +306,19 @@ function GoogleAccountsSection({
     setWantAddAccount(false);
   }, [wantAddAccount, addAccountUrl.data]);
 
-  function handleColorModeToggle() {
-    const next = colorMode === "multi" ? "single" : "multi";
-    setColorMode(next);
+  function handlePickColor(color: string) {
+    setSingleColor(color);
+    setColorMode("single");
     try {
-      localStorage.setItem(COLOR_MODE_KEY, next);
+      localStorage.setItem(CALENDAR_COLOR_KEY, color);
+      localStorage.setItem(COLOR_MODE_KEY, "single");
     } catch {}
   }
 
-  function handlePickColor(color: string) {
-    setSingleColor(color);
+  function handleSetMulti() {
+    setColorMode("multi");
     try {
-      localStorage.setItem(CALENDAR_COLOR_KEY, color);
+      localStorage.setItem(COLOR_MODE_KEY, "multi");
     } catch {}
   }
 
@@ -267,14 +329,6 @@ function GoogleAccountsSection({
           My Calendars
         </span>
         <div className="flex items-center gap-0.5">
-          <button
-            type="button"
-            onClick={() => setShowColors((p) => !p)}
-            className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground"
-            title="Color settings"
-          >
-            <IconPalette className="h-3.5 w-3.5" />
-          </button>
           <button
             type="button"
             onClick={() => setWantAddAccount(true)}
@@ -295,98 +349,96 @@ function GoogleAccountsSection({
 
       {accounts.map((account) => (
         <div key={account.email} className="flex items-center gap-2 py-0.5">
-          <div
-            className="h-2 w-2 shrink-0 rounded-full"
-            style={{
-              backgroundColor:
-                colorMode === "single"
-                  ? singleColor
-                  : EVENT_CATEGORY_COLORS.fallback,
-            }}
-          />
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="shrink-0 cursor-pointer rounded-full p-0.5 hover:ring-2 hover:ring-border"
+              >
+                {colorMode === "multi" ? (
+                  <MultiColorDot className="h-2.5 w-2.5" />
+                ) : (
+                  <span
+                    className="block h-2.5 w-2.5 rounded-full"
+                    style={{ backgroundColor: singleColor }}
+                  />
+                )}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent side="right" align="start" className="w-auto p-2">
+              <div className="mb-2 flex gap-1 border-b border-border pb-2">
+                <button
+                  type="button"
+                  onClick={handleSetMulti}
+                  className={cn(
+                    "rounded px-2 py-0.5 text-[10px] font-medium",
+                    colorMode === "multi"
+                      ? "bg-primary/15 text-primary"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  By type
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handlePickColor(singleColor)}
+                  className={cn(
+                    "rounded px-2 py-0.5 text-[10px] font-medium",
+                    colorMode === "single"
+                      ? "bg-primary/15 text-primary"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  Single color
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-1.5" style={{ width: 116 }}>
+                {CALENDAR_COLORS.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => handlePickColor(c)}
+                    className="relative h-5 w-5 rounded-full"
+                    style={{ backgroundColor: c }}
+                  >
+                    {c === singleColor && colorMode === "single" && (
+                      <IconCheck className="absolute inset-0 m-auto h-3 w-3 text-white drop-shadow" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            </PopoverContent>
+          </Popover>
           <p className="truncate text-xs text-muted-foreground">
             {account.email}
           </p>
         </div>
       ))}
-
-      {showColors && (
-        <div className="mt-2 space-y-2 rounded-lg border border-border bg-muted/30 p-2">
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleColorModeToggle}
-              className={cn(
-                "rounded px-2 py-0.5 text-[10px] font-medium",
-                colorMode === "multi"
-                  ? "bg-primary/15 text-primary"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              By type
-            </button>
-            <button
-              type="button"
-              onClick={handleColorModeToggle}
-              className={cn(
-                "rounded px-2 py-0.5 text-[10px] font-medium",
-                colorMode === "single"
-                  ? "bg-primary/15 text-primary"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              Single color
-            </button>
-          </div>
-          {colorMode === "multi" ? (
-            <div className="flex flex-wrap gap-1.5">
-              {Object.entries(EVENT_CATEGORY_COLORS)
-                .filter(([k]) => k !== "fallback")
-                .map(([key, color]) => (
-                  <div key={key} className="flex items-center gap-1">
-                    <span
-                      className="h-2.5 w-2.5 rounded-full"
-                      style={{ backgroundColor: color }}
-                    />
-                    <span className="text-[10px] text-muted-foreground capitalize">
-                      {key.replace(/([A-Z])/g, " $1").trim()}
-                    </span>
-                  </div>
-                ))}
-            </div>
-          ) : (
-            <div className="flex gap-1.5">
-              {CALENDAR_COLORS.map((color) => (
-                <button
-                  key={color}
-                  type="button"
-                  onClick={() => handlePickColor(color)}
-                  className={cn(
-                    "h-5 w-5 rounded-full border-2",
-                    singleColor === color
-                      ? "border-foreground"
-                      : "border-transparent hover:border-foreground/30",
-                  )}
-                  style={{ backgroundColor: color }}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }
 
 export function Sidebar({ open, onClose }: SidebarProps) {
   const location = useLocation();
-  const { selectedDate, setSelectedDate, setPeopleSearchOpen } =
-    useCalendarContext();
+  const {
+    selectedDate,
+    setSelectedDate,
+    setPeopleSearchOpen,
+    setAddCalendarOpen,
+    setAddCalendarDefaultTab,
+  } = useCalendarContext();
   const googleStatus = useGoogleAuthStatus();
   const { session } = useSession();
   const { data: rawOverlayPeople } = useOverlayPeople();
   const overlayPeople = Array.isArray(rawOverlayPeople) ? rawOverlayPeople : [];
   const removePerson = useRemoveOverlayPerson();
+  const updatePersonColor = useUpdateOverlayPersonColor();
+  const { data: rawExternalCalendars } = useExternalCalendars();
+  const externalCalendars = Array.isArray(rawExternalCalendars)
+    ? rawExternalCalendars
+    : [];
+  const removeExternal = useRemoveExternalCalendar();
+  const updateExternalColor = useUpdateExternalCalendarColor();
   const isConnected = googleStatus.data?.connected ?? false;
   const isLocalMode = session?.email === "local@localhost";
 
@@ -446,50 +498,120 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           })}
         </nav>
 
-        {/* People overlay */}
-        <div className="border-t border-border px-3 py-3">
-          <div className="mb-2 flex items-center justify-between">
-            <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-              People
-            </span>
-            <button
-              type="button"
-              onClick={() => setPeopleSearchOpen(true)}
-              className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground"
-            >
-              <IconPlus className="h-3.5 w-3.5" />
-            </button>
-          </div>
-          {overlayPeople.length > 0 && (
-            <div className="space-y-1">
-              {overlayPeople.map((person) => (
-                <div
-                  key={person.email}
-                  className="flex items-center gap-2 text-xs"
-                >
-                  <span
-                    className="h-2 w-2 shrink-0 rounded-full"
-                    style={{ backgroundColor: person.color }}
-                  />
-                  <span className="min-w-0 flex-1 truncate text-muted-foreground">
-                    {person.name || person.email}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => removePerson.mutate(person.email)}
-                    className="shrink-0 rounded p-0.5 text-muted-foreground/60 hover:text-foreground"
-                  >
-                    <IconX className="h-3 w-3" />
-                  </button>
-                </div>
-              ))}
+        {/* People overlay + Other Calendars */}
+        <div className="border-t border-border px-3 py-2 space-y-1.5">
+          {/* People */}
+          <div>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1">
+                <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                  People
+                </span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="flex items-center text-muted-foreground/40 hover:text-muted-foreground cursor-default">
+                      <IconInfoCircle className="h-3 w-3" />
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">
+                    <p>View teammates' calendars</p>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setAddCalendarDefaultTab("people");
+                  setAddCalendarOpen(true);
+                  setPeopleSearchOpen(false);
+                }}
+                className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+              >
+                <IconPlus className="h-3.5 w-3.5" />
+              </button>
             </div>
-          )}
-          {overlayPeople.length === 0 && (
-            <p className="text-[11px] text-muted-foreground/60">
-              View teammates' calendars
-            </p>
-          )}
+            {overlayPeople.length > 0 && (
+              <div className="mt-1 space-y-0.5">
+                {overlayPeople.map((person) => (
+                  <div
+                    key={person.email}
+                    className="group flex items-center gap-2 text-xs"
+                  >
+                    <span
+                      className="h-2 w-2 shrink-0 rounded-full"
+                      style={{ backgroundColor: person.color }}
+                    />
+                    <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                      {person.name || person.email}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removePerson.mutate(person.email)}
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground/60 opacity-0 hover:text-foreground group-hover:opacity-100"
+                    >
+                      <IconX className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Other Calendars (ICS feeds) */}
+          <div>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1">
+                <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                  Other Calendars
+                </span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="flex items-center text-muted-foreground/40 hover:text-muted-foreground cursor-default">
+                      <IconInfoCircle className="h-3 w-3" />
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">
+                    <p>Subscribe to ICS/webcal feeds</p>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setAddCalendarDefaultTab("url");
+                  setAddCalendarOpen(true);
+                }}
+                className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+              >
+                <IconPlus className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            {externalCalendars.length > 0 && (
+              <div className="mt-1 space-y-0.5">
+                {externalCalendars.map((cal) => (
+                  <div
+                    key={cal.id}
+                    className="group flex items-center gap-2 text-xs"
+                  >
+                    <span
+                      className="h-2 w-2 shrink-0 rounded-full"
+                      style={{ backgroundColor: cal.color }}
+                    />
+                    <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                      {cal.name}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeExternal.mutate(cal.id)}
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground/60 opacity-0 hover:text-foreground group-hover:opacity-100"
+                    >
+                      <IconX className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Google status / connect CTA */}

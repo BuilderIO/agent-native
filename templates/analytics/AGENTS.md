@@ -110,16 +110,16 @@ This template supports multi-org deployments using the framework-provided org mo
 
 The org plugin auto-mounts by default — the template does not need a `server/plugins/org.ts` file. Routes are served under `/_agent-native/org/*`:
 
-| Route                                          | Method | Purpose                                     |
-| ---------------------------------------------- | ------ | ------------------------------------------- |
-| `/_agent-native/org/me`                        | GET    | Current user's active org + pending invites |
-| `/_agent-native/org`                           | POST   | Create org (creator becomes owner)          |
-| `/_agent-native/org/switch`                    | PUT    | Switch user's active org                    |
-| `/_agent-native/org/members`                   | GET    | List members of active org                  |
-| `/_agent-native/org/members/:email`            | DELETE | Remove member (owner/admin only)            |
-| `/_agent-native/org/invitations`               | GET    | List pending invitations for active org     |
-| `/_agent-native/org/invitations`               | POST   | Invite by email (owner/admin only)          |
-| `/_agent-native/org/invitations/:id/accept`    | POST   | Accept invitation, auto-switch to that org  |
+| Route                                       | Method | Purpose                                     |
+| ------------------------------------------- | ------ | ------------------------------------------- |
+| `/_agent-native/org/me`                     | GET    | Current user's active org + pending invites |
+| `/_agent-native/org`                        | POST   | Create org (creator becomes owner)          |
+| `/_agent-native/org/switch`                 | PUT    | Switch user's active org                    |
+| `/_agent-native/org/members`                | GET    | List members of active org                  |
+| `/_agent-native/org/members/:email`         | DELETE | Remove member (owner/admin only)            |
+| `/_agent-native/org/invitations`            | GET    | List pending invitations for active org     |
+| `/_agent-native/org/invitations`            | POST   | Invite by email (owner/admin only)          |
+| `/_agent-native/org/invitations/:id/accept` | POST   | Accept invitation, auto-switch to that org  |
 
 UI surface: `/team` page (wraps core's `<TeamPage />`) + sidebar `<OrgSwitcher />` from `@agent-native/core/client/org`. The agent-chat plugin's `resolveOrgId` imports `getOrgContext` from `@agent-native/core/org` so all agent SQL queries are auto-scoped to the active org via `AGENT_ORG_ID`.
 

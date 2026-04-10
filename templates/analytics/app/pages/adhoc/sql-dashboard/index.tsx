@@ -8,7 +8,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { IconPencil, IconTrash } from "@tabler/icons-react";
 import { getIdToken } from "@/lib/auth";
 import { SqlChartCard } from "./SqlChartCard";
-import { DashboardFilterBar } from "./DashboardFilterBar";
+import {
+  DashboardFilterBar,
+  FILTER_PARAM_PREFIX,
+  resolveFilterVars,
+} from "./DashboardFilterBar";
 import { interpolate } from "./interpolate";
 import type { SqlDashboardConfig } from "./types";
 import {
@@ -69,7 +73,6 @@ export default function SqlDashboardPage() {
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState("");
   const [loaded, setLoaded] = useState(false);
-  const [filterVars, setFilterVars] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!dashboardId) return;
@@ -153,10 +156,15 @@ export default function SqlDashboardPage() {
     setEditingName(false);
   }, [dashboard, nameInput, persist]);
 
-  const vars = useMemo<Record<string, string>>(
-    () => ({ ...(dashboard?.variables ?? {}), ...filterVars }),
-    [dashboard?.variables, filterVars],
-  );
+  const vars = useMemo<Record<string, string>>(() => {
+    const filterValues = dashboard?.filters
+      ? resolveFilterVars(
+          dashboard.filters,
+          (key) => searchParams.get(FILTER_PARAM_PREFIX + key) ?? "",
+        )
+      : {};
+    return { ...(dashboard?.variables ?? {}), ...filterValues };
+  }, [dashboard?.variables, dashboard?.filters, searchParams]);
 
   const handleDelete = useCallback(async () => {
     if (!dashboardId) return;
@@ -229,10 +237,7 @@ export default function SqlDashboardPage() {
 
       {/* Filters */}
       {dashboard.filters && dashboard.filters.length > 0 && (
-        <DashboardFilterBar
-          filters={dashboard.filters}
-          onChange={setFilterVars}
-        />
+        <DashboardFilterBar filters={dashboard.filters} />
       )}
 
       {/* Panels grid */}

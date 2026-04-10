@@ -14,10 +14,7 @@ import {
   IconUsers,
 } from "@tabler/icons-react";
 import { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";
-import {
-  InvitationBanner,
-  OrgSwitcher,
-} from "@agent-native/core/client/org";
+import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
 import { cn } from "@/lib/utils";
 import { useProjects } from "@/hooks/use-projects";
 import { useBoards } from "@/hooks/use-boards";
@@ -224,9 +221,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           </div>
           <InvitationBanner />
           <main className="flex min-w-0 flex-1 overflow-hidden">
-            {isConnected ||
-            isActive("/settings") ||
-            isActive("/team") ? (
+            {isConnected || isActive("/settings") || isActive("/team") ? (
               children
             ) : (
               <JiraConnectBanner />
