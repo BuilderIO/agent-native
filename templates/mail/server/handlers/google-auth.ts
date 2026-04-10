@@ -60,6 +60,21 @@ export const handleGoogleCallback = defineEventHandler(
   async (event: H3Event) => {
     try {
       const query = getQuery(event);
+
+      // Handle Google authorization errors (e.g. user denied access, invalid client)
+      const googleError = query.error as string | undefined;
+      if (googleError) {
+        const errorDesc =
+          (query.error_description as string | undefined) || googleError;
+        const isPermission =
+          googleError === "access_denied" ||
+          errorDesc.includes("Insufficient Permission");
+        const userMessage = isPermission
+          ? "Access was denied. Make sure to check all the permission boxes on the consent screen. If the app is in testing mode, add this email as a test user in Google Cloud Console."
+          : `Connection failed: ${errorDesc}`;
+        return oauthErrorPage(userMessage);
+      }
+
       const code = query.code as string;
       if (!code) {
         setResponseStatus(event, 400);
@@ -180,6 +195,21 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
     try {
       const session = await getSession(event);
       const query = getQuery(event);
+
+      // Handle Google authorization errors (e.g. user denied access, invalid client)
+      const googleError = query.error as string | undefined;
+      if (googleError) {
+        const errorDesc =
+          (query.error_description as string | undefined) || googleError;
+        const isPermission =
+          googleError === "access_denied" ||
+          errorDesc.includes("Insufficient Permission");
+        const userMessage = isPermission
+          ? "Access was denied. Make sure to check all the permission boxes on the consent screen. If the app is in testing mode, add this email as a test user in Google Cloud Console."
+          : `Connection failed: ${errorDesc}`;
+        return oauthErrorPage(userMessage);
+      }
+
       const {
         redirectUri,
         owner: stateOwner,

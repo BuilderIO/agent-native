@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import {
   Area,
@@ -18,9 +18,19 @@ import {
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { IconExternalLink } from "@tabler/icons-react";
+import {
+  IconExternalLink,
+  IconArrowsSort,
+  IconSortAscending,
+  IconSortDescending,
+} from "@tabler/icons-react";
 import { useSqlQuery } from "@/lib/sql-query";
-import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
+import type {
+  SqlPanel,
+  TableColumnConfig,
+  ColumnFormat,
+} from "@/pages/adhoc/sql-dashboard/types";
+import { pivotRows } from "@/pages/adhoc/sql-dashboard/pivot";
 
 const DEFAULT_COLORS = [
   "#6366f1",
@@ -38,7 +48,11 @@ function formatYValue(
   formatter?: "number" | "currency" | "percent",
 ): string {
   if (formatter === "currency") return `$${value.toLocaleString()}`;
-  if (formatter === "percent") return `${value}%`;
+  if (formatter === "percent") {
+    // SQL typically returns rate as 0..1
+    const pct = value <= 1 && value >= -1 ? value * 100 : value;
+    return `${pct.toFixed(1)}%`;
+  }
   return value.toLocaleString();
 }
 
@@ -55,6 +69,7 @@ function formatXLabel(value: string): string {
 function detectKeys(
   rows: Record<string, unknown>[],
   config?: SqlPanel["config"],
+  forcedYKeys?: string[],
 ): { xKey: string; yKeys: string[] } {
   if (config?.xKey && (config?.yKey || config?.yKeys?.length)) {
     return {
@@ -84,6 +99,11 @@ function detectKeys(
       cols[0];
   }
 
+  // Pivoted data: caller already knows the series keys
+  if (forcedYKeys && forcedYKeys.length) {
+    return { xKey, yKeys: forcedYKeys };
+  }
+
   // Y keys: all numeric columns that aren't the x-axis
   const yKeys = config?.yKeys ?? (config?.yKey ? [config.yKey] : []);
   if (yKeys.length === 0) {
@@ -101,23 +121,34 @@ function detectKeys(
 
 interface SqlChartProps {
   panel: SqlPanel;
+  /** SQL with dashboard variables already interpolated. Falls back to panel.sql. */
+  resolvedSql?: string;
   className?: string;
 }
 
-export function SqlChart({ panel }: SqlChartProps) {
+export function SqlChart({ panel, resolvedSql }: SqlChartProps) {
+  const sql = resolvedSql ?? panel.sql;
   const { data: result, isLoading } = useSqlQuery(
-    ["sql-chart", panel.id, panel.sql, panel.source],
-    panel.sql,
+    ["sql-chart", panel.id, sql, panel.source],
+    sql,
     panel.source,
   );
 
-  const rows = result?.rows ?? [];
+  const rawRows = result?.rows ?? [];
   const error = result?.error;
+
+  const { rows, forcedYKeys } = useMemo(() => {
+    if (panel.config?.pivot && rawRows.length) {
+      const pivoted = pivotRows(rawRows, panel.config.pivot);
+      return { rows: pivoted.rows, forcedYKeys: pivoted.seriesKeys };
+    }
+    return { rows: rawRows, forcedYKeys: undefined };
+  }, [rawRows, panel.config?.pivot]);
+
   const { xKey, yKeys } = useMemo(
-    () => detectKeys(rows, panel.config),
-    [rows, panel.config],
+    () => detectKeys(rows, panel.config, forcedYKeys),
+    [rows, panel.config, forcedYKeys],
   );
-  const color = panel.config?.color || DEFAULT_COLORS[0];
   const colors = panel.config?.colors || DEFAULT_COLORS;
   const yFormatter = panel.config?.yFormatter;
 
@@ -142,7 +173,7 @@ export function SqlChart({ panel }: SqlChartProps) {
   }
 
   if (panel.chartType === "table") {
-    return <TableRenderer rows={rows} />;
+    return <TableRenderer rows={rows} panel={panel} />;
   }
 
   if (panel.chartType === "pie") {
@@ -151,7 +182,7 @@ export function SqlChart({ panel }: SqlChartProps) {
     );
   }
 
-  if (panel.chartType === "bar") {
+  if (panel.chartType === "bar" || panel.chartType === "stacked-bar") {
     return (
       <BarRenderer
         rows={rows}
@@ -159,11 +190,12 @@ export function SqlChart({ panel }: SqlChartProps) {
         yKeys={yKeys}
         colors={colors}
         yFormatter={yFormatter}
+        stacked={panel.chartType === "stacked-bar"}
       />
     );
   }
 
-  // line or area
+  // line, area, stacked-area
   return (
     <TimeSeriesRenderer
       rows={rows}
@@ -171,7 +203,8 @@ export function SqlChart({ panel }: SqlChartProps) {
       yKeys={yKeys}
       colors={colors}
       yFormatter={yFormatter}
-      chartType={panel.chartType}
+      chartType={panel.chartType === "stacked-area" ? "area" : panel.chartType}
+      stacked={panel.chartType === "stacked-area"}
     />
   );
 }
@@ -207,35 +240,170 @@ function MetricRenderer({
   );
 }
 
-function TableRenderer({ rows }: { rows: Record<string, unknown>[] }) {
-  const cols = Object.keys(rows[0]);
+function formatCell(value: unknown, format: ColumnFormat | undefined): string {
+  if (value == null) return "";
+  if (format === "number" && typeof value === "number") {
+    return value.toLocaleString();
+  }
+  if (format === "currency" && typeof value === "number") {
+    return `$${value.toLocaleString()}`;
+  }
+  if (format === "percent" && typeof value === "number") {
+    const pct = value <= 1 && value >= -1 ? value * 100 : value;
+    return `${pct.toFixed(1)}%`;
+  }
+  if (format === "date") {
+    const d = new Date(String(value));
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
+    }
+  }
+  return String(value);
+}
+
+function TableRenderer({
+  rows,
+  panel,
+}: {
+  rows: Record<string, unknown>[];
+  panel: SqlPanel;
+}) {
+  const config = panel.config;
+  const sortable = config?.sortable !== false; // default on
+  const limit = config?.limit;
+
+  // Resolve column list: explicit config wins, otherwise infer from first row
+  const columns = useMemo<TableColumnConfig[]>(() => {
+    if (config?.columns?.length) {
+      return config.columns.filter((c) => !c.hidden);
+    }
+    return Object.keys(rows[0]).map((key) => ({ key }));
+  }, [config?.columns, rows]);
+
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  const sortedRows = useMemo(() => {
+    if (!sortable || !sortKey) return rows;
+    const sorted = [...rows].sort((a, b) => {
+      const av = a[sortKey];
+      const bv = b[sortKey];
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      if (typeof av === "number" && typeof bv === "number") {
+        return av - bv;
+      }
+      return String(av).localeCompare(String(bv));
+    });
+    if (sortDir === "desc") sorted.reverse();
+    return sorted;
+  }, [rows, sortKey, sortDir, sortable]);
+
+  const displayRows = limit ? sortedRows.slice(0, limit) : sortedRows;
+
+  const handleHeaderClick = (key: string) => {
+    if (!sortable) return;
+    if (sortKey === key) {
+      setSortDir(sortDir === "asc" ? "desc" : "asc");
+    } else {
+      setSortKey(key);
+      setSortDir("desc");
+    }
+  };
+
   return (
-    <div className="overflow-auto max-h-[300px]">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-border">
-            {cols.map((c) => (
-              <th
-                key={c}
-                className="text-left py-1.5 px-2 font-medium text-muted-foreground whitespace-nowrap"
-              >
-                {c}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, i) => (
-            <tr key={i} className="border-b border-border/50">
-              {cols.map((c) => (
-                <td key={c} className="py-1.5 px-2 whitespace-nowrap">
-                  {String(row[c] ?? "")}
-                </td>
-              ))}
+    <div className="space-y-1">
+      <div className="overflow-auto max-h-[400px]">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 bg-card">
+            <tr className="border-b border-border">
+              {columns.map((col) => {
+                const label = col.label ?? col.key;
+                const isSorted = sortKey === col.key;
+                return (
+                  <th
+                    key={col.key}
+                    className={`text-left py-1.5 px-2 font-medium text-muted-foreground whitespace-nowrap ${
+                      sortable
+                        ? "cursor-pointer select-none hover:text-foreground"
+                        : ""
+                    }`}
+                    onClick={() => handleHeaderClick(col.key)}
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      {label}
+                      {sortable &&
+                        (isSorted ? (
+                          sortDir === "asc" ? (
+                            <IconSortAscending className="h-3 w-3" />
+                          ) : (
+                            <IconSortDescending className="h-3 w-3" />
+                          )
+                        ) : (
+                          <IconArrowsSort className="h-3 w-3 opacity-30" />
+                        ))}
+                    </span>
+                  </th>
+                );
+              })}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {displayRows.map((row, i) => (
+              <tr key={i} className="border-b border-border/50">
+                {columns.map((col) => {
+                  const raw = row[col.key];
+                  const formatted = formatCell(raw, col.format);
+                  if (col.format === "link") {
+                    const href = col.linkKey
+                      ? String(row[col.linkKey] ?? "")
+                      : String(raw ?? "");
+                    return (
+                      <td
+                        key={col.key}
+                        className="py-1.5 px-2 whitespace-nowrap"
+                      >
+                        <a
+                          href={href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary hover:underline"
+                        >
+                          {formatted}
+                        </a>
+                      </td>
+                    );
+                  }
+                  const numeric =
+                    col.format === "number" ||
+                    col.format === "currency" ||
+                    col.format === "percent";
+                  return (
+                    <td
+                      key={col.key}
+                      className={`py-1.5 px-2 whitespace-nowrap ${
+                        numeric ? "text-right tabular-nums" : ""
+                      }`}
+                    >
+                      {formatted}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {limit && sortedRows.length > limit && (
+        <p className="text-[10px] text-muted-foreground text-right pr-1">
+          Showing {limit} of {sortedRows.length} rows
+        </p>
+      )}
     </div>
   );
 }
@@ -291,12 +459,14 @@ function BarRenderer({
   yKeys,
   colors,
   yFormatter,
+  stacked,
 }: {
   rows: Record<string, unknown>[];
   xKey: string;
   yKeys: string[];
   colors: string[];
   yFormatter?: "number" | "currency" | "percent";
+  stacked?: boolean;
 }) {
   return (
     <div className="h-[250px] w-full">
@@ -330,13 +500,15 @@ function BarRenderer({
               color: "hsl(var(--foreground))",
             }}
             labelFormatter={formatXLabel}
+            formatter={(v: number) => formatYValue(v, yFormatter)}
           />
           {yKeys.map((key, i) => (
             <Bar
               key={key}
               dataKey={key}
               fill={colors[i % colors.length]}
-              radius={[4, 4, 0, 0]}
+              radius={stacked ? 0 : [4, 4, 0, 0]}
+              stackId={stacked ? "stack" : undefined}
             />
           ))}
         </BarChart>
@@ -352,6 +524,7 @@ function TimeSeriesRenderer({
   colors,
   yFormatter,
   chartType,
+  stacked,
 }: {
   rows: Record<string, unknown>[];
   xKey: string;
@@ -359,6 +532,7 @@ function TimeSeriesRenderer({
   colors: string[];
   yFormatter?: "number" | "currency" | "percent";
   chartType: "line" | "area";
+  stacked?: boolean;
 }) {
   if (chartType === "line") {
     return (
@@ -393,6 +567,7 @@ function TimeSeriesRenderer({
                 color: "hsl(var(--foreground))",
               }}
               labelFormatter={formatXLabel}
+              formatter={(v: number) => formatYValue(v, yFormatter)}
             />
             {yKeys.map((key, i) => (
               <Line
@@ -410,7 +585,7 @@ function TimeSeriesRenderer({
     );
   }
 
-  // area
+  // area / stacked-area
   return (
     <div className="h-[250px] w-full">
       <ResponsiveContainer width="100%" height="100%">
@@ -428,12 +603,12 @@ function TimeSeriesRenderer({
                 <stop
                   offset="5%"
                   stopColor={colors[i % colors.length]}
-                  stopOpacity={0.3}
+                  stopOpacity={stacked ? 0.6 : 0.3}
                 />
                 <stop
                   offset="95%"
                   stopColor={colors[i % colors.length]}
-                  stopOpacity={0}
+                  stopOpacity={stacked ? 0.2 : 0}
                 />
               </linearGradient>
             ))}
@@ -466,6 +641,7 @@ function TimeSeriesRenderer({
               color: "hsl(var(--foreground))",
             }}
             labelFormatter={formatXLabel}
+            formatter={(v: number) => formatYValue(v, yFormatter)}
           />
           {yKeys.map((key, i) => (
             <Area
@@ -476,6 +652,7 @@ function TimeSeriesRenderer({
               strokeWidth={2}
               fillOpacity={1}
               fill={`url(#sql-gradient-${key})`}
+              stackId={stacked ? "stack" : undefined}
             />
           ))}
         </AreaChart>
