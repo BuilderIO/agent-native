@@ -3,7 +3,13 @@ import { setResponseStatus } from "h3";
 import type { PlatformAdapter, IncomingMessage } from "./types.js";
 import { getThreadMapping, saveThreadMapping } from "./thread-mapping-store.js";
 import { createThread, getThread } from "../chat-threads/store.js";
-import { runAgentLoop, type ActionEntry } from "../agent/production-agent.js";
+import {
+  runAgentLoop,
+  actionsToEngineTools,
+  type ActionEntry,
+} from "../agent/production-agent.js";
+import { createAnthropicEngine } from "../agent/engine/index.js";
+import type { EngineMessage } from "../agent/engine/types.js";
 import { startRun, type ActiveRun } from "../agent/run-manager.js";
 import {
   buildAssistantMessage,
@@ -144,38 +150,31 @@ async function processMessageInBackground(
 
   // Load existing thread history for context
   const thread = await getThread(threadId);
-  const existingMessages: any[] = [];
+  const existingMessages: EngineMessage[] = [];
   if (thread?.threadData) {
     try {
       const data = JSON.parse(thread.threadData);
       if (Array.isArray(data.messages)) {
         for (const msg of data.messages) {
           const m = msg.message ?? msg;
+          const textContent =
+            typeof m.content === "string"
+              ? m.content
+              : Array.isArray(m.content)
+                ? m.content
+                    .filter((c: any) => c.type === "text")
+                    .map((c: any) => c.text)
+                    .join("\n")
+                : "";
           if (m.role === "user") {
             existingMessages.push({
               role: "user",
-              content:
-                typeof m.content === "string"
-                  ? m.content
-                  : Array.isArray(m.content)
-                    ? m.content
-                        .filter((c: any) => c.type === "text")
-                        .map((c: any) => c.text)
-                        .join("\n")
-                    : "",
+              content: [{ type: "text", text: textContent }],
             });
           } else if (m.role === "assistant") {
             existingMessages.push({
               role: "assistant",
-              content:
-                typeof m.content === "string"
-                  ? m.content
-                  : Array.isArray(m.content)
-                    ? m.content
-                        .filter((c: any) => c.type === "text")
-                        .map((c: any) => c.text)
-                        .join("\n")
-                    : "",
+              content: [{ type: "text", text: textContent }],
             });
           }
         }
@@ -184,23 +183,14 @@ async function processMessageInBackground(
   }
 
   // Add the new user message
-  const messages: any[] = [
+  const messages: EngineMessage[] = [
     ...existingMessages,
-    { role: "user", content: incoming.text },
+    { role: "user", content: [{ type: "text", text: incoming.text }] },
   ];
 
   // Step 6: Run agent loop via startRun
-  const Anthropic = (await import("@anthropic-ai/sdk")).default;
-  const client = new Anthropic({ apiKey });
-
-  const tools = Object.entries(actions).map(([name, entry]) => ({
-    name,
-    description: entry.tool.description,
-    input_schema: entry.tool.parameters ?? {
-      type: "object" as const,
-      properties: {},
-    },
-  }));
+  const engine = createAnthropicEngine({ apiKey });
+  const tools = actionsToEngineTools(actions);
 
   const runId = `integration-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -209,7 +199,7 @@ async function processMessageInBackground(
     threadId,
     async (send, signal) => {
       await runAgentLoop({
-        client,
+        engine,
         model,
         systemPrompt,
         tools,

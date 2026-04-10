@@ -905,3 +905,148 @@ body {
   justify-content: flex-end;
   margin-top: 16px;
 }
+
+/* ─── Update indicator (sidebar pill) ─────────────────────────── */
+.update-indicator .icon-wrapper {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.update-indicator .item-label {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.update-indicator--pending .icon-wrapper,
+.update-indicator--downloading .icon-wrapper {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+}
+
+.update-indicator--pending .item-label,
+.update-indicator--downloading .item-label {
+  color: rgba(96, 165, 250, 0.85);
+}
+
+.update-indicator--ready .icon-wrapper {
+  background: rgba(34, 197, 94, 0.18);
+  color: #4ade80;
+  box-shadow: 0 0 0 1px rgba(74, 222, 128, 0.35);
+}
+
+.update-indicator--ready .item-label {
+  color: #4ade80;
+  font-weight: 600;
+}
+
+.update-indicator--ready:hover .icon-wrapper {
+  background: rgba(34, 197, 94, 0.28);
+}
+
+@keyframes update-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.update-indicator .spin {
+  animation: update-spin 1s linear infinite;
+}
+
+/* ─── Update prompt (toast) ───────────────────────────────────── */
+.update-prompt {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 200;
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 18px 14px;
+  background: #161616;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
+  -webkit-app-region: no-drag;
+}
+
+.update-prompt-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.update-prompt-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.update-prompt-subtitle {
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.update-prompt-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.update-prompt-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.update-prompt-btn--ghost {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.update-prompt-btn--ghost:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+}
+
+.update-prompt-btn--primary {
+  background: rgba(59, 130, 246, 0.18);
+  color: #60a5fa;
+  border-color: rgba(59, 130, 246, 0.28);
+}
+
+.update-prompt-btn--primary:hover {
+  background: rgba(59, 130, 246, 0.28);
+  color: #93c5fd;
+}
+
+.update-prompt-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.4);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.update-prompt-close:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.85);
+}

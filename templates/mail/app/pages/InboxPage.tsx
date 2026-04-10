@@ -74,11 +74,15 @@ function ThreadListSidebar({
   activeThreadId,
   view,
   labelSuffix,
+  selectedIds,
+  setSelectedIds,
 }: {
   emails: EmailMessage[];
   activeThreadId: string;
   view: string;
   labelSuffix: string;
+  selectedIds: Set<string>;
+  setSelectedIds: React.Dispatch<React.SetStateAction<Set<string>>>;
 }) {
   const navigate = useNavigate();
   const markRead = useMarkRead();
@@ -89,26 +93,32 @@ function ThreadListSidebar({
       <div className="flex-1 overflow-y-auto">
         {threads.map((thread) => {
           const email = thread.latestMessage;
-          const isActive = (email.threadId || email.id) === activeThreadId;
+          const threadKey = email.threadId || email.id;
+          const isActive = threadKey === activeThreadId;
+          const isMultiSelected = selectedIds.has(threadKey);
           return (
             <button
               key={email.id}
               onClick={() => {
+                // A plain click is a single-thread action — clear any
+                // in-progress multi-selection so the next keyboard shortcut
+                // doesn't act on a stale set.
+                setSelectedIds(new Set());
                 if (!email.isRead)
                   markRead.mutate({
                     id: email.id,
                     isRead: true,
                     accountEmail: email.accountEmail,
                   });
-                navigate(
-                  `/${view}/${email.threadId || email.id}${labelSuffix}`,
-                );
+                navigate(`/${view}/${threadKey}${labelSuffix}`);
               }}
               className={cn(
                 "w-full text-left px-3 h-[38px] flex items-center border-b border-border/10 transition-colors",
-                isActive
-                  ? "bg-primary/10"
-                  : "hover:bg-accent dark:hover:bg-[hsl(220,5%,13%)]",
+                isMultiSelected
+                  ? "bg-primary/20 ring-1 ring-inset ring-primary/40"
+                  : isActive
+                    ? "bg-primary/10"
+                    : "hover:bg-accent dark:hover:bg-[hsl(220,5%,13%)]",
               )}
             >
               <div className="flex items-center gap-2 min-w-0 w-full">
@@ -289,8 +299,10 @@ export function InboxPage() {
     hasNoteToSelf,
   ]);
 
-  // Clear multi-selection when navigating to a different view, thread, or label tab
-  useEffect(() => setSelectedIds(new Set()), [view, threadId, activeLabel]);
+  // Clear multi-selection when switching views or label tabs. Do NOT clear on
+  // threadId changes — shift+j/k in detail view navigates between threads while
+  // extending the selection, so selection must persist across thread nav.
+  useEffect(() => setSelectedIds(new Set()), [view, activeLabel]);
 
   // Sync current navigation state to file (write-only, so agent can read it)
   const searchQ = searchParams.get("q") ?? undefined;
@@ -446,6 +458,8 @@ export function InboxPage() {
           activeThreadId={threadId!}
           view={view}
           labelSuffix={labelSuffix}
+          selectedIds={selectedIds}
+          setSelectedIds={setSelectedIds}
         />
       )}
 
@@ -455,6 +469,9 @@ export function InboxPage() {
           <EmailThread
             onArchived={setLastArchivedId}
             emailIds={threadIds}
+            threads={threads}
+            selectedIds={selectedIds}
+            setSelectedIds={setSelectedIds}
             onContactSelect={setSidebarContactEmail}
           />
         ) : (

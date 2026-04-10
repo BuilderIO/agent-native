@@ -1,4 +1,3 @@
-import Anthropic from "@anthropic-ai/sdk";
 import {
   defineEventHandler,
   setResponseHeader,
@@ -12,6 +11,14 @@ import type {
   AgentChatEvent,
   AgentChatReference,
 } from "./types.js";
+import type {
+  AgentEngine,
+  EngineTool,
+  EngineMessage,
+  EngineContentPart,
+} from "./engine/types.js";
+import { resolveEngine, registerBuiltinEngines } from "./engine/index.js";
+import { ASSISTANT_CONTENT_KEY } from "./engine/anthropic-engine.js";
 import { readAppState } from "../application-state/script-helpers.js";
 import {
   startRun,
@@ -23,6 +30,9 @@ import {
 } from "./run-manager.js";
 import type { ActiveRun } from "./run-manager.js";
 import { readBody } from "../server/h3-helpers.js";
+
+// Register built-in engines on first import
+registerBuiltinEngines();
 
 /** Context passed to action run() for emitting intermediate events */
 export interface ActionRunContext {
@@ -50,10 +60,17 @@ export interface ProductionAgentOptions {
   scripts?: Record<string, ActionEntry>;
   /** Static system prompt string, or async function called per-request with the H3 event */
   systemPrompt: string | ((event: any) => string | Promise<string>);
-  /** Falls back to ANTHROPIC_API_KEY env var */
+  /** Falls back to ANTHROPIC_API_KEY env var. Ignored when `engine` is provided. */
   apiKey?: string;
+  /** Agent engine to use. Defaults to the "anthropic" engine. */
+  engine?:
+    | AgentEngine
+    | string
+    | { name: string; config: Record<string, unknown> };
   /** Model to use. Default: claude-sonnet-4-6 */
   model?: string;
+  /** Provider-specific options passed through to the engine */
+  providerOptions?: EngineMessage extends never ? never : any;
   /** Called when a run completes (for server-side thread persistence) */
   onRunComplete?: (run: ActiveRun, threadId: string | undefined) => void;
   /** Called when a run starts, with the send function for emitting events and the threadId */
@@ -159,26 +176,45 @@ function enrichMessage(
 export interface AgentLoopUsage {
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
   model: string;
 }
 
 /**
- * The core agent loop — calls Claude iteratively until no more tool calls.
+ * Convert ActionEntry registry to EngineTool array.
+ */
+export function actionsToEngineTools(
+  actions: Record<string, ActionEntry>,
+): EngineTool[] {
+  return Object.entries(actions).map(([name, entry]) => ({
+    name,
+    description: entry.tool.description,
+    inputSchema: (entry.tool.parameters ?? {
+      type: "object",
+      properties: {},
+    }) as EngineTool["inputSchema"],
+  }));
+}
+
+/**
+ * The core agent loop — calls the engine iteratively until no more tool calls.
  * Decoupled from HTTP transport so it can run in the background.
  * Returns accumulated token usage for cost tracking.
  */
 export async function runAgentLoop(opts: {
-  client: Anthropic;
+  engine: AgentEngine;
   model: string;
   systemPrompt: string;
-  tools: Anthropic.Tool[];
-  messages: Anthropic.MessageParam[];
+  tools: EngineTool[];
+  messages: EngineMessage[];
   actions: Record<string, ActionEntry>;
   send: (event: AgentChatEvent) => void;
   signal: AbortSignal;
+  providerOptions?: any;
 }): Promise<AgentLoopUsage> {
   const {
-    client,
+    engine,
     model,
     systemPrompt,
     tools,
@@ -188,7 +224,13 @@ export async function runAgentLoop(opts: {
     signal,
   } = opts;
 
-  const usage: AgentLoopUsage = { inputTokens: 0, outputTokens: 0, model };
+  const usage: AgentLoopUsage = {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    model,
+  };
 
   let iterations = 0;
   while (true) {
@@ -198,36 +240,56 @@ export async function runAgentLoop(opts: {
       break;
     }
 
-    let assistantContent: Anthropic.ContentBlock[] | undefined;
+    let assistantContent: EngineContentPart[] | undefined;
+    let hasToolCalls = false;
+
     for (let retry = 0; ; retry++) {
       try {
-        const apiStream = client.messages.stream(
-          {
-            model,
-            max_tokens: 16384,
-            system: systemPrompt,
-            tools,
-            messages,
-          },
-          { signal },
-        );
+        const streamOpts = {
+          model,
+          systemPrompt,
+          messages,
+          tools,
+          abortSignal: signal,
+          providerOptions: opts.providerOptions,
+        };
 
-        for await (const chunk of apiStream) {
-          if (
-            chunk.type === "content_block_delta" &&
-            chunk.delta.type === "text_delta"
-          ) {
-            send({ type: "text", text: chunk.delta.text });
+        const eventStream = engine.stream(streamOpts);
+        let thinkingBuffer = "";
+
+        for await (const event of eventStream) {
+          if (event.type === "text-delta") {
+            send({ type: "text", text: event.text });
+          } else if (event.type === "thinking-delta") {
+            thinkingBuffer += event.text;
+            // Thinking deltas are not forwarded to the SSE client yet —
+            // we accumulate them. In a future iteration, we can surface
+            // them as a collapsible "reasoning" section in the UI.
+          } else if (event.type === "tool-call") {
+            hasToolCalls = true;
+          } else if (event.type === "usage") {
+            usage.inputTokens += event.inputTokens;
+            usage.outputTokens += event.outputTokens;
+            usage.cacheReadTokens += event.cacheReadTokens ?? 0;
+            usage.cacheWriteTokens += event.cacheWriteTokens ?? 0;
+          } else if (event.type === "stop" && event.reason === "error") {
+            throw new Error(event.error ?? "Engine stream error");
           }
         }
 
-        const finalMessage = await apiStream.finalMessage();
-        assistantContent = finalMessage.content;
-        // Accumulate token usage
-        if (finalMessage.usage) {
-          usage.inputTokens += finalMessage.usage.input_tokens ?? 0;
-          usage.outputTokens += finalMessage.usage.output_tokens ?? 0;
+        // Retrieve the assistant content blocks stored by the engine.
+        // AnthropicEngine sets streamOpts[ASSISTANT_CONTENT_KEY] after streaming.
+        assistantContent = (streamOpts as any)[ASSISTANT_CONTENT_KEY];
+
+        // If engine didn't populate assistant content (e.g. AI SDK engine),
+        // rebuild it from the messages state we tracked via tool-call events.
+        // The AI SDK engine stores it under AISDK_ASSISTANT_CONTENT_KEY.
+        if (!assistantContent) {
+          const { AISDK_ASSISTANT_CONTENT_KEY } =
+            await import("./engine/ai-sdk-engine.js");
+          assistantContent = (streamOpts as any)[AISDK_ASSISTANT_CONTENT_KEY];
         }
+
         break;
       } catch (err: unknown) {
         if (signal.aborted) throw err;
@@ -245,64 +307,72 @@ export async function runAgentLoop(opts: {
         throw err;
       }
     }
-    if (!assistantContent) break;
+
+    if (!assistantContent) {
+      // No content — done
+      break;
+    }
 
     messages.push({ role: "assistant", content: assistantContent });
 
-    const toolUseBlocks = assistantContent.filter(
-      (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
+    const toolCallParts = assistantContent.filter(
+      (p): p is import("./engine/types.js").EngineToolCallPart =>
+        p.type === "tool-call",
     );
 
-    if (toolUseBlocks.length === 0) break;
+    if (toolCallParts.length === 0) break;
 
-    // Run all tool calls in parallel — Claude often returns multiple tool_use
-    // blocks in one turn (e.g. adding several slides at once). Running them
-    // concurrently saves significant wall-clock time.
-    const toolResults: Anthropic.ToolResultBlockParam[] = await Promise.all(
-      toolUseBlocks.map(async (toolUse) => {
-        const actionEntry = actions[toolUse.name];
+    // Run all tool calls in parallel — engines often return multiple tool-call
+    // blocks in one turn. Running them concurrently saves wall-clock time.
+    const toolResultParts: EngineContentPart[] = await Promise.all(
+      toolCallParts.map(async (toolCall) => {
+        const actionEntry = actions[toolCall.name];
         if (!actionEntry) {
-          const result = `Error: Unknown tool "${toolUse.name}"`;
+          const result = `Error: Unknown tool "${toolCall.name}"`;
           send({
             type: "tool_start",
-            tool: toolUse.name,
-            input: toolUse.input as Record<string, string>,
+            tool: toolCall.name,
+            input: toolCall.input as Record<string, string>,
           });
-          send({ type: "tool_done", tool: toolUse.name, result });
+          send({ type: "tool_done", tool: toolCall.name, result });
           return {
-            type: "tool_result" as const,
-            tool_use_id: toolUse.id,
+            type: "tool-result" as const,
+            toolCallId: toolCall.id,
             content: result,
+            isError: true,
           };
         }
 
         send({
           type: "tool_start",
-          tool: toolUse.name,
-          input: toolUse.input as Record<string, string>,
+          tool: toolCall.name,
+          input: toolCall.input as Record<string, string>,
         });
 
         let result: string;
+        let isError = false;
         try {
           const raw = await actionEntry.run(
-            toolUse.input as Record<string, string>,
+            toolCall.input as Record<string, string>,
             { send },
           );
           result = typeof raw === "string" ? raw : JSON.stringify(raw, null, 2);
         } catch (err: any) {
-          result = `Error running ${toolUse.name}: ${err?.message ?? String(err)}`;
+          result = `Error running ${toolCall.name}: ${err?.message ?? String(err)}`;
+          isError = true;
         }
 
-        send({ type: "tool_done", tool: toolUse.name, result });
+        send({ type: "tool_done", tool: toolCall.name, result });
         return {
-          type: "tool_result" as const,
-          tool_use_id: toolUse.id,
+          type: "tool-result" as const,
+          toolCallId: toolCall.id,
           content: result,
+          ...(isError ? { isError } : {}),
         };
       }),
     );
 
-    messages.push({ role: "user", content: toolResults });
+    messages.push({ role: "user", content: toolResultParts });
   }
 
   send({ type: "done" });
@@ -317,16 +387,8 @@ export function createProductionAgentHandler(
   // Resolve actions — prefer `actions`, fall back to deprecated `scripts`
   const resolvedActions = options.actions ?? options.scripts ?? {};
 
-  // Build Anthropic tool definitions from action registry
-  const tools: Anthropic.Tool[] = Object.entries(resolvedActions).map(
-    ([name, entry]) => ({
-      name,
-      description: entry.tool.description,
-      input_schema: (entry.tool.parameters ?? {
-        type: "object",
-      }) as Anthropic.Tool["input_schema"],
-    }),
-  );
+  // Build engine tools from action registry
+  const engineTools = actionsToEngineTools(resolvedActions);
 
   return defineEventHandler(async (event) => {
     if (getMethod(event) !== "POST") {
@@ -354,9 +416,23 @@ export function createProductionAgentHandler(
       return { error: "message is required" };
     }
 
-    // Check for API key before starting a run
+    // Resolve engine (async — reads settings if needed)
+    let engine: AgentEngine;
+    try {
+      engine = await resolveEngine({
+        engineOption: options.engine,
+        apiKey: options.apiKey ?? process.env.ANTHROPIC_API_KEY,
+        model,
+      });
+    } catch {
+      engine = await resolveEngine({
+        apiKey: options.apiKey ?? process.env.ANTHROPIC_API_KEY,
+      });
+    }
+
+    // Check for API key before starting a run (only for anthropic engine)
     const apiKey = options.apiKey ?? process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
+    if (engine.name === "anthropic" && !apiKey) {
       setResponseHeader(event, "Content-Type", "text/event-stream");
       setResponseHeader(event, "Cache-Control", "no-cache");
       setResponseHeader(event, "Connection", "keep-alive");
@@ -428,13 +504,10 @@ export function createProductionAgentHandler(
       });
     }
 
-    const client = new Anthropic({ apiKey });
     const enrichedMessage = enrichMessage(message, references);
 
     // Auto-inject current screen context so the agent always knows what
     // the user is looking at without needing to call view-screen first.
-    // If the template registers a view-screen action, run it for rich context;
-    // otherwise fall back to raw navigation state.
     let screenContext = "";
     try {
       const viewScreenAction = resolvedActions["view-screen"];
@@ -457,7 +530,7 @@ export function createProductionAgentHandler(
     const agentRefs = references.filter((r) => r.type === "agent");
 
     // Build user content: text + any image attachments
-    const userContent: Anthropic.ContentBlockParam[] = [];
+    const userContent: EngineContentPart[] = [];
     if (attachments?.length) {
       for (const att of attachments) {
         if (att.type === "image" && att.data) {
@@ -465,15 +538,12 @@ export function createProductionAgentHandler(
           if (match) {
             userContent.push({
               type: "image",
-              source: {
-                type: "base64",
-                media_type: match[1] as
-                  | "image/jpeg"
-                  | "image/png"
-                  | "image/gif"
-                  | "image/webp",
-                data: match[2],
-              },
+              data: match[2],
+              mediaType: match[1] as
+                | "image/jpeg"
+                | "image/png"
+                | "image/gif"
+                | "image/webp",
             });
           }
         }
@@ -484,12 +554,12 @@ export function createProductionAgentHandler(
       text: enrichedMessage + screenContext,
     });
 
-    const messages: Anthropic.MessageParam[] = [
+    const messages: EngineMessage[] = [
       ...history
         .filter((m) => m.content.trim())
         .map((m) => ({
           role: m.role as "user" | "assistant",
-          content: m.content,
+          content: [{ type: "text" as const, text: m.content }],
         })),
       { role: "user" as const, content: userContent },
     ];
@@ -518,14 +588,11 @@ export function createProductionAgentHandler(
                 status: "start",
               });
               try {
-                // Try streaming first — shows progressive text in the UI
-                const client = new A2AClient(ref.path);
+                const a2aClient = new A2AClient(ref.path);
                 const callerEmail = process.env.AGENT_USER_EMAIL;
 
-                // Build A2A metadata with identity info
                 const a2aMetadata: Record<string, unknown> = {};
                 if (callerEmail) a2aMetadata.userEmail = callerEmail;
-                // In prod, include Google token for verification
                 if (process.env.NODE_ENV === "production" && callerEmail) {
                   try {
                     const { listOAuthAccountsByOwner } =
@@ -545,7 +612,7 @@ export function createProductionAgentHandler(
                 let lastSentLength = 0;
 
                 try {
-                  for await (const task of client.stream(
+                  for await (const task of a2aClient.stream(
                     {
                       role: "user",
                       parts: [
@@ -579,7 +646,6 @@ export function createProductionAgentHandler(
                     responseText = newText;
                   }
                 } catch {
-                  // Streaming failed — fall back to blocking call
                   if (!responseText) {
                     responseText = await callAgent(
                       ref.path,
@@ -605,37 +671,40 @@ export function createProductionAgentHandler(
             }),
           );
 
+          const agentResponses_local: string[] = [];
           for (const result of results) {
             if (result.status === "fulfilled") {
-              agentResponses.push(result.value);
+              agentResponses_local.push(result.value);
             }
           }
 
-          if (agentResponses.length > 0) {
+          if (agentResponses_local.length > 0) {
             const agentContext =
-              "Responses from other agents:\n\n" + agentResponses.join("\n\n");
-            // Prepend agent responses to the last user message's text content
+              "Responses from other agents:\n\n" +
+              agentResponses_local.join("\n\n");
             const lastMsg = messages[messages.length - 1];
             if (lastMsg?.role === "user" && Array.isArray(lastMsg.content)) {
-              const textBlock = lastMsg.content.find(
-                (b): b is Anthropic.TextBlockParam => b.type === "text",
+              const textPart = lastMsg.content.find(
+                (p): p is import("./engine/types.js").EngineTextPart =>
+                  p.type === "text",
               );
-              if (textBlock) {
-                textBlock.text = agentContext + "\n\n" + textBlock.text;
+              if (textPart) {
+                textPart.text = agentContext + "\n\n" + textPart.text;
               }
             }
           }
         }
 
         const loopUsage = await runAgentLoop({
-          client,
+          engine,
           model,
           systemPrompt,
-          tools,
+          tools: engineTools,
           messages,
           actions: resolvedActions,
           send,
           signal,
+          providerOptions: options.providerOptions,
         });
 
         // Record token usage for cost tracking (production hosted mode)

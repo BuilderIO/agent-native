@@ -13,6 +13,7 @@ import {
   IconSettings,
 } from "@tabler/icons-react";
 import type { AppDefinition } from "@shared/app-registry";
+import { UpdateIndicator } from "./UpdateIndicator.js";
 
 // Map icon name strings (from shared-app-config) to Tabler components
 const ICON_MAP: Record<string, React.ComponentType<Record<string, unknown>>> = {
@@ -77,9 +78,10 @@ export default function Sidebar({
         ))}
       </nav>
 
-      {/* Settings button at bottom */}
-      {onSettingsClick && (
-        <div className="sidebar-footer">
+      {/* Footer: update indicator (when relevant) + settings */}
+      <div className="sidebar-footer">
+        <UpdateIndicator />
+        {onSettingsClick && (
           <button
             className="sidebar-item"
             tabIndex={-1}
@@ -92,8 +94,8 @@ export default function Sidebar({
             </span>
             <span className="item-label">Settings</span>
           </button>
-        </div>
-      )}
+        )}
+      </div>
     </aside>
   );
 }

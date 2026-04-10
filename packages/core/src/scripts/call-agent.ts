@@ -5,18 +5,18 @@ import { A2AClient, callAgent } from "../a2a/client.js";
 
 export const tool: ActionTool = {
   description:
-    "Call a separate external agent app to ask a question or delegate a task. Only use this when you need to communicate with a *different* deployed app's agent. Do NOT use this for operations your own app can handle directly — use your own actions instead.",
+    "Call a DIFFERENT, separately-deployed agent app to ask a question or delegate a task. This is strictly for cross-app A2A communication — for example, asking the mail agent to send an email while you are the calendar agent. NEVER use this to call your own app or perform actions you can do with your own tools. Using call-agent on yourself will fail and waste time.",
   parameters: {
     type: "object",
     properties: {
       agent: {
         type: "string",
         description:
-          "Agent name or URL of an external agent app to call (e.g., a separately deployed app). Must be a known external agent — do not guess names.",
+          "Name or URL of a DIFFERENT deployed agent app (e.g. 'mail', 'calendar', 'analytics'). Must not be the current app's own name.",
       },
       message: {
         type: "string",
-        description: "The message/question to send to the agent",
+        description: "The message/question to send to the other agent",
       },
     },
     required: ["agent", "message"],
@@ -26,15 +26,23 @@ export const tool: ActionTool = {
 export async function run(
   args: Record<string, string>,
   context?: ActionRunContext,
+  selfAppId?: string,
 ): Promise<string> {
   const { agent: agentIdOrName, message } = args;
 
   if (!agentIdOrName) return "Error: --agent is required";
   if (!message) return "Error: --message is required";
 
-  const agent = await findAgent(agentIdOrName);
+  // Prevent self-calls — the agent must use its own registered tools instead
+  if (selfAppId && agentIdOrName.toLowerCase() === selfAppId.toLowerCase()) {
+    return `Error: You cannot use call-agent to call yourself (${selfAppId}). Use your own registered actions/tools instead. call-agent is only for communicating with OTHER separately-deployed apps.`;
+  }
+
+  const agent = await findAgent(agentIdOrName, selfAppId);
   if (!agent) {
-    const available = (await discoverAgents()).map((a) => a.name).join(", ");
+    const available = (await discoverAgents(selfAppId))
+      .map((a) => a.name)
+      .join(", ");
     return `Error: Agent "${agentIdOrName}" not found. Available agents: ${available || "(none)"}`;
   }
 

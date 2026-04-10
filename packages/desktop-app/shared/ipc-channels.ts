@@ -32,7 +32,32 @@ export const IPC = {
   /** Frame settings (renderer ↔ main) */
   FRAME_LOAD: "frame:load",
   FRAME_UPDATE: "frame:update",
+
+  /** Auto-update (renderer ↔ main) */
+  UPDATE_CHECK: "update:check",
+  UPDATE_DOWNLOAD: "update:download",
+  UPDATE_INSTALL: "update:install",
+  UPDATE_GET_STATUS: "update:get-status",
+  /** Broadcast (main → renderer) */
+  UPDATE_STATUS_CHANGED: "update:status-changed",
 } as const;
+
+/** Auto-update status surfaced from electron-updater. */
+export type UpdateStatus =
+  | { state: "idle" }
+  | { state: "unsupported"; reason: string }
+  | { state: "checking" }
+  | { state: "available"; version: string; releaseNotes?: string }
+  | { state: "not-available"; currentVersion: string }
+  | {
+      state: "downloading";
+      percent: number;
+      bytesPerSecond?: number;
+      transferred?: number;
+      total?: number;
+    }
+  | { state: "downloaded"; version: string; releaseNotes?: string }
+  | { state: "error"; message: string };
 
 export interface ActiveWebviewTarget {
   appId: string;

@@ -10,6 +10,7 @@ import Sidebar from "./components/Sidebar.js";
 import TabBar from "./components/TabBar.js";
 import AppWebview, { type AppWebviewHandle } from "./components/AppWebview.js";
 import AppSettings from "./components/AppSettings.js";
+import UpdatePrompt from "./components/UpdatePrompt.js";
 
 export interface Tab {
   id: string;
@@ -435,6 +436,8 @@ export default function App() {
           onAppsChanged={handleAppsChanged}
         />
       )}
+
+      <UpdatePrompt />
     </div>
   );
 }

@@ -1,4 +1,3 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { nextOccurrence, isValidCron, describeCron } from "./cron.js";
 import {
   resourceListAllOwners,
@@ -6,7 +5,13 @@ import {
   resourceGet,
   type Resource,
 } from "../resources/store.js";
-import { runAgentLoop, type ActionEntry } from "../agent/production-agent.js";
+import {
+  runAgentLoop,
+  actionsToEngineTools,
+  type ActionEntry,
+} from "../agent/production-agent.js";
+import { createAnthropicEngine } from "../agent/engine/index.js";
+import type { AgentEngine } from "../agent/engine/types.js";
 import { createThread } from "../chat-threads/store.js";
 import type { AgentChatEvent } from "../agent/types.js";
 
@@ -99,8 +104,9 @@ export function buildJobContent(meta: JobFrontmatter, body: string): string {
 export interface SchedulerDeps {
   getActions: () => Record<string, ActionEntry>;
   getSystemPrompt: (owner: string) => Promise<string>;
-  getTools: (actions: Record<string, ActionEntry>) => Anthropic.Tool[];
-  apiKey: string;
+  /** Optional engine override. Defaults to AnthropicEngine using apiKey or ANTHROPIC_API_KEY. */
+  engine?: AgentEngine;
+  apiKey?: string;
   model: string;
 }
 
@@ -184,18 +190,20 @@ async function executeJob(
   try {
     const actions = deps.getActions();
     const systemPrompt = await deps.getSystemPrompt(resource.owner);
-    const tools = deps.getTools(actions);
+    const tools = actionsToEngineTools(actions);
 
-    const client = new Anthropic({ apiKey: deps.apiKey });
+    const engine =
+      deps.engine ?? createAnthropicEngine({ apiKey: deps.apiKey });
 
     // Create a chat thread for this run
     const threadTitle = `Job: ${jobName} — ${now.toLocaleDateString()}`;
     const thread = await createThread(threadTitle);
 
-    const messages: Anthropic.MessageParam[] = [
+    const jobText = `[Recurring Job: ${jobName}]\nSchedule: ${describeCron(meta.schedule)}\n\nExecute the following job instructions:\n\n${body}`;
+    const messages = [
       {
-        role: "user",
-        content: `[Recurring Job: ${jobName}]\nSchedule: ${describeCron(meta.schedule)}\n\nExecute the following job instructions:\n\n${body}`,
+        role: "user" as const,
+        content: [{ type: "text" as const, text: jobText }],
       },
     ];
 
@@ -210,7 +218,7 @@ async function executeJob(
 
     try {
       await runAgentLoop({
-        client,
+        engine,
         model: deps.model,
         systemPrompt,
         tools,

@@ -2,6 +2,7 @@ import { getH3App } from "./framework-request-handler.js";
 import {
   createProductionAgentHandler,
   runAgentLoop,
+  actionsToEngineTools,
   getActiveRunForThread,
   getActiveRunForThreadAsync,
   getRun,
@@ -9,6 +10,8 @@ import {
   subscribeToRun,
   type ActionEntry,
 } from "../agent/production-agent.js";
+import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
+import { resolveEngine, createAnthropicEngine } from "../agent/engine/index.js";
 import type {
   ActionTool,
   MentionProvider,
@@ -293,17 +296,42 @@ async function createChatScriptEntries(): Promise<Record<string, ActionEntry>> {
 }
 
 /**
- * Creates the call-agent ActionEntry for cross-agent A2A communication.
+ * Creates agent engine management tools (list-agent-engines, set-agent-engine,
+ * test-agent-engine). Let the agent inspect and configure the active LLM engine.
  */
-async function createCallAgentScriptEntry(): Promise<
+async function createAgentEngineScriptEntries(): Promise<
   Record<string, ActionEntry>
 > {
+  try {
+    const [listMod, setMod, testMod] = await Promise.all([
+      import("../scripts/agent-engines/list-agent-engines.js"),
+      import("../scripts/agent-engines/set-agent-engine.js"),
+      import("../scripts/agent-engines/test-agent-engine.js"),
+    ]);
+
+    return {
+      "list-agent-engines": { tool: listMod.tool, run: listMod.run },
+      "set-agent-engine": { tool: setMod.tool, run: setMod.run },
+      "test-agent-engine": { tool: testMod.tool, run: testMod.run },
+    };
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Creates the call-agent ActionEntry for cross-agent A2A communication.
+ * Binds selfAppId so the agent cannot call itself via call-agent.
+ */
+async function createCallAgentScriptEntry(
+  selfAppId?: string,
+): Promise<Record<string, ActionEntry>> {
   try {
     const mod = await import("../scripts/call-agent.js");
     return {
       "call-agent": {
         tool: mod.tool,
-        run: mod.run,
+        run: (args, context) => mod.run(args, context, selfAppId),
       },
     };
   } catch {
@@ -319,7 +347,7 @@ function createTeamTools(deps: {
   getOwner: () => string;
   getSystemPrompt: () => string;
   getActions: () => Record<string, ActionEntry>;
-  getApiKey: () => string;
+  getEngine: () => AgentEngine;
   getModel: () => string;
   getParentThreadId: () => string;
   getSend: () =>
@@ -377,7 +405,7 @@ function createTeamTools(deps: {
           ownerEmail: deps.getOwner(),
           systemPrompt: deps.getSystemPrompt(),
           actions: subAgentActions,
-          apiKey: deps.getApiKey(),
+          engine: deps.getEngine(),
           model: deps.getModel(),
           parentThreadId: deps.getParentThreadId(),
           parentSend: (event) => {
@@ -537,6 +565,15 @@ export interface AgentChatPluginOptions {
   model?: string;
   /** Anthropic API key. Falls back to ANTHROPIC_API_KEY env var */
   apiKey?: string;
+  /**
+   * Agent engine to use. Can be a pre-constructed AgentEngine, a registered
+   * engine name (e.g. "anthropic", "ai-sdk:openai"), or an object with name
+   * and config. Defaults to the "anthropic" engine using ANTHROPIC_API_KEY.
+   */
+  engine?:
+    | import("../agent/engine/types.js").AgentEngine
+    | string
+    | { name: string; config: Record<string, unknown> };
   /** Route path. Default: /_agent-native/agent-chat */
   path?: string;
   /** Custom mention providers for @-tagging template entities */
@@ -638,6 +675,22 @@ When the user asks for something recurring ("every morning", "daily at 9am", "we
 - "twice a day" / "morning and evening" → \`0 9,17 * * *\`
 
 Job instructions should be self-contained — include which actions to call, what conditions to check, and what to do with results. The agent executing the job has access to all the same tools you do.
+
+### call-agent — External Apps Only
+
+The \`call-agent\` tool sends a message to a DIFFERENT, separately-deployed app's agent (A2A protocol). It is **not** for calling actions within the current app.
+
+**NEVER use \`call-agent\` to:**
+- Call your own app by name (if you are the "macros" agent, never do \`call-agent(agent="macros")\`)
+- Perform tasks you can accomplish with your own registered tools
+- Wrap your own actions in an A2A round-trip
+
+**ONLY use \`call-agent\` when:**
+- The user explicitly asks you to communicate with a different app (e.g., "ask the mail agent to...")
+- You need data that only another deployed app can provide
+- You are coordinating across genuinely separate apps
+
+If \`call-agent\` returns an error saying the agent is yourself — stop and use your own tools instead.
 
 ### Auto-Memory
 
@@ -1007,8 +1060,12 @@ export function createAgentChatPlugin(
 
     // Resource, chat, and cross-agent scripts are available in both prod and dev modes
     const resourceScripts = await createResourceScriptEntries();
-    const chatScripts = await createChatScriptEntries();
-    const callAgentScript = await createCallAgentScriptEntry();
+    const engineScripts = await createAgentEngineScriptEntries();
+    const chatScripts = {
+      ...(await createChatScriptEntries()),
+      ...engineScripts,
+    };
+    const callAgentScript = await createCallAgentScriptEntry(options?.appId);
 
     // Auto-mount A2A protocol endpoints so every app is discoverable
     // and callable by other agents via the standard protocol.
@@ -1201,20 +1258,10 @@ export function createAgentChatPlugin(
 
         // Use the SAME agent setup as the interactive chat — identical tools,
         // prompt, and capabilities. The A2A agent IS the app's agent.
-        const Anthropic = (await import("@anthropic-ai/sdk")).default;
-        const apiKey = options?.apiKey ?? process.env.ANTHROPIC_API_KEY;
-        if (!apiKey) {
-          yield {
-            role: "agent" as const,
-            parts: [
-              {
-                type: "text" as const,
-                text: "Anthropic API key is not configured. Set ANTHROPIC_API_KEY in .env.",
-              },
-            ],
-          };
-          return;
-        }
+        const a2aEngine = await resolveEngine({
+          engineOption: options?.engine,
+          apiKey: options?.apiKey,
+        });
 
         // Use the same handler (dev or prod) that the interactive chat uses
         const handler = canToggle && devHandler ? devHandler : prodHandler;
@@ -1227,7 +1274,6 @@ export function createAgentChatPlugin(
           ? devPrompt + resources + schemaBlock
           : basePrompt + resources + schemaBlock;
 
-        const a2aClient = new Anthropic({ apiKey });
         const model =
           options?.model ??
           (canToggle ? "claude-sonnet-4-6" : "claude-haiku-4-5-20251001");
@@ -1248,33 +1294,26 @@ export function createAgentChatPlugin(
               ...chatScripts,
             };
 
-        const tools: any[] = Object.entries(a2aActions).map(
-          ([name, entry]) => ({
-            name,
-            description: entry.tool.description,
-            input_schema: entry.tool.parameters ?? {
-              type: "object" as const,
-              properties: {},
-            },
-          }),
-        );
+        const a2aTools = actionsToEngineTools(a2aActions);
 
-        const messages: any[] = [{ role: "user", content: text }];
+        const a2aMessages: EngineMessage[] = [
+          { role: "user", content: [{ type: "text", text }] },
+        ];
 
         // Run the SAME agent loop, collect text events, yield as A2A messages
         let accumulatedText = "";
         const controller = new AbortController();
 
         console.log(
-          `[A2A] Starting agent loop: ${tools.length} tools, prompt ${systemPrompt.length} chars`,
+          `[A2A] Starting agent loop: ${a2aTools.length} tools, prompt ${systemPrompt.length} chars`,
         );
 
         await runAgentLoop({
-          client: a2aClient,
+          engine: a2aEngine,
           model,
           systemPrompt,
-          tools,
-          messages,
+          tools: a2aTools,
+          messages: a2aMessages,
           actions: a2aActions,
           send: (event) => {
             if (event.type === "text") {
@@ -1345,11 +1384,10 @@ export function createAgentChatPlugin(
       description: `Agent-native ${options?.appId ?? "app"} agent`,
       actions: allScripts,
       askAgent: async (message: string) => {
-        const Anthropic = (await import("@anthropic-ai/sdk")).default;
-        const apiKey = options?.apiKey ?? process.env.ANTHROPIC_API_KEY;
-        if (!apiKey) return "Anthropic API key is not configured.";
-
-        const client = new Anthropic({ apiKey });
+        const mcpEngine = await resolveEngine({
+          engineOption: options?.engine,
+          apiKey: options?.apiKey,
+        });
         const model =
           options?.model ??
           (canToggle ? "claude-sonnet-4-6" : "claude-haiku-4-5-20251001");
@@ -1368,16 +1406,7 @@ export function createAgentChatPlugin(
               ...chatScripts,
             };
 
-        const tools: any[] = Object.entries(mcpActions).map(
-          ([name, entry]) => ({
-            name,
-            description: entry.tool.description,
-            input_schema: entry.tool.parameters ?? {
-              type: "object" as const,
-              properties: {},
-            },
-          }),
-        );
+        const mcpTools = actionsToEngineTools(mcpActions);
 
         const resources = await loadResourcesForPrompt("local@localhost");
         const schemaBlock = await buildSchemaBlock(
@@ -1392,11 +1421,13 @@ export function createAgentChatPlugin(
         const controller = new AbortController();
 
         await runAgentLoop({
-          client,
+          engine: mcpEngine,
           model,
           systemPrompt,
-          tools,
-          messages: [{ role: "user", content: message }],
+          tools: mcpTools,
+          messages: [
+            { role: "user", content: [{ type: "text", text: message }] },
+          ],
           actions: mcpActions,
           send: (event) => {
             if (event.type === "text") accumulatedText += event.text;
@@ -1419,9 +1450,12 @@ export function createAgentChatPlugin(
     };
 
     // Auto-mount template actions as HTTP endpoints under /_agent-native/actions/
-    // Only template actions (discoveredActions + templateScripts) are exposed — not
-    // built-in resource/chat/dev tools.
-    const httpActions = { ...discoveredActions, ...templateScripts };
+    // Include engine management scripts so the UI can call list/set/test-agent-engine.
+    const httpActions = {
+      ...discoveredActions,
+      ...templateScripts,
+      ...engineScripts,
+    };
     if (Object.keys(httpActions).length > 0) {
       const { mountActionRoutes } = await import("./action-routes.js");
       mountActionRoutes(nitroApp, httpActions, {
@@ -1535,7 +1569,10 @@ export function createAgentChatPlugin(
               ...resourceScripts,
               ...chatScripts,
             },
-      getApiKey: () => options?.apiKey ?? process.env.ANTHROPIC_API_KEY ?? "",
+      getEngine: () =>
+        createAnthropicEngine({
+          apiKey: options?.apiKey ?? process.env.ANTHROPIC_API_KEY,
+        }),
       getModel: () => resolvedModel,
       getParentThreadId: () => _currentRunThreadId,
       getSend: () => {
@@ -2364,49 +2401,37 @@ export function createAgentChatPlugin(
     // Poll every 60 seconds for due recurring jobs and execute them.
     // Uses setInterval so it works in all deployment environments without
     // requiring Nitro experimental tasks configuration.
-    const apiKey = options?.apiKey ?? process.env.ANTHROPIC_API_KEY;
-    if (apiKey) {
-      try {
-        const { processRecurringJobs } = await import("../jobs/scheduler.js");
+    try {
+      const { processRecurringJobs } = await import("../jobs/scheduler.js");
 
-        const schedulerDeps = {
-          getActions: () => ({
-            ...templateScripts,
-            ...resourceScripts,
-            ...chatScripts,
-            ...jobTools,
-          }),
-          getSystemPrompt: async (owner: string) => {
-            const resources = await loadResourcesForPrompt(owner);
-            const schemaBlock = await buildSchemaBlock(owner, false);
-            return basePrompt + resources + schemaBlock;
-          },
-          getTools: (actions: Record<string, ActionEntry>) =>
-            Object.entries(actions).map(([name, entry]) => ({
-              name,
-              description: entry.tool.description,
-              input_schema: entry.tool.parameters ?? {
-                type: "object" as const,
-                properties: {},
-              },
-            })),
-          apiKey,
-          model: resolvedModel,
-        };
+      const schedulerDeps = {
+        getActions: () => ({
+          ...templateScripts,
+          ...resourceScripts,
+          ...chatScripts,
+          ...jobTools,
+        }),
+        getSystemPrompt: async (owner: string) => {
+          const resources = await loadResourcesForPrompt(owner);
+          const schemaBlock = await buildSchemaBlock(owner, false);
+          return basePrompt + resources + schemaBlock;
+        },
+        apiKey: options?.apiKey ?? process.env.ANTHROPIC_API_KEY,
+        model: resolvedModel,
+      };
 
-        // Start after a 10-second delay to let the server fully initialize
-        setTimeout(() => {
-          setInterval(() => {
-            processRecurringJobs(schedulerDeps).catch((err) => {
-              console.error("[recurring-jobs] Scheduler error:", err?.message);
-            });
-          }, 60_000);
-          if (process.env.DEBUG)
-            console.log("[recurring-jobs] Scheduler started (60s interval)");
-        }, 10_000);
-      } catch (err) {
-        // Jobs module not available — skip silently
-      }
+      // Start after a 10-second delay to let the server fully initialize
+      setTimeout(() => {
+        setInterval(() => {
+          processRecurringJobs(schedulerDeps).catch((err) => {
+            console.error("[recurring-jobs] Scheduler error:", err?.message);
+          });
+        }, 60_000);
+        if (process.env.DEBUG)
+          console.log("[recurring-jobs] Scheduler started (60s interval)");
+      }, 10_000);
+    } catch (err) {
+      // Jobs module not available — skip silently
     }
   };
 }

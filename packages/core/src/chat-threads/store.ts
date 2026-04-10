@@ -155,6 +155,51 @@ export async function updateThreadData(
   emitChatThreadChange(id);
 }
 
+export interface ThreadEngineMeta {
+  engineName: string;
+  model: string;
+}
+
+/**
+ * Read the engine pinned to a thread (stored in thread_data JSON).
+ * Returns null if no engine is pinned.
+ */
+export async function getThreadEngineMeta(
+  threadId: string,
+): Promise<ThreadEngineMeta | null> {
+  const thread = await getThread(threadId);
+  if (!thread?.threadData) return null;
+  try {
+    const data = JSON.parse(thread.threadData);
+    if (data.engineMeta?.engineName) return data.engineMeta as ThreadEngineMeta;
+  } catch {}
+  return null;
+}
+
+/**
+ * Pin an engine to a thread by storing engineMeta in thread_data JSON.
+ * Does not change messages, title, or preview.
+ */
+export async function setThreadEngineMeta(
+  threadId: string,
+  meta: ThreadEngineMeta,
+): Promise<void> {
+  const thread = await getThread(threadId);
+  if (!thread) return;
+  let data: Record<string, unknown> = {};
+  try {
+    data = JSON.parse(thread.threadData);
+  } catch {}
+  data.engineMeta = meta;
+  await updateThreadData(
+    threadId,
+    JSON.stringify(data),
+    thread.title,
+    thread.preview,
+    thread.messageCount,
+  );
+}
+
 export async function deleteThread(id: string): Promise<boolean> {
   await ensureTable();
   const client = getDbExec();

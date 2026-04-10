@@ -17,6 +17,9 @@
 
 import type { AgentChatEvent } from "../agent/types.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { actionsToEngineTools } from "../agent/production-agent.js";
+import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
+import { createAnthropicEngine } from "../agent/engine/anthropic-engine.js";
 import { createThread } from "../chat-threads/store.js";
 import { startRun, subscribeToRun } from "../agent/run-manager.js";
 import { runAgentLoop } from "../agent/production-agent.js";
@@ -79,8 +82,10 @@ export interface SpawnTaskOptions {
   systemPrompt: string;
   /** Available actions for the sub-agent */
   actions: Record<string, ActionEntry>;
-  /** API key for Anthropic */
-  apiKey: string;
+  /** Agent engine to use. Falls back to creating an Anthropic engine with apiKey. */
+  engine?: AgentEngine;
+  /** API key for Anthropic (used only if engine is not provided) */
+  apiKey?: string;
   /** Callback to emit events to the parent chat stream */
   parentSend: (event: AgentChatEvent) => void;
   /** Parent thread ID — used to auto-respond when the sub-agent finishes */
@@ -171,22 +176,17 @@ You are a focused sub-agent with a specific task. You have been given a curated 
     systemPrompt += `\n\n## Task-Specific Instructions\n\n${opts.instructions}`;
   }
 
-  // Import Anthropic SDK
-  const Anthropic = (await import("@anthropic-ai/sdk")).default;
-  const client = new Anthropic({ apiKey: opts.apiKey });
-  const model = opts.model ?? "claude-sonnet-4-6";
+  // Resolve the engine — prefer the passed engine, fall back to Anthropic with apiKey
+  const engine: AgentEngine =
+    opts.engine ?? createAnthropicEngine({ apiKey: opts.apiKey });
+  const model = opts.model ?? engine.defaultModel;
 
-  // Build tools from actions
-  const tools: any[] = Object.entries(opts.actions).map(([name, entry]) => ({
-    name,
-    description: entry.tool.description,
-    input_schema: entry.tool.parameters ?? {
-      type: "object" as const,
-      properties: {},
-    },
-  }));
+  // Build tools from actions using the normalized EngineTool format
+  const tools = actionsToEngineTools(opts.actions);
 
-  const messages: any[] = [{ role: "user", content: opts.description }];
+  const messages: EngineMessage[] = [
+    { role: "user", content: [{ type: "text", text: opts.description }] },
+  ];
 
   // Start the agent run in background
   const runId = `run-task-${taskId}`;
@@ -233,7 +233,7 @@ You are a focused sub-agent with a specific task. You have been given a curated 
       };
 
       await runAgentLoop({
-        client,
+        engine,
         model,
         systemPrompt,
         tools,
@@ -274,30 +274,23 @@ You are a focused sub-agent with a specific task. You have been given a curated 
 
       // Persist the full conversation to threadData so the sub-agent tab
       // can restore it later (after the in-memory run is cleaned up).
-      // Convert Anthropic messages to the assistant-ui repository format.
+      // Convert EngineMessage[] to the assistant-ui repository format.
       try {
         const { updateThreadData } = await import("../chat-threads/store.js");
-        const repoMessages = messages.map((msg: any, i: number) => {
+        const repoMessages = messages.map((msg: EngineMessage, i: number) => {
           const parts: any[] = [];
-          const content = msg.content;
-          if (typeof content === "string") {
-            parts.push({ type: "text", text: content });
-          } else if (Array.isArray(content)) {
-            for (const block of content) {
-              if (block.type === "text") {
-                parts.push({ type: "text", text: block.text });
-              } else if (block.type === "tool_use") {
-                parts.push({
-                  type: "tool-call",
-                  toolCallId: block.id,
-                  toolName: block.name,
-                  args: block.input,
-                });
-              } else if (block.type === "tool_result") {
-                // Tool results are part of the user message in Anthropic format
-                // but in assistant-ui they're attached to the tool-call
-                // Skip here — they'll be matched to their tool-call
-              }
+          for (const part of msg.content) {
+            if (part.type === "text") {
+              parts.push({ type: "text", text: part.text });
+            } else if (part.type === "tool-call") {
+              parts.push({
+                type: "tool-call",
+                toolCallId: part.id,
+                toolName: part.name,
+                args: part.input,
+              });
+            } else if (part.type === "tool-result") {
+              // Tool results in the user message — will be matched to tool-call below
             }
           }
           const repoMsg: any = {
@@ -313,23 +306,19 @@ You are a focused sub-agent with a specific task. You have been given a curated 
         });
 
         // Attach tool results to their corresponding tool-call parts
-        for (let i = 0; i < messages.length; i++) {
-          const msg = messages[i];
-          if (msg.role !== "user" || !Array.isArray(msg.content)) continue;
-          for (const block of msg.content) {
-            if (block.type !== "tool_result") continue;
-            // Find the assistant message with the matching tool_use
+        for (const msg of messages) {
+          if (msg.role !== "user") continue;
+          for (const part of msg.content) {
+            if (part.type !== "tool-result") continue;
+            // Find the assistant message with the matching tool-call
             for (const repoMsg of repoMessages) {
               if (repoMsg.role !== "assistant") continue;
               const tc = repoMsg.content?.find(
                 (p: any) =>
-                  p.type === "tool-call" && p.toolCallId === block.tool_use_id,
+                  p.type === "tool-call" && p.toolCallId === part.toolCallId,
               );
               if (tc) {
-                tc.result =
-                  typeof block.content === "string"
-                    ? block.content
-                    : JSON.stringify(block.content);
+                tc.result = part.content;
                 break;
               }
             }
@@ -376,9 +365,9 @@ You are a focused sub-agent with a specific task. You have been given a curated 
           // interrupt an ongoing conversation.
           const activeRun = getActiveRunForThread(opts.parentThreadId);
           if (!activeRun || activeRun.status !== "running") {
-            const Anthropic = (await import("@anthropic-ai/sdk")).default;
-            const followUpClient = new Anthropic({ apiKey: opts.apiKey });
-            const followUpModel = opts.model ?? "claude-sonnet-4-6";
+            const followUpEngine =
+              opts.engine ?? createAnthropicEngine({ apiKey: opts.apiKey });
+            const followUpModel = opts.model ?? followUpEngine.defaultModel;
 
             const statusEmoji = task.status === "errored" ? "!" : "done";
             const notification =
@@ -392,11 +381,16 @@ You are a focused sub-agent with a specific task. You have been given a curated 
               opts.parentThreadId,
               async (send, signal) => {
                 await runAgentLoop({
-                  client: followUpClient,
+                  engine: followUpEngine,
                   model: followUpModel,
                   systemPrompt: opts.systemPrompt,
                   tools: [], // No tools needed for a recap
-                  messages: [{ role: "user", content: notification }],
+                  messages: [
+                    {
+                      role: "user",
+                      content: [{ type: "text", text: notification }],
+                    },
+                  ],
                   actions: {},
                   send,
                   signal,

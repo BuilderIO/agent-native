@@ -30,6 +30,7 @@ import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { setUndoAction } from "@/hooks/use-undo";
 import { toast } from "sonner";
 import type { EmailMessage, MobileActionId } from "@shared/types";
+import type { ThreadSummary } from "@/lib/threads";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   IconArrowLeft,
@@ -56,10 +57,26 @@ import { useIsMobile } from "@/hooks/use-mobile";
 export function EmailThread({
   onArchived,
   emailIds = [],
+  threads = [],
+  selectedIds,
+  setSelectedIds,
   onContactSelect,
 }: {
   onArchived?: (id: string) => void;
   emailIds?: string[];
+  /**
+   * Full thread summaries for the current view. Used to resolve thread keys
+   * back to their latestMessage (id, accountEmail) when bulk-archiving via
+   * shift+j/k multi-selection from the detail view.
+   */
+  threads?: ThreadSummary[];
+  /**
+   * Multi-selection of thread keys (`threadId || id`). Shared with the list
+   * view so selections survive navigation between list and detail views, and
+   * shift+j/k in detail view can extend the same set.
+   */
+  selectedIds?: Set<string>;
+  setSelectedIds?: React.Dispatch<React.SetStateAction<Set<string>>>;
   onContactSelect?: (email: string) => void;
 }) {
   const { view = "inbox", threadId } = useParams<{
@@ -75,16 +92,33 @@ export function EmailThread({
   const compose = useComposeState();
   const queryClient = useQueryClient();
 
-  // Pull any messages we already have from the list cache (instant, no fetch)
+  // Pull any messages we already have from the list cache (instant, no fetch).
+  // The emails query uses useInfiniteQuery so cached data is InfiniteData<{ emails: EmailMessage[] }>,
+  // not a flat array — flatten pages before searching.
   const cachedMessages = useMemo(() => {
     if (!threadId) return [];
     const allCached: EmailMessage[] = [];
-    const queries = queryClient.getQueriesData<EmailMessage[]>({
+    const queries = queryClient.getQueriesData<unknown>({
       queryKey: ["emails"],
     });
     for (const [, data] of queries) {
-      if (!Array.isArray(data)) continue;
-      for (const email of data) {
+      let emails: EmailMessage[];
+      if (Array.isArray(data)) {
+        emails = data as EmailMessage[];
+      } else if (
+        data &&
+        typeof data === "object" &&
+        "pages" in data &&
+        Array.isArray((data as any).pages)
+      ) {
+        // InfiniteData<EmailsPage> — flatten pages
+        emails = (data as any).pages.flatMap(
+          (p: any) => p.emails ?? [],
+        ) as EmailMessage[];
+      } else {
+        continue;
+      }
+      for (const email of emails) {
         if ((email.threadId || email.id) === threadId) {
           allCached.push(email);
         }
@@ -108,8 +142,26 @@ export function EmailThread({
     isFetching: isThreadFetching,
   } = useThreadMessages(threadId);
 
-  // Use full thread when loaded, otherwise show what we have from the list cache
-  const allMessages = threadMessages ?? cachedMessages;
+  // Use the latestMessage from the threads prop as a last-resort preview (avoids
+  // full skeleton when the user just clicked from the list and we have the data).
+  const previewMessage = useMemo(() => {
+    if (!threadId || !threads.length) return undefined;
+    const thread = threads.find(
+      (t) => (t.latestMessage.threadId || t.latestMessage.id) === threadId,
+    );
+    return thread?.latestMessage;
+  }, [threadId, threads]);
+
+  // Use full thread when loaded, fall back to list cache, then to the single
+  // preview message we already have from the list view — never show a full
+  // skeleton when we already have the subject/snippet visible in the list.
+  const allMessages =
+    threadMessages ??
+    (cachedMessages.length > 0
+      ? cachedMessages
+      : previewMessage
+        ? [previewMessage]
+        : []);
   // Hide Superhuman reminder messages — they're noise in the thread view
   const messages = useMemo(
     () =>
@@ -309,9 +361,41 @@ export function EmailThread({
       if (idx === -1) return;
       const nextIdx = idx + delta;
       if (nextIdx < 0 || nextIdx >= ids.length) return;
+      // Plain j/k is a single-thread action — clear any in-progress
+      // multi-selection so the next shortcut (e/d/s/u) doesn't act on it.
+      setSelectedIds?.(new Set());
       navigate(`/${view}/${ids[nextIdx]}${labelSuffix}`);
     },
-    [threadId, view, navigate, labelSuffix],
+    [threadId, view, navigate, labelSuffix, setSelectedIds],
+  );
+
+  // Shift+j/k extends multi-selection across siblings and auto-previews the
+  // newly selected thread. Selection is keyed by thread key (`threadId || id`)
+  // to match the list view so a selection can span both views seamlessly.
+  const extendSelection = useCallback(
+    (delta: number) => {
+      if (!setSelectedIds) return;
+      const ids = emailIdsRef.current;
+      if (!threadId || ids.length === 0) return;
+      const idx = ids.indexOf(threadId);
+      if (idx === -1) return;
+      const nextIdx = idx + delta;
+      if (nextIdx < 0 || nextIdx >= ids.length) return;
+      const nextThreadKey = ids[nextIdx];
+
+      setSelectedIds((prev) => {
+        const updated = new Set(prev);
+        // Anchor the current thread on first shift-move.
+        if (prev.size === 0) updated.add(threadId);
+        updated.add(nextThreadKey);
+        return updated;
+      });
+
+      // Auto-preview the latest selected thread. Use replace so the history
+      // stack doesn't fill up with every shift+j/k press.
+      navigate(`/${view}/${nextThreadKey}${labelSuffix}`, { replace: true });
+    },
+    [threadId, view, navigate, labelSuffix, setSelectedIds],
   );
 
   // Prefetch ±5 siblings in order (nearest first) for fast e/j/k navigation
@@ -412,17 +496,44 @@ export function EmailThread({
   // Mobile action bar
   const isMobile = useIsMobile();
 
+  // Resolve the set of thread keys the next action should operate on. If the
+  // user has a multi-selection (via shift+j/k in list or detail view), act on
+  // that; otherwise fall back to the currently viewed thread.
+  const getActionThreadKeys = useCallback((): string[] => {
+    if (selectedIds && selectedIds.size > 0) return Array.from(selectedIds);
+    if (threadId) return [threadId];
+    return [];
+  }, [selectedIds, threadId]);
+
   const handleArchive = useCallback(() => {
-    if (!email) return;
-    const id = email.id;
-    const tid = threadId || id;
-    // Snapshot thread emails from cache so undo can restore them instantly
+    const threadKeys = getActionThreadKeys();
+    if (threadKeys.length === 0) return;
+
+    // Resolve each thread key to its latestMessage via the threads prop, with
+    // a fallback to the current email when acting on the focused thread alone.
+    const targets = threadKeys
+      .map((key) => {
+        const t = threads.find(
+          (t) => (t.latestMessage.threadId || t.latestMessage.id) === key,
+        );
+        if (t) return t.latestMessage;
+        // Fallback: single-thread archive of the currently viewed thread.
+        if (email && (email.threadId || email.id) === key) return email;
+        return undefined;
+      })
+      .filter((m): m is EmailMessage => !!m);
+
+    if (targets.length === 0) return;
+
+    // Snapshot thread emails from cache so undo can restore them instantly.
     const cached = queryClient
       .getQueriesData<EmailMessage[]>({ queryKey: ["emails"] })
       .flatMap(([, data]) => data ?? []);
-    const snapshot = cached.filter((e) => (e.threadId || e.id) === tid);
+    const keySet = new Set(threadKeys);
+    const snapshot = cached.filter((e) => keySet.has(e.threadId || e.id));
 
-    onArchived?.(id);
+    for (const t of targets) onArchived?.(t.id);
+
     const undo = () => {
       queryClient.setQueriesData<EmailMessage[]>(
         { queryKey: ["emails"] },
@@ -431,25 +542,31 @@ export function EmailThread({
             (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
           ),
       );
-      unarchiveEmail.mutate(id);
+      for (const t of targets) unarchiveEmail.mutate(t.id);
     };
     setUndoAction(undo);
-    toast("Marked as Done.", {
-      action: {
-        label: "UNDO",
-        onClick: undo,
+    toast(
+      targets.length > 1
+        ? `Archived ${targets.length} conversations.`
+        : "Marked as Done.",
+      {
+        action: { label: "UNDO", onClick: undo },
+        position: isMobile ? "top-center" : undefined,
       },
-      position: isMobile ? "top-center" : undefined,
-    });
+    );
     advanceOrGoBack();
-    archiveEmail.mutate({
-      id,
-      accountEmail: email.accountEmail,
-      removeLabel: labelParam || undefined,
-    });
+    for (const t of targets) {
+      archiveEmail.mutate({
+        id: t.id,
+        accountEmail: t.accountEmail,
+        removeLabel: labelParam || undefined,
+      });
+    }
+    setSelectedIds?.(new Set());
   }, [
     email,
-    threadId,
+    threads,
+    getActionThreadKeys,
     archiveEmail,
     unarchiveEmail,
     advanceOrGoBack,
@@ -457,16 +574,31 @@ export function EmailThread({
     queryClient,
     labelParam,
     isMobile,
+    setSelectedIds,
   ]);
 
   const handleTrash = useCallback(() => {
-    if (!email) return;
-    const id = email.id;
-    const tid = threadId || id;
+    const threadKeys = getActionThreadKeys();
+    if (threadKeys.length === 0) return;
+
+    const targets = threadKeys
+      .map((key) => {
+        const t = threads.find(
+          (t) => (t.latestMessage.threadId || t.latestMessage.id) === key,
+        );
+        if (t) return t.latestMessage;
+        if (email && (email.threadId || email.id) === key) return email;
+        return undefined;
+      })
+      .filter((m): m is EmailMessage => !!m);
+
+    if (targets.length === 0) return;
+
     const cached = queryClient
       .getQueriesData<EmailMessage[]>({ queryKey: ["emails"] })
       .flatMap(([, data]) => data ?? []);
-    const snapshot = cached.filter((e) => (e.threadId || e.id) === tid);
+    const keySet = new Set(threadKeys);
+    const snapshot = cached.filter((e) => keySet.has(e.threadId || e.id));
 
     const undo = () => {
       queryClient.setQueriesData<EmailMessage[]>(
@@ -476,18 +608,28 @@ export function EmailThread({
             (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
           ),
       );
-      untrashEmail.mutate(id);
+      for (const t of targets) untrashEmail.mutate(t.id);
     };
     setUndoAction(undo);
-    toast("Moved to Trash.", {
-      action: {
-        label: "UNDO",
-        onClick: undo,
-      },
-    });
+    toast(
+      targets.length > 1
+        ? `Trashed ${targets.length} conversations.`
+        : "Moved to Trash.",
+      { action: { label: "UNDO", onClick: undo } },
+    );
     advanceOrGoBack();
-    trashEmail.mutate(id);
-  }, [email, threadId, trashEmail, untrashEmail, advanceOrGoBack, queryClient]);
+    for (const t of targets) trashEmail.mutate(t.id);
+    setSelectedIds?.(new Set());
+  }, [
+    email,
+    threads,
+    getActionThreadKeys,
+    trashEmail,
+    untrashEmail,
+    advanceOrGoBack,
+    queryClient,
+    setSelectedIds,
+  ]);
 
   const handleStar = useCallback(() => {
     if (!email) return;
@@ -641,9 +783,24 @@ export function EmailThread({
   // Keyboard shortcuts
   useKeyboardShortcuts(
     [
-      { key: "Escape", handler: goBack },
+      {
+        key: "Escape",
+        handler: () => {
+          // If a multi-selection is active, first Escape clears it; second
+          // Escape goes back to the list. Matches Gmail / Superhuman feel.
+          if (selectedIds && selectedIds.size > 0) {
+            setSelectedIds?.(new Set());
+            return;
+          }
+          goBack();
+        },
+      },
       { key: "j", handler: () => goToSibling(1) },
       { key: "k", handler: () => goToSibling(-1) },
+      { key: "j", shift: true, handler: () => extendSelection(1) },
+      { key: "k", shift: true, handler: () => extendSelection(-1) },
+      { key: "ArrowDown", shift: true, handler: () => extendSelection(1) },
+      { key: "ArrowUp", shift: true, handler: () => extendSelection(-1) },
       { key: "n", handler: () => focusMessage(1) },
       { key: "p", handler: () => focusMessage(-1) },
       { key: "Enter", handler: toggleFocused },

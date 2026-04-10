@@ -86,6 +86,7 @@ Skills in `.agents/skills/` provide detailed guidance for each architectural rul
 | `self-modifying-code` | Before editing source, components, or styles                   |
 | `capture-learnings`   | Before recording user preferences or corrections               |
 | `frontend-design`     | Before building or restyling any UI component, page, or layout |
+| `agent-engines`       | Before switching LLM providers or registering a custom engine  |
 
 ## When Adding Features
 
