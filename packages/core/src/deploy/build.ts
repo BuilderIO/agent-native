@@ -197,8 +197,12 @@ export default {
       }
     }
 
-    // Try serving static assets first (CF Pages advanced mode)
-    if (env?.ASSETS) {
+    // Try serving static assets first (CF Pages advanced mode).
+    // Only attempt this for GET/HEAD — the ASSETS binding is a static file
+    // server and returns 405 for any other method, which would short-circuit
+    // API calls (PUT/POST/DELETE to /_agent-native/*) before they reach our
+    // h3 middleware.
+    if (env?.ASSETS && (request.method === "GET" || request.method === "HEAD")) {
       try {
         const assetResponse = await env.ASSETS.fetch(request);
         if (assetResponse.status !== 404) {

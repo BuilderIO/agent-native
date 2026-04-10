@@ -90,6 +90,8 @@ cd templates/macros && pnpm action <name> [args]
 
 ## Voice Commands
 
+Input comes from voice transcription and will contain speech recognition errors. Always interpret based on context — numbers, fitness vocabulary, and common mishearings.
+
 When users speak via the microphone button, their transcribed text is sent to the agent chat. Parse their natural language to determine the action:
 
 - **ADD**: "breakfast 400 calories", "ran for 30 min 300 calories", "I weigh 165"
@@ -97,6 +99,25 @@ When users speak via the microphone button, their transcribed text is sent to th
 - **DELETE**: "delete the pizza", "remove lunch"
 
 Handle multiple items in one command. For weight entries, require explicit weight-related keywords.
+
+### Common Voice Transcription Errors
+
+Speech recognition frequently mishears fitness-related words. Always apply context to resolve ambiguity:
+
+| Heard                    | Likely means                  | Reasoning                                                                                       |
+| ------------------------ | ----------------------------- | ----------------------------------------------------------------------------------------------- |
+| "wait 150" / "wait 1:50" | log weight as 150             | "wait" → "weight"; colons in numbers are artifacts                                              |
+| "dinner 4:40"            | dinner was 440 calories       | Colons in numbers are transcription artifacts; 4:40 → 440 cal is plausible, 4h40m dinner is not |
+| "lunch 3:20"             | lunch was 320 calories        | Same colon artifact pattern                                                                     |
+| "protein shake to 50"    | protein shake, 250 calories   | "to" → "two"; leading digit dropped                                                             |
+| "add away to 300"        | add a workout, 300 cal burned | Phonetic mishear                                                                                |
+
+**General rules:**
+
+- A colon inside a number (e.g. "4:40", "1:50") is almost always a transcription artifact — collapse it: `4:40 → 440`, `1:50 → 150`
+- "wait" / "waited" near a number almost always means "weight" (body weight log)
+- When a number is ambiguous (calories vs. weight vs. duration), use context: meal entries → calories, standalone number after "weigh"/"wait" → body weight
+- If still ambiguous, ask a one-line clarifying question rather than guessing
 
 ## UI Components
 

@@ -133,6 +133,27 @@ export function createAgentChatAdapter(options?: {
         }
 
         if (!res.ok) {
+          // 405 Method Not Allowed usually means the session is broken/expired
+          // (e.g. a redirect to a login page that only accepts GET).
+          if (res.status === 405) {
+            if (typeof window !== "undefined") {
+              window.dispatchEvent(
+                new CustomEvent("agent-chat:auth-error", {
+                  detail: { reason: "session-expired" },
+                }),
+              );
+            }
+            content.push({ type: "text", text: "" });
+            yield {
+              content: [...content],
+              status: {
+                type: "incomplete" as const,
+                reason: "error" as const,
+              },
+            } as ChatModelRunResult;
+            return;
+          }
+
           let errorText = `Server error: ${res.status}`;
           try {
             const body = await res.text();
@@ -201,7 +222,8 @@ export function createAgentChatAdapter(options?: {
           errMsg.includes("Unauthorized") ||
           errMsg.includes("Not authenticated") ||
           errMsg.includes("401") ||
-          errMsg.includes("403");
+          errMsg.includes("403") ||
+          errMsg.includes("405");
 
         // Don't try to reconnect for auth/client errors — show error directly
         if (isAuthError) {

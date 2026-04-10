@@ -73,6 +73,13 @@ export function AppLayout({ children }: AppLayoutProps) {
   const compose = useComposeState();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [snoozeOpen, setSnoozeOpen] = useState(false);
+  // When the user swipes a row to snooze, we need to snooze that specific
+  // email — not whatever is currently focused in navigation state. This
+  // override wins over `targetEmail` while a swipe-triggered modal is open.
+  const [snoozeOverride, setSnoozeOverride] = useState<{
+    id: string;
+    accountEmail?: string;
+  } | null>(null);
   const [searchFocused, setSearchFocused] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const navigate = useNavigate();
@@ -536,8 +543,29 @@ export function AppLayout({ children }: AppLayoutProps) {
       toast.error("No email selected.");
       return;
     }
+    setSnoozeOverride(null);
     setSnoozeOpen(true);
   }, [targetEmail]);
+
+  // Swipe-to-snooze: EmailList dispatches this when a row is swiped right.
+  // We capture the email id here so the modal snoozes the swiped row even
+  // if the user hasn't opened it (and navigation state still points
+  // elsewhere).
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (
+        e as CustomEvent<{ emailId: string; accountEmail?: string }>
+      ).detail;
+      if (!detail?.emailId) return;
+      setSnoozeOverride({
+        id: detail.emailId,
+        accountEmail: detail.accountEmail,
+      });
+      setSnoozeOpen(true);
+    };
+    window.addEventListener("email:request-snooze", handler);
+    return () => window.removeEventListener("email:request-snooze", handler);
+  }, []);
 
   useKeyboardShortcuts([
     {
@@ -1176,10 +1204,18 @@ export function AppLayout({ children }: AppLayoutProps) {
         />
         <SnoozeModal
           open={snoozeOpen}
-          emailId={targetEmail?.id ?? null}
-          accountEmail={targetEmail?.accountEmail}
-          onClose={() => setSnoozeOpen(false)}
-          onSnoozed={() => setSnoozeOpen(false)}
+          emailId={snoozeOverride?.id ?? targetEmail?.id ?? null}
+          accountEmail={
+            snoozeOverride?.accountEmail ?? targetEmail?.accountEmail
+          }
+          onClose={() => {
+            setSnoozeOpen(false);
+            setSnoozeOverride(null);
+          }}
+          onSnoozed={() => {
+            setSnoozeOpen(false);
+            setSnoozeOverride(null);
+          }}
         />
       </div>
     </AccountFilterContext.Provider>

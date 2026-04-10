@@ -1019,7 +1019,9 @@ const AssistantChatInner = forwardRef<
   const isRuntimeRunning = thread.isRunning;
   const messages = thread.messages;
   const [missingApiKey, setMissingApiKey] = useState(false);
-  const [authError, setAuthError] = useState(false);
+  const [authError, setAuthError] = useState<{
+    sessionExpired?: boolean;
+  } | null>(null);
   const [usageLimitReached, setUsageLimitReached] = useState<{
     usageCents: number;
     limitCents: number;
@@ -1336,7 +1338,10 @@ const AssistantChatInner = forwardRef<
 
   // Listen for auth error events from the adapter
   useEffect(() => {
-    const handler = () => setAuthError(true);
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      setAuthError({ sessionExpired: detail?.reason === "session-expired" });
+    };
     window.addEventListener("agent-chat:auth-error", handler);
     return () => window.removeEventListener("agent-chat:auth-error", handler);
   }, []);
@@ -1541,30 +1546,55 @@ const AssistantChatInner = forwardRef<
             </div>
             <div className="text-center max-w-[280px]">
               <p className="text-sm font-medium text-foreground mb-1">
-                Authentication required
+                {authError.sessionExpired
+                  ? "Session expired"
+                  : "Authentication required"}
               </p>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                You need to log in to use the agent. If you're running locally,
-                add{" "}
-                <code className="bg-muted px-1 py-0.5 rounded text-[10px]">
-                  AUTH_MODE=local
-                </code>{" "}
-                to your{" "}
-                <code className="bg-muted px-1 py-0.5 rounded text-[10px]">
-                  .env
-                </code>{" "}
-                file and restart the dev server.
+                {authError.sessionExpired ? (
+                  "Your session may have expired. Log out and log back in to reconnect."
+                ) : (
+                  <>
+                    You need to log in to use the agent. If you&apos;re running
+                    locally, add{" "}
+                    <code className="bg-muted px-1 py-0.5 rounded text-[10px]">
+                      AUTH_MODE=local
+                    </code>{" "}
+                    to your{" "}
+                    <code className="bg-muted px-1 py-0.5 rounded text-[10px]">
+                      .env
+                    </code>{" "}
+                    file and restart the dev server.
+                  </>
+                )}
               </p>
             </div>
-            <button
-              onClick={() => {
-                setAuthError(false);
-                window.location.reload();
-              }}
-              className="text-xs text-muted-foreground hover:text-foreground px-3 py-1.5 rounded-md border border-border hover:bg-accent"
-            >
-              Retry
-            </button>
+            <div className="flex gap-2">
+              {authError.sessionExpired && (
+                <button
+                  onClick={async () => {
+                    try {
+                      await fetch("/_agent-native/auth/logout", {
+                        method: "POST",
+                      });
+                    } catch {}
+                    window.location.reload();
+                  }}
+                  className="text-xs text-destructive hover:text-destructive/80 px-3 py-1.5 rounded-md border border-destructive/30 hover:bg-destructive/10"
+                >
+                  Log out
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  setAuthError(null);
+                  window.location.reload();
+                }}
+                className="text-xs text-muted-foreground hover:text-foreground px-3 py-1.5 rounded-md border border-border hover:bg-accent"
+              >
+                Retry
+              </button>
+            </div>
           </div>
         ) : missingApiKey ? (
           <div className="flex flex-col items-center justify-center h-full px-2">
