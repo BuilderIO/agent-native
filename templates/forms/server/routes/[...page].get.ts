@@ -1,13 +1,15 @@
-import { createSSRRequestHandler } from "@agent-native/core/server/ssr-handler";
+import { createH3SSRHandler } from "@agent-native/core/server/ssr-handler";
 import { defineEventHandler, getRequestURL } from "h3";
 import { renderPublicForm } from "../lib/public-form-ssr.js";
 
-const renderSSR = createSSRRequestHandler();
+const ssr = createH3SSRHandler(
+  // @ts-expect-error — virtual module provided by React Router Vite plugin
+  () => import("virtual:react-router/server-build"),
+);
 
 export default defineEventHandler(async (event) => {
-  const url = getRequestURL(event);
-  if (url.pathname.startsWith("/f/")) {
+  if (getRequestURL(event).pathname.startsWith("/f/")) {
     return renderPublicForm(event);
   }
-  return renderSSR(event);
+  return ssr(event);
 });
