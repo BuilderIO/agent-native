@@ -1036,12 +1036,18 @@ const AssistantChatInner = forwardRef<
   const [reconnectFrozen, setReconnectFrozen] = useState(false);
   const reconnectRunIdRef = useRef<string | null>(null);
   const reconnectAbortRef = useRef<AbortController | null>(null);
-  // Nuclear stop: user clicked stop but runtime hasn't cleared isRunning yet
+  // Nuclear stop: user clicked stop but runtime hasn't cleared yet.
+  // This ONLY affects UI display (button + thinking indicator). Submission
+  // and queue gating still use the real `isRunning` so we never overlap a
+  // new run on top of one that's still cancelling on the server.
   const [forceStopped, setForceStopped] = useState(false);
-  // Treat reconnecting to an active run the same as running for UI purposes.
-  // forceStopped lets the stop button immediately clear the indicator even if
-  // the underlying runtime or reconnect state hasn't caught up yet.
-  const isRunning = !forceStopped && (isRuntimeRunning || isReconnecting);
+  // Real running state — drives submission/queue gating. Treat reconnecting
+  // to an active run the same as running.
+  const isRunning = isRuntimeRunning || isReconnecting;
+  // UI-only running state — drives the stop button and thinking indicator.
+  // forceStopped lets us flip the indicator off immediately even if the
+  // underlying runtime or reconnect state hasn't caught up yet.
+  const showRunningInUI = !forceStopped && isRunning;
   const wasRunningRef = useRef(false);
   const tiptapRef = useRef<TiptapComposerHandle>(null);
 
@@ -1673,7 +1679,7 @@ const AssistantChatInner = forwardRef<
                 AssistantMessage,
               }}
             />
-            {showContinue && !isRunning && (
+            {showContinue && !showRunningInUI && (
               <div className="flex justify-center py-2">
                 <button
                   type="button"
@@ -1695,7 +1701,7 @@ const AssistantChatInner = forwardRef<
                 including during reconnect. The indicator sits BELOW any
                 already-streamed reconnect content so the user sees both
                 "what it did so far" and "it's still working". */}
-            {isRunning && <ThinkingIndicator />}
+            {showRunningInUI && <ThinkingIndicator />}
             {queuedMessages.map((msg, i) => (
               <div key={`queued-${i}`} className="flex justify-end">
                 <div className="max-w-[85%] rounded-lg bg-accent/50 text-foreground/60 px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words">
@@ -1765,7 +1771,7 @@ const AssistantChatInner = forwardRef<
             execMode={execMode}
             onExecModeChange={onExecModeChange}
             actionButton={
-              isRunning ? (
+              showRunningInUI ? (
                 <button
                   onClick={() => {
                     // Immediately force the indicator off — belt-and-suspenders

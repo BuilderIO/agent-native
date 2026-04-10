@@ -232,20 +232,26 @@ export function CompositionProvider({
 
   const handleDelete = useCallback(
     async (id: string) => {
-      // Remove from in-memory registry so sidebar updates immediately
-      const idx = compositions.findIndex((c) => c.id === id);
-      if (idx !== -1) compositions.splice(idx, 1);
-
-      // Delete from DB (best-effort)
+      // Delete from DB FIRST. If this fails, we leave the in-memory
+      // registry untouched so the composition doesn't reappear on reload.
       try {
-        await fetch(`/_agent-native/actions/delete-composition`, {
+        const res = await fetch(`/_agent-native/actions/delete-composition`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ id }),
         });
-      } catch {
-        // ignore
+        if (!res.ok) {
+          throw new Error(`delete-composition failed: ${res.status}`);
+        }
+      } catch (err) {
+        console.error("[Videos] Failed to delete composition:", err);
+        // Bail out — UI stays in sync with the database
+        return;
       }
+
+      // DB delete succeeded; now safe to update the in-memory registry
+      const idx = compositions.findIndex((c) => c.id === id);
+      if (idx !== -1) compositions.splice(idx, 1);
 
       const remaining = compositions.filter((c) => c.id !== id);
       if (id === compositionId && remaining.length > 0) {
