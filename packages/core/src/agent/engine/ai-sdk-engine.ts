@@ -154,7 +154,7 @@ const PROVIDER_PACKAGES: Record<AISDKProvider, string> = {
   groq: "@ai-sdk/groq",
   mistral: "@ai-sdk/mistral",
   cohere: "@ai-sdk/cohere",
-  ollama: "@ai-sdk/ollama",
+  ollama: "ollama-ai-provider",
 };
 
 // ---------------------------------------------------------------------------

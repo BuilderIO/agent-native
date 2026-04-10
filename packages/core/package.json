@@ -100,7 +100,7 @@
     "@ai-sdk/google": ">=1",
     "@ai-sdk/groq": ">=1",
     "@ai-sdk/mistral": ">=1",
-    "@ai-sdk/ollama": ">=0.0.1",
+    "ollama-ai-provider": ">=1",
     "@ai-sdk/openai": ">=1",
     "@assistant-ui/react": ">=0.12",
     "@assistant-ui/react-markdown": ">=0.12",
@@ -148,7 +148,7 @@
     "@ai-sdk/cohere": {
       "optional": true
     },
-    "@ai-sdk/ollama": {
+    "ollama-ai-provider": {
       "optional": true
     },
     "@tabler/icons-react": {
