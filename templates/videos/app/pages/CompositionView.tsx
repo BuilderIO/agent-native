@@ -516,9 +516,12 @@ export default function CompositionView({
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => {
+              onClick={async () => {
+                // Await the delete so the dialog stays open if it fails
+                // (handleDelete bails out silently on error). On success,
+                // navigate() inside handleDelete will unmount this view.
+                await onDelete(composition.id);
                 setShowDeleteConfirm(false);
-                onDelete(composition.id);
               }}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >

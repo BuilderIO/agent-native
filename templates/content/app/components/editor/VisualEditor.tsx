@@ -390,6 +390,11 @@ export function VisualEditor({
   // Track the last content the editor emitted via onChange, so we can
   // distinguish external SQL changes (Notion pull) from our own saves.
   const lastEmittedRef = useRef<string>("");
+  // Tracks the last time the user actually typed (not just had focus). The
+  // focus guard in the content-sync effect uses this so a Notion pull or
+  // agent edit can still apply when the user is idle but happens to have
+  // the editor focused — without yanking in-progress typing.
+  const lastTypedAtRef = useRef<number>(0);
 
   // Create Awareness instance locally (same module as CollaborationCursor uses)
   const localAwareness = useMemo(() => {
@@ -490,6 +495,7 @@ export function VisualEditor({
     },
     onUpdate: ({ editor }) => {
       if (isSettingContent.current) return;
+      lastTypedAtRef.current = Date.now();
       try {
         const md = (editor.storage as any).markdown.getMarkdown();
         const normalized = serializeEditorToNfm(md);
@@ -549,9 +555,12 @@ export function VisualEditor({
     if (content === lastEmittedRef.current) return;
 
     // Skip sync while the user is actively typing (unless the doc switched)
-    // so we don't yank their in-progress edits. Notion pull / agent edits
-    // typically fire when the editor is not focused.
-    if (editor.isFocused && !docChanged) return;
+    // so we don't yank their in-progress edits. We only block if the user
+    // has TYPED in the last 2s — having focus alone isn't enough, otherwise
+    // a Notion pull that happens while the user has the editor focused but
+    // idle would leave them stuck on the pre-pull content.
+    const typedRecently = Date.now() - lastTypedAtRef.current < 2000;
+    if (editor.isFocused && typedRecently && !docChanged) return;
 
     // Defer to a microtask so we don't trigger flushSync during a React
     // render — TipTap's setContent dispatches PM transactions that may

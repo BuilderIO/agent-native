@@ -341,12 +341,13 @@ function ConnectedView({
                   className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
                 />
               )}
-              {!inputValues[step.inputKey!] && (
-                <p className="text-xs text-muted-foreground">
-                  A value is already saved. Leave blank to keep it, or enter a
-                  new value to replace it.
-                </p>
-              )}
+              {envStatus.find((s) => s.key === step.inputKey)?.configured &&
+                !inputValues[step.inputKey!] && (
+                  <p className="text-xs text-muted-foreground">
+                    A value is already saved. Leave blank to keep it, or enter a
+                    new value to replace it.
+                  </p>
+                )}
             </div>
           ))}
         <div className="flex items-center gap-2 pt-2">

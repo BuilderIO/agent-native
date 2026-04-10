@@ -109,6 +109,9 @@ export const deleteSqlDashboard = defineEventHandler(async (event) => {
   const key = `${KEY_PREFIX}${id}`;
   if (ctx.orgId) {
     await deleteOrgSetting(ctx.orgId, key);
+    // Also wipe any pre-org legacy global row, otherwise list/get fallback
+    // logic will resurrect the dashboard after refresh.
+    await deleteSetting(key);
   } else {
     await deleteSetting(key);
   }
