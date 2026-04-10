@@ -5,77 +5,123 @@ import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns navigation state, deck list or current deck/slide details. Always call this first before taking any action.",
+    "See what the user is currently looking at. Returns the CURRENT deck ID, current slide ID, and the full list of slide IDs in the open deck (or the deck list if the user is on the home page). Call this before any slide operation to get the exact IDs you need for add-slide / update-slide / create-deck.",
   parameters: {},
   http: false,
   run: async (_args) => {
-    const navigation = await readAppState("navigation");
-
-    const screen: Record<string, unknown> = {};
-    if (navigation) screen.navigation = navigation;
-
-    const nav = navigation as any;
+    const navigation = (await readAppState("navigation")) as {
+      view?: string;
+      deckId?: string;
+      slideIndex?: number;
+    } | null;
     const db = getDb();
 
-    if (nav?.deckId) {
-      // User is editing a specific deck
+    // ─── Editor view: user has a specific deck open ─────────────────────
+    if (navigation?.deckId) {
       const rows = await db
         .select()
         .from(schema.decks)
-        .where(eq(schema.decks.id, nav.deckId))
+        .where(eq(schema.decks.id, navigation.deckId))
         .limit(1);
 
-      if (rows.length > 0) {
-        const deck = JSON.parse(rows[0].data);
-        const slides = deck?.slides || [];
-        const slideIndex = nav.slideIndex ?? 0;
-        const currentSlide = slides[slideIndex] || null;
-
-        screen.deck = {
-          id: rows[0].id,
-          title: rows[0].title || deck?.title,
-          slideCount: slides.length,
-          currentSlideIndex: slideIndex,
-          currentSlide: currentSlide
-            ? {
-                id: currentSlide.id,
-                layout: currentSlide.layout ?? null,
-                content: currentSlide.content,
-              }
-            : null,
-        };
+      if (rows.length === 0) {
+        return [
+          `view: ${navigation.view ?? "editor"}`,
+          `deckId: ${navigation.deckId}  (NOT FOUND in database — the deck may have just been created and not yet persisted)`,
+          "",
+          "Wait a moment and call view-screen again, or list-decks to see what's available.",
+        ].join("\n");
       }
+
+      const deck = JSON.parse(rows[0].data);
+      const slides: Array<{
+        id: string;
+        layout?: string;
+        content?: string;
+      }> = Array.isArray(deck?.slides) ? deck.slides : [];
+      const slideIndex = navigation.slideIndex ?? 0;
+      const currentSlide = slides[slideIndex] ?? null;
+
+      // Emit a compact, scannable format with IDs at the top. The agent
+      // should be able to grab what it needs at a glance without parsing
+      // nested JSON.
+      const lines: string[] = [];
+      lines.push(`## Current Screen`);
+      lines.push(``);
+      lines.push(`view: ${navigation.view ?? "editor"}`);
+      lines.push(
+        `deckId: ${rows[0].id}            ← use this for add-slide / update-slide / create-deck --deckId`,
+      );
+      lines.push(`deckTitle: ${rows[0].title ?? deck?.title ?? "(untitled)"}`);
+      lines.push(`slideCount: ${slides.length}`);
+      lines.push(`currentSlideIndex: ${slideIndex}`);
+      if (currentSlide) {
+        lines.push(
+          `currentSlideId: ${currentSlide.id}   ← use this for update-slide --slideId`,
+        );
+        lines.push(`currentSlideLayout: ${currentSlide.layout ?? "(none)"}`);
+      } else {
+        lines.push(
+          `currentSlideId: (no slide at index ${slideIndex} — deck may be empty)`,
+        );
+      }
+      lines.push(``);
+      lines.push(`### All slides in this deck (${slides.length})`);
+      if (slides.length === 0) {
+        lines.push(`(empty — use add-slide to add slides)`);
+      } else {
+        for (let i = 0; i < slides.length; i++) {
+          const s = slides[i];
+          const marker = i === slideIndex ? " ◀ current" : "";
+          const contentPreview =
+            typeof s.content === "string"
+              ? s.content
+                  .replace(/<[^>]+>/g, " ")
+                  .replace(/\s+/g, " ")
+                  .trim()
+                  .slice(0, 60)
+              : "";
+          lines.push(
+            `${String(i).padStart(2, " ")}. id=${s.id}  layout=${s.layout ?? "-"}  "${contentPreview}"${marker}`,
+          );
+        }
+      }
+      if (currentSlide?.content) {
+        lines.push(``);
+        lines.push(
+          `### Current slide HTML (index ${slideIndex}, id ${currentSlide.id})`,
+        );
+        lines.push("```html");
+        lines.push(currentSlide.content);
+        lines.push("```");
+      }
+      return lines.join("\n");
+    }
+
+    // ─── List view: user is on the deck list ─────────────────────────────
+    const rows = await db
+      .select()
+      .from(schema.decks)
+      .orderBy(desc(schema.decks.updatedAt));
+
+    const lines: string[] = [];
+    lines.push(`## Current Screen`);
+    lines.push(``);
+    lines.push(`view: ${navigation?.view ?? "list"}`);
+    lines.push(`No deck currently open. User is on the deck list.`);
+    lines.push(``);
+    lines.push(`### All decks (${rows.length})`);
+    if (rows.length === 0) {
+      lines.push(`(no decks — use create-deck to make one)`);
     } else {
-      // User is on the deck list
-      const rows = await db
-        .select()
-        .from(schema.decks)
-        .orderBy(desc(schema.decks.updatedAt));
-
-      const decks = rows.map((row) => {
+      for (const row of rows) {
         const data = JSON.parse(row.data);
-        return { ...data, id: row.id, title: row.title };
-      });
-
-      screen.deckList = {
-        count: decks.length,
-        decks: decks.map((d: any) => {
-          const slides =
-            d.slides ??
-            (typeof d.data === "string" ? JSON.parse(d.data) : d.data)?.slides;
-          return {
-            id: d.id,
-            title: d.title,
-            slideCount: slides?.length ?? 0,
-            updatedAt: d.updatedAt ?? d.updated_at,
-          };
-        }),
-      };
+        const slideCount = Array.isArray(data?.slides) ? data.slides.length : 0;
+        lines.push(
+          `- id=${row.id}  title="${row.title ?? data?.title ?? "(untitled)"}"  slides=${slideCount}`,
+        );
+      }
     }
-
-    if (Object.keys(screen).length === 0) {
-      return "No application state found. Is the app running?";
-    }
-    return JSON.stringify(screen, null, 2);
+    return lines.join("\n");
   },
 });

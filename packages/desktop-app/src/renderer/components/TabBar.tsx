@@ -6,7 +6,7 @@ import {
   IconLayoutGrid,
   IconStack2,
   IconVideo,
-  IconCircleDot,
+  IconBrandJira,
   IconClipboardList,
   IconUsers,
   IconCode,
@@ -23,7 +23,7 @@ const ICON_MAP: Record<string, React.ComponentType<Record<string, unknown>>> = {
   GalleryHorizontal: IconLayoutGrid,
   Code: IconCode,
   Video: IconVideo,
-  CircleDot: IconCircleDot,
+  BrandJira: IconBrandJira,
   ClipboardList: IconClipboardList,
   Users: IconUsers,
 };

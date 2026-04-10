@@ -11,14 +11,9 @@ import {
   useSession,
   type CollabUser,
 } from "@agent-native/core/client";
-import { IconLoader2, IconSparkles } from "@tabler/icons-react";
+import { IconLoader2 } from "@tabler/icons-react";
 import { CommentsSidebar } from "./CommentsSidebar";
 import { useComments } from "@/hooks/use-comments";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 
@@ -200,56 +195,13 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
   return (
     <div className="flex-1 flex min-h-0">
       <div className="flex-1 flex flex-col min-h-0">
-        <DocumentToolbar documentId={documentId} />
-
-        {/* Save indicator + Agent presence + User presence */}
-        {(() => {
-          const otherUsers = activeUsers.filter(
-            (u) => u.email !== session?.email,
-          );
-          return isSaving || otherUsers.length > 0 || agentActive ? (
-            <div className="absolute top-12 right-4 flex items-center gap-2 z-10">
-              {agentActive && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium animate-pulse">
-                      <IconSparkles size={14} />
-                      AI editing
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">
-                    The AI agent is making changes
-                  </TooltipContent>
-                </Tooltip>
-              )}
-              {otherUsers.length > 0 && (
-                <div className="flex -space-x-2">
-                  {otherUsers.map((u, i) => (
-                    <Tooltip key={`${u.email}-${i}`}>
-                      <TooltipTrigger asChild>
-                        <div
-                          className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-medium text-white border-2 border-background cursor-default"
-                          style={{ backgroundColor: u.color }}
-                        >
-                          {u.name.charAt(0).toUpperCase()}
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent side="bottom">
-                        <span>{u.name}</span>
-                      </TooltipContent>
-                    </Tooltip>
-                  ))}
-                </div>
-              )}
-              {isSaving && (
-                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <IconLoader2 size={12} className="animate-spin" />
-                  Saving...
-                </div>
-              )}
-            </div>
-          ) : null;
-        })()}
+        <DocumentToolbar
+          documentId={documentId}
+          activeUsers={activeUsers}
+          agentActive={agentActive}
+          isSaving={isSaving}
+          currentUserEmail={session?.email}
+        />
 
         <div
           ref={scrollContainerRef}

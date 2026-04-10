@@ -17,6 +17,8 @@ import {
   deleteComposeDraft,
   deleteAllComposeDrafts,
 } from "../application-state/handlers.js";
+import { getSetting, putSetting } from "../settings/store.js";
+import { getSession } from "./auth.js";
 
 /**
  * The base path prefix for all framework-level routes.
@@ -153,6 +155,49 @@ export function createCoreRoutesPlugin(
 
     // ─── Application State CRUD ──────────────────────────────────────
     // Auto-mounted so templates don't need boilerplate route files.
+
+    // ─── Avatar routes ──────────────────────────────────────────────────
+    // GET /_agent-native/avatar/:email — fetch any user's avatar (public)
+    // PUT /_agent-native/avatar       — update current user's avatar (auth required)
+    getH3App(nitroApp).use(
+      `${P}/avatar`,
+      defineEventHandler(async (event: H3Event) => {
+        const method = getMethod(event);
+        const emailParam = (event.url?.pathname || "")
+          .replace(/^\/+/, "")
+          .split("/")[0];
+
+        if (method === "GET") {
+          if (!emailParam) {
+            setResponseStatus(event, 400);
+            return { error: "email required" };
+          }
+          const data = await getSetting(
+            `avatar:${decodeURIComponent(emailParam)}`,
+          );
+          return { image: (data as any)?.image ?? null };
+        }
+
+        if (method === "PUT") {
+          const session = await getSession(event);
+          if (!session?.email) {
+            setResponseStatus(event, 401);
+            return { error: "unauthorized" };
+          }
+          const body = await readBody(event);
+          const { image } = body as { image?: string };
+          if (!image || !image.startsWith("data:image/")) {
+            setResponseStatus(event, 400);
+            return { error: "image (data URL) required" };
+          }
+          await putSetting(`avatar:${session.email}`, { image });
+          return { ok: true };
+        }
+
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }),
+    );
 
     if (!options.disableAppState) {
       // Compose draft routes (more specific path, mounted first so the

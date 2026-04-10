@@ -7,6 +7,68 @@ description: "React hooks and utilities for agent-native apps: sendToAgentChat, 
 
 `@agent-native/core` provides React hooks and utilities for the browser-side of agent-native apps.
 
+## File-Based Routing {#file-based-routing}
+
+Agent-native apps use **React Router v7** with file-based routing. Every file in `app/routes/` becomes a URL.
+
+### File → URL mapping
+
+| File                             | URL                                   |
+| -------------------------------- | ------------------------------------- |
+| `app/routes/_index.tsx`          | `/`                                   |
+| `app/routes/settings.tsx`        | `/settings`                           |
+| `app/routes/inbox/index.tsx`     | `/inbox`                              |
+| `app/routes/inbox/$threadId.tsx` | `/inbox/:threadId`                    |
+| `app/routes/inbox.$threadId.tsx` | `/inbox/:threadId` (flat alternative) |
+
+Prefix a segment with `$` for dynamic params. Prefix with `_` to make it a pathless layout route (doesn't add a URL segment). `_index.tsx` is the index route for its folder.
+
+### Adding a new page
+
+Create the file and export a default component:
+
+```tsx
+// app/routes/settings.tsx
+export function meta() {
+  return [{ title: "Settings" }];
+}
+
+export default function SettingsPage() {
+  return <div>Settings</div>;
+}
+```
+
+That's it — React Router picks it up automatically, no registration needed.
+
+### Dynamic params
+
+```tsx
+// app/routes/inbox/$threadId.tsx
+import { useParams } from "react-router";
+
+export default function ThreadPage() {
+  const { threadId } = useParams();
+  return <div>Thread: {threadId}</div>;
+}
+```
+
+### Navigation
+
+Use `<Link>` for client-side navigation and `useNavigate()` for programmatic navigation:
+
+```tsx
+import { Link, useNavigate } from "react-router";
+
+// In JSX
+<Link to="/settings">Settings</Link>;
+
+// Programmatic
+const navigate = useNavigate();
+navigate(`/inbox/${threadId}`);
+```
+
+---
+
 ## sendToAgentChat(opts) {#sendtoagentchat}
 
 Send a message to the agent chat via postMessage. Used to delegate AI tasks from UI interactions.

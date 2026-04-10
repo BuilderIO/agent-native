@@ -150,7 +150,23 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
   });
 
   // Build scoped system prompt
-  let systemPrompt = opts.systemPrompt;
+  // Prepend a clear "you are a sub-agent" reminder so the agent doesn't
+  // start exploring the file system or database before using its actions.
+  const actionNames = Object.keys(opts.actions).join(", ");
+  const subAgentPreamble = `## You Are a Sub-Agent
+
+You are a focused sub-agent with a specific task. You have been given a curated set of actions that connect directly to the app's database and services.
+
+**Start immediately with your task. Do NOT:**
+- Run \`db-schema\` to explore the database structure
+- Run \`search-files\` or \`list-files\` to find code
+- Try to \`curl\` or access external URLs to find the app
+- Use \`shell\` for exploration — only for running \`pnpm action\` commands when no direct action exists
+
+**Your available actions (${actionNames}) work directly. Use them.**
+
+`;
+  let systemPrompt = subAgentPreamble + opts.systemPrompt;
   if (opts.instructions) {
     systemPrompt += `\n\n## Task-Specific Instructions\n\n${opts.instructions}`;
   }

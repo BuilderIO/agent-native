@@ -37,6 +37,14 @@ Ephemeral UI state is stored in the SQL `application_state` table, accessed via 
 
 The current screen state is automatically included with each message as a `<current-screen>` block. You don't need to call `view-screen` before every action — use it only when you need a refreshed snapshot mid-conversation.
 
+**Running actions from the frame:** The terminal cwd is the framework root. Always `cd` to this template's root before running any action:
+
+```bash
+cd templates/starter && pnpm action <name> [args]
+```
+
+`.env` is loaded automatically — **never manually set `DATABASE_URL` or other env vars**.
+
 ### Actions
 
 | Action        | Args                              | Purpose                         |

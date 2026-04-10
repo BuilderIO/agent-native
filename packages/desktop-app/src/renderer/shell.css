@@ -432,6 +432,15 @@ body {
   pointer-events: none;
 }
 
+.webview-slot--fullscreen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9999;
+}
+
 /* Electron's <webview> uses display:flex internally — never set
    display:block. Use flex:1 so it fills the slot container. */
 .app-webview {

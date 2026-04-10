@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DeckProvider } from "@/context/DeckContext";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import {
   AgentSidebar,
   ClientOnly,
@@ -127,7 +128,9 @@ export default function Root() {
   return (
     <ClientOnly fallback={<DefaultSpinner />}>
       <QueryClientProvider client={queryClient}>
-        <AppContent />
+        <TooltipProvider>
+          <AppContent />
+        </TooltipProvider>
       </QueryClientProvider>
     </ClientOnly>
   );

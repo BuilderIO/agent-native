@@ -1,7 +1,11 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router";
 import { IconChevronLeft, IconChevronRight, IconX } from "@tabler/icons-react";
-import type { Slide } from "@/context/DeckContext";
+import type {
+  Slide,
+  SlideAnimation,
+  AnimationType,
+} from "@/context/DeckContext";
 import SlideRenderer from "@/components/deck/SlideRenderer";
 
 interface PresentationViewProps {
@@ -9,6 +13,140 @@ interface PresentationViewProps {
   deckId: string;
   startIndex?: number;
 }
+
+// ─── Element animation helpers ────────────────────────────────────────────────
+
+/** Find the content container inside .fmd-slide that has multiple children. */
+function findContentContainer(root: Element): Element | null {
+  const children = Array.from(root.children);
+  for (let i = children.length - 1; i >= 0; i--) {
+    if (children[i].children.length >= 2) return children[i];
+  }
+  return null;
+}
+
+/**
+ * Get the effective animation steps for a slide.
+ * Uses slide.animations if defined, falls back to splitByParagraph auto-detection.
+ */
+function getAnimationSteps(slide: Slide): SlideAnimation[] | null {
+  if (slide.animations && slide.animations.length > 0) return slide.animations;
+  // Legacy splitByParagraph: auto-detect and create steps
+  if (slide.splitByParagraph) {
+    const doc = new DOMParser().parseFromString(slide.content, "text/html");
+    const root = doc.querySelector(".fmd-slide");
+    if (!root) return null;
+    const container = findContentContainer(root);
+    if (!container) return null;
+    return Array.from(container.children).map((_, i) => ({
+      id: `auto-${i}`,
+      elementIndex: i,
+      type: "slide-up" as AnimationType,
+    }));
+  }
+  return null;
+}
+
+/** CSS animation string for a given element animation type (for the newly-revealed item). */
+function getElemAnimCss(type: AnimationType): string {
+  switch (type) {
+    case "appear":
+      return "animation: elem-appear 100ms ease both;";
+    case "fade":
+      return "animation: elem-appear 400ms ease both;";
+    case "slide-up":
+      return "animation: elem-slide-up 300ms cubic-bezier(0.25,0.46,0.45,0.94) both;";
+    case "zoom":
+      return "animation: elem-zoom 300ms cubic-bezier(0.25,0.46,0.45,0.94) both;";
+  }
+}
+
+/**
+ * Return a modified HTML string where content-container children have
+ * data-pstep attributes and an injected <style> controls visibility.
+ * Uses per-element animation types from the animations array.
+ * Items already revealed jump to end state; the newly revealed item animates.
+ */
+function annotateStepsForPresentation(
+  html: string,
+  steps: SlideAnimation[],
+  currentStep: number,
+): string {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const root = doc.querySelector(".fmd-slide");
+  if (!root) return html;
+  const container = findContentContainer(root);
+  if (!container) return html;
+
+  const containerChildren = Array.from(container.children);
+
+  // Annotate each step element with data-pstep
+  steps.forEach((anim, stepIdx) => {
+    const el = containerChildren[anim.elementIndex];
+    if (el) el.setAttribute("data-pstep", String(stepIdx));
+  });
+
+  const styleLines = steps
+    .map((anim, stepIdx) => {
+      if (stepIdx >= currentStep) {
+        return `[data-pstep="${stepIdx}"] { opacity: 0; pointer-events: none; }`;
+      } else if (stepIdx < currentStep - 1) {
+        // Already revealed — snap to end state
+        return `[data-pstep="${stepIdx}"] { opacity: 1; pointer-events: auto; animation: elem-appear 1ms both; }`;
+      } else {
+        // Newly revealed — animate with its type
+        return `[data-pstep="${stepIdx}"] { opacity: 1; pointer-events: auto; ${getElemAnimCss(anim.type)} }`;
+      }
+    })
+    .join("\n");
+
+  const styleTag = `<style>[data-pstep] { opacity: 0; pointer-events: none; }\n${styleLines}</style>`;
+  return styleTag + doc.body.innerHTML;
+}
+
+// ─── Animation class helpers ──────────────────────────────────────────────────
+
+function isInstant(t: Slide["transition"]): boolean {
+  return !t || t === "instant" || t === "none";
+}
+
+function getEnterClass(
+  transition: Slide["transition"],
+  direction: "next" | "prev",
+): string {
+  switch (transition) {
+    case "fade":
+      return "slide-anim-fade-enter";
+    case "slide":
+      return direction === "next"
+        ? "slide-anim-slide-enter-right"
+        : "slide-anim-slide-enter-left";
+    case "zoom":
+      return "slide-anim-zoom-enter";
+    default:
+      return "";
+  }
+}
+
+function getExitClass(
+  transition: Slide["transition"],
+  direction: "next" | "prev",
+): string {
+  switch (transition) {
+    case "fade":
+      return "slide-anim-fade-exit";
+    case "slide":
+      return direction === "next"
+        ? "slide-anim-slide-exit-left"
+        : "slide-anim-slide-exit-right";
+    case "zoom":
+      return "slide-anim-zoom-exit";
+    default:
+      return "";
+  }
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export default function PresentationView({
   slides,
@@ -18,18 +156,71 @@ export default function PresentationView({
   const [currentIndex, setCurrentIndex] = useState(
     Math.min(startIndex, slides.length - 1),
   );
+  const [prevIndex, setPrevIndex] = useState<number | null>(null);
+  const [direction, setDirection] = useState<"next" | "prev">("next");
+  const [animating, setAnimating] = useState(false);
+  const [currentStep, setCurrentStep] = useState(0);
   const [showControls, setShowControls] = useState(false);
   const navigate = useNavigate();
 
   const isShared = deckId.startsWith("__shared__/");
 
+  const currentSlide = slides[currentIndex];
+  const animSteps = currentSlide ? getAnimationSteps(currentSlide) : null;
+  const maxSteps = animSteps ? animSteps.length : 0;
+
+  const startTransition = useCallback(
+    (newIndex: number, dir: "next" | "prev") => {
+      const incoming = slides[newIndex];
+      const t = incoming?.transition;
+      // Going backward → fully revealed; forward → start at 0
+      const incomingSteps = incoming ? getAnimationSteps(incoming) : null;
+      const initialStep =
+        dir === "prev" ? (incomingSteps ? incomingSteps.length : 0) : 0;
+
+      if (isInstant(t)) {
+        setCurrentIndex(newIndex);
+        setCurrentStep(initialStep);
+        return;
+      }
+
+      setPrevIndex(currentIndex);
+      setDirection(dir);
+      setAnimating(true);
+      setCurrentIndex(newIndex);
+      setCurrentStep(initialStep);
+
+      setTimeout(() => {
+        setPrevIndex(null);
+        setAnimating(false);
+      }, 400);
+    },
+    [currentIndex, slides],
+  );
+
   const goNext = useCallback(() => {
-    setCurrentIndex((prev) => Math.min(prev + 1, slides.length - 1));
-  }, [slides.length]);
+    if (animating) return;
+    // Reveal next paragraph step if enabled
+    if (maxSteps > 0 && currentStep < maxSteps) {
+      setCurrentStep((prev) => prev + 1);
+      return;
+    }
+    if (currentIndex >= slides.length - 1) return;
+    startTransition(currentIndex + 1, "next");
+  }, [
+    animating,
+    maxSteps,
+    currentStep,
+    currentIndex,
+    slides.length,
+    startTransition,
+  ]);
 
   const goPrev = useCallback(() => {
-    setCurrentIndex((prev) => Math.max(prev - 1, 0));
-  }, []);
+    if (animating) return;
+    if (currentIndex <= 0) return;
+    startTransition(currentIndex - 1, "prev");
+  }, [animating, currentIndex, startTransition]);
 
   const exit = useCallback(() => {
     if (document.fullscreenElement) {
@@ -58,7 +249,6 @@ export default function PresentationView({
           goPrev();
           break;
         case "Escape":
-          // If in fullscreen, browser handles Escape -> fullscreenchange listener navigates back
           if (!document.fullscreenElement) {
             exit();
           }
@@ -81,7 +271,6 @@ export default function PresentationView({
         .catch(() => {});
     }
     const handleFullscreenChange = () => {
-      // Only navigate back if we were actually in fullscreen and user exited
       if (wasFullscreen && !document.fullscreenElement) {
         if (isShared) {
           const token = deckId.replace("__shared__/", "");
@@ -100,7 +289,7 @@ export default function PresentationView({
     };
   }, []);
 
-  // Auto-hide controls (mouse + touch)
+  // Auto-hide controls
   useEffect(() => {
     let timeout: ReturnType<typeof setTimeout>;
     const handleMove = () => {
@@ -117,24 +306,60 @@ export default function PresentationView({
     };
   }, []);
 
-  const currentSlide = slides[currentIndex];
+  const displaySlide = useMemo(() => {
+    if (!currentSlide || !animSteps || animSteps.length === 0)
+      return currentSlide;
+    return {
+      ...currentSlide,
+      content: annotateStepsForPresentation(
+        currentSlide.content,
+        animSteps,
+        currentStep,
+      ),
+    };
+  }, [currentSlide, animSteps, currentStep]);
+
   if (!currentSlide) return null;
+
+  const enterClass = animating
+    ? getEnterClass(currentSlide.transition, direction)
+    : "";
+  const exitClass =
+    animating && prevIndex !== null
+      ? getExitClass(currentSlide.transition, direction)
+      : "";
 
   return (
     <div
-      className="fixed inset-0 z-[100] bg-black flex items-center justify-center"
+      className="fixed inset-0 z-[100] bg-black overflow-hidden"
       onClick={goNext}
     >
-      {/* Slide - fills viewport using same SlideInner as thumbnails */}
-      <div className="w-full h-full">
-        <SlideRenderer slide={currentSlide} thumbnail={false} />
+      {/* Exiting slide — rendered only during transition */}
+      {animating && prevIndex !== null && (
+        <div
+          key={slides[prevIndex].id + "-exit"}
+          className={`absolute inset-0 z-10 ${exitClass}`}
+          style={{ willChange: "transform, opacity" }}
+        >
+          <SlideRenderer slide={slides[prevIndex]} thumbnail={false} />
+        </div>
+      )}
+
+      {/* Entering / current slide */}
+      <div
+        key={currentSlide.id + "-enter"}
+        className={`absolute inset-0 z-20 ${enterClass}`}
+        style={animating ? { willChange: "transform, opacity" } : undefined}
+      >
+        <SlideRenderer slide={displaySlide} thumbnail={false} />
       </div>
 
       {/* Controls overlay */}
       <div
-        className={`fixed inset-x-0 bottom-0 transition-all duration-300 z-[101] ${
+        className={`fixed inset-x-0 bottom-0 z-[101] ${
           showControls ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
         }`}
+        style={{ transition: "opacity 0.3s, transform 0.3s" }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-4 sm:px-6 py-4 bg-gradient-to-t from-black/80 to-transparent">
@@ -153,7 +378,10 @@ export default function PresentationView({
             </button>
             <button
               onClick={goNext}
-              disabled={currentIndex === slides.length - 1}
+              disabled={
+                currentIndex === slides.length - 1 &&
+                (maxSteps === 0 || currentStep >= maxSteps)
+              }
               className="p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
               aria-label="Next slide"
             >
@@ -173,8 +401,11 @@ export default function PresentationView({
         {/* Progress bar */}
         <div className="h-0.5 bg-white/10">
           <div
-            className="h-full bg-[#609FF8] transition-all duration-300"
-            style={{ width: `${((currentIndex + 1) / slides.length) * 100}%` }}
+            className="h-full bg-[#609FF8]"
+            style={{
+              width: `${((currentIndex + 1) / slides.length) * 100}%`,
+              transition: "width 0.3s",
+            }}
           />
         </div>
       </div>

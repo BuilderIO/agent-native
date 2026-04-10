@@ -115,6 +115,14 @@ The current screen state (including form details and response data) is automatic
 
 **Always use `pnpm action <name>` for operations** — never curl or raw HTTP.
 
+**Running actions from the frame:** The terminal cwd is the framework root. Always `cd` to this template's root before running any action:
+
+```bash
+cd templates/forms && pnpm action <name> [args]
+```
+
+`.env` is loaded automatically — **never manually set `DATABASE_URL` or other env vars**.
+
 **After any mutation** (create, update, delete), always run `pnpm action refresh-list` to trigger a UI update.
 
 ## Actions

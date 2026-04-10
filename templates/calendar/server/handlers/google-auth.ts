@@ -42,7 +42,13 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
         ? session.email
         : undefined;
     const desktop = isElectron(event);
-    const state = encodeOAuthState(redirectUri, owner, desktop);
+    const state = encodeOAuthState(
+      redirectUri,
+      owner,
+      desktop,
+      false,
+      "calendar",
+    );
     const url = getAuthUrl(undefined, redirectUri, state);
     return { url };
   } catch (error: any) {
@@ -125,7 +131,13 @@ export const getGoogleAddAccountUrl = defineEventHandler(
         (getQuery(event).redirect_uri as string) ||
         `${getOrigin(event)}/_agent-native/google/callback`;
       const desktop = isElectron(event);
-      const state = encodeOAuthState(redirectUri, session.email, desktop, true);
+      const state = encodeOAuthState(
+        redirectUri,
+        session.email,
+        desktop,
+        true,
+        "calendar",
+      );
       const url = getAuthUrl(undefined, redirectUri, state);
       return { url };
     } catch (error: any) {

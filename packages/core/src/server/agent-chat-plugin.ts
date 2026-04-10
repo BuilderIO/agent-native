@@ -357,12 +357,25 @@ function createTeamTools(deps: {
         // concurrent runs don't clobber each other's send reference.
         const capturedSend = deps.getSend();
         const { spawnTask } = await import("./agent-teams.js");
+        // Filter out team orchestration tools so sub-agents can't spawn sub-agents
+        const teamToolNames = new Set([
+          "spawn-task",
+          "task-status",
+          "read-task-result",
+          "send-to-task",
+          "list-tasks",
+        ]);
+        const subAgentActions = Object.fromEntries(
+          Object.entries(deps.getActions()).filter(
+            ([name]) => !teamToolNames.has(name),
+          ),
+        );
         const task = await spawnTask({
           description: args.task,
           instructions: args.instructions,
           ownerEmail: deps.getOwner(),
           systemPrompt: deps.getSystemPrompt(),
-          actions: deps.getActions(),
+          actions: subAgentActions,
           apiKey: deps.getApiKey(),
           model: deps.getModel(),
           parentThreadId: deps.getParentThreadId(),
@@ -604,7 +617,7 @@ You are an orchestrator. For complex or multi-step tasks, delegate to sub-agents
 4. Use \`read-task-result\` to check results when needed, or the user can see live progress in the card.
 5. If the user's request has multiple steps, you can spawn one sub-agent per step, or chain them.
 
-The sub-agent has the same tools you do. Give it a specific, actionable task description — it will figure out which tools to use.
+Sub-agents have access to all template tools but **cannot spawn sub-agents themselves** — only you (the orchestrator) can do that. Give the sub-agent a specific, actionable task description — it will figure out which tools to use.
 
 ### Recurring Jobs
 
@@ -676,6 +689,8 @@ The agent and the UI are equal partners — everything the UI can do, you can do
 
 **There are NO restrictions in dev mode.** If a dedicated tool/action doesn't exist for what you need, use \`shell\` to run any command. For example: \`shell({ command: 'curl -s https://api.example.com/data' })\`
 
+**Template-specific actions are invoked via shell, NOT as direct tools.** In dev mode, the only tools registered as native tool calls are framework-level utilities (shell, file ops, resources, chat, teams, jobs). Anything from the template's \`actions/\` directory must be run through shell: \`shell({ command: 'pnpm action <name> --arg value' })\`. The "Available Actions" section below shows the exact CLI syntax for each one — copy that command verbatim and pass it to \`shell\`. Do not try to call template actions by name as if they were tools; they will not appear in your tool list.
+
 When editing code, follow the agent-native architecture:
 - Every feature needs all four areas: UI + scripts + skills/instructions + application-state sync
 - All SQL must be dialect-agnostic (works on SQLite and Postgres)
@@ -686,37 +701,65 @@ ${FRAMEWORK_CORE}`;
 const DEFAULT_SYSTEM_PROMPT = PROD_FRAMEWORK_PROMPT;
 
 /**
- * Pre-load AGENTS.md and LEARNINGS.md (personal + shared) and append to the system prompt.
- * This ensures the agent always has the user's context without needing to call tools first.
+ * Pre-load the agent's context: AGENTS.md (template instructions), the skills
+ * index, and LEARNINGS.md (user notes). These all get appended to the system
+ * prompt so the agent has everything it needs from the first turn — no tool
+ * calls required to figure out "what is this app".
+ *
+ * Three sources are layered:
+ *
+ *   1. `<template>` — AGENTS.md + skills index from the `virtual:agents-bundle`
+ *      module (inlined at build time by the Vite plugin, falls back to a
+ *      filesystem read from `process.cwd()` in dev). Canonical source for
+ *      "what is this app, what can it do, what skills are available".
+ *   2. `<shared>` — LEARNINGS.md from the SQL shared scope. Team-level notes.
+ *   3. `<personal>` — LEARNINGS.md from the SQL personal scope. The current
+ *      user's own notes.
+ *
+ * Each source is read independently — no copying between them. Editing
+ * AGENTS.md and restarting the server is all it takes; Vite HMR invalidates
+ * the bundle in dev so changes land instantly.
  */
 async function loadResourcesForPrompt(owner: string): Promise<string> {
   await ensurePersonalDefaults(owner);
 
-  const resourceNames = ["AGENTS.md", "LEARNINGS.md"];
   const sections: string[] = [];
 
-  for (const name of resourceNames) {
-    // Read shared
+  // 1. Template AGENTS.md + skills index — from the virtual bundle.
+  try {
+    const { loadAgentsBundle, generateSkillsPromptBlock } =
+      await import("./agents-bundle.js");
+    const bundle = await loadAgentsBundle();
+    if (bundle.agentsMd.trim()) {
+      sections.push(
+        `<resource name="AGENTS.md" scope="template">\n${bundle.agentsMd.trim()}\n</resource>`,
+      );
+    }
+    const skillsBlock = generateSkillsPromptBlock(bundle);
+    if (skillsBlock) sections.push(skillsBlock);
+  } catch {}
+
+  // LEARNINGS.md from SQL (template-level instructions are in AGENTS.md above).
+  // 2. Shared SQL scope
+  try {
+    const shared = await resourceGetByPath(SHARED_OWNER, "LEARNINGS.md");
+    if (shared?.content?.trim()) {
+      sections.push(
+        `<resource name="LEARNINGS.md" scope="shared">\n${shared.content.trim()}\n</resource>`,
+      );
+    }
+  } catch {}
+
+  // 3. Personal SQL scope (skip if owner is the shared sentinel)
+  if (owner !== SHARED_OWNER) {
     try {
-      const shared = await resourceGetByPath(SHARED_OWNER, name);
-      if (shared?.content?.trim()) {
+      const personal = await resourceGetByPath(owner, "LEARNINGS.md");
+      if (personal?.content?.trim()) {
         sections.push(
-          `<resource name="${name}" scope="shared">\n${shared.content.trim()}\n</resource>`,
+          `<resource name="LEARNINGS.md" scope="personal">\n${personal.content.trim()}\n</resource>`,
         );
       }
     } catch {}
-
-    // Read personal (skip if owner is the shared sentinel)
-    if (owner !== SHARED_OWNER) {
-      try {
-        const personal = await resourceGetByPath(owner, name);
-        if (personal?.content?.trim()) {
-          sections.push(
-            `<resource name="${name}" scope="personal">\n${personal.content.trim()}\n</resource>`,
-          );
-        }
-      } catch {}
-    }
   }
 
   if (sections.length === 0) return "";
@@ -732,23 +775,102 @@ const DEFAULT_DEV_PROMPT = "";
 /**
  * Generates a system prompt section describing registered template actions.
  * This helps the agent prefer template-specific actions over raw db-query/db-exec.
+ *
+ * Two output modes:
+ *
+ *   - `"tool"` — used in production, where template actions are registered
+ *     as native Anthropic tools. Output reads `name(arg*: type; ...) — desc`.
+ *   - `"cli"` — used in dev, where template actions are NOT registered as
+ *     native tools and must be invoked via `shell(command="pnpm action ...")`.
+ *     Output reads `pnpm action name --arg <type> [--opt <type>] — desc`.
  */
-function generateActionsPrompt(registry: Record<string, ActionEntry>): string {
+function generateActionsPrompt(
+  registry: Record<string, ActionEntry>,
+  mode: "cli" | "tool" = "tool",
+): string {
   if (!registry || Object.keys(registry).length === 0) return "";
 
   const lines = Object.entries(registry).map(([name, entry]) => {
     const desc = entry.tool.description;
     const params = entry.tool.parameters?.properties;
-    if (params) {
-      const paramList = Object.entries(params)
-        .map(([k, v]) => `--${k}${v.description ? ` (${v.description})` : ""}`)
-        .join(", ");
-      return `- \`${name}\` — ${desc} Args: ${paramList}`;
+    const requiredFields = new Set(entry.tool.parameters?.required ?? []);
+
+    if (mode === "cli") {
+      // CLI mode: emit `pnpm action <name> --required <type> [--optional <type>]`
+      if (!params || Object.keys(params).length === 0) {
+        return `- \`pnpm action ${name}\` — ${desc}`;
+      }
+      const entries = Object.entries(params);
+      // Required first (alphabetical), then optional (alphabetical)
+      entries.sort(([a], [b]) => {
+        const ar = requiredFields.has(a) ? 0 : 1;
+        const br = requiredFields.has(b) ? 0 : 1;
+        if (ar !== br) return ar - br;
+        return a.localeCompare(b);
+      });
+      const required: string[] = [];
+      const optional: string[] = [];
+      const requiredNames: string[] = [];
+      for (const [k, v] of entries) {
+        const type = (v as { type?: string }).type ?? "any";
+        const flag = `--${k} <${type}>`;
+        if (requiredFields.has(k)) {
+          required.push(flag);
+          requiredNames.push(`--${k}`);
+        } else {
+          optional.push(`[${flag}]`);
+        }
+      }
+      const cmd = ["pnpm action " + name, ...required, ...optional].join(" ");
+      const requiredNote =
+        requiredNames.length > 0
+          ? ` Required: ${requiredNames.join(", ")}.`
+          : "";
+      return `- \`${cmd}\` — ${desc}.${requiredNote}`;
     }
-    return `- \`${name}\` — ${desc}`;
+
+    // tool mode (production / native tool calls)
+    if (params) {
+      // Order required params first, then optional. Mark required with "*"
+      // and include type + description so the agent knows exactly how to call.
+      const entries = Object.entries(params);
+      entries.sort(([a], [b]) => {
+        const ar = requiredFields.has(a) ? 0 : 1;
+        const br = requiredFields.has(b) ? 0 : 1;
+        if (ar !== br) return ar - br;
+        return a.localeCompare(b);
+      });
+      const paramList = entries
+        .map(([k, v]) => {
+          const isRequired = requiredFields.has(k);
+          const type = (v as { type?: string }).type ?? "any";
+          const marker = isRequired ? "*" : "?";
+          const descPart = v.description ? ` — ${v.description}` : "";
+          return `${k}${marker}: ${type}${descPart}`;
+        })
+        .join("; ");
+      return `- \`${name}\`(${paramList}) — ${desc}`;
+    }
+    return `- \`${name}\`() — ${desc}`;
   });
 
-  return `\n\n## Available Actions\n\nThese are your registered template actions. ALWAYS prefer these over raw db-query/db-exec when a matching action exists:\n\n${lines.join("\n")}`;
+  if (mode === "cli") {
+    return `\n\n## Available Actions
+
+**These template actions are NOT exposed as direct tools in dev mode. To run any of them, use the \`shell\` tool with the exact command shown below.** Example: \`shell(command="pnpm action add-slide --deckId abc --content 'Hello'")\`.
+
+Do NOT try to call these by name as if they were tools — they will not exist in your tool list. Always go through \`shell\`.
+
+${lines.join("\n")}`;
+  }
+
+  return `\n\n## Available Actions
+
+**Use these actions directly to accomplish tasks. Do NOT use \`db-schema\`, \`search-files\`, or \`shell\` to explore the app — these actions already connect to the correct database and services.**
+
+Parameter notation: \`name*\` = required, \`name?\` = optional. Always pass the tool's parameters as a JSON object to the tool_use call — never via shell or string-concatenated CLI flags.
+
+${lines.join("\n")}`;
 }
 
 /**
@@ -966,14 +1088,26 @@ export function createAgentChatPlugin(
           );
       } catch {}
     }
-    const allScripts = {
-      ...discoveredActions,
-      ...templateScripts,
-      ...resourceScripts,
-      ...chatScripts,
-      ...callAgentScript,
-      ...devScriptsForA2A,
-    };
+    // In dev mode, template actions (templateScripts and discoveredActions) are
+    // NOT registered as native tools — the agent invokes them via shell instead.
+    // This avoids degenerate empty-object tool calls that Anthropic models
+    // sometimes emit for actions with complex schemas. Production keeps the
+    // native registration since it has no shell access.
+    const allScripts = canToggle
+      ? {
+          ...resourceScripts,
+          ...chatScripts,
+          ...callAgentScript,
+          ...devScriptsForA2A,
+        }
+      : {
+          ...discoveredActions,
+          ...templateScripts,
+          ...resourceScripts,
+          ...chatScripts,
+          ...callAgentScript,
+          ...devScriptsForA2A,
+        };
 
     const { mountA2A } = await import("../a2a/server.js");
     mountA2A(nitroApp, {
@@ -1078,15 +1212,19 @@ export function createAgentChatPlugin(
 
         // Build tools — same as interactive handler but WITHOUT call-agent
         // to prevent infinite recursive A2A loops (agent calling itself).
+        // In dev mode, template actions are invoked via shell (not native tools),
+        // so they're omitted from the tool registry — see allScripts comment.
         const a2aActions = canToggle
           ? {
-              ...discoveredActions,
-              ...templateScripts,
               ...resourceScripts,
               ...chatScripts,
               ...devScriptsForA2A,
             }
-          : { ...templateScripts, ...resourceScripts, ...chatScripts };
+          : {
+              ...templateScripts,
+              ...resourceScripts,
+              ...chatScripts,
+            };
 
         const tools: any[] = Object.entries(a2aActions).map(
           ([name, entry]) => ({
@@ -1150,19 +1288,28 @@ export function createAgentChatPlugin(
     });
 
     // Generate an "Available Actions" section from template-specific actions
-    // so the agent knows to use them instead of raw SQL
-    const actionsPrompt = generateActionsPrompt(templateScripts);
+    // so the agent knows to use them instead of raw SQL.
+    //
+    // Production: actions are native tools — emit `name(arg*: type) — desc`
+    // Dev: actions are invoked via shell — emit `pnpm action name --arg <type>`
+    //      and include discoveredActions too, since those are also missing
+    //      from the dev tool registry.
+    const prodActionsPrompt = generateActionsPrompt(templateScripts, "tool");
+    const devActionsPrompt = generateActionsPrompt(
+      { ...discoveredActions, ...templateScripts },
+      "cli",
+    );
 
     // Build system prompts — dynamic functions that pre-load resources per-request.
     // Production gets PROD_FRAMEWORK_PROMPT, dev gets DEV_FRAMEWORK_PROMPT.
     // Custom systemPrompt from options overrides the framework default entirely.
     const prodPrompt =
-      (options?.systemPrompt ?? PROD_FRAMEWORK_PROMPT) + actionsPrompt;
+      (options?.systemPrompt ?? PROD_FRAMEWORK_PROMPT) + prodActionsPrompt;
     const devPrompt =
       (options?.devSystemPrompt
         ? options.devSystemPrompt +
           (options?.systemPrompt ?? PROD_FRAMEWORK_PROMPT)
-        : DEV_FRAMEWORK_PROMPT) + actionsPrompt;
+        : DEV_FRAMEWORK_PROMPT) + devActionsPrompt;
     // Keep legacy names for the composition below
     const basePrompt = prodPrompt;
     const devPrefix = options?.devSystemPrompt ?? DEFAULT_DEV_PROMPT;
@@ -1185,16 +1332,19 @@ export function createAgentChatPlugin(
           options?.model ??
           (canToggle ? "claude-sonnet-4-6" : "claude-haiku-4-5-20251001");
 
-        // Same actions as A2A — without call-agent to prevent loops
+        // Same actions as A2A — without call-agent to prevent loops.
+        // In dev mode, template actions go through shell, not native tools.
         const mcpActions = canToggle
           ? {
-              ...discoveredActions,
-              ...templateScripts,
               ...resourceScripts,
               ...chatScripts,
               ...devScriptsForA2A,
             }
-          : { ...templateScripts, ...resourceScripts, ...chatScripts };
+          : {
+              ...templateScripts,
+              ...resourceScripts,
+              ...chatScripts,
+            };
 
         const tools: any[] = Object.entries(mcpActions).map(
           ([name, entry]) => ({
@@ -1345,11 +1495,20 @@ export function createAgentChatPlugin(
     const teamTools = createTeamTools({
       getOwner: () => _currentRunOwner,
       getSystemPrompt: () => _currentRunSystemPrompt,
-      getActions: () => ({
-        ...templateScripts,
-        ...resourceScripts,
-        ...chatScripts,
-      }),
+      getActions: () =>
+        canToggle
+          ? {
+              // Sub-agents spawned in dev mode also invoke template actions
+              // via shell, so omit them from the native tool registry.
+              ...resourceScripts,
+              ...chatScripts,
+              ...devScriptsForA2A,
+            }
+          : {
+              ...templateScripts,
+              ...resourceScripts,
+              ...chatScripts,
+            },
       getApiKey: () => options?.apiKey ?? process.env.ANTHROPIC_API_KEY ?? "",
       getModel: () => resolvedModel,
       getParentThreadId: () => _currentRunThreadId,
@@ -1415,9 +1574,13 @@ export function createAgentChatPlugin(
     if (canToggle) {
       const { createDevScriptRegistry } =
         await import("../scripts/dev/index.js");
+      // Dev mode: template actions (templateScripts and discoveredActions) are
+      // intentionally OMITTED from the native tool registry. The agent invokes
+      // them via `shell(command="pnpm action <name> ...")` instead. This mirrors
+      // how Claude Code works locally and dramatically reduces the rate of
+      // degenerate empty-object tool calls. The CLI syntax for each action is
+      // listed in the dev system prompt's "Available Actions" section.
       const devActions = {
-        ...discoveredActions,
-        ...templateScripts,
         ...resourceScripts,
         ...chatScripts,
         ...callAgentScript,

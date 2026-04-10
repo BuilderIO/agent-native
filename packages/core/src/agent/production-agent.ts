@@ -255,50 +255,52 @@ export async function runAgentLoop(opts: {
 
     if (toolUseBlocks.length === 0) break;
 
-    const toolResults: Anthropic.ToolResultBlockParam[] = [];
+    // Run all tool calls in parallel — Claude often returns multiple tool_use
+    // blocks in one turn (e.g. adding several slides at once). Running them
+    // concurrently saves significant wall-clock time.
+    const toolResults: Anthropic.ToolResultBlockParam[] = await Promise.all(
+      toolUseBlocks.map(async (toolUse) => {
+        const actionEntry = actions[toolUse.name];
+        if (!actionEntry) {
+          const result = `Error: Unknown tool "${toolUse.name}"`;
+          send({
+            type: "tool_start",
+            tool: toolUse.name,
+            input: toolUse.input as Record<string, string>,
+          });
+          send({ type: "tool_done", tool: toolUse.name, result });
+          return {
+            type: "tool_result" as const,
+            tool_use_id: toolUse.id,
+            content: result,
+          };
+        }
 
-    for (const toolUse of toolUseBlocks) {
-      const actionEntry = actions[toolUse.name];
-      if (!actionEntry) {
-        const result = `Error: Unknown tool "${toolUse.name}"`;
         send({
           type: "tool_start",
           tool: toolUse.name,
           input: toolUse.input as Record<string, string>,
         });
+
+        let result: string;
+        try {
+          const raw = await actionEntry.run(
+            toolUse.input as Record<string, string>,
+            { send },
+          );
+          result = typeof raw === "string" ? raw : JSON.stringify(raw, null, 2);
+        } catch (err: any) {
+          result = `Error running ${toolUse.name}: ${err?.message ?? String(err)}`;
+        }
+
         send({ type: "tool_done", tool: toolUse.name, result });
-        toolResults.push({
-          type: "tool_result",
+        return {
+          type: "tool_result" as const,
           tool_use_id: toolUse.id,
           content: result,
-        });
-        continue;
-      }
-
-      send({
-        type: "tool_start",
-        tool: toolUse.name,
-        input: toolUse.input as Record<string, string>,
-      });
-
-      let result: string;
-      try {
-        const raw = await actionEntry.run(
-          toolUse.input as Record<string, string>,
-          { send },
-        );
-        result = typeof raw === "string" ? raw : JSON.stringify(raw, null, 2);
-      } catch (err: any) {
-        result = `Error running ${toolUse.name}: ${err?.message ?? String(err)}`;
-      }
-
-      send({ type: "tool_done", tool: toolUse.name, result });
-      toolResults.push({
-        type: "tool_result",
-        tool_use_id: toolUse.id,
-        content: result,
-      });
-    }
+        };
+      }),
+    );
 
     messages.push({ role: "user", content: toolResults });
   }

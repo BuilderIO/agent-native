@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, forwardRef } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router";
 import {
@@ -17,11 +17,23 @@ import {
   IconPencil,
   IconTransform,
   IconMessage,
+  IconSparkles,
 } from "@tabler/icons-react";
 import type { Slide, SlideLayout } from "@/context/DeckContext";
 
-import { AgentToggleButton, type CollabUser } from "@agent-native/core/client";
-
+import {
+  AgentToggleButton,
+  useAvatarUrl,
+  uploadAvatar,
+  emailToColor,
+  emailToName,
+  type CollabUser,
+} from "@agent-native/core/client";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 interface EditorToolbarProps {
   deckId: string;
   deckTitle: string;
@@ -56,6 +68,12 @@ interface EditorToolbarProps {
   onToggleComments?: () => void;
   /** Number of unresolved comments on the current slide */
   unresolvedCommentCount?: number;
+  /** Current user email for avatar display */
+  currentUserEmail?: string;
+  /** Whether the animations panel is open */
+  animationsOpen?: boolean;
+  /** Toggle the animations panel */
+  onToggleAnimations?: () => void;
 }
 
 const slideLayoutOptions: { value: SlideLayout; label: string }[] = [
@@ -79,6 +97,111 @@ const backgroundOptions = [
   "bg-gradient-to-br from-[#0a0a0a] to-[#0f1a14]",
   "bg-[#ffffff]",
 ];
+
+const AvatarFace = forwardRef<
+  HTMLDivElement,
+  { avatarUrl: string | null; name: string; color: string; className: string }
+>(function AvatarFace({ avatarUrl, name, color, className }, ref) {
+  return (
+    <div ref={ref} className={className} style={{ backgroundColor: color }}>
+      {avatarUrl ? (
+        <img
+          src={avatarUrl}
+          alt={name}
+          className="w-full h-full object-cover"
+        />
+      ) : (
+        name.charAt(0).toUpperCase()
+      )}
+    </div>
+  );
+});
+
+function PresenceAvatar({ user }: { user: CollabUser }) {
+  const avatarUrl = useAvatarUrl(user.email);
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <AvatarFace
+          avatarUrl={avatarUrl}
+          name={user.name}
+          color={user.color}
+          className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white ring-2 ring-[hsl(240,5%,6%)] overflow-hidden cursor-default"
+        />
+      </TooltipTrigger>
+      <TooltipContent side="bottom" className="flex items-center gap-2 p-2">
+        <AvatarFace
+          avatarUrl={avatarUrl}
+          name={user.name}
+          color={user.color}
+          className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 overflow-hidden"
+        />
+        <div className="flex flex-col min-w-0">
+          <span className="text-xs font-medium text-white leading-tight">
+            {user.name}
+          </span>
+          <span className="text-[10px] text-white/50 leading-tight truncate">
+            {user.email}
+          </span>
+        </div>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function CurrentUserAvatar({ email }: { email: string }) {
+  const avatarUrl = useAvatarUrl(email);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      await uploadAvatar(file, email);
+    } finally {
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  };
+
+  const initials = emailToName(email).charAt(0).toUpperCase();
+  const color = emailToColor(email);
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          onClick={() => inputRef.current?.click()}
+          className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white ring-2 ring-[hsl(240,5%,6%)] overflow-hidden hover:opacity-80"
+          style={{ backgroundColor: color }}
+          aria-label="Update your avatar"
+        >
+          {avatarUrl ? (
+            <img
+              src={avatarUrl}
+              alt="You"
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            initials
+          )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">
+        <div className="flex flex-col items-center gap-1">
+          <span className="text-xs font-medium">{email}</span>
+          <span className="text-[10px] opacity-60">Click to update photo</span>
+        </div>
+      </TooltipContent>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleFileChange}
+      />
+    </Tooltip>
+  );
+}
 
 /** Popover anchored to a button ref */
 function ToolbarPopover({
@@ -161,6 +284,9 @@ export default function EditorToolbar({
   commentsOpen,
   onToggleComments,
   unresolvedCommentCount = 0,
+  currentUserEmail,
+  animationsOpen,
+  onToggleAnimations,
 }: EditorToolbarProps) {
   const [layoutOpen, setLayoutOpen] = useState(false);
   const layoutRef = useRef<HTMLButtonElement>(null);
@@ -209,6 +335,8 @@ export default function EditorToolbar({
 
       {/* Spacer */}
       <div className="flex-1 min-w-2" />
+
+      {currentUserEmail && <CurrentUserAvatar email={currentUserEmail} />}
 
       {/* Slide settings cog menu */}
       {currentSlide && onUpdateSlide && (
@@ -354,32 +482,33 @@ graph TD
                 <IconPencil className="w-3 h-3" />
                 Excalidraw Canvas
               </button>
-              {currentSlide?.content?.includes('class="mermaid"') && (
-                <button
-                  onClick={async () => {
-                    if (!onUpdateSlide || !currentSlide) return;
-                    try {
-                      const match = currentSlide.content.match(
-                        /<div\s+class="mermaid"[^>]*>([\s\S]*?)<\/div>/i,
-                      );
-                      if (!match) return;
-                      const { convertMermaidToExcalidraw } =
-                        await import("./MermaidToExcalidrawPanel");
-                      const data = await convertMermaidToExcalidraw(
-                        match[1].trim(),
-                      );
-                      onUpdateSlide({ excalidrawData: data });
-                      setLayoutOpen(false);
-                    } catch (err: any) {
-                      console.error("Mermaid to Excalidraw failed:", err);
-                    }
-                  }}
-                  className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[#00E5FF]/80 hover:text-[#00E5FF] hover:bg-white/[0.04] transition-colors"
-                >
-                  <IconTransform className="w-3 h-3" />
-                  Convert Mermaid → Excalidraw
-                </button>
-              )}
+              {typeof currentSlide?.content === "string" &&
+                currentSlide.content.includes('class="mermaid"') && (
+                  <button
+                    onClick={async () => {
+                      if (!onUpdateSlide || !currentSlide) return;
+                      try {
+                        const match = currentSlide.content.match(
+                          /<div\s+class="mermaid"[^>]*>([\s\S]*?)<\/div>/i,
+                        );
+                        if (!match) return;
+                        const { convertMermaidToExcalidraw } =
+                          await import("./MermaidToExcalidrawPanel");
+                        const data = await convertMermaidToExcalidraw(
+                          match[1].trim(),
+                        );
+                        onUpdateSlide({ excalidrawData: data });
+                        setLayoutOpen(false);
+                      } catch (err: any) {
+                        console.error("Mermaid to Excalidraw failed:", err);
+                      }
+                    }}
+                    className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[#00E5FF]/80 hover:text-[#00E5FF] hover:bg-white/[0.04] transition-colors"
+                  >
+                    <IconTransform className="w-3 h-3" />
+                    Convert Mermaid → Excalidraw
+                  </button>
+                )}
               {currentSlide?.excalidrawData && (
                 <button
                   onClick={() => {
@@ -393,9 +522,54 @@ graph TD
                   Remove Excalidraw Canvas
                 </button>
               )}
+
+              {/* Transitions section */}
+              <div className="mx-2 my-1.5 border-t border-white/[0.06]" />
+              <div className="px-3 py-1.5 text-[10px] font-medium text-white/30 uppercase tracking-wider">
+                Transition
+              </div>
+              <div className="px-3 pb-2.5 grid grid-cols-4 gap-1">
+                {(["instant", "fade", "slide", "zoom"] as const).map((t) => {
+                  const active =
+                    t === "instant"
+                      ? !currentSlide.transition ||
+                        currentSlide.transition === "instant" ||
+                        currentSlide.transition === "none"
+                      : currentSlide.transition === t;
+                  return (
+                    <button
+                      key={t}
+                      onClick={() => onUpdateSlide!({ transition: t })}
+                      className={`px-1.5 py-1 rounded text-[10px] font-medium capitalize border ${
+                        active
+                          ? "bg-[#609FF8]/20 text-[#609FF8] border-[#609FF8]/30"
+                          : "text-white/40 hover:text-white/70 hover:bg-white/[0.04] border-transparent"
+                      }`}
+                    >
+                      {t.charAt(0).toUpperCase() + t.slice(1)}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </ToolbarPopover>
         </>
+      )}
+
+      {/* Animations button */}
+      {currentSlide && onToggleAnimations && (
+        <button
+          onClick={onToggleAnimations}
+          className={`p-2.5 sm:p-1.5 rounded-md transition-colors flex-shrink-0 ${
+            animationsOpen
+              ? "text-[#609FF8] bg-[#609FF8]/10"
+              : "text-white/40 hover:text-white/70 hover:bg-white/[0.06]"
+          }`}
+          title="Element animations"
+          aria-label="Element animations"
+        >
+          <IconSparkles className="w-3.5 h-3.5" />
+        </button>
       )}
 
       {/* Separator */}
@@ -469,23 +643,20 @@ graph TD
       {((activeUsers && activeUsers.length > 0) || agentActive) && (
         <div className="flex items-center -space-x-1.5 flex-shrink-0 mr-0.5">
           {agentActive && (
-            <div
-              className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white ring-2 ring-[hsl(240,5%,6%)] animate-pulse z-10"
-              style={{ backgroundColor: "#a78bfa" }}
-              title="AI is editing"
-            >
-              AI
-            </div>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div
+                  className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white ring-2 ring-[hsl(240,5%,6%)] animate-pulse z-10 cursor-default"
+                  style={{ backgroundColor: "#a78bfa" }}
+                >
+                  AI
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">AI is editing</TooltipContent>
+            </Tooltip>
           )}
           {(activeUsers ?? []).slice(0, 5).map((u, i) => (
-            <div
-              key={i}
-              className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white ring-2 ring-[hsl(240,5%,6%)]"
-              style={{ backgroundColor: u.color }}
-              title={u.name}
-            >
-              {u.name.charAt(0).toUpperCase()}
-            </div>
+            <PresenceAvatar key={i} user={u} />
           ))}
           {(activeUsers?.length ?? 0) > 5 && (
             <div className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white/50 bg-white/10 ring-2 ring-[hsl(240,5%,6%)]">

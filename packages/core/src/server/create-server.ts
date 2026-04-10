@@ -141,7 +141,10 @@ export function createServer(
       const code = err?.code || (err?.cause as NodeJS.ErrnoException)?.code;
       if (code === "ECONNRESET" || code === "ECONNABORTED") return;
       if (err?.message === "aborted") return;
-      console.error("[agent-native] Server error:", error);
+      console.error(
+        `[agent-native] Server error: ${event.method} ${event.path}`,
+        error,
+      );
     },
   });
 

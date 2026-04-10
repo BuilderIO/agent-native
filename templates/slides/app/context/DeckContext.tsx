@@ -33,6 +33,21 @@ export interface Slide {
   imagePrompt?: string;
   /** Excalidraw scene data (elements + appState + files) as JSON string */
   excalidrawData?: string;
+  /** Slide transition animation when entering this slide */
+  transition?: "instant" | "none" | "fade" | "slide" | "zoom";
+  /** Per-element animations (ordered). Each click reveals the next step. */
+  animations?: SlideAnimation[];
+  /** @deprecated Use animations instead */
+  splitByParagraph?: boolean;
+}
+
+export type AnimationType = "appear" | "fade" | "slide-up" | "zoom";
+
+export interface SlideAnimation {
+  id: string;
+  /** Index of the child element within the content container */
+  elementIndex: number;
+  type: AnimationType;
 }
 
 export interface Deck {
@@ -199,6 +214,9 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   const skipHistoryRef = useRef(false);
   // Track when external (SSE) updates happen so the save effect doesn't echo them back
   const lastExternalUpdateRef = useRef(0);
+  // Track client-created decks that haven't been confirmed on the server yet.
+  // Prevents the poll from wiping optimistic decks before their POST lands.
+  const pendingCreateIdsRef = useRef<Set<string>>(new Set());
 
   // Load decks from API on mount
   useEffect(() => {
@@ -217,27 +235,70 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  // Poll for deck list changes (handles agent db-exec updates that bypass SSE)
+  // Poll for deck list + open-deck changes (handles agent db-exec updates that bypass SSE)
   useEffect(() => {
     if (loading) return;
+    // Figure out which deck (if any) is currently open, so we can poll faster
+    // and re-fetch its contents each tick to catch agent slide additions.
+    const readOpenDeckId = (): string | null => {
+      if (typeof window === "undefined") return null;
+      const m = window.location.pathname.match(/\/deck\/([^/?#]+)/);
+      return m ? m[1] : null;
+    };
+    const openDeckId = readOpenDeckId();
+    const intervalMs = openDeckId ? 1000 : 3000;
     const interval = setInterval(async () => {
       try {
         const fresh = await fetchDecksFromAPI();
         const currentIds = new Set(decks.map((d) => d.id));
         const freshIds = new Set(fresh.map((d) => d.id));
+        const pending = pendingCreateIdsRef.current;
         // Check if deck list changed (added or removed)
+        // Optimistic decks still in flight are preserved (not treated as removed).
         const added = fresh.filter((d) => !currentIds.has(d.id));
-        const removed = decks.filter((d) => !freshIds.has(d.id));
+        const removed = decks.filter(
+          (d) => !freshIds.has(d.id) && !pending.has(d.id),
+        );
         if (added.length > 0 || removed.length > 0) {
           lastExternalUpdateRef.current = Date.now();
           setDecks((prev) => {
-            let next = prev.filter((d) => freshIds.has(d.id));
+            let next = prev.filter(
+              (d) => freshIds.has(d.id) || pending.has(d.id),
+            );
             for (const a of added) next = [...next, a];
             return next;
           });
         }
+
+        // Also re-fetch the currently-open deck so agent-added slides show up.
+        // The list endpoint may not include full slide contents, and SSE can
+        // miss events if the client reconnects between broadcasts.
+        const currentOpenId = readOpenDeckId();
+        if (currentOpenId && !pending.has(currentOpenId)) {
+          try {
+            const res = await fetch(`/api/decks/${currentOpenId}`);
+            if (res.ok) {
+              const serverDeck = (await res.json()) as Deck;
+              const clientDeck = decks.find((d) => d.id === currentOpenId);
+              const changed =
+                !clientDeck ||
+                clientDeck.updatedAt !== serverDeck.updatedAt ||
+                clientDeck.slides.length !== serverDeck.slides.length;
+              if (changed) {
+                lastExternalUpdateRef.current = Date.now();
+                setDecks((prev) => {
+                  const idx = prev.findIndex((d) => d.id === currentOpenId);
+                  if (idx < 0) return [...prev, serverDeck];
+                  const next = [...prev];
+                  next[idx] = serverDeck;
+                  return next;
+                });
+              }
+            }
+          } catch {}
+        }
       } catch {}
-    }, 3000);
+    }, intervalMs);
     return () => clearInterval(interval);
   }, [loading, decks]);
 
@@ -353,9 +414,15 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   // Keyboard shortcuts for undo/redo
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      // Don't intercept undo/redo when typing in an input, textarea, or
+      // contenteditable (TipTap inline editor) — let those handle it themselves.
+      const isTyping =
+        target.tagName === "TEXTAREA" ||
+        target.tagName === "INPUT" ||
+        target.isContentEditable;
       if ((e.metaKey || e.ctrlKey) && e.key === "z") {
-        const target = e.target as HTMLElement;
-        if (target.tagName === "TEXTAREA" || target.tagName === "INPUT") return;
+        if (isTyping) return;
         e.preventDefault();
         if (e.shiftKey) {
           redo();
@@ -364,8 +431,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         }
       }
       if ((e.metaKey || e.ctrlKey) && e.key === "y") {
-        const target = e.target as HTMLElement;
-        if (target.tagName === "TEXTAREA" || target.tagName === "INPUT") return;
+        if (isTyping) return;
         e.preventDefault();
         redo();
       }
@@ -400,8 +466,12 @@ export function DeckProvider({ children }: { children: ReactNode }) {
               },
             ],
       };
-      // Save to API immediately (not debounced)
-      createDeckOnAPI(newDeck);
+      // Save to API immediately (not debounced). Track as pending so the
+      // poll doesn't wipe the optimistic deck before the POST completes.
+      pendingCreateIdsRef.current.add(newDeck.id);
+      createDeckOnAPI(newDeck).finally(() => {
+        pendingCreateIdsRef.current.delete(newDeck.id);
+      });
       setDecksWithHistory("Create deck", (prev) => [...prev, newDeck]);
       return newDeck;
     },

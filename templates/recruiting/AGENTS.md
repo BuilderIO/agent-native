@@ -116,6 +116,14 @@ The current screen state (navigation + Greenhouse API data) is automatically inc
 
 **Always use `pnpm action <name>` for operations** — scripts call the API and handle errors. Never use `curl`.
 
+**Running actions from the frame:** The terminal cwd is the framework root. Always `cd` to this template's root before running any action:
+
+```bash
+cd templates/recruiting && pnpm action <name> [args]
+```
+
+`.env` is loaded automatically — **never manually set `DATABASE_URL` or other env vars**.
+
 **After any mutation** (advance, move, reject, create), always run `pnpm action refresh-data`.
 
 ## Actions

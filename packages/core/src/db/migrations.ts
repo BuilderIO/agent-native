@@ -1,4 +1,9 @@
-import { getDbExec, isPostgres, getDialect } from "./client.js";
+import {
+  getDbExec,
+  isPostgres,
+  getDialect,
+  retrySqliteBusy,
+} from "./client.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
@@ -65,8 +70,14 @@ export function runMigrations(
       const exec = getDbExec();
       const pg = isPostgres();
 
-      await exec.execute(
-        `CREATE TABLE IF NOT EXISTS _migrations (version INTEGER PRIMARY KEY)`,
+      // Retry initial table creation — SQLITE_BUSY_RECOVERY can occur on HMR
+      // restarts when WAL files from the previous process haven't been released yet.
+      await retrySqliteBusy(
+        () =>
+          exec.execute(
+            `CREATE TABLE IF NOT EXISTS _migrations (version INTEGER PRIMARY KEY)`,
+          ),
+        { maxAttempts: 6, baseDelayMs: 1000, rethrow: true },
       );
 
       const { rows } = await exec.execute(
