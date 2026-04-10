@@ -126,9 +126,11 @@ export function defineAction(options: any) {
     };
   }
 
-  // Wrap run() with validation when schema is provided
+  // Wrap run() with validation when schema is provided.
+  // Pass toolParameters so the validation error can echo the expected signature
+  // (required vs optional fields) and help the caller self-correct.
   const run = hasSchema
-    ? wrapWithValidation(options.schema, options.run)
+    ? wrapWithValidation(options.schema, options.run, toolParameters)
     : options.run;
 
   return {
@@ -300,6 +302,7 @@ function zodDefToJsonSchema(def: any): any {
 function wrapWithValidation(
   schema: StandardSchemaV1,
   run: Function,
+  toolParameters?: ActionTool["parameters"],
 ): (args: any) => any {
   return async (args: any) => {
     const result = await schema["~standard"].validate(args);
@@ -347,8 +350,25 @@ function wrapWithValidation(
         received = String(args);
       }
 
+      // Also show the EXPECTED signature so the agent doesn't have to guess.
+      // Format: `{ deckId*: string, content*: string, slideId?: string, ... }`
+      // where `*` = required, `?` = optional.
+      let expected = "";
+      if (toolParameters?.properties) {
+        const required = new Set(toolParameters.required ?? []);
+        const sig = Object.entries(toolParameters.properties)
+          .map(([k, v]) => {
+            const mark = required.has(k) ? "*" : "?";
+            const type = (v as { type?: string }).type ?? "any";
+            return `${k}${mark}: ${type}`;
+          })
+          .join(", ");
+        if (sig)
+          expected = ` Expected: { ${sig} } (where * = required, ? = optional).`;
+      }
+
       throw new Error(
-        `Invalid action parameters — ${parts.join(". ")}. Received: ${received}`,
+        `Invalid action parameters — ${parts.join(". ")}. Received: ${received}.${expected}`,
       );
     }
     return run((result as StandardSchemaV1.SuccessResult<any>).value);

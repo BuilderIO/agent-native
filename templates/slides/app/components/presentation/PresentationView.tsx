@@ -1,7 +1,11 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router";
 import { IconChevronLeft, IconChevronRight, IconX } from "@tabler/icons-react";
-import type { Slide } from "@/context/DeckContext";
+import type {
+  Slide,
+  SlideAnimation,
+  AnimationType,
+} from "@/context/DeckContext";
 import SlideRenderer from "@/components/deck/SlideRenderer";
 
 interface PresentationViewProps {
@@ -10,7 +14,7 @@ interface PresentationViewProps {
   startIndex?: number;
 }
 
-// ─── Paragraph step helpers ───────────────────────────────────────────────────
+// ─── Element animation helpers ────────────────────────────────────────────────
 
 /** Find the content container inside .fmd-slide that has multiple children. */
 function findContentContainer(root: Element): Element | null {
@@ -21,44 +25,77 @@ function findContentContainer(root: Element): Element | null {
   return null;
 }
 
-/** Count how many paragraph steps a slide has (0 = feature disabled). */
-function countSteps(html: string): number {
-  const doc = new DOMParser().parseFromString(html, "text/html");
-  const root = doc.querySelector(".fmd-slide");
-  if (!root) return 0;
-  const container = findContentContainer(root);
-  return container ? container.children.length : 0;
+/**
+ * Get the effective animation steps for a slide.
+ * Uses slide.animations if defined, falls back to splitByParagraph auto-detection.
+ */
+function getAnimationSteps(slide: Slide): SlideAnimation[] | null {
+  if (slide.animations && slide.animations.length > 0) return slide.animations;
+  // Legacy splitByParagraph: auto-detect and create steps
+  if (slide.splitByParagraph) {
+    const doc = new DOMParser().parseFromString(slide.content, "text/html");
+    const root = doc.querySelector(".fmd-slide");
+    if (!root) return null;
+    const container = findContentContainer(root);
+    if (!container) return null;
+    return Array.from(container.children).map((_, i) => ({
+      id: `auto-${i}`,
+      elementIndex: i,
+      type: "slide-up" as AnimationType,
+    }));
+  }
+  return null;
+}
+
+/** CSS animation string for a given element animation type (for the newly-revealed item). */
+function getElemAnimCss(type: AnimationType): string {
+  switch (type) {
+    case "appear":
+      return "animation: elem-appear 100ms ease both;";
+    case "fade":
+      return "animation: elem-appear 400ms ease both;";
+    case "slide-up":
+      return "animation: elem-slide-up 300ms cubic-bezier(0.25,0.46,0.45,0.94) both;";
+    case "zoom":
+      return "animation: elem-zoom 300ms cubic-bezier(0.25,0.46,0.45,0.94) both;";
+  }
 }
 
 /**
  * Return a modified HTML string where content-container children have
  * data-pstep attributes and an injected <style> controls visibility.
- * Items already revealed (index < visibleCount-1) jump to end state instantly;
- * the newly revealed item (index === visibleCount-1) animates in.
+ * Uses per-element animation types from the animations array.
+ * Items already revealed jump to end state; the newly revealed item animates.
  */
 function annotateStepsForPresentation(
   html: string,
-  visibleCount: number,
+  steps: SlideAnimation[],
+  currentStep: number,
 ): string {
   const doc = new DOMParser().parseFromString(html, "text/html");
   const root = doc.querySelector(".fmd-slide");
   if (!root) return html;
   const container = findContentContainer(root);
-  if (!container || container.children.length < 2) return html;
+  if (!container) return html;
 
-  const steps = Array.from(container.children);
-  steps.forEach((child, i) => child.setAttribute("data-pstep", String(i)));
+  const containerChildren = Array.from(container.children);
+
+  // Annotate each step element with data-pstep
+  steps.forEach((anim, stepIdx) => {
+    const el = containerChildren[anim.elementIndex];
+    if (el) el.setAttribute("data-pstep", String(stepIdx));
+  });
 
   const styleLines = steps
-    .map((_, i) => {
-      if (i >= visibleCount) {
-        return `[data-pstep="${i}"] { opacity: 0; pointer-events: none; }`;
-      } else if (i < visibleCount - 1) {
-        // Already revealed — jump to end state instantly
-        return `[data-pstep="${i}"] { opacity: 1; pointer-events: auto; animation: step-reveal 280ms both; animation-delay: -1s; }`;
+    .map((anim, stepIdx) => {
+      if (stepIdx >= currentStep) {
+        return `[data-pstep="${stepIdx}"] { opacity: 0; pointer-events: none; }`;
+      } else if (stepIdx < currentStep - 1) {
+        // Already revealed — snap to end state
+        return `[data-pstep="${stepIdx}"] { opacity: 1; pointer-events: auto; animation: elem-appear 1ms both; }`;
       } else {
-        // Newly revealed — animate normally
-        return `[data-pstep="${i}"] { opacity: 1; pointer-events: auto; animation: step-reveal 280ms cubic-bezier(0.25,0.46,0.45,0.94) both; }`;
+        // Newly revealed — animate with its type
+        return `[data-pstep="${stepIdx}"] { opacity: 1; pointer-events: auto; ${getElemAnimCss(anim.type)} }`;
       }
     })
     .join("\n");
@@ -68,6 +105,10 @@ function annotateStepsForPresentation(
 }
 
 // ─── Animation class helpers ──────────────────────────────────────────────────
+
+function isInstant(t: Slide["transition"]): boolean {
+  return !t || t === "instant" || t === "none";
+}
 
 function getEnterClass(
   transition: Slide["transition"],
@@ -125,19 +166,19 @@ export default function PresentationView({
   const isShared = deckId.startsWith("__shared__/");
 
   const currentSlide = slides[currentIndex];
-  const maxSteps = currentSlide?.splitByParagraph
-    ? countSteps(currentSlide.content)
-    : 0;
+  const animSteps = currentSlide ? getAnimationSteps(currentSlide) : null;
+  const maxSteps = animSteps ? animSteps.length : 0;
 
   const startTransition = useCallback(
     (newIndex: number, dir: "next" | "prev") => {
       const incoming = slides[newIndex];
-      const t = incoming?.transition ?? "none";
-      // Going backward → show slide fully revealed; forward → start at 0
+      const t = incoming?.transition;
+      // Going backward → fully revealed; forward → start at 0
+      const incomingSteps = incoming ? getAnimationSteps(incoming) : null;
       const initialStep =
-        dir === "prev" ? countSteps(incoming?.content ?? "") : 0;
+        dir === "prev" ? (incomingSteps ? incomingSteps.length : 0) : 0;
 
-      if (t === "none") {
+      if (isInstant(t)) {
         setCurrentIndex(newIndex);
         setCurrentStep(initialStep);
         return;
@@ -266,12 +307,17 @@ export default function PresentationView({
   }, []);
 
   const displaySlide = useMemo(() => {
-    if (!currentSlide?.splitByParagraph || maxSteps === 0) return currentSlide;
+    if (!currentSlide || !animSteps || animSteps.length === 0)
+      return currentSlide;
     return {
       ...currentSlide,
-      content: annotateStepsForPresentation(currentSlide.content, currentStep),
+      content: annotateStepsForPresentation(
+        currentSlide.content,
+        animSteps,
+        currentStep,
+      ),
     };
-  }, [currentSlide, currentStep, maxSteps]);
+  }, [currentSlide, animSteps, currentStep]);
 
   if (!currentSlide) return null;
 

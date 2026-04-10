@@ -74,15 +74,29 @@ Each deck's `data` column contains a JSON object with `title` and `slides` array
 
 ## Agent Operations
 
-The current screen state (including deck/slide context) is automatically included with each message as a `<current-screen>` block. You don't need to call `view-screen` before every action — use it only when you need a refreshed snapshot mid-conversation.
+**Always check the current screen before editing.** The user's view (which deck, which slide, scroll position) can change mid-conversation. Stale deck/slide IDs lead to editing the wrong thing.
 
-**Always use `pnpm action <name>` for operations** -- never curl or raw HTTP.
+### If you are the built-in agent-chat agent
 
-**Running actions from the frame:** The terminal cwd is the framework root. Always `cd` to this template's root before running any action:
+A `<current-screen>` block is auto-injected into every user message with the current `deckId`, `currentSlideId`, and the full slide list. You don't need to call `view-screen` for the first action on a turn — the injected block is fresh. You **do** need to re-check if the user says "this slide" or "now do X" after several tool calls: the user may have navigated. When in doubt, call `view-screen`.
+
+### If you are an external CLI agent (Claude Code, Codex, Cursor, etc.)
+
+You do NOT get auto-injected screen state. You MUST call `view-screen` yourself at the start of every task AND whenever you're about to edit a specific slide/deck. Do not rely on what was visible in previous turns — the user may have switched to a different slide since your last action.
+
+**Rule of thumb:** run `pnpm action view-screen` before any `update-slide`, `add-slide`, or `create-deck --deckId` call to make sure you have the current `deckId` and `slideId`.
+
+### Running actions
+
+**Always use `pnpm action <name>` for operations** — never curl or raw HTTP.
+
+Your shell cwd is this template's root (e.g., `templates/slides/`). Run actions directly:
 
 ```bash
-cd templates/slides && pnpm action <name> [args]
+pnpm action <name> [args]
 ```
+
+If your cwd is the monorepo root instead (e.g., running from the Frame wrapper), prefix with `cd templates/slides &&`. Check with `pwd` if you're unsure. If `pnpm action` fails with "command not found" or "No such file", `cd` to the template root first.
 
 `.env` is loaded automatically — **never manually set `DATABASE_URL` or other env vars**.
 

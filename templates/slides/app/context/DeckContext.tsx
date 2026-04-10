@@ -34,9 +34,20 @@ export interface Slide {
   /** Excalidraw scene data (elements + appState + files) as JSON string */
   excalidrawData?: string;
   /** Slide transition animation when entering this slide */
-  transition?: "none" | "fade" | "slide" | "zoom";
-  /** Reveal content elements one at a time on click */
+  transition?: "instant" | "none" | "fade" | "slide" | "zoom";
+  /** Per-element animations (ordered). Each click reveals the next step. */
+  animations?: SlideAnimation[];
+  /** @deprecated Use animations instead */
   splitByParagraph?: boolean;
+}
+
+export type AnimationType = "appear" | "fade" | "slide-up" | "zoom";
+
+export interface SlideAnimation {
+  id: string;
+  /** Index of the child element within the content container */
+  elementIndex: number;
+  type: AnimationType;
 }
 
 export interface Deck {

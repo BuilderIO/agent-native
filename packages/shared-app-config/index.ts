@@ -180,21 +180,6 @@ export const DEFAULT_APPS: AppConfig[] = [
     mode: "dev",
   },
   {
-    id: "macros",
-    name: "Macros",
-    icon: "Flame",
-    description:
-      "AI-powered macro tracker — speak to the agent and it handles everything",
-    url: "https://macros.agent-native.com",
-    devPort: 8092,
-    devUrl: "http://localhost:8092",
-    color: "#F97316",
-    colorRgb: "249 115 22",
-    isBuiltIn: true,
-    enabled: true,
-    mode: "dev",
-  },
-  {
     id: "starter",
     name: "Starter",
     icon: "Code",
