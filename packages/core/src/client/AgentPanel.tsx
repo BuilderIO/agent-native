@@ -1657,6 +1657,14 @@ export function AgentSidebar({
   defaultOpen = false,
 }: AgentSidebarProps) {
   const [open, setOpen] = useState(() => {
+    // On mobile viewports the sidebar would cover most of the screen, so
+    // always start closed regardless of any persisted desktop preference.
+    if (
+      typeof window !== "undefined" &&
+      window.matchMedia("(max-width: 767px)").matches
+    ) {
+      return false;
+    }
     try {
       const saved = localStorage.getItem(SIDEBAR_OPEN_KEY);
       if (saved !== null) return saved === "true";

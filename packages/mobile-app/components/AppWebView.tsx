@@ -67,6 +67,25 @@ export default function AppWebView({ url }: AppWebViewProps) {
     return true;
   }, []);
 
+  // Handle messages from the web app (e.g. open a URL in the system browser)
+  const handleMessage = useCallback(
+    (event: { nativeEvent: { data: string } }) => {
+      try {
+        const msg = JSON.parse(event.nativeEvent.data);
+        if (msg.type === "openUrl" && typeof msg.url === "string") {
+          const parsed = new URL(msg.url);
+          // Only open external hosts in Safari — anything else is ignored
+          if (EXTERNAL_HOSTS.includes(parsed.hostname)) {
+            Linking.openURL(msg.url);
+          }
+        }
+      } catch {
+        // Ignore malformed messages
+      }
+    },
+    [],
+  );
+
   // Append the session token as a query param so the server can promote it to
   // an httpOnly cookie. This bridges the Safari/WKWebView cookie jar gap.
   const webviewUrl = sessionToken
@@ -82,6 +101,7 @@ export default function AppWebView({ url }: AppWebViewProps) {
         onLoadStart={() => setLoading(true)}
         onLoadEnd={() => setLoading(false)}
         onShouldStartLoadWithRequest={handleShouldStartLoad}
+        onMessage={handleMessage}
         javaScriptEnabled
         domStorageEnabled
         sharedCookiesEnabled

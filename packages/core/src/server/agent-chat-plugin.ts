@@ -15,6 +15,7 @@ import type {
   MentionProviderItem,
 } from "../agent/types.js";
 import { discoverAgents } from "./agent-discovery.js";
+import { loadSchemaPromptBlock } from "./schema-prompt.js";
 import {
   buildAssistantMessage,
   extractThreadMeta,
@@ -769,6 +770,26 @@ async function loadResourcesForPrompt(owner: string): Promise<string> {
   );
 }
 
+/**
+ * Build the per-request SQL-schema context block. Reads AGENT_ORG_ID live
+ * from the environment so scheduler/A2A/HTTP call sites all see whatever
+ * org was just resolved for this request.
+ */
+async function buildSchemaBlock(
+  owner: string,
+  hasRawDbTools: boolean,
+): Promise<string> {
+  try {
+    return await loadSchemaPromptBlock({
+      owner,
+      orgId: process.env.AGENT_ORG_ID ?? null,
+      hasRawDbTools,
+    });
+  } catch {
+    return "";
+  }
+}
+
 /** @deprecated Kept for backward compat — dev prompt is now part of DEV_FRAMEWORK_PROMPT */
 const DEFAULT_DEV_PROMPT = "";
 
@@ -1201,9 +1222,10 @@ export function createAgentChatPlugin(
         // Build the same system prompt the interactive agent uses
         const owner = userEmail || "local@localhost";
         const resources = await loadResourcesForPrompt(owner);
+        const schemaBlock = await buildSchemaBlock(owner, canToggle);
         const systemPrompt = canToggle
-          ? devPrompt + resources
-          : basePrompt + resources;
+          ? devPrompt + resources + schemaBlock
+          : basePrompt + resources + schemaBlock;
 
         const a2aClient = new Anthropic({ apiKey });
         const model =
@@ -1358,9 +1380,13 @@ export function createAgentChatPlugin(
         );
 
         const resources = await loadResourcesForPrompt("local@localhost");
+        const schemaBlock = await buildSchemaBlock(
+          "local@localhost",
+          canToggle,
+        );
         const systemPrompt = canToggle
-          ? devPrompt + resources
-          : basePrompt + resources;
+          ? devPrompt + resources + schemaBlock
+          : basePrompt + resources + schemaBlock;
 
         let accumulatedText = "";
         const controller = new AbortController();
@@ -1545,7 +1571,8 @@ export function createAgentChatPlugin(
         const owner = await getOwnerFromEvent(event);
         _currentRunOwner = owner;
         const resources = await loadResourcesForPrompt(owner);
-        _currentRunSystemPrompt = basePrompt + resources;
+        const schemaBlock = await buildSchemaBlock(owner, false);
+        _currentRunSystemPrompt = basePrompt + resources + schemaBlock;
         return _currentRunSystemPrompt;
       },
       model:
@@ -1594,7 +1621,8 @@ export function createAgentChatPlugin(
           const owner = await getOwnerFromEvent(event);
           _currentRunOwner = owner;
           const resources = await loadResourcesForPrompt(owner);
-          _currentRunSystemPrompt = devPrompt + resources;
+          const schemaBlock = await buildSchemaBlock(owner, true);
+          _currentRunSystemPrompt = devPrompt + resources + schemaBlock;
           return _currentRunSystemPrompt;
         },
         model: options?.model,
@@ -2350,7 +2378,8 @@ export function createAgentChatPlugin(
           }),
           getSystemPrompt: async (owner: string) => {
             const resources = await loadResourcesForPrompt(owner);
-            return basePrompt + resources;
+            const schemaBlock = await buildSchemaBlock(owner, false);
+            return basePrompt + resources + schemaBlock;
           },
           getTools: (actions: Record<string, ActionEntry>) =>
             Object.entries(actions).map(([name, entry]) => ({
