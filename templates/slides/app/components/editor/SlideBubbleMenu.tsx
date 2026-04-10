@@ -12,9 +12,26 @@ import {
   IconList,
   IconListNumbers,
   IconMessageCircle,
+  IconPalette,
+  IconX,
+  IconPlus,
+  IconCheck,
+  IconPencil,
 } from "@tabler/icons-react";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { cn } from "@/lib/utils";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  copiedStyle,
+  setCopiedStyle,
+  getBrandPalette,
+  setBrandPalette,
+  type CopiedStyle,
+} from "./style-clipboard";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyIcon = React.ComponentType<any>;
@@ -37,9 +54,166 @@ interface SlideBubbleMenuProps {
   onComment?: (quotedText: string) => void;
 }
 
+/** Hex color input with validation */
+function HexInput({
+  onAdd,
+  onCancel,
+}: {
+  onAdd: (hex: string) => void;
+  onCancel: () => void;
+}) {
+  const [val, setVal] = useState("");
+
+  const isValid = /^#[0-9A-Fa-f]{6}$/.test(val);
+
+  return (
+    <div className="flex items-center gap-1 mt-1">
+      <div
+        className="w-4 h-4 rounded-sm flex-shrink-0 border border-white/20"
+        style={{ background: isValid ? val : "transparent" }}
+      />
+      <input
+        type="text"
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && isValid) onAdd(val);
+          if (e.key === "Escape") onCancel();
+        }}
+        placeholder="#000000"
+        maxLength={7}
+        className="flex-1 bg-transparent text-white text-xs outline-none placeholder-white/30 border-b border-white/20 pb-0.5 w-20"
+        autoFocus
+      />
+      {isValid && (
+        <button
+          onClick={() => onAdd(val)}
+          className="text-[#00E5FF] hover:text-white"
+        >
+          <IconCheck size={12} />
+        </button>
+      )}
+      <button onClick={onCancel} className="text-white/40 hover:text-white/80">
+        <IconX size={12} />
+      </button>
+    </div>
+  );
+}
+
+/** Color palette popover for picking and managing brand colors */
+function ColorPicker({
+  editor,
+  onClose,
+}: {
+  editor: Editor;
+  onClose: () => void;
+}) {
+  const [palette, setPalette] = useState<string[]>(getBrandPalette);
+  const [editMode, setEditMode] = useState(false);
+  const [addingColor, setAddingColor] = useState(false);
+  const currentColor =
+    (editor.getAttributes("textStyle").color as string | undefined) ?? null;
+
+  const applyColor = (color: string) => {
+    editor.chain().focus().setColor(color).run();
+    onClose();
+  };
+
+  const removeColor = () => {
+    editor.chain().focus().unsetColor().run();
+    onClose();
+  };
+
+  const addTopalette = (hex: string) => {
+    const next = palette.includes(hex) ? palette : [...palette, hex];
+    setPalette(next);
+    setBrandPalette(next);
+    setAddingColor(false);
+    applyColor(hex);
+  };
+
+  const removeFromPalette = (hex: string) => {
+    const next = palette.filter((c) => c !== hex);
+    setPalette(next);
+    setBrandPalette(next);
+  };
+
+  return (
+    <div className="w-[180px]">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[10px] font-semibold text-white/50 uppercase tracking-wider">
+          Brand Colors
+        </span>
+        <button
+          onClick={() => setEditMode((v) => !v)}
+          className={cn(
+            "p-0.5 rounded",
+            editMode ? "text-[#00E5FF]" : "text-white/40 hover:text-white/70",
+          )}
+          title="Edit palette"
+        >
+          <IconPencil size={11} />
+        </button>
+      </div>
+
+      <div className="grid grid-cols-6 gap-1.5">
+        {palette.map((color) => (
+          <div key={color} className="relative group">
+            <button
+              title={color}
+              onClick={() => (editMode ? undefined : applyColor(color))}
+              className={cn(
+                "w-6 h-6 rounded-md border transition-transform",
+                currentColor?.toLowerCase() === color.toLowerCase()
+                  ? "border-white scale-110"
+                  : "border-white/20 hover:scale-110",
+              )}
+              style={{ background: color }}
+            />
+            {editMode && (
+              <button
+                onClick={() => removeFromPalette(color)}
+                className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-[#1c1c1c] border border-white/20 flex items-center justify-center text-white/60 hover:text-white hover:border-white/50"
+              >
+                <IconX size={8} />
+              </button>
+            )}
+          </div>
+        ))}
+
+        {/* Add color button */}
+        {!addingColor && (
+          <button
+            onClick={() => setAddingColor(true)}
+            className="w-6 h-6 rounded-md border border-dashed border-white/25 flex items-center justify-center text-white/40 hover:text-white/70 hover:border-white/40"
+            title="Add color"
+          >
+            <IconPlus size={10} />
+          </button>
+        )}
+      </div>
+
+      {addingColor && (
+        <HexInput onAdd={addTopalette} onCancel={() => setAddingColor(false)} />
+      )}
+
+      <div className="mt-2 pt-2 border-t border-white/10">
+        <button
+          onClick={removeColor}
+          className="flex items-center gap-1.5 text-xs text-white/50 hover:text-white/80 w-full"
+        >
+          <IconX size={11} />
+          Remove color
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function SlideBubbleMenu({ editor, onComment }: SlideBubbleMenuProps) {
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
+  const [colorOpen, setColorOpen] = useState(false);
 
   const handleSetLink = () => {
     if (linkUrl.trim()) {
@@ -65,6 +239,9 @@ export function SlideBubbleMenu({ editor, onComment }: SlideBubbleMenuProps) {
     setLinkUrl(previousUrl);
     setShowLinkInput(true);
   };
+
+  const currentColor =
+    (editor.getAttributes("textStyle").color as string | undefined) ?? null;
 
   const buttons: (ButtonItem | DividerItem)[] = [
     {
@@ -199,6 +376,50 @@ export function SlideBubbleMenu({ editor, onComment }: SlideBubbleMenuProps) {
                 </button>
               );
             })}
+
+            {/* Color picker */}
+            <div className="w-px h-4 bg-white/15 mx-0.5" />
+            <Popover open={colorOpen} onOpenChange={setColorOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  title="Text color"
+                  className={cn(
+                    "p-1.5 rounded relative",
+                    colorOpen
+                      ? "bg-white/20 text-white"
+                      : "text-white/70 hover:text-white hover:bg-white/10",
+                  )}
+                >
+                  <IconPalette size={14} stroke={2} />
+                  {/* Color indicator underline */}
+                  <div
+                    className="absolute bottom-0.5 left-1.5 right-1.5 h-0.5 rounded-full"
+                    style={{
+                      background: currentColor ?? "transparent",
+                      border: currentColor
+                        ? "none"
+                        : "1px solid rgba(255,255,255,0.2)",
+                    }}
+                  />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                side="bottom"
+                align="end"
+                sideOffset={6}
+                className="bg-[#1c1c1c] border-white/10 text-white p-3 w-auto"
+              >
+                <ColorPicker
+                  editor={editor}
+                  onClose={() => setColorOpen(false)}
+                />
+                <div className="mt-2 pt-2 border-t border-white/10 flex gap-2 text-[10px] text-white/35">
+                  <span>⌘⌥C copy style</span>
+                  <span>⌘⌥V paste style</span>
+                </div>
+              </PopoverContent>
+            </Popover>
+
             {hasCommentBtn && (
               <>
                 <div className="w-px h-4 bg-white/15 mx-0.5" />

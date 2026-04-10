@@ -224,9 +224,12 @@ export function JiraConnectBanner() {
             {authData?.url ? (
               <a
                 href={authData.url}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="mt-2 inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
               >
                 Sign in with Atlassian
+                <IconExternalLink className="h-3.5 w-3.5" />
               </a>
             ) : authData?.error ? (
               <p className="text-[13px] text-destructive">

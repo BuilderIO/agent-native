@@ -15,6 +15,10 @@ import fs from "fs";
 import { pathToFileURL } from "url";
 import { coreScripts, getCoreScriptNames } from "./core-scripts.js";
 import { closeDbExec } from "../db/client.js";
+import { loadEnv } from "./utils.js";
+
+// Load .env from cwd so DATABASE_URL and other vars are available to all actions.
+loadEnv();
 
 /**
  * Run the action dispatcher. Call this from your app's actions/run.ts (or scripts/run.ts):

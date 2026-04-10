@@ -4,6 +4,7 @@ import { createRequire } from "module";
 import type { Plugin, UserConfig } from "vite";
 import { nitro as nitroVitePlugin } from "nitro/vite";
 import { actionTypesPlugin } from "./action-types-plugin.js";
+import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
 
 import { fileURLToPath } from "url";
 
@@ -445,6 +446,7 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     },
     plugins: [
       actionTypesPlugin(),
+      agentsBundlePlugin(),
       autoReloadOnOptimizeDep(),
       baseRedirectGuard(),
       portExposer(),

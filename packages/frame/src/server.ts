@@ -14,29 +14,17 @@ import {
   createApp,
   createRouter,
   defineEventHandler,
+  getCookie,
   getQuery,
-  getHeader,
   proxyRequest,
   setResponseHeader,
   toNodeListener,
 } from "h3";
 import { listen } from "listhen";
 import { DEFAULT_APPS } from "@agent-native/shared-app-config";
+import { extractAppFromState } from "./oauth-state.js";
 
 const PORT = parseInt(process.env.FRAME_SERVER_PORT || "3335", 10);
-
-/** Resolve active app ID from query param, then cookie fallback. */
-function resolveAppId(
-  query: Record<string, string | string[]>,
-  cookieHeader: string | undefined,
-): string {
-  if (query._app) return query._app as string;
-  if (cookieHeader) {
-    const match = cookieHeader.match(/(?:^|;\s*)frame_active_app=([^;]+)/);
-    if (match) return match[1];
-  }
-  return "mail";
-}
 
 const app = createApp();
 const router = createRouter();
@@ -84,34 +72,38 @@ router.get(
 router.all(
   "/api/google/**",
   defineEventHandler(async (event) => {
-    const query = getQuery(event);
-    const appId = resolveAppId(query, getHeader(event, "cookie"));
+    const appId =
+      (getQuery(event)._app as string) ||
+      getCookie(event, "frame_active_app") ||
+      "mail";
     const app = DEFAULT_APPS.find((a) => a.id === appId);
     const targetPort = app?.devPort || 8085;
-    const targetUrl = `http://localhost:${targetPort}`;
-    return proxyRequest(event, `${targetUrl}${event.path}`);
+    return proxyRequest(event, `http://localhost:${targetPort}${event.path}`);
   }),
 );
 
 // Proxy /_agent-native routes to the active app's dev server.
-// App is resolved from ?_app= query param, then frame_active_app cookie.
-// This means all core client calls (poll, mentions, resources, etc.) are
-// automatically routed to the correct app without needing ?_app= on every URL.
+// App is resolved from ?_app= query param, then OAuth state (for callbacks
+// from the system browser that lack the frame_active_app cookie), then the
+// frame_active_app cookie, then "mail" as default.
 router.all(
   "/_agent-native/**",
   defineEventHandler(async (event) => {
     const query = getQuery(event);
-    const appId = resolveAppId(query, getHeader(event, "cookie"));
+    const appId =
+      (query._app as string) ||
+      extractAppFromState(query.state as string | undefined) ||
+      getCookie(event, "frame_active_app") ||
+      "mail";
     const app = DEFAULT_APPS.find((a) => a.id === appId);
     const targetPort = app?.devPort || 8085;
-    const targetUrl = `http://localhost:${targetPort}`;
-    return proxyRequest(event, `${targetUrl}${event.path}`);
+    return proxyRequest(event, `http://localhost:${targetPort}${event.path}`);
   }),
 );
 
 app.use(router);
 
 // Start the server
-listen(toNodeListener(app), { port: PORT }).then((listener) => {
+listen(toNodeListener(app), { port: PORT }).then(() => {
   console.log(`Frame server listening on http://localhost:${PORT}`);
 });

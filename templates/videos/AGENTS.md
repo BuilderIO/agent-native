@@ -63,6 +63,14 @@ The current screen state is automatically included with each message as a `<curr
 
 **Always use `pnpm action <name>` for operations** -- never curl or raw HTTP.
 
+**Running actions from the frame:** The terminal cwd is the framework root. Always `cd` to this template's root before running any action:
+
+```bash
+cd templates/videos && pnpm action <name> [args]
+```
+
+`.env` is loaded automatically — **never manually set `DATABASE_URL` or other env vars**.
+
 ### Actions
 
 | Action                        | Args                                    | Purpose                        |

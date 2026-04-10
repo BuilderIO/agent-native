@@ -55,6 +55,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
   ({ app, appConfig, isActive, refreshKey = 0 }: AppWebviewProps, ref) => {
     const webviewRef = useRef<ElectronWebviewElement>(null);
     const [error, setError] = useState(false);
+    const [isFullscreen, setIsFullscreen] = useState(false);
     const url = resolveUrl(app, appConfig);
     const optimizeDepRecoveryRef = useRef(false);
 
@@ -136,14 +137,21 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         }
       };
 
+      const onEnterFullscreen = () => setIsFullscreen(true);
+      const onLeaveFullscreen = () => setIsFullscreen(false);
+
       wv.addEventListener("dom-ready", onReady);
       wv.addEventListener("did-fail-load", onFailed);
       wv.addEventListener("console-message", onConsoleMessage);
+      wv.addEventListener("enter-html-full-screen", onEnterFullscreen);
+      wv.addEventListener("leave-html-full-screen", onLeaveFullscreen);
 
       return () => {
         wv.removeEventListener("dom-ready", onReady);
         wv.removeEventListener("did-fail-load", onFailed);
         wv.removeEventListener("console-message", onConsoleMessage);
+        wv.removeEventListener("enter-html-full-screen", onEnterFullscreen);
+        wv.removeEventListener("leave-html-full-screen", onLeaveFullscreen);
       };
     }, [app.placeholder, isActive, app.id]);
 
@@ -204,7 +212,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
 
     return (
       <div
-        className={`webview-slot${isActive ? "" : " webview-slot--hidden"}`}
+        className={`webview-slot${isActive ? "" : " webview-slot--hidden"}${isFullscreen ? " webview-slot--fullscreen" : ""}`}
         onClick={() => {
           // Re-focus the webview when clicking the content area so
           // keyboard shortcuts (Tab, etc.) route into the app.

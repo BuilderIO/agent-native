@@ -52,7 +52,15 @@ The `navigation` key is written by the UI whenever the route changes. The `navig
 
 ## Agent Operations
 
-**Context awareness:** The current screen state is automatically provided with each message (via a hook or `<current-screen>` block). Use this to understand what the user is looking at — which app, which page, which item. If you need a more detailed or refreshed snapshot, run `pnpm action view-screen`.
+**Always know what the user is currently viewing before you edit anything.** The user's view can change mid-conversation. Stale IDs lead to editing the wrong record.
+
+### If you are the built-in agent-chat agent
+
+A `<current-screen>` block is auto-injected into every user message with the current view, IDs, and selected item. You can trust it for the first action of a turn without calling `view-screen`. If the user says "this" or "now do X" after several tool calls, the user may have navigated — call `view-screen` again for a fresh snapshot.
+
+### If you are an external CLI agent (Claude Code, Codex, Cursor, etc.)
+
+You do NOT get auto-injected screen state. **Call `pnpm action view-screen` at the start of every task and before any edit** so you're acting on the IDs the user currently sees, not what was open earlier. Do not rely on cached context from previous turns.
 
 ### Actions
 

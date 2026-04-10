@@ -83,6 +83,23 @@ export function EventDetailPanel({
     }
   }, [isEditingTitle]);
 
+  useEffect(() => {
+    if (!isOpen || !event) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        (e.key === "Delete" || e.key === "Backspace") &&
+        !isEditingTitle &&
+        !(e.target instanceof HTMLInputElement) &&
+        !(e.target instanceof HTMLTextAreaElement)
+      ) {
+        e.preventDefault();
+        onDelete(event.id);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, event, isEditingTitle, onDelete]);
+
   const handleSaveDescription = useCallback(() => {
     if (!event) return;
     const trimmed = editDescription.trim();

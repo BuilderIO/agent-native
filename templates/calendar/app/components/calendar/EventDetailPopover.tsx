@@ -389,16 +389,28 @@ export function EventDetailPopover({
     [event, setEventDetailSidebar, setSidebarEvent],
   );
 
-  // Keyboard shortcut: Cmd+J to join meeting when popover is open
+  // Keyboard shortcut: Cmd+J to join meeting when popover is open; Delete/Backspace to delete event
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (!open || !meetingLink) return;
-      if ((e.metaKey || e.ctrlKey) && e.key === "j") {
+      if (!open) return;
+      if ((e.metaKey || e.ctrlKey) && e.key === "j" && meetingLink) {
         e.preventDefault();
         window.open(meetingLink.url, "_blank");
+        return;
+      }
+      if (
+        (e.key === "Delete" || e.key === "Backspace") &&
+        !isEditingTitle &&
+        !editingField &&
+        !(e.target instanceof HTMLInputElement) &&
+        !(e.target instanceof HTMLTextAreaElement)
+      ) {
+        e.preventDefault();
+        onDelete(event.id);
+        setOpen(false);
       }
     },
-    [open, meetingLink],
+    [open, meetingLink, isEditingTitle, editingField, onDelete, event.id],
   );
 
   useEffect(() => {

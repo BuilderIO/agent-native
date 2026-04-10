@@ -73,7 +73,19 @@ const ATLASSIAN_LOGIN_HTML = `<!DOCTYPE html>
       var data = await res.json();
       if (data.url) {
         try { sessionStorage.setItem('__an_signin', '1'); } catch(e) {}
-        window.location.href = data.url;
+        // If inside an iframe (desktop app), open in a popup and poll for completion
+        if (window !== window.top) {
+          var popup = window.open(data.url, '_blank', 'width=640,height=760');
+          var poll = setInterval(async function() {
+            try {
+              var r = await fetch('/_agent-native/auth/session');
+              var s = await r.json();
+              if (s && s.email) { clearInterval(poll); window.location.reload(); }
+            } catch(e) {}
+          }, 2000);
+        } else {
+          window.location.href = data.url;
+        }
       } else {
         err.textContent = data.message || 'Atlassian OAuth is not configured. Set ATLASSIAN_CLIENT_ID and ATLASSIAN_CLIENT_SECRET.';
         err.classList.add('show');

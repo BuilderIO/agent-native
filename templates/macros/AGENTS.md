@@ -54,6 +54,14 @@ All data is stored in SQL via Drizzle ORM.
 
 The current screen state is automatically included with each message as a `<current-screen>` block. Use `view-screen` only when you need a refreshed snapshot mid-conversation.
 
+**Running actions from the frame:** The terminal cwd is the framework root. Always `cd` to this template's root before running any action:
+
+```bash
+cd templates/macros && pnpm action <name> [args]
+```
+
+`.env` is loaded automatically — **never manually set `DATABASE_URL` or other env vars**.
+
 | Action           | Args                                                   | Purpose                      |
 | ---------------- | ------------------------------------------------------ | ---------------------------- |
 | `view-screen`    |                                                        | See current navigation state |

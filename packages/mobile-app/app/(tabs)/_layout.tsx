@@ -1,5 +1,5 @@
 import { Tabs } from "expo-router";
-import { Feather } from "@expo/vector-icons";
+import { Feather, FontAwesome5 } from "@expo/vector-icons";
 import { useApps } from "../../lib/use-apps";
 
 /** Map tab file names to app IDs in the config */
@@ -90,7 +90,7 @@ export default function TabLayout() {
           headerShown: false,
           href: hrefFor("issues"),
           tabBarIcon: ({ color, size }) => (
-            <Feather name="alert-circle" size={size} color={color} />
+            <FontAwesome5 name="jira" size={size} color={color} />
           ),
         }}
       />

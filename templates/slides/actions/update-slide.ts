@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core";
 import { getDbExec, isPostgres } from "@agent-native/core/db";
 import { hasCollabState } from "@agent-native/core/collab";
 import { z } from "zod";
+import { notifyClients } from "../server/handlers/decks.js";
 
 export default defineAction({
   description:
@@ -81,6 +82,10 @@ export default defineAction({
         sql: `UPDATE decks SET data = ?, updated_at = ${nowExpr} WHERE id = ?`,
         args: [JSON.stringify(deck), deckId],
       });
+      // Broadcast so in-memory deck list in the editor refreshes. Yjs handles
+      // live content sync for find/replace, but --fullContent and the slide
+      // list itself aren't covered by Yjs — the SSE push fills that gap.
+      notifyClients(deckId);
     }
 
     // 2. Push through Yjs for live collaborative sync (only if editor is open and

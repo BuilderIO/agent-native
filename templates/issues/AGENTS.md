@@ -96,6 +96,14 @@ The current screen state (navigation + Jira API issue data) is automatically inc
 
 **Always use `pnpm action <name>` for operations** — never curl or raw HTTP.
 
+**Running actions from the frame:** The terminal cwd is the framework root. Always `cd` to this template's root before running any action:
+
+```bash
+cd templates/issues && pnpm action <name> [args]
+```
+
+`.env` is loaded automatically — **never manually set `DATABASE_URL` or other env vars**.
+
 **After any write operation**, run `pnpm action refresh-list`.
 
 ## Actions

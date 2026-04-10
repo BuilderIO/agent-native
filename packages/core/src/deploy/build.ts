@@ -585,11 +585,154 @@ function copyDir(src: string, dest: string) {
 }
 
 /**
+ * Create stub directories for dangling platform-specific optional dependency
+ * symlinks in the pnpm store.
+ *
+ * pnpm's store at `node_modules/.pnpm/<pkg>@<ver>/node_modules/<pkg>/<dep>`
+ * contains symlinks for ALL optional deps declared by a package, but only
+ * installs the ones matching the current OS/CPU as real packages. The other
+ * symlinks dangle — their targets at `.pnpm/<scope>+<pkg>@<ver>/node_modules/...`
+ * don't exist.
+ *
+ * Nitro's `nitro:externals` plugin (via nf3 / @vercel/nft) walks
+ * optionalDependencies when tracing files and calls `realpath` on them, which
+ * throws ENOENT on dangling targets. This blocks builds with presets like
+ * netlify / vercel / aws-lambda on macOS when packages like `libsql` declare
+ * Linux-only platform variants as optional deps.
+ *
+ * Fix: walk `node_modules/.pnpm/` and for every dangling symlink under
+ * `<pkg>/node_modules/<scope>/<dep>`, create the symlink's target as a tiny
+ * stub directory containing just a valid `package.json`. The tracer can now
+ * `realpath` and read the package.json without throwing — the stub is empty
+ * so no binary is bundled (which is what we want: we're building from macOS,
+ * the target deploy platform will install its own native binary).
+ */
+function createDanglingOptionalDepStubs() {
+  // In pnpm monorepos, the store may live at the workspace root rather than
+  // in the template dir. Walk up from `cwd` to find every `.pnpm` directory.
+  const pnpmRoots: string[] = [];
+  let dir = cwd;
+  while (true) {
+    const candidate = path.join(dir, "node_modules", ".pnpm");
+    if (fs.existsSync(candidate)) pnpmRoots.push(candidate);
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  if (pnpmRoots.length === 0) return;
+
+  let stubsCreated = 0;
+
+  for (const pnpmRoot of pnpmRoots) {
+    let pkgDirs: string[];
+    try {
+      pkgDirs = fs.readdirSync(pnpmRoot);
+    } catch {
+      continue;
+    }
+
+    for (const pkgDir of pkgDirs) {
+      // e.g. `libsql@0.5.29`, `@libsql+client@0.15.15`
+      const innerNm = path.join(pnpmRoot, pkgDir, "node_modules");
+      if (!fs.existsSync(innerNm)) continue;
+
+      let innerEntries: fs.Dirent[];
+      try {
+        innerEntries = fs.readdirSync(innerNm, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+
+      for (const entry of innerEntries) {
+        // Top-level entry: either `foo` (unscoped) or `@scope` (scoped)
+        const entryPath = path.join(innerNm, entry.name);
+        const candidates: { symlinkPath: string; pkgName: string }[] = [];
+        if (entry.name.startsWith("@")) {
+          // Scoped — iterate children
+          let scopedChildren: fs.Dirent[];
+          try {
+            scopedChildren = fs.readdirSync(entryPath, {
+              withFileTypes: true,
+            });
+          } catch {
+            continue;
+          }
+          for (const child of scopedChildren) {
+            candidates.push({
+              symlinkPath: path.join(entryPath, child.name),
+              pkgName: `${entry.name}/${child.name}`,
+            });
+          }
+        } else {
+          candidates.push({ symlinkPath: entryPath, pkgName: entry.name });
+        }
+
+        for (const { symlinkPath, pkgName } of candidates) {
+          let isSymlink = false;
+          try {
+            isSymlink = fs.lstatSync(symlinkPath).isSymbolicLink();
+          } catch {
+            continue;
+          }
+          if (!isSymlink) continue;
+
+          // Check if the symlink target exists
+          try {
+            fs.statSync(symlinkPath);
+            continue; // Target exists — nothing to do
+          } catch {
+            // Dangling symlink — create a stub at the target
+          }
+
+          let linkTarget: string;
+          try {
+            linkTarget = fs.readlinkSync(symlinkPath);
+          } catch {
+            continue;
+          }
+          const resolvedTarget = path.resolve(
+            path.dirname(symlinkPath),
+            linkTarget,
+          );
+
+          try {
+            fs.mkdirSync(resolvedTarget, { recursive: true });
+            const stubPkgJson = {
+              name: pkgName,
+              version: "0.0.0-stub",
+              description:
+                "Empty stub created by @agent-native/core deploy build to satisfy nitro's file tracer on platforms where this optional dep is not installed.",
+            };
+            fs.writeFileSync(
+              path.join(resolvedTarget, "package.json"),
+              JSON.stringify(stubPkgJson, null, 2),
+            );
+            stubsCreated++;
+          } catch {
+            // Best-effort — ignore failures
+          }
+        }
+      }
+    }
+  }
+
+  if (stubsCreated > 0) {
+    console.log(
+      `[deploy] Created ${stubsCreated} stub package dir(s) for dangling optional deps (platform-specific binaries not installed on this host).`,
+    );
+  }
+}
+
+/**
  * Build for any non-Cloudflare preset using Nitro's programmatic build API.
  * Handles netlify, vercel, deno_deploy, aws-lambda, and all other targets.
  */
 async function buildWithNitro() {
   console.log(`[deploy] Building for preset "${preset}" via Nitro...`);
+
+  // Work around pnpm + nitro:externals (nf3) bug where dangling symlinks for
+  // platform-specific optional deps cause realpath ENOENT during file tracing.
+  createDanglingOptionalDepStubs();
 
   const {
     createNitro,
@@ -602,6 +745,29 @@ async function buildWithNitro() {
   // can import "virtual:react-router/server-build" in production.
   const rrServerBuild = path.join(cwd, "build", "server", "index.js");
 
+  // Inline the template's AGENTS.md + .agents/skills/ content into the Nitro
+  // bundle via the `virtual` config option. Nitro's internal `nitro:virtual`
+  // Rollup plugin picks this up and resolves `virtual:agents-bundle` to the
+  // generated ES module source. Without this, Nitro's Rolldown build (used for
+  // netlify, vercel, aws-lambda, node presets) can't resolve the virtual
+  // module that `server/agents-bundle.ts` imports — it silently falls through
+  // to an empty bundle and the agent gets no instructions/skills at runtime.
+  //
+  // The Vite plugin at `vite/agents-bundle-plugin.ts` handles this for the
+  // React Router client/server build (and cloudflare via esbuild rebundle),
+  // but Nitro runs its OWN build from ./server/ without Vite, so it needs its
+  // own virtual module registration. Both paths reuse `readAgentsBundleFromFs`
+  // from `server/agents-bundle.ts` to guarantee identical content.
+  const { readAgentsBundleFromFs } = await import("../server/agents-bundle.js");
+  const agentsBundleModuleSource = () => {
+    const bundle = readAgentsBundleFromFs(cwd);
+    return `// AUTO-GENERATED by @agent-native/core deploy build (Nitro virtual)
+// Contains the inlined AGENTS.md + .agents/skills/ content from the template.
+const bundle = ${JSON.stringify(bundle)};
+export default bundle;
+`;
+  };
+
   const nitro = await createNitro({
     rootDir: cwd,
     dev: false,
@@ -611,6 +777,9 @@ async function buildWithNitro() {
     alias: fs.existsSync(rrServerBuild)
       ? { "virtual:react-router/server-build": rrServerBuild }
       : {},
+    virtual: {
+      "virtual:agents-bundle": agentsBundleModuleSource,
+    },
     // For edge presets (cloudflare, deno), bundle all deps — node_modules
     // aren't available at runtime. Netlify/Vercel/Node have node_modules.
     ...(preset.startsWith("cloudflare") || preset.startsWith("deno")

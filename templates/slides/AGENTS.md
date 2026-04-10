@@ -74,9 +74,31 @@ Each deck's `data` column contains a JSON object with `title` and `slides` array
 
 ## Agent Operations
 
-The current screen state (including deck/slide context) is automatically included with each message as a `<current-screen>` block. You don't need to call `view-screen` before every action — use it only when you need a refreshed snapshot mid-conversation.
+**Always check the current screen before editing.** The user's view (which deck, which slide, scroll position) can change mid-conversation. Stale deck/slide IDs lead to editing the wrong thing.
 
-**Always use `pnpm action <name>` for operations** -- never curl or raw HTTP.
+### If you are the built-in agent-chat agent
+
+A `<current-screen>` block is auto-injected into every user message with the current `deckId`, `currentSlideId`, and the full slide list. You don't need to call `view-screen` for the first action on a turn — the injected block is fresh. You **do** need to re-check if the user says "this slide" or "now do X" after several tool calls: the user may have navigated. When in doubt, call `view-screen`.
+
+### If you are an external CLI agent (Claude Code, Codex, Cursor, etc.)
+
+You do NOT get auto-injected screen state. You MUST call `view-screen` yourself at the start of every task AND whenever you're about to edit a specific slide/deck. Do not rely on what was visible in previous turns — the user may have switched to a different slide since your last action.
+
+**Rule of thumb:** run `pnpm action view-screen` before any `update-slide`, `add-slide`, or `create-deck --deckId` call to make sure you have the current `deckId` and `slideId`.
+
+### Running actions
+
+**Always use `pnpm action <name>` for operations** — never curl or raw HTTP.
+
+Your shell cwd is this template's root (e.g., `templates/slides/`). Run actions directly:
+
+```bash
+pnpm action <name> [args]
+```
+
+If your cwd is the monorepo root instead (e.g., running from the Frame wrapper), prefix with `cd templates/slides &&`. Check with `pwd` if you're unsure. If `pnpm action` fails with "command not found" or "No such file", `cd` to the template root first.
+
+`.env` is loaded automatically — **never manually set `DATABASE_URL` or other env vars**.
 
 ### Reading & Searching
 
@@ -94,14 +116,33 @@ The current screen state (including deck/slide context) is automatically include
 | `add-slide-comment`   | `--deckId <id> --slideId <id> --content "text" [--quotedText "..."]` | Add a comment to a slide    |
 | `add-slide-comment`   | `--deckId <id> --slideId <id> --threadId <id> --content "reply"`     | Reply to an existing thread |
 
-### Slide Editing (Surgical — Preferred)
+### Creating & Editing Slides
 
-Always prefer `update-slide` with `--find/--replace` over full deck rewrites. It syncs live to open editors via Yjs CRDT and shows the agent as a presence participant.
+**Default flow — build a deck slide-by-slide (PREFERRED):**
 
-| Action         | Args                                                        | Purpose                                    |
-| -------------- | ----------------------------------------------------------- | ------------------------------------------ |
-| `update-slide` | `--deckId <id> --slideId <id> --find "old" --replace "new"` | Surgical text edit — syncs live to editors |
-| `update-slide` | `--deckId <id> --slideId <id> --fullContent "<html>"`       | Full slide content replacement             |
+1. If a deck is already open (check `<current-screen>` for `deckId`), skip to step 3.
+2. Otherwise, create an empty deck: `create-deck --title "X" --slides '[]'`, then `navigate --deckId=<returned-id>`.
+3. Call `add-slide --deckId=<id> --content="<html>"` once per slide. **Fire multiple `add-slide` calls in parallel in the same turn** — they run concurrently and the user sees each slide appear live.
+
+**Why add-slide is preferred over create-deck with all slides:**
+
+- The user sees slides stream in one-by-one (create-deck drops them all at once).
+- Parallel tool calls mean all slides generate concurrently.
+- If one slide fails, the others still land.
+
+**Other operations:**
+
+- **Replace one slide's content:** `update-slide --find/--replace` (surgical, syncs live via Yjs) or `--fullContent`.
+- **Bulk replace (rare):** `create-deck --deckId <existing>` to atomically replace ALL slides in one deck.
+
+| Action         | Args                                                             | Purpose                                                          |
+| -------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `add-slide`    | `--deckId <id> --content "<html>" [--layout ...] [--position N]` | **PREFERRED** — add one slide to an existing deck; parallel-safe |
+| `create-deck`  | `--title "X" --slides '[]'`                                      | Create a new empty deck                                          |
+| `create-deck`  | `--title "X" --slides '[...]'`                                   | Create a new deck with all slides (bulk, rarely preferred)       |
+| `create-deck`  | `--title "X" --slides '[...]' --deckId <id>`                     | Replace all slides in an existing deck (atomic bulk replace)     |
+| `update-slide` | `--deckId <id> --slideId <id> --find "old" --replace "new"`      | Surgical text edit — syncs live to editors                       |
+| `update-slide` | `--deckId <id> --slideId <id> --fullContent "<html>"`            | Full slide content replacement                                   |
 
 ### Navigation
 
@@ -121,26 +162,288 @@ Always prefer `update-slide` with `--find/--replace` over full deck rewrites. It
 
 ### Common Tasks
 
-| User request                       | What to do                                                 |
-| ---------------------------------- | ---------------------------------------------------------- |
-| "What am I looking at?"            | `pnpm action view-screen`                                  |
-| "List my decks"                    | `pnpm action list-decks`                                   |
-| "Create a new deck about X"        | Create deck via `POST /api/decks`, then navigate to it     |
-| "Add a slide about Y"              | Get deck, add slide to data, `PUT /api/decks/:id`          |
-| "Generate an image for this slide" | `pnpm action generate-image --prompt "..." --deck-id <id>` |
-| "Open deck abc123"                 | `pnpm action navigate --deckId=abc123`                     |
-| "Go to the deck list"              | `pnpm action navigate --view=list`                         |
-| "Find the company logo for X"      | `pnpm action logo-lookup --domain x.com`                   |
+| User request                          | What to do                                                                                                                |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| "What am I looking at?"               | `pnpm action view-screen`                                                                                                 |
+| "List my decks"                       | `pnpm action list-decks`                                                                                                  |
+| "Create a new deck about X"           | `create-deck --title "X" --slides '[]'` → `navigate --deckId=<returned-id>` → fire multiple `add-slide` calls in parallel |
+| "Fill this deck / add slides to this" | Read `deckId` from `<current-screen>`, then fire multiple `add-slide --deckId=<id>` calls in parallel — one per slide     |
+| "Add a slide about Y"                 | `add-slide --deckId <id> --content "<html>"` (new slide) or `update-slide --fullContent` (replace existing)               |
+| "Generate an image for this slide"    | `pnpm action generate-image --prompt "..." --deck-id <id>`                                                                |
+| "Open deck abc123"                    | `pnpm action navigate --deckId=abc123`                                                                                    |
+| "Go to the deck list"                 | `pnpm action navigate --view=list`                                                                                        |
+| "Find the company logo for X"         | `pnpm action logo-lookup --domain x.com`                                                                                  |
+
+## Slide HTML Templates
+
+**Do NOT explore the codebase or call db-schema to understand slides.** Use these templates directly.
+
+Every slide `content` is HTML. The slide renderer provides the black background — your HTML is the inner content.
+
+### Outer wrapper (required for every slide)
+
+```html
+<div
+  class="fmd-slide"
+  style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: flex-start; font-family: 'Poppins', sans-serif;"
+>
+  <!-- slide content here -->
+</div>
+```
+
+### Title Slide
+
+```html
+<div
+  class="fmd-slide"
+  style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; font-family: 'Poppins', sans-serif;"
+>
+  <div
+    style="font-size: 16px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 24px;"
+  >
+    LABEL OR DATE
+  </div>
+  <h1
+    style="font-size: 64px; font-weight: 900; color: #fff; line-height: 1.1; letter-spacing: -2px; margin: 0 0 24px 0;"
+  >
+    Title Here
+  </h1>
+  <p style="font-size: 22px; color: rgba(255,255,255,0.55); margin: 0;">
+    Subtitle or presenter
+  </p>
+</div>
+```
+
+### Section Divider
+
+```html
+<div
+  class="fmd-slide"
+  style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; font-family: 'Poppins', sans-serif;"
+>
+  <div
+    style="font-size: 16px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 20px;"
+  >
+    01
+  </div>
+  <h2
+    style="font-size: 72px; font-weight: 900; color: #fff; line-height: 1.05; letter-spacing: -2px; margin: 0;"
+  >
+    Section Title
+  </h2>
+</div>
+```
+
+### Content Slide (bullets)
+
+```html
+<div
+  class="fmd-slide"
+  style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: flex-start; font-family: 'Poppins', sans-serif;"
+>
+  <div
+    style="font-size: 14px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 16px;"
+  >
+    SECTION LABEL
+  </div>
+  <h2
+    style="font-size: 40px; font-weight: 900; color: #fff; line-height: 1.15; letter-spacing: -1px; margin: 0 0 48px 0;"
+  >
+    Slide Heading
+  </h2>
+  <div style="display: flex; flex-direction: column; gap: 20px;">
+    <div style="display: flex; align-items: flex-start; gap: 16px;">
+      <span
+        style="font-size: 8px; color: #fff; margin-top: 8px; flex-shrink: 0;"
+        >&#x25CF;</span
+      >
+      <span
+        style="font-size: 22px; color: rgba(255,255,255,0.85); line-height: 1.5;"
+        >Bullet point text here</span
+      >
+    </div>
+    <div style="display: flex; align-items: flex-start; gap: 16px;">
+      <span
+        style="font-size: 8px; color: #fff; margin-top: 8px; flex-shrink: 0;"
+        >&#x25CF;</span
+      >
+      <span
+        style="font-size: 22px; color: rgba(255,255,255,0.85); line-height: 1.5;"
+        >Another bullet point</span
+      >
+    </div>
+  </div>
+</div>
+```
+
+### Statement / Quote Slide
+
+```html
+<div
+  class="fmd-slide"
+  style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; font-family: 'Poppins', sans-serif;"
+>
+  <div
+    style="width: 60px; height: 4px; background: #00E5FF; margin-bottom: 40px;"
+  ></div>
+  <p
+    style="font-size: 48px; font-weight: 800; color: #fff; line-height: 1.2; letter-spacing: -1px; margin: 0 0 32px 0;"
+  >
+    &ldquo;Statement or quote here&rdquo;
+  </p>
+  <p style="font-size: 18px; color: rgba(255,255,255,0.45); margin: 0;">
+    Source or attribution
+  </p>
+</div>
+```
+
+### Metrics / Stats Slide
+
+```html
+<div
+  class="fmd-slide"
+  style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: flex-start; font-family: 'Poppins', sans-serif;"
+>
+  <div
+    style="font-size: 14px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 16px;"
+  >
+    SECTION LABEL
+  </div>
+  <h2
+    style="font-size: 40px; font-weight: 900; color: #fff; line-height: 1.15; letter-spacing: -1px; margin: 0 0 60px 0;"
+  >
+    Heading
+  </h2>
+  <div style="display: flex; gap: 60px;">
+    <div style="flex: 1;">
+      <div
+        style="font-size: 72px; font-weight: 900; color: #00E5FF; letter-spacing: -2px; line-height: 1;"
+      >
+        42%
+      </div>
+      <div
+        style="font-size: 18px; color: rgba(255,255,255,0.55); margin-top: 12px;"
+      >
+        Metric label
+      </div>
+    </div>
+    <div style="flex: 1;">
+      <div
+        style="font-size: 72px; font-weight: 900; color: #00E5FF; letter-spacing: -2px; line-height: 1;"
+      >
+        10x
+      </div>
+      <div
+        style="font-size: 18px; color: rgba(255,255,255,0.55); margin-top: 12px;"
+      >
+        Metric label
+      </div>
+    </div>
+  </div>
+</div>
+```
+
+### Closing / CTA Slide
+
+```html
+<div
+  class="fmd-slide"
+  style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; font-family: 'Poppins', sans-serif;"
+>
+  <div
+    style="font-size: 16px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 24px;"
+  >
+    GET STARTED
+  </div>
+  <h2
+    style="font-size: 64px; font-weight: 900; color: #fff; line-height: 1.1; letter-spacing: -2px; margin: 0 0 32px 0;"
+  >
+    Closing statement here
+  </h2>
+  <p style="font-size: 22px; color: rgba(255,255,255,0.55); margin: 0;">
+    Contact or next step
+  </p>
+</div>
+```
+
+### Image Placeholder
+
+When a slide needs a visual:
+
+```html
+<div
+  class="fmd-img-placeholder"
+  style="width: 100%; height: 300px; border-radius: 12px;"
+>
+  Description of what image should show
+</div>
+```
+
+### Complete Example — 2-slide deck
+
+```bash
+pnpm action create-deck --title "My Deck" --slides '[
+  {
+    "id": "slide-1",
+    "layout": "title",
+    "content": "<div class=\"fmd-slide\" style=\"padding: 80px 110px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; font-family: '\''Poppins'\'', sans-serif;\"><div style=\"font-size: 16px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 24px;\">2025</div><h1 style=\"font-size: 64px; font-weight: 900; color: #fff; line-height: 1.1; letter-spacing: -2px; margin: 0 0 24px 0;\">My Deck Title</h1><p style=\"font-size: 22px; color: rgba(255,255,255,0.55); margin: 0;\">Subtitle here</p></div>"
+  },
+  {
+    "id": "slide-2",
+    "layout": "content",
+    "content": "<div class=\"fmd-slide\" style=\"padding: 80px 110px; display: flex; flex-direction: column; justify-content: flex-start; font-family: '\''Poppins'\'', sans-serif;\"><div style=\"font-size: 14px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 16px;\">OVERVIEW</div><h2 style=\"font-size: 40px; font-weight: 900; color: #fff; line-height: 1.15; letter-spacing: -1px; margin: 0 0 48px 0;\">Key Points</h2><div style=\"display: flex; flex-direction: column; gap: 20px;\"><div style=\"display: flex; align-items: flex-start; gap: 16px;\"><span style=\"font-size: 8px; color: #fff; margin-top: 8px; flex-shrink: 0;\">&#x25CF;</span><span style=\"font-size: 22px; color: rgba(255,255,255,0.85); line-height: 1.5;\">First point</span></div><div style=\"display: flex; align-items: flex-start; gap: 16px;\"><span style=\"font-size: 8px; color: #fff; margin-top: 8px; flex-shrink: 0;\">&#x25CF;</span><span style=\"font-size: 22px; color: rgba(255,255,255,0.85); line-height: 1.5;\">Second point</span></div></div></div>"
+  }
+]'
+```
+
+Then navigate: `pnpm action navigate --deckId=<returned-id>`
+
+## Delegating to Sub-Agents
+
+When spawning a sub-agent for slide work, write an explicit task description — never vague. The sub-agent has the same actions you do and will use them if you tell it to.
+
+**Always include in every slide sub-agent task:**
+
+1. **The exact deckId** if working on an existing deck
+2. **Preferred action**: `add-slide` for slide-by-slide generation (parallel), not `create-deck` with a huge slides array
+3. **DO NOT tell it to read skills or explore** — the templates are in this AGENTS.md
+
+**Example — filling an open deck (PREFERRED — parallel add-slide):**
+
+```
+The user has deck "deck-1234567-abc" open. Populate it with 5 slides about "AI trends in 2025".
+
+Fire FIVE parallel add-slide tool calls in a single turn:
+  add-slide --deckId "deck-1234567-abc" --content "<title slide HTML>"
+  add-slide --deckId "deck-1234567-abc" --content "<slide 2 HTML>"
+  add-slide --deckId "deck-1234567-abc" --content "<slide 3 HTML>"
+  add-slide --deckId "deck-1234567-abc" --content "<slide 4 HTML>"
+  add-slide --deckId "deck-1234567-abc" --content "<closing slide HTML>"
+
+Use the slide HTML templates from the AGENTS.md. DO NOT use db-schema, search-files, resource-read, or shell.
+```
+
+**Example — creating a new deck from scratch:**
+
+```
+Create a new deck titled "AI Trends 2025" with 5 slides.
+
+Step 1: create-deck --title "AI Trends 2025" --slides '[]'  (empty deck)
+Step 2: navigate --deckId=<returned-id>
+Step 3: Fire 5 parallel add-slide calls (same pattern as the "open deck" example above).
+
+DO NOT bundle all slides into step 1's --slides array. Adding them one-by-one via add-slide lets the user watch the deck build live.
+```
+
+**If the user has a deck open** (visible in `<current-screen>`), include the `deckId` from the screen state in your task. Never make the sub-agent guess or discover the deckId on its own.
 
 ## Slide Styling Rules
 
-All generated slides follow these conventions (see `.agents/skills/slide-editing` for full details):
-
-- **Background**: `bg-[#000000]` (pure black)
+- **Background**: `bg-[#000000]` (pure black) — set by the renderer, not your HTML
 - **Font**: `font-family: 'Poppins', sans-serif`
 - **Headings**: `font-size: 40px; font-weight: 900; color: #fff`
 - **Accent color**: `#00E5FF` (cyan)
-- **Image placeholders**: `.fmd-img-placeholder` divs for visual elements
+- **Image placeholders**: `.fmd-img-placeholder` divs
 
 ## Agent Chat Integration
 
@@ -150,18 +453,20 @@ The app delegates complex operations to the agent chat via `sendToAgentChat()`. 
 
 When generating outbound content (deck slides, marketing copy), consult **`data/builder-positioning.md`** for messaging pillars, personas, competitive positioning, and customer evidence.
 
-## Skills
+## Skills (for code editing only)
 
-| Skill                 | When to read                                 |
-| --------------------- | -------------------------------------------- |
-| `deck-management`     | Before reading/writing deck data             |
-| `slide-editing`       | Before editing slide content or layout       |
-| `slide-images`        | Before generating or sourcing images         |
-| `storing-data`        | Before storing or reading any app state      |
-| `delegate-to-agent`   | Before adding LLM calls or AI delegation     |
-| `actions`             | Before creating or modifying scripts         |
-| `self-modifying-code` | Before editing source, components, or styles |
-| `frontend-design`     | Before building or restyling any UI          |
+These skills are **only** needed when modifying source code, styles, or architecture. They are **not** needed for creating slides — the slide HTML templates above have everything you need for slide generation.
+
+The framework auto-injects a `<skills>` block in your system prompt listing every available skill with its directory path and description. Skills are folders at `.agents/skills/<name>/` containing `SKILL.md` plus any supporting files.
+
+Read a skill via shell (dev mode):
+
+```
+shell(command="cat .agents/skills/actions/SKILL.md")
+shell(command="ls .agents/skills/actions/")
+```
+
+In production mode (no shell): critical content should be inlined in this AGENTS.md. For this template, all slide HTML templates are already inlined above — skills are only needed for code modification, which happens in dev.
 
 ## API Routes
 

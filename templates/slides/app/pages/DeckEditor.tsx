@@ -30,6 +30,7 @@ import {
 import { useDeckPresence } from "@/hooks/use-deck-presence";
 import { useSlideComments } from "@/hooks/use-slide-comments";
 import { SlideCommentsPanel } from "@/components/comments/SlideCommentsPanel";
+import { AnimationsPanel } from "@/components/editor/AnimationsPanel";
 
 // Stable tab ID for jitter prevention (module-level = never recreated)
 const COLLAB_TAB_ID = `slides-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -69,6 +70,7 @@ export default function DeckEditor() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const historyButtonRef = useRef<HTMLButtonElement>(null);
   const [commentsOpen, setCommentsOpen] = useState(false);
+  const [animationsOpen, setAnimationsOpen] = useState(false);
   const [pendingComment, setPendingComment] = useState<{
     quotedText: string;
   } | null>(null);
@@ -387,11 +389,14 @@ export default function DeckEditor() {
         onUpdateSlide={(updates) =>
           currentSlide && updateSlide(id, currentSlide.id, updates)
         }
-        activeUsers={slideActiveUsers}
+        activeUsers={slideActiveUsers.filter((u) => u.email !== session?.email)}
         agentActive={agentActive}
         commentsOpen={commentsOpen}
         onToggleComments={() => setCommentsOpen((o) => !o)}
         unresolvedCommentCount={unresolvedCommentCount}
+        currentUserEmail={session?.email}
+        animationsOpen={animationsOpen}
+        onToggleAnimations={() => setAnimationsOpen((o) => !o)}
       />
 
       <div className="flex-1 flex overflow-hidden relative">
@@ -483,6 +488,16 @@ export default function DeckEditor() {
               setCommentsOpen(false);
               setPendingComment(null);
             }}
+          />
+        )}
+
+        {animationsOpen && currentSlide && (
+          <AnimationsPanel
+            slide={currentSlide}
+            onUpdateSlide={(updates) =>
+              updateSlide(id, currentSlide.id, updates)
+            }
+            onClose={() => setAnimationsOpen(false)}
           />
         )}
       </div>

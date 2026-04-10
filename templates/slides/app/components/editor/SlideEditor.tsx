@@ -96,6 +96,7 @@ export default function SlideEditor({
   onComment,
 }: SlideEditorProps) {
   const [isEditing, setIsEditing] = useState(false);
+  const [isHoveringText, setIsHoveringText] = useState(false);
   const [imageOverlay, setImageOverlay] = useState<{
     rect: DOMRect;
     src: string;
@@ -244,6 +245,13 @@ export default function SlideEditor({
     agentChat.submit("Apply the pending visual updates");
   }, []);
 
+  // Stable onContentChange ref so SlideInlineEditor's cleanup effect
+  // doesn't re-register every time SlideEditor re-renders.
+  const handleContentChange = useCallback(
+    (html: string) => onUpdateSlide({ content: html }),
+    [onUpdateSlide],
+  );
+
   const handleSlideDoubleClick = useCallback(
     (e: ReactMouseEvent) => {
       const target = e.target as HTMLElement;
@@ -294,7 +302,7 @@ export default function SlideEditor({
                 {isEditing ? (
                   <SlideInlineEditor
                     slide={slide}
-                    onContentChange={(html) => onUpdateSlide({ content: html })}
+                    onContentChange={handleContentChange}
                     onExitEdit={() => setIsEditing(false)}
                     ydoc={ydoc}
                     awareness={awareness}
@@ -304,19 +312,23 @@ export default function SlideEditor({
                   />
                 ) : (
                   <div
-                    className="slide-image-clickable"
+                    className="slide-image-clickable relative"
                     onClick={handleSlideClick}
                     onContextMenu={handleSlideContextMenu}
                     onDoubleClick={handleSlideDoubleClick}
+                    onMouseEnter={() => setIsHoveringText(true)}
+                    onMouseLeave={() => setIsHoveringText(false)}
                   >
                     <SlideRenderer
                       slide={slide}
-                      className="shadow-2xl shadow-black/40"
+                      className={`shadow-2xl shadow-black/40 ${isHoveringText ? "ring-2 ring-[#609FF8]/60" : ""}`}
                     />
                     {/* Double-click hint */}
-                    <div className="absolute bottom-2 left-1/2 -translate-x-1/2 text-xs text-white/20 pointer-events-none select-none opacity-0 group-hover:opacity-100">
-                      Double-click to edit text
-                    </div>
+                    {isHoveringText && (
+                      <div className="absolute bottom-2 left-1/2 -translate-x-1/2 text-xs text-white/40 pointer-events-none select-none bg-black/60 px-2 py-0.5 rounded">
+                        Double-click to edit text
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

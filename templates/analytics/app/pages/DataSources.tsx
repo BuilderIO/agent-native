@@ -509,7 +509,7 @@ function DataSourceCard({
         className="w-full text-left"
       >
         <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-6">
             <div className="flex items-center gap-3">
               <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
                 <Icon className="h-5 w-5" />
@@ -527,12 +527,12 @@ function DataSourceCard({
               {isStatusLoading ? (
                 <Skeleton className="h-4 w-20 rounded-full" />
               ) : connected ? (
-                <span className="flex items-center gap-1.5 text-xs text-emerald-500 font-medium">
+                <span className="flex items-center gap-1.5 text-xs text-emerald-500 font-medium whitespace-nowrap">
                   <IconCheck className="h-3.5 w-3.5" />
                   Connected
                 </span>
               ) : (
-                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap">
                   <IconCircle className="h-3 w-3" />
                   Not connected
                 </span>

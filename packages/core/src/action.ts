@@ -126,9 +126,11 @@ export function defineAction(options: any) {
     };
   }
 
-  // Wrap run() with validation when schema is provided
+  // Wrap run() with validation when schema is provided.
+  // Pass toolParameters so the validation error can echo the expected signature
+  // (required vs optional fields) and help the caller self-correct.
   const run = hasSchema
-    ? wrapWithValidation(options.schema, options.run)
+    ? wrapWithValidation(options.schema, options.run, toolParameters)
     : options.run;
 
   return {
@@ -294,26 +296,80 @@ function zodDefToJsonSchema(def: any): any {
 
 /**
  * Wrap an action's run function with schema validation.
- * Invalid inputs get a clear error message instead of crashing inside run().
+ * Invalid inputs get a clear error message (including what was actually passed)
+ * so the agent can see its own mistake and correct it on the next turn.
  */
 function wrapWithValidation(
   schema: StandardSchemaV1,
   run: Function,
+  toolParameters?: ActionTool["parameters"],
 ): (args: any) => any {
   return async (args: any) => {
     const result = await schema["~standard"].validate(args);
     if (result.issues) {
-      const messages = result.issues
-        .map((issue) => {
-          const path = issue.path
-            ? issue.path
-                .map((p) => (typeof p === "object" ? p.key : p))
-                .join(".")
-            : "";
-          return path ? `${path}: ${issue.message}` : issue.message;
-        })
-        .join("; ");
-      throw new Error(`Invalid action parameters: ${messages}`);
+      // Split issues into "missing required field" vs other validation errors
+      // so the error message reads naturally rather than as "fieldName: Required".
+      const missing: string[] = [];
+      const other: string[] = [];
+      for (const issue of result.issues) {
+        const pathStr = issue.path
+          ? issue.path.map((p) => (typeof p === "object" ? p.key : p)).join(".")
+          : "";
+        const msg = String(issue.message ?? "");
+        // Zod emits "Required" for missing fields; other libraries may use
+        // similar wording. Treat any variant as "missing".
+        if (
+          pathStr &&
+          (msg === "Required" ||
+            /invalid.*undefined/i.test(msg) ||
+            /expected.*received undefined/i.test(msg))
+        ) {
+          missing.push(pathStr);
+        } else {
+          other.push(pathStr ? `${pathStr}: ${msg}` : msg);
+        }
+      }
+
+      const parts: string[] = [];
+      if (missing.length > 0) {
+        parts.push(
+          `Missing required parameter${missing.length === 1 ? "" : "s"}: ${missing.join(", ")}`,
+        );
+      }
+      if (other.length > 0) {
+        parts.push(other.join("; "));
+      }
+
+      // Echo the args that were actually passed so the caller (usually an
+      // agent) can see exactly what it sent and fix its next call.
+      let received: string;
+      try {
+        received = JSON.stringify(args);
+        if (received.length > 500) received = received.slice(0, 500) + "…";
+      } catch {
+        received = String(args);
+      }
+
+      // Also show the EXPECTED signature so the agent doesn't have to guess.
+      // Format: `{ deckId*: string, content*: string, slideId?: string, ... }`
+      // where `*` = required, `?` = optional.
+      let expected = "";
+      if (toolParameters?.properties) {
+        const required = new Set(toolParameters.required ?? []);
+        const sig = Object.entries(toolParameters.properties)
+          .map(([k, v]) => {
+            const mark = required.has(k) ? "*" : "?";
+            const type = (v as { type?: string }).type ?? "any";
+            return `${k}${mark}: ${type}`;
+          })
+          .join(", ");
+        if (sig)
+          expected = ` Expected: { ${sig} } (where * = required, ? = optional).`;
+      }
+
+      throw new Error(
+        `Invalid action parameters — ${parts.join(". ")}. Received: ${received}.${expected}`,
+      );
     }
     return run((result as StandardSchemaV1.SuccessResult<any>).value);
   };

@@ -556,8 +556,8 @@ export async function deleteEvent(
 
 /**
  * Remove an event from the current user's calendar without deleting it for others.
- * This declines the event (RSVPs as "declined") which removes it from the user's
- * default calendar view.
+ * Calls the DELETE API endpoint which removes it from this user's calendar view
+ * without cancelling or affecting other attendees.
  */
 export async function removeEventFromCalendar(
   googleEventId: string,
@@ -567,10 +567,48 @@ export async function removeEventFromCalendar(
     sendUpdates?: "all" | "none";
   },
 ): Promise<void> {
+  const client = await getClient(accountEmail);
+  if (!client) return;
+
   const scope = options?.scope || "single";
   const sendUpdates = options?.sendUpdates;
 
-  await rsvpEvent(googleEventId, "declined", accountEmail, scope, sendUpdates);
+  if (scope === "single") {
+    await calendarDeleteEvent(
+      client.accessToken,
+      "primary",
+      googleEventId,
+      sendUpdates,
+    );
+    return;
+  }
+
+  // For "all" or "thisAndFollowing", find the base recurring event
+  const instance = await calendarGetEvent(
+    client.accessToken,
+    "primary",
+    googleEventId,
+  );
+  const recurringEventId = instance.recurringEventId || googleEventId;
+
+  if (scope === "all") {
+    await calendarDeleteEvent(
+      client.accessToken,
+      "primary",
+      recurringEventId,
+      sendUpdates,
+    );
+    return;
+  }
+
+  // "thisAndFollowing" — delete each instance from this one onward
+  // For non-organizers we can only delete instance by instance; delete this one
+  await calendarDeleteEvent(
+    client.accessToken,
+    "primary",
+    googleEventId,
+    sendUpdates,
+  );
 }
 
 /**

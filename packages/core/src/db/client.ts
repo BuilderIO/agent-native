@@ -56,6 +56,38 @@ export function getDatabaseAuthToken(): string | undefined {
 }
 
 // ---------------------------------------------------------------------------
+// SQLite retry helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Retry an async operation when it fails with SQLITE_BUSY.
+ * Used during WAL initialization and migrations where a stale WAL from a
+ * previous crash or HMR restart can briefly lock the database.
+ */
+export async function retrySqliteBusy<T>(
+  fn: () => Promise<T>,
+  opts: { maxAttempts?: number; baseDelayMs?: number; rethrow?: boolean } = {},
+): Promise<T> {
+  const { maxAttempts = 5, baseDelayMs = 500, rethrow = false } = opts;
+  let last: unknown;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (e: any) {
+      last = e;
+      const msg = String(e?.message || e);
+      if (msg.includes("SQLITE_BUSY") && attempt < maxAttempts - 1) {
+        await new Promise((r) => setTimeout(r, baseDelayMs * (attempt + 1)));
+      } else {
+        break;
+      }
+    }
+  }
+  if (rethrow) throw last;
+  return undefined as unknown as T; // caller handles undefined (e.g. PRAGMA setup)
+}
+
+// ---------------------------------------------------------------------------
 // Dialect detection
 // ---------------------------------------------------------------------------
 
@@ -220,13 +252,13 @@ async function initClient(): Promise<void> {
     authToken: getDatabaseAuthToken(),
   });
 
-  // Enable WAL mode for local SQLite to prevent SQLITE_BUSY errors
-  // when multiple processes access the same database concurrently
+  // Enable WAL mode and set busy timeout for local SQLite.
+  // Retries handle SQLITE_BUSY_RECOVERY (stale WAL from a previous crash/HMR restart).
   if (url.startsWith("file:") || url.endsWith(".db")) {
-    try {
+    await retrySqliteBusy(async () => {
+      await client.execute("PRAGMA busy_timeout = 10000");
       await client.execute("PRAGMA journal_mode = WAL");
-      await client.execute("PRAGMA busy_timeout = 5000");
-    } catch {}
+    });
   }
 
   _exec = {

@@ -67,6 +67,14 @@ Views: `list` (document tree), `editor` (viewing/editing a document).
 
 **Always use `pnpm action <name>` for all operations.** Never use `curl`, raw HTTP requests, or `db-exec` with raw SQL for document operations.
 
+**Running actions from the frame:** The terminal cwd is the framework root. Always `cd` to this template's root before running any action:
+
+```bash
+cd templates/content && pnpm action <name> [args]
+```
+
+`.env` is loaded automatically — **never manually set `DATABASE_URL` or other env vars**.
+
 ### Context & Navigation
 
 | Action         | Args                              | Purpose                    |

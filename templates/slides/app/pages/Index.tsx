@@ -35,18 +35,26 @@ export default function Index() {
     prompt: string,
     files: UploadedFile[],
   ) => {
+    // Create an empty deck and navigate to it immediately so the user sees
+    // slides appear one-by-one as the agent generates them (feels like the
+    // deck is being built live rather than popping in all at once).
     const deck = createDeck(undefined, { noDefaultSlides: true });
+
     const fileContext =
       files.length > 0
         ? `\n\nThe user uploaded ${files.length} file(s) for context:\n${files.map((f) => `- ${f.originalName} (${f.type}, ${(f.size / 1024).toFixed(1)}KB) at path: ${f.path}`).join("\n")}`
         : "";
 
     const context = [
-      `Create slides for a new deck "${deck.title}" (id: ${deck.id}).`,
+      `The user just created a new empty deck (id: "${deck.id}") and wants to fill it with slides.`,
       `User request: "${prompt}"`,
       fileContext,
       "",
-      "Generate slide content and populate this deck. The deck already exists with default slides — replace them with the generated content.",
+      "Add slides ONE AT A TIME using the `add-slide` action with --deckId=" +
+        deck.id +
+        ". You can fire multiple add-slide calls in parallel — they run concurrently and the user sees each slide appear as soon as it lands.",
+      "Each slide's --content must be full HTML. Slide HTML templates are in your AGENTS.md.",
+      "Do NOT use create-deck (the deck already exists). Do NOT call db-schema, resource-read, or search-files.",
     ].join("\n");
 
     agentSubmit(`Create deck: ${prompt}`, context);

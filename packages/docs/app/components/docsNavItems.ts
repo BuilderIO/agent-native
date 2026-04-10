@@ -38,13 +38,13 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Client", to: "/docs/client" as const },
       { label: "Resources & Skills", to: "/docs/resources" as const },
       { label: "Actions", to: "/docs/actions" as const },
+      { label: "Deployment", to: "/docs/deployment" as const },
     ],
   },
   {
     title: "Advanced",
     items: [
       { label: "CLI Adapters", to: "/docs/cli-adapters" as const },
-      { label: "Deployment", to: "/docs/deployment" as const },
       { label: "Frames", to: "/docs/frames" as const },
       { label: "Creating Templates", to: "/docs/creating-templates" as const },
     ],
