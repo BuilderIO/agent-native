@@ -17,6 +17,7 @@ import type {
   MentionProvider,
   MentionProviderItem,
 } from "../agent/types.js";
+import type { ActionHttpConfig } from "../action.js";
 import { discoverAgents } from "./agent-discovery.js";
 import { loadSchemaPromptBlock } from "./schema-prompt.js";
 import {
@@ -1133,6 +1134,42 @@ export function createAgentChatPlugin(
               }
             } catch {
               // Fall through to shell wrapper for CLI-style scripts
+              // (and .ts files Node can't parse natively).
+            }
+
+            // Static-parse the source for `http: false` or
+            // `http: { method: "GET" }` so the shell-wrapper fallback still
+            // mounts HTTP routes with the correct method. We can't load the
+            // .ts module to read the real defineAction object in this Node
+            // context, so this regex sniff is the best we can do until the
+            // discovery is moved into a Vite-aware codepath.
+            let httpConfig: ActionHttpConfig | false | undefined;
+            try {
+              const src = _fs.readFileSync(filePath, "utf-8");
+              if (/\bhttp\s*:\s*false\b/.test(src)) {
+                httpConfig = false;
+              } else {
+                const httpStart = src.search(/\bhttp\s*:\s*\{/);
+                if (httpStart >= 0) {
+                  const window = src.slice(httpStart, httpStart + 200);
+                  const m = window.match(
+                    /method\s*:\s*['"`](GET|POST|PUT|DELETE)['"`]/,
+                  );
+                  const p = window.match(/path\s*:\s*['"`]([^'"`]+)['"`]/);
+                  if (m || p) {
+                    httpConfig = {
+                      ...(m
+                        ? {
+                            method: m[1] as "GET" | "POST" | "PUT" | "DELETE",
+                          }
+                        : {}),
+                      ...(p ? { path: p[1] } : {}),
+                    };
+                  }
+                }
+              }
+            } catch {
+              // File read failed — leave httpConfig undefined (default POST)
             }
 
             // Fallback: shell-based wrapper for CLI-style scripts
@@ -1157,6 +1194,7 @@ export function createAgentChatPlugin(
                   command: `pnpm action ${name} ${input.args || ""}`.trim(),
                 });
               },
+              ...(httpConfig !== undefined ? { http: httpConfig } : {}),
             };
           }
         }
