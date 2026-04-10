@@ -27,7 +27,7 @@ export default defineAction({
   run: async (args) => {
     switch (args.action) {
       case "info": {
-        const data = await localFetch<any>("/api/org/me");
+        const data = await localFetch<any>("/_agent-native/org/me");
         if (!data.orgId && (!data.orgs || data.orgs.length === 0)) {
           return "No organization set up. The user can create one in Settings, or use --action=create --name='Org Name'.";
         }
@@ -41,7 +41,7 @@ export default defineAction({
       }
 
       case "list-members": {
-        const data = await localFetch<any>("/api/org/members");
+        const data = await localFetch<any>("/_agent-native/org/members");
         if (!data.members?.length) {
           return "No organization or no members found.";
         }
@@ -56,7 +56,7 @@ export default defineAction({
         if (!args.email) {
           throw new Error("--email is required for invite action");
         }
-        const result = await localFetch<any>("/api/org/invitations", {
+        const result = await localFetch<any>("/_agent-native/org/invitations", {
           method: "POST",
           body: JSON.stringify({ email: args.email }),
         });
@@ -67,7 +67,7 @@ export default defineAction({
         if (!args.name) {
           throw new Error("--name is required for create action");
         }
-        const result = await localFetch<any>("/api/org", {
+        const result = await localFetch<any>("/_agent-native/org", {
           method: "POST",
           body: JSON.stringify({ name: args.name }),
         });
@@ -80,7 +80,7 @@ export default defineAction({
             "--orgId is required for switch action. Use --action=info to see available orgs.",
           );
         }
-        const result = await localFetch<any>("/api/org/switch", {
+        const result = await localFetch<any>("/_agent-native/org/switch", {
           method: "PUT",
           body: JSON.stringify({ orgId: args.orgId }),
         });

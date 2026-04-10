@@ -4,7 +4,7 @@ import {
   putSetting,
   deleteSetting,
 } from "@agent-native/core/settings";
-import { getOrgContext } from "../lib/org-context.js";
+import { getOrgContext } from "@agent-native/core/org";
 import type { ActionItemsResponse } from "./action-items.js";
 import { readBody } from "@agent-native/core/server";
 

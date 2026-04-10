@@ -2,10 +2,12 @@ import {
   createAgentChatPlugin,
   autoDiscoverActions,
 } from "@agent-native/core/server";
+import { getOrgContext } from "@agent-native/core/org";
 
 export default createAgentChatPlugin({
   appId: "content",
   actions: () => autoDiscoverActions(import.meta.url),
+  resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
   mentionProviders: async () => {
     const { getDb } = await import("../db/index.js");
     const { documents } = await import("../db/schema.js");

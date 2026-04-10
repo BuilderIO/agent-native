@@ -93,11 +93,52 @@ Agent Chat  ------>  Actions (pnpm action)
 
 Dashboard configs, explorer configs, and theme settings are stored in SQL via the settings API:
 
-| Key Pattern       | Contents                           |
-| ----------------- | ---------------------------------- |
-| `dashboard-{id}`  | Dashboard configuration and layout |
-| `config-{id}`     | Explorer/tool configuration        |
-| `analytics-theme` | Theme settings (colors, dark mode) |
+| Key Pattern                    | Contents                              |
+| ------------------------------ | ------------------------------------- |
+| `dashboard-{id}`               | Explorer dashboard configuration      |
+| `sql-dashboard-{id}`           | SQL dashboard (legacy / global scope) |
+| `o:<orgId>:sql-dashboard-{id}` | SQL dashboard scoped to an org        |
+| `u:<email>:active-org-id`      | User's currently selected org         |
+| `config-{id}`                  | Explorer/tool configuration           |
+| `analytics-theme`              | Theme settings (colors, dark mode)    |
+
+SQL dashboards are scoped to the user's active org. Pre-org global rows still load as a fallback so you can migrate by re-saving them after creating an org.
+
+## Organizations & Team
+
+This template supports multi-org deployments using the framework-provided org module. The schema (`organizations`, `org_members`, `org_invitations`) lives in `@agent-native/core/org` — there is no template-side schema file. Users sign in with Google, create or get invited to an org, and all SQL dashboards are scoped to whichever org is currently active.
+
+The org plugin auto-mounts by default — the template does not need a `server/plugins/org.ts` file. Routes are served under `/_agent-native/org/*`:
+
+| Route                                          | Method | Purpose                                     |
+| ---------------------------------------------- | ------ | ------------------------------------------- |
+| `/_agent-native/org/me`                        | GET    | Current user's active org + pending invites |
+| `/_agent-native/org`                           | POST   | Create org (creator becomes owner)          |
+| `/_agent-native/org/switch`                    | PUT    | Switch user's active org                    |
+| `/_agent-native/org/members`                   | GET    | List members of active org                  |
+| `/_agent-native/org/members/:email`            | DELETE | Remove member (owner/admin only)            |
+| `/_agent-native/org/invitations`               | GET    | List pending invitations for active org     |
+| `/_agent-native/org/invitations`               | POST   | Invite by email (owner/admin only)          |
+| `/_agent-native/org/invitations/:id/accept`    | POST   | Accept invitation, auto-switch to that org  |
+
+UI surface: `/team` page (wraps core's `<TeamPage />`) + sidebar `<OrgSwitcher />` from `@agent-native/core/client/org`. The agent-chat plugin's `resolveOrgId` imports `getOrgContext` from `@agent-native/core/org` so all agent SQL queries are auto-scoped to the active org via `AGENT_ORG_ID`.
+
+To override the default org plugin (e.g. to add custom validation or extra handlers), create `server/plugins/org.ts` and export a plugin built with `createOrgPlugin()` from `@agent-native/core/org`.
+
+## Production Environment Variables
+
+| Var                                   | Required for                                     |
+| ------------------------------------- | ------------------------------------------------ |
+| `DATABASE_URL`                        | All deployments — Neon Postgres URL              |
+| `BETTER_AUTH_SECRET`                  | Auth — random 32-byte hex string                 |
+| `BETTER_AUTH_URL`                     | Auth — `https://analytics.agent-native.com`      |
+| `GOOGLE_CLIENT_ID`                    | Google sign-in (OAuth 2.0 Client ID, NOT the SA) |
+| `GOOGLE_CLIENT_SECRET`                | Google sign-in                                   |
+| `BIGQUERY_PROJECT_ID`                 | BigQuery panels — e.g. `builder-3b0a2`           |
+| `GOOGLE_APPLICATION_CREDENTIALS_JSON` | BigQuery service-account JSON (single line)      |
+| `ANTHROPIC_API_KEY`                   | Agent chat                                       |
+
+The OAuth 2.0 Client ID for Google sign-in is a **separate credential** from the BigQuery service account. Create it in GCP Console → APIs & Services → Credentials → OAuth client ID → Web application, with redirect URIs `https://analytics.agent-native.com/_agent-native/auth/ba/callback/google` and `http://localhost:3000/_agent-native/auth/ba/callback/google`.
 
 ## Actions
 

@@ -24,3 +24,11 @@ export {
   putUserSetting,
   deleteUserSetting,
 } from "./user-settings.js";
+
+// Org-scoped helpers
+export {
+  getOrgSetting,
+  putOrgSetting,
+  deleteOrgSetting,
+  listOrgSettings,
+} from "./org-settings.js";

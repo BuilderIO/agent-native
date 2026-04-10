@@ -1,6 +1,12 @@
 import { useState, useRef, useCallback } from "react";
 import { useNavigate } from "react-router";
-import { IconPlus, IconStack2, IconSettings } from "@tabler/icons-react";
+import {
+  IconPlus,
+  IconStack2,
+  IconSettings,
+  IconUsers,
+} from "@tabler/icons-react";
+import { InvitationBanner } from "@agent-native/core/client/org";
 import { useDecks } from "@/context/DeckContext";
 import DeckCard from "@/components/deck/DeckCard";
 import PromptPopover from "@/components/editor/PromptDialog";
@@ -79,6 +85,14 @@ export default function Index() {
           </span>
           <div className="flex items-center gap-2">
             <a
+              href="/team"
+              className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-white/50 hover:text-white/80"
+              title="Team"
+              aria-label="Team"
+            >
+              <IconUsers className="w-4 h-4" />
+            </a>
+            <a
               href="/settings"
               className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-white/50 hover:text-white/80"
               title="Settings"
@@ -94,6 +108,8 @@ export default function Index() {
           </div>
         </div>
       </header>
+
+      <InvitationBanner />
 
       {/* Content */}
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-10">

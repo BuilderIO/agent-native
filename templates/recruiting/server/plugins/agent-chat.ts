@@ -1,5 +1,5 @@
 import { createAgentChatPlugin } from "@agent-native/core/server";
-import { getOrgContext } from "../lib/org-context.js";
+import { getOrgContext } from "@agent-native/core/org";
 
 export default createAgentChatPlugin({
   appId: "recruiting",

@@ -20,6 +20,7 @@ import {
   IconGripVertical,
   IconChartBar,
   IconDatabase,
+  IconUsers,
 } from "@tabler/icons-react";
 import { getIdToken } from "@/lib/auth";
 import {
@@ -44,6 +45,7 @@ import {
   PopoverContent,
 } from "@/components/ui/popover";
 import { AgentToggleButton } from "@agent-native/core/client";
+import { OrgSwitcher } from "@agent-native/core/client/org";
 import { NewDashboardDialog } from "./NewDashboardDialog";
 
 import {
@@ -65,6 +67,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 
 const bottomItems = [
+  { icon: IconUsers, label: "Team", href: "/team" },
   { icon: IconSettings, label: "Settings", href: "/settings" },
   { icon: IconInfoCircle, label: "About", href: "/about" },
 ];
@@ -484,6 +487,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         </nav>
       </div>
       <div className="p-4 border-t border-border space-y-2">
+        <OrgSwitcher />
         <button
           onClick={() =>
             document.dispatchEvent(

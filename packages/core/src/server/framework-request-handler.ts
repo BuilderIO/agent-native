@@ -175,6 +175,7 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
     const serverModule = await import("./index.js");
     const terminalModule = await import("../terminal/terminal-plugin.js");
     const integrationsModule = await import("../integrations/plugin.js");
+    const orgModule = await import("../org/plugin.js");
 
     const impls: Record<
       string,
@@ -184,6 +185,7 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
       auth: (serverModule as any).defaultAuthPlugin,
       "core-routes": (serverModule as any).defaultCoreRoutesPlugin,
       integrations: (integrationsModule as any).defaultIntegrationsPlugin,
+      org: (orgModule as any).defaultOrgPlugin,
       resources: (serverModule as any).defaultResourcesPlugin,
       terminal: (terminalModule as any).defaultTerminalPlugin,
     };

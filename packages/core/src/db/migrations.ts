@@ -26,9 +26,20 @@ function adaptSqlForSqlite(sql: string): string {
   return sql.replace(/ADD\s+COLUMN\s+IF\s+NOT\s+EXISTS/gi, "ADD COLUMN");
 }
 
+export interface RunMigrationsOptions {
+  /**
+   * Name of the migrations bookkeeping table. Defaults to `_migrations` for
+   * template-owned migrations. Core feature plugins (e.g. the org module) pass
+   * their own table name to keep their version space separate from templates.
+   */
+  table?: string;
+}
+
 export function runMigrations(
   migrations: Array<{ version: number; sql: string }>,
+  options: RunMigrationsOptions = {},
 ): NitroPluginDef {
+  const table = options.table ?? "_migrations";
   return async () => {
     try {
       // Check for Cloudflare D1 binding (only if DATABASE_URL not set)
@@ -36,11 +47,11 @@ export function runMigrations(
       if (d1) {
         await d1
           .prepare(
-            `CREATE TABLE IF NOT EXISTS _migrations (version INTEGER PRIMARY KEY)`,
+            `CREATE TABLE IF NOT EXISTS ${table} (version INTEGER PRIMARY KEY)`,
           )
           .run();
         const firstRow = await d1
-          .prepare(`SELECT MAX(version) as v FROM _migrations`)
+          .prepare(`SELECT MAX(version) as v FROM ${table}`)
           .first<{ v?: number }>();
         const current = (firstRow?.v as number) ?? 0;
 
@@ -49,7 +60,7 @@ export function runMigrations(
             await d1.batch([
               d1.prepare(m.sql),
               d1
-                .prepare(`INSERT OR IGNORE INTO _migrations VALUES (?)`)
+                .prepare(`INSERT OR IGNORE INTO ${table} VALUES (?)`)
                 .bind(m.version),
             ]);
             console.log(`[db] Applied migration v${m.version}`);
@@ -75,19 +86,19 @@ export function runMigrations(
       await retrySqliteBusy(
         () =>
           exec.execute(
-            `CREATE TABLE IF NOT EXISTS _migrations (version INTEGER PRIMARY KEY)`,
+            `CREATE TABLE IF NOT EXISTS ${table} (version INTEGER PRIMARY KEY)`,
           ),
         { maxAttempts: 6, baseDelayMs: 1000, rethrow: true },
       );
 
       const { rows } = await exec.execute(
-        `SELECT MAX(version) as v FROM _migrations`,
+        `SELECT MAX(version) as v FROM ${table}`,
       );
       const current = (rows[0]?.v as number) ?? 0;
 
       const insertSql = pg
-        ? `INSERT INTO _migrations VALUES (?) ON CONFLICT DO NOTHING`
-        : `INSERT OR IGNORE INTO _migrations VALUES (?)`;
+        ? `INSERT INTO ${table} VALUES (?) ON CONFLICT DO NOTHING`
+        : `INSERT OR IGNORE INTO ${table} VALUES (?)`;
 
       const pending = migrations.filter((m) => m.version > current);
       if (pending.length > 0) {

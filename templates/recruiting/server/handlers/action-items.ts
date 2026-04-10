@@ -1,6 +1,7 @@
-import { getQuery } from "h3";
+import { defineEventHandler, getQuery } from "h3";
+import { getOrgContext } from "@agent-native/core/org";
 import * as gh from "../lib/greenhouse-api.js";
-import { defineOrgHandler } from "../lib/org-context.js";
+import { withOrgContext } from "../lib/greenhouse-api.js";
 import type {
   GreenhouseScheduledInterview,
   GreenhouseScorecard,
@@ -77,8 +78,10 @@ async function batchFetch<T>(
   return results;
 }
 
-export const getActionItemsHandler = defineOrgHandler(
+export const getActionItemsHandler = defineEventHandler(
   async (event): Promise<ActionItemsResponse> => {
+    const ctx = await getOrgContext(event);
+    const run = async (): Promise<ActionItemsResponse> => {
     const query = getQuery(event) as {
       overdue_hours?: string;
       stuck_days?: string;
@@ -287,5 +290,7 @@ export const getActionItemsHandler = defineOrgHandler(
         totalActionItems: overdueScorecards.length + stuckCandidates.length,
       },
     };
+    };
+    return ctx.orgId ? withOrgContext(ctx.orgId, run) : run();
   },
 );

@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { ArrowUp, Plus, Menu, X } from "lucide-react";
+import { IconUsers } from "@tabler/icons-react";
+import { OrgSwitcher } from "@agent-native/core/client/org";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -196,12 +198,29 @@ export function Sidebar() {
             {newFormButton}
             {newFormPopover}
           </Popover>
+
+          <Link
+            to="/team"
+            onClick={() => isMobile && setMobileOpen(false)}
+            className={cn(
+              "flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm min-h-[44px]",
+              location.pathname === "/team"
+                ? "bg-accent text-accent-foreground"
+                : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+            )}
+          >
+            <IconUsers size={14} className="shrink-0" />
+            <span>Team</span>
+          </Link>
         </div>
       </ScrollArea>
 
       {/* Footer */}
-      <div className="flex items-center justify-end border-t border-border px-3 py-2">
-        <ThemeToggle />
+      <div className="border-t border-border px-3 py-2 space-y-2">
+        <OrgSwitcher />
+        <div className="flex items-center justify-end">
+          <ThemeToggle />
+        </div>
       </div>
     </div>
   );
