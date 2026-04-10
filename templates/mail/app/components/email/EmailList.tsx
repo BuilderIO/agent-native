@@ -632,11 +632,15 @@ export function EmailList({
 
   // ── Swipe gesture handlers ─────────────────────────────────────────────
   // Swipe targets exactly one thread (the swiped one) — unlike the keyboard
-  // `e` shortcut, which respects multi-selection.
+  // `e` shortcut, which respects multi-selection. We also clear any existing
+  // multi-selection so the next keyboard shortcut (e/d/u/s) doesn't act on a
+  // stale set — getActionIds() prefers selectedIds over focusedId.
   const handleSwipeArchive = useCallback(
     (thread: ThreadSummary) => {
       const id = thread.latestMessage.id;
       const tid = thread.latestMessage.threadId || id;
+
+      setSelectedIds(new Set());
 
       // Advance focus past the row that's about to disappear.
       const idx = threads.findIndex((t) => t.latestMessage.id === id);
@@ -690,23 +694,29 @@ export function EmailList({
       onArchived,
       labelParam,
       setFocusedId,
+      setSelectedIds,
       queryClient,
     ],
   );
 
   // Snooze fires a global event that AppLayout's SnoozeModal listens for.
   // Routing through an event (instead of prop drilling) avoids coupling
-  // the list to the layout's modal state.
-  const handleSwipeSnooze = useCallback((thread: ThreadSummary) => {
-    window.dispatchEvent(
-      new CustomEvent("email:request-snooze", {
-        detail: {
-          emailId: thread.latestMessage.id,
-          accountEmail: thread.latestMessage.accountEmail,
-        },
-      }),
-    );
-  }, []);
+  // the list to the layout's modal state. Clear multi-selection for the
+  // same reason as handleSwipeArchive.
+  const handleSwipeSnooze = useCallback(
+    (thread: ThreadSummary) => {
+      setSelectedIds(new Set());
+      window.dispatchEvent(
+        new CustomEvent("email:request-snooze", {
+          detail: {
+            emailId: thread.latestMessage.id,
+            accountEmail: thread.latestMessage.accountEmail,
+          },
+        }),
+      );
+    },
+    [setSelectedIds],
+  );
 
   // Error state
   if (emailsError) {
