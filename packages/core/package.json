@@ -95,6 +95,13 @@
     "yjs": "^13.6.30"
   },
   "peerDependencies": {
+    "@ai-sdk/anthropic": ">=1",
+    "@ai-sdk/cohere": ">=1",
+    "@ai-sdk/google": ">=1",
+    "@ai-sdk/groq": ">=1",
+    "@ai-sdk/mistral": ">=1",
+    "@ai-sdk/ollama": ">=0.0.1",
+    "@ai-sdk/openai": ">=1",
     "@assistant-ui/react": ">=0.12",
     "@assistant-ui/react-markdown": ">=0.12",
     "@supabase/supabase-js": ">=2",
@@ -104,6 +111,7 @@
     "@xterm/addon-fit": ">=0.10",
     "@xterm/addon-web-links": ">=0.11",
     "@xterm/xterm": ">=5",
+    "ai": ">=4",
     "autoprefixer": ">=10",
     "convex": ">=1",
     "node-pty": ">=1",
@@ -119,6 +127,30 @@
     "ws": ">=8"
   },
   "peerDependenciesMeta": {
+    "ai": {
+      "optional": true
+    },
+    "@ai-sdk/anthropic": {
+      "optional": true
+    },
+    "@ai-sdk/openai": {
+      "optional": true
+    },
+    "@ai-sdk/google": {
+      "optional": true
+    },
+    "@ai-sdk/groq": {
+      "optional": true
+    },
+    "@ai-sdk/mistral": {
+      "optional": true
+    },
+    "@ai-sdk/cohere": {
+      "optional": true
+    },
+    "@ai-sdk/ollama": {
+      "optional": true
+    },
     "@tabler/icons-react": {
       "optional": true
     },
@@ -172,6 +204,10 @@
     }
   },
   "devDependencies": {
+    "@ai-sdk/anthropic": "^1.2.12",
+    "@ai-sdk/google": "^1.2.22",
+    "@ai-sdk/groq": "^1.2.9",
+    "@ai-sdk/openai": "^1.3.24",
     "@assistant-ui/react": "^0.12.19",
     "@assistant-ui/react-markdown": "^0.12.6",
     "@react-router/dev": "^7.13.1",
@@ -189,6 +225,7 @@
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-web-links": "^0.11.0",
     "@xterm/xterm": "^5.5.0",
+    "ai": "^4.3.19",
     "autoprefixer": "^10.4.21",
     "express": "^5.2.1",
     "firebase-admin": "^13.0.0",
