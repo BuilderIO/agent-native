@@ -33,6 +33,7 @@ import { getDbExec, isPostgres, intType } from "../db/client.js";
 import { getBetterAuth, getBetterAuthSync } from "./better-auth-instance.js";
 import type { BetterAuthConfig } from "./better-auth-instance.js";
 import { getOnboardingHtml } from "./onboarding-html.js";
+import { migrateLocalUserData } from "./local-migration.js";
 import { readBody } from "../server/h3-helpers.js";
 
 // ---------------------------------------------------------------------------
@@ -827,6 +828,31 @@ async function mountBetterAuthRoutes(
       }
       const session = await getSession(event);
       return session ?? { error: "Not authenticated" };
+    }),
+  );
+
+  // POST /_agent-native/auth/migrate-local-data — move local-mode data to
+  // the currently signed-in account. Called by the UI after a user upgrades
+  // from local mode to a real account so they don't lose their data.
+  app.use(
+    "/_agent-native/auth/migrate-local-data",
+    defineEventHandler(async (event) => {
+      if (getMethod(event) !== "POST") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      const session = await getSession(event);
+      if (!session?.email || session.email === "local@localhost") {
+        setResponseStatus(event, 401);
+        return { error: "Not authenticated as a real account" };
+      }
+      try {
+        const result = await migrateLocalUserData(session.email);
+        return { ok: true, ...result };
+      } catch (e: any) {
+        setResponseStatus(event, 500);
+        return { error: e?.message || "Migration failed" };
+      }
     }),
   );
 

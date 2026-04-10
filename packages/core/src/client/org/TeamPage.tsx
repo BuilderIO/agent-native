@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   IconBuilding,
   IconUserPlus,
@@ -8,6 +8,7 @@ import {
   IconLoader2,
   IconMail,
   IconCheck,
+  IconLogin,
 } from "@tabler/icons-react";
 import {
   useOrg,
@@ -329,12 +330,114 @@ function MembersCard() {
   );
 }
 
+const MIGRATE_FLAG_KEY = "an_migrate_from_local";
+
+function LocalModeSignInCard() {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function upgradeToAccount() {
+    setIsSubmitting(true);
+    setError(null);
+    try {
+      // Remember that we want to migrate data once the user completes sign-in.
+      try {
+        localStorage.setItem(MIGRATE_FLAG_KEY, "1");
+      } catch {
+        // localStorage may be unavailable (private mode) — migration just
+        // won't auto-run. The user can still sign in.
+      }
+      const res = await fetch("/_agent-native/auth/exit-local-mode", {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error || "Failed to exit local mode");
+      }
+      // Reload → auth guard will serve the onboarding page so the user can
+      // sign in with Google or create an email/password account. The
+      // localStorage flag survives the reload so TeamPage can migrate data
+      // automatically once they're back.
+      window.location.reload();
+    } catch (e: any) {
+      setError(e?.message || "Failed to start sign-in");
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <section className="rounded-lg border border-border bg-card p-6 space-y-4">
+      <div>
+        <p className="text-sm text-muted-foreground">
+          You&apos;re signed in as <code>local@localhost</code>. Create a real
+          account to sync your data to the cloud, invite teammates, and access
+          your workspace from other devices.
+        </p>
+      </div>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={upgradeToAccount}
+          disabled={isSubmitting}
+          className="inline-flex items-center gap-2 rounded-md bg-foreground px-3 py-2 text-xs font-medium text-background hover:opacity-90 disabled:opacity-50"
+        >
+          {isSubmitting ? (
+            <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <IconLogin className="h-3.5 w-3.5" />
+          )}
+          Sign in or create account
+        </button>
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        Your existing local data will be migrated to the new account
+        automatically.
+      </p>
+      {error && <ErrorText error={error} />}
+    </section>
+  );
+}
+
+/**
+ * After the user finishes signing in on the onboarding page and lands back on
+ * the Team page, pull across any data that was previously scoped to
+ * `local@localhost`. Triggered by a localStorage flag set from
+ * `LocalModeSignInCard` so we only migrate when the user explicitly opted in.
+ */
+function useMigrateLocalDataOnSignIn(email: string | undefined) {
+  useEffect(() => {
+    if (!email || email === "local@localhost") return;
+    let flag: string | null = null;
+    try {
+      flag = localStorage.getItem(MIGRATE_FLAG_KEY);
+    } catch {
+      return;
+    }
+    if (!flag) return;
+    // Clear the flag immediately so a failed request doesn't loop.
+    try {
+      localStorage.removeItem(MIGRATE_FLAG_KEY);
+    } catch {
+      // ignore
+    }
+    fetch("/_agent-native/auth/migrate-local-data", {
+      method: "POST",
+      credentials: "include",
+    }).catch(() => {
+      // Silent failure is fine — the user still has an account, just without
+      // their old local data carried over. They can contact support or
+      // re-enter the data manually.
+    });
+  }, [email]);
+}
+
 /**
  * Default Team management page. Templates can route directly to this component
  * or wrap it with their own Layout via the `layout` prop.
  */
 export function TeamPage({ layout, title = "Team", className }: TeamPageProps) {
   const { data: org, isLoading } = useOrg();
+  useMigrateLocalDataOnSignIn(org?.email);
 
   const content = (
     <div className={`space-y-6 max-w-2xl ${className ?? ""}`}>
@@ -347,12 +450,7 @@ export function TeamPage({ layout, title = "Team", className }: TeamPageProps) {
       )}
 
       {!isLoading && org?.email === "local@localhost" && (
-        <section className="rounded-lg border border-border bg-card p-6">
-          <p className="text-sm text-muted-foreground">
-            You&apos;re signed in as <code>local@localhost</code>. Sign in with
-            Google to create or join an organization.
-          </p>
-        </section>
+        <LocalModeSignInCard />
       )}
 
       {!isLoading && org?.email !== "local@localhost" && (

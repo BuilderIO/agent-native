@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { VisualEditor } from "./VisualEditor";
 import { DocumentToolbar } from "./DocumentToolbar";
+import { NotionConflictBanner } from "./NotionConflictBanner";
 import { EmojiPicker } from "./EmojiPicker";
 import { useDocument, useUpdateDocument } from "@/hooks/use-documents";
 import {
@@ -234,6 +235,8 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
           isSaving={isSaving}
           currentUserEmail={session?.email}
         />
+
+        <NotionConflictBanner documentId={documentId} />
 
         <div
           ref={scrollContainerRef}

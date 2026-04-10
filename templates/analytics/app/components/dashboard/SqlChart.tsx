@@ -51,7 +51,7 @@ function formatYValue(
   if (formatter === "percent") {
     // SQL typically returns rate as 0..1
     const pct = value <= 1 && value >= -1 ? value * 100 : value;
-    return `${pct.toFixed(1)}%`;
+    return `${pct.toFixed(2)}%`;
   }
   return value.toLocaleString();
 }
@@ -250,7 +250,7 @@ function formatCell(value: unknown, format: ColumnFormat | undefined): string {
   }
   if (format === "percent" && typeof value === "number") {
     const pct = value <= 1 && value >= -1 ? value * 100 : value;
-    return `${pct.toFixed(1)}%`;
+    return `${pct.toFixed(2)}%`;
   }
   if (format === "date") {
     const d = new Date(String(value));

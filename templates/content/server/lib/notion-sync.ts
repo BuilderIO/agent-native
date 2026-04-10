@@ -397,6 +397,11 @@ export async function pushDocumentToNotion(
 
 const lastRefreshAt = new Map<string, number>();
 const REFRESH_THROTTLE_MS = 10_000;
+// When auto-sync is on, the user has explicitly opted into fast polling so
+// downstream Notion changes surface within a couple seconds. We still throttle
+// to at most one real Notion request per doc per ~2s to stay well under
+// Notion's ~3 req/s per-integration rate limit.
+const REFRESH_THROTTLE_AUTO_SYNC_MS = 2_000;
 
 export async function refreshDocumentSyncStatus(
   owner: string,
@@ -405,9 +410,12 @@ export async function refreshDocumentSyncStatus(
 ): Promise<DocumentSyncStatus> {
   // Throttle Notion API calls per document (prevents excessive requests from
   // multiple tabs or rapid polling). Best-effort in serverless environments.
+  const throttleMs = options?.autoSync
+    ? REFRESH_THROTTLE_AUTO_SYNC_MS
+    : REFRESH_THROTTLE_MS;
   const now = Date.now();
   const lastCall = lastRefreshAt.get(documentId) ?? 0;
-  if (now - lastCall < REFRESH_THROTTLE_MS) {
+  if (now - lastCall < throttleMs) {
     const document = await getDocument(documentId);
     const link = await getSyncLink(documentId);
     const connection = await getNotionConnectionForOwner(owner);
