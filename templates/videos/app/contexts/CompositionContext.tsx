@@ -234,6 +234,8 @@ export function CompositionProvider({
     async (id: string) => {
       // Delete from DB FIRST. If this fails, we leave the in-memory
       // registry untouched so the composition doesn't reappear on reload.
+      // Note: action routes return HTTP 200 even when the action body
+      // contains `{ error }`, so we have to check the body too.
       try {
         const res = await fetch(`/_agent-native/actions/delete-composition`, {
           method: "POST",
@@ -242,6 +244,15 @@ export function CompositionProvider({
         });
         if (!res.ok) {
           throw new Error(`delete-composition failed: ${res.status}`);
+        }
+        const data = (await res.json().catch(() => null)) as {
+          success?: boolean;
+          error?: string;
+        } | null;
+        if (!data?.success) {
+          throw new Error(
+            data?.error ?? "delete-composition returned no success flag",
+          );
         }
       } catch (err) {
         console.error("[Videos] Failed to delete composition:", err);
