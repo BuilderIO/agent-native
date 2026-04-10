@@ -17,6 +17,7 @@ import {
   IconPencil,
   IconTransform,
   IconMessage,
+  IconSparkles,
 } from "@tabler/icons-react";
 import type { Slide, SlideLayout } from "@/context/DeckContext";
 
@@ -33,8 +34,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Switch } from "@/components/ui/switch";
-
 interface EditorToolbarProps {
   deckId: string;
   deckTitle: string;
@@ -71,6 +70,10 @@ interface EditorToolbarProps {
   unresolvedCommentCount?: number;
   /** Current user email for avatar display */
   currentUserEmail?: string;
+  /** Whether the animations panel is open */
+  animationsOpen?: boolean;
+  /** Toggle the animations panel */
+  onToggleAnimations?: () => void;
 }
 
 const slideLayoutOptions: { value: SlideLayout; label: string }[] = [
@@ -282,6 +285,8 @@ export default function EditorToolbar({
   onToggleComments,
   unresolvedCommentCount = 0,
   currentUserEmail,
+  animationsOpen,
+  onToggleAnimations,
 }: EditorToolbarProps) {
   const [layoutOpen, setLayoutOpen] = useState(false);
   const layoutRef = useRef<HTMLButtonElement>(null);
@@ -523,38 +528,48 @@ graph TD
               <div className="px-3 py-1.5 text-[10px] font-medium text-white/30 uppercase tracking-wider">
                 Transition
               </div>
-              <div className="px-3 pb-2 grid grid-cols-4 gap-1">
-                {(["none", "fade", "slide", "zoom"] as const).map((t) => (
-                  <button
-                    key={t}
-                    onClick={() => onUpdateSlide!({ transition: t })}
-                    className={`px-1.5 py-1 rounded text-[10px] font-medium capitalize border ${
-                      (currentSlide.transition ?? "none") === t
-                        ? "bg-[#609FF8]/20 text-[#609FF8] border-[#609FF8]/30"
-                        : "text-white/40 hover:text-white/70 hover:bg-white/[0.04] border-transparent"
-                    }`}
-                  >
-                    {t === "none"
-                      ? "None"
-                      : t.charAt(0).toUpperCase() + t.slice(1)}
-                  </button>
-                ))}
-              </div>
-
-              {/* Split by paragraph toggle */}
-              <div className="px-3 pb-2.5 flex items-center justify-between">
-                <span className="text-xs text-white/50">By paragraph</span>
-                <Switch
-                  checked={currentSlide.splitByParagraph ?? false}
-                  onCheckedChange={(checked) =>
-                    onUpdateSlide!({ splitByParagraph: checked })
-                  }
-                  className="scale-75 origin-right"
-                />
+              <div className="px-3 pb-2.5 grid grid-cols-4 gap-1">
+                {(["instant", "fade", "slide", "zoom"] as const).map((t) => {
+                  const active =
+                    t === "instant"
+                      ? !currentSlide.transition ||
+                        currentSlide.transition === "instant" ||
+                        currentSlide.transition === "none"
+                      : currentSlide.transition === t;
+                  return (
+                    <button
+                      key={t}
+                      onClick={() => onUpdateSlide!({ transition: t })}
+                      className={`px-1.5 py-1 rounded text-[10px] font-medium capitalize border ${
+                        active
+                          ? "bg-[#609FF8]/20 text-[#609FF8] border-[#609FF8]/30"
+                          : "text-white/40 hover:text-white/70 hover:bg-white/[0.04] border-transparent"
+                      }`}
+                    >
+                      {t.charAt(0).toUpperCase() + t.slice(1)}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </ToolbarPopover>
         </>
+      )}
+
+      {/* Animations button */}
+      {currentSlide && onToggleAnimations && (
+        <button
+          onClick={onToggleAnimations}
+          className={`p-2.5 sm:p-1.5 rounded-md transition-colors flex-shrink-0 ${
+            animationsOpen
+              ? "text-[#609FF8] bg-[#609FF8]/10"
+              : "text-white/40 hover:text-white/70 hover:bg-white/[0.06]"
+          }`}
+          title="Element animations"
+          aria-label="Element animations"
+        >
+          <IconSparkles className="w-3.5 h-3.5" />
+        </button>
       )}
 
       {/* Separator */}

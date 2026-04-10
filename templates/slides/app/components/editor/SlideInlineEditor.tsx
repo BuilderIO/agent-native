@@ -209,6 +209,7 @@ export function SlideInlineEditor({
       if (isSettingContent.current) return;
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       saveTimerRef.current = setTimeout(() => {
+        saveTimerRef.current = null;
         onContentChange(editor.getHTML());
       }, 300);
     },

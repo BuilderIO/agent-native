@@ -10,7 +10,25 @@ import { readBody } from "@agent-native/core/server";
 
 // --- SSE for change notifications ---
 type SSEPush = (data: string) => void;
-const sseClients = new Set<SSEPush>();
+
+// CRITICAL: pin the client registry to globalThis.
+//
+// In Nitro dev mode, server route files (events.get.ts) are loaded by
+// vite-node/Rollup, while action files are loaded by autoDiscoverActions via
+// plain `await import(absolutePath)`. These two loaders produce SEPARATE
+// module instances of this file — a module-level `new Set()` would give the
+// SSE route and the actions two different Sets, so broadcasts from actions
+// would never reach connected clients. Pinning to globalThis forces a single
+// shared registry regardless of how this module was loaded.
+const GLOBAL_KEY = "__slidesSSEClients" as const;
+type GlobalWithClients = typeof globalThis & {
+  [GLOBAL_KEY]?: Set<SSEPush>;
+};
+const globalRef = globalThis as GlobalWithClients;
+if (!globalRef[GLOBAL_KEY]) {
+  globalRef[GLOBAL_KEY] = new Set<SSEPush>();
+}
+const sseClients: Set<SSEPush> = globalRef[GLOBAL_KEY]!;
 
 /**
  * Broadcast a deck change to all connected UI clients. Exported so agent
@@ -21,6 +39,11 @@ const sseClients = new Set<SSEPush>();
  */
 export function notifyClients(deckId: string, type = "deck-changed") {
   const message = JSON.stringify({ type, deckId });
+  if (process.env.DEBUG_SLIDES_SSE) {
+    console.log(
+      `[slides-sse] notifyClients deck=${deckId} type=${type} clients=${sseClients.size}`,
+    );
+  }
   for (const push of sseClients) {
     try {
       push(message);
