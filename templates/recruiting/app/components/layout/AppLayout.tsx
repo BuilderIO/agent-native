@@ -16,6 +16,7 @@ import {
   IconPlant2,
   IconAlertCircle,
   IconMenu2,
+  IconUsersGroup,
   IconX,
 } from "@tabler/icons-react";
 
@@ -182,7 +183,7 @@ export function AppLayout({ children }: AppLayoutProps) {
             </button>
           </div>
 
-          <nav className="flex-1 px-2 py-3 space-y-0.5">
+          <nav className="flex flex-1 flex-col px-2 py-3 space-y-0.5">
             {navItems.map((item) => {
               const isActive =
                 currentPath === item.id ||
@@ -203,6 +204,18 @@ export function AppLayout({ children }: AppLayoutProps) {
                 </Link>
               );
             })}
+            <Link
+              to="/team"
+              className={cn(
+                "mt-auto flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium",
+                currentPath === "team"
+                  ? "bg-accent text-foreground"
+                  : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+              )}
+            >
+              <IconUsersGroup className="h-4 w-4" />
+              Team
+            </Link>
           </nav>
 
           <OrgSwitcher />

@@ -198,25 +198,28 @@ export function Sidebar() {
             {newFormButton}
             {newFormPopover}
           </Popover>
-
-          <Link
-            to="/team"
-            onClick={() => isMobile && setMobileOpen(false)}
-            className={cn(
-              "flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm min-h-[44px]",
-              location.pathname === "/team"
-                ? "bg-accent text-accent-foreground"
-                : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-            )}
-          >
-            <IconUsers size={14} className="shrink-0" />
-            <span>Team</span>
-          </Link>
         </div>
       </ScrollArea>
 
+      {/* Pinned nav + footer */}
+      <div className="px-3 pt-2">
+        <Link
+          to="/team"
+          onClick={() => isMobile && setMobileOpen(false)}
+          className={cn(
+            "flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm min-h-[44px]",
+            location.pathname === "/team"
+              ? "bg-accent text-accent-foreground"
+              : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+          )}
+        >
+          <IconUsers size={14} className="shrink-0" />
+          <span>Team</span>
+        </Link>
+      </div>
+
       {/* Footer */}
-      <div className="border-t border-border px-3 py-2 space-y-2">
+      <div className="border-t border-border px-3 py-2 space-y-2 mt-2">
         <OrgSwitcher />
         <div className="flex items-center justify-end">
           <ThemeToggle />
