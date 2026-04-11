@@ -96,6 +96,9 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
       recognitionRef.current = null;
     }
 
+    // Open the agent sidebar so the user can see the response
+    window.dispatchEvent(new Event("agent-panel:open"));
+
     isProcessingRef.current = false;
     setState("listening");
     setTranscript("");
