@@ -207,7 +207,9 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
       const ws = await getWorkspaceCoreExports(cwd);
       if (ws && Object.keys(ws.plugins).length > 0) {
         try {
-          const wsServerModule = await import(`${ws.packageName}/server`);
+          const wsServerModule = await import(
+            /* @vite-ignore */ `${ws.packageName}/server`
+          );
           for (const [slot, exportName] of Object.entries(ws.plugins)) {
             if (!exportName) continue;
             const impl = (wsServerModule as any)[exportName];
