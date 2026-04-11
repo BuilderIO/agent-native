@@ -219,28 +219,23 @@ async function resolveActionsDir(from: string): Promise<string> {
 }
 
 /**
- * Auto-discover actions from a directory.
- *
- * @param from - The caller's `import.meta.url` or an absolute path to the
- *   actions directory.
- * @returns A record mapping action names to ActionEntry objects, suitable for
- *   passing to `createAgentChatPlugin({ actions })`.
+ * Load actions from a single directory into the given registry. Shared by
+ * both the template-actions discovery path and the workspace-core actions
+ * layer. When `skipExisting` is true, an entry with the same name that's
+ * already in the registry is left untouched (template-wins on collision).
  */
-export async function autoDiscoverActions(
-  from: string,
-): Promise<Record<string, ActionEntry>> {
-  const actionsDir = await resolveActionsDir(from);
-  const registry: Record<string, ActionEntry> = {};
-
+async function loadActionsIntoRegistry(
+  actionsDir: string,
+  registry: Record<string, ActionEntry>,
+  skipExisting: boolean,
+): Promise<void> {
   let files: string[];
   try {
     const fs = await getFs();
+    if (!fs.existsSync(actionsDir)) return;
     files = fs.readdirSync(actionsDir);
-  } catch (err: any) {
-    console.warn(
-      `[autoDiscoverActions] Could not read actions directory: ${actionsDir} — ${err?.message}`,
-    );
-    return registry;
+  } catch {
+    return;
   }
 
   const actionFiles = files.filter((f) => {
@@ -253,13 +248,13 @@ export async function autoDiscoverActions(
 
   for (const file of actionFiles) {
     const name = file.replace(/\.(ts|js)$/, "");
-    const filePath = nodePath.join(actionsDir, file);
+    if (skipExisting && registry[name]) continue;
 
+    const filePath = nodePath.join(actionsDir, file);
     try {
       const mod = await import(/* @vite-ignore */ filePath);
 
       if (mod.tool && typeof mod.run === "function") {
-        // Full interface: has both tool definition and run function
         registry[name] = {
           tool: mod.tool,
           run: mod.run,
@@ -271,22 +266,62 @@ export async function autoDiscoverActions(
         mod.default.tool &&
         typeof mod.default.run === "function"
       ) {
-        // defineAction style: default export has tool + run
         registry[name] = {
           tool: mod.default.tool,
           run: mod.default.run,
           ...(mod.default.http !== undefined ? { http: mod.default.http } : {}),
         };
       } else if (typeof mod.default === "function") {
-        // CLI-style: only has a default export function
         registry[name] = wrapDefaultExport(name, mod.default);
-      } else {
-        // Neither pattern — skip silently
       }
     } catch {
-      // CLI-style scripts (top-level execution) will throw on import.
-      // This is expected — they'll be available via `pnpm action <name>` / shell instead.
+      // CLI-style scripts (top-level execution) throw on import.
+      // Expected — they're available via `pnpm action <name>` / shell instead.
     }
+  }
+}
+
+/**
+ * Auto-discover actions from a directory.
+ *
+ * Merges in any actions from the enterprise workspace core (if present in
+ * the ancestor chain). Template actions take precedence over workspace-core
+ * actions on name collision, so an app can override an enterprise-wide
+ * action by dropping a same-named file under its own `actions/`.
+ *
+ * @param from - The caller's `import.meta.url` or an absolute path to the
+ *   actions directory.
+ * @returns A record mapping action names to ActionEntry objects, suitable for
+ *   passing to `createAgentChatPlugin({ actions })`.
+ */
+export async function autoDiscoverActions(
+  from: string,
+): Promise<Record<string, ActionEntry>> {
+  const actionsDir = await resolveActionsDir(from);
+  const registry: Record<string, ActionEntry> = {};
+
+  // 1. Template actions first — these are the authoritative layer for the
+  //    current app and must override any workspace-core entry with the same
+  //    name.
+  try {
+    await loadActionsIntoRegistry(actionsDir, registry, false);
+  } catch (err: any) {
+    console.warn(
+      `[autoDiscoverActions] Could not read actions directory: ${actionsDir} — ${err?.message}`,
+    );
+  }
+
+  // 2. Workspace-core actions — merged in with skipExisting so they can't
+  //    overwrite template entries.
+  try {
+    const { getWorkspaceCoreExports } =
+      await import("../deploy/workspace-core.js");
+    const ws = await getWorkspaceCoreExports(process.cwd());
+    if (ws && ws.actionsDir) {
+      await loadActionsIntoRegistry(ws.actionsDir, registry, true);
+    }
+  } catch {
+    // workspace-core discovery unavailable (e.g. edge runtime) — skip.
   }
 
   return registry;

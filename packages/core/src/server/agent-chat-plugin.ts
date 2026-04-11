@@ -761,14 +761,20 @@ const DEFAULT_SYSTEM_PROMPT = PROD_FRAMEWORK_PROMPT;
  * prompt so the agent has everything it needs from the first turn — no tool
  * calls required to figure out "what is this app".
  *
- * Three sources are layered:
+ * Four sources are layered:
  *
- *   1. `<template>` — AGENTS.md + skills index from the `virtual:agents-bundle`
+ *   1. `<workspace>` — AGENTS.md from the enterprise workspace core (when the
+ *      app sits inside a monorepo with an `agent-native.workspaceCore` package
+ *      configured). Enterprise-wide instructions that apply to every app in
+ *      the workspace.
+ *   2. `<template>` — AGENTS.md + skills index from the `virtual:agents-bundle`
  *      module (inlined at build time by the Vite plugin, falls back to a
  *      filesystem read from `process.cwd()` in dev). Canonical source for
- *      "what is this app, what can it do, what skills are available".
- *   2. `<shared>` — LEARNINGS.md from the SQL shared scope. Team-level notes.
- *   3. `<personal>` — LEARNINGS.md from the SQL personal scope. The current
+ *      "what is this app, what can it do, what skills are available". The
+ *      skills block merges workspace-core skills with template skills (template
+ *      wins on name collision).
+ *   3. `<shared>` — LEARNINGS.md from the SQL shared scope. Team-level notes.
+ *   4. `<personal>` — LEARNINGS.md from the SQL personal scope. The current
  *      user's own notes.
  *
  * Each source is read independently — no copying between them. Editing
@@ -780,11 +786,20 @@ async function loadResourcesForPrompt(owner: string): Promise<string> {
 
   const sections: string[] = [];
 
-  // 1. Template AGENTS.md + skills index — from the virtual bundle.
+  // 1. Workspace AGENTS.md + skills merged into the template bundle.
   try {
     const { loadAgentsBundle, generateSkillsPromptBlock } =
       await import("./agents-bundle.js");
     const bundle = await loadAgentsBundle();
+
+    // Workspace-core AGENTS.md (enterprise-wide instructions), if present.
+    if (bundle.workspaceAgentsMd && bundle.workspaceAgentsMd.trim()) {
+      sections.push(
+        `<resource name="AGENTS.md" scope="workspace">\n${bundle.workspaceAgentsMd.trim()}\n</resource>`,
+      );
+    }
+
+    // 2. Template AGENTS.md.
     if (bundle.agentsMd.trim()) {
       sections.push(
         `<resource name="AGENTS.md" scope="template">\n${bundle.agentsMd.trim()}\n</resource>`,

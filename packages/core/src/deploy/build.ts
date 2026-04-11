@@ -27,6 +27,10 @@ import {
   type DiscoveredRoute,
   type DiscoveredAction,
 } from "./route-discovery.js";
+import {
+  getWorkspaceCoreExports,
+  type WorkspaceCoreExports,
+} from "./workspace-core.js";
 
 const cwd = process.cwd();
 const preset = process.env.NITRO_PRESET || "node";
@@ -43,12 +47,19 @@ function isNodeOnlyPlugin(filePath: string): boolean {
 
 /**
  * Generate the worker entry source code that wires up H3 + React Router SSR.
+ *
+ * If a workspace core is present (monorepo with `agent-native.workspaceCore`
+ * configured and the named package resolves), any plugin slot that the
+ * workspace core exports is imported from there instead of from
+ * `@agent-native/core/server`. This is the middle layer of the three-layer
+ * inheritance model: app local > workspace core > framework default.
  */
 function generateWorkerEntry(
   routes: DiscoveredRoute[],
   pluginPaths: string[],
   defaultPluginStems: string[] = [],
   actions: DiscoveredAction[] = [],
+  workspaceCore: WorkspaceCoreExports | null = null,
 ): string {
   const routeImports: string[] = [];
   const routeRegistrations: string[] = [];
@@ -99,18 +110,32 @@ function generateWorkerEntry(
   }`);
   }
 
-  // Auto-mounted default plugins (from core, for missing plugin files)
+  // Auto-mounted default plugins (for slots the template doesn't override
+  // locally). For each slot, prefer a workspace-core export over the
+  // @agent-native/core default, if the workspace core provides one.
   const edgeDefaultStems = defaultPluginStems.filter(
     (stem) => !NODE_ONLY_PLUGINS.has(stem),
   );
   for (let i = 0; i < edgeDefaultStems.length; i++) {
     const stem = edgeDefaultStems[i];
-    const exportName = DEFAULT_PLUGIN_REGISTRY[stem];
-    if (!exportName) continue;
     const varName = `defaultPlugin_${i}`;
-    pluginImports.push(
-      `import { ${exportName} as ${varName} } from "@agent-native/core/server";`,
-    );
+
+    const workspaceExportName = workspaceCore?.plugins?.[stem as never];
+    if (workspaceCore && workspaceExportName) {
+      // Workspace-core layer wins over the framework default.
+      pluginImports.push(
+        `import { ${workspaceExportName} as ${varName} } from ${JSON.stringify(
+          `${workspaceCore.packageName}/server`,
+        )};`,
+      );
+    } else {
+      // Fall back to the framework default from @agent-native/core.
+      const defaultExportName = DEFAULT_PLUGIN_REGISTRY[stem];
+      if (!defaultExportName) continue;
+      pluginImports.push(
+        `import { ${defaultExportName} as ${varName} } from "@agent-native/core/server";`,
+      );
+    }
     pluginCalls.push(`  if (typeof ${varName} === "function") {
     await ${varName}(nitroApp);
   }`);
@@ -261,14 +286,18 @@ async function buildCloudflarePages() {
     "export default {}; export const watch = () => ({ close() {} }); export const Database = class {};\n",
   );
 
-  // Discover routes, plugins, and actions
+  // Discover routes, plugins, actions, and the workspace core (if any).
   const routes = await discoverApiRoutes(cwd);
   const plugins = await discoverPlugins(cwd);
   const actions = await discoverActionFiles(cwd);
   const missingDefaults = await getMissingDefaultPlugins(cwd);
+  const workspaceCore = await getWorkspaceCoreExports(cwd);
 
+  const workspaceSlotCount = workspaceCore
+    ? Object.keys(workspaceCore.plugins).length
+    : 0;
   console.log(
-    `[deploy] ${routes.length} API routes, ${actions.length} actions, ${plugins.length} plugins (${plugins.filter((p) => isNodeOnlyPlugin(p)).length} skipped as Node-only), ${missingDefaults.length} auto-mounted defaults`,
+    `[deploy] ${routes.length} API routes, ${actions.length} actions, ${plugins.length} plugins (${plugins.filter((p) => isNodeOnlyPlugin(p)).length} skipped as Node-only), ${missingDefaults.length} auto-mounted defaults${workspaceCore ? `, workspace-core ${workspaceCore.packageName} (${workspaceSlotCount} plugin slots)` : ""}`,
   );
 
   // Generate the worker entry
@@ -277,6 +306,7 @@ async function buildCloudflarePages() {
     plugins,
     missingDefaults,
     actions,
+    workspaceCore,
   );
 
   // Create _worker.js output directory
@@ -763,10 +793,21 @@ async function buildWithNitro() {
   // own virtual module registration. Both paths reuse `readAgentsBundleFromFs`
   // from `server/agents-bundle.ts` to guarantee identical content.
   const { readAgentsBundleFromFs } = await import("../server/agents-bundle.js");
+  // Resolve the workspace core (if present) up front so the bundle embeds
+  // enterprise-wide AGENTS.md + skills alongside the template's.
+  const nitroWorkspaceCore = await getWorkspaceCoreExports(cwd);
+  const nitroWorkspaceSource = nitroWorkspaceCore
+    ? {
+        skillsDir: nitroWorkspaceCore.skillsDir,
+        agentsMdPath: nitroWorkspaceCore.agentsMdPath,
+        rootDir: nitroWorkspaceCore.packageDir,
+      }
+    : null;
   const agentsBundleModuleSource = () => {
-    const bundle = readAgentsBundleFromFs(cwd);
+    const bundle = readAgentsBundleFromFs(cwd, nitroWorkspaceSource);
     return `// AUTO-GENERATED by @agent-native/core deploy build (Nitro virtual)
-// Contains the inlined AGENTS.md + .agents/skills/ content from the template.
+// Contains the inlined AGENTS.md + .agents/skills/ content from the template,
+// merged with the workspace core's AGENTS.md + skills/ when present.
 const bundle = ${JSON.stringify(bundle)};
 export default bundle;
 `;
