@@ -1,0 +1,23 @@
+node_modules/
+dist/
+build/
+.deploy-tmp/
+
+# Env files — never commit secrets
+.env
+.env.local
+apps/*/.env
+apps/*/.env.local
+packages/*/.env
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+
+# pnpm
+.pnpm-store/
+pnpm-debug.log*
+
+# Personal agent memory — per-developer, not shared
+learnings.md

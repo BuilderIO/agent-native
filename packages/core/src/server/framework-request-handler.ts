@@ -162,7 +162,10 @@ function registerMiddleware(
  *
  * Runs once per nitroApp on the first `getH3App()` call. Uses route-discovery
  * to find which default plugin stems are missing from `server/plugins/`, then
- * dynamically imports and mounts them.
+ * dynamically imports and mounts them. If a workspace core is present in the
+ * ancestor chain, plugin slots the workspace core exports are mounted from
+ * there instead of from @agent-native/core — this is the middle layer of the
+ * three-layer inheritance model (app local > workspace core > framework).
  */
 async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
   IN_BOOTSTRAP.add(nitroApp);
@@ -177,7 +180,7 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
     const integrationsModule = await import("../integrations/plugin.js");
     const orgModule = await import("../org/plugin.js");
 
-    const impls: Record<
+    const frameworkImpls: Record<
       string,
       ((nitroApp: any) => void | Promise<void>) | undefined
     > = {
@@ -190,13 +193,55 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
       terminal: (terminalModule as any).defaultTerminalPlugin,
     };
 
+    // Workspace core layer: if the app is inside an enterprise monorepo with
+    // `agent-native.workspaceCore` configured, pull in any plugin slots the
+    // workspace core exports from its server entry. We dynamically import the
+    // workspace core package at runtime.
+    let workspaceImpls: Record<
+      string,
+      ((nitroApp: any) => void | Promise<void>) | undefined
+    > = {};
+    try {
+      const { getWorkspaceCoreExports } =
+        await import("../deploy/workspace-core.js");
+      const ws = await getWorkspaceCoreExports(cwd);
+      if (ws && Object.keys(ws.plugins).length > 0) {
+        try {
+          const wsServerModule = await import(
+            /* @vite-ignore */ `${ws.packageName}/server`
+          );
+          for (const [slot, exportName] of Object.entries(ws.plugins)) {
+            if (!exportName) continue;
+            const impl = (wsServerModule as any)[exportName];
+            if (typeof impl === "function") {
+              workspaceImpls[slot] = impl;
+            }
+          }
+          if (process.env.DEBUG) {
+            console.log(
+              `[agent-native] Workspace core ${ws.packageName} provides plugin slots: ${Object.keys(workspaceImpls).join(", ")}`,
+            );
+          }
+        } catch (e) {
+          console.warn(
+            `[agent-native] Failed to load workspace core ${ws.packageName}/server:`,
+            (e as Error).message,
+          );
+        }
+      }
+    } catch {
+      // Workspace core module isn't available (e.g. running on an edge
+      // runtime without fs). Silently fall through to framework defaults.
+    }
+
     if (process.env.DEBUG)
       console.log(
         `[agent-native] Auto-mounting ${missing.length} default plugin(s): ${missing.join(", ")}`,
       );
 
     for (const stem of missing) {
-      const impl = impls[stem];
+      // Prefer workspace-core impl over framework default when both exist.
+      const impl = workspaceImpls[stem] ?? frameworkImpls[stem];
       if (typeof impl === "function") {
         try {
           await impl(nitroApp);

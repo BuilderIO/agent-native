@@ -164,14 +164,11 @@ export interface DiscoveredAction {
 }
 
 /**
- * Discover action files in the actions/ directory.
- * These become `/_agent-native/actions/:name` HTTP endpoints.
+ * Scan a single actions directory for defineAction-backed files. Shared
+ * between the template-actions path and the workspace-core actions layer.
  */
-export async function discoverActionFiles(
-  cwd: string,
-): Promise<DiscoveredAction[]> {
+async function scanActionsDir(actionsDir: string): Promise<DiscoveredAction[]> {
   const fs = await getFs();
-  const actionsDir = path.join(cwd, "actions");
   if (!fs.existsSync(actionsDir)) return [];
 
   const files = fs.readdirSync(actionsDir).filter((f) => {
@@ -182,7 +179,7 @@ export async function discoverActionFiles(
     return true;
   });
 
-  const actions: DiscoveredAction[] = [];
+  const out: DiscoveredAction[] = [];
   for (const file of files) {
     const name = file.replace(/\.(ts|js)$/, "");
     const absPath = path.join(actionsDir, file);
@@ -206,10 +203,43 @@ export async function discoverActionFiles(
       continue;
     }
 
-    actions.push({ name, absPath, method });
+    out.push({ name, absPath, method });
   }
 
-  return actions;
+  return out;
+}
+
+/**
+ * Discover action files in the actions/ directory.
+ *
+ * When a workspace core is present in the ancestor chain, its actions/
+ * directory is also scanned and its actions are merged in after the
+ * template's — with template actions winning on name collision.
+ *
+ * These become `/_agent-native/actions/:name` HTTP endpoints.
+ */
+export async function discoverActionFiles(
+  cwd: string,
+): Promise<DiscoveredAction[]> {
+  const templateActions = await scanActionsDir(path.join(cwd, "actions"));
+  const byName = new Map<string, DiscoveredAction>();
+  for (const a of templateActions) byName.set(a.name, a);
+
+  // Merge workspace-core actions (template wins on collision).
+  try {
+    const { getWorkspaceCoreExports } = await import("./workspace-core.js");
+    const ws = await getWorkspaceCoreExports(cwd);
+    if (ws && ws.actionsDir) {
+      const wsActions = await scanActionsDir(ws.actionsDir);
+      for (const a of wsActions) {
+        if (!byName.has(a.name)) byName.set(a.name, a);
+      }
+    }
+  } catch {
+    // Edge runtime / no fs — skip workspace-core merge.
+  }
+
+  return Array.from(byName.values());
 }
 
 /**

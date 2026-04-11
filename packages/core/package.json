@@ -48,7 +48,7 @@
     "src/templates"
   ],
   "scripts": {
-    "build": "tsc && cp -r src/templates dist/templates",
+    "build": "tsc && rm -rf dist/templates && cp -r src/templates dist/templates",
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest --run",
