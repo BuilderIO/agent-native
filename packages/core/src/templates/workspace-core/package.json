@@ -1,0 +1,39 @@
+{
+  "name": "@{{APP_NAME}}/core-module",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./server": {
+      "types": "./src/server/index.ts",
+      "default": "./src/server/index.ts"
+    },
+    "./client": {
+      "types": "./src/client/index.ts",
+      "default": "./src/client/index.ts"
+    },
+    "./credentials": {
+      "types": "./src/credentials.ts",
+      "default": "./src/credentials.ts"
+    },
+    "./tailwind": {
+      "types": "./tailwind.preset.ts",
+      "default": "./tailwind.preset.ts"
+    }
+  },
+  "dependencies": {
+    "@agent-native/core": "^0.6.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.23",
+    "react": "^18.3.1",
+    "typescript": "^5.9.2"
+  },
+  "peerDependencies": {
+    "react": "^18.3.1"
+  }
+}

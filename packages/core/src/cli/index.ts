@@ -183,6 +183,15 @@ switch (command) {
     break;
   }
 
+  case "create-workspace": {
+    // Scaffold an enterprise monorepo (workspace core + example app).
+    const wsName = args.find((a) => !a.startsWith("-"));
+    import("./create-workspace.js").then((m) =>
+      m.createWorkspace({ name: wsName }),
+    );
+    break;
+  }
+
   case "setup-agents": {
     import("./setup-agents.js").then((m) => m.runSetupAgents());
     break;
@@ -207,6 +216,9 @@ Usage:
   agent-native script <name>    Run an action (deprecated alias for 'action')
   agent-native typecheck        Run TypeScript type checking
   agent-native create [name]    Scaffold a new agent-native app (interactive)
+  agent-native create-workspace [name]
+                                Scaffold an enterprise monorepo with a shared
+                                workspace core package and one sample app
   agent-native setup-agents     Create symlinks for all agent tools
 
 Options:
