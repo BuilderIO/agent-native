@@ -1673,6 +1673,19 @@ export function AgentSidebar({
   });
   const [presentationMode, setPresentationMode] = useState(false);
   const [width, setWidth] = useState(sidebarWidth);
+
+  // Track mobile viewport so we can switch to overlay mode.
+  const [isMobile, setIsMobile] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      window.matchMedia("(max-width: 767px)").matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)");
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
   useEffect(() => {
     try {
       const saved = localStorage.getItem(SIDEBAR_STORAGE_KEY);
@@ -1813,19 +1826,34 @@ export function AgentSidebar({
 
   const isLeft = position === "left";
 
+  // On mobile the sidebar floats as a fixed overlay so the content below isn't
+  // squashed. On desktop it participates in the flex layout as before.
+  const mobileSidebarStyle: React.CSSProperties = isMobile
+    ? {
+        position: "fixed",
+        top: 0,
+        [isLeft ? "left" : "right"]: 0,
+        height: "100%",
+        maxWidth: "85vw",
+        zIndex: 50,
+      }
+    : {};
+
   // Always render the sidebar panel (even when closed) so MultiTabAssistantChat
   // stays mounted and can receive messages (e.g. from voice dictation) while
   // the sidebar is visually hidden. When the user opens the sidebar they'll see
   // any in-progress or completed conversations.
   const sidebar = (
     <>
-      {isLeft ? null : open ? (
-        <ResizeHandle position={position} onDrag={handleDrag} />
-      ) : null}
+      {!isMobile &&
+        (isLeft ? null : open ? (
+          <ResizeHandle position={position} onDrag={handleDrag} />
+        ) : null)}
       <div
         className="agent-sidebar-panel flex shrink-0 flex-col overflow-hidden text-[13px] leading-[1.2] antialiased"
         style={{
           ...AGENT_PANEL_ROOT_STYLE,
+          ...mobileSidebarStyle,
           width,
           maxHeight: "100vh",
           display: open ? "flex" : "none",
@@ -1837,16 +1865,24 @@ export function AgentSidebar({
           onCollapse={() => setOpenPersisted(false)}
         />
       </div>
-      {isLeft ? (
-        open ? (
-          <ResizeHandle position={position} onDrag={handleDrag} />
-        ) : null
-      ) : null}
+      {!isMobile &&
+        (isLeft ? (
+          open ? (
+            <ResizeHandle position={position} onDrag={handleDrag} />
+          ) : null
+        ) : null)}
     </>
   );
 
   return (
     <div className="flex min-w-0 flex-1 h-screen overflow-hidden">
+      {/* Mobile backdrop — tapping it closes the sidebar */}
+      {isMobile && open && !presentationMode && (
+        <div
+          className="fixed inset-0 z-40 bg-black/40"
+          onClick={() => setOpenPersisted(false)}
+        />
+      )}
       {isLeft && !presentationMode ? sidebar : null}
       <div className="flex flex-1 flex-col overflow-auto min-w-0">
         {children}
