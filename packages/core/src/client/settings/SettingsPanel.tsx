@@ -200,14 +200,26 @@ function UseBuilderCard({
           </ul>
         </div>
       )}
-      {connectUrl && !showComingSoon && (
+      {showComingSoon ? (
         <a
-          href={connectUrl}
-          className="inline-flex items-center gap-1 mt-1.5 rounded bg-foreground px-2.5 py-1 text-[10px] font-medium no-underline text-background hover:opacity-90"
+          href="https://forms.gle/WGpRR5ENCwEppFWL7"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 mt-1.5 rounded border border-border px-2.5 py-1 text-[10px] font-medium no-underline text-muted-foreground hover:text-foreground hover:bg-accent/40"
         >
-          {label}
+          Join the waitlist
           <IconExternalLink size={10} />
         </a>
+      ) : (
+        connectUrl && (
+          <a
+            href={connectUrl}
+            className="inline-flex items-center gap-1 mt-1.5 rounded bg-foreground px-2.5 py-1 text-[10px] font-medium no-underline text-background hover:opacity-90"
+          >
+            {label}
+            <IconExternalLink size={10} />
+          </a>
+        )
       )}
     </div>
   );

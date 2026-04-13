@@ -449,8 +449,10 @@ async function buildCloudflarePages() {
     );
 
     // Patch createRequire(import.meta.url) — import.meta.url is undefined in CF Workers.
+    // Matches both `from "module"` and `from "node:module"` — with the node:
+    // prefix preserved (for nodejs_compat_v2), the latter is what esbuild now emits.
     code = code.replace(
-      /\bimport\s*\{\s*createRequire\s+as\s+([\w$]+)\s*\}\s*from\s*["']module["']\s*;/g,
+      /\bimport\s*\{\s*createRequire\s+as\s+([\w$]+)\s*\}\s*from\s*["'](?:node:)?module["']\s*;/g,
       "var $1 = function() { return typeof require !== 'undefined' ? require : function(m) { throw new Error('require not supported: ' + m); }; };",
     );
 
