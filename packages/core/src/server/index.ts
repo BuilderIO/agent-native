@@ -112,6 +112,11 @@ export {
 } from "./action-routes.js";
 
 export {
+  createOnboardingPlugin,
+  defaultOnboardingPlugin,
+} from "../onboarding/plugin.js";
+
+export {
   createIntegrationsPlugin,
   defaultIntegrationsPlugin,
   slackAdapter,

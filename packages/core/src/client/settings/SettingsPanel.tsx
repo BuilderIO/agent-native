@@ -111,18 +111,18 @@ function UseBuilderCard({
   connected,
   orgName,
   comingSoon,
-  demoMode,
+  builderEnabled,
   label = "Connect Builder.io",
 }: {
   connectUrl?: string;
   connected: boolean;
   orgName?: string;
   comingSoon?: boolean;
-  demoMode?: boolean;
+  builderEnabled?: boolean;
   label?: string;
 }) {
   // In demo mode, never show "Coming soon"
-  const showComingSoon = comingSoon && !demoMode;
+  const showComingSoon = comingSoon && !builderEnabled;
 
   if (connected) {
     return (
@@ -142,7 +142,7 @@ function UseBuilderCard({
         {connectUrl && (
           <a
             href={connectUrl}
-            className="inline-flex items-center gap-1 mt-1.5 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40"
+            className="inline-flex items-center gap-1 mt-1.5 rounded border border-border px-2 py-0.5 text-[10px] no-underline text-muted-foreground hover:text-foreground hover:bg-accent/40"
           >
             Reconnect
             <IconExternalLink size={10} />
@@ -156,7 +156,7 @@ function UseBuilderCard({
     <div className="rounded-md border border-border px-2.5 py-2">
       <div className="flex items-center justify-between">
         <div className="text-[11px] font-medium text-foreground">
-          Use Builder
+          Connect Builder.io
         </div>
         {showComingSoon && (
           <span className="rounded-full bg-accent/60 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -170,7 +170,7 @@ function UseBuilderCard({
       {connectUrl && !showComingSoon && (
         <a
           href={connectUrl}
-          className="inline-flex items-center gap-1 mt-1.5 rounded bg-foreground px-2.5 py-1 text-[10px] font-medium text-background hover:opacity-90"
+          className="inline-flex items-center gap-1 mt-1.5 rounded bg-foreground px-2.5 py-1 text-[10px] font-medium no-underline text-background hover:opacity-90"
         >
           {label}
           <IconExternalLink size={10} />
@@ -207,7 +207,7 @@ function ManualSetupCard({
           href={docsUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
+          className="inline-flex items-center gap-1 text-[10px] no-underline text-muted-foreground hover:text-foreground"
         >
           {docsLabel}
           <IconExternalLink size={10} />
@@ -220,12 +220,12 @@ function ManualSetupCard({
 // ─── LLM Section ────────────────────────────────────────────────────────────
 
 function LLMSectionInner({
-  demoMode,
+  builderEnabled,
   connectUrl,
   connected,
   orgName,
 }: {
-  demoMode: boolean;
+  builderEnabled: boolean;
   connectUrl?: string;
   connected: boolean;
   orgName?: string;
@@ -281,7 +281,7 @@ function LLMSectionInner({
           connected={connected}
           orgName={orgName}
           comingSoon
-          demoMode={demoMode}
+          builderEnabled={builderEnabled}
           label="Connect Builder.io"
         />
         <ManualSetupCard>
@@ -353,21 +353,9 @@ export function SettingsPanel({
 }: SettingsPanelProps) {
   const { status: builder } = useBuilderStatus();
   const connected = builder?.configured ?? false;
+  const builderEnabled = builder?.builderEnabled ?? false;
   const connectUrl = builder?.connectUrl;
   const orgName = builder?.orgName;
-
-  // Demo mode: driven by DEMO_MODE env var, exposed via env-status or a dedicated endpoint.
-  // For now, check at load time.
-  const [demoMode, setDemoMode] = useState(false);
-  useEffect(() => {
-    fetch("/_agent-native/env-status")
-      .then((r) => (r.ok ? r.json() : []))
-      .then((keys: Array<{ key: string; configured: boolean }>) => {
-        const dm = keys.find((k) => k.key === "DEMO_MODE");
-        if (dm?.configured) setDemoMode(true);
-      })
-      .catch(() => {});
-  }, []);
 
   return (
     <div
@@ -393,7 +381,7 @@ export function SettingsPanel({
               href={devAppUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground"
+              className="flex items-center gap-1.5 text-[11px] no-underline text-muted-foreground hover:text-foreground"
             >
               <IconExternalLink size={12} />
               Open app in new tab
@@ -404,7 +392,7 @@ export function SettingsPanel({
 
       {/* LLM */}
       <LLMSectionInner
-        demoMode={demoMode}
+        builderEnabled={builderEnabled}
         connectUrl={connectUrl}
         connected={connected}
         orgName={orgName}
@@ -421,7 +409,7 @@ export function SettingsPanel({
           connectUrl={connectUrl}
           connected={connected}
           orgName={orgName}
-          demoMode={demoMode}
+          builderEnabled={builderEnabled}
         />
       </SettingsSection>
 
@@ -436,7 +424,7 @@ export function SettingsPanel({
           connectUrl={connectUrl}
           connected={connected}
           orgName={orgName}
-          demoMode={demoMode}
+          builderEnabled={builderEnabled}
         />
       </SettingsSection>
 
@@ -452,7 +440,7 @@ export function SettingsPanel({
             connected={connected}
             orgName={orgName}
             comingSoon
-            demoMode={demoMode}
+            builderEnabled={builderEnabled}
           />
           <ManualSetupCard
             hint="Deploy manually to Netlify, Vercel, Cloudflare, or any Nitro-supported target."
@@ -473,7 +461,7 @@ export function SettingsPanel({
             connected={connected}
             orgName={orgName}
             comingSoon
-            demoMode={demoMode}
+            builderEnabled={builderEnabled}
           />
           <ManualSetupCard
             hint="Set DATABASE_URL in your .env to connect Neon, Supabase, Turso, or any Postgres/SQLite database."
@@ -494,7 +482,7 @@ export function SettingsPanel({
             connected={connected}
             orgName={orgName}
             comingSoon
-            demoMode={demoMode}
+            builderEnabled={builderEnabled}
           />
           <ManualSetupCard
             hint="Configure Better Auth with BETTER_AUTH_SECRET and optional Google/GitHub OAuth providers."

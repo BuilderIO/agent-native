@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 
 export interface BuilderStatus {
   configured: boolean;
+  builderEnabled: boolean;
   connectUrl: string;
   appHost: string;
   apiHost: string;

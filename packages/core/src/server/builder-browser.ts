@@ -8,6 +8,7 @@ const BUILDER_BROWSER_CLIENT_ID = "Agent Native Browser";
 
 export interface BuilderBrowserStatus {
   configured: boolean;
+  builderEnabled: boolean;
   appHost: string;
   apiHost: string;
   connectUrl: string;
@@ -84,6 +85,7 @@ export function getBuilderBrowserStatus(origin: string): BuilderBrowserStatus {
     configured: !!(
       process.env.BUILDER_PRIVATE_KEY && process.env.BUILDER_PUBLIC_KEY
     ),
+    builderEnabled: !!process.env.ENABLE_BUILDER,
     appHost: getBuilderAppHost(),
     apiHost: getBuilderApiHost(),
     connectUrl: getBuilderBrowserConnectUrl(origin),

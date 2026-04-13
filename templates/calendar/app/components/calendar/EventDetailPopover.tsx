@@ -35,11 +35,9 @@ import { EventAttendeesSection } from "@/components/calendar/EventAttendeesSecti
 import { useCalendarContext } from "@/components/layout/AppLayout";
 import { useUpdateEvent } from "@/hooks/use-events";
 import {
-  sanitizeHtml,
-  stripGcalInviteHtml,
-  isHtml,
-  linkifyText,
-} from "@/lib/sanitize-description";
+  RenderedDescription,
+  AutoGrowTextarea,
+} from "@/components/calendar/EventDescription";
 
 function formatDuration(start: string, end: string): string {
   const totalMinutes = differenceInMinutes(parseISO(end), parseISO(start));
@@ -236,7 +234,6 @@ export function EventDetailPopover({
   const [editMeetingLink, setEditMeetingLink] = useState("");
 
   const updateEvent = useUpdateEvent();
-  const descriptionRef = useRef<HTMLTextAreaElement>(null);
   const locationRef = useRef<HTMLInputElement>(null);
   const attendeeRef = useRef<HTMLInputElement>(null);
   const meetingLinkRef = useRef<HTMLInputElement>(null);
@@ -271,8 +268,7 @@ export function EventDetailPopover({
   useEffect(() => {
     if (!editingField) return;
     requestAnimationFrame(() => {
-      if (editingField === "description") descriptionRef.current?.focus();
-      else if (editingField === "location") locationRef.current?.focus();
+      if (editingField === "location") locationRef.current?.focus();
       else if (editingField === "attendees") attendeeRef.current?.focus();
       else if (editingField === "meetingLink") meetingLinkRef.current?.focus();
     });
@@ -425,10 +421,6 @@ export function EventDetailPopover({
   const locationIsMeetingLink =
     meetingLink && event.location?.includes(meetingLink.url);
   const recurrenceText = formatRecurrence(event.recurrence);
-  const descriptionIsHtml = event.description
-    ? isHtml(event.description)
-    : false;
-
   // Detect timezone from event start (offset-based)
   const startDate = parseISO(event.start);
   const offsetMinutes = -startDate.getTimezoneOffset();
@@ -965,52 +957,25 @@ export function EventDetailPopover({
                     <IconAlignLeft className="mt-1.5 h-4 w-4 shrink-0 text-muted-foreground" />
                     {isOverlay ? (
                       event.description ? (
-                        (() => {
-                          const cleanedHtml = descriptionIsHtml
-                            ? stripGcalInviteHtml(
-                                sanitizeHtml(event.description),
-                              )
-                            : null;
-                          const hasContent = cleanedHtml
-                            ? cleanedHtml.replace(/<[^>]*>/g, "").trim()
-                                .length > 0
-                            : true;
-                          if (!hasContent) return null;
-                          return descriptionIsHtml ? (
-                            <div
-                              className="rounded-lg bg-muted/30 px-3 py-2.5 text-sm leading-relaxed text-foreground/80 prose prose-sm prose-invert prose-p:my-1 prose-a:text-primary"
-                              dangerouslySetInnerHTML={{ __html: cleanedHtml! }}
-                            />
-                          ) : (
-                            <p
-                              className="text-sm leading-relaxed text-foreground/80 whitespace-pre-wrap"
-                              dangerouslySetInnerHTML={{
-                                __html: linkifyText(event.description),
-                              }}
-                            />
-                          );
-                        })()
+                        <RenderedDescription description={event.description} />
                       ) : null
-                    ) : (
-                      <textarea
-                        ref={descriptionRef}
+                    ) : editingField === "description" || !event.description ? (
+                      <AutoGrowTextarea
                         value={editDescription}
-                        onChange={(e) => setEditDescription(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Escape") {
-                            e.preventDefault();
-                            setEditDescription(event.description || "");
-                          }
-                          if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                            e.preventDefault();
-                            handleSaveDescription();
-                          }
-                          e.stopPropagation();
-                        }}
+                        onChange={setEditDescription}
                         onBlur={handleSaveDescription}
-                        placeholder="Add description"
-                        rows={3}
-                        className="flex-1 w-full bg-transparent border-none outline-none text-sm text-foreground placeholder:text-muted-foreground/40 focus:ring-0 resize-none"
+                        onSubmit={handleSaveDescription}
+                        onEscape={() => {
+                          setEditDescription(event.description || "");
+                          setEditingField(null);
+                        }}
+                        autoFocus={editingField === "description"}
+                      />
+                    ) : (
+                      <RenderedDescription
+                        description={event.description}
+                        editable
+                        onClick={() => setEditingField("description")}
                       />
                     )}
                   </div>
