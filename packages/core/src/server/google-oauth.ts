@@ -158,11 +158,11 @@ export async function resolveOAuthOwner(
   const isDevSession = existingSession?.email === "local@localhost";
   const hasProductionSession = !!(existingSession?.email && !isDevSession);
 
-  const owner = isDevSession
-    ? "local@localhost"
-    : hasProductionSession
-      ? existingSession!.email
-      : stateOwner || undefined;
+  // Never use "local@localhost" as a token owner — it creates shared-ownership
+  // bugs where multiple users can see the same tokens.
+  const owner = hasProductionSession
+    ? existingSession!.email
+    : stateOwner || undefined;
 
   return { owner, isDevSession, hasProductionSession };
 }

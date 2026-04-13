@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { IconFilterOff, IconDeviceFloppy } from "@tabler/icons-react";
 import type { DashboardFilter } from "./types";
 
 export const FILTER_PARAM_PREFIX = "f_";
@@ -51,8 +59,47 @@ export function resolveFilterVars(
   return out;
 }
 
+/** Check if any filter param in the URL differs from the defaults */
+function hasActiveFilters(
+  filters: DashboardFilter[],
+  searchParams: URLSearchParams,
+): boolean {
+  for (const f of filters) {
+    if (f.type === "date-range") {
+      if (searchParams.has(FILTER_PARAM_PREFIX + f.id + "Start")) return true;
+      if (searchParams.has(FILTER_PARAM_PREFIX + f.id + "End")) return true;
+    } else {
+      if (searchParams.has(FILTER_PARAM_PREFIX + f.id)) return true;
+    }
+  }
+  return false;
+}
+
+/** Extract current filter params from URL search params */
+export function extractFilterParams(
+  filters: DashboardFilter[],
+  searchParams: URLSearchParams,
+): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const f of filters) {
+    if (f.type === "date-range") {
+      const startKey = f.id + "Start";
+      const endKey = f.id + "End";
+      const sv = searchParams.get(FILTER_PARAM_PREFIX + startKey);
+      const ev = searchParams.get(FILTER_PARAM_PREFIX + endKey);
+      if (sv) result[FILTER_PARAM_PREFIX + startKey] = sv;
+      if (ev) result[FILTER_PARAM_PREFIX + endKey] = ev;
+    } else {
+      const v = searchParams.get(FILTER_PARAM_PREFIX + f.id);
+      if (v) result[FILTER_PARAM_PREFIX + f.id] = v;
+    }
+  }
+  return result;
+}
+
 interface DashboardFilterBarProps {
   filters: DashboardFilter[];
+  onSaveView?: (name: string, filters: Record<string, string>) => void;
 }
 
 /**
@@ -60,8 +107,13 @@ interface DashboardFilterBarProps {
  * filter inputs, and emits a `vars` dict (suitable for SQL interpolation) to the
  * parent. Date-range filters emit `<id>Start` and `<id>End` keys.
  */
-export function DashboardFilterBar({ filters }: DashboardFilterBarProps) {
+export function DashboardFilterBar({
+  filters,
+  onSaveView,
+}: DashboardFilterBarProps) {
   const [searchParams, setSearchParams] = useSearchParams();
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+  const [viewName, setViewName] = useState("");
 
   const getParam = useCallback(
     (key: string) => searchParams.get(FILTER_PARAM_PREFIX + key) ?? "",
@@ -86,28 +138,117 @@ export function DashboardFilterBar({ filters }: DashboardFilterBarProps) {
     [setSearchParams],
   );
 
+  const clearAllFilters = useCallback(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        // Remove all f_ prefixed params
+        const keysToRemove: string[] = [];
+        next.forEach((_, k) => {
+          if (k.startsWith(FILTER_PARAM_PREFIX)) keysToRemove.push(k);
+        });
+        keysToRemove.forEach((k) => next.delete(k));
+        // Also remove the view param since we're clearing
+        next.delete("view");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [setSearchParams]);
+
+  const handleSaveView = useCallback(() => {
+    if (!viewName.trim() || !onSaveView) return;
+    const currentFilters = extractFilterParams(filters, searchParams);
+    onSaveView(viewName.trim(), currentFilters);
+    setViewName("");
+    setSaveDialogOpen(false);
+  }, [viewName, onSaveView, filters, searchParams]);
+
   // Compute the live vars dict (URL value or default) for every filter.
   const vars = useMemo(
     () => resolveFilterVars(filters, getParam),
     [filters, getParam],
   );
 
+  const filtersActive = hasActiveFilters(filters, searchParams);
+
   return (
-    <div className="rounded-lg border border-border bg-card p-3 space-y-3">
-      <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-        Filters
-      </h3>
-      <div className="flex flex-wrap gap-3 items-end">
-        {filters.map((f) => (
-          <FilterControl
-            key={f.id}
-            filter={f}
-            vars={vars}
-            setValue={(updates) => setParam(updates)}
-          />
-        ))}
+    <>
+      <div className="rounded-lg border border-border bg-card p-3 space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            Filters
+          </h3>
+          <div className="flex items-center gap-1">
+            {onSaveView && filtersActive && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-xs text-muted-foreground hover:text-primary"
+                onClick={() => setSaveDialogOpen(true)}
+              >
+                <IconDeviceFloppy className="h-3 w-3 mr-1" />
+                Save view
+              </Button>
+            )}
+            {filtersActive && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-xs text-muted-foreground hover:text-destructive"
+                onClick={clearAllFilters}
+              >
+                <IconFilterOff className="h-3 w-3 mr-1" />
+                Clear all
+              </Button>
+            )}
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-3 items-end">
+          {filters.map((f) => (
+            <FilterControl
+              key={f.id}
+              filter={f}
+              vars={vars}
+              setValue={(updates) => setParam(updates)}
+            />
+          ))}
+        </div>
       </div>
-    </div>
+
+      <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>Save as View</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <Input
+              placeholder="View name (e.g. 'Recent articles only')"
+              value={viewName}
+              onChange={(e) => setViewName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleSaveView()}
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSaveDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleSaveView}
+              disabled={!viewName.trim()}
+            >
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 

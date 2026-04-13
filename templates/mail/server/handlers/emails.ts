@@ -207,7 +207,10 @@ async function resolveAccountEmail(
 /** Extract the logged-in user's email from the request session. */
 async function userEmail(event: H3Event): Promise<string> {
   const session = await getSession(event);
-  return session?.email ?? "local@localhost";
+  if (!session?.email) {
+    throw new Error("Unauthorized: no active session");
+  }
+  return session.email;
 }
 
 // ─── Settings defaults ──────────────────────────────────────────────────────

@@ -314,10 +314,13 @@ function createAuthGuardFn(): (
     const url = event.node?.req?.url ?? event.path ?? "/";
     const p = url.split("?")[0];
 
-    // Skip auth routes (all /_agent-native/auth/* and /_agent-native/google/*)
+    // Skip auth routes and specific Google OAuth endpoints that must be public
+    // (callback and auth-url). Other Google endpoints like /status require auth.
     if (
       p.startsWith("/_agent-native/auth/") ||
-      p.startsWith("/_agent-native/google/")
+      p === "/_agent-native/google/callback" ||
+      p === "/_agent-native/google/auth-url" ||
+      p === "/_agent-native/google/add-account/callback"
     ) {
       return;
     }

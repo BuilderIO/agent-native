@@ -63,7 +63,11 @@ async function getAccessToken(accountEmail: string): Promise<string | null> {
 
 export default defineEventHandler(async (event) => {
   const session = await getSession(event);
-  const userEmail = session?.email ?? "local@localhost";
+  if (!session?.email) {
+    setResponseStatus(event, 401);
+    return { error: "Unauthorized" };
+  }
+  const userEmail = session.email;
 
   if (!(await isConnected(userEmail))) {
     setResponseStatus(event, 404);
