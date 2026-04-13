@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { getDbExec, isPostgres } from "@agent-native/core/db";
+import { getCurrentOwnerEmail } from "../server/lib/documents.js";
 import { z } from "zod";
 
 export default defineAction({
@@ -20,14 +21,14 @@ export default defineAction({
       addNotionComment,
     } = await import("../server/lib/notion.js");
     const { getSyncLink } = await import("../server/lib/notion-sync.js");
+    const owner = getCurrentOwnerEmail();
 
     // Check if document is linked to Notion
-    const syncLink = await getSyncLink(documentId);
+    const syncLink = await getSyncLink(documentId, owner);
     if (!syncLink) {
       return "Document is not linked to Notion. Link it first.";
     }
 
-    const owner = process.env.AGENT_USER_EMAIL ?? "local@localhost";
     const connection = await getNotionConnectionForOwner(owner);
     if (!connection) {
       return "No Notion connection. Connect to Notion first.";
@@ -36,6 +37,7 @@ export default defineAction({
     const notionPageId = syncLink.remotePageId;
     const accessToken = connection.accessToken;
     const client = getDbExec();
+    const ownerEmail = owner;
 
     // Pull: Notion -> Local
     const notionComments = await listNotionComments(notionPageId, accessToken);
@@ -46,24 +48,33 @@ export default defineAction({
       if (!text) continue;
 
       const { rows } = await client.execute({
-        sql: "SELECT id FROM document_comments WHERE notion_comment_id = ?",
-        args: [nc.id],
+        sql: "SELECT id FROM document_comments WHERE notion_comment_id = ? AND owner_email = ?",
+        args: [nc.id, ownerEmail],
       });
       if (rows.length > 0) continue;
 
       const id = Math.random().toString(36).slice(2, 14);
       const nowExpr = isPostgres() ? "NOW()::text" : "datetime('now')";
       await client.execute({
-        sql: `INSERT INTO document_comments (id, document_id, thread_id, parent_id, content, author_email, author_name, notion_comment_id, created_at, updated_at) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ${nowExpr}, ${nowExpr})`,
-        args: [id, documentId, id, text, "notion@sync", "Notion", nc.id],
+        sql: `INSERT INTO document_comments (id, owner_email, document_id, thread_id, parent_id, content, author_email, author_name, notion_comment_id, created_at, updated_at) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ${nowExpr}, ${nowExpr})`,
+        args: [
+          id,
+          ownerEmail,
+          documentId,
+          id,
+          text,
+          "notion@sync",
+          "Notion",
+          nc.id,
+        ],
       });
       pulled++;
     }
 
     // Push: Local -> Notion
     const { rows: localComments } = await client.execute({
-      sql: "SELECT id, content FROM document_comments WHERE document_id = ? AND notion_comment_id IS NULL AND resolved = 0",
-      args: [documentId],
+      sql: "SELECT id, content FROM document_comments WHERE document_id = ? AND owner_email = ? AND notion_comment_id IS NULL AND resolved = 0",
+      args: [documentId, ownerEmail],
     });
     let pushed = 0;
 
@@ -77,8 +88,8 @@ export default defineAction({
       );
       if (notionId) {
         await client.execute({
-          sql: "UPDATE document_comments SET notion_comment_id = ? WHERE id = ?",
-          args: [notionId, localId],
+          sql: "UPDATE document_comments SET notion_comment_id = ? WHERE id = ? AND owner_email = ?",
+          args: [notionId, localId, ownerEmail],
         });
         pushed++;
       }

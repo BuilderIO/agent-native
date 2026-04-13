@@ -1,7 +1,10 @@
 import { defineAction } from "@agent-native/core";
-import { asc } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
-import { parseDocumentFavorite } from "../server/lib/documents.js";
+import {
+  getCurrentOwnerEmail,
+  parseDocumentFavorite,
+} from "../server/lib/documents.js";
 import { z } from "zod";
 
 export default defineAction({
@@ -9,10 +12,12 @@ export default defineAction({
   schema: z.object({}),
   http: { method: "GET" },
   run: async () => {
+    const ownerEmail = getCurrentOwnerEmail();
     const db = getDb();
     const documents = await db
       .select()
       .from(schema.documents)
+      .where(eq(schema.documents.ownerEmail, ownerEmail))
       .orderBy(asc(schema.documents.position));
 
     const mapped = documents.map((d) => ({

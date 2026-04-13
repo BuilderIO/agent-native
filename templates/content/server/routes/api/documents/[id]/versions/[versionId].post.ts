@@ -2,7 +2,10 @@ import { defineEventHandler, createError } from "h3";
 import { eq, and } from "drizzle-orm";
 import { getDb } from "../../../../../db/index.js";
 import { schema } from "../../../../../db/index.js";
-import { parseDocumentFavorite } from "../../../../../lib/documents.js";
+import {
+  getEventOwnerEmail,
+  parseDocumentFavorite,
+} from "../../../../../lib/documents.js";
 
 function nanoid(size = 12): string {
   const chars =
@@ -15,12 +18,18 @@ function nanoid(size = 12): string {
 
 export default defineEventHandler(async (event) => {
   const { id, versionId } = event.context.params!;
+  const ownerEmail = await getEventOwnerEmail(event);
   const db = getDb();
 
   const [doc] = await db
     .select()
     .from(schema.documents)
-    .where(eq(schema.documents.id, id));
+    .where(
+      and(
+        eq(schema.documents.id, id),
+        eq(schema.documents.ownerEmail, ownerEmail),
+      ),
+    );
 
   if (!doc) {
     throw createError({ statusCode: 404, statusMessage: "Document not found" });
@@ -33,6 +42,7 @@ export default defineEventHandler(async (event) => {
       and(
         eq(schema.documentVersions.id, versionId),
         eq(schema.documentVersions.documentId, id),
+        eq(schema.documentVersions.ownerEmail, ownerEmail),
       ),
     );
 
@@ -44,6 +54,7 @@ export default defineEventHandler(async (event) => {
   const now = new Date().toISOString();
   await db.insert(schema.documentVersions).values({
     id: nanoid(),
+    ownerEmail,
     documentId: id,
     title: doc.title,
     content: doc.content,
@@ -58,12 +69,22 @@ export default defineEventHandler(async (event) => {
       content: version.content,
       updatedAt: now,
     })
-    .where(eq(schema.documents.id, id));
+    .where(
+      and(
+        eq(schema.documents.id, id),
+        eq(schema.documents.ownerEmail, ownerEmail),
+      ),
+    );
 
   const [updated] = await db
     .select()
     .from(schema.documents)
-    .where(eq(schema.documents.id, id));
+    .where(
+      and(
+        eq(schema.documents.id, id),
+        eq(schema.documents.ownerEmail, ownerEmail),
+      ),
+    );
 
   return {
     id: updated.id,

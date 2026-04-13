@@ -16,7 +16,7 @@ afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-describe("createApp", () => {
+describe("createApp", { timeout: 30000 }, () => {
   it("scaffolds a directory with the app name", async () => {
     await createApp("my-app", { template: "blank" });
     expect(fs.existsSync(path.join(tmpDir, "my-app"))).toBe(true);

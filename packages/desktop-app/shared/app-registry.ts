@@ -10,4 +10,8 @@ export {
   toAppDefinition,
   generateAppId,
   type FrameSettings,
+  TEMPLATES,
+  visibleTemplates,
+  getTemplate,
+  type TemplateMeta,
 } from "@agent-native/shared-app-config";

@@ -14,9 +14,9 @@ function toApiRule(row: any): AutomationRule {
     name: row.name,
     condition: row.condition,
     actions: JSON.parse(row.actions),
-    enabled: row.enabled === 1,
-    createdAt: new Date(row.createdAt).toISOString(),
-    updatedAt: new Date(row.updatedAt).toISOString(),
+    enabled: row.enabled === 1 || row.enabled === true || row.enabled === "1",
+    createdAt: new Date(Number(row.createdAt)).toISOString(),
+    updatedAt: new Date(Number(row.updatedAt)).toISOString(),
   };
 }
 

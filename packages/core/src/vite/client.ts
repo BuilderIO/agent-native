@@ -5,6 +5,7 @@ import type { Plugin, UserConfig } from "vite";
 import { nitro as nitroVitePlugin } from "nitro/vite";
 import { actionTypesPlugin } from "./action-types-plugin.js";
 import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
+import { findWorkspaceRoot } from "../scripts/utils.js";
 
 import { fileURLToPath } from "url";
 
@@ -415,10 +416,36 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
 
   const cwd = process.cwd();
 
+  // Workspace env fallback. If this app is inside a workspace, tell Vite to
+  // also look for .env files at the workspace root. Per-app .env still wins
+  // (Vite's loadEnv merges in precedence order — app dir is loaded after).
+  const workspaceRoot = findWorkspaceRoot(cwd);
+  const envDir = workspaceRoot && workspaceRoot !== cwd ? workspaceRoot : cwd;
+
+  // Preload workspace-root .env into process.env so Nitro server code sees
+  // shared keys during dev (Nitro reads process.env, not vite's envDir).
+  if (workspaceRoot && workspaceRoot !== cwd) {
+    try {
+      const dotenv = require("dotenv");
+      dotenv.config({
+        path: path.join(workspaceRoot, ".env"),
+        override: false,
+      });
+    } catch {}
+  }
+
   // Build the React transform plugin (only for legacy SPA mode)
   const reactPluginInstance = reactTransformPlugin?.();
 
+  // APP_BASE_PATH lets this app be mounted under a prefix (e.g. "/mail") as
+  // part of a unified workspace deploy. Defaults to "/" for standalone apps.
+  const appBasePath =
+    process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "/";
+  const base = appBasePath.endsWith("/") ? appBasePath : `${appBasePath}/`;
+
   return {
+    envDir,
+    base,
     server: {
       host: "::",
       port: options.port ?? 8080,

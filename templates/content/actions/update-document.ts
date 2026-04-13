@@ -1,7 +1,10 @@
 import { defineAction } from "@agent-native/core";
-import { eq, desc } from "drizzle-orm";
+import { and, eq, desc } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
-import { parseDocumentFavorite } from "../server/lib/documents.js";
+import {
+  getCurrentOwnerEmail,
+  parseDocumentFavorite,
+} from "../server/lib/documents.js";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
 
@@ -33,11 +36,17 @@ export default defineAction({
     const id = args.id;
     if (!id) throw new Error("--id is required");
 
+    const ownerEmail = getCurrentOwnerEmail();
     const db = getDb();
     const [existing] = await db
       .select()
       .from(schema.documents)
-      .where(eq(schema.documents.id, id));
+      .where(
+        and(
+          eq(schema.documents.id, id),
+          eq(schema.documents.ownerEmail, ownerEmail),
+        ),
+      );
 
     if (!existing) throw new Error(`Document "${id}" not found`);
 
@@ -75,7 +84,12 @@ export default defineAction({
       const [latestVersion] = await db
         .select({ createdAt: schema.documentVersions.createdAt })
         .from(schema.documentVersions)
-        .where(eq(schema.documentVersions.documentId, id))
+        .where(
+          and(
+            eq(schema.documentVersions.documentId, id),
+            eq(schema.documentVersions.ownerEmail, ownerEmail),
+          ),
+        )
         .orderBy(desc(schema.documentVersions.createdAt))
         .limit(1);
 
@@ -87,6 +101,7 @@ export default defineAction({
       if (shouldSnapshot) {
         await db.insert(schema.documentVersions).values({
           id: nanoid(),
+          ownerEmail,
           documentId: id,
           title: existing.title,
           content: existing.content,
@@ -108,13 +123,23 @@ export default defineAction({
       await db
         .update(schema.documents)
         .set(updates)
-        .where(eq(schema.documents.id, id));
+        .where(
+          and(
+            eq(schema.documents.id, id),
+            eq(schema.documents.ownerEmail, ownerEmail),
+          ),
+        );
     }
 
     const [doc] = await db
       .select()
       .from(schema.documents)
-      .where(eq(schema.documents.id, id));
+      .where(
+        and(
+          eq(schema.documents.id, id),
+          eq(schema.documents.ownerEmail, ownerEmail),
+        ),
+      );
 
     // Trigger UI refresh
     await writeAppState("refresh-signal", { ts: Date.now() });

@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core";
 import { getDbExec, isPostgres } from "@agent-native/core/db";
 import { writeAppState } from "@agent-native/core/application-state";
 import { hasCollabState } from "@agent-native/core/collab";
+import { getCurrentOwnerEmail } from "../server/lib/documents.js";
 import { z } from "zod";
 
 interface TextEdit {
@@ -54,11 +55,12 @@ export default defineAction({
       if (edit.replace === undefined) edit.replace = "";
     }
 
+    const ownerEmail = getCurrentOwnerEmail();
     // Fetch current content
     const client = getDbExec();
     const existing = await client.execute({
-      sql: "SELECT id, title, content FROM documents WHERE id = ?",
-      args: [id],
+      sql: "SELECT id, title, content FROM documents WHERE id = ? AND owner_email = ?",
+      args: [id, ownerEmail],
     });
     if (!existing.rows || existing.rows.length === 0) {
       throw new Error(`Document "${id}" not found`);
@@ -99,8 +101,8 @@ export default defineAction({
     // Write updated content to SQL
     const nowExpr = isPostgres() ? "NOW()::text" : "datetime('now')";
     await client.execute({
-      sql: `UPDATE documents SET content = ?, updated_at = ${nowExpr} WHERE id = ?`,
-      args: [content, id],
+      sql: `UPDATE documents SET content = ?, updated_at = ${nowExpr} WHERE id = ? AND owner_email = ?`,
+      args: [content, id, ownerEmail],
     });
 
     // Push edits through Yjs for live collaborative sync.

@@ -7,8 +7,12 @@ import {
   IconRotate,
   IconCheck,
 } from "@tabler/icons-react";
-import type { AppConfig } from "@shared/app-registry";
-import { generateAppId } from "@shared/app-registry";
+import type { AppConfig, TemplateMeta } from "@shared/app-registry";
+import {
+  generateAppId,
+  visibleTemplates,
+  DEFAULT_APPS,
+} from "@shared/app-registry";
 
 interface FrameSettings {
   enabled: boolean;
@@ -49,6 +53,7 @@ export default function AppSettings({
 }: AppSettingsProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [frameSettings, setFrameSettings] = useState<FrameSettings | null>(
     null,
   );
@@ -244,6 +249,12 @@ export default function AppSettings({
           <div className="settings-section">
             <button
               className="settings-btn settings-btn--primary"
+              onClick={() => setShowTemplatePicker(true)}
+            >
+              <IconPlus size={15} /> Add From Template
+            </button>
+            <button
+              className="settings-btn"
               onClick={() => {
                 setEditingId(null);
                 setShowAddForm(true);
@@ -259,6 +270,38 @@ export default function AppSettings({
             </button>
           </div>
         </div>
+
+        {/* Template picker */}
+        {showTemplatePicker && (
+          <TemplatePicker
+            installedIds={new Set(apps.map((a) => a.id))}
+            onPick={async (template) => {
+              const preset = DEFAULT_APPS.find((a) => a.id === template.name);
+              const next: AppConfig = preset
+                ? { ...preset, enabled: true }
+                : {
+                    id: template.name,
+                    name: template.label,
+                    icon: template.icon,
+                    description: template.hint,
+                    url: template.prodUrl ?? "",
+                    devPort: template.devPort,
+                    devUrl: `http://localhost:${template.devPort}`,
+                    color: template.color,
+                    colorRgb: template.colorRgb,
+                    isBuiltIn: false,
+                    enabled: true,
+                    mode: template.defaultMode ?? "prod",
+                  };
+              if (window.electronAPI?.appConfig) {
+                const updated = await window.electronAPI.appConfig.add(next);
+                onAppsChanged(updated);
+              }
+              setShowTemplatePicker(false);
+            }}
+            onCancel={() => setShowTemplatePicker(false)}
+          />
+        )}
 
         {/* Inline edit/add form */}
         {(showAddForm || editingApp) && (
@@ -404,6 +447,83 @@ function AppEditForm({
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+// ─── Template picker ─────────────────────────────────────────────
+
+function TemplatePicker({
+  installedIds,
+  onPick,
+  onCancel,
+}: {
+  installedIds: Set<string>;
+  onPick: (template: TemplateMeta) => void;
+  onCancel: () => void;
+}) {
+  const available = visibleTemplates().filter((t) => !installedIds.has(t.name));
+
+  return (
+    <div className="settings-form-overlay" onClick={onCancel}>
+      <div
+        className="settings-form"
+        onClick={(e) => e.stopPropagation()}
+        style={{ maxWidth: 520 }}
+      >
+        <h3>Add From Template</h3>
+        {available.length === 0 ? (
+          <p style={{ color: "var(--muted, #6b7280)" }}>
+            Every first-party template is already installed. Use "Add Custom
+            App" for external apps.
+          </p>
+        ) : (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr",
+              gap: 6,
+              maxHeight: 420,
+              overflowY: "auto",
+            }}
+          >
+            {available.map((t) => (
+              <button
+                key={t.name}
+                type="button"
+                className="settings-app-row"
+                style={{
+                  cursor: "pointer",
+                  border: "1px solid rgba(0,0,0,0.08)",
+                  borderRadius: 8,
+                  padding: 10,
+                  background: "transparent",
+                  textAlign: "left",
+                }}
+                onClick={() => onPick(t)}
+              >
+                <div
+                  className="settings-app-dot"
+                  style={{ backgroundColor: t.color }}
+                />
+                <div className="settings-app-info">
+                  <span className="settings-app-name">{t.label}</span>
+                  <span className="settings-app-url">{t.hint}</span>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="settings-form-actions">
+          <button
+            type="button"
+            className="settings-btn settings-btn--ghost"
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

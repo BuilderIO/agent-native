@@ -29,6 +29,7 @@ import {
   listAppState,
   deleteAppState,
 } from "../application-state/script-helpers.js";
+import { getRequestUserEmail } from "./request-context.js";
 
 export interface AgentTask {
   taskId: string;
@@ -443,7 +444,7 @@ export async function sendToTask(
   // on its next tool call or iteration
   try {
     const { appStatePut } = await import("../application-state/store.js");
-    const sessionId = process.env.AGENT_USER_EMAIL || "local@localhost";
+    const sessionId = getRequestUserEmail() || "local@localhost";
     await appStatePut(sessionId, `task-message:${taskId}`, {
       from: "orchestrator",
       message,

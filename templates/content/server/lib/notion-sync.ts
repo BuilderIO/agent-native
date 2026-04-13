@@ -75,26 +75,38 @@ function buildStatus(args: {
   };
 }
 
-async function getDocument(documentId: string) {
+async function getDocument(documentId: string, owner: string) {
   const db = getDb();
   const [document] = await db
     .select()
     .from(schema.documents)
-    .where(eq(schema.documents.id, documentId));
+    .where(
+      and(
+        eq(schema.documents.id, documentId),
+        eq(schema.documents.ownerEmail, owner),
+      ),
+    );
   if (!document) throw new Error("Document not found");
   return document;
 }
 
-export async function getSyncLink(documentId: string) {
+export async function getSyncLink(documentId: string, owner?: string) {
   const db = getDb();
+  const ownerEmail = owner ?? getCurrentOwnerEmail();
   const [link] = await db
     .select()
     .from(schema.documentSyncLinks)
-    .where(eq(schema.documentSyncLinks.documentId, documentId));
+    .where(
+      and(
+        eq(schema.documentSyncLinks.documentId, documentId),
+        eq(schema.documentSyncLinks.ownerEmail, ownerEmail),
+      ),
+    );
   return link ?? null;
 }
 
 async function upsertSyncLink(args: {
+  owner: string;
   documentId: string;
   remotePageId: string;
   state?: string;
@@ -109,6 +121,7 @@ async function upsertSyncLink(args: {
   const db = getDb();
   const values = {
     documentId: args.documentId,
+    ownerEmail: args.owner,
     provider: "notion",
     remotePageId: args.remotePageId,
     state: args.state || "linked",
@@ -130,19 +143,27 @@ async function upsertSyncLink(args: {
     });
 }
 
-export async function unlinkDocumentFromNotion(documentId: string) {
+export async function unlinkDocumentFromNotion(
+  owner: string,
+  documentId: string,
+) {
   const db = getDb();
   await db
     .delete(schema.documentSyncLinks)
-    .where(eq(schema.documentSyncLinks.documentId, documentId));
+    .where(
+      and(
+        eq(schema.documentSyncLinks.documentId, documentId),
+        eq(schema.documentSyncLinks.ownerEmail, owner),
+      ),
+    );
 }
 
 export async function getDocumentSyncStatus(
   owner: string,
   documentId: string,
 ): Promise<DocumentSyncStatus> {
-  const document = await getDocument(documentId);
-  const link = await getSyncLink(documentId);
+  const document = await getDocument(documentId, owner);
+  const link = await getSyncLink(documentId, owner);
   const connection = await getNotionConnectionForOwner(owner);
   if (!connection || !link) {
     return buildStatus({
@@ -168,6 +189,7 @@ export async function getDocumentSyncStatus(
     });
   } catch (error: any) {
     await upsertSyncLink({
+      owner,
       documentId,
       remotePageId: link.remotePageId,
       state: "error",
@@ -179,7 +201,7 @@ export async function getDocumentSyncStatus(
       warnings: parseWarnings(link),
       hasConflict: Boolean(link.hasConflict),
     });
-    const next = await getSyncLink(documentId);
+    const next = await getSyncLink(documentId, owner);
     return buildStatus({
       connected: true,
       documentId,
@@ -196,10 +218,11 @@ export async function linkDocumentToNotionPage(
 ): Promise<DocumentSyncStatus> {
   const connection = await getNotionConnectionForOwner(owner);
   if (!connection) throw new Error("Connect Notion before linking a page.");
-  await getDocument(documentId);
+  await getDocument(documentId, owner);
   const pageId = normalizeNotionPageId(pageIdOrUrl);
   const page = await fetchNotionPage(connection.accessToken, pageId);
   await upsertSyncLink({
+    owner,
     documentId,
     remotePageId: page.id,
     state: "linked",
@@ -216,8 +239,8 @@ export async function pullDocumentFromNotion(
   force = false,
 ): Promise<DocumentSyncStatus> {
   const db = getDb();
-  const document = await getDocument(documentId);
-  const link = await getSyncLink(documentId);
+  const document = await getDocument(documentId, owner);
+  const link = await getSyncLink(documentId, owner);
   if (!link) throw new Error("Document is not linked to a Notion page.");
   const connection = await getNotionConnectionForOwner(owner);
   if (!connection) throw new Error("Connect Notion before pulling.");
@@ -239,6 +262,7 @@ export async function pullDocumentFromNotion(
 
   if (!force && localChanged && remoteChanged) {
     await upsertSyncLink({
+      owner,
       documentId,
       remotePageId: link.remotePageId,
       state: "conflict",
@@ -250,7 +274,7 @@ export async function pullDocumentFromNotion(
       warnings: pageContent.warnings,
       hasConflict: true,
     });
-    const updatedLink = await getSyncLink(documentId);
+    const updatedLink = await getSyncLink(documentId, owner);
     return buildStatus({
       connected: true,
       documentId,
@@ -281,7 +305,12 @@ export async function pullDocumentFromNotion(
         icon: newIcon,
         updatedAt,
       })
-      .where(eq(schema.documents.id, documentId));
+      .where(
+        and(
+          eq(schema.documents.id, documentId),
+          eq(schema.documents.ownerEmail, owner),
+        ),
+      );
 
     // Reset the Yjs collaborative state so it no longer holds the pre-sync
     // content. Connected clients re-seed their Y.XmlFragment from the new
@@ -296,6 +325,7 @@ export async function pullDocumentFromNotion(
   }
 
   await upsertSyncLink({
+    owner,
     documentId,
     remotePageId: link.remotePageId,
     state: "linked",
@@ -308,7 +338,7 @@ export async function pullDocumentFromNotion(
     hasConflict: false,
   });
 
-  const updatedLink = await getSyncLink(documentId);
+  const updatedLink = await getSyncLink(documentId, owner);
   return buildStatus({
     connected: true,
     documentId,
@@ -323,8 +353,8 @@ export async function pushDocumentToNotion(
   documentId: string,
   force = false,
 ): Promise<DocumentSyncStatus> {
-  const document = await getDocument(documentId);
-  const link = await getSyncLink(documentId);
+  const document = await getDocument(documentId, owner);
+  const link = await getSyncLink(documentId, owner);
   if (!link) throw new Error("Document is not linked to a Notion page.");
   const connection = await getNotionConnectionForOwner(owner);
   if (!connection) throw new Error("Connect Notion before pushing.");
@@ -342,6 +372,7 @@ export async function pushDocumentToNotion(
 
   if (!force && localChanged && remoteChanged) {
     await upsertSyncLink({
+      owner,
       documentId,
       remotePageId: link.remotePageId,
       state: "conflict",
@@ -353,7 +384,7 @@ export async function pushDocumentToNotion(
       warnings: parseWarnings(link),
       hasConflict: true,
     });
-    const updatedLink = await getSyncLink(documentId);
+    const updatedLink = await getSyncLink(documentId, owner);
     return buildStatus({
       connected: true,
       documentId,
@@ -373,6 +404,7 @@ export async function pushDocumentToNotion(
 
   const pushedAt = nowIso();
   await upsertSyncLink({
+    owner,
     documentId,
     remotePageId: link.remotePageId,
     state: "linked",
@@ -385,7 +417,7 @@ export async function pushDocumentToNotion(
     hasConflict: false,
   });
 
-  const updatedLink = await getSyncLink(documentId);
+  const updatedLink = await getSyncLink(documentId, owner);
   return buildStatus({
     connected: true,
     documentId,
@@ -416,8 +448,8 @@ export async function refreshDocumentSyncStatus(
   const now = Date.now();
   const lastCall = lastRefreshAt.get(documentId) ?? 0;
   if (now - lastCall < throttleMs) {
-    const document = await getDocument(documentId);
-    const link = await getSyncLink(documentId);
+    const document = await getDocument(documentId, owner);
+    const link = await getSyncLink(documentId, owner);
     const connection = await getNotionConnectionForOwner(owner);
     return buildStatus({
       connected: Boolean(connection),
@@ -442,9 +474,10 @@ export async function refreshDocumentSyncStatus(
     // the user has unpushed local edits AND Notion also changed, and pulls
     // never happen. Matches the conflict handling in pull/pushDocumentToNotion.
     if (status.localChanged && status.remoteChanged) {
-      const link = await getSyncLink(documentId);
+      const link = await getSyncLink(documentId, owner);
       if (link) {
         await upsertSyncLink({
+          owner,
           documentId,
           remotePageId: link.remotePageId,
           state: "conflict",
@@ -456,8 +489,8 @@ export async function refreshDocumentSyncStatus(
           warnings: parseWarnings(link),
           hasConflict: true,
         });
-        const document = await getDocument(documentId);
-        const updatedLink = await getSyncLink(documentId);
+        const document = await getDocument(documentId, owner);
+        const updatedLink = await getSyncLink(documentId, owner);
         return buildStatus({
           connected: true,
           documentId,
@@ -488,7 +521,7 @@ export async function createAndLinkNotionPage(
 ): Promise<DocumentSyncStatus> {
   const connection = await getNotionConnectionForOwner(owner);
   if (!connection) throw new Error("Connect Notion before creating a page.");
-  const document = await getDocument(documentId);
+  const document = await getDocument(documentId, owner);
 
   // Find a parent page — search for any page the user has access to
   const searchResult = await notionFetch<{
@@ -518,6 +551,7 @@ export async function createAndLinkNotionPage(
   });
 
   await upsertSyncLink({
+    owner,
     documentId,
     remotePageId: newPage.id,
     state: "linked",
@@ -547,6 +581,12 @@ export async function listNotionLinks(owner: string) {
     .innerJoin(
       schema.documents,
       eq(schema.documents.id, schema.documentSyncLinks.documentId),
+    )
+    .where(
+      and(
+        eq(schema.documentSyncLinks.ownerEmail, owner),
+        eq(schema.documents.ownerEmail, owner),
+      ),
     );
   return rows;
 }

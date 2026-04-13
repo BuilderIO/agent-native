@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { getDbExec, isPostgres } from "@agent-native/core/db";
+import { getCurrentOwnerEmail } from "../server/lib/documents.js";
 import { z } from "zod";
 
 export default defineAction({
@@ -18,6 +19,7 @@ export default defineAction({
     if (!content) throw new Error("--content is required");
 
     const client = getDbExec();
+    const ownerEmail = getCurrentOwnerEmail();
     const id = Math.random().toString(36).slice(2, 14);
     const threadId = args.threadId ?? id;
     const parentId = args.parentId ?? null;
@@ -26,9 +28,10 @@ export default defineAction({
 
     const nowExpr = isPostgres() ? "NOW()::text" : "datetime('now')";
     await client.execute({
-      sql: `INSERT INTO document_comments (id, document_id, thread_id, parent_id, content, quoted_text, author_email, author_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ${nowExpr}, ${nowExpr})`,
+      sql: `INSERT INTO document_comments (id, owner_email, document_id, thread_id, parent_id, content, quoted_text, author_email, author_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ${nowExpr}, ${nowExpr})`,
       args: [
         id,
+        ownerEmail,
         documentId,
         threadId,
         parentId,

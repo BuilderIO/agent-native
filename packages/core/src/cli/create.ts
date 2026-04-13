@@ -3,6 +3,13 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { execFileSync } from "child_process";
 import { setupAgentSymlinks } from "./setup-agents.js";
+import { workspacifyApp, parseWorkspaceScope } from "./workspacify.js";
+import {
+  visibleTemplates,
+  getTemplate,
+  allTemplateNames,
+  type TemplateMeta,
+} from "@agent-native/shared-app-config";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -10,95 +17,534 @@ const __dirname = path.dirname(__filename);
 const REPO = "BuilderIO/agent-native";
 const TEMPLATES_DIR = "templates";
 
-/**
- * Template definitions with descriptions for the interactive picker.
- */
-const TEMPLATES = [
-  {
-    value: "blank",
-    label: "Blank",
-    hint: "Empty starter — build from scratch",
-  },
-  {
-    value: "mail",
-    label: "Mail",
-    hint: "AI-native Superhuman — email client with keyboard shortcuts and AI triage",
-  },
-  {
-    value: "calendar",
-    label: "Calendar",
-    hint: "AI-native Google Calendar — manage events, sync, and public booking",
-  },
-  {
-    value: "content",
-    label: "Content",
-    hint: "AI-native Notion/Google Docs — write and organize with agent assistance",
-  },
-  {
-    value: "slides",
-    label: "Slides",
-    hint: "AI-native Google Slides — generate and edit React presentations",
-  },
-  {
-    value: "videos",
-    label: "Video",
-    hint: "AI-native video editing with Remotion",
-  },
-  {
-    value: "analytics",
-    label: "Analytics",
-    hint: "AI-native Amplitude/Mixpanel — connect data sources, prompt for charts",
-  },
-  {
-    value: "dispatcher",
-    label: "Dispatcher",
-    hint: "Central Slack/Telegram router with jobs, memory, approvals, and A2A delegation",
-  },
-  {
-    value: "forms",
-    label: "Forms",
-    hint: "AI-native form builder — create, edit, and manage forms",
-  },
-  {
-    value: "issues",
-    label: "Issues",
-    hint: "AI-native Jira — project management and issue tracking",
-  },
-  {
-    value: "recruiting",
-    label: "Recruiting",
-    hint: "AI-native Greenhouse — manage candidates and recruiting pipelines",
-  },
-  {
-    value: "starter",
-    label: "Starter",
-    hint: "Minimal scaffold with the agent chat and core architecture wired up",
-  },
-] as const;
+/** Blank scaffold option appended to every picker. */
+const BLANK_OPTION = {
+  name: "blank",
+  label: "Blank",
+  hint: "Empty starter — build from scratch",
+};
+
+export interface CreateAppOptions {
+  /** Pre-select these templates in the picker. Comma-separated string or array. */
+  template?: string;
+  /** Scaffold a single standalone app (old behavior). Skips workspace creation. */
+  standalone?: boolean;
+  /** Internal: skip pnpm install at the end (for tests). */
+  noInstall?: boolean;
+}
 
 /**
- * Known first-party template names (for validation).
- * Includes the alias "video" → "videos" for backwards compat.
- */
-const KNOWN_TEMPLATES = [
-  ...TEMPLATES.map((t) => t.value).filter((v) => v !== "blank"),
-  "video",
-];
-
-/**
- * Scaffold a new agent-native app.
+ * Main entry for `agent-native create [name]`.
  *
- * Interactive mode: prompts for app name and template if not provided.
- * With --template <name>: downloads the template from GitHub.
- * With --template github:user/repo: downloads from a custom GitHub repo.
+ * Default behavior: scaffold a workspace at <name>/ with a multi-select
+ * template picker. Use --standalone for the single-app standalone flow.
+ *
+ * If run *inside* an existing workspace, falls through to the add-app
+ * flow that scaffolds one new app under apps/<name>/.
  */
+export async function createApp(
+  name?: string,
+  opts?: CreateAppOptions,
+): Promise<void> {
+  const clack = await import("@clack/prompts");
+
+  // If we're already inside a workspace, the meaning of `create <name>` is
+  // "add a new app to this workspace". Delegate to add-app.
+  const workspace = detectWorkspace(process.cwd());
+  if (workspace) {
+    await addAppToWorkspace(name, opts);
+    return;
+  }
+
+  // Standalone escape hatch — behaves like the old single-app flow.
+  if (opts?.standalone) {
+    await createStandaloneApp(name, opts, clack);
+    return;
+  }
+
+  // When exactly one template is specified explicitly, treat it as a
+  // standalone scaffold (script-friendly, matches historic behavior).
+  // Use `--template a,b` or pass no --template to opt into the workspace
+  // flow with the multi-select picker.
+  const parsed = parseTemplateList(opts?.template);
+  if (parsed.length === 1) {
+    await createStandaloneApp(name, opts, clack);
+    return;
+  }
+
+  // Default: create a workspace.
+  await createWorkspaceInteractive(name, opts, clack);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Workspace creation (new default)
+ * ───────────────────────────────────────────────────────────────────────── */
+
+async function createWorkspaceInteractive(
+  name: string | undefined,
+  opts: CreateAppOptions | undefined,
+  clack: typeof import("@clack/prompts"),
+): Promise<void> {
+  clack.intro("Create a new agent-native workspace");
+
+  name = await promptNameIfMissing(name, clack, "workspace", "my-platform");
+
+  // Multi-select picker for apps to include.
+  const preselected = parseTemplateList(opts?.template);
+  const templates = await promptTemplatePicker(preselected, clack);
+  if (templates.length === 0) {
+    clack.cancel("No apps selected. Cancelled.");
+    process.exit(0);
+  }
+
+  const targetDir = path.resolve(process.cwd(), name);
+  if (fs.existsSync(targetDir)) {
+    clack.cancel(`Directory "${name}" already exists.`);
+    process.exit(1);
+  }
+
+  const s = clack.spinner();
+  s.start(`Scaffolding workspace with ${templates.length} app(s)...`);
+
+  try {
+    await scaffoldWorkspaceRoot(targetDir, name);
+    const workspaceCoreName = `@${name}/core-module`;
+
+    for (const t of templates) {
+      const appDir = path.join(targetDir, "apps", t);
+      await scaffoldAppTemplate(appDir, t);
+      workspacifyApp({
+        appDir,
+        appName: t,
+        workspaceRoot: targetDir,
+        workspaceCoreName,
+      });
+      fixPackageJsonName(appDir, t);
+      renameGitignore(appDir);
+      // Each app owns its own .claude / .agents symlinks.
+      setupAgentSymlinks(appDir);
+    }
+
+    s.stop("Workspace scaffolded.");
+  } catch (err) {
+    s.stop("Failed to scaffold workspace.");
+    throw err;
+  }
+
+  const firstApp = templates[0];
+  clack.outro(
+    [
+      `Done! Next steps:`,
+      ``,
+      `  cd ${name}`,
+      `  cp .env.example .env     # ANTHROPIC_API_KEY, DATABASE_URL, BETTER_AUTH_SECRET`,
+      `  pnpm install`,
+      `  pnpm --filter ${firstApp} dev`,
+      ``,
+      `Add another app later:  agent-native add-app`,
+      `Deploy the whole workspace:  agent-native deploy`,
+    ].join("\n"),
+  );
+}
+
+async function scaffoldWorkspaceRoot(
+  targetDir: string,
+  name: string,
+): Promise<void> {
+  const packageRoot = path.resolve(__dirname, "../..");
+  const rootTemplate = path.join(packageRoot, "src/templates/workspace-root");
+  const coreTemplate = path.join(packageRoot, "src/templates/workspace-core");
+
+  copyDir(rootTemplate, targetDir);
+  replacePlaceholders(targetDir, name, titleCase(name));
+  renameGitignore(targetDir);
+
+  const corePackageDir = path.join(targetDir, "packages", "core-module");
+  fs.mkdirSync(path.join(targetDir, "packages"), { recursive: true });
+  copyDir(coreTemplate, corePackageDir);
+  replacePlaceholders(corePackageDir, name, titleCase(name));
+
+  // Ensure apps/ exists (even if empty).
+  fs.mkdirSync(path.join(targetDir, "apps"), { recursive: true });
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Adding an app into an existing workspace
+ * ───────────────────────────────────────────────────────────────────────── */
+
 /**
- * Detect whether the CLI is running inside an enterprise workspace monorepo.
- * Walks up from cwd looking for a package.json with
- * `agent-native.workspaceCore` set. Returns the workspace root directory
- * and the declared core package name, or null if not inside a workspace.
+ * Entry for `agent-native add-app [name]`. Called from inside a workspace.
+ * Shows the multi-select picker (excluding already-installed apps) and
+ * scaffolds each selected template under apps/<name>/.
+ *
+ * When `name` is provided with `--template foo`, scaffolds exactly one app
+ * named <name> using template foo (non-interactive).
  */
-function detectWorkspace(
+export async function addAppToWorkspace(
+  name?: string,
+  opts?: CreateAppOptions,
+): Promise<void> {
+  const clack = await import("@clack/prompts");
+  const workspace = detectWorkspace(process.cwd());
+  if (!workspace) {
+    clack.cancel(
+      "Not inside a workspace. Run `agent-native create` to make one first, or use `--standalone`.",
+    );
+    process.exit(1);
+  }
+
+  clack.intro("Add an app to your workspace");
+
+  const installed = listInstalledApps(workspace.workspaceRoot);
+
+  // Non-interactive path: name + single --template
+  const preselected = parseTemplateList(opts?.template);
+  if (name && preselected.length === 1) {
+    const tpl = preselected[0];
+    await scaffoldOneAppIntoWorkspace(workspace, name, tpl, clack);
+    return;
+  }
+
+  const templates = await promptTemplatePicker(preselected, clack, {
+    excludeNames: installed,
+    message: "Which apps do you want to add?",
+  });
+  if (templates.length === 0) {
+    clack.cancel("No apps selected. Cancelled.");
+    process.exit(0);
+  }
+
+  for (const t of templates) {
+    await scaffoldOneAppIntoWorkspace(workspace, t, t, clack);
+  }
+}
+
+async function scaffoldOneAppIntoWorkspace(
+  workspace: { workspaceRoot: string; workspaceCoreName: string },
+  appName: string,
+  templateName: string,
+  clack: typeof import("@clack/prompts"),
+): Promise<void> {
+  const appsDir = path.join(workspace.workspaceRoot, "apps");
+  fs.mkdirSync(appsDir, { recursive: true });
+  const appDir = path.join(appsDir, appName);
+
+  if (fs.existsSync(appDir)) {
+    clack.cancel(`Directory "apps/${appName}" already exists.`);
+    process.exit(1);
+  }
+
+  const s = clack.spinner();
+  s.start(`Scaffolding apps/${appName} from ${templateName}...`);
+
+  try {
+    await scaffoldAppTemplate(appDir, templateName);
+    workspacifyApp({
+      appDir,
+      appName,
+      workspaceRoot: workspace.workspaceRoot,
+      workspaceCoreName: workspace.workspaceCoreName,
+    });
+    fixPackageJsonName(appDir, appName);
+    renameGitignore(appDir);
+    setupAgentSymlinks(appDir);
+    s.stop(`Scaffolded apps/${appName}.`);
+  } catch (err) {
+    s.stop(`Failed to scaffold apps/${appName}.`);
+    throw err;
+  }
+
+  clack.outro(`Done!\n\n  pnpm install\n  pnpm --filter ${appName} dev`);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Standalone creation (escape hatch)
+ * ───────────────────────────────────────────────────────────────────────── */
+
+async function createStandaloneApp(
+  name: string | undefined,
+  opts: CreateAppOptions | undefined,
+  clack: typeof import("@clack/prompts"),
+): Promise<void> {
+  clack.intro("Create a new standalone agent-native app");
+
+  name = await promptNameIfMissing(name, clack, "app", "my-app");
+
+  const targetDir = path.resolve(process.cwd(), name);
+  if (fs.existsSync(targetDir)) {
+    clack.cancel(`Directory "${name}" already exists.`);
+    process.exit(1);
+  }
+
+  // Standalone is single-select — pick one template.
+  let template =
+    opts?.template && !opts.template.includes(",") ? opts.template : undefined;
+  if (!template) {
+    const picked = await clack.select({
+      message: "Which template would you like to use?",
+      options: [
+        ...visibleTemplates().map((t) => ({
+          value: t.name,
+          label: t.label,
+          hint: t.hint,
+        })),
+        {
+          value: BLANK_OPTION.name,
+          label: BLANK_OPTION.label,
+          hint: BLANK_OPTION.hint,
+        },
+      ],
+    });
+    if (clack.isCancel(picked)) {
+      clack.cancel("Cancelled.");
+      process.exit(0);
+    }
+    template = picked as string;
+  }
+
+  const s = clack.spinner();
+  s.start("Scaffolding your app...");
+  try {
+    await scaffoldAppTemplate(targetDir, template);
+    postProcessStandalone(name, targetDir);
+    s.stop("App created!");
+  } catch (err) {
+    s.stop("Failed to create app.");
+    throw err;
+  }
+
+  clack.outro(`Done! Next steps:\n\n  cd ${name}\n  pnpm install\n  pnpm dev`);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Shared scaffolding helpers
+ * ───────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Scaffold a single app template into `targetDir`. Resolves:
+ *   - "blank" → bundled default template
+ *   - "github:user/repo" → download the whole repo
+ *   - first-party template name → download that subdir from BuilderIO/agent-native
+ */
+async function scaffoldAppTemplate(
+  targetDir: string,
+  template: string,
+): Promise<void> {
+  fs.mkdirSync(path.dirname(targetDir), { recursive: true });
+
+  if (template === "blank") {
+    const packageRoot = path.resolve(__dirname, "../..");
+    const defaultDir = path.join(packageRoot, "src/templates/default");
+    if (!fs.existsSync(defaultDir)) {
+      throw new Error(
+        `Default template not found at ${defaultDir}. Is the package installed correctly?`,
+      );
+    }
+    copyDir(defaultDir, targetDir);
+    return;
+  }
+
+  // Normalize legacy alias
+  let resolved = template === "video" ? "videos" : template;
+
+  if (resolved.startsWith("github:")) {
+    const repo = resolved.slice("github:".length);
+    await downloadGitHubRepo(repo, targetDir);
+    return;
+  }
+
+  if (!allTemplateNames().includes(resolved)) {
+    throw new Error(
+      `Unknown template "${template}". Known: ${allTemplateNames().join(", ")} — or use github:user/repo for community templates.`,
+    );
+  }
+
+  // If running from the framework monorepo with a local templates/ dir, use
+  // that. Otherwise download from GitHub. This keeps `agent-native create`
+  // fast during framework development.
+  const localTemplate = findLocalTemplate(resolved);
+  if (localTemplate) {
+    copyDir(localTemplate, targetDir);
+  } else {
+    await downloadGitHubSubdir(REPO, `${TEMPLATES_DIR}/${resolved}`, targetDir);
+  }
+}
+
+/**
+ * When developing the framework itself, prefer the sibling templates/<name>
+ * directory. Returns undefined when running as a published package.
+ */
+function findLocalTemplate(name: string): string | undefined {
+  let dir = path.resolve(__dirname);
+  for (let i = 0; i < 10; i++) {
+    const candidate = path.join(dir, "templates", name);
+    if (fs.existsSync(path.join(candidate, "package.json"))) {
+      return candidate;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return undefined;
+}
+
+/**
+ * Post-process a standalone scaffold: replace placeholders, strip
+ * workspace:* deps, set up agent symlinks, etc.
+ */
+function postProcessStandalone(name: string, targetDir: string): void {
+  const appTitle = titleCase(name);
+  replacePlaceholders(targetDir, name, appTitle);
+  fixPackageJsonName(targetDir, name);
+
+  for (const base of ["learnings"]) {
+    const defaultsFile = path.join(targetDir, `${base}.defaults.md`);
+    const targetFile = path.join(targetDir, `${base}.md`);
+    if (fs.existsSync(defaultsFile) && !fs.existsSync(targetFile)) {
+      fs.copyFileSync(defaultsFile, targetFile);
+    }
+  }
+
+  renameGitignore(targetDir);
+
+  // Drop monorepo-only files that standalone apps shouldn't ship.
+  for (const f of ["DEVELOPING.md"]) {
+    const p = path.join(targetDir, f);
+    if (fs.existsSync(p)) fs.unlinkSync(p);
+  }
+
+  // Resolve workspace:* deps to `latest` for standalone.
+  const pkgPath = path.join(targetDir, "package.json");
+  if (fs.existsSync(pkgPath)) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+      for (const depType of [
+        "dependencies",
+        "devDependencies",
+        "peerDependencies",
+      ] as const) {
+        const deps = pkg[depType];
+        if (!deps) continue;
+        for (const [key, val] of Object.entries(deps)) {
+          if (typeof val === "string" && val.startsWith("workspace:")) {
+            deps[key] = "latest";
+          }
+        }
+      }
+      fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+    } catch {}
+  }
+
+  setupAgentSymlinks(targetDir);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Prompting helpers
+ * ───────────────────────────────────────────────────────────────────────── */
+
+async function promptNameIfMissing(
+  name: string | undefined,
+  clack: typeof import("@clack/prompts"),
+  kind: "workspace" | "app",
+  placeholder: string,
+): Promise<string> {
+  if (name) {
+    if (!/^[a-z][a-z0-9-]*$/.test(name)) {
+      clack.cancel(
+        `Invalid ${kind} name "${name}". Use lowercase letters, numbers, and hyphens.`,
+      );
+      process.exit(1);
+    }
+    return name;
+  }
+  const result = await clack.text({
+    message: `What is your ${kind} name?`,
+    placeholder,
+    validate(value) {
+      if (!value)
+        return `${kind[0].toUpperCase() + kind.slice(1)} name is required`;
+      if (!/^[a-z][a-z0-9-]*$/.test(value)) {
+        return "Use lowercase letters, numbers, and hyphens (must start with a letter)";
+      }
+      if (fs.existsSync(path.resolve(process.cwd(), value))) {
+        return `Directory "${value}" already exists`;
+      }
+    },
+  });
+  if (clack.isCancel(result)) {
+    clack.cancel("Cancelled.");
+    process.exit(0);
+  }
+  return result as string;
+}
+
+async function promptTemplatePicker(
+  preselected: string[],
+  clack: typeof import("@clack/prompts"),
+  opts?: { excludeNames?: string[]; message?: string },
+): Promise<string[]> {
+  const excluded = new Set(opts?.excludeNames ?? []);
+  const options = visibleTemplates()
+    .filter((t) => !excluded.has(t.name))
+    .map((t) => ({
+      value: t.name,
+      label: t.label,
+      hint: t.hint,
+    }));
+
+  // If there's nothing left to pick, the caller gets an empty selection —
+  // they decide how to handle it.
+  if (options.length === 0) return [];
+
+  // Default pre-selection: what the user passed via --template, falling
+  // back to "starter" when that's available and nothing else is pre-picked.
+  const defaults =
+    preselected.length > 0
+      ? preselected.filter((p) => options.some((o) => o.value === p))
+      : options.some((o) => o.value === "starter")
+        ? ["starter"]
+        : [];
+
+  const result = await clack.multiselect({
+    message: opts?.message ?? "Which apps would you like to include?",
+    options,
+    initialValues: defaults,
+    required: false,
+  });
+  if (clack.isCancel(result)) {
+    clack.cancel("Cancelled.");
+    process.exit(0);
+  }
+  return result as string[];
+}
+
+function parseTemplateList(input?: string): string[] {
+  if (!input) return [];
+  return input
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function listInstalledApps(workspaceRoot: string): string[] {
+  const appsDir = path.join(workspaceRoot, "apps");
+  if (!fs.existsSync(appsDir)) return [];
+  return fs
+    .readdirSync(appsDir, { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Workspace detection
+ * ───────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Walk up from startDir looking for a package.json with
+ * `agent-native.workspaceCore` set. Returns the workspace root and core
+ * package name, or null if not inside a workspace.
+ */
+export function detectWorkspace(
   startDir: string,
 ): { workspaceRoot: string; workspaceCoreName: string } | null {
   let dir = path.resolve(startDir);
@@ -120,206 +566,38 @@ function detectWorkspace(
   return null;
 }
 
-/**
- * Parse the declared workspace core package name (e.g.
- * "@my-company/core-module") into a scope name ("my-company") so we can
- * substitute {{WORKSPACE_NAME}} in the workspace-app scaffold.
- */
-function parseWorkspaceScope(workspaceCoreName: string): string {
-  // "@my-company/core-module" → "my-company"
-  // "core-module"             → ""  (no scope — shouldn't happen in practice)
-  const m = workspaceCoreName.match(/^@([^/]+)\//);
-  return m ? m[1] : "";
-}
+export { parseWorkspaceScope };
 
-export async function createApp(
-  name?: string,
-  opts?: { template?: string },
-): Promise<void> {
-  const clack = await import("@clack/prompts");
+/* ─────────────────────────────────────────────────────────────────────────
+ * Download / copy helpers
+ * ───────────────────────────────────────────────────────────────────────── */
 
-  clack.intro("Create a new agent-native app");
-
-  // Prompt for name if not provided
-  if (!name) {
-    const nameResult = await clack.text({
-      message: "What is your app name?",
-      placeholder: "my-app",
-      validate(value) {
-        if (!value) return "App name is required";
-        if (!/^[a-z][a-z0-9-]*$/.test(value)) {
-          return "Use lowercase letters, numbers, and hyphens (must start with a letter)";
-        }
-        if (fs.existsSync(path.resolve(process.cwd(), value))) {
-          return `Directory "${value}" already exists`;
-        }
-      },
-    });
-    if (clack.isCancel(nameResult)) {
-      clack.cancel("Cancelled.");
-      process.exit(0);
-    }
-    name = nameResult;
-  } else {
-    // Validate provided name
-    if (!/^[a-z][a-z0-9-]*$/.test(name)) {
-      clack.cancel(
-        `Invalid app name "${name}". Use lowercase letters, numbers, and hyphens.`,
-      );
-      process.exit(1);
-    }
-  }
-
-  // Workspace-aware branch: when running inside an enterprise workspace
-  // monorepo, scaffold the minimal workspace-app template under apps/<name>
-  // with an automatic dep on the workspace core module. Skip the template
-  // picker and the GitHub download entirely.
-  const workspace = detectWorkspace(process.cwd());
-  if (workspace && !opts?.template) {
-    await createInWorkspace(name, workspace, clack);
-    return;
-  }
-
-  const targetDir = path.resolve(process.cwd(), name);
-
-  if (fs.existsSync(targetDir)) {
-    clack.cancel(`Directory "${name}" already exists.`);
-    process.exit(1);
-  }
-
-  // Prompt for template if not provided
-  let template = opts?.template;
-  if (!template) {
-    const templateResult = await clack.select({
-      message: "Which template would you like to use?",
-      options: TEMPLATES.map((t) => ({
-        value: t.value,
-        label: t.label,
-        hint: t.hint,
-      })),
-    });
-    if (clack.isCancel(templateResult)) {
-      clack.cancel("Cancelled.");
-      process.exit(0);
-    }
-    template = templateResult as string;
-  }
-
-  const s = clack.spinner();
-  s.start("Scaffolding your app...");
-
-  try {
-    if (template === "blank") {
-      createFromDefault(name, targetDir);
-    } else {
-      await createFromTemplate(name, targetDir, template);
-    }
-    s.stop("App created!");
-  } catch (err) {
-    s.stop("Failed to create app.");
-    throw err;
-  }
-
-  clack.outro(`Done! Next steps:\n\n  cd ${name}\n  pnpm install\n  pnpm dev`);
-}
-
-/**
- * Create from the bundled default template (no --template flag).
- */
-function createFromDefault(name: string, targetDir: string): void {
-  const packageRoot = path.resolve(__dirname, "../..");
-  const templateDir = path.join(packageRoot, "src/templates/default");
-
-  if (!fs.existsSync(templateDir)) {
-    console.error(
-      `Template directory not found at ${templateDir}. Is the package installed correctly?`,
-    );
-    process.exit(1);
-  }
-
-  copyDir(templateDir, targetDir);
-  postProcess(name, targetDir);
-}
-
-/**
- * Create from a named template or GitHub repo.
- *
- * Supports:
- *   --template mail           (first-party template from BuilderIO/agent-native)
- *   --template github:user/repo  (community template from a GitHub repo)
- */
-async function createFromTemplate(
-  name: string,
-  targetDir: string,
-  template: string,
-): Promise<void> {
-  // Normalize "video" → "videos" (docs use singular, dir is plural)
-  let resolvedTemplate = template;
-  if (resolvedTemplate === "video") resolvedTemplate = "videos";
-
-  if (resolvedTemplate.startsWith("github:")) {
-    // Community template: github:user/repo
-    const repo = resolvedTemplate.slice("github:".length);
-    await downloadGitHubRepo(repo, targetDir);
-  } else if (KNOWN_TEMPLATES.includes(resolvedTemplate)) {
-    // First-party template from monorepo
-    await downloadGitHubSubdir(
-      REPO,
-      `${TEMPLATES_DIR}/${resolvedTemplate}`,
-      targetDir,
-    );
-  } else {
-    console.error(
-      `Unknown template "${template}". Available templates: ${KNOWN_TEMPLATES.filter((t) => t !== "videos").join(", ")}`,
-    );
-    console.error(`For community templates, use: --template github:user/repo`);
-    process.exit(1);
-  }
-
-  postProcess(name, targetDir);
-}
-
-/**
- * Validate a GitHub repo string (user/repo) to prevent injection.
- */
 function validateRepoName(repo: string): void {
   if (!/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(repo)) {
-    console.error(
+    throw new Error(
       `Invalid repository name "${repo}". Expected format: user/repo`,
     );
-    process.exit(1);
   }
 }
 
-/**
- * Download a tarball from a URL and extract it to a directory.
- * Uses execFileSync with array args to avoid shell injection.
- */
 function downloadAndExtract(url: string, destDir: string): void {
   fs.mkdirSync(destDir, { recursive: true });
-  // Download with curl (no shell — execFileSync passes args directly)
   const tarball = execFileSync("curl", ["-sL", url], {
     maxBuffer: 100 * 1024 * 1024,
   });
-  // Write tarball to a temp file, then extract (avoids pipe through shell)
   const tarPath = path.join(destDir, ".download.tar.gz");
   fs.writeFileSync(tarPath, tarball);
   try {
     execFileSync(
       "tar",
       ["xzf", tarPath, "--strip-components=1", "-C", destDir],
-      {
-        stdio: "pipe",
-      },
+      { stdio: "pipe" },
     );
   } finally {
     fs.unlinkSync(tarPath);
   }
 }
 
-/**
- * Download a subdirectory from a GitHub repo using the tarball API.
- */
 async function downloadGitHubSubdir(
   repo: string,
   subdir: string,
@@ -327,151 +605,91 @@ async function downloadGitHubSubdir(
 ): Promise<void> {
   validateRepoName(repo);
   const tarUrl = `https://api.github.com/repos/${repo}/tarball/main`;
-
-  // Download and extract into a temp dir, then copy the subdir
   const tmpDir = path.join(targetDir, "..", `.agent-native-tmp-${Date.now()}`);
-
   try {
     downloadAndExtract(tarUrl, tmpDir);
-
     const srcDir = path.join(tmpDir, subdir);
     if (!fs.existsSync(srcDir)) {
-      console.error(
-        `Template directory "${subdir}" not found in ${repo}. Check the template name.`,
-      );
-      process.exit(1);
+      throw new Error(`Template directory "${subdir}" not found in ${repo}.`);
     }
-
-    // Copy template to target
     copyDir(srcDir, targetDir);
   } finally {
-    // Clean up temp dir
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 }
 
-/**
- * Download an entire GitHub repo (for community templates).
- */
 async function downloadGitHubRepo(
   repo: string,
   targetDir: string,
 ): Promise<void> {
   validateRepoName(repo);
   const tarUrl = `https://api.github.com/repos/${repo}/tarball/main`;
-
-  try {
-    downloadAndExtract(tarUrl, targetDir);
-  } catch {
-    console.error(
-      `Failed to download template from ${repo}. Check the repo name and that it's public.`,
-    );
-    process.exit(1);
-  }
+  downloadAndExtract(tarUrl, targetDir);
 }
 
-/**
- * Post-process a scaffolded template: replace placeholders, set up symlinks, etc.
- */
-function postProcess(name: string, targetDir: string): void {
-  // Replace {{APP_NAME}} and {{APP_TITLE}} placeholders in all text files
-  const appTitle = name
+/* ─────────────────────────────────────────────────────────────────────────
+ * Text / filesystem helpers
+ * ───────────────────────────────────────────────────────────────────────── */
+
+function titleCase(name: string): string {
+  return name
     .split("-")
-    .map((w) => w[0].toUpperCase() + w.slice(1))
+    .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
     .join(" ");
-  replacePlaceholders(targetDir, name, appTitle);
-
-  // Update package.json name field (templates have their own name)
-  const pkgPath = path.join(targetDir, "package.json");
-  if (fs.existsSync(pkgPath)) {
-    try {
-      const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
-      pkg.name = name;
-      fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
-    } catch {}
-  }
-
-  // Copy defaults files
-  for (const base of ["learnings"]) {
-    const defaultsFile = path.join(targetDir, `${base}.defaults.md`);
-    const targetFile = path.join(targetDir, `${base}.md`);
-    if (fs.existsSync(defaultsFile) && !fs.existsSync(targetFile)) {
-      fs.copyFileSync(defaultsFile, targetFile);
-    }
-  }
-
-  // Rename gitignore (npm strips .gitignore from packages)
-  const gitignoreSrc = path.join(targetDir, "_gitignore");
-  const gitignoreDst = path.join(targetDir, ".gitignore");
-  if (fs.existsSync(gitignoreSrc)) {
-    fs.renameSync(gitignoreSrc, gitignoreDst);
-  }
-
-  // Remove monorepo-specific files that don't belong in standalone apps
-  for (const f of ["DEVELOPING.md"]) {
-    const p = path.join(targetDir, f);
-    if (fs.existsSync(p)) fs.unlinkSync(p);
-  }
-
-  // Fix package.json: remove workspace: references
-  if (fs.existsSync(pkgPath)) {
-    try {
-      const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
-      for (const depType of [
-        "dependencies",
-        "devDependencies",
-        "peerDependencies",
-      ] as const) {
-        const deps = pkg[depType];
-        if (!deps) continue;
-        for (const [key, val] of Object.entries(deps)) {
-          if (typeof val === "string" && val.startsWith("workspace:")) {
-            // Replace workspace:* with "latest"
-            deps[key] = "latest";
-          }
-        }
-      }
-      fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
-    } catch {}
-  }
-
-  // Create symlinks for all agent tools (Claude, Cursor, Windsurf, etc.)
-  setupAgentSymlinks(targetDir);
 }
 
-/**
- * Recursively replace {{APP_NAME}} and {{APP_TITLE}} placeholders in all
- * text files under `dir`. Binary files are skipped silently.
- */
+function fixPackageJsonName(appDir: string, name: string): void {
+  const pkgPath = path.join(appDir, "package.json");
+  if (!fs.existsSync(pkgPath)) return;
+  try {
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+    pkg.name = name;
+    fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+  } catch {}
+}
+
+function renameGitignore(dir: string): void {
+  const src = path.join(dir, "_gitignore");
+  const dst = path.join(dir, ".gitignore");
+  if (fs.existsSync(src)) fs.renameSync(src, dst);
+}
+
 function replacePlaceholders(
   dir: string,
   appName: string,
   appTitle: string,
+  workspaceName?: string,
 ): void {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, entry.name);
-    if (entry.isSymbolicLink() || entry.isDirectory()) {
-      if (!entry.isSymbolicLink()) replacePlaceholders(p, appName, appTitle);
+    if (entry.isSymbolicLink()) continue;
+    if (entry.isDirectory()) {
+      replacePlaceholders(p, appName, appTitle, workspaceName);
       continue;
     }
     let content: string;
     try {
       content = fs.readFileSync(p, "utf-8");
     } catch {
-      continue; // skip unreadable / binary files
+      continue;
     }
+    const hasWs =
+      workspaceName !== undefined && content.includes("{{WORKSPACE_NAME}}");
     if (
       !content.includes("{{APP_NAME}}") &&
-      !content.includes("{{APP_TITLE}}")
+      !content.includes("{{APP_TITLE}}") &&
+      !hasWs
     ) {
       continue;
     }
-    fs.writeFileSync(
-      p,
-      content
-        .replace(/\{\{APP_NAME\}\}/g, appName)
-        .replace(/\{\{APP_TITLE\}\}/g, appTitle),
-    );
+    let next = content;
+    if (workspaceName !== undefined) {
+      next = next.replace(/\{\{WORKSPACE_NAME\}\}/g, workspaceName);
+    }
+    next = next
+      .replace(/\{\{APP_NAME\}\}/g, appName)
+      .replace(/\{\{APP_TITLE\}\}/g, appTitle);
+    fs.writeFileSync(p, next);
   }
 }
 
@@ -483,14 +701,10 @@ function copyDir(src: string, dest: string, root?: string): void {
     const destPath = path.join(dest, entry.name);
     if (entry.isSymbolicLink()) {
       const target = fs.readlinkSync(srcPath);
-      // Resolve one level (path math only, no disk follow) to check
-      // whether the symlink stays inside the template tree.
       const resolvedTarget = path.resolve(path.dirname(srcPath), target);
       if (resolvedTarget.startsWith(resolvedRoot)) {
-        // Internal symlink (e.g. .claude/skills -> ../.agents/skills) — preserve it
         fs.symlinkSync(target, destPath);
       } else if (fs.statSync(srcPath).isDirectory()) {
-        // External symlink to directory — dereference and copy contents
         copyDir(srcPath, destPath, resolvedRoot);
       } else {
         fs.copyFileSync(srcPath, destPath);
@@ -500,122 +714,5 @@ function copyDir(src: string, dest: string, root?: string): void {
     } else {
       fs.copyFileSync(srcPath, destPath);
     }
-  }
-}
-
-/**
- * Scaffold a new app inside an existing workspace. Skips the GitHub download
- * entirely and uses the bundled workspace-app template, which already has
- * the workspace core module as a dep, the brand-aware tailwind preset, and
- * `<AuthenticatedLayout>` wired into the default screen.
- */
-async function createInWorkspace(
-  name: string,
-  workspace: { workspaceRoot: string; workspaceCoreName: string },
-  clack: typeof import("@clack/prompts"),
-): Promise<void> {
-  const appsDir = path.join(workspace.workspaceRoot, "apps");
-  const targetDir = path.join(appsDir, name);
-
-  if (fs.existsSync(targetDir)) {
-    clack.cancel(`Directory "apps/${name}" already exists in the workspace.`);
-    process.exit(1);
-  }
-
-  const s = clack.spinner();
-  s.start(`Scaffolding apps/${name} (workspace-aware)...`);
-
-  try {
-    const packageRoot = path.resolve(__dirname, "../..");
-    const appTemplate = path.join(packageRoot, "src/templates/workspace-app");
-    if (!fs.existsSync(appTemplate)) {
-      throw new Error(
-        `Workspace app template not found at ${appTemplate}. Is the package installed correctly?`,
-      );
-    }
-
-    fs.mkdirSync(appsDir, { recursive: true });
-    copyDir(appTemplate, targetDir);
-
-    // Substitute placeholders in the scaffolded app files. Uses the
-    // workspace scope (from @<scope>/core-module) for {{WORKSPACE_NAME}}
-    // so the generated package.json, tailwind.config, and _index.tsx all
-    // reference the right package.
-    const workspaceScope = parseWorkspaceScope(workspace.workspaceCoreName);
-    const appTitle = name
-      .split("-")
-      .map((w) => w[0].toUpperCase() + w.slice(1))
-      .join(" ");
-    replaceWorkspaceAppPlaceholders(targetDir, name, appTitle, workspaceScope);
-
-    // Fix package.json name.
-    const pkgPath = path.join(targetDir, "package.json");
-    if (fs.existsSync(pkgPath)) {
-      try {
-        const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
-        pkg.name = name;
-        fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
-      } catch {}
-    }
-
-    // Rename _gitignore → .gitignore (same trick the standalone path uses).
-    const gitignoreSrc = path.join(targetDir, "_gitignore");
-    const gitignoreDst = path.join(targetDir, ".gitignore");
-    if (fs.existsSync(gitignoreSrc)) {
-      fs.renameSync(gitignoreSrc, gitignoreDst);
-    }
-
-    // Create agent symlinks for the local app (so the agent tooling picks
-    // up the app's own .claude folder etc.)
-    setupAgentSymlinks(targetDir);
-
-    s.stop(`Scaffolded apps/${name}.`);
-  } catch (err) {
-    s.stop("Failed to scaffold app.");
-    throw err;
-  }
-
-  clack.outro(
-    `Done! Next steps:\n\n  cd ${path.relative(process.cwd(), targetDir)}\n  pnpm install   (at the workspace root)\n  pnpm --filter ${name} dev`,
-  );
-}
-
-/**
- * Placeholder substitution for the workspace-app scaffold. Replaces
- * {{APP_NAME}}, {{APP_TITLE}}, and {{WORKSPACE_NAME}} recursively.
- */
-function replaceWorkspaceAppPlaceholders(
-  dir: string,
-  appName: string,
-  appTitle: string,
-  workspaceName: string,
-): void {
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const p = path.join(dir, entry.name);
-    if (entry.isSymbolicLink()) continue;
-    if (entry.isDirectory()) {
-      replaceWorkspaceAppPlaceholders(p, appName, appTitle, workspaceName);
-      continue;
-    }
-    let content: string;
-    try {
-      content = fs.readFileSync(p, "utf-8");
-    } catch {
-      continue;
-    }
-    if (
-      !content.includes("{{APP_NAME}}") &&
-      !content.includes("{{APP_TITLE}}") &&
-      !content.includes("{{WORKSPACE_NAME}}")
-    ) {
-      continue;
-    }
-    fs.writeFileSync(
-      p,
-      content
-        .replace(/\{\{WORKSPACE_NAME\}\}/g, workspaceName)
-        .replace(/\{\{APP_NAME\}\}/g, appName)
-        .replace(/\{\{APP_TITLE\}\}/g, appTitle),
-    );
   }
 }

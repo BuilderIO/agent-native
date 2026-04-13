@@ -2,6 +2,7 @@ import { table, text, integer, now } from "@agent-native/core/db/schema";
 
 export const documents = table("documents", {
   id: text("id").primaryKey(),
+  ownerEmail: text("owner_email").notNull().default("local@localhost"),
   parentId: text("parent_id"),
   title: text("title").notNull().default("Untitled"),
   content: text("content").notNull().default(""),
@@ -14,6 +15,7 @@ export const documents = table("documents", {
 
 export const documentVersions = table("document_versions", {
   id: text("id").primaryKey(),
+  ownerEmail: text("owner_email").notNull().default("local@localhost"),
   documentId: text("document_id").notNull(),
   title: text("title").notNull(),
   content: text("content").notNull(),
@@ -22,6 +24,7 @@ export const documentVersions = table("document_versions", {
 
 export const documentComments = table("document_comments", {
   id: text("id").primaryKey(),
+  ownerEmail: text("owner_email").notNull().default("local@localhost"),
   documentId: text("document_id").notNull(),
   threadId: text("thread_id").notNull(),
   parentId: text("parent_id"),
@@ -37,6 +40,7 @@ export const documentComments = table("document_comments", {
 
 export const documentSyncLinks = table("document_sync_links", {
   documentId: text("document_id").primaryKey(),
+  ownerEmail: text("owner_email").notNull().default("local@localhost"),
   provider: text("provider").notNull().default("notion"),
   remotePageId: text("remote_page_id").notNull(),
   state: text("state").notNull().default("linked"),

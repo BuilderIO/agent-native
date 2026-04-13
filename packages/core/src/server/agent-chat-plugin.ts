@@ -1,3 +1,4 @@
+import { runWithRequestContext, getRequestOrgId } from "./request-context.js";
 import { getH3App } from "./framework-request-handler.js";
 import {
   createProductionAgentHandler,
@@ -968,7 +969,7 @@ async function buildSchemaBlock(
   try {
     return await loadSchemaPromptBlock({
       owner,
-      orgId: process.env.AGENT_ORG_ID ?? null,
+      orgId: getRequestOrgId() ?? null,
       hasRawDbTools,
     });
   } catch {
@@ -2579,33 +2580,38 @@ export function createAgentChatPlugin(
           return { error: "Not found" };
         }
 
-        // Set AGENT_USER_EMAIL so scripts resolve the same owner as the session.
-        // Without this, scripts default to "local@localhost" and miss resources
-        // created by users who authenticated via OAuth (e.g., Gmail).
+        // Resolve per-request auth context
         const owner = await getOwnerFromEvent(event);
-        process.env.AGENT_USER_EMAIL = owner;
 
-        // Set AGENT_ORG_ID so db-query/db-exec scope by org_id when applicable.
-        // Priority: explicit resolveOrgId callback > session.orgId from Better Auth
-        let resolvedOrgId: string | null = null;
+        // Resolve org ID: explicit callback > session.orgId from Better Auth
+        let resolvedOrgId: string | undefined;
         if (options?.resolveOrgId) {
-          resolvedOrgId = await options.resolveOrgId(event);
+          resolvedOrgId = (await options.resolveOrgId(event)) ?? undefined;
         } else {
           try {
             const session = await getSession(event);
-            resolvedOrgId = session?.orgId ?? null;
+            resolvedOrgId = session?.orgId ?? undefined;
           } catch {
             // Session not available
           }
         }
+
+        // Also set process.env for backwards compat (CLI scripts, legacy readers)
+        process.env.AGENT_USER_EMAIL = owner;
         if (resolvedOrgId) {
           process.env.AGENT_ORG_ID = resolvedOrgId;
         } else {
           delete process.env.AGENT_ORG_ID;
         }
 
-        const handler = currentDevMode && devHandler ? devHandler : prodHandler;
-        return handler(event);
+        return runWithRequestContext(
+          { userEmail: owner, orgId: resolvedOrgId },
+          () => {
+            const handler =
+              currentDevMode && devHandler ? devHandler : prodHandler;
+            return handler(event);
+          },
+        );
       }),
     );
 

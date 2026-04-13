@@ -167,28 +167,70 @@ switch (command) {
   }
 
   case "create": {
-    // Parse --template flag from args
+    // Defaults to creating a workspace with a multi-select template picker.
+    // Use --standalone for the old single-app flow.
+    //   --template foo,bar         Pre-select multiple templates in the picker
+    //   --standalone               Scaffold a single standalone app
     let createName: string | undefined;
     let createTemplate: string | undefined;
+    let createStandalone = false;
     for (let i = 0; i < args.length; i++) {
       if (args[i] === "--template" && args[i + 1]) {
         createTemplate = args[++i];
+      } else if (args[i] === "--standalone") {
+        createStandalone = true;
       } else if (!args[i].startsWith("-")) {
         createName = args[i];
       }
     }
     import("./create.js").then((m) =>
-      m.createApp(createName, { template: createTemplate }),
+      m.createApp(createName, {
+        template: createTemplate,
+        standalone: createStandalone,
+      }),
     );
     break;
   }
 
   case "create-workspace": {
-    // Scaffold an enterprise monorepo (workspace core + example app).
+    // Deprecated alias for `create` (since workspace is now the default).
     const wsName = args.find((a) => !a.startsWith("-"));
+    let wsTemplate: string | undefined;
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === "--template" && args[i + 1]) wsTemplate = args[++i];
+    }
     import("./create-workspace.js").then((m) =>
-      m.createWorkspace({ name: wsName }),
+      m.createWorkspace({ name: wsName, template: wsTemplate }),
     );
+    break;
+  }
+
+  case "add-app": {
+    // Add one or more apps to the current workspace.
+    let addName: string | undefined;
+    let addTemplate: string | undefined;
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === "--template" && args[i + 1]) {
+        addTemplate = args[++i];
+      } else if (!args[i].startsWith("-")) {
+        addName = args[i];
+      }
+    }
+    import("./create.js").then((m) =>
+      m.addAppToWorkspace(addName, { template: addTemplate }),
+    );
+    break;
+  }
+
+  case "deploy": {
+    // Build and deploy the entire workspace as one unit. Each app is served
+    // at /<app>/* under the same origin.
+    import("../deploy/workspace-deploy.js")
+      .then((m) => m.runWorkspaceDeploy({ args }))
+      .catch((err) => {
+        console.error("Deploy failed:", err?.message ?? err);
+        process.exit(1);
+      });
     break;
   }
 
@@ -215,17 +257,21 @@ Usage:
   agent-native action <name>    Run an action from actions/
   agent-native script <name>    Run an action (deprecated alias for 'action')
   agent-native typecheck        Run TypeScript type checking
-  agent-native create [name]    Scaffold a new agent-native app (interactive)
-  agent-native create-workspace [name]
-                                Scaffold an enterprise monorepo with a shared
-                                workspace core package and one sample app
+  agent-native create [name]    Scaffold a new agent-native workspace with a
+                                multi-select template picker. Use --standalone
+                                for a single-app scaffold.
+  agent-native add-app [name]   Add one or more apps to the current workspace
+  agent-native deploy           Build & deploy every app in the workspace to
+                                a single origin (your-agents.com/<app>/*)
   agent-native setup-agents     Create symlinks for all agent tools
 
 Options:
   -h, --help                    Show this help message
   -v, --version                 Show version number
-  --template <name>             Skip template picker (mail, calendar, analytics, etc.)
-                                Or github:user/repo for community templates`);
+  --template <names>            Comma-separated templates to pre-select
+                                (mail,calendar,analytics,...) — or
+                                github:user/repo for community templates
+  --standalone                  Scaffold a single standalone app (no workspace)`);
     break;
 
   default:

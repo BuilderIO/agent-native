@@ -99,13 +99,53 @@ Every template is forkable, open source, and designed to be customized. Try them
 ## Quick Start
 
 ```bash
-npx @agent-native/core create my-app
-cd my-app
+npx @agent-native/core create my-platform
+cd my-platform
 pnpm install
 pnpm dev
 ```
 
-The CLI walks you through picking a template interactively. Or browse the **[template gallery](https://agent-native.com/templates)** for live demos.
+The CLI shows a multi-select picker so you can include as many templates as you want in one workspace. Pick Mail + Calendar + Forms and you get all three apps wired up and sharing auth in one go. Or browse the **[template gallery](https://agent-native.com/templates)** for live demos.
+
+Want a single app, no monorepo? Use `--standalone`:
+
+```bash
+npx @agent-native/core create my-app --standalone --template mail
+```
+
+## Workspaces (Monorepo)
+
+A workspace is the default shape of an agent-native project. Every app sits under `apps/`, and a shared `packages/core-module/` layers auth, agent-chat config, skills, and branding across every app — so cross-cutting concerns get wired up once, not per app.
+
+```
+my-platform/
+├── package.json                   # declares `agent-native.workspaceCore`
+├── pnpm-workspace.yaml
+├── .env                           # shared secrets: ANTHROPIC_API_KEY, BUILDER_PRIVATE_KEY, A2A_SECRET, ...
+├── packages/
+│   └── core-module/               # shared auth, agent-chat plugin, skills, tailwind preset
+└── apps/
+    ├── mail/
+    ├── calendar/
+    └── forms/
+```
+
+Add another app later:
+
+```bash
+agent-native add-app notes --template content
+```
+
+Deploy every app behind one origin:
+
+```bash
+agent-native deploy
+# https://your-agents.com/mail/*       → mail
+# https://your-agents.com/calendar/*   → calendar
+# https://your-agents.com/forms/*      → forms
+```
+
+Same-origin deploy means a **shared login session** across every app and **zero-config cross-app A2A** — tag `@mail` from the calendar's agent chat and it just works (no JWT signing, no CORS). Full details at **[agent-native.com/docs/enterprise-workspace](https://agent-native.com/docs/enterprise-workspace)**.
 
 ## The Best of Both Worlds
 

@@ -30,6 +30,7 @@ import {
 } from "./run-manager.js";
 import type { ActiveRun } from "./run-manager.js";
 import { readBody } from "../server/h3-helpers.js";
+import { getRequestUserEmail } from "../server/request-context.js";
 
 // Register built-in engines on first import
 registerBuiltinEngines();
@@ -551,7 +552,7 @@ export function createProductionAgentHandler(
           parseRemoteAgentManifest,
           parseSkillMetadata,
         } = await import("../resources/metadata.js");
-        const ownerEmail = process.env.AGENT_USER_EMAIL || "local@localhost";
+        const ownerEmail = getRequestUserEmail() || "local@localhost";
         const allResources = await resourceListAccessible(ownerEmail);
 
         if (allResources.length > 0) {
@@ -677,7 +678,7 @@ export function createProductionAgentHandler(
 
         // Resolve custom workspace agent mentions first.
         if (customAgentRefs.length > 0) {
-          const ownerEmail = process.env.AGENT_USER_EMAIL || "local@localhost";
+          const ownerEmail = getRequestUserEmail() || "local@localhost";
           const { findAccessibleCustomAgent } =
             await import("../resources/agents.js");
           const customResults = await Promise.allSettled(
@@ -783,7 +784,7 @@ export function createProductionAgentHandler(
               });
               try {
                 const a2aClient = new A2AClient(ref.path);
-                const callerEmail = process.env.AGENT_USER_EMAIL;
+                const callerEmail = getRequestUserEmail();
 
                 const a2aMetadata: Record<string, unknown> = {};
                 if (callerEmail) a2aMetadata.userEmail = callerEmail;

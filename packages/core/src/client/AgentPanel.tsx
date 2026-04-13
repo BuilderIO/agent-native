@@ -1852,6 +1852,8 @@ export function AgentSidebar({
         maxWidth: "85vw",
         zIndex: 50,
         background: "hsl(var(--background))",
+        borderLeft: isLeft ? "none" : "1px solid hsl(var(--border))",
+        borderRight: isLeft ? "1px solid hsl(var(--border))" : "none",
       }
     : {};
 

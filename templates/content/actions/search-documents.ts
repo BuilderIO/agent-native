@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
-import { sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
+import { getCurrentOwnerEmail } from "../server/lib/documents.js";
 import { z } from "zod";
 
 export default defineAction({
@@ -12,6 +13,7 @@ export default defineAction({
   run: async (args) => {
     const query = args.query;
 
+    const ownerEmail = getCurrentOwnerEmail();
     const db = getDb();
     const pattern = `%${query}%`;
 
@@ -26,7 +28,10 @@ export default defineAction({
       })
       .from(schema.documents)
       .where(
-        sql`${schema.documents.title} LIKE ${pattern} OR ${schema.documents.content} LIKE ${pattern}`,
+        and(
+          eq(schema.documents.ownerEmail, ownerEmail),
+          sql`${schema.documents.title} LIKE ${pattern} OR ${schema.documents.content} LIKE ${pattern}`,
+        ),
       )
       .orderBy(sql`${schema.documents.updatedAt} DESC`);
 

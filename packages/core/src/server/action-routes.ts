@@ -8,6 +8,7 @@ import { getH3App } from "./framework-request-handler.js";
 import { defineEventHandler, setResponseStatus, getMethod, getQuery } from "h3";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { readBody } from "../server/h3-helpers.js";
+import { runWithRequestContext } from "./request-context.js";
 
 const ROUTE_PREFIX = "/_agent-native/actions";
 
@@ -50,72 +51,77 @@ export function mountActionRoutes(
           return { error: `Method not allowed. Use ${method}.` };
         }
 
-        // Set auth context (same pattern as agent-chat-plugin)
-        if (options?.getOwnerFromEvent) {
-          const owner = await options.getOwnerFromEvent(event);
-          process.env.AGENT_USER_EMAIL = owner;
-        }
-        if (options?.resolveOrgId) {
-          const orgId = await options.resolveOrgId(event);
-          if (orgId) {
-            process.env.AGENT_ORG_ID = orgId;
-          } else {
-            delete process.env.AGENT_ORG_ID;
-          }
+        // Resolve auth context for per-request scoping
+        const userEmail = options?.getOwnerFromEvent
+          ? await options.getOwnerFromEvent(event)
+          : undefined;
+        const orgId = options?.resolveOrgId
+          ? ((await options.resolveOrgId(event)) ?? undefined)
+          : undefined;
+
+        // Also set process.env for backwards compat with scripts that
+        // read it directly (CLI invocations, legacy code paths).
+        if (userEmail) process.env.AGENT_USER_EMAIL = userEmail;
+        if (orgId) {
+          process.env.AGENT_ORG_ID = orgId;
+        } else {
+          delete process.env.AGENT_ORG_ID;
         }
 
-        // Parse params based on method. On web-standard runtimes (Netlify
-        // Functions, CF Workers), event.req IS the web Request — use .json()
-        // directly. H3's readBody fails on those runtimes because it expects
-        // a Node.js stream on event.node.req.
-        let params: Record<string, any>;
-        try {
-          if (method === "GET") {
-            // H3 v2: prefer web Request URL, fallback to getQuery
-            const webReq = (event as any).req;
-            if (webReq?.url) {
-              const url = new URL(webReq.url);
-              params = Object.fromEntries(url.searchParams);
+        return runWithRequestContext({ userEmail, orgId }, async () => {
+          // Parse params based on method. On web-standard runtimes (Netlify
+          // Functions, CF Workers), event.req IS the web Request — use .json()
+          // directly. H3's readBody fails on those runtimes because it expects
+          // a Node.js stream on event.node.req.
+          let params: Record<string, any>;
+          try {
+            if (method === "GET") {
+              // H3 v2: prefer web Request URL, fallback to getQuery
+              const webReq = (event as any).req;
+              if (webReq?.url) {
+                const url = new URL(webReq.url);
+                params = Object.fromEntries(url.searchParams);
+              } else {
+                params = getQuery(event) as Record<string, any>;
+              }
             } else {
-              params = getQuery(event) as Record<string, any>;
+              const webReq = (event as any).req;
+              if (webReq && typeof webReq.json === "function") {
+                // H3 v2: event.req is the web Request — use .json() directly
+                params = (await webReq.json().catch(() => null)) ?? {};
+              } else {
+                // Fallback: H3's readBody (Node.js dev)
+                params = (await readBody(event)) ?? {};
+              }
             }
-          } else {
-            const webReq = (event as any).req;
-            if (webReq && typeof webReq.json === "function") {
-              // H3 v2: event.req is the web Request — use .json() directly
-              params = (await webReq.json().catch(() => null)) ?? {};
-            } else {
-              // Fallback: H3's readBody (Node.js dev)
-              params = (await readBody(event)) ?? {};
-            }
-          }
-        } catch {
-          params = {};
-        }
-
-        // Run the action
-        try {
-          const result = await entry.run(params);
-
-          // If the action returned a string, try to parse as JSON for a clean response
-          if (typeof result === "string") {
-            try {
-              return JSON.parse(result);
-            } catch {
-              return result;
-            }
+          } catch {
+            params = {};
           }
 
-          return result;
-        } catch (err: any) {
-          const msg = err?.message ?? String(err);
-          // Return 400 for validation errors, 500 for everything else
-          setResponseStatus(
-            event,
-            msg.startsWith("Invalid action parameters:") ? 400 : 500,
-          );
-          return { error: msg };
-        }
+          // Run the action
+          try {
+            const result = await entry.run(params);
+
+            // If the action returned a string, try to parse as JSON for a clean response
+            if (typeof result === "string") {
+              try {
+                return JSON.parse(result);
+              } catch {
+                return result;
+              }
+            }
+
+            return result;
+          } catch (err: any) {
+            const msg = err?.message ?? String(err);
+            // Return 400 for validation errors, 500 for everything else
+            setResponseStatus(
+              event,
+              msg.startsWith("Invalid action parameters:") ? 400 : 500,
+            );
+            return { error: msg };
+          }
+        }); // end runWithRequestContext
       }),
     );
 

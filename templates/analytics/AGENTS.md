@@ -93,16 +93,17 @@ Agent Chat  ------>  Actions (pnpm action)
 
 Dashboard configs, explorer configs, and theme settings are stored in SQL via the settings API:
 
-| Key Pattern                    | Contents                              |
-| ------------------------------ | ------------------------------------- |
-| `dashboard-{id}`               | Explorer dashboard configuration      |
-| `sql-dashboard-{id}`           | SQL dashboard (legacy / global scope) |
-| `o:<orgId>:sql-dashboard-{id}` | SQL dashboard scoped to an org        |
-| `u:<email>:active-org-id`      | User's currently selected org         |
-| `config-{id}`                  | Explorer/tool configuration           |
-| `analytics-theme`              | Theme settings (colors, dark mode)    |
+| Key Pattern                      | Contents                               |
+| -------------------------------- | -------------------------------------- |
+| `u:<email>:dashboard-{id}`       | Explorer dashboard configuration       |
+| `u:<email>:config-{id}`          | Explorer/tool configuration            |
+| `u:<email>:sql-dashboard-{id}`   | Personal SQL dashboard                 |
+| `o:<orgId>:sql-dashboard-{id}`   | SQL dashboard scoped to an org         |
+| `o:<orgId>:dashboard-views-{id}` | Saved dashboard views scoped to an org |
+| `u:<email>:active-org-id`        | User's currently selected org          |
+| `analytics-theme`                | Theme settings (colors, dark mode)     |
 
-SQL dashboards are scoped to the user's active org. Pre-org global rows still load as a fallback so you can migrate by re-saving them after creating an org.
+Solo-mode dashboards/configs are user-scoped. Org dashboards/views are org-scoped. Legacy global rows still load as a fallback, and the Team-page upgrade flow can move those legacy rows onto the signed-in user during migration from local mode.
 
 ## Organizations & Team
 

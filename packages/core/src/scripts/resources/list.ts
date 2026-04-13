@@ -14,6 +14,7 @@ import {
   ensurePersonalDefaults,
   SHARED_OWNER,
 } from "../../resources/store.js";
+import { getRequestUserEmail } from "../../server/request-context.js";
 
 export default async function resourceListScript(
   args: string[],
@@ -34,7 +35,7 @@ Options:
   const prefix = parsed.prefix;
   const scope = parsed.scope ?? "all";
   const format = parsed.format ?? "text";
-  const owner = process.env.AGENT_USER_EMAIL ?? "local@localhost";
+  const owner = getRequestUserEmail() ?? "local@localhost";
 
   // Seed personal AGENTS.md + LEARNINGS.md on first access
   if (scope !== "shared") {

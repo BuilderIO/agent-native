@@ -9,6 +9,7 @@
 
 import { parseArgs, fail } from "../utils.js";
 import { resourceDeleteByPath, SHARED_OWNER } from "../../resources/store.js";
+import { getRequestUserEmail } from "../../server/request-context.js";
 
 export default async function resourceDeleteScript(
   args: string[],
@@ -34,7 +35,7 @@ Options:
   const owner =
     scope === "shared"
       ? SHARED_OWNER
-      : (process.env.AGENT_USER_EMAIL ?? "local@localhost");
+      : (getRequestUserEmail() ?? "local@localhost");
 
   const deleted = await resourceDeleteByPath(owner, resourcePath);
   if (deleted) {

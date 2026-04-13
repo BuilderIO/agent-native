@@ -1,5 +1,6 @@
 import { defineEventHandler, setResponseStatus, getRouterParam } from "h3";
 import { getDbExec } from "@agent-native/core/db";
+import { getEventOwnerEmail } from "../../../lib/documents.js";
 
 /**
  * DELETE /api/comments/:id
@@ -12,10 +13,11 @@ export default defineEventHandler(async (event) => {
     return { error: "id required" };
   }
 
+  const ownerEmail = await getEventOwnerEmail(event);
   const client = getDbExec();
   await client.execute({
-    sql: "DELETE FROM document_comments WHERE id = ?",
-    args: [id],
+    sql: "DELETE FROM document_comments WHERE id = ? AND owner_email = ?",
+    args: [id, ownerEmail],
   });
 
   return { ok: true };

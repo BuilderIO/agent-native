@@ -31,6 +31,7 @@ import {
 import { getSetting, putSetting } from "../settings/store.js";
 import { getSession } from "./auth.js";
 import { getOrigin } from "./google-oauth.js";
+import { findWorkspaceRoot } from "../scripts/utils.js";
 
 /**
  * The base path prefix for all framework-level routes.
@@ -137,8 +138,13 @@ export function createCoreRoutesPlugin(
           orgKind: requestUrl.searchParams.get("kind"),
         });
 
+        // Prefer the workspace root .env when in an enterprise workspace so
+        // Builder credentials are shared across every app automatically.
         try {
-          const envPath = path.join(process.cwd(), ".env");
+          const workspaceRoot = findWorkspaceRoot(process.cwd());
+          const envPath = workspaceRoot
+            ? path.join(workspaceRoot, ".env")
+            : path.join(process.cwd(), ".env");
           await upsertEnvFile(envPath, vars);
         } catch {
           // Edge runtime — skip file write
@@ -200,9 +206,19 @@ export function createCoreRoutesPlugin(
             return { error: "No recognized env keys in request" };
           }
 
-          // Write to .env file
+          // Write to .env file. When inside a workspace, write to the
+          // workspace root .env so keys are shared across every app. The
+          // per-app .env still wins at load time if it also defines a key.
           try {
-            const envPath = path.join(process.cwd(), ".env");
+            const scope =
+              (body as { scope?: "workspace" | "app" })?.scope ?? "auto";
+            const workspaceRoot = findWorkspaceRoot(process.cwd());
+            const envPath =
+              scope === "app"
+                ? path.join(process.cwd(), ".env")
+                : workspaceRoot
+                  ? path.join(workspaceRoot, ".env")
+                  : path.join(process.cwd(), ".env");
             await upsertEnvFile(envPath, filtered);
           } catch {
             // Edge runtime — skip file write
