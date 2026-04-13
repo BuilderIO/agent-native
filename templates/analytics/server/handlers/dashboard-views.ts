@@ -1,12 +1,10 @@
 import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
 import { readBody } from "@agent-native/core/server";
 import {
-  getOrgSetting,
-  putOrgSetting,
-  getSetting,
-  putSetting,
-} from "@agent-native/core/settings";
-import { getOrgContext } from "@agent-native/core/org";
+  getScopedSettingRecord,
+  putScopedSettingRecord,
+  resolveSettingsScope,
+} from "../lib/scoped-settings";
 
 const KEY_PREFIX = "dashboard-views-";
 
@@ -24,35 +22,25 @@ interface ViewsData {
 }
 
 async function getViewsData(
-  ctx: { orgId: string | null },
+  scope: { email: string; orgId: string | null },
   dashboardId: string,
 ): Promise<ViewsData> {
   const key = `${KEY_PREFIX}${dashboardId}`;
-  let data: Record<string, unknown> | null = null;
-  if (ctx.orgId) {
-    data = await getOrgSetting(ctx.orgId, key);
-  }
-  if (!data) {
-    data = await getSetting(key);
-  }
+  const data = await getScopedSettingRecord(scope, key);
   return (data as unknown as ViewsData) ?? { views: [] };
 }
 
 async function putViewsData(
-  ctx: { orgId: string | null },
+  scope: { email: string; orgId: string | null },
   dashboardId: string,
   data: ViewsData,
 ): Promise<void> {
   const key = `${KEY_PREFIX}${dashboardId}`;
-  if (ctx.orgId) {
-    await putOrgSetting(
-      ctx.orgId,
-      key,
-      data as unknown as Record<string, unknown>,
-    );
-  } else {
-    await putSetting(key, data as unknown as Record<string, unknown>);
-  }
+  await putScopedSettingRecord(
+    scope,
+    key,
+    data as unknown as Record<string, unknown>,
+  );
 }
 
 export const listDashboardViews = defineEventHandler(async (event) => {
@@ -61,8 +49,8 @@ export const listDashboardViews = defineEventHandler(async (event) => {
     setResponseStatus(event, 400);
     return { error: "Missing dashboardId" };
   }
-  const ctx = await getOrgContext(event);
-  const data = await getViewsData(ctx, dashboardId);
+  const scope = await resolveSettingsScope(event);
+  const data = await getViewsData(scope, dashboardId);
   return { views: data.views };
 });
 
@@ -72,7 +60,7 @@ export const saveDashboardView = defineEventHandler(async (event) => {
     setResponseStatus(event, 400);
     return { error: "Missing dashboardId" };
   }
-  const ctx = await getOrgContext(event);
+  const scope = await resolveSettingsScope(event);
   const body = await readBody(event);
   const { id, name, filters } = body as DashboardView;
   if (!id || !name) {
@@ -80,13 +68,13 @@ export const saveDashboardView = defineEventHandler(async (event) => {
     return { error: "Missing id or name" };
   }
 
-  const data = await getViewsData(ctx, dashboardId);
+  const data = await getViewsData(scope, dashboardId);
   const existing = data.views.findIndex((v) => v.id === id);
   const view: DashboardView = {
     id,
     name,
     filters: filters ?? {},
-    createdBy: ctx.email,
+    createdBy: scope.email,
     createdAt:
       existing >= 0 ? data.views[existing].createdAt : new Date().toISOString(),
   };
@@ -97,7 +85,7 @@ export const saveDashboardView = defineEventHandler(async (event) => {
     data.views.push(view);
   }
 
-  await putViewsData(ctx, dashboardId, data);
+  await putViewsData(scope, dashboardId, data);
   return { success: true, view };
 });
 
@@ -108,9 +96,9 @@ export const deleteDashboardView = defineEventHandler(async (event) => {
     setResponseStatus(event, 400);
     return { error: "Missing dashboardId or viewId" };
   }
-  const ctx = await getOrgContext(event);
-  const data = await getViewsData(ctx, dashboardId);
+  const scope = await resolveSettingsScope(event);
+  const data = await getViewsData(scope, dashboardId);
   data.views = data.views.filter((v) => v.id !== viewId);
-  await putViewsData(ctx, dashboardId, data);
+  await putViewsData(scope, dashboardId, data);
   return { success: true };
 });

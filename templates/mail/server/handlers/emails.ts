@@ -1,4 +1,5 @@
 import {
+  createError,
   defineEventHandler,
   getQuery,
   getRouterParam,
@@ -208,7 +209,7 @@ async function resolveAccountEmail(
 async function userEmail(event: H3Event): Promise<string> {
   const session = await getSession(event);
   if (!session?.email) {
-    throw new Error("Unauthorized: no active session");
+    throw createError({ statusCode: 401, statusMessage: "Unauthorized" });
   }
   return session.email;
 }

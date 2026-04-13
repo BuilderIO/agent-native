@@ -367,38 +367,98 @@ function LocalModeSignInCard() {
 
   return (
     <section className="rounded-lg border border-border bg-card p-6 space-y-4">
-      <div>
-        <p className="text-sm text-muted-foreground">
-          You&apos;re signed in as <code>local@localhost</code>. Create a real
-          account to sync your data to the cloud, invite teammates, and access
-          your workspace from other devices.
-        </p>
-      </div>
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={upgradeToAccount}
-          disabled={isSubmitting}
-          className="inline-flex items-center gap-2 rounded-md bg-foreground px-3 py-2 text-xs font-medium text-background hover:opacity-90 disabled:opacity-50"
-        >
-          {isSubmitting ? (
-            <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <IconLogin className="h-3.5 w-3.5" />
-          )}
-          Sign in or create account
-        </button>
-      </div>
-      <p className="text-[11px] text-muted-foreground">
-        Your existing local data will be migrated to the new account
-        automatically.
+      <p className="text-sm text-muted-foreground">
+        Signed in as <code>local@localhost</code>. Create an account to:
       </p>
-      <p className="text-[11px] text-muted-foreground">
-        In development, the app may briefly reload while switching modes. The
-        next screen lets you either finish signing in or explicitly stay in
-        local mode.
-      </p>
+      <ul className="text-sm text-muted-foreground list-disc pl-5 space-y-1">
+        <li>Sync data across devices</li>
+        <li>Invite teammates</li>
+        <li>Keep your local data — it migrates automatically</li>
+      </ul>
+      <button
+        type="button"
+        onClick={upgradeToAccount}
+        disabled={isSubmitting}
+        className="inline-flex items-center gap-2 rounded-md bg-foreground px-3 py-2 text-xs font-medium text-background hover:opacity-90 disabled:opacity-50"
+      >
+        {isSubmitting ? (
+          <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <IconLogin className="h-3.5 w-3.5" />
+        )}
+        Sign in or create account
+      </button>
       {error && <ErrorText error={error} />}
+    </section>
+  );
+}
+
+interface MigrationState {
+  status: "idle" | "running" | "done" | "error";
+  coreTables: Record<string, number>;
+  appKeys: string[];
+  error: string | null;
+}
+
+function MigrationStatusCard({ state }: { state: MigrationState }) {
+  if (state.status === "idle") return null;
+
+  const movedCore = Object.entries(state.coreTables);
+
+  return (
+    <section className="rounded-lg border border-border bg-card p-6 space-y-3">
+      <div className="flex items-center gap-2">
+        {state.status === "running" ? (
+          <IconLoader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        ) : state.status === "done" ? (
+          <IconCheck className="h-4 w-4 text-green-500" />
+        ) : (
+          <IconTrash className="h-4 w-4 text-red-500" />
+        )}
+        <h3 className="text-sm font-medium">
+          {state.status === "running"
+            ? "Migrating your local workspace"
+            : state.status === "done"
+              ? "Local workspace migrated"
+              : "Migration incomplete"}
+        </h3>
+      </div>
+
+      {state.status === "running" && (
+        <p className="text-sm text-muted-foreground">
+          Moving your local SQL data onto this real account. Keep this page open
+          while the upgrade finishes.
+        </p>
+      )}
+
+      {state.status === "done" && (
+        <>
+          <p className="text-sm text-muted-foreground">
+            Your local workspace has been attached to this account.
+          </p>
+          {(movedCore.length > 0 || state.appKeys.length > 0) && (
+            <div className="rounded-md border border-border p-3 text-xs text-muted-foreground space-y-1">
+              {movedCore.map(([table, count]) => (
+                <div key={table}>
+                  {table}: {count} row{count === 1 ? "" : "s"}
+                </div>
+              ))}
+              {state.appKeys.length > 0 && (
+                <div>
+                  app settings: {state.appKeys.length} key
+                  {state.appKeys.length === 1 ? "" : "s"}
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+
+      {state.status === "error" && (
+        <p className="text-sm text-red-500">
+          {state.error || "We signed you in, but moving local data failed."}
+        </p>
+      )}
     </section>
   );
 }
@@ -409,7 +469,16 @@ function LocalModeSignInCard() {
  * `local@localhost`. Triggered by a localStorage flag set from
  * `LocalModeSignInCard` so we only migrate when the user explicitly opted in.
  */
-function useMigrateLocalDataOnSignIn(email: string | undefined) {
+function useMigrateLocalDataOnSignIn(
+  email: string | undefined,
+): MigrationState {
+  const [state, setState] = useState<MigrationState>({
+    status: "idle",
+    coreTables: {},
+    appKeys: [],
+    error: null,
+  });
+
   useEffect(() => {
     if (!email || email === "local@localhost") return;
     let flag: string | null = null;
@@ -425,15 +494,74 @@ function useMigrateLocalDataOnSignIn(email: string | undefined) {
     } catch {
       // ignore
     }
-    fetch("/_agent-native/auth/migrate-local-data", {
-      method: "POST",
-      credentials: "include",
-    }).catch(() => {
-      // Silent failure is fine — the user still has an account, just without
-      // their old local data carried over. They can contact support or
-      // re-enter the data manually.
-    });
+    let cancelled = false;
+
+    (async () => {
+      setState({
+        status: "running",
+        coreTables: {},
+        appKeys: [],
+        error: null,
+      });
+
+      try {
+        const coreRes = await fetch("/_agent-native/auth/migrate-local-data", {
+          method: "POST",
+          credentials: "include",
+        });
+        const coreBody = await coreRes.json().catch(() => ({}));
+        if (!coreRes.ok) {
+          throw new Error(
+            coreBody?.error || "Failed to migrate local framework data",
+          );
+        }
+
+        let appKeys: string[] = [];
+        try {
+          const appRes = await fetch("/api/local-migration", {
+            method: "POST",
+            credentials: "include",
+          });
+          if (appRes.ok) {
+            const appBody = await appRes.json().catch(() => ({}));
+            appKeys = Array.isArray(appBody?.keys) ? appBody.keys : [];
+          } else if (appRes.status !== 404) {
+            const appBody = await appRes.json().catch(() => ({}));
+            throw new Error(appBody?.error || "App-specific migration failed");
+          }
+        } catch (err: any) {
+          if (!/404/.test(String(err?.message ?? ""))) throw err;
+        }
+
+        if (!cancelled) {
+          setState({
+            status: "done",
+            coreTables:
+              typeof coreBody?.tables === "object" && coreBody.tables
+                ? coreBody.tables
+                : {},
+            appKeys,
+            error: null,
+          });
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setState({
+            status: "error",
+            coreTables: {},
+            appKeys: [],
+            error: err?.message || "Migration failed",
+          });
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [email]);
+
+  return state;
 }
 
 /**
@@ -442,7 +570,8 @@ function useMigrateLocalDataOnSignIn(email: string | undefined) {
  */
 export function TeamPage({ layout, title = "Team", className }: TeamPageProps) {
   const { data: org, isLoading } = useOrg();
-  useMigrateLocalDataOnSignIn(org?.email);
+  const migration = useMigrateLocalDataOnSignIn(org?.email);
+  const isMigrating = migration.status === "running";
 
   const content = (
     <div className={`space-y-6 max-w-2xl ${className ?? ""}`}>
@@ -459,6 +588,10 @@ export function TeamPage({ layout, title = "Team", className }: TeamPageProps) {
       )}
 
       {!isLoading && org?.email !== "local@localhost" && (
+        <MigrationStatusCard state={migration} />
+      )}
+
+      {!isLoading && org?.email !== "local@localhost" && !isMigrating && (
         <>
           <PendingInvitationsCard />
           {!org?.orgId ? <CreateOrgCard /> : <MembersCard />}

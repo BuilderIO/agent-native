@@ -57,6 +57,7 @@
     "release": "npm version patch && npm publish --access public"
   },
   "dependencies": {
+    "@agent-native/shared-app-config": "workspace:*",
     "@anthropic-ai/sdk": "^0.80.0",
     "@clack/prompts": "^1.2.0",
     "@libsql/client": "^0.15.0",

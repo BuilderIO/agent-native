@@ -1,6 +1,10 @@
 import { defineAction } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
-import { readSetting } from "@agent-native/core/settings";
+import {
+  getOrgSetting,
+  getSetting,
+  getUserSetting,
+} from "@agent-native/core/settings";
 
 export default defineAction({
   description:
@@ -17,7 +21,15 @@ export default defineAction({
 
     if (nav?.view === "adhoc" && nav?.dashboardId) {
       try {
-        const config = await readSetting(`dashboard-${nav.dashboardId}`);
+        const key = `dashboard-${nav.dashboardId}`;
+        const orgId = process.env.AGENT_ORG_ID || null;
+        const email = process.env.AGENT_USER_EMAIL || "local@localhost";
+        const config =
+          (orgId ? await getOrgSetting(orgId, key) : null) ||
+          (email !== "local@localhost"
+            ? await getUserSetting(email, key)
+            : null) ||
+          (await getSetting(key));
         if (config) screen.dashboard = config;
       } catch {
         // Dashboard config not found

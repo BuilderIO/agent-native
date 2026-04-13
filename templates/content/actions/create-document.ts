@@ -1,7 +1,10 @@
 import { defineAction } from "@agent-native/core";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
-import { parseDocumentFavorite } from "../server/lib/documents.js";
+import {
+  getCurrentOwnerEmail,
+  parseDocumentFavorite,
+} from "../server/lib/documents.js";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
 
@@ -43,6 +46,7 @@ export default defineAction({
 
     const parentId = args.parentId || null;
     const icon = args.icon || null;
+    const ownerEmail = getCurrentOwnerEmail();
     const db = getDb();
 
     // Get max position among siblings
@@ -51,8 +55,14 @@ export default defineAction({
       .from(schema.documents)
       .where(
         parentId
-          ? eq(schema.documents.parentId, parentId)
-          : sql`parent_id IS NULL`,
+          ? and(
+              eq(schema.documents.ownerEmail, ownerEmail),
+              eq(schema.documents.parentId, parentId),
+            )
+          : and(
+              eq(schema.documents.ownerEmail, ownerEmail),
+              sql`parent_id IS NULL`,
+            ),
       );
 
     const position = (maxPos[0]?.max ?? -1) + 1;
@@ -61,6 +71,7 @@ export default defineAction({
 
     await db.insert(schema.documents).values({
       id,
+      ownerEmail,
       parentId,
       title,
       content,
@@ -74,7 +85,12 @@ export default defineAction({
     const [doc] = await db
       .select()
       .from(schema.documents)
-      .where(eq(schema.documents.id, id));
+      .where(
+        and(
+          eq(schema.documents.id, id),
+          eq(schema.documents.ownerEmail, ownerEmail),
+        ),
+      );
 
     // Trigger UI refresh
     await writeAppState("refresh-signal", { ts: Date.now() });
