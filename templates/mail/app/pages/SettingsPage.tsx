@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   IconUsers,
   IconPlus,
@@ -8,9 +9,7 @@ import {
   IconLoader2,
   IconBolt,
   IconX,
-  IconCpu,
 } from "@tabler/icons-react";
-import { AgentEnginePicker } from "@/components/agent-engine-picker";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -656,11 +655,37 @@ function AutomationRow({
 
 // ─── Automations Section ─────────────────────────────────────────────────────
 
+const AUTOMATION_MODELS = [
+  { value: "claude-haiku-4-5-20251001", label: "Haiku 4.5 (fastest)" },
+  { value: "claude-sonnet-4-6", label: "Sonnet 4.6" },
+  { value: "claude-opus-4-6", label: "Opus 4.6" },
+];
+
 function AutomationsSection() {
   const { data: rules = [], isLoading } = useAutomations();
   const createAutomation = useCreateAutomation();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showNewForm, setShowNewForm] = useState(false);
+
+  const { data: autoSettings } = useQuery({
+    queryKey: ["automation-settings"],
+    queryFn: async () => {
+      const res = await fetch("/api/automations/settings");
+      if (!res.ok) return { model: "claude-haiku-4-5-20251001" };
+      return res.json();
+    },
+    staleTime: 30_000,
+  });
+
+  const queryClient = useQueryClient();
+  const handleModelChange = async (model: string) => {
+    queryClient.setQueryData(["automation-settings"], { model });
+    await fetch("/api/automations/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model }),
+    });
+  };
 
   const handleCreate = (data: {
     name: string;
@@ -683,6 +708,23 @@ function AutomationsSection() {
           <p className="text-[13px] text-muted-foreground mt-0.5">
             Rules that automatically process new inbox emails using AI.
           </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Select
+            value={autoSettings?.model || "claude-haiku-4-5-20251001"}
+            onValueChange={handleModelChange}
+          >
+            <SelectTrigger className="w-[180px] h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {AUTOMATION_MODELS.map((m) => (
+                <SelectItem key={m.value} value={m.value} className="text-xs">
+                  {m.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <Button
           size="sm"
@@ -756,28 +798,9 @@ function AutomationsSection() {
   );
 }
 
-// ─── Agent Engine Section ─────────────────────────────────────────────────────
-
-function AgentEngineSection() {
-  return (
-    <div className="flex-1 p-4 sm:p-8 overflow-y-auto">
-      <div className="mb-6">
-        <h2 className="text-[16px] font-semibold text-foreground">
-          Agent Engine
-        </h2>
-        <p className="text-[13px] text-muted-foreground mt-0.5">
-          Choose which AI model powers the agent. The default is Claude
-          (Anthropic).
-        </p>
-      </div>
-      <AgentEnginePicker />
-    </div>
-  );
-}
-
 // ─── Settings Page ────────────────────────────────────────────────────────────
 
-type SettingsSection = "automations" | "aliases" | "agent" | "team";
+type SettingsSection = "automations" | "aliases" | "team";
 
 const navItems: {
   id: SettingsSection;
@@ -786,7 +809,6 @@ const navItems: {
 }[] = [
   { id: "automations", label: "Automations", icon: IconBolt },
   { id: "aliases", label: "Aliases", icon: IconUsers },
-  { id: "agent", label: "Agent", icon: IconCpu },
   { id: "team", label: "Team", icon: IconUsers },
 ];
 
@@ -831,10 +853,9 @@ export function SettingsPage() {
       <div className="flex flex-1 overflow-hidden bg-background">
         {activeSection === "automations" && <AutomationsSection />}
         {activeSection === "aliases" && <AliasesSection />}
-        {activeSection === "agent" && <AgentEngineSection />}
         {activeSection === "team" && (
           <div className="flex-1 overflow-y-auto">
-            <TeamPage />
+            <TeamPage createOrgDescription="Set up a team to share email automations and settings with your colleagues." />
           </div>
         )}
       </div>

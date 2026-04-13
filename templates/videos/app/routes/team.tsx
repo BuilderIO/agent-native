@@ -25,7 +25,7 @@ export default function TeamRoute() {
       <InvitationBanner />
       <main className="flex-1 overflow-auto p-6">
         <div className="max-w-3xl mx-auto">
-          <TeamPage />
+          <TeamPage createOrgDescription="Set up a team to share compositions and animations with your colleagues." />
         </div>
       </main>
     </div>

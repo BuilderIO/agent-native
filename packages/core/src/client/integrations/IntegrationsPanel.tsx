@@ -4,6 +4,7 @@ import {
   IconBrandSlack,
   IconBrandTelegram,
   IconBrandWhatsapp,
+  IconBrandGoogleDrive,
   IconTerminal2,
   IconBuildingSkyscraper,
   IconMessageCircle,
@@ -73,6 +74,19 @@ const PLATFORMS: PlatformInfo[] = [
       "Copy the access token into your environment",
     ],
     docsUrl: "https://developers.facebook.com/docs/whatsapp",
+  },
+  {
+    id: "google-docs",
+    label: "Google Docs",
+    icon: IconBrandGoogleDrive,
+    description: "Tag the agent in Google Doc comments to get responses.",
+    envVars: ["GOOGLE_SERVICE_ACCOUNT_KEY"],
+    setupSteps: [
+      "Create a Google Cloud service account and download the JSON key",
+      "Set GOOGLE_SERVICE_ACCOUNT_KEY in your environment (JSON string or file path)",
+      "Share your Google Docs with the service account email",
+      'Write a comment containing "@Agent" to trigger the agent',
+    ],
   },
   {
     id: "openclaw",

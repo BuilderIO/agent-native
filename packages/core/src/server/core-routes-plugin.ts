@@ -163,6 +163,47 @@ export function createCoreRoutesPlugin(
       }),
     );
 
+    // Builder-proxied Google callback. Builder runs the actual OAuth
+    // exchange with Google on its side; we just receive the connected
+    // account email and record it so templates know to proxy Gmail/
+    // Calendar calls through Builder's /google/* proxy instead of calling
+    // Google directly.
+    getH3App(nitroApp).use(
+      `${P}/builder/google/callback`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "GET") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+
+        const requestUrl = new URL(
+          `${event.url?.pathname || "/"}${event.url?.search || ""}`,
+          getOrigin(event),
+        );
+        const accountEmail = requestUrl.searchParams.get("account-email");
+        const scope = requestUrl.searchParams.get("scope") ?? undefined;
+
+        if (!accountEmail) {
+          setResponseStatus(event, 400);
+          return {
+            error:
+              "Missing account-email in Builder Google callback — ensure /cli-auth returned ?account-email=<gmail>",
+          };
+        }
+
+        const { recordBuilderGoogleAccount } =
+          await import("./google-proxy.js");
+        await recordBuilderGoogleAccount({ email: accountEmail, scope });
+
+        const previewUrl = resolveSafePreviewUrl(
+          requestUrl.searchParams.get("preview-url"),
+          event,
+        );
+        setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
+        return createBuilderBrowserCallbackPage(previewUrl);
+      }),
+    );
+
     // Env key management
     if (options.envKeys) {
       const envKeys = options.envKeys;

@@ -32,6 +32,11 @@ export interface TeamPageProps {
    */
   title?: string;
   /**
+   * Description shown on the "Create an Organization" card. Defaults to
+   * "Set up a team to collaborate with your colleagues."
+   */
+  createOrgDescription?: string;
+  /**
    * Class applied to the outer max-width container. Templates can use this to
    * tweak page width.
    */
@@ -94,7 +99,7 @@ function PendingInvitationsCard() {
   );
 }
 
-function CreateOrgCard() {
+function CreateOrgCard({ description }: { description?: string }) {
   const createOrg = useCreateOrg();
   const [name, setName] = useState("");
   const [showForm, setShowForm] = useState(false);
@@ -103,7 +108,7 @@ function CreateOrgCard() {
     <section className="rounded-lg border border-border bg-card p-4 space-y-3">
       <h3 className="text-sm font-medium">Create an Organization</h3>
       <p className="text-sm text-muted-foreground">
-        Set up a team to share dashboards and connections with your colleagues.
+        {description || "Set up a team to collaborate with your colleagues."}
       </p>
       {!showForm ? (
         <button
@@ -568,7 +573,12 @@ function useMigrateLocalDataOnSignIn(
  * Default Team management page. Templates can route directly to this component
  * or wrap it with their own Layout via the `layout` prop.
  */
-export function TeamPage({ layout, title = "Team", className }: TeamPageProps) {
+export function TeamPage({
+  layout,
+  title = "Team",
+  createOrgDescription,
+  className,
+}: TeamPageProps) {
   const { data: org, isLoading } = useOrg();
   const migration = useMigrateLocalDataOnSignIn(org?.email);
   const isMigrating = migration.status === "running";
@@ -594,7 +604,11 @@ export function TeamPage({ layout, title = "Team", className }: TeamPageProps) {
       {!isLoading && org?.email !== "local@localhost" && !isMigrating && (
         <>
           <PendingInvitationsCard />
-          {!org?.orgId ? <CreateOrgCard /> : <MembersCard />}
+          {!org?.orgId ? (
+            <CreateOrgCard description={createOrgDescription} />
+          ) : (
+            <MembersCard />
+          )}
         </>
       )}
     </div>

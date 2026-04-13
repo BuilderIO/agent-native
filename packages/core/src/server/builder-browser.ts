@@ -5,6 +5,10 @@ const DEFAULT_BUILDER_APP_HOST = "https://builder.io";
 const DEFAULT_BUILDER_API_HOST = "https://api.builder.io";
 const BUILDER_BROWSER_HOST = "agent-native-browser";
 const BUILDER_BROWSER_CLIENT_ID = "Agent Native Browser";
+/** Builder-managed Google OAuth app — multi-tenant, used when the user
+ *  chooses "Connect Gmail via Builder" instead of bringing their own keys. */
+const BUILDER_GOOGLE_HOST = "agent-native-google";
+const BUILDER_GOOGLE_CLIENT_ID = "Agent Native Google";
 
 export interface BuilderBrowserStatus {
   configured: boolean;
@@ -76,6 +80,40 @@ export function getBuilderBrowserConnectUrl(origin: string): string {
   url.searchParams.set("redirect_url", callbackUrl);
   url.searchParams.set("preview_url", normalizedOrigin);
   url.searchParams.set("framework", "agent-native");
+  return url.toString();
+}
+
+/**
+ * Build the URL a user visits to connect their Google account (Gmail,
+ * Calendar, Contacts) to the Builder-managed OAuth app. Builder runs the
+ * actual OAuth flow on its side, stores the tokens, and redirects back to
+ * our `/_agent-native/builder/google/callback` with the connected account
+ * email. Agent-native apps then proxy Gmail/Calendar calls through
+ * `ai-services.builder.io/google/*` using BUILDER_PRIVATE_KEY — no user-
+ * owned Google Cloud Console setup required.
+ */
+export function getBuilderGoogleConnectUrl(origin: string): string {
+  const normalizedOrigin = normalizeOrigin(origin);
+  const callbackUrl = `${normalizedOrigin}/_agent-native/builder/google/callback`;
+  const url = new URL("/cli-auth", getBuilderAppHost());
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("host", BUILDER_GOOGLE_HOST);
+  url.searchParams.set("client_id", BUILDER_GOOGLE_CLIENT_ID);
+  url.searchParams.set("redirect_url", callbackUrl);
+  url.searchParams.set("preview_url", normalizedOrigin);
+  url.searchParams.set("framework", "agent-native");
+  url.searchParams.set(
+    "google_scopes",
+    [
+      "https://www.googleapis.com/auth/gmail.readonly",
+      "https://www.googleapis.com/auth/gmail.send",
+      "https://www.googleapis.com/auth/gmail.modify",
+      "https://www.googleapis.com/auth/calendar.events",
+      "https://www.googleapis.com/auth/contacts.readonly",
+      "https://www.googleapis.com/auth/contacts.other.readonly",
+      "https://www.googleapis.com/auth/userinfo.profile",
+    ].join(" "),
+  );
   return url.toString();
 }
 
