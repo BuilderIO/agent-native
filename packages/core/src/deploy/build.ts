@@ -455,16 +455,20 @@ async function buildCloudflarePages() {
       "var $1 = function() { return typeof require !== 'undefined' ? require : function(m) { throw new Error('require not supported: ' + m); }; };",
     );
 
-    // Entry-only patches
-    if (isEntry) {
-      // Patch setInterval/setTimeout at module scope — CF Workers disallows timers in global scope.
+    // Patch setInterval/setTimeout at module scope — CF Workers disallows timers in global scope.
+    // Some dependencies (e.g. Anthropic SDK rate limiter) call setInterval at module init.
+    // With code splitting, chunks evaluate before the entry, so the shim must be in every file.
+    // The restore only happens in the entry's fetch() handler.
+    if (!code.includes("__origSetInterval")) {
       const timerShim = [
         "var __origSetInterval=globalThis.setInterval;",
         "globalThis.setInterval=function(){return{unref(){},ref(){},close(){}}};",
       ].join("");
+      code = timerShim + code;
+    }
+    if (isEntry) {
       const timerRestore =
         "if(__origSetInterval)globalThis.setInterval=__origSetInterval;";
-      code = timerShim + code;
       code = code.replace(
         /async fetch\(request,\s*env,\s*ctx\)\s*\{/,
         (match) => match + timerRestore,

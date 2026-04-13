@@ -64,14 +64,25 @@ export default runMigrations([
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
   },
-  // v5-v8: owner_email columns were originally added here for pre-existing
-  // databases. Tables created in v1-v4 already include the column, so these
-  // are now no-ops. We keep the version numbers to avoid re-running on
-  // databases that already ran them.
-  { version: 5, sql: `SELECT 1` },
-  { version: 6, sql: `SELECT 1` },
-  { version: 7, sql: `SELECT 1` },
-  { version: 8, sql: `SELECT 1` },
+  // v5-v8: add owner_email to tables that may have been created before the
+  // column was part of the initial CREATE TABLE (v1-v4 now include it, but
+  // databases created with older schema versions still need the ALTER).
+  {
+    version: 5,
+    sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost'`,
+  },
+  {
+    version: 6,
+    sql: `ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost'`,
+  },
+  {
+    version: 7,
+    sql: `ALTER TABLE document_sync_links ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost'`,
+  },
+  {
+    version: 8,
+    sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost'`,
+  },
   {
     version: 9,
     sql: `UPDATE documents SET owner_email = 'local@localhost' WHERE owner_email IS NULL OR owner_email = ''`,
