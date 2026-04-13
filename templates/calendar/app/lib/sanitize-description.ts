@@ -290,7 +290,7 @@ export function isHtml(str: string): boolean {
   return /<[a-z][\s\S]*>/i.test(str);
 }
 
-const URL_RE = /https?:\/\/[^\s<>"&{}|\\^`[\]]+/g;
+const URL_RE = /https?:\/\/[^\s<>"{}|\\^`[\]]+/g;
 
 /**
  * Convert plain-text URLs to clickable <a> tags.

@@ -600,7 +600,7 @@ export function createProductionAgentHandler(
           const blocks: string[] = [];
           if (fileLines.length > 0) {
             blocks.push(
-              `<available-files>\nFiles in the workspace:\n${fileLines.join("\n")}\n\nTo read a file's contents, use the resource-read action with the file path, or query the resources table:\n  SELECT content FROM resources WHERE path = '<path>'\n</available-files>`,
+              `<available-files>\nFiles in the workspace:\n${fileLines.join("\n")}\n\nTo read a file's contents, use the resource-read action with the file path.\n</available-files>`,
             );
           }
           if (skillLines.length > 0) {
