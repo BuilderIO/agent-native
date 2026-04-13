@@ -47,6 +47,7 @@ import {
   useDeleteAutomation,
 } from "@/hooks/use-automations";
 import type { Alias, AutomationAction, AutomationRule } from "@shared/types";
+import { TeamPage } from "@agent-native/core/client/org";
 
 // ─── Alias Edit Row ───────────────────────────────────────────────────────────
 
@@ -776,7 +777,7 @@ function AgentEngineSection() {
 
 // ─── Settings Page ────────────────────────────────────────────────────────────
 
-type SettingsSection = "automations" | "aliases" | "agent";
+type SettingsSection = "automations" | "aliases" | "agent" | "team";
 
 const navItems: {
   id: SettingsSection;
@@ -786,6 +787,7 @@ const navItems: {
   { id: "automations", label: "Automations", icon: IconBolt },
   { id: "aliases", label: "Aliases", icon: IconUsers },
   { id: "agent", label: "Agent", icon: IconCpu },
+  { id: "team", label: "Team", icon: IconUsers },
 ];
 
 export function SettingsPage() {
@@ -830,6 +832,11 @@ export function SettingsPage() {
         {activeSection === "automations" && <AutomationsSection />}
         {activeSection === "aliases" && <AliasesSection />}
         {activeSection === "agent" && <AgentEngineSection />}
+        {activeSection === "team" && (
+          <div className="flex-1 overflow-y-auto">
+            <TeamPage />
+          </div>
+        )}
       </div>
     </div>
   );

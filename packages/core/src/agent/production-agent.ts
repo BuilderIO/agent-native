@@ -526,6 +526,37 @@ export function createProductionAgentHandler(
       // DB not ready or no navigation state — skip silently
     }
 
+    // On the first message of a conversation, inject a file tree of all
+    // resources (personal + shared) so the agent knows what files, skills,
+    // and jobs are available and how to read them.
+    let filesContext = "";
+    if (history.length === 0) {
+      try {
+        const { resourceListAccessible, SHARED_OWNER } =
+          await import("../resources/store.js");
+        const ownerEmail = process.env.AGENT_USER_EMAIL || "local@localhost";
+        const allResources = await resourceListAccessible(ownerEmail);
+
+        if (allResources.length > 0) {
+          const lines: string[] = [];
+          for (const r of allResources) {
+            const scope = r.owner === SHARED_OWNER ? "shared" : "personal";
+            lines.push(`  ${r.path} (${scope})`);
+          }
+          filesContext =
+            `\n\n<available-files>\n` +
+            `Files in the sidebar (${allResources.length} total):\n` +
+            lines.join("\n") +
+            `\n\nTo read a file's contents, use the resource-read action with the file path, or query the resources table:\n` +
+            `  SELECT content FROM resources WHERE path = '<path>'\n` +
+            `Skills are under skills/, jobs under jobs/. Both personal and shared files are listed above.\n` +
+            `</available-files>`;
+        }
+      } catch {
+        // Resources not available — skip silently
+      }
+    }
+
     // Pre-compute agent references for A2A resolution inside the run
     const agentRefs = references.filter((r) => r.type === "agent");
 
@@ -551,7 +582,7 @@ export function createProductionAgentHandler(
     }
     userContent.push({
       type: "text",
-      text: enrichedMessage + screenContext,
+      text: enrichedMessage + screenContext + filesContext,
     });
 
     const messages: EngineMessage[] = [

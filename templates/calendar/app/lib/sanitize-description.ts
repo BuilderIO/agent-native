@@ -305,6 +305,6 @@ export function linkifyText(text: string): string {
     .replace(/"/g, "&quot;");
 
   return escaped.replace(URL_RE, (url) => {
-    return `<a href="${url}" target="_blank" rel="noopener noreferrer" class="text-primary underline break-all">${url}</a>`;
+    return `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:hsl(var(--primary));text-decoration:underline;word-break:break-all;">${url}</a>`;
   });
 }

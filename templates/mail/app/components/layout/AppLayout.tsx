@@ -42,6 +42,7 @@ import {
   AgentSidebar,
   AgentToggleButton,
 } from "@agent-native/core/client";
+import { OrgSwitcher } from "@agent-native/core/client/org";
 import type { Label } from "@shared/types";
 import { toast } from "sonner";
 
@@ -917,6 +918,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                 </div>
               )}
 
+              <OrgSwitcher hideWhenSingle />
               <AgentToggleButton />
             </header>
 
