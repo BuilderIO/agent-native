@@ -7,6 +7,61 @@ const CALENDAR_BASE = "https://www.googleapis.com/calendar/v3";
 const OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const OAUTH_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 
+/**
+ * An auth credential for Google API calls. Either:
+ *   - a raw access token (string) — direct path, user owns the OAuth client
+ *   - a proxy target — Builder-managed OAuth, tokens resolved server-side at
+ *     `ai-services.builder.io/google/*` using BUILDER_PRIVATE_KEY
+ *
+ * Every gmail/people/calendar function accepts either form — the function
+ * picks the right base URL + headers via `apiUrl()` and `authHeaders()`.
+ */
+export interface GoogleProxyTarget {
+  __googleProxy: "builder";
+  /** Proxy origin + path, e.g. "https://ai-services.builder.io/google" */
+  baseUrl: string;
+  /** Headers to attach to every proxied request (Authorization + X-Google-Account) */
+  headers: Record<string, string>;
+}
+
+export type GoogleAuth = string | GoogleProxyTarget;
+
+function isProxyTarget(auth: GoogleAuth): auth is GoogleProxyTarget {
+  return (
+    typeof auth === "object" &&
+    auth !== null &&
+    (auth as GoogleProxyTarget).__googleProxy === "builder"
+  );
+}
+
+function apiUrl(
+  auth: GoogleAuth,
+  api: "gmail" | "people" | "calendar",
+  path: string,
+): string {
+  if (isProxyTarget(auth)) {
+    const prefix =
+      api === "gmail"
+        ? "/gmail/v1/users/me"
+        : api === "people"
+          ? "/people/v1"
+          : "/calendar/v3";
+    return `${auth.baseUrl}${prefix}${path}`;
+  }
+  const base =
+    api === "gmail"
+      ? GMAIL_BASE
+      : api === "people"
+        ? PEOPLE_BASE
+        : CALENDAR_BASE;
+  return `${base}${path}`;
+}
+
+function authHeaders(auth: GoogleAuth): Record<string, string> {
+  if (isProxyTarget(auth)) return { ...auth.headers };
+  return { Authorization: `Bearer ${auth}` };
+}
+
 // ---------------------------------------------------------------------------
 // OAuth2 helpers
 // ---------------------------------------------------------------------------
@@ -103,14 +158,16 @@ export function createOAuth2Client(
 
 export async function googleFetch(
   url: string,
-  accessToken: string,
+  auth: GoogleAuth,
   opts?: RequestInit,
 ): Promise<any> {
   const maxRetries = 3;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const headers = new Headers(opts?.headers);
-    headers.set("Authorization", `Bearer ${accessToken}`);
+    for (const [k, v] of Object.entries(authHeaders(auth))) {
+      headers.set(k, v);
+    }
 
     const res = await fetch(url, { ...opts, headers });
 
@@ -155,36 +212,36 @@ function qs(params: Record<string, string | number | undefined>): string {
 // Gmail API
 // ---------------------------------------------------------------------------
 
-export function gmailGetProfile(accessToken: string) {
-  return googleFetch(`${GMAIL_BASE}/profile`, accessToken);
+export function gmailGetProfile(auth: GoogleAuth) {
+  return googleFetch(apiUrl(auth, "gmail", "/profile"), auth);
 }
 
 export function gmailListMessages(
-  accessToken: string,
+  auth: GoogleAuth,
   params: { q?: string; maxResults?: number; pageToken?: string } = {},
 ) {
-  return googleFetch(`${GMAIL_BASE}/messages${qs(params)}`, accessToken);
+  return googleFetch(apiUrl(auth, "gmail", `/messages${qs(params)}`), auth);
 }
 
 export function gmailGetMessage(
-  accessToken: string,
+  auth: GoogleAuth,
   id: string,
   format?: "full" | "metadata" | "minimal",
 ) {
   return googleFetch(
-    `${GMAIL_BASE}/messages/${id}${qs({ format })}`,
-    accessToken,
+    apiUrl(auth, "gmail", `/messages/${id}${qs({ format })}`),
+    auth,
   );
 }
 
 export function gmailSendMessage(
-  accessToken: string,
+  auth: GoogleAuth,
   raw: string,
   threadId?: string,
 ) {
   const payload: Record<string, string> = { raw };
   if (threadId) payload.threadId = threadId;
-  return googleFetch(`${GMAIL_BASE}/messages/send`, accessToken, {
+  return googleFetch(apiUrl(auth, "gmail", "/messages/send"), auth, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -192,12 +249,12 @@ export function gmailSendMessage(
 }
 
 export function gmailModifyMessage(
-  accessToken: string,
+  auth: GoogleAuth,
   id: string,
   addLabelIds?: string[],
   removeLabelIds?: string[],
 ) {
-  return googleFetch(`${GMAIL_BASE}/messages/${id}/modify`, accessToken, {
+  return googleFetch(apiUrl(auth, "gmail", `/messages/${id}/modify`), auth, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ addLabelIds, removeLabelIds }),
@@ -205,77 +262,83 @@ export function gmailModifyMessage(
 }
 
 export function gmailModifyThread(
-  accessToken: string,
+  auth: GoogleAuth,
   threadId: string,
   addLabelIds?: string[],
   removeLabelIds?: string[],
 ) {
-  return googleFetch(`${GMAIL_BASE}/threads/${threadId}/modify`, accessToken, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ addLabelIds, removeLabelIds }),
-  });
+  return googleFetch(
+    apiUrl(auth, "gmail", `/threads/${threadId}/modify`),
+    auth,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ addLabelIds, removeLabelIds }),
+    },
+  );
 }
 
-export function gmailTrashMessage(accessToken: string, id: string) {
-  return googleFetch(`${GMAIL_BASE}/messages/${id}/trash`, accessToken, {
-    method: "POST",
-  });
-}
-
-export function gmailTrashThread(accessToken: string, threadId: string) {
-  return googleFetch(`${GMAIL_BASE}/threads/${threadId}/trash`, accessToken, {
-    method: "POST",
-  });
-}
-
-export function gmailUntrashMessage(accessToken: string, id: string) {
-  return googleFetch(`${GMAIL_BASE}/messages/${id}/untrash`, accessToken, {
+export function gmailTrashMessage(auth: GoogleAuth, id: string) {
+  return googleFetch(apiUrl(auth, "gmail", `/messages/${id}/trash`), auth, {
     method: "POST",
   });
 }
 
-export function gmailUntrashThread(accessToken: string, threadId: string) {
-  return googleFetch(`${GMAIL_BASE}/threads/${threadId}/untrash`, accessToken, {
+export function gmailTrashThread(auth: GoogleAuth, threadId: string) {
+  return googleFetch(
+    apiUrl(auth, "gmail", `/threads/${threadId}/trash`),
+    auth,
+    {
+      method: "POST",
+    },
+  );
+}
+
+export function gmailUntrashMessage(auth: GoogleAuth, id: string) {
+  return googleFetch(apiUrl(auth, "gmail", `/messages/${id}/untrash`), auth, {
     method: "POST",
   });
+}
+
+export function gmailUntrashThread(auth: GoogleAuth, threadId: string) {
+  return googleFetch(
+    apiUrl(auth, "gmail", `/threads/${threadId}/untrash`),
+    auth,
+    { method: "POST" },
+  );
 }
 
 export function gmailGetAttachment(
-  accessToken: string,
+  auth: GoogleAuth,
   messageId: string,
   attachmentId: string,
 ) {
   return googleFetch(
-    `${GMAIL_BASE}/messages/${messageId}/attachments/${attachmentId}`,
-    accessToken,
+    apiUrl(auth, "gmail", `/messages/${messageId}/attachments/${attachmentId}`),
+    auth,
   );
 }
 
-export function gmailGetThread(
-  accessToken: string,
-  id: string,
-  format?: string,
-) {
+export function gmailGetThread(auth: GoogleAuth, id: string, format?: string) {
   return googleFetch(
-    `${GMAIL_BASE}/threads/${id}${qs({ format })}`,
-    accessToken,
+    apiUrl(auth, "gmail", `/threads/${id}${qs({ format })}`),
+    auth,
   );
 }
 
-export function gmailListLabels(accessToken: string) {
-  return googleFetch(`${GMAIL_BASE}/labels`, accessToken);
+export function gmailListLabels(auth: GoogleAuth) {
+  return googleFetch(apiUrl(auth, "gmail", "/labels"), auth);
 }
 
 export function gmailCreateLabel(
-  accessToken: string,
+  auth: GoogleAuth,
   name: string,
   opts?: {
     labelListVisibility?: string;
     messageListVisibility?: string;
   },
 ) {
-  return googleFetch(`${GMAIL_BASE}/labels`, accessToken, {
+  return googleFetch(apiUrl(auth, "gmail", "/labels"), auth, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -287,7 +350,7 @@ export function gmailCreateLabel(
 }
 
 export function gmailListHistory(
-  accessToken: string,
+  auth: GoogleAuth,
   params: {
     startHistoryId: string;
     historyTypes?: string[];
@@ -303,22 +366,22 @@ export function gmailListHistory(
   if (params.historyTypes?.length) {
     queryParams.historyTypes = params.historyTypes.join(",");
   }
-  return googleFetch(`${GMAIL_BASE}/history${qs(queryParams)}`, accessToken);
+  return googleFetch(apiUrl(auth, "gmail", `/history${qs(queryParams)}`), auth);
 }
 
 // ---------------------------------------------------------------------------
 // People API
 // ---------------------------------------------------------------------------
 
-export function peopleGetProfile(accessToken: string, personFields: string) {
+export function peopleGetProfile(auth: GoogleAuth, personFields: string) {
   return googleFetch(
-    `${PEOPLE_BASE}/people/me${qs({ personFields })}`,
-    accessToken,
+    apiUrl(auth, "people", `/people/me${qs({ personFields })}`),
+    auth,
   );
 }
 
 export function peopleListConnections(
-  accessToken: string,
+  auth: GoogleAuth,
   params: {
     pageSize?: number;
     personFields?: string;
@@ -326,20 +389,23 @@ export function peopleListConnections(
   } = {},
 ) {
   return googleFetch(
-    `${PEOPLE_BASE}/people/me/connections${qs(params)}`,
-    accessToken,
+    apiUrl(auth, "people", `/people/me/connections${qs(params)}`),
+    auth,
   );
 }
 
 export function peopleListOtherContacts(
-  accessToken: string,
+  auth: GoogleAuth,
   params: {
     pageSize?: number;
     readMask?: string;
     pageToken?: string;
   } = {},
 ) {
-  return googleFetch(`${PEOPLE_BASE}/otherContacts${qs(params)}`, accessToken);
+  return googleFetch(
+    apiUrl(auth, "people", `/otherContacts${qs(params)}`),
+    auth,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -347,26 +413,34 @@ export function peopleListOtherContacts(
 // ---------------------------------------------------------------------------
 
 export function calendarGetEvent(
-  accessToken: string,
+  auth: GoogleAuth,
   calendarId: string,
   eventId: string,
 ) {
   return googleFetch(
-    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
-    accessToken,
+    apiUrl(
+      auth,
+      "calendar",
+      `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+    ),
+    auth,
   );
 }
 
 export function calendarPatchEvent(
-  accessToken: string,
+  auth: GoogleAuth,
   calendarId: string,
   eventId: string,
   body: any,
   sendUpdates?: string,
 ) {
   return googleFetch(
-    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}${qs({ sendUpdates })}`,
-    accessToken,
+    apiUrl(
+      auth,
+      "calendar",
+      `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}${qs({ sendUpdates })}`,
+    ),
+    auth,
     {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },

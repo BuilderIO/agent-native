@@ -163,6 +163,26 @@ export function createCoreRoutesPlugin(
       }),
     );
 
+    // Status endpoint for the "Connect Gmail via Builder" banner. Returns
+    // whether the user has the Builder private key set (so the button can
+    // be enabled), the connect URL they'd visit, and the list of Google
+    // accounts they've already connected via Builder.
+    getH3App(nitroApp).use(
+      `${P}/builder/google/status`,
+      defineEventHandler(async (event: H3Event) => {
+        const { getBuilderGoogleConnectUrl } =
+          await import("./builder-browser.js");
+        const { listBuilderGoogleAccounts } = await import("./google-proxy.js");
+        const { hasBuilderPrivateKey } =
+          await import("./credential-provider.js");
+        return {
+          hasBuilderKey: hasBuilderPrivateKey(),
+          connectUrl: getBuilderGoogleConnectUrl(getOrigin(event)),
+          accounts: await listBuilderGoogleAccounts(),
+        };
+      }),
+    );
+
     // Builder-proxied Google callback. Builder runs the actual OAuth
     // exchange with Google on its side; we just receive the connected
     // account email and record it so templates know to proxy Gmail/

@@ -139,6 +139,25 @@ export {
   type OAuthSessionResult,
 } from "./google-oauth.js";
 
+export {
+  FeatureNotConfiguredError,
+  hasBuilderPrivateKey,
+  getBuilderProxyOrigin,
+  getBuilderAuthHeader,
+} from "./credential-provider.js";
+
+export {
+  resolveGoogleTarget,
+  listBuilderGoogleAccounts,
+  isAccountConnectedViaBuilder,
+  recordBuilderGoogleAccount,
+  forgetBuilderGoogleAccount,
+  type GoogleTarget,
+  type ResolveGoogleTargetOptions,
+} from "./google-proxy.js";
+
+export { getBuilderGoogleConnectUrl } from "./builder-browser.js";
+
 // SSR handler is NOT re-exported here — it uses a virtual module
 // (virtual:react-router/server-build) that only exists at Vite dev/build time.
 // Including it in this barrel would break the esbuild CF Pages bundler.
