@@ -11,8 +11,8 @@ export default function TeamRoute() {
       title="Team"
       layout={(children) => (
         <DispatcherShell
-          title="Team and approval ownership"
-          description="Dispatcher inherits workspace membership, active organization, and approver policy from the same shared auth layer as the rest of the workspace."
+          title="Team"
+          description="Workspace membership and approval ownership."
         >
           {children}
         </DispatcherShell>

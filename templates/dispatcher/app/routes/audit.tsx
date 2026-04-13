@@ -10,15 +10,15 @@ export default function AuditRoute() {
 
   return (
     <DispatcherShell
-      title="Trace who changed what and when"
-      description="Audit gives teams a fast way to unwind annoying behavioral changes, confirm who created routes, and understand which identity a change came from."
+      title="Audit"
+      description="Change history for routes, settings, and approvals."
     >
-      <section className="rounded-3xl border border-border/60 bg-card/70 p-5">
+      <section className="rounded-2xl border bg-card p-5">
         <div className="space-y-3">
           {(data || []).map((event) => (
             <div
               key={event.id}
-              className="rounded-2xl border border-border/50 bg-muted/35 px-4 py-3"
+              className="rounded-xl border bg-muted/30 px-4 py-3"
             >
               <div className="text-sm font-medium text-foreground">
                 {event.summary}
@@ -29,6 +29,11 @@ export default function AuditRoute() {
               </div>
             </div>
           ))}
+          {(data?.length || 0) === 0 && (
+            <div className="rounded-xl border border-dashed px-4 py-6 text-sm text-muted-foreground">
+              No audit entries yet.
+            </div>
+          )}
         </div>
       </section>
     </DispatcherShell>

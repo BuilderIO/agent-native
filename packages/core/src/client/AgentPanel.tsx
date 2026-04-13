@@ -290,6 +290,18 @@ function AgentSettingsPopover({
     return () => document.removeEventListener("keydown", handleKey);
   }, [open]);
 
+  useEffect(() => {
+    function handleOpenSettings() {
+      setOpen(true);
+    }
+    window.addEventListener("agent-panel:open-settings", handleOpenSettings);
+    return () =>
+      window.removeEventListener(
+        "agent-panel:open-settings",
+        handleOpenSettings,
+      );
+  }, []);
+
   const environmentOptions: SettingsSelectOption[] = [
     {
       value: "production",

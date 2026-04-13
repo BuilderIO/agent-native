@@ -15,11 +15,11 @@ export default function IdentitiesRoute() {
 
   return (
     <DispatcherShell
-      title="Map platform senders to real workspace users"
-      description="Linked people get their personal resources and permissions. Everyone else falls back to shared dispatcher behavior."
+      title="Identities"
+      description="Link external senders to workspace users."
     >
       <div className="grid gap-4 xl:grid-cols-2">
-        <section className="rounded-3xl border border-border/60 bg-card/70 p-5">
+        <section className="rounded-2xl border bg-card p-5">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold text-foreground">
               Active links
@@ -42,7 +42,7 @@ export default function IdentitiesRoute() {
             {(data?.links || []).map((link) => (
               <div
                 key={link.id}
-                className="rounded-2xl border border-border/50 bg-muted/35 px-4 py-3"
+                className="rounded-xl border bg-muted/30 px-4 py-3"
               >
                 <div className="text-sm font-medium text-foreground">
                   {link.externalUserName || link.externalUserId}
@@ -53,7 +53,7 @@ export default function IdentitiesRoute() {
               </div>
             ))}
             {(data?.links?.length || 0) === 0 && (
-              <div className="rounded-2xl border border-dashed border-border/60 px-4 py-8 text-sm text-muted-foreground">
+              <div className="rounded-xl border border-dashed px-4 py-8 text-sm text-muted-foreground">
                 No linked identities yet. Generate a token and ask the user to
                 send <code>/link TOKEN</code> from Slack or Telegram.
               </div>
@@ -61,14 +61,11 @@ export default function IdentitiesRoute() {
           </div>
         </section>
 
-        <section className="rounded-3xl border border-border/60 bg-card/70 p-5">
+        <section className="rounded-2xl border bg-card p-5">
           <h2 className="text-lg font-semibold text-foreground">Link tokens</h2>
           <div className="mt-4 space-y-3">
             {(data?.tokens || []).map((token) => (
-              <div
-                key={token.id}
-                className="rounded-2xl border border-border/50 px-4 py-3"
-              >
+              <div key={token.id} className="rounded-xl border px-4 py-3">
                 <div className="text-sm font-medium text-foreground">
                   /link {token.token}
                 </div>
@@ -81,6 +78,11 @@ export default function IdentitiesRoute() {
                 </div>
               </div>
             ))}
+            {(data?.tokens?.length || 0) === 0 && (
+              <div className="rounded-xl border border-dashed px-4 py-8 text-sm text-muted-foreground">
+                No active link tokens.
+              </div>
+            )}
           </div>
         </section>
       </div>

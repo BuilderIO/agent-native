@@ -59,6 +59,7 @@ function DbSyncSetup() {
       "list-dispatcher-approvals",
       "list-dispatcher-audit",
       "get-dispatcher-settings",
+      "list-connected-agents",
     ],
     ignoreSource: TAB_ID,
   });

@@ -36,16 +36,16 @@ export default function ApprovalsRoute() {
 
   return (
     <DispatcherShell
-      title="Review durable behavior before it changes"
-      description="Use approval flow to keep instructions, routes, and saved dispatcher behavior accountable across a team."
+      title="Approvals"
+      description="Review durable dispatcher changes before they apply."
     >
       <div className="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-        <section className="rounded-3xl border border-border/60 bg-card/70 p-5">
+        <section className="rounded-2xl border bg-card p-5">
           <h2 className="text-lg font-semibold text-foreground">
             Approval policy
           </h2>
           <div className="mt-4 space-y-4">
-            <label className="flex items-center justify-between rounded-2xl border border-border/50 px-4 py-3">
+            <label className="flex items-center justify-between rounded-xl border px-4 py-3">
               <div>
                 <div className="text-sm font-medium text-foreground">
                   Require approval for durable changes
@@ -89,7 +89,7 @@ export default function ApprovalsRoute() {
           </div>
         </section>
 
-        <section className="rounded-3xl border border-border/60 bg-card/70 p-5">
+        <section className="rounded-2xl border bg-card p-5">
           <h2 className="text-lg font-semibold text-foreground">
             Pending and recent requests
           </h2>
@@ -97,7 +97,7 @@ export default function ApprovalsRoute() {
             {(approvals || []).map((approval) => (
               <div
                 key={approval.id}
-                className="rounded-2xl border border-border/50 bg-muted/35 px-4 py-3"
+                className="rounded-xl border bg-muted/30 px-4 py-3"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -134,7 +134,7 @@ export default function ApprovalsRoute() {
               </div>
             ))}
             {(approvals?.length || 0) === 0 && (
-              <div className="rounded-2xl border border-dashed border-border/60 px-4 py-8 text-sm text-muted-foreground">
+              <div className="rounded-xl border border-dashed px-4 py-8 text-sm text-muted-foreground">
                 No approval requests yet.
               </div>
             )}
