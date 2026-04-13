@@ -27,6 +27,11 @@ const CORE_TABLE_SCOPING: Record<
 };
 
 // The conventional column names for user/org ownership in template tables.
+import {
+  getRequestUserEmail,
+  getRequestOrgId,
+} from "../../server/request-context.js";
+
 const OWNER_COLUMN = "owner_email";
 const ORG_COLUMN = "org_id";
 
@@ -40,11 +45,11 @@ function isProd(): boolean {
 }
 
 function getUserEmail(): string | null {
-  return process.env.AGENT_USER_EMAIL || null;
+  return getRequestUserEmail() || null;
 }
 
 function getOrgId(): string | null {
-  return process.env.AGENT_ORG_ID || null;
+  return getRequestOrgId() || null;
 }
 
 // ─── Schema introspection ───────────────────────────────────────────────────

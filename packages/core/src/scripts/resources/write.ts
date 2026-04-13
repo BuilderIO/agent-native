@@ -9,6 +9,7 @@
 
 import { parseArgs, fail } from "../utils.js";
 import { resourcePut, SHARED_OWNER } from "../../resources/store.js";
+import { getRequestUserEmail } from "../../server/request-context.js";
 
 const EXTENSION_MIME_MAP: Record<string, string> = {
   ".md": "text/markdown",
@@ -72,7 +73,7 @@ Options:
   const owner =
     scope === "shared"
       ? SHARED_OWNER
-      : (process.env.AGENT_USER_EMAIL ?? "local@localhost");
+      : (getRequestUserEmail() ?? "local@localhost");
 
   const resource = await resourcePut(owner, resourcePath, content, mimeType);
   console.log(`Wrote resource: ${resource.path} (${resource.size} bytes)`);

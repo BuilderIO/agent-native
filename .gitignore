@@ -60,3 +60,7 @@ wrangler.toml
 
 # Shell `script` command log artifacts
 db-exec
+
+# Environment files (may contain secrets)
+.env
+templates/*/.env

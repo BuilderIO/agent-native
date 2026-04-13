@@ -16,10 +16,11 @@ import {
   resourceListAccessible,
   type ResourceMeta,
 } from "./store.js";
+import { getRequestUserEmail } from "../server/request-context.js";
 
 function getOwner(shared?: boolean): string {
   if (shared) return SHARED_OWNER;
-  return process.env.AGENT_USER_EMAIL || "local@localhost";
+  return getRequestUserEmail() || "local@localhost";
 }
 
 export async function readResource(
@@ -59,6 +60,6 @@ export async function listResources(
 export async function listAllResources(
   prefix?: string,
 ): Promise<ResourceMeta[]> {
-  const userEmail = process.env.AGENT_USER_EMAIL || "local@localhost";
+  const userEmail = getRequestUserEmail() || "local@localhost";
   return resourceListAccessible(userEmail, prefix);
 }

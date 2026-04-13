@@ -21,6 +21,7 @@
     "./server": "./dist/server/index.js",
     "./server/ssr-handler": "./dist/server/ssr-handler.js",
     "./server/agent-discovery": "./dist/server/agent-discovery.js",
+    "./server/request-context": "./dist/server/request-context.js",
     "./db": "./dist/db/index.js",
     "./db/schema": "./dist/db/schema.js",
     "./client": "./dist/client/index.js",

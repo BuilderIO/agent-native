@@ -10,6 +10,7 @@
 import fs from "fs";
 import path from "path";
 import { resourcePut } from "../../resources/store.js";
+import { getRequestUserEmail } from "../../server/request-context.js";
 
 export default async function migrateLearningsScript(
   args: string[],
@@ -22,7 +23,7 @@ export default async function migrateLearningsScript(
   }
 
   const content = fs.readFileSync(filePath, "utf-8");
-  const owner = process.env.AGENT_USER_EMAIL ?? "local@localhost";
+  const owner = getRequestUserEmail() ?? "local@localhost";
 
   const resource = await resourcePut(
     owner,

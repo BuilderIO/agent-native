@@ -9,9 +9,10 @@
 
 import { parseArgs, fail } from "../utils.js";
 import { searchThreads, listThreads } from "../../chat-threads/store.js";
+import { getRequestUserEmail } from "../../server/request-context.js";
 
 function getOwnerEmail(): string {
-  const email = process.env.AGENT_USER_EMAIL;
+  const email = getRequestUserEmail();
   if (!email || email === "local@localhost") return "local@localhost";
   return email;
 }
