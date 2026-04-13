@@ -2,7 +2,6 @@ import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import {
   deleteOrgSetting,
-  deleteSetting,
   deleteUserSetting,
 } from "@agent-native/core/settings";
 
@@ -19,12 +18,11 @@ export default defineAction({
     const email = process.env.AGENT_USER_EMAIL || "local@localhost";
     const key = `${KEY_PREFIX}${args.id}`;
 
+    // Scoped delete only — never touch the global settings table.
     if (orgId) {
       await deleteOrgSetting(orgId, key);
-    } else if (email !== "local@localhost") {
-      await deleteUserSetting(email, key);
     } else {
-      await deleteSetting(key);
+      await deleteUserSetting(email, key);
     }
     return `Analysis "${args.id}" deleted.`;
   },

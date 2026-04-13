@@ -15,10 +15,40 @@ function escapeHtml(str: string): string {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
+ * Sanitize a URL for use in an href. Rejects dangerous protocols
+ * (javascript:, data:, vbscript:, file:) and empty strings. Returns a
+ * safe-to-embed value — always HTML-escape the result when inserting
+ * into an attribute.
+ */
+function sanitizeUrl(url: string): string {
+  const trimmed = url.trim();
+  // Block protocol-relative urls only if they look suspicious — rare in
+  // markdown, but most safe: allow http/https/mailto and relative paths.
+  const lower = trimmed.toLowerCase();
+  // Strip HTML entities and whitespace before protocol check so
+  // `javascript&#58;…` style attempts don't sneak through.
+  const stripped = lower.replace(/[\s\u0000-\u001f]/g, "");
+  if (
+    stripped.startsWith("javascript:") ||
+    stripped.startsWith("data:") ||
+    stripped.startsWith("vbscript:") ||
+    stripped.startsWith("file:")
+  ) {
+    return "#";
+  }
+  return trimmed;
 }
 
 function renderInline(text: string): string {
+  // Escape the raw text before applying markdown replacements so any
+  // HTML the agent emits is inert. Note: markdown tokens like `**` and
+  // `[text](url)` are detected AFTER escaping — that's safe because our
+  // tokens don't overlap with escaped entities.
   return (
     escapeHtml(text)
       // Bold
@@ -29,11 +59,11 @@ function renderInline(text: string): string {
       .replace(/_(.+?)_/g, "<em>$1</em>")
       // Inline code
       .replace(/`([^`]+)`/g, "<code>$1</code>")
-      // Links
-      .replace(
-        /\[([^\]]+)\]\(([^)]+)\)/g,
-        '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>',
-      )
+      // Links — sanitize URL to block javascript:/data:/vbscript:/file:
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, label, rawUrl) => {
+        const safe = sanitizeUrl(rawUrl);
+        return `<a href="${escapeHtml(safe)}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+      })
   );
 }
 
@@ -56,7 +86,10 @@ function renderMarkdown(md: string): string {
     // Code block
     if (line.startsWith("```")) {
       closeList();
-      const lang = line.slice(3).trim();
+      // Language hint is user-controlled (via the markdown fence); normalize
+      // to a safe identifier and then HTML-escape as a belt-and-suspenders.
+      const rawLang = line.slice(3).trim();
+      const safeLang = rawLang.replace(/[^a-zA-Z0-9_+#.-]/g, "").slice(0, 32);
       const codeLines: string[] = [];
       i++;
       while (i < lines.length && !lines[i].startsWith("```")) {
@@ -65,7 +98,7 @@ function renderMarkdown(md: string): string {
       }
       i++; // skip closing ```
       out.push(
-        `<pre><code${lang ? ` class="language-${lang}"` : ""}>${codeLines.join("\n")}</code></pre>`,
+        `<pre><code${safeLang ? ` class="language-${escapeHtml(safeLang)}"` : ""}>${codeLines.join("\n")}</code></pre>`,
       );
       continue;
     }

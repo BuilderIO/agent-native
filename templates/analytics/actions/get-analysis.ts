@@ -1,10 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import {
-  getOrgSetting,
-  getSetting,
-  getUserSetting,
-} from "@agent-native/core/settings";
+import { getOrgSetting, getUserSetting } from "@agent-native/core/settings";
 
 const KEY_PREFIX = "adhoc-analysis-";
 
@@ -19,10 +15,12 @@ export default defineAction({
     const email = process.env.AGENT_USER_EMAIL || "local@localhost";
     const key = `${KEY_PREFIX}${args.id}`;
 
+    // Always use a scoped lookup — never fall through to global `getSetting`,
+    // which would leak any user's analysis by ID guess. Local-mode analyses
+    // live at `u:local@localhost:adhoc-analysis-*`.
     const data =
       (orgId ? await getOrgSetting(orgId, key) : null) ||
-      (email !== "local@localhost" ? await getUserSetting(email, key) : null) ||
-      (await getSetting(key));
+      (await getUserSetting(email, key));
 
     if (!data) {
       return { error: "Analysis not found" };

@@ -416,16 +416,14 @@ export function AgentPanel({
         <button
           onClick={() => switchMode("settings")}
           className={cn(
-            "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
+            "flex items-center justify-center rounded-md px-1.5 py-1",
             activeMode === "settings"
               ? "bg-accent text-foreground"
               : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
           )}
           title="Setup and configuration"
-          style={AGENT_PANEL_CONTROL_STYLE}
         >
           <IconSettings size={14} />
-          Setup
         </button>
       </div>
     ),

@@ -3,10 +3,8 @@ import { z } from "zod";
 import {
   getOrgSetting,
   getUserSetting,
-  getSetting,
   putOrgSetting,
   putUserSetting,
-  putSetting,
 } from "@agent-native/core/settings";
 
 const KEY_PREFIX = "adhoc-analysis-";
@@ -71,14 +69,14 @@ export default defineAction({
     const key = `${KEY_PREFIX}${args.id}`;
     const now = new Date().toISOString();
 
-    // Check if this analysis already exists (to preserve createdAt)
+    // Check if this analysis already exists (to preserve createdAt). Always
+    // look in a scoped key (org or user) — never in the global settings
+    // table, so one user's analyses can't bleed across tenants.
     let existing: Record<string, unknown> | null = null;
     try {
       existing = orgId
         ? await getOrgSetting(orgId, key)
-        : email !== "local@localhost"
-          ? await getUserSetting(email, key)
-          : await getSetting(key);
+        : await getUserSetting(email, key);
     } catch {
       // Not found
     }
@@ -97,12 +95,13 @@ export default defineAction({
       author: email,
     };
 
+    // Always write to a scoped key (org or user). Local-mode analyses go
+    // under `u:local@localhost:adhoc-analysis-*` so the existing
+    // migrateLocalUserData flow renames them to the real account on sign-in.
     if (orgId) {
       await putOrgSetting(orgId, key, analysis);
-    } else if (email !== "local@localhost") {
-      await putUserSetting(email, key, analysis);
     } else {
-      await putSetting(key, analysis);
+      await putUserSetting(email, key, analysis);
     }
 
     return `Analysis "${args.name}" saved as ${args.id}. Users can view it at /analyses/${args.id} and re-run it anytime for fresh results.`;
