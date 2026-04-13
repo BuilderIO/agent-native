@@ -21,6 +21,15 @@ import {
   type Resource,
   type ResourceMeta,
 } from "./store.js";
+import {
+  getResourceKind,
+  parseCustomAgentProfile,
+  parseRemoteAgentManifest,
+  parseSkillMetadata,
+  type CustomAgentProfile,
+  type RemoteAgentManifest,
+  type SkillMetadata,
+} from "./metadata.js";
 import { getSession } from "../server/auth.js";
 import { readBody } from "../server/h3-helpers.js";
 
@@ -56,9 +65,13 @@ interface TreeNode {
   name: string;
   path: string;
   type: "file" | "folder";
+  kind?: "file" | "skill" | "job" | "agent" | "remote-agent";
   children?: TreeNode[];
   resource?: ResourceMeta;
   jobMeta?: JobMetadata;
+  skillMeta?: SkillMetadata;
+  agentMeta?: CustomAgentProfile;
+  remoteAgentMeta?: RemoteAgentManifest;
 }
 
 function buildTree(resources: ResourceMeta[]): TreeNode[] {
@@ -78,6 +91,7 @@ function buildTree(resources: ResourceMeta[]): TreeNode[] {
           name: part,
           path: currentPath,
           type: "file",
+          kind: getResourceKind(res.path),
           resource: res,
         });
       } else {
@@ -162,16 +176,16 @@ export async function handleGetResourceTree(event: any) {
 
   const tree = buildTree(resources);
 
-  // Enrich job files with parsed frontmatter metadata for status indicators
-  await enrichJobNodes(tree);
+  // Enrich typed resources with parsed metadata for richer UI
+  await enrichTreeNodes(tree);
 
   return { tree };
 }
 
 /**
- * Walk the tree and add jobMeta to files under jobs/.
+ * Walk the tree and add typed metadata for jobs, skills, and agents.
  */
-async function enrichJobNodes(nodes: TreeNode[]): Promise<void> {
+async function enrichTreeNodes(nodes: TreeNode[]): Promise<void> {
   let parseFn: typeof import("../jobs/scheduler.js").parseJobFrontmatter;
   let describeFn: typeof import("../jobs/cron.js").describeCron;
   try {
@@ -185,17 +199,17 @@ async function enrichJobNodes(nodes: TreeNode[]): Promise<void> {
 
   for (const node of nodes) {
     if (node.type === "folder" && node.children) {
-      await enrichJobNodes(node.children);
+      await enrichTreeNodes(node.children);
     }
-    if (
-      node.type === "file" &&
-      node.resource &&
-      node.resource.path.startsWith("jobs/") &&
-      node.resource.path.endsWith(".md")
-    ) {
+    if (node.type === "file" && node.resource) {
       try {
         const full = await resourceGet(node.resource.id);
-        if (full?.content) {
+        if (!full?.content) continue;
+
+        if (
+          node.resource.path.startsWith("jobs/") &&
+          node.resource.path.endsWith(".md")
+        ) {
           const { meta } = parseFn(full.content);
           node.jobMeta = {
             schedule: meta.schedule,
@@ -207,6 +221,32 @@ async function enrichJobNodes(nodes: TreeNode[]): Promise<void> {
             lastRun: meta.lastRun,
             nextRun: meta.nextRun,
           };
+        }
+
+        if (
+          node.resource.path.startsWith("skills/") &&
+          node.resource.path.endsWith(".md")
+        ) {
+          node.skillMeta =
+            parseSkillMetadata(full.content, node.resource.path) ?? undefined;
+        }
+
+        if (
+          node.resource.path.startsWith("agents/") &&
+          node.resource.path.endsWith(".md")
+        ) {
+          node.agentMeta =
+            parseCustomAgentProfile(full.content, node.resource.path) ??
+            undefined;
+        }
+
+        if (
+          node.resource.path.startsWith("agents/") &&
+          node.resource.path.endsWith(".json")
+        ) {
+          node.remoteAgentMeta =
+            parseRemoteAgentManifest(full.content, node.resource.path) ??
+            undefined;
         }
       } catch {
         // Skip individual file errors

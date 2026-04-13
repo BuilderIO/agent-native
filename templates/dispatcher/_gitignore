@@ -1,0 +1,37 @@
+# React Router generated types
+.react-router/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Data
+data/uploads/
+data/settings.json
+data/.sessions.json
+
+# Learnings (personal preferences and memory — use learnings.defaults.md for tracked defaults)
+learnings.md

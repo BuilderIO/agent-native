@@ -81,7 +81,7 @@ The vision is to reduce handoffs and enable one-person-to-full-team productivity
 
 ## Fork and customize {#fork-and-customize}
 
-Agent-native apps follow a single-tenant, fork-and-customize model. You start from a template — mail, calendar, analytics, slides — and make it yours:
+Agent-native apps follow a fork-and-customize model. You start from a template — mail, calendar, analytics, slides — and make it yours:
 
 1. Pick a template on [agentnative.com](/templates)
 2. Start using it immediately as a hosted app (e.g. mail.agentnative.com)

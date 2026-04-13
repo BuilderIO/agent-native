@@ -5,6 +5,7 @@ import type {
   IncomingMessage,
   OutgoingMessage,
   IntegrationStatus,
+  OutboundTarget,
 } from "../types.js";
 import type { EnvKeyConfig } from "../../server/create-server.js";
 import { readBody } from "../../server/h3-helpers.js";
@@ -160,6 +161,49 @@ export function telegramAdapter(): PlatformAdapter {
           }
         } catch (err) {
           console.error("[telegram] Failed to send message:", err);
+        }
+      }
+    },
+
+    async sendMessageToTarget(
+      message: OutgoingMessage,
+      target: OutboundTarget,
+    ): Promise<void> {
+      const token = process.env.TELEGRAM_BOT_TOKEN;
+      if (!token) {
+        console.error("[telegram] TELEGRAM_BOT_TOKEN not configured");
+        return;
+      }
+
+      const chunks = splitMessage(message.text, TELEGRAM_MAX_LENGTH);
+      for (const chunk of chunks) {
+        const body: Record<string, unknown> = {
+          chat_id: target.destination,
+          text: chunk,
+        };
+        if (target.threadRef) {
+          body.message_thread_id = target.threadRef;
+        }
+
+        try {
+          const res = await fetch(
+            `https://api.telegram.org/bot${token}/sendMessage`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body),
+            },
+          );
+          const data = (await res.json()) as {
+            ok: boolean;
+            description?: string;
+          };
+          if (!data.ok) {
+            throw new Error(data.description || "sendMessage failed");
+          }
+        } catch (err) {
+          console.error("[telegram] Failed to send proactive message:", err);
+          throw err;
         }
       }
     },

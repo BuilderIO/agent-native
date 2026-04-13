@@ -29,16 +29,18 @@ export interface OnboardingHtmlOptions {
   googleOnly?: boolean;
 }
 
+const MIGRATE_FLAG_KEY = "an_migrate_from_local";
+
 export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const showLocalMode = !isProductionEnv() && !opts.googleOnly;
   const showGoogle = hasGoogleOAuth();
   const googleOnly = !!opts.googleOnly;
   const localModeBlock = showLocalMode
     ? `
-  <div class="divider">or</div>
+  <div class="divider" id="local-divider">or</div>
 
   <button class="btn-secondary" id="local-btn" onclick="useLocally()">Use locally without an account</button>
-  <p class="local-info">Skip auth for solo local development. You can create an account later.</p>`
+  <p class="local-info" id="local-info">Skip auth for solo local development. You can create an account later.</p>`
     : "";
 
   const localModeScript = showLocalMode
@@ -48,6 +50,11 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     btn.disabled = true;
     btn.textContent = 'Setting up...';
     try {
+      try {
+        if (localStorage.getItem('${MIGRATE_FLAG_KEY}')) {
+          localStorage.removeItem('${MIGRATE_FLAG_KEY}');
+        }
+      } catch (e) {}
       var res = await fetch('/_agent-native/auth/local-mode', { method: 'POST' });
       if (res.ok) {
         window.location.reload();
@@ -180,6 +187,18 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     margin-top: 0.5rem;
     line-height: 1.4;
   }
+  .upgrade-note {
+    margin-bottom: 1rem;
+    padding: 0.75rem;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    background: rgba(255,255,255,0.03);
+    font-size: 0.75rem;
+    line-height: 1.5;
+    color: #a1a1aa;
+    display: none;
+  }
+  .upgrade-note.show { display: block; }
   .btn-google {
     width: 100%;
     display: flex;
@@ -206,6 +225,9 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
 <div class="card">
   <h1>Welcome</h1>
   <p class="subtitle">Create an account to get started</p>
+  <p class="upgrade-note" id="upgrade-note">
+    You started this flow from <code>local@localhost</code>. Continue signing in to upgrade this workspace to a real account and migrate your local data. If you want to cancel that and keep using local mode, use the secondary button below.
+  </p>
 
 ${
   showGoogle
@@ -326,6 +348,30 @@ ${
   });
 `
 }${localModeScript}
+${
+  showLocalMode
+    ? `
+  (function syncUpgradeFromLocalUi() {
+    var subtitle = document.querySelector('.subtitle');
+    var note = document.getElementById('upgrade-note');
+    var localBtn = document.getElementById('local-btn');
+    var localInfo = document.getElementById('local-info');
+    var divider = document.getElementById('local-divider');
+    if (!subtitle || !note || !localBtn || !localInfo || !divider) return;
+    try {
+      if (!localStorage.getItem('${MIGRATE_FLAG_KEY}')) return;
+    } catch (e) {
+      return;
+    }
+    subtitle.textContent = 'Sign in to upgrade your local workspace';
+    note.classList.add('show');
+    localBtn.textContent = 'Stay in local mode';
+    localInfo.textContent = 'Use this if you want to cancel the upgrade and go back to local@localhost on this device.';
+    divider.textContent = 'or stay local';
+  })();
+`
+    : ""
+}
 ${
   showGoogle
     ? `

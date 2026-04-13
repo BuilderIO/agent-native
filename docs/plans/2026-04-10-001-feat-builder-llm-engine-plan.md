@@ -219,7 +219,7 @@ In order:
 
 - Fine-grained credit metering UI on the agent-native side (beyond surfacing the credit-exhausted error). Credit display/top-up flows live in Builder's account UI, not inside agent-native apps.
 - Model auto-discovery. `GET /agent/models` exists but the initial implementation uses the static `supportedModels` list in `builtin.ts`. Dynamic model discovery is a reasonable follow-up, not a blocker.
-- Multi-key support (different `bpk-` per user inside a single deployment). Agent-native is single-tenant; one deployment = one Builder key.
+- Multi-key support (different `bpk-` per user inside a single deployment). Currently one deployment uses one Builder key.
 - Anthropic-compatible wire shim for third parties. Both sides of this are Builder-owned, so we use the cleaner JSONL format. If an external consumer ever needs Anthropic-compatible streaming, we can add a `/agent/messages?format=anthropic` variant without touching the JSONL path.
 
 ## Sources

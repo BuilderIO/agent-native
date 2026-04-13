@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useSearchParams, useParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,8 @@ import {
 } from "./DashboardFilterBar";
 import { interpolate } from "./interpolate";
 import type { SqlDashboardConfig } from "./types";
+import { useUserPref } from "@/hooks/use-user-pref";
+import { useDashboardViews } from "@/hooks/use-dashboard-views";
 import {
   DndContext,
   closestCenter,
@@ -64,7 +66,7 @@ async function saveDashboard(id: string, data: SqlDashboardConfig) {
 }
 
 export default function SqlDashboardPage() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { id: routeId } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
   const dashboardId = searchParams.get("id") || routeId;
@@ -73,6 +75,20 @@ export default function SqlDashboardPage() {
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState("");
   const [loaded, setLoaded] = useState(false);
+
+  // Per-user saved filter state
+  const filterPrefKey = dashboardId ? `dashboard-filters:${dashboardId}` : "";
+  const {
+    data: savedFilters,
+    isLoading: filtersLoading,
+    save: saveFilterPref,
+  } = useUserPref<{ filters: Record<string, string> }>(filterPrefKey);
+
+  // Dashboard views
+  const { saveView } = useDashboardViews(dashboardId ?? undefined);
+
+  // Track whether we've applied saved filters on initial load
+  const appliedSaved = useRef(false);
 
   useEffect(() => {
     if (!dashboardId) return;
@@ -85,6 +101,60 @@ export default function SqlDashboardPage() {
       setLoaded(true);
     });
   }, [dashboardId]);
+
+  // Apply saved filters on initial load if no filter URL params are present
+  useEffect(() => {
+    if (appliedSaved.current || filtersLoading || !loaded || !dashboard) return;
+    appliedSaved.current = true;
+
+    // Check if there's a view param — if so, load view filters
+    const viewId = searchParams.get("view");
+    if (viewId) return; // View filters are applied by the view param handler
+
+    // Check if any f_ params are already in the URL
+    const hasUrlFilters = Array.from(searchParams.keys()).some((k) =>
+      k.startsWith(FILTER_PARAM_PREFIX),
+    );
+    if (hasUrlFilters) return;
+
+    // Apply saved filter defaults
+    if (savedFilters?.filters && Object.keys(savedFilters.filters).length > 0) {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          for (const [key, value] of Object.entries(savedFilters.filters)) {
+            if (value) next.set(key, value);
+          }
+          return next;
+        },
+        { replace: true },
+      );
+    }
+  }, [
+    filtersLoading,
+    loaded,
+    dashboard,
+    savedFilters,
+    searchParams,
+    setSearchParams,
+  ]);
+
+  // Auto-save filter state when URL params change (debounced)
+  const saveTimer = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => {
+    if (!loaded || !dashboard?.filters?.length || !dashboardId) return;
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      const currentFilters: Record<string, string> = {};
+      searchParams.forEach((v, k) => {
+        if (k.startsWith(FILTER_PARAM_PREFIX)) {
+          currentFilters[k] = v;
+        }
+      });
+      saveFilterPref({ filters: currentFilters });
+    }, 1500);
+    return () => clearTimeout(saveTimer.current);
+  }, [searchParams, loaded, dashboard?.filters, dashboardId, saveFilterPref]);
 
   const persist = useCallback(
     (updated: SqlDashboardConfig) => {
@@ -176,6 +246,18 @@ export default function SqlDashboardPage() {
     window.location.href = "/";
   }, [dashboardId, queryClient]);
 
+  const handleSaveView = useCallback(
+    async (name: string, filters: Record<string, string>) => {
+      const id = name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "")
+        .slice(0, 60);
+      await saveView({ id, name, filters });
+    },
+    [saveView],
+  );
+
   if (!dashboardId) {
     return (
       <div className="flex items-center justify-center h-64 text-muted-foreground">
@@ -237,7 +319,10 @@ export default function SqlDashboardPage() {
 
       {/* Filters */}
       {dashboard.filters && dashboard.filters.length > 0 && (
-        <DashboardFilterBar filters={dashboard.filters} />
+        <DashboardFilterBar
+          filters={dashboard.filters}
+          onSaveView={handleSaveView}
+        />
       )}
 
       {/* Panels grid */}

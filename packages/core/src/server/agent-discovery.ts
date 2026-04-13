@@ -141,30 +141,6 @@ export function getBuiltinAgents(selfAppId?: string): DiscoveredAgent[] {
 }
 
 /**
- * Parse a JSON agent resource into a DiscoveredAgent.
- * Returns null if the resource is not valid agent config.
- */
-function parseAgentResource(
-  content: string,
-  path: string,
-): DiscoveredAgent | null {
-  try {
-    const data = JSON.parse(content);
-    const id = data.id || path.replace(/^agents\//, "").replace(/\.json$/, "");
-    if (!data.url) return null;
-    return {
-      id,
-      name: data.name || id,
-      description: data.description || "",
-      url: data.url,
-      color: data.color || "#6B7280",
-    };
-  } catch {
-    return null;
-  }
-}
-
-/**
  * Discover all agents: built-in + custom agents stored as resources.
  * Custom agents override built-in agents with the same ID.
  */
@@ -190,13 +166,24 @@ export async function discoverAgents(
     const resources = isDevMode
       ? await resourceListAccessible("local@localhost", "agents/")
       : await resourceList(SHARED_OWNER, "agents/");
+    const { parseRemoteAgentManifest } =
+      await import("../resources/metadata.js");
 
     for (const r of resources) {
       if (!r.path.endsWith(".json")) continue;
       try {
         const full = await resourceGet(r.id);
         if (!full) continue;
-        const agent = parseAgentResource(full.content, r.path);
+        const manifest = parseRemoteAgentManifest(full.content, r.path);
+        const agent = manifest
+          ? {
+              id: manifest.id,
+              name: manifest.name,
+              description: manifest.description || "",
+              url: manifest.url,
+              color: manifest.color || "#6B7280",
+            }
+          : null;
         if (agent && agent.id !== selfAppId) {
           agentsById.set(agent.id, agent);
         }

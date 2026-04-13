@@ -180,7 +180,7 @@ Agent-native apps can work with MCP servers, but the architecture leans heavily 
 
 ## Agent modifies code {#agent-modifies-code}
 
-This is a feature, not a bug. Because every agent-native app is single-tenant — your team's own fork — the agent can safely edit the app's source code: components, routes, styles, actions.
+This is a feature, not a bug. The agent can safely edit the app's source code: components, routes, styles, actions.
 
 There's no shared codebase to break. You own the app, and the agent evolves it for you over time:
 

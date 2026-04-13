@@ -1,5 +1,6 @@
 # React Router generated types
 .react-router/
+.agent-native/
 
 # Logs
 logs

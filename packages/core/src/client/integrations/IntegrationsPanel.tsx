@@ -403,14 +403,29 @@ export function IntegrationsPanel() {
       {loading ? (
         <div className="h-4 w-24 rounded bg-muted/50 animate-pulse" />
       ) : connectedPlatforms.length === 0 ? (
-        <button
-          onClick={() => setShowPicker(true)}
-          className="text-[10px] text-muted-foreground hover:text-foreground"
-        >
-          Add an integration...
-        </button>
+        <div className="space-y-2">
+          <button
+            onClick={() => setShowPicker(true)}
+            className="text-[10px] text-muted-foreground hover:text-foreground"
+          >
+            Add an integration...
+          </button>
+          <div className="rounded-md border border-border bg-muted/30 px-2.5 py-2 text-[10px] text-muted-foreground">
+            For a central Slack or Telegram entrypoint that can route work
+            across multiple apps, use the{" "}
+            <a
+              href="https://dispatcher.agent-native.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline text-foreground hover:text-foreground/80"
+            >
+              dispatcher template
+            </a>
+            .
+          </div>
+        </div>
       ) : (
-        <div className="space-y-1">
+        <div className="space-y-2">
           {connectedPlatforms.map((platform) => {
             const s = statusMap.get(platform.id);
             return (
@@ -440,6 +455,11 @@ export function IntegrationsPanel() {
               </button>
             );
           })}
+          <div className="rounded-md border border-border bg-muted/30 px-2.5 py-2 text-[10px] text-muted-foreground">
+            Need one shared messaging surface for your workspace? Connect Slack
+            or Telegram to a dispatcher app and let it delegate to other agents
+            over A2A.
+          </div>
         </div>
       )}
     </div>

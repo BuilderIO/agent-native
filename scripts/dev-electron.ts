@@ -65,7 +65,7 @@ requestedApps.forEach((appName, i) => {
   // The templates' vite.config.ts uses @agent-native/core/vite which integrates
   // the Express API server as Vite middleware — so this single command starts
   // both the frontend and all /api/* routes on the one port.
-  commands.push(`pnpm --filter ${appName} exec vite --port ${port}`);
+  commands.push(`pnpm --dir templates/${appName} exec vite --port ${port}`);
   colors.push(appColors[i % appColors.length]);
 });
 

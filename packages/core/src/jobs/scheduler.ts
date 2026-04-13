@@ -20,6 +20,9 @@ import type { AgentChatEvent } from "../agent/types.js";
 export interface JobFrontmatter {
   schedule: string;
   enabled: boolean;
+  createdBy?: string;
+  orgId?: string;
+  runAs?: "creator" | "shared";
   lastRun?: string;
   lastStatus?: "success" | "error" | "running" | "skipped";
   lastError?: string;
@@ -66,6 +69,16 @@ export function parseJobFrontmatter(content: string): {
       case "enabled":
         meta.enabled = value !== "false";
         break;
+      case "createdBy":
+        meta.createdBy = value;
+        break;
+      case "orgId":
+        meta.orgId = value;
+        break;
+      case "runAs":
+        meta.runAs =
+          value === "shared" || value === "creator" ? value : undefined;
+        break;
       case "lastRun":
         meta.lastRun = value;
         break;
@@ -88,6 +101,9 @@ export function buildJobContent(meta: JobFrontmatter, body: string): string {
   const lines = [`---`];
   lines.push(`schedule: "${meta.schedule}"`);
   lines.push(`enabled: ${meta.enabled}`);
+  if (meta.createdBy) lines.push(`createdBy: ${meta.createdBy}`);
+  if (meta.orgId) lines.push(`orgId: ${meta.orgId}`);
+  if (meta.runAs) lines.push(`runAs: ${meta.runAs}`);
   if (meta.lastRun) lines.push(`lastRun: ${meta.lastRun}`);
   if (meta.lastStatus) lines.push(`lastStatus: ${meta.lastStatus}`);
   if (meta.lastError)
@@ -185,7 +201,17 @@ async function executeJob(
   // Set owner context so all scoped operations (app-state, resources, etc.)
   // operate on the correct user's data
   const prevOwner = process.env.AGENT_USER_EMAIL;
-  process.env.AGENT_USER_EMAIL = resource.owner;
+  const prevOrgId = process.env.AGENT_ORG_ID;
+  const effectiveRunAs = meta.runAs ?? "creator";
+  process.env.AGENT_USER_EMAIL =
+    effectiveRunAs === "creator"
+      ? meta.createdBy || resource.owner
+      : resource.owner;
+  if (meta.orgId) {
+    process.env.AGENT_ORG_ID = meta.orgId;
+  } else {
+    delete process.env.AGENT_ORG_ID;
+  }
 
   try {
     const actions = deps.getActions();
@@ -255,6 +281,11 @@ async function executeJob(
       process.env.AGENT_USER_EMAIL = prevOwner;
     } else {
       delete process.env.AGENT_USER_EMAIL;
+    }
+    if (prevOrgId !== undefined) {
+      process.env.AGENT_ORG_ID = prevOrgId;
+    } else {
+      delete process.env.AGENT_ORG_ID;
     }
   }
 }

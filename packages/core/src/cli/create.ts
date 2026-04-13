@@ -50,6 +50,11 @@ const TEMPLATES = [
     hint: "AI-native Amplitude/Mixpanel — connect data sources, prompt for charts",
   },
   {
+    value: "dispatcher",
+    label: "Dispatcher",
+    hint: "Central Slack/Telegram router with jobs, memory, approvals, and A2A delegation",
+  },
+  {
     value: "forms",
     label: "Forms",
     hint: "AI-native form builder — create, edit, and manage forms",

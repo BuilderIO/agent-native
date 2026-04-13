@@ -59,10 +59,6 @@ Polling works in every deployment environment — including serverless, edge, an
 
 AI is non-deterministic — you need conversation flow to give feedback and iterate, not one-shot buttons. The agent has your full codebase, instructions, skills, and conversation history. An inline LLM call has none of that. Plus, routing everything through the agent means the app can be driven from Slack, Telegram, or another agent via [A2A](/docs/a2a-protocol) — not just the UI.
 
-### Why single-tenant? {#why-single-tenant}
-
-Because the agent can modify code. In a multi-tenant SaaS, you can't let one customer's agent change the source code — it would affect everyone. With single-tenant, each organization gets their own fork. The agent can safely evolve the code, add integrations, and customize the app because it's _your_ app. Per-user data isolation still exists within an organization via the `owner_email` convention.
-
 ### Why is this a framework and not a library? {#why-framework-not-library}
 
 The shared database, polling sync, actions system, and application state all need to work together as a cohesive architecture. A library could give you pieces, but agent-native requires that the agent and UI are wired together from the ground up. Multiple agents need to be able to communicate, the UI needs to react to agent changes instantly, and the agent needs to understand what the user is looking at. That's an architecture, not a utility.
@@ -71,7 +67,7 @@ The shared database, polling sync, actions system, and application state all nee
 
 ### Can the agent really modify the app's own code? {#can-the-agent-modify-code}
 
-Yes, and it's a feature. Because every agent-native app is single-tenant — your team's own fork — the agent can safely edit components, routes, styles, and actions. There's no shared codebase to break. You ask "add a cohort analysis chart" and the agent builds it. You ask "connect to our Stripe account" and the agent writes the integration.
+Yes, and it's a feature. The agent can safely edit components, routes, styles, and actions. You ask "add a cohort analysis chart" and the agent builds it. You ask "connect to our Stripe account" and the agent writes the integration.
 
 ### Can agents talk to each other? {#can-agents-talk-to-each-other}
 

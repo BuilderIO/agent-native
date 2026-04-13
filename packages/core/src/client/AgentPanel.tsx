@@ -1,5 +1,5 @@
 /**
- * AgentPanel — unified agent component with chat and CLI terminal modes.
+ * AgentPanel — unified agent component with chat, CLI, and workspace modes.
  *
  * A self-contained panel with no layout opinions — drop it into a sidebar,
  * popover, dialog, full page, or any container. It fills its parent via
@@ -38,6 +38,7 @@ import {
   IconTerminal2,
   IconSettings,
   IconLayoutSidebarRightCollapse,
+  IconLayoutGrid,
   IconChevronDown,
   IconCheck,
   IconPlus,
@@ -288,6 +289,18 @@ function AgentSettingsPopover({
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
   }, [open]);
+
+  useEffect(() => {
+    function handleOpenSettings() {
+      setOpen(true);
+    }
+    window.addEventListener("agent-panel:open-settings", handleOpenSettings);
+    return () =>
+      window.removeEventListener(
+        "agent-panel:open-settings",
+        handleOpenSettings,
+      );
+  }, []);
 
   const environmentOptions: SettingsSelectOption[] = [
     {
@@ -584,13 +597,15 @@ function AgentsSection() {
     <div>
       <div className="flex items-center justify-between mb-1.5">
         <div>
-          <div className="text-xs font-medium text-foreground">Agents</div>
+          <div className="text-xs font-medium text-foreground">
+            Connected Agents
+          </div>
           <div className="text-[10px] text-muted-foreground">
             {loading
               ? "Loading..."
               : agents.length > 0
                 ? `${agents.length} connected via A2A`
-                : "Connect agents via A2A protocol"}
+                : "Connect remote A2A agents"}
           </div>
         </div>
         <button
@@ -906,11 +921,11 @@ export function AgentPanel({
               ? "bg-accent text-foreground"
               : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
           )}
-          title="Files & resources"
+          title="Workspace files, agents, skills, and tasks"
           style={AGENT_PANEL_CONTROL_STYLE}
         >
-          <IconFolder size={14} />
-          Files
+          <IconLayoutGrid size={14} />
+          Workspace
         </button>
       </div>
     ),
@@ -1836,6 +1851,7 @@ export function AgentSidebar({
         height: "100%",
         maxWidth: "85vw",
         zIndex: 50,
+        background: "hsl(var(--background))",
       }
     : {};
 

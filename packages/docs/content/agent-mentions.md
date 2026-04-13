@@ -1,17 +1,17 @@
 ---
 title: "Agent Mentions"
-description: "Tag other agents and files in chat with @-mentions for cross-agent collaboration."
+description: "Tag custom agents, connected agents, and files in chat with @-mentions."
 ---
 
 # Agent Mentions
 
-Type `@` in the chat composer to mention agents, files, and resources. Mentioning an agent triggers an A2A call and weaves the response into your conversation.
+Type `@` in the chat composer to mention custom agents, connected agents, files, and resources.
 
 ## Overview {#overview}
 
-The `@`-mention system connects the chat composer to the broader agent ecosystem. When you type `@`, a popover appears listing available agents, codebase files, and resources. Selecting an agent sends a cross-agent request via the [A2A protocol](/docs/a2a-protocol), and the response is embedded directly in the conversation for your main agent to use.
+The `@`-mention system connects the chat composer to the broader agent ecosystem. When you type `@`, a popover appears listing available custom agents, connected agents, codebase files, and resources.
 
-This is how you orchestrate multi-agent workflows from a single chat. Ask your mail agent to draft an email, `@analytics` to pull in the latest numbers, and the mail agent incorporates those numbers into the draft — all in one conversation.
+This is how you orchestrate multi-agent workflows from a single chat. Ask your local `@design` agent to critique a layout, `@analytics` to pull in the latest numbers from another app, and the main agent can incorporate both in one conversation.
 
 ## Mentioning agents {#mentioning-agents}
 
@@ -20,16 +20,23 @@ To mention an agent in the chat composer:
 1. Type `@` to open the mention popover
 2. Browse or search the list of available agents
 3. Select an agent — it appears as a tag in your message
-4. Send the message — the server calls the mentioned agent via A2A and includes its response in the conversation context
+4. Send the message — the server resolves the mention and includes that agent's response in the conversation context
 
-The mentioned agent receives the relevant portion of your message, runs its tools and actions, and returns a response. Your main agent sees the response and can reference or build on it.
+There are two agent paths:
+
+- **Custom agents** — local workspace agent profiles in `agents/*.md`. These run inside the current app/runtime using the agent profile's instructions and optional model override.
+- **Connected agents** — remote A2A peers. These are called over the [A2A protocol](/docs/a2a-protocol).
+
+In both cases, your main agent sees the response and can reference or build on it.
 
 ## How it works {#how-it-works}
 
 When a message containing an `@`-mention is sent, the following happens on the server:
 
 1. The server extracts mention references from the message
-2. For each mentioned agent, an A2A call is made to that agent's endpoint
+2. For each mentioned agent:
+   - custom agents run locally with their profile instructions
+   - connected agents are called via A2A
 3. The agent's response is wrapped in an `<agent-response>` XML block and injected into the conversation context
 4. The main agent processes the enriched message, seeing both the user's text and the mentioned agent's response
 
@@ -51,11 +58,37 @@ The main agent can then use this data naturally in its response — for example,
 
 Agents become available for mentioning through several mechanisms:
 
-- **Auto-discovery** — the framework automatically discovers agents running on known ports or configured URLs
-- **Resources panel** — add agent manifests as `agents/*.json` files in the resources panel
-- **Environment variables** — configure agent URLs and API keys via env vars
+- **Custom workspace agents** — create agent profiles in the Workspace tab as `agents/*.md`
+- **Auto-discovery** — the framework automatically discovers connected agents running on known ports or configured URLs
+- **Remote manifests** — add connected-agent manifests as `agents/*.json`
 
-An agent manifest looks like this:
+### Custom workspace agents
+
+Custom agents are Markdown resources:
+
+```markdown
+---
+name: Design
+description: >-
+  Reviews layouts, product UX, and visual direction.
+model: inherit
+tools: inherit
+delegate-default: false
+---
+
+# Role
+
+You are a focused design agent.
+```
+
+You can create them from the Workspace tab using:
+
+- `Create Agent` -> `Describe It`
+- `Create Agent` -> `Fill Form`
+
+### Connected-agent manifests
+
+Remote A2A agents still use JSON manifests:
 
 ```json
 // agents/analytics.json
@@ -67,8 +100,6 @@ An agent manifest looks like this:
   "skills": ["run-query", "generate-chart"]
 }
 ```
-
-The `"apiKey": "env:ANALYTICS_A2A_KEY"` syntax reads the value from the environment variable at runtime, keeping secrets out of the manifest file.
 
 ## Custom mention providers {#custom-mention-providers}
 
@@ -128,7 +159,13 @@ Custom mention providers appear alongside the built-in agent and file providers 
 The `@` popover is not limited to agents. You can also reference:
 
 - **Codebase files** — type `@` and search for a filename. The file contents are included in the agent's context so it can read, analyze, or modify the file.
-- **Resources** — reference resources defined in the resources panel. These can be data files, configuration, or any other structured content.
+- **Workspace resources** — reference files defined in the Workspace tab. These can be data files, configuration, or any other structured content.
 - **Skills** — type `/` to reference a skill. Skills provide structured instructions that guide how the agent approaches a task.
 
 All reference types follow the same pattern: select from the popover, and the referenced content is resolved and injected into the agent's context when the message is sent.
+
+## Sub-agent selection {#sub-agent-selection}
+
+The main agent can also use custom agents when spawning sub-agents with `spawn-task`.
+
+Pass the `agent` parameter to choose a profile from `agents/*.md`. That profile's instructions are added to the delegated run, and its `model` frontmatter can override the default model for that sub-agent.

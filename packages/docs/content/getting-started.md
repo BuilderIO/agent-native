@@ -89,4 +89,4 @@ These principles apply to all agent-native apps. Understanding them helps you cu
 3. **Skills-driven** — Core functionalities have instructions so the agent doesn't explore from scratch every time. When you add a feature, you update all four areas: UI, actions, skills/instructions, and application state.
 4. **Inter-agent communication** — Agents can discover and call each other via the A2A protocol. Tag your analytics agent from the mail app to pull data into a draft.
 5. **Fully portable** — Any SQL database Drizzle supports, any hosting backend Nitro supports, any AI coding tool. These are non-negotiable.
-6. **Fork and customize** — Single-tenant apps you clone and evolve. The agent can modify the app's own code — components, routes, styles, actions — so it gets better over time.
+6. **Fork and customize** — Apps you clone and evolve. The agent can modify the app's own code — components, routes, styles, actions — so it gets better over time.

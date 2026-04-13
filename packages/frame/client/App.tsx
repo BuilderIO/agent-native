@@ -1,7 +1,7 @@
 /**
  * Local Dev Frame — App layout
  *
- * The sidebar always looks the same as the in-app agent panel: Chat | CLI | Files.
+ * The sidebar always looks the same as the in-app agent panel: Chat | CLI | Workspace.
  * A toggle in the settings cog switches between Dev and Prod mode:
  * - Dev: frame renders its own chat/CLI in the sidebar (code editing agent)
  * - Prod: frame sidebar disappears, app's own agent sidebar shows inside iframe
@@ -25,7 +25,7 @@ const AgentTerminal = lazy(() =>
   })),
 );
 
-// Import the AgentPanel directly — it provides the full Chat/CLI/Files UI
+// Import the AgentPanel directly — it provides the full Chat/CLI/Workspace UI
 const AgentPanel = lazy(() =>
   import("@agent-native/core/client").then((m) => ({
     default: m.AgentPanel,

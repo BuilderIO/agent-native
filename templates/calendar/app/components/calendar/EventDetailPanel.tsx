@@ -27,6 +27,7 @@ import {
   sanitizeHtml,
   stripGcalInviteHtml,
   isHtml,
+  linkifyText,
 } from "@/lib/sanitize-description";
 import { useUpdateEvent } from "@/hooks/use-events";
 
@@ -281,9 +282,12 @@ export function EventDetailPanel({
                             );
                           }
                           return (
-                            <p className="text-sm leading-relaxed text-foreground/80 whitespace-pre-wrap">
-                              {event.description}
-                            </p>
+                            <p
+                              className="text-sm leading-relaxed text-foreground/80 whitespace-pre-wrap"
+                              dangerouslySetInnerHTML={{
+                                __html: linkifyText(event.description),
+                              }}
+                            />
                           );
                         })()
                       ) : null

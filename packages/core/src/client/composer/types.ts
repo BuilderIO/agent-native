@@ -25,7 +25,7 @@ export interface MentionItem {
 }
 
 export interface Reference {
-  type: "file" | "skill" | "mention" | "agent";
+  type: "file" | "skill" | "mention" | "agent" | "custom-agent";
   path: string;
   name: string;
   source: string;

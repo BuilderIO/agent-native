@@ -1,9 +1,9 @@
 ---
-title: "Resources & Skills"
-description: "SQL-backed persistent files for notes, configs, skills, and agent instructions."
+title: "Workspace Resources"
+description: "SQL-backed workspace files for notes, skills, custom agents, scheduled tasks, and instructions."
 ---
 
-# Resources & Skills
+# Workspace Resources
 
 Resources are persistent files stored in the database — notes, configs, skill files, and more. They're available to both the UI and the agent, and work the same locally and in production.
 
@@ -16,11 +16,23 @@ Resources have two scopes:
 - **Personal** — scoped to a single user (their email). Good for preferences, notes, and per-user context.
 - **Shared** — visible to all users. Good for team instructions, skills, and shared config.
 
-## Resources Panel {#resources-panel}
+## Workspace Panel {#workspace-panel}
 
-The agent panel includes a **Resources** tab alongside Chat and CLI. This panel lets users browse, create, edit, and delete resources. It displays a tree view of all resources organized by folder path.
+The agent panel includes a **Workspace** tab alongside Chat and CLI. This panel lets users browse, create, edit, and delete workspace resources. It displays a tree view of all resources organized by folder path.
 
 Resources can be any text file — Markdown, JSON, YAML, plain text. The panel includes an inline editor for viewing and modifying resource content directly.
+
+The `+` menu in Workspace supports typed creation flows for:
+
+- **Files** — arbitrary resources
+- **Skills** — reusable instruction files under `skills/`
+- **Agents** — custom sub-agent profiles under `agents/*.md`
+- **Scheduled Tasks** — recurring jobs under `jobs/`
+
+Workspace resources come in two scopes:
+
+- **Personal** — visible only to the current user
+- **Shared** — visible across the team/org
 
 ## How the Agent Uses Resources {#how-the-agent-uses-resources}
 
@@ -62,8 +74,61 @@ When the agent encounters a task that matches a skill, it reads the skill file a
 
 There are two ways to add skills:
 
-1. **Via Resources panel** — Create a new resource with a path like `skills/my-skill.md`. This works in both dev and production.
+1. **Via Workspace tab** — Create a new resource with a path like `skills/my-skill.md`. This works in both dev and production.
 2. **Via code (dev only)** — Add a Markdown file to `.agents/skills/` in your project. These are available when the app runs in dev mode.
+
+## Custom Agents {#custom-agents}
+
+Custom agents are reusable local sub-agent profiles stored as Markdown resources under `agents/*.md`.
+
+Use them when you want a focused delegate with its own:
+
+- name
+- description
+- model preference
+- instruction set
+
+Unlike skills, custom agents are not passive guidance. They are operational personas the main agent can invoke through `@` mentions or by selecting them during sub-agent spawning.
+
+### Agent format {#agent-format}
+
+Custom agents use YAML frontmatter plus Markdown instructions:
+
+```markdown
+---
+name: Design
+description: >-
+  Reviews layouts, interaction patterns, and product UX decisions.
+model: inherit
+tools: inherit
+delegate-default: false
+---
+
+# Role
+
+You are a focused design agent.
+
+## Responsibilities
+
+- Review layouts and interaction flows
+- Suggest stronger visual direction
+- Be concise and opinionated
+```
+
+Recommended conventions:
+
+- Store custom agents at `agents/<slug>.md`
+- Use `model: inherit` unless the profile clearly needs a different model
+- Keep `tools: inherit` for now; the field is reserved for future tool policies
+
+### Remote agents vs custom agents {#remote-vs-custom-agents}
+
+There are two agent types in Workspace:
+
+- **Custom agents** — local profiles in `agents/*.md`, executed inside the current app/runtime
+- **Connected agents** — remote A2A peers described by manifests in `agents/*.json`
+
+Use custom agents for delegation within one app. Use connected agents when you need to call another app over A2A.
 
 ### Skill Format {#skill-format}
 
@@ -93,16 +158,20 @@ WHERE DATE(created_at) BETWEEN @start_date AND @end_date
 
 ````
 
-## @ File Tagging {#at-file-tagging}
+## @ Tagging {#at-tagging}
 
-Type `@` in the chat input to reference files. A dropdown appears at the cursor showing matching files. Use arrow keys to navigate and Enter to select. The selected file appears as an inline chip in the input.
+Type `@` in the chat input to reference workspace items. A dropdown appears at the cursor showing matching agents and files. Use arrow keys to navigate and Enter to select. The selected item appears as an inline chip in the input.
 
-When you send a message with file references, the agent receives the file paths as context and can read them using its tools.
+When you send a message:
+
+- **Files/resources** are passed as references the agent can read
+- **Custom agents** run locally with their profile instructions
+- **Connected agents** are called over A2A
 
 What shows up depends on the mode:
 
-- **Dev mode** — Codebase files (from the filesystem) and resource files (from the database)
-- **Production mode** — Resource files only
+- **Dev mode** — Codebase files, workspace resources, custom agents, and connected agents
+- **Production mode** — Workspace resources, custom agents, and connected agents
 
 ## / Slash Commands {#slash-commands}
 
@@ -121,10 +190,10 @@ The resource system works identically in both modes. The difference is what addi
 
 | Feature | Dev Mode | Production |
 |---------|----------|------------|
-| @ file tagging | Codebase files + resources | Resources only |
+| @ tagging | Codebase files + workspace resources + custom agents + connected agents | Workspace resources + custom agents + connected agents |
 | / slash commands | .agents/skills/ + resource skills | Resource skills only |
 | Agent file access | Filesystem + resources | Resources only |
-| Resources panel | Full access | Full access |
+| Workspace panel | Full access | Full access |
 | AGENTS.md / learnings.md | Available | Available |
 
 ## Resource API {#resource-api}
@@ -137,13 +206,13 @@ REST endpoints mounted automatically:
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/resources?scope=all` | List resources |
-| `GET` | `/api/resources/tree?scope=all` | Get folder tree |
-| `POST` | `/api/resources` | Create a resource |
-| `GET` | `/api/resources/:id` | Get resource with content |
-| `PUT` | `/api/resources/:id` | Update a resource |
-| `DELETE` | `/api/resources/:id` | Delete a resource |
-| `POST` | `/api/resources/upload` | Upload a file as resource |
+| `GET` | `/_agent-native/resources?scope=all` | List resources |
+| `GET` | `/_agent-native/resources/tree?scope=all` | Get folder tree |
+| `POST` | `/_agent-native/resources` | Create a resource |
+| `GET` | `/_agent-native/resources/:id` | Get resource with content |
+| `PUT` | `/_agent-native/resources/:id` | Update a resource |
+| `DELETE` | `/_agent-native/resources/:id` | Delete a resource |
+| `POST` | `/_agent-native/resources/upload` | Upload a file as resource |
 
 ### Action API {#script-api}
 

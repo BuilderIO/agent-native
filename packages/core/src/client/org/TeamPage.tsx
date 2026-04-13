@@ -393,6 +393,11 @@ function LocalModeSignInCard() {
         Your existing local data will be migrated to the new account
         automatically.
       </p>
+      <p className="text-[11px] text-muted-foreground">
+        In development, the app may briefly reload while switching modes. The
+        next screen lets you either finish signing in or explicitly stay in
+        local mode.
+      </p>
       {error && <ErrorText error={error} />}
     </section>
   );
