@@ -29,6 +29,8 @@ export interface UseOnboardingResult {
   complete: (id: string) => Promise<void>;
   /** Dismiss the banner permanently (until server-side reset). */
   dismiss: () => Promise<void>;
+  /** Re-open the panel after dismissal. */
+  reopen: () => Promise<void>;
 }
 
 const DEFAULT_POLL_MS = 3000;
@@ -107,6 +109,16 @@ export function useOnboarding(
     await fetchAll();
   }, [fetchAll]);
 
+  const reopen = useCallback(async () => {
+    setDismissed(false); // optimistic
+    await fetch("/_agent-native/onboarding/reopen", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    await fetchAll();
+  }, [fetchAll]);
+
   const totalCount = steps.length;
   const completeCount = steps.filter((s) => s.complete).length;
   const allComplete = steps.filter((s) => s.required).every((s) => s.complete);
@@ -128,6 +140,7 @@ export function useOnboarding(
     refresh: fetchAll,
     complete,
     dismiss,
+    reopen,
   };
 }
 

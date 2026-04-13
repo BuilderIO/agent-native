@@ -19,6 +19,7 @@ All routes live under `/_agent-native/onboarding/`:
 | `GET /_agent-native/onboarding/steps`               | List steps with completion status |
 | `POST /_agent-native/onboarding/steps/:id/complete` | Mark step complete (override)     |
 | `POST /_agent-native/onboarding/dismiss`            | Dismiss the onboarding banner     |
+| `POST /_agent-native/onboarding/reopen`             | Clear dismissal (re-show panel)   |
 | `GET /_agent-native/onboarding/dismissed`           | Read dismissal + allComplete flag |
 
 ## Adding a step from a template

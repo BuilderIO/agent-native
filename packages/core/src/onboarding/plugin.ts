@@ -165,6 +165,25 @@ export function createOnboardingPlugin(
       }),
     );
 
+    // POST /_agent-native/onboarding/reopen — clear dismissed flag
+    getH3App(nitroApp).use(
+      `${ONBOARDING_PREFIX}/reopen`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const sessionId = await resolveSessionId(event);
+        await appStatePut(
+          sessionId,
+          DISMISSED_KEY,
+          { dismissed: false, at: new Date().toISOString() },
+          { requestSource: "agent" },
+        );
+        return { ok: true };
+      }),
+    );
+
     // GET /_agent-native/onboarding/dismissed
     getH3App(nitroApp).use(
       `${ONBOARDING_PREFIX}/dismissed`,

@@ -51,8 +51,33 @@ export function OnboardingPanel({
 
   if (loading || totalCount === 0) return null;
   if (dismissed) return null;
-  // When every required step is done, hide automatically.
-  if (allComplete) return null;
+
+  // When every required step is done, show a compact banner instead of the
+  // full checklist. User can dismiss to hide it entirely.
+  if (allComplete) {
+    return (
+      <div className={className} style={styles.compactBanner}>
+        <div style={styles.headerLeft}>
+          <span style={styles.checkDone}>
+            <IconCheck size={12} strokeWidth={3} />
+          </span>
+          <span style={styles.headerTitle}>{title}</span>
+          <span style={styles.headerCounter}>
+            {completeCount} of {totalCount}
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={dismiss}
+          title="Dismiss"
+          aria-label="Dismiss onboarding"
+          style={styles.dismissBtn}
+        >
+          <IconX size={14} />
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className={className} style={styles.root}>
@@ -490,6 +515,15 @@ const styles: Record<string, React.CSSProperties> = {
   root: {
     borderBottom: "1px solid rgba(255,255,255,0.06)",
     background: "rgba(255,255,255,0.02)",
+    fontSize: 12,
+  },
+  compactBanner: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: "6px 12px",
+    borderBottom: "1px solid rgba(255,255,255,0.06)",
+    background: "rgba(34,197,94,0.04)",
     fontSize: 12,
   },
   header: {

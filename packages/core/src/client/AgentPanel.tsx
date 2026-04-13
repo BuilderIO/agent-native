@@ -81,6 +81,14 @@ const OnboardingPanel = lazy(() =>
   })),
 );
 
+// Lazy-load SetupButton — the header entry-point that re-opens the
+// onboarding panel after the user has dismissed it.
+const SetupButton = lazy(() =>
+  import("./onboarding/SetupButton.js").then((m) => ({
+    default: m.SetupButton,
+  })),
+);
+
 const CLI_STORAGE_KEY = "agent-native-cli-command";
 const CLI_DEFAULT = "claude";
 const EXEC_MODE_KEY = "agent-native-exec-mode";
@@ -427,6 +435,9 @@ export function AgentPanel({
   const renderHeaderActions = useCallback(
     () => (
       <div className="flex shrink-0 items-center gap-1.5">
+        <Suspense fallback={null}>
+          <SetupButton />
+        </Suspense>
         {onCollapse && (
           <IconTooltip content="Collapse sidebar">
             <button
