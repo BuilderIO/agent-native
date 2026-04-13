@@ -1200,7 +1200,11 @@ export function createAgentChatPlugin(
       if (mcpConfig) {
         const detected = Object.keys(mcpConfig.servers).join(", ");
         console.log(
-          `[mcp-client] auto-detected ${detected} — set AGENT_NATIVE_DISABLE_MCP_AUTODETECT=1 to opt out`,
+          `[mcp-client] auto-detected ${detected}, registering as MCP server — set AGENT_NATIVE_DISABLE_MCP_AUTODETECT=1 to opt out`,
+        );
+      } else {
+        console.log(
+          "[mcp-client] no mcp.config.json and no auto-detectable servers — skipping MCP tools",
         );
       }
     } else if (mcpConfig.source) {
