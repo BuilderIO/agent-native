@@ -13,8 +13,9 @@
  * Templates catch FeatureNotConfigured and show a "Connect Builder (1 click) /
  * set up your own key (guide)" card.
  *
- * Today this wraps only the Google proxy. The shape is meant to grow to
- * cover the LLM gateway and other managed credentials without rewrites.
+ * Today these helpers are used by the Builder-hosted LLM gateway, and the
+ * shape is meant to grow to cover future managed credential integrations
+ * (e.g. additional Builder-hosted services) without rewrites.
  */
 
 export class FeatureNotConfiguredError extends Error {

@@ -96,47 +96,6 @@ export function GoogleConnectBanner({
 
   const redirectUri = `${getCallbackOrigin()}/_agent-native/google/callback`;
 
-  // Builder-proxied Google connection — the "skip the Google Cloud Console"
-  // one-click path. Available whenever BUILDER_PRIVATE_KEY is set.
-  const [builderStatus, setBuilderStatus] = useState<{
-    hasBuilderKey: boolean;
-    connectUrl: string;
-  } | null>(null);
-  useEffect(() => {
-    fetch("/_agent-native/builder/google/status")
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setBuilderStatus)
-      .catch(() => {});
-  }, []);
-
-  function handleConnectViaBuilder() {
-    if (!builderStatus?.connectUrl) return;
-    const isNativeWebView =
-      typeof (window as any).ReactNativeWebView !== "undefined";
-    if (isNativeWebView) {
-      (window as any).ReactNativeWebView.postMessage(
-        JSON.stringify({ type: "openUrl", url: builderStatus.connectUrl }),
-      );
-    } else {
-      window.open(builderStatus.connectUrl, "_blank");
-    }
-    // Poll for the account landing in the Builder-connected list.
-    const interval = setInterval(async () => {
-      const res = await fetch("/_agent-native/builder/google/status").catch(
-        () => null,
-      );
-      if (res?.ok) {
-        const data = await res.json();
-        if (data.accounts?.length > 0) {
-          clearInterval(interval);
-          window.location.reload();
-        }
-      }
-    }, 2000);
-    // Safety timeout: give up polling after 5 minutes.
-    setTimeout(() => clearInterval(interval), 5 * 60 * 1000);
-  }
-
   const fetchStatus = useCallback(async () => {
     try {
       const res = await fetch("/_agent-native/env-status");
@@ -322,54 +281,22 @@ export function GoogleConnectBanner({
           Send and receive real email. Connect your Gmail account to get
           started.
         </p>
-        <div className="mt-8 flex flex-col items-center gap-3">
-          {builderStatus?.hasBuilderKey && !allConfigured && (
-            <>
-              <Button
-                size="sm"
-                className="gap-2 px-5 h-9 text-sm font-medium bg-white text-black hover:bg-white/90"
-                onClick={handleConnectViaBuilder}
-              >
-                <GoogleIcon className="h-4 w-4" />
-                Connect Gmail via Builder
-              </Button>
-              <p className="text-xs text-muted-foreground max-w-sm">
-                Skip the Google Cloud Console setup — Builder handles the OAuth
-                app for you. Free while in beta.
-              </p>
-              <div className="my-2 flex items-center gap-3 text-xs text-muted-foreground/60">
-                <span className="h-px w-12 bg-border" />
-                or set up your own keys
-                <span className="h-px w-12 bg-border" />
-              </div>
-            </>
-          )}
-          <Button
-            size="sm"
-            variant={
-              builderStatus?.hasBuilderKey && !allConfigured
-                ? "outline"
-                : "default"
-            }
-            className={`gap-2 px-5 h-9 text-sm font-medium ${
-              builderStatus?.hasBuilderKey && !allConfigured
-                ? ""
-                : "bg-white text-black hover:bg-white/90"
-            }`}
-            onClick={() => {
-              setAuthError(null);
-              handleConnect();
-            }}
-            disabled={authUrl.isLoading || authUrl.isFetching}
-          >
-            <GoogleIcon className="h-4 w-4" />
-            {authUrl.isLoading
-              ? "Connecting..."
-              : allConfigured
-                ? "Sign in with Google"
-                : "Set up Google (bring your own keys)"}
-          </Button>
-        </div>
+        <Button
+          size="sm"
+          className="mt-8 gap-2 px-5 h-9 text-sm font-medium bg-white text-black hover:bg-white/90"
+          onClick={() => {
+            setAuthError(null);
+            handleConnect();
+          }}
+          disabled={authUrl.isLoading || authUrl.isFetching}
+        >
+          <GoogleIcon className="h-4 w-4" />
+          {authUrl.isLoading
+            ? "Connecting..."
+            : allConfigured
+              ? "Sign in with Google"
+              : "Set up Google"}
+        </Button>
 
         {authError && allConfigured && (
           <p className="mt-3 text-xs text-red-400">{authError}</p>

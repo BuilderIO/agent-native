@@ -5,8 +5,6 @@ import {
   gmailGetMessage,
   gmailListLabels,
   peopleGetProfile,
-  type GoogleAuth,
-  type GoogleProxyTarget,
 } from "./google-api.js";
 import {
   getOAuthTokens,
@@ -16,32 +14,6 @@ import {
   hasOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
 import { isOAuthConnected, getOAuthAccounts } from "@agent-native/core/server";
-import {
-  listBuilderGoogleAccounts,
-  isAccountConnectedViaBuilder,
-  getBuilderAuthHeader,
-  getBuilderProxyOrigin,
-  hasBuilderPrivateKey,
-} from "@agent-native/core/server";
-
-/**
- * Build a Builder-proxy GoogleAuth for the given account email, or null when
- * the user hasn't connected Google via Builder. Templates should try direct
- * mode first (user-owned OAuth tokens) and fall back to this.
- */
-function getBuilderProxyAuth(accountEmail: string): GoogleProxyTarget | null {
-  if (!hasBuilderPrivateKey()) return null;
-  const auth = getBuilderAuthHeader();
-  if (!auth) return null;
-  return {
-    __googleProxy: "builder",
-    baseUrl: `${getBuilderProxyOrigin()}/google`,
-    headers: {
-      Authorization: auth,
-      "X-Google-Account": accountEmail,
-    },
-  };
-}
 
 const SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",
@@ -183,28 +155,20 @@ export async function exchangeCode(
 
 export async function getClient(
   email: string | undefined,
-): Promise<{ accessToken: GoogleAuth; email: string } | null> {
+): Promise<{ accessToken: string; email: string } | null> {
   if (!email) return null;
-
-  // 1) Direct path — user has their own Google OAuth client + stored tokens.
   const accounts = await listOAuthAccountsByOwner("google", email);
-  if (accounts.length > 0) {
-    const account = accounts.find((a) => a.accountId === email) ?? accounts[0];
-    const tokens = account.tokens as unknown as GoogleTokens;
-    if (tokens) {
-      const accountId = account.accountId;
-      const accessToken = await getValidAccessToken(accountId, tokens, email);
-      return { accessToken, email: accountId };
-    }
-  }
+  if (accounts.length === 0) return null;
 
-  // 2) Builder-proxy path — user connected Gmail via Builder.
-  if (await isAccountConnectedViaBuilder(email)) {
-    const proxy = getBuilderProxyAuth(email);
-    if (proxy) return { accessToken: proxy, email };
-  }
+  const account = accounts.find((a) => a.accountId === email) ?? accounts[0];
 
-  return null;
+  const tokens = account.tokens as unknown as GoogleTokens;
+  if (!tokens) return null;
+
+  const accountId = account.accountId;
+  const accessToken = await getValidAccessToken(accountId, tokens, email);
+
+  return { accessToken, email: accountId };
 }
 
 /**
@@ -213,19 +177,24 @@ export async function getClient(
  */
 export async function getClients(
   forEmail?: string,
-): Promise<Array<{ email: string; accessToken: GoogleAuth }>> {
+): Promise<
+  Array<{ email: string; accessToken: string; refreshToken: string }>
+> {
   if (!forEmail) return [];
-
-  const results: Array<{ email: string; accessToken: GoogleAuth }> = [];
-  const seen = new Set<string>();
-
-  // 1) Direct accounts with stored oauth_tokens.
   const accounts = await listOAuthAccountsByOwner("google", forEmail);
+
+  const results: Array<{
+    email: string;
+    accessToken: string;
+    refreshToken: string;
+  }> = [];
+
   for (const account of accounts) {
     const tokens = account.tokens as unknown as GoogleTokens;
     if (!tokens) continue;
 
     const accountId = account.accountId;
+    // Preserve the stored owner on token refresh to avoid ownership conflicts
     const ownerForRefresh: string =
       forEmail ??
       ("owner" in account && typeof account.owner === "string"
@@ -239,26 +208,14 @@ export async function getClients(
         tokens,
         ownerForRefresh,
       );
-      results.push({ email: accountId, accessToken });
-      seen.add(accountId.toLowerCase());
+
+      results.push({
+        email: accountId,
+        accessToken,
+        refreshToken: tokens.refresh_token || "",
+      });
     } catch {
       // Skip accounts with expired/invalid tokens so other accounts still work
-    }
-  }
-
-  // 2) Builder-proxy accounts — surfaced as additional entries for any
-  //    Google account the user has connected via Builder (de-duped against
-  //    direct accounts above). Multi-account workspaces transparently get
-  //    both paths.
-  if (hasBuilderPrivateKey()) {
-    const builderAccounts = await listBuilderGoogleAccounts();
-    for (const { email } of builderAccounts) {
-      if (seen.has(email.toLowerCase())) continue;
-      const proxy = getBuilderProxyAuth(email);
-      if (proxy) {
-        results.push({ email, accessToken: proxy });
-        seen.add(email.toLowerCase());
-      }
     }
   }
 
@@ -270,31 +227,15 @@ export async function getClients(
  * checks only that specific account.
  */
 export async function isConnected(forEmail?: string): Promise<boolean> {
-  if (await isOAuthConnected("google", forEmail)) return true;
-  // Builder-proxied accounts also count as connected.
-  if (hasBuilderPrivateKey()) {
-    const builderAccounts = await listBuilderGoogleAccounts();
-    if (builderAccounts.length > 0) return true;
-  }
-  return false;
+  return isOAuthConnected("google", forEmail);
 }
 
 export async function getConnectedAccounts(
   forEmail?: string,
 ): Promise<string[]> {
   if (!forEmail) return [];
-  const direct = await listOAuthAccountsByOwner("google", forEmail);
-  const seen = new Set(direct.map((a) => a.accountId.toLowerCase()));
-  const merged: string[] = direct.map((a) => a.accountId);
-  if (hasBuilderPrivateKey()) {
-    for (const { email } of await listBuilderGoogleAccounts()) {
-      if (!seen.has(email.toLowerCase())) {
-        merged.push(email);
-        seen.add(email.toLowerCase());
-      }
-    }
-  }
-  return merged;
+  const accounts = await listOAuthAccountsByOwner("google", forEmail);
+  return accounts.map((a) => a.accountId);
 }
 
 export interface GoogleAuthStatus {
@@ -310,11 +251,8 @@ export async function getAuthStatus(
   forEmail?: string,
 ): Promise<GoogleAuthStatus> {
   const oauthAccounts = await getOAuthAccounts("google", forEmail);
-  const builderAccounts = hasBuilderPrivateKey()
-    ? await listBuilderGoogleAccounts()
-    : [];
 
-  if (oauthAccounts.length === 0 && builderAccounts.length === 0) {
+  if (oauthAccounts.length === 0) {
     return { connected: false, accounts: [] };
   }
 
@@ -323,9 +261,6 @@ export async function getAuthStatus(
     expiresAt?: string;
     photoUrl?: string;
   }> = [];
-  const seen = new Set<string>();
-
-  // Direct accounts.
   for (const account of oauthAccounts) {
     const tokens = account.tokens as unknown as GoogleTokens;
     if (!tokens) continue;
@@ -343,22 +278,6 @@ export async function getAuthStatus(
         : undefined,
       photoUrl,
     });
-    seen.add(email.toLowerCase());
-  }
-
-  // Builder-proxied accounts (no stored tokens visible to us).
-  for (const { email } of builderAccounts) {
-    if (seen.has(email.toLowerCase())) continue;
-    const proxy = getBuilderProxyAuth(email);
-    let photoUrl: string | undefined;
-    if (proxy) {
-      try {
-        const profile = await peopleGetProfile(proxy, "photos");
-        photoUrl = profile.photos?.[0]?.url ?? undefined;
-      } catch {}
-    }
-    accounts.push({ email, photoUrl });
-    seen.add(email.toLowerCase());
   }
 
   return {

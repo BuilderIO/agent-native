@@ -163,64 +163,63 @@ export function createCoreRoutesPlugin(
       }),
     );
 
-    // Status endpoint for the "Connect Gmail via Builder" banner. Returns
-    // whether the user has the Builder private key set (so the button can
-    // be enabled), the connect URL they'd visit, and the list of Google
-    // accounts they've already connected via Builder.
+    // Proxy to Builder's agents-run API for background code changes.
     getH3App(nitroApp).use(
-      `${P}/builder/google/status`,
+      `${P}/builder/agents-run`,
       defineEventHandler(async (event: H3Event) => {
-        const { getBuilderGoogleConnectUrl } =
-          await import("./builder-browser.js");
-        const { listBuilderGoogleAccounts } = await import("./google-proxy.js");
-        const { hasBuilderPrivateKey } =
-          await import("./credential-provider.js");
-        return {
-          hasBuilderKey: hasBuilderPrivateKey(),
-          connectUrl: getBuilderGoogleConnectUrl(getOrigin(event)),
-          accounts: await listBuilderGoogleAccounts(),
-        };
-      }),
-    );
-
-    // Builder-proxied Google callback. Builder runs the actual OAuth
-    // exchange with Google on its side; we just receive the connected
-    // account email and record it so templates know to proxy Gmail/
-    // Calendar calls through Builder's /google/* proxy instead of calling
-    // Google directly.
-    getH3App(nitroApp).use(
-      `${P}/builder/google/callback`,
-      defineEventHandler(async (event: H3Event) => {
-        if (getMethod(event) !== "GET") {
+        if (getMethod(event) !== "POST") {
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
-
-        const requestUrl = new URL(
-          `${event.url?.pathname || "/"}${event.url?.search || ""}`,
-          getOrigin(event),
-        );
-        const accountEmail = requestUrl.searchParams.get("account-email");
-        const scope = requestUrl.searchParams.get("scope") ?? undefined;
-
-        if (!accountEmail) {
+        const privateKey = process.env.BUILDER_PRIVATE_KEY;
+        const publicKey = process.env.BUILDER_PUBLIC_KEY;
+        if (!privateKey || !publicKey) {
           setResponseStatus(event, 400);
           return {
             error:
-              "Missing account-email in Builder Google callback — ensure /cli-auth returned ?account-email=<gmail>",
+              "Builder not connected. Connect Builder in Setup to use background agent.",
           };
         }
-
-        const { recordBuilderGoogleAccount } =
-          await import("./google-proxy.js");
-        await recordBuilderGoogleAccount({ email: accountEmail, scope });
-
-        const previewUrl = resolveSafePreviewUrl(
-          requestUrl.searchParams.get("preview-url"),
-          event,
-        );
-        setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
-        return createBuilderBrowserCallbackPage(previewUrl);
+        const body = (await readBody(event)) as {
+          userMessage?: string;
+          branchName?: string;
+          projectUrl?: string;
+        };
+        if (!body?.userMessage) {
+          setResponseStatus(event, 400);
+          return { error: "userMessage is required" };
+        }
+        const apiHost =
+          process.env.BUILDER_API_HOST || "https://ai-services.builder.io";
+        try {
+          const res = await fetch(
+            `${apiHost}/agents/run?apiKey=${encodeURIComponent(publicKey)}`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${privateKey}`,
+              },
+              body: JSON.stringify({
+                userMessage: {
+                  userPrompt: body.userMessage,
+                },
+                branchName: body.branchName,
+              }),
+            },
+          );
+          if (!res.ok) {
+            const err = await res.text().catch(() => "Unknown error");
+            setResponseStatus(event, res.status);
+            return { error: err };
+          }
+          return await res.json();
+        } catch (err: any) {
+          setResponseStatus(event, 500);
+          return {
+            error: err?.message || "Failed to reach Builder agents-run API",
+          };
+        }
       }),
     );
 
