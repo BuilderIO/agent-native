@@ -31,19 +31,22 @@ Each individual app becomes _just a set of screens_ — routes, dashboards, view
 
 ## Getting started {#getting-started}
 
-Scaffold a new workspace:
+Workspace is the default shape of an agent-native project. Scaffold one with:
 
 ```bash
-pnpm dlx @agent-native/core create-workspace my-company-platform
+pnpm dlx @agent-native/core create my-company-platform
 ```
 
-You get a pnpm monorepo with the private core package, a root `package.json` that wires up workspace discovery, and a sample app:
+The CLI shows a multi-select picker of every first-party template. Pick as many as you want — Mail + Calendar + Forms, for example — and they all get scaffolded into the same workspace sharing auth, brand, and agent config.
+
+You get a pnpm monorepo with the private core package, a root `package.json` that wires up workspace discovery, a shared `.env`, and one sub-directory per app you picked:
 
 ```text
 my-company-platform/
 ├── package.json                 # declares agent-native.workspaceCore
 ├── pnpm-workspace.yaml          # packages: ["packages/*", "apps/*"]
-├── .env.example                 # shared DATABASE_URL, BETTER_AUTH_SECRET, ANTHROPIC_API_KEY
+├── .env.example                 # shared ANTHROPIC_API_KEY, BUILDER_PRIVATE_KEY,
+│                                # A2A_SECRET, DATABASE_URL, ...
 ├── packages/
 │   └── core-module/             # @my-company-platform/core-module
 │       ├── src/
@@ -55,19 +58,21 @@ my-company-platform/
 │       ├── AGENTS.md            # enterprise-wide instructions
 │       └── tailwind.preset.ts   # brand tokens
 └── apps/
-    └── example/                 # minimal starter app
+    ├── mail/
+    ├── calendar/
+    └── forms/
 ```
 
 Then boot it:
 
 ```bash
 cd my-company-platform
-cp .env.example .env             # fill in DATABASE_URL, BETTER_AUTH_SECRET, ANTHROPIC_API_KEY
+cp .env.example .env             # fill in ANTHROPIC_API_KEY, BETTER_AUTH_SECRET, ...
 pnpm install
-pnpm dev                         # runs apps/example
+pnpm dev                         # runs every app
 ```
 
-Open the example app. Its routes render through `<AuthenticatedLayout>` from the core. Its agent chat already sees the shared `AGENTS.md` and the `company-policies` skill. It already knows how to log in. You didn't wire any of that up — the framework auto-discovered the core via the `agent-native.workspaceCore` field in the root `package.json`:
+Every app renders through `<AuthenticatedLayout>` from the core. Every agent chat already sees the shared `AGENTS.md` and skills. Every app already knows how to log in and can call shared actions. You didn't wire any of that up — the framework auto-discovered the core via the `agent-native.workspaceCore` field in the root `package.json`:
 
 ```json
 {
@@ -78,22 +83,28 @@ Open the example app. Its routes render through `<AuthenticatedLayout>` from the
 }
 ```
 
-## Adding a new app {#adding-a-new-app}
+## Adding another app {#adding-a-new-app}
 
 From anywhere inside the workspace:
 
 ```bash
-pnpm exec agent-native create crm
+agent-native add-app
 ```
 
-The CLI walks up to find the workspace root and scaffolds `apps/crm/` as a _minimal_ app. It has a `workspace:*` dependency on the core, a Tailwind config that extends the shared preset, and a single `app/routes/_index.tsx` wrapped in `<AuthenticatedLayout>`. No local `AGENTS.md`, no local auth plugin, no local skills — everything is inherited.
+The CLI shows the template picker again with apps you've already installed filtered out. Pick one or more and they get scaffolded under `apps/`. Non-interactive variant:
+
+```bash
+agent-native add-app crm --template content
+```
+
+Any first-party template works as a workspace app — the CLI runs a small **workspacify** transform on the template that adds the workspace core as a dep and resolves `workspace:*` references. No parallel "workspace-app" scaffold to maintain.
 
 ```bash
 pnpm install                     # at the workspace root
 pnpm --filter crm dev
 ```
 
-That's it. The new app has the same login as every other app in the workspace, the same agent instructions, the same brand, the same actions, the same shared credentials. All you add is the CRM-specific screens.
+That's it. The new app has the same login as every other app in the workspace, the same agent instructions, the same brand, the same actions, the same shared credentials. All you add is the domain-specific screens.
 
 ## What you override where {#layering}
 
@@ -131,6 +142,23 @@ For enterprise-specific rules (allow-list domains, SSO enforcement, extra role c
 
 Active organization flows automatically: `session.orgId` → `AGENT_ORG_ID` → SQL row scoping, so data tagged with `org_id` is invisible to other orgs even to the agent. See [Security & Data Scoping](/docs/security) for the full model.
 
+## Shared environment variables {#shared-env}
+
+The workspace root `.env` is loaded into every app automatically. Put shared keys once at the root — `ANTHROPIC_API_KEY`, `A2A_SECRET`, `BETTER_AUTH_SECRET`, `DATABASE_URL`, `BUILDER_PRIVATE_KEY`, etc. — and every app picks them up. Per-app overrides go in `apps/<name>/.env` and win on conflict.
+
+```text
+my-company-platform/
+├── .env                           # shared: ANTHROPIC_API_KEY=... , A2A_SECRET=... , ...
+└── apps/
+    └── mail/
+        └── .env                   # optional overrides just for mail
+```
+
+A few onboarding flows are workspace-aware out of the box:
+
+- **Builder `/cli-auth`**: clicking "Connect Builder" from any app writes `BUILDER_PRIVATE_KEY` and friends to the **workspace root** `.env`, so every app gains browser access at once.
+- **Env-vars settings route** (`POST /_agent-native/env-vars`): when inside a workspace, defaults to writing the workspace root `.env`. Pass `scope: "app"` in the body to override one app.
+
 ## Shared credentials {#shared-credentials}
 
 Rotate a third-party API key in one place and every app picks it up:
@@ -160,17 +188,48 @@ Brand colors, typography, spacing scales, and any shared component classes live 
 
 ## Deployment {#deployment}
 
-Each app in the workspace is still an independent deployable. You can ship one to Cloudflare Pages, another to Vercel, another to a plain Node server — the workspace core doesn't prescribe anything. See [Deployment](/docs/deployment) for per-target instructions.
+You have two options: **unified deploy** (the default for workspaces) or per-app independent deploy.
 
-The one thing to share across deployments is `DATABASE_URL`. Pointing every app at the same database gives you cross-app state for free: one set of user accounts, one set of organizations, one set of shared settings, one place to rotate credentials. If each app has its own database, the workspace pattern still works — you just lose that shared-state story.
+### Unified deploy (recommended)
+
+One command builds every app in the workspace and ships them behind a single origin, one path per app:
+
+```bash
+agent-native deploy
+# https://your-agents.com/mail/*       → apps/mail
+# https://your-agents.com/calendar/*   → apps/calendar
+# https://your-agents.com/forms/*      → apps/forms
+```
+
+Each app is built with `APP_BASE_PATH=/<name>` and emitted into `dist/<name>/`. A dispatcher worker at `dist/_worker.js` routes each path to the matching app, and a `_routes.json` manifest tells Cloudflare Pages which paths to treat as dynamic.
+
+Being on the **same origin** is where the real payoff lives:
+
+- **Shared login session.** Better Auth sets its cookie on the apex domain, so logging into any app logs you into every app. No cross-domain SSO dance.
+- **Zero-config cross-app A2A.** `@mail` tagging `@calendar` becomes a same-origin fetch — no CORS, no JWT signing between siblings. External A2A still uses JWT as today.
+- **One DNS record, one cert, one CDN cache.**
+
+Publish the `dist/` output:
+
+```bash
+wrangler pages deploy dist
+```
+
+### Per-app independent deploy
+
+Prefer each app on its own domain (`mail.company.com`, `calendar.company.com`)? Every app in the workspace is still an independent deployable — `cd apps/mail && agent-native build` behaves exactly like a standalone scaffold. Cross-app A2A then goes through the standard JWT-signed path with a shared `A2A_SECRET`.
+
+### Shared database, shared credentials
+
+Whatever you pick, point every app at the same `DATABASE_URL` for cross-app state out of the box: one set of user accounts, one set of organizations, one set of shared settings. If each app has its own database, the workspace pattern still works — you just lose that shared-state story.
 
 The workspace core itself is never built or deployed standalone. It's a `workspace:*` dep that pnpm symlinks into each app's `node_modules/`, so every app transparently bundles whatever it needs from the core at build time.
 
 ## Out of scope (for now) {#out-of-scope}
 
-The workspace pattern is intentionally narrow in v1. A few things it deliberately doesn't handle yet:
+The workspace pattern is intentionally narrow. A few things it deliberately doesn't handle yet:
 
-- **Cross-domain SSO.** If `crm.company.com` and `dashboards.company.com` are on different domains, sharing a session cookie requires a shared cookie domain or a central auth app with OAuth redirects. Both are supported by the underlying stack but neither is scaffolded out of the box.
+- **Cross-domain SSO.** The unified `agent-native deploy` flow solves the common case (one origin, many apps at `/mail`, `/calendar`, …). If you need `mail.company.com` and `calendar.company.com` on _different_ domains to share a session, that requires a shared cookie domain or a central auth app with OAuth redirects — both supported by the underlying stack but neither scaffolded out of the box.
 - **Encrypted credential vault.** Shared credentials live in the `settings` table as plain text today. Rotate responsibly.
 - **Publishing the core to private npm.** The core is `workspace:*` only; multi-repo sharing via a private registry is doable but not scaffolded.
 - **Opinionated component library.** The core is where _you_ put shared components. The framework doesn't force shadcn/ui or any other system into that slot.

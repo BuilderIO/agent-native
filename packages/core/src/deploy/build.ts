@@ -278,6 +278,14 @@ async function buildCloudflarePages() {
   // Exclude _worker.js from being served as a public asset
   fs.writeFileSync(path.join(distDir, ".assetsignore"), "_worker.js\n");
 
+  // Write a package.json inside _worker.js/ to tell wrangler this is a
+  // pre-bundled ES module worker — skip re-bundling our esbuild output.
+  fs.mkdirSync(path.join(distDir, "_worker.js"), { recursive: true });
+  fs.writeFileSync(
+    path.join(distDir, "_worker.js", "package.json"),
+    JSON.stringify({ main: "index.js", type: "module" }),
+  );
+
   // Create empty stub for native modules that wrangler's bundler needs to resolve
   const stubsDir = path.join(distDir, "_worker.js", "stubs");
   fs.mkdirSync(stubsDir, { recursive: true });
@@ -326,7 +334,9 @@ async function buildCloudflarePages() {
   // The server build (React Router SSR) is copied to tmp so esbuild can resolve it.
   const tmpDir = path.join(cwd, ".deploy-tmp");
   fs.mkdirSync(tmpDir, { recursive: true });
-  const tmpEntry = path.join(tmpDir, "worker-entry.js");
+  // Name the entry "index.js" so esbuild outputs index.js in the outdir,
+  // matching the _worker.js/index.js entry point that Cloudflare Pages expects.
+  const tmpEntry = path.join(tmpDir, "index.js");
   fs.writeFileSync(tmpEntry, adjustedEntry);
 
   // Copy server build files so esbuild can resolve the import
@@ -383,8 +393,14 @@ async function buildCloudflarePages() {
       // browser platform for npm resolution; node builtins externalized separately
       "--platform=browser",
       "--minify",
-      `--outfile=${entryFile}`,
+      // Multi-module output: split shared code into chunks for smaller entry point.
+      // Cloudflare Pages _worker.js/ directory format supports multiple modules.
+      `--outdir=${workerOutDir}`,
+      "--splitting",
+      "--chunk-names=chunks/[name]-[hash]",
       "--conditions=workerd,worker,import",
+      // The ssr-handler imports a virtual module that only exists at dev time
+      "--external:virtual:react-router/server-build",
       // Banner: override the __require shim that esbuild generates for CJS modules.
       // This provides a real require() backed by ESM imports of node builtins.
       // Without this, CF Workers rejects the bundle because esbuild's default
@@ -399,62 +415,71 @@ async function buildCloudflarePages() {
   // Clean up tmp
   fs.rmSync(tmpDir, { recursive: true });
 
-  // Patch unenv stubs: make fs.mkdirSync/writeFileSync/readFileSync no-ops instead of throwing.
-  // Some code calls these at import time; on Workers there's no filesystem, but the calls
-  // are guarded by runtime checks (url.startsWith("file:")) so they're dead code on Workers.
-  // The unenv stubs throw "not implemented" which crashes at validation time.
-  // This patch makes them safe no-ops so the module loads without error.
-  let workerCode2 = fs.readFileSync(entryFile, "utf-8");
-  // Only add shim if unenv stubs would be present (when wrangler bundles with nodejs_compat_v2)
-  if (!workerCode2.includes("__unenv_fs_patched__")) {
-    workerCode2 = `/* __unenv_fs_patched__ */\n` + workerCode2;
+  // Rewrite the external virtual import to a local stub.
+  // esbuild externalizes "virtual:react-router/server-build" (used by ssr-handler),
+  // but wrangler re-bundles and chokes on it. Replace the import with a no-op stub.
+  const virtualStub = path.join(workerOutDir, "chunks", "_virtual-stub.js");
+  fs.mkdirSync(path.dirname(virtualStub), { recursive: true });
+  fs.writeFileSync(virtualStub, "export default {};\n");
+
+  // Post-build patches — apply to ALL .js files in the worker output directory
+  // (entry + chunks) since code can land in any chunk after splitting.
+  const allJsFiles = getAllJsFiles(workerOutDir);
+  for (const jsFile of allJsFiles) {
+    let code = fs.readFileSync(jsFile, "utf-8");
+    const isEntry = path.basename(jsFile) === "index.js";
+
+    // Strip "node:" prefix from all imports/requires — nodejs_compat v1 only provides bare names.
+    code = code.replace(
+      /from\s*["']node:([^"']+)["']/g,
+      (_, mod) => `from"${mod}"`,
+    );
+    code = code.replace(
+      /import\s*["']node:([^"']+)["']/g,
+      (_, mod) => `import"${mod}"`,
+    );
+
+    // Rewrite virtual:react-router/server-build imports to the local stub.
+    // The generated entry handles SSR directly; this import is dead code from ssr-handler.
+    const relStub = path
+      .relative(path.dirname(jsFile), virtualStub)
+      .replace(/\\/g, "/");
+    code = code.replace(
+      /["']virtual:react-router\/server-build["']/g,
+      `"./${relStub}"`,
+    );
+
+    // Patch createRequire(import.meta.url) — import.meta.url is undefined in CF Workers.
+    code = code.replace(
+      /\bimport\s*\{\s*createRequire\s+as\s+([\w$]+)\s*\}\s*from\s*["']module["']\s*;/g,
+      "var $1 = function() { return typeof require !== 'undefined' ? require : function(m) { throw new Error('require not supported: ' + m); }; };",
+    );
+
+    // Entry-only patches
+    if (isEntry) {
+      // Patch setInterval/setTimeout at module scope — CF Workers disallows timers in global scope.
+      const timerShim = [
+        "var __origSetInterval=globalThis.setInterval;",
+        "globalThis.setInterval=function(){return{unref(){},ref(){},close(){}}};",
+      ].join("");
+      const timerRestore =
+        "if(__origSetInterval)globalThis.setInterval=__origSetInterval;";
+      code = timerShim + code;
+      code = code.replace(
+        /async fetch\(request,\s*env,\s*ctx\)\s*\{/,
+        (match) => match + timerRestore,
+      );
+    }
+
+    fs.writeFileSync(jsFile, code);
   }
-  fs.writeFileSync(entryFile, workerCode2);
-
-  // Patch setInterval/setTimeout at module scope — CF Workers disallows timers in global scope.
-  // Some dependencies (e.g. Anthropic SDK rate limiter) call setInterval at module init.
-  // Inject a banner that makes setInterval/setTimeout safe during module evaluation,
-  // then restores them inside the first fetch() call.
-  let workerCode = fs.readFileSync(entryFile, "utf-8");
-  const timerShim = [
-    "var __origSetInterval=globalThis.setInterval;",
-    "globalThis.setInterval=function(){return{unref(){},ref(){},close(){}}};",
-  ].join("");
-  // Restore real setInterval inside the fetch handler
-  const timerRestore =
-    "if(__origSetInterval)globalThis.setInterval=__origSetInterval;";
-  workerCode = timerShim + workerCode;
-  // Inject restore right after "async fetch(request, env, ctx) {"
-  workerCode = workerCode.replace(
-    /async fetch\(request,\s*env,\s*ctx\)\s*\{/,
-    (match) => match + timerRestore,
-  );
-
-  // Strip "node:" prefix from all imports/requires — nodejs_compat v1 only provides bare names.
-  // Handles minified output (no space before quotes) and subpaths like node:fs/promises.
-  workerCode = workerCode.replace(
-    /from\s*["']node:([^"']+)["']/g,
-    (_, mod) => `from"${mod}"`,
-  );
-  workerCode = workerCode.replace(
-    /import\s*["']node:([^"']+)["']/g,
-    (_, mod) => `import"${mod}"`,
-  );
-  // Patch createRequire(import.meta.url) — import.meta.url is undefined in CF Workers.
-  // React Router's server build uses createRequire for CJS compat. Replace it with a
-  // stub that returns our require shim (which is already injected via the banner).
-  workerCode = workerCode.replace(
-    /\bimport\s*\{\s*createRequire\s+as\s+([\w$]+)\s*\}\s*from\s*["']module["']\s*;/g,
-    "var $1 = function() { return typeof require !== 'undefined' ? require : function(m) { throw new Error('require not supported: ' + m); }; };",
-  );
-
-  fs.writeFileSync(entryFile, workerCode);
 
   // Report size
   const entrySize = fs.statSync(entryFile).size;
   const totalSize = getDirSize(workerOutDir);
+  const chunkCount = allJsFiles.length - 1; // exclude entry
   console.log(
-    `[deploy] Cloudflare Pages output written to dist/ (worker entry: ${(entrySize / 1024).toFixed(0)}KB, total: ${(totalSize / 1024 / 1024).toFixed(1)}MB)`,
+    `[deploy] Cloudflare Pages output written to dist/ (entry: ${(entrySize / 1024).toFixed(0)}KB, ${chunkCount} chunks, total: ${(totalSize / 1024 / 1024).toFixed(1)}MB)`,
   );
 }
 
@@ -588,6 +613,21 @@ function findWorkspaceRoot(dir: string): string | null {
     current = path.dirname(current);
   }
   return null;
+}
+
+/** Recursively collect all .js files in a directory. */
+function getAllJsFiles(dir: string): string[] {
+  const results: string[] = [];
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      results.push(...getAllJsFiles(fullPath));
+    } else if (entry.name.endsWith(".js")) {
+      results.push(fullPath);
+    }
+  }
+  return results;
 }
 
 function getDirSize(dir: string): number {

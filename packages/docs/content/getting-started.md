@@ -7,23 +7,35 @@ description: "Pick a template, create your app, and start customizing it with AI
 
 The fastest way to get started is to pick a template and customize it. Templates are complete, production-ready apps — not starter kits. You get a working app in under a minute and start making it yours.
 
-## Create Your App {#create-your-app}
+## Create Your Workspace {#create-your-app}
 
 ```bash
-npx @agent-native/core create my-app
+npx @agent-native/core create my-platform
 ```
 
-The CLI walks you through picking a template — or starting blank. Then run it:
+The CLI shows a multi-select picker — pick as many templates as you want (Mail + Calendar + Forms, for example) and they all get scaffolded into the same workspace sharing auth, brand, and agent config. Then boot them all:
 
 ```bash
-cd my-app
+cd my-platform
 pnpm install
 pnpm dev
 ```
 
-That's it — you have a full app running locally with an AI agent built in. Open the agent panel, ask it to do something, and watch it work.
+That's it — you have every app running locally with an AI agent built in. Open the agent panel, ask it to do something, and watch it work.
 
-From here, use your AI coding tool (Claude Code, Cursor, Windsurf, etc.) to customize it. The agent instructions in `AGENTS.md` are already set up so any tool understands the codebase.
+Want a single app with no monorepo? Pass `--standalone`:
+
+```bash
+npx @agent-native/core create my-app --standalone --template mail
+```
+
+Need to add more apps later? From inside the workspace:
+
+```bash
+agent-native add-app
+```
+
+From here, use your AI coding tool (Claude Code, Cursor, Windsurf, etc.) to customize it. The agent instructions in `AGENTS.md` are already set up so any tool understands the codebase. See [Enterprise Workspace](/docs/enterprise-workspace) for the full story on sharing auth, skills, components, and credentials across apps.
 
 ## Templates {#templates}
 
