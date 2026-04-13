@@ -8,11 +8,13 @@ import {
   IconEye,
   IconCode,
   IconClock,
+  IconMessageChatbot,
 } from "@tabler/icons-react";
 import { cn } from "../utils.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import { ResourceTree } from "./ResourceTree.js";
 import { ResourceEditor } from "./ResourceEditor.js";
+import { serializeFrontmatter } from "../../resources/metadata.js";
 import {
   useResourceTree,
   useResource,
@@ -26,20 +28,73 @@ import {
 
 // ─── Create Menu (unified + button) ────────────────────────────────────────
 
-type CreateMenuView = "menu" | "file" | "skill" | "job";
+type CreateMenuView =
+  | "menu"
+  | "file"
+  | "skill"
+  | "job"
+  | "agent-mode"
+  | "agent-prompt"
+  | "agent-form";
+
+const AGENT_MODEL_OPTIONS = [
+  { value: "inherit", label: "Default model" },
+  { value: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
+  { value: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5" },
+] as const;
+
+function slugifyName(value: string): string {
+  return (
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "agent"
+  );
+}
+
+function buildAgentResourceContent({
+  name,
+  description,
+  model,
+  tools,
+  body,
+}: {
+  name: string;
+  description: string;
+  model: string;
+  tools: string;
+  body: string;
+}): string {
+  const fields = [
+    { key: "name", value: name },
+    { key: "description", value: description },
+    { key: "model", value: model },
+    { key: "tools", value: tools },
+    { key: "delegate-default", value: "false" },
+  ];
+  return serializeFrontmatter(fields) + body.trim() + "\n";
+}
 
 function CreateMenu({
   scope,
   onCreateFile,
+  onCreateResource,
   onCreated,
 }: {
   scope: ResourceScope;
   onCreateFile: (name: string) => void;
+  onCreateResource: (path: string, content: string, mimeType?: string) => void;
   onCreated?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<CreateMenuView>("menu");
   const [value, setValue] = useState("");
+  const [agentName, setAgentName] = useState("");
+  const [agentDescription, setAgentDescription] = useState("");
+  const [agentModel, setAgentModel] = useState<string>("inherit");
+  const [agentInstructions, setAgentInstructions] = useState(
+    `# Role\n\nDefine how this agent should work.\n\n## Focus\n\n- What kinds of tasks it should handle\n- What tone or approach it should use\n- Important constraints or preferences\n`,
+  );
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -48,11 +103,17 @@ function CreateMenu({
     if (open) {
       setView("menu");
       setValue("");
+      setAgentName("");
+      setAgentDescription("");
+      setAgentModel("inherit");
+      setAgentInstructions(
+        `# Role\n\nDefine how this agent should work.\n\n## Focus\n\n- What kinds of tasks it should handle\n- What tone or approach it should use\n- Important constraints or preferences\n`,
+      );
     }
   }, [open]);
 
   useEffect(() => {
-    if (view !== "menu") {
+    if (view !== "menu" && view !== "agent-form") {
       setValue("");
       const t = setTimeout(() => inputRef.current?.focus(), 50);
       return () => clearTimeout(t);
@@ -193,6 +254,81 @@ The job will run automatically on the schedule. Make the instructions specific �
     setOpen(false);
   };
 
+  const submitAgentPrompt = () => {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+
+    sendToAgentChat({
+      message: `Create a custom agent: ${trimmed}`,
+      context: `The user wants a reusable custom sub-agent profile for the workspace. Their description: "${trimmed}"
+
+Create it as a ${scope} resource under "agents/<name>.md" using resource-write.
+
+Requirements:
+1. Derive a hyphen-case file name from the intent
+2. Use YAML frontmatter with:
+   - name
+   - description
+   - model (use "inherit" unless the request clearly needs a different model)
+   - tools (set to "inherit")
+   - delegate-default (set to false)
+3. Put the main operating instructions in the markdown body
+4. Keep it concise and directive, similar to a Claude Code-style custom agent
+
+Template:
+\`\`\`markdown
+---
+name: Design
+description: >-
+  Helps with product and interface design decisions.
+model: inherit
+tools: inherit
+delegate-default: false
+---
+
+# Role
+
+You are a focused design agent.
+
+## Responsibilities
+
+- ...
+
+## Approach
+
+- ...
+\`\`\`
+
+The result should be a reusable agent profile, not a one-off task response.`,
+      submit: true,
+    });
+
+    setOpen(false);
+    onCreated?.();
+  };
+
+  const submitAgentManual = () => {
+    const trimmedName = agentName.trim();
+    const trimmedDescription = agentDescription.trim();
+    const trimmedInstructions = agentInstructions.trim();
+    if (!trimmedName || !trimmedDescription || !trimmedInstructions) return;
+
+    const slug = slugifyName(trimmedName);
+    onCreateResource(
+      `agents/${slug}.md`,
+      buildAgentResourceContent({
+        name: trimmedName,
+        description: trimmedDescription,
+        model: agentModel,
+        tools: "inherit",
+        body: trimmedInstructions,
+      }),
+      "text/markdown",
+    );
+    setOpen(false);
+    onCreated?.();
+  };
+
   const menuItems: {
     icon: React.ReactNode;
     label: string;
@@ -216,6 +352,12 @@ The job will run automatically on the schedule. Make the instructions specific �
       label: "Scheduled Task",
       desc: "Run something on a schedule",
       action: () => setView("job"),
+    },
+    {
+      icon: <IconMessageChatbot className="h-3.5 w-3.5" />,
+      label: "Create Agent",
+      desc: "Add a reusable sub-agent profile",
+      action: () => setView("agent-mode"),
     },
   ];
 
@@ -367,6 +509,150 @@ The job will run automatically on the schedule. Make the instructions specific �
               </div>
             </div>
           )}
+
+          {view === "agent-mode" && (
+            <div className="p-3">
+              <label className="mb-1 block text-[11px] font-semibold text-foreground">
+                Create Agent
+              </label>
+              <p className="mb-2 text-[10px] leading-relaxed text-muted-foreground/60">
+                Build a reusable sub-agent profile for this workspace.
+              </p>
+              <div className="space-y-2">
+                <button
+                  onClick={() => setView("agent-prompt")}
+                  className="flex w-full items-start gap-2 rounded-md border border-border px-3 py-2 text-left hover:bg-accent/40"
+                >
+                  <IconSparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <div>
+                    <div className="text-[12px] font-medium text-foreground">
+                      Describe It
+                    </div>
+                    <div className="text-[10px] text-muted-foreground/60">
+                      Let the agent draft the profile from a prompt.
+                    </div>
+                  </div>
+                </button>
+                <button
+                  onClick={() => setView("agent-form")}
+                  className="flex w-full items-start gap-2 rounded-md border border-border px-3 py-2 text-left hover:bg-accent/40"
+                >
+                  <IconMessageChatbot className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <div>
+                    <div className="text-[12px] font-medium text-foreground">
+                      Fill Form
+                    </div>
+                    <div className="text-[10px] text-muted-foreground/60">
+                      Set the fields manually and start with a markdown
+                      template.
+                    </div>
+                  </div>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {view === "agent-prompt" && (
+            <div className="p-3">
+              <label className="mb-1 block text-[11px] font-semibold text-foreground">
+                Create Agent From Prompt
+              </label>
+              <p className="mb-2 text-[10px] text-muted-foreground/60 leading-relaxed">
+                Describe the agent you want. It will be saved under{" "}
+                <code>agents/</code>.
+              </p>
+              <textarea
+                ref={inputRef as React.RefObject<HTMLTextAreaElement>}
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    submitAgentPrompt();
+                  }
+                  if (e.key === "Escape") {
+                    e.stopPropagation();
+                    setView("agent-mode");
+                  }
+                }}
+                rows={4}
+                className="w-full resize-none rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+                placeholder="e.g. A design agent that critiques layouts, suggests UI direction, and prefers concise product reasoning"
+              />
+              <div className="mt-2.5 flex justify-end">
+                <button
+                  onClick={submitAgentPrompt}
+                  disabled={!value.trim()}
+                  className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40 disabled:pointer-events-none"
+                >
+                  Create
+                </button>
+              </div>
+            </div>
+          )}
+
+          {view === "agent-form" && (
+            <div className="p-3">
+              <label className="mb-2 block text-[11px] font-semibold text-foreground">
+                Create Agent Manually
+              </label>
+              <div className="space-y-2">
+                <input
+                  value={agentName}
+                  onChange={(e) => setAgentName(e.target.value)}
+                  className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+                  placeholder="Agent name"
+                />
+                <input
+                  value={agentDescription}
+                  onChange={(e) => setAgentDescription(e.target.value)}
+                  className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+                  placeholder="Short description"
+                />
+                <label className="block text-[11px] font-medium text-muted-foreground">
+                  Model
+                </label>
+                <select
+                  value={agentModel}
+                  onChange={(e) => setAgentModel(e.target.value)}
+                  className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none focus:ring-1 focus:ring-accent"
+                >
+                  {AGENT_MODEL_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <label className="block text-[11px] font-medium text-muted-foreground">
+                  Instructions
+                </label>
+                <textarea
+                  value={agentInstructions}
+                  onChange={(e) => setAgentInstructions(e.target.value)}
+                  rows={8}
+                  className="w-full resize-y rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+                  style={{
+                    fontFamily:
+                      'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+                    lineHeight: 1.5,
+                  }}
+                />
+              </div>
+              <div className="mt-2.5 flex justify-end">
+                <button
+                  onClick={submitAgentManual}
+                  disabled={
+                    !agentName.trim() ||
+                    !agentDescription.trim() ||
+                    !agentInstructions.trim()
+                  }
+                  className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40 disabled:pointer-events-none"
+                >
+                  Create
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -419,8 +705,7 @@ Create skill files under \`skills/\` to give the agent specialized knowledge. Re
 `;
 
 export function ResourcesPanel() {
-  // Scope for toolbar-level create/upload defaults to shared
-  const activeScope: ResourceScope = "shared";
+  const [activeScope, setActiveScope] = useState<ResourceScope>("shared");
   const [selectedResourceId, setSelectedResourceId] = useState<string | null>(
     null,
   );
@@ -511,6 +796,20 @@ export function ResourcesPanel() {
     [createResource, activeScope],
   );
 
+  const handleCreateResourceFromToolbar = useCallback(
+    (path: string, content: string, mimeType?: string) => {
+      createResource.mutate(
+        { path, content, mimeType, shared: activeScope === "shared" },
+        {
+          onSuccess: (data) => {
+            setSelectedResourceId(data.id);
+          },
+        },
+      );
+    },
+    [activeScope, createResource],
+  );
+
   const handleDelete = useCallback(
     (id: string) => {
       deleteResource.mutate(id);
@@ -590,7 +889,7 @@ export function ResourcesPanel() {
             <button
               onClick={handleBack}
               className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
-              title="Back to files"
+              title="Back to workspace"
             >
               <IconArrowLeft className="h-3.5 w-3.5" />
             </button>
@@ -650,9 +949,34 @@ export function ResourcesPanel() {
       ) : (
         /* Floating action buttons — absolute top-right over tree view */
         <div className="absolute top-1 right-1 z-10 flex items-center gap-1">
+          <div className="mr-1 flex items-center gap-0.5 rounded-md border border-border bg-background/80 p-0.5">
+            <button
+              onClick={() => setActiveScope("personal")}
+              className={cn(
+                "rounded px-2 py-1 text-[10px] font-medium",
+                activeScope === "personal"
+                  ? "bg-accent text-foreground"
+                  : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+              )}
+            >
+              Personal
+            </button>
+            <button
+              onClick={() => setActiveScope("shared")}
+              className={cn(
+                "rounded px-2 py-1 text-[10px] font-medium",
+                activeScope === "shared"
+                  ? "bg-accent text-foreground"
+                  : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+              )}
+            >
+              Shared
+            </button>
+          </div>
           <CreateMenu
             scope={activeScope}
             onCreateFile={handleCreateFromToolbar}
+            onCreateResource={handleCreateResourceFromToolbar}
           />
           <button
             onClick={() => fileInputRef.current?.click()}

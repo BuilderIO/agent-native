@@ -158,13 +158,26 @@ export const MentionPopover = forwardRef<
       if (!groups.has(section)) groups.set(section, []);
       groups.get(section)!.push(item);
     }
-    // Sort: Agents first, then template-specific, then Files, then Other
+    // Sort: Agents first, then Connected Agents, then template-specific,
+    // then Files, then Other
     const sorted: { section: string; items: MentionItem[] }[] = [];
-    const knownSections = new Set(["Agents", "Files", "Other"]);
+    const knownSections = new Set([
+      "Agents",
+      "Connected Agents",
+      "Files",
+      "Other",
+    ]);
     // Agents first
     if (groups.has("Agents")) {
       sorted.push({ section: "Agents", items: groups.get("Agents")! });
       groups.delete("Agents");
+    }
+    if (groups.has("Connected Agents")) {
+      sorted.push({
+        section: "Connected Agents",
+        items: groups.get("Connected Agents")!,
+      });
+      groups.delete("Connected Agents");
     }
     // Template-specific sections (anything not in knownSections)
     for (const [section, items] of groups) {

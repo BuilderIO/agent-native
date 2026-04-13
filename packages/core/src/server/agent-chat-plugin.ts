@@ -378,6 +378,11 @@ function createTeamTools(deps: {
               description:
                 "Short name for the sub-agent tab (e.g. 'Research', 'Draft email'). If omitted, derived from the task.",
             },
+            agent: {
+              type: "string",
+              description:
+                "Optional custom agent profile from agents/*.md to use for this task.",
+            },
           },
           required: ["task"],
         },
@@ -400,14 +405,37 @@ function createTeamTools(deps: {
             ([name]) => !teamToolNames.has(name),
           ),
         );
+        let instructions = args.instructions;
+        let selectedModel = deps.getModel();
+        let selectedName = args.name || "";
+        if (args.agent) {
+          const { findAccessibleCustomAgent } =
+            await import("../resources/agents.js");
+          const profile = await findAccessibleCustomAgent(
+            deps.getOwner(),
+            args.agent,
+          );
+          if (!profile) {
+            throw new Error(`Custom agent not found: ${args.agent}`);
+          }
+          const profileInstructions =
+            `## Custom Agent Profile: ${profile.name}\n\n` +
+            (profile.description ? `${profile.description}\n\n` : "") +
+            profile.instructions;
+          instructions = instructions
+            ? `${profileInstructions}\n\n## Extra Task Context\n\n${instructions}`
+            : profileInstructions;
+          selectedModel = profile.model ?? selectedModel;
+          selectedName = selectedName || profile.name;
+        }
         const task = await spawnTask({
           description: args.task,
-          instructions: args.instructions,
+          instructions,
           ownerEmail: deps.getOwner(),
           systemPrompt: deps.getSystemPrompt(),
           actions: subAgentActions,
           engine: deps.getEngine(),
-          model: deps.getModel(),
+          model: selectedModel,
           parentThreadId: deps.getParentThreadId(),
           parentSend: (event) => {
             if (capturedSend) capturedSend(event);
@@ -418,7 +446,7 @@ function createTeamTools(deps: {
           threadId: task.threadId,
           status: task.status,
           description: task.description,
-          name: args.name || "",
+          name: selectedName,
         });
       },
     },
@@ -640,7 +668,7 @@ When the user asks to find a previous conversation, use \`search-chats\` first t
 ### Agent Teams — Orchestration
 
 You are an orchestrator. For complex or multi-step tasks, delegate to sub-agents:
-- \`spawn-task\` — Spawn a sub-agent for a task. It runs in its own thread while you stay available. A live preview card appears in the chat.
+- \`spawn-task\` — Spawn a sub-agent for a task. It runs in its own thread while you stay available. A live preview card appears in the chat. You can optionally choose a custom agent profile from \`agents/*.md\`.
 - \`task-status\` — Check the progress of a running sub-agent.
 - \`read-task-result\` — Read the result when a sub-agent finishes.
 
@@ -656,7 +684,7 @@ You are an orchestrator. For complex or multi-step tasks, delegate to sub-agents
 4. Use \`read-task-result\` to check results when needed, or the user can see live progress in the card.
 5. If the user's request has multiple steps, you can spawn one sub-agent per step, or chain them.
 
-Sub-agents have access to all template tools but **cannot spawn sub-agents themselves** — only you (the orchestrator) can do that. Give the sub-agent a specific, actionable task description — it will figure out which tools to use.
+Sub-agents have access to all template tools but **cannot spawn sub-agents themselves** — only you (the orchestrator) can do that. Give the sub-agent a specific, actionable task description — it will figure out which tools to use. If a matching custom agent profile exists, pass it via the \`agent\` parameter on \`spawn-task\`.
 
 ### Recurring Jobs
 
@@ -2144,7 +2172,37 @@ export function createAgentChatPlugin(
               );
             }
 
-            // 4. Peer agent discovery (network call — often slowest)
+            // 4. Custom workspace agents
+            sources.push(
+              (async () => {
+                try {
+                  const owner = await getOwnerFromEvent(event);
+                  const { listAccessibleCustomAgents } =
+                    await import("../resources/agents.js");
+                  const agents = await listAccessibleCustomAgents(owner);
+                  flush(
+                    agents.map((agent) => ({
+                      id: `custom-agent:${agent.id}`,
+                      label: agent.name,
+                      description: agent.description || agent.path,
+                      icon: "agent",
+                      source: "agent:custom",
+                      refType: "custom-agent",
+                      refPath: agent.path,
+                      refId: agent.id,
+                      section: "Agents",
+                    })),
+                  );
+                } catch (e) {
+                  console.error(
+                    "[agent-native] Custom agent discovery failed:",
+                    e,
+                  );
+                }
+              })(),
+            );
+
+            // 5. Peer agent discovery (network call — often slowest)
             sources.push(
               (async () => {
                 try {
@@ -2159,7 +2217,7 @@ export function createAgentChatPlugin(
                       refType: "agent",
                       refPath: agent.url,
                       refId: agent.id,
-                      section: "Agents",
+                      section: "Connected Agents",
                     })),
                   );
                 } catch (e) {

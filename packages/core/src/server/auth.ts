@@ -89,6 +89,11 @@ export interface AuthOptions {
 
 const COOKIE_NAME = "an_session";
 const DEFAULT_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
+const LOCAL_MODE_MARKER_PATH = path.resolve(
+  process.cwd(),
+  ".agent-native",
+  "auth-mode",
+);
 
 // ---------------------------------------------------------------------------
 // AUTH_MODE detection
@@ -97,33 +102,24 @@ const DEFAULT_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 /**
  * Check if the app is in local-only mode (no auth).
  *
- * Returns true when:
- * - AUTH_MODE=local is explicitly set (escape hatch)
- * - In dev environment (NODE_ENV=development) with no explicit auth token
- *   configured (no ACCESS_TOKEN, no BYOA). This makes dev "just work"
- *   without requiring auth setup, while still respecting auth when configured.
+ * Returns true when AUTH_MODE=local is explicitly set or when the dev
+ * onboarding flow has enabled local mode for the current workspace via
+ * a runtime marker file.
  *
- * NOTE: GOOGLE_CLIENT_ID is intentionally NOT checked here — it is used for
- * Google Calendar / Gmail API access as well as Google Sign-In, and its
- * presence alone should not force authentication. Only ACCESS_TOKEN/ACCESS_TOKENS
- * (explicit token-based auth) or a custom getSession (BYOA) signal that the
- * developer has explicitly opted into requiring authentication.
- *
- * BYOA (customGetSession) opts out of dev auto-local — templates that provide
- * their own auth (e.g. Supabase) shouldn't be silently bypassed in dev.
+ * Local mode is an escape hatch, not the default dev behavior. In development
+ * without AUTH_MODE=local, apps should still use Better Auth and show the
+ * onboarding flow so users can create real accounts locally.
  */
-function isLocalMode(): boolean {
+async function isLocalModeEnabled(): Promise<boolean> {
   if (process.env.AUTH_MODE === "local") return true;
-  // Default to local mode in dev when no explicit auth is configured
-  if (
-    isDevEnvironment() &&
-    !process.env.ACCESS_TOKEN &&
-    !process.env.ACCESS_TOKENS &&
-    !customGetSession
-  ) {
-    return true;
+
+  try {
+    const fs = await getFs();
+    const mode = fs.readFileSync(LOCAL_MODE_MARKER_PATH, "utf-8").trim();
+    return mode === "local";
+  } catch {
+    return false;
   }
-  return false;
 }
 
 /**
@@ -385,7 +381,7 @@ function mapBetterAuthSession(baSession: {
  */
 export async function getSession(event: H3Event): Promise<AuthSession | null> {
   // 1. AUTH_MODE=local — explicit local-only mode
-  if (isLocalMode() || authDisabledMode) {
+  if ((await isLocalModeEnabled()) || authDisabledMode) {
     // Check for a real session cookie first (e.g. from Google OAuth)
     try {
       const cookie = getCookie(event, COOKIE_NAME);
@@ -578,20 +574,8 @@ const TOKEN_LOGIN_HTML = `<!DOCTYPE html>
 async function setAuthModeLocal(): Promise<boolean> {
   try {
     const fs = await getFs();
-    const envPath = path.resolve(process.cwd(), ".env");
-    let content = "";
-    try {
-      content = fs.readFileSync(envPath, "utf-8");
-    } catch {
-      // .env doesn't exist yet
-    }
-
-    if (content.includes("AUTH_MODE=")) {
-      content = content.replace(/AUTH_MODE=.*/g, "AUTH_MODE=local");
-    } else {
-      content = content.trimEnd() + "\nAUTH_MODE=local\n";
-    }
-    fs.writeFileSync(envPath, content, "utf-8");
+    fs.mkdirSync(path.dirname(LOCAL_MODE_MARKER_PATH), { recursive: true });
+    fs.writeFileSync(LOCAL_MODE_MARKER_PATH, "local\n", "utf-8");
     process.env.AUTH_MODE = "local";
     return true;
   } catch {
@@ -602,20 +586,11 @@ async function setAuthModeLocal(): Promise<boolean> {
 async function removeAuthModeLocal(): Promise<boolean> {
   try {
     const fs = await getFs();
-    const envPath = path.resolve(process.cwd(), ".env");
-    let content = "";
     try {
-      content = fs.readFileSync(envPath, "utf-8");
+      fs.unlinkSync(LOCAL_MODE_MARKER_PATH);
     } catch {
-      return true; // No .env file means nothing to remove
+      // Marker already absent
     }
-
-    // Remove AUTH_MODE=local line entirely
-    content = content
-      .split("\n")
-      .filter((line) => !line.match(/^\s*AUTH_MODE\s*=/))
-      .join("\n");
-    fs.writeFileSync(envPath, content, "utf-8");
     delete process.env.AUTH_MODE;
     return true;
   } catch {
@@ -682,7 +657,7 @@ async function mountBetterAuthRoutes(
       const ok = await setAuthModeLocal();
       if (!ok) {
         setResponseStatus(event, 500);
-        return { error: "Failed to set AUTH_MODE=local in .env" };
+        return { error: "Failed to enable local mode" };
       }
       return { ok: true };
     }),
@@ -699,7 +674,7 @@ async function mountBetterAuthRoutes(
       const ok = await removeAuthModeLocal();
       if (!ok) {
         setResponseStatus(event, 500);
-        return { error: "Failed to remove AUTH_MODE from .env" };
+        return { error: "Failed to disable local mode" };
       }
       return { ok: true };
     }),
@@ -970,7 +945,7 @@ function mountLocalModeRoutes(app: H3App): void {
       const ok = await removeAuthModeLocal();
       if (!ok) {
         setResponseStatus(event, 500);
-        return { error: "Failed to remove AUTH_MODE from .env" };
+        return { error: "Failed to disable local mode" };
       }
       return { ok: true };
     }),
@@ -1022,7 +997,7 @@ export async function autoMountAuth(
   }
 
   if (!app) {
-    if (isLocalMode() || isDevEnvironment()) {
+    if ((await isLocalModeEnabled()) || isDevEnvironment()) {
       authDisabledMode = false;
       customGetSession = null;
       return false;
@@ -1043,11 +1018,20 @@ export async function autoMountAuth(
   }
 
   // AUTH_MODE=local — explicit local-only mode (escape hatch)
-  if (isLocalMode()) {
-    mountLocalModeRoutes(app);
-    // Still init Better Auth in background so users can create accounts later
-    getBetterAuth(options.betterAuth).catch(() => {});
-    console.log("[agent-native] Auth mode: local (no auth required).");
+  if (await isLocalModeEnabled()) {
+    try {
+      // Mount the standard auth endpoints and guard even in local mode so the
+      // app can switch back to real auth immediately after AUTH_MODE is
+      // cleared, without waiting for a server restart/remount.
+      await mountBetterAuthRoutes(app, options);
+    } catch (err) {
+      console.error(
+        "[agent-native] Failed to initialize Better Auth in local mode:",
+        err,
+      );
+      mountLocalModeRoutes(app);
+    }
+    console.log("[agent-native] Auth mode: local (upgrade path enabled).");
     return false;
   }
 

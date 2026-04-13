@@ -188,7 +188,9 @@ The agent card endpoint is always public (no auth) so other agents can discover 
 
 ## Agent mentions {#agent-mentions}
 
-You can `@`-mention agents directly in the chat composer. When you mention an agent, the server makes an A2A call to that agent and weaves the response into your conversation context. This is the easiest way to use A2A — no code required, just type `@` and select an agent.
+You can `@`-mention agents directly in the chat composer. Connected agents use A2A: when you mention a connected agent, the server makes an A2A call to that agent and weaves the response into your conversation context.
+
+Custom workspace agents are different: they run locally inside the current app/runtime rather than over A2A.
 
 See [Agent Mentions](/docs/agent-mentions) for details on how mentions work, how to add agents, and how to create custom mention providers.
 

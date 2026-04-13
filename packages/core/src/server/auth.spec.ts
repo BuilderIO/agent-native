@@ -50,6 +50,29 @@ describe("server/auth", () => {
       logSpy.mockRestore();
     });
 
+    it("enables Better Auth in dev when AUTH_MODE=local is not set", async () => {
+      vi.stubEnv("NODE_ENV", "development");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      delete process.env.AUTH_DISABLED;
+      delete process.env.AUTH_MODE;
+      const { autoMountAuth } = await import("./auth.js");
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const app = createMockApp();
+      const result = await autoMountAuth(app);
+
+      expect(result).toBe(true);
+      const allLogs = logSpy.mock.calls.map((c) => c[0]).join(" ");
+      expect(
+        allLogs.includes("Better Auth") ||
+          allLogs.includes("Auth guard registered"),
+      ).toBe(true);
+      logSpy.mockRestore();
+      errorSpy.mockRestore();
+    });
+
     it("returns false when AUTH_DISABLED=true in production", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("AUTH_DISABLED", "true");
@@ -188,6 +211,22 @@ describe("server/auth", () => {
       const event = createMockEvent();
       const session = await getSession(event);
       expect(session).toEqual({ email: "local@localhost" });
+    });
+
+    it("stops returning the local session once AUTH_MODE=local is cleared", async () => {
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("AUTH_MODE", "local");
+      const { getSession, autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const event = createMockEvent();
+      expect(await getSession(event)).toEqual({ email: "local@localhost" });
+
+      delete process.env.AUTH_MODE;
+
+      expect(await getSession(event)).toBeNull();
     });
 
     it("falls through to _session query param when custom getSession returns null", async () => {
