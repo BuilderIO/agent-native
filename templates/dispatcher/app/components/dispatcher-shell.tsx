@@ -4,6 +4,7 @@ import { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";
 import {
   IconArrowUpRight,
   IconBellCog,
+  IconPlugConnected,
   IconBroadcast,
   IconFingerprint,
   IconHistory,
@@ -25,6 +26,7 @@ import {
 
 const NAV_ITEMS = [
   { to: "/overview", label: "Overview", icon: IconBroadcast },
+  { to: "/agents", label: "Agents", icon: IconPlugConnected },
   { to: "/destinations", label: "Destinations", icon: IconArrowUpRight },
   { to: "/identities", label: "Identities", icon: IconFingerprint },
   { to: "/approvals", label: "Approvals", icon: IconShieldCheck },

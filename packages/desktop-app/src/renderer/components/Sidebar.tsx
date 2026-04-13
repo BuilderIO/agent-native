@@ -44,6 +44,13 @@ export default function Sidebar({
   onTabChange,
   onSettingsClick,
 }: SidebarProps) {
+  const pinnedBottomOrder = ["dispatcher", "starter"];
+  const pinnedBottom = pinnedBottomOrder
+    .map((id) => apps.find((app) => app.id === id))
+    .filter((app): app is AppDefinition => !!app);
+  const mainApps = apps.filter((app) => !pinnedBottomOrder.includes(app.id));
+  const orderedApps = [...mainApps, ...pinnedBottom];
+
   return (
     <aside className="sidebar">
       {/* Windows/Linux custom traffic lights */}
@@ -70,7 +77,7 @@ export default function Sidebar({
 
       {/* App tabs */}
       <nav className="sidebar-nav">
-        {apps.map((app) => (
+        {orderedApps.map((app) => (
           <SidebarItem
             key={app.id}
             app={app}
