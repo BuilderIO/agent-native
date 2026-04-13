@@ -13,6 +13,7 @@ import {
   IconBrowser,
   IconExternalLink,
   IconLoader2,
+  IconHelp,
 } from "@tabler/icons-react";
 import { cn } from "../utils.js";
 import { sendToAgentChat } from "../agent-chat.js";
@@ -967,6 +968,15 @@ export function ResourcesPanel() {
           >
             <IconUpload className="h-3.5 w-3.5" />
           </button>
+          <a
+            href="https://www.builder.io/c/docs/agent-native-resources"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
+            title="What is the Workspace? — open docs"
+          >
+            <IconHelp className="h-3.5 w-3.5" />
+          </a>
           <input
             ref={fileInputRef}
             type="file"
@@ -1027,6 +1037,33 @@ export function ResourcesPanel() {
           </div>
         ) : (
           <div className="flex-1 min-h-0 overflow-y-auto">
+            {(personalTreeQuery.data ?? []).length === 0 &&
+              (sharedTreeQuery.data ?? []).length === 0 && (
+                <div className="mx-2 mt-2 rounded-md border border-border bg-muted/30 p-2.5 text-[11px] text-muted-foreground">
+                  <p className="mb-1 font-medium text-foreground">
+                    This is your Workspace
+                  </p>
+                  <p className="mb-1.5 leading-snug">
+                    Files the agent reads and writes — notes, instructions,
+                    skills, custom agents, scheduled jobs. They live in the
+                    database, so they persist across sessions and deploys.
+                  </p>
+                  <p className="mb-2 leading-snug">
+                    <span className="text-foreground">Personal</span> is just
+                    for you. <span className="text-foreground">Shared</span> is
+                    visible across your team.
+                  </p>
+                  <a
+                    href="https://www.builder.io/c/docs/agent-native-resources"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-foreground hover:underline"
+                  >
+                    Learn more
+                    <IconExternalLink className="h-3 w-3" />
+                  </a>
+                </div>
+              )}
             <ResourceTree
               tree={personalTreeQuery.data ?? []}
               selectedId={selectedResourceId}

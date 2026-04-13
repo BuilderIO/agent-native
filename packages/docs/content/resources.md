@@ -5,7 +5,27 @@ description: "SQL-backed workspace files for notes, skills, custom agents, sched
 
 # Workspace Resources
 
-Resources are persistent files stored in the database — notes, configs, skill files, and more. They're available to both the UI and the agent, and work the same locally and in production.
+The **Workspace** tab is where you and the agent share persistent files — notes, instructions, skills, custom agents, and scheduled jobs. Files live in the database (not the filesystem), so they persist across sessions, work in serverless/edge deploys, and can be edited from both the UI and the agent.
+
+## TL;DR {#tldr}
+
+- Open the **Workspace** tab in the agent sidebar.
+- Create files with the `+` menu. Upload with the upload button. Edit inline (visual or code view).
+- **Personal** is just you. **Shared** is your team/org.
+- The agent can read, write, and rename any of these files as part of a conversation.
+- Special files the agent always reads: `AGENTS.md` (team rules) and `learnings.md` (per-user).
+
+## What goes in here? {#what-goes-in-here}
+
+| File / path               | What it's for                                                                                 |
+| ------------------------- | --------------------------------------------------------------------------------------------- |
+| `AGENTS.md` (Shared)      | Team instructions the agent reads every turn — tone, rules, domain context, skill references. |
+| `learnings.md` (Personal) | Corrections and preferences the agent records per user so it doesn't repeat mistakes.         |
+| `skills/<name>.md`        | Focused domain guidance the agent pulls in on demand (invoked with `/` slash commands).       |
+| `agents/<name>.md`        | Custom sub-agent profiles the agent can delegate to (invoked with `@` mentions).              |
+| `agents/<name>.json`      | A2A manifests for connected remote agents.                                                    |
+| `jobs/<name>.md`          | Scheduled tasks that run on a cron (see the recurring-jobs docs).                             |
+| Anything else             | Notes, prompts, config, dataset snippets — any text file.                                     |
 
 ## Overview {#overview}
 
@@ -33,6 +53,8 @@ Workspace resources come in two scopes:
 
 - **Personal** — visible only to the current user
 - **Shared** — visible across the team/org
+
+Click the `?` icon in the Workspace toolbar to jump back to these docs at any time.
 
 ## How the Agent Uses Resources {#how-the-agent-uses-resources}
 

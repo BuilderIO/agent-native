@@ -206,7 +206,7 @@ function UseBuilderCard({
           href="https://forms.gle/WGpRR5ENCwEppFWL7"
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 mt-2.5 rounded border border-border px-2.5 py-1 text-[10px] font-medium no-underline text-muted-foreground hover:text-foreground hover:bg-accent/40"
+          className="inline-flex items-center gap-1 mt-2.5 rounded bg-foreground px-2.5 py-1 text-[10px] font-medium no-underline text-background hover:opacity-90"
         >
           Join the waitlist
           <IconExternalLink size={10} />
@@ -253,7 +253,7 @@ function ManualSetupCard({
           href={docsUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-[10px] no-underline text-muted-foreground hover:text-foreground"
+          className="inline-flex items-center gap-1 mt-1.5 rounded border border-border px-2.5 py-1 text-[10px] font-medium no-underline text-muted-foreground hover:text-foreground hover:bg-accent/40"
         >
           {docsLabel}
           <IconExternalLink size={10} />

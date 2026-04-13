@@ -448,15 +448,46 @@ async function buildCloudflarePages() {
       /\bimport(\s*)(["'])node:([^"']+)\2/g,
       (_, ws, q, mod) => `import${ws}${q}${mod}${q}`,
     );
-    // Dynamic imports and require() — Nitro/h3 emit these and CF Pages'
-    // loader still tries to resolve them.
-    code = code.replace(
-      /\bimport(\s*\(\s*)(["'])node:([^"']+)\2(\s*\))/g,
-      (_, pre, q, mod, post) => `import${pre}${q}${mod}${q}${post}`,
+    // Strip `node:` prefix from any string literal that names a node
+    // builtin. Covers dynamic imports, require(), getBuiltinModule(),
+    // and minified wrappers like `Ut("node:fs")` that Nitro/h3 emit.
+    // Pages' loader scans chunks for `"node:*"` literals and fails with
+    // 'No such module "node:fs"' whether or not the string is reached
+    // at runtime. Scoping to known builtins avoids touching user data.
+    const builtinsPattern = [
+      "fs",
+      "fs/promises",
+      "path",
+      "os",
+      "crypto",
+      "http",
+      "https",
+      "stream",
+      "stream/web",
+      "url",
+      "util",
+      "events",
+      "buffer",
+      "querystring",
+      "zlib",
+      "net",
+      "tls",
+      "assert",
+      "timers",
+      "child_process",
+      "module",
+      "async_hooks",
+      "process",
+      "worker_threads",
+      "sqlite",
+    ].join("|");
+    const builtinRe = new RegExp(
+      `(["'])node:(${builtinsPattern})\\1`,
+      "g",
     );
     code = code.replace(
-      /\brequire(\s*\(\s*)(["'])node:([^"']+)\2(\s*\))/g,
-      (_, pre, q, mod, post) => `require${pre}${q}${mod}${q}${post}`,
+      builtinRe,
+      (_, q: string, mod: string) => `${q}${mod}${q}`,
     );
 
     // Rewrite virtual:react-router/server-build imports to the local stub.
@@ -595,11 +626,14 @@ function generateRequireShim(): string {
   const imports = shimmed
     .map((m) => `import __${m.replace("/", "_")} from "${m}";`)
     .join("");
+  // Only bare-name keys. Pages' Functions loader appears to scan chunks
+  // for "node:*" string literals and pre-resolves them as module specs —
+  // so keeping "node:fs" as an object key caused deploy to fail with
+  // 'No such module "node:fs"' even though nothing imported it. The
+  // post-build strip turns every runtime `require("node:fs")` into
+  // `require("fs")` so bare keys are sufficient.
   const entries = shimmed
-    .map(
-      (m) =>
-        `"${m}":__${m.replace("/", "_")},"node:${m}":__${m.replace("/", "_")}`,
-    )
+    .map((m) => `"${m}":__${m.replace("/", "_")}`)
     .join(",");
 
   return `${imports}\nconst __mods={${entries}};export var require=globalThis.require||function(m){const r=__mods[m];if(r!==undefined)return r;throw new Error("Cannot require: "+m)};\n`;
