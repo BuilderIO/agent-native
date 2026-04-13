@@ -11,6 +11,7 @@ import {
   IconDatabase,
   IconShield,
   IconPlugConnected,
+  IconTopologyRing2,
   IconLoader2,
   IconUpload,
 } from "@tabler/icons-react";
@@ -154,7 +155,7 @@ function UseBuilderCard({
         {connectUrl && (
           <a
             href={connectUrl}
-            className="inline-flex items-center gap-1 mt-1.5 rounded border border-border px-2 py-0.5 text-[10px] no-underline text-muted-foreground hover:text-foreground hover:bg-accent/40"
+            className="inline-flex items-center gap-1 mt-2.5 rounded border border-border px-2 py-0.5 text-[10px] no-underline text-muted-foreground hover:text-foreground hover:bg-accent/40"
           >
             Reconnect
             <IconExternalLink size={10} />
@@ -205,7 +206,7 @@ function UseBuilderCard({
           href="https://forms.gle/WGpRR5ENCwEppFWL7"
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 mt-1.5 rounded border border-border px-2.5 py-1 text-[10px] font-medium no-underline text-muted-foreground hover:text-foreground hover:bg-accent/40"
+          className="inline-flex items-center gap-1 mt-2.5 rounded border border-border px-2.5 py-1 text-[10px] font-medium no-underline text-muted-foreground hover:text-foreground hover:bg-accent/40"
         >
           Join the waitlist
           <IconExternalLink size={10} />
@@ -214,7 +215,7 @@ function UseBuilderCard({
         connectUrl && (
           <a
             href={connectUrl}
-            className="inline-flex items-center gap-1 mt-1.5 rounded bg-foreground px-2.5 py-1 text-[10px] font-medium no-underline text-background hover:opacity-90"
+            className="inline-flex items-center gap-1 mt-2.5 rounded bg-foreground px-2.5 py-1 text-[10px] font-medium no-underline text-background hover:opacity-90"
           >
             {label}
             <IconExternalLink size={10} />
@@ -337,7 +338,11 @@ function LLMSectionInner({
           label="Connect Builder.io"
           showIncludes
         />
-        <ManualSetupCard>
+        <ManualSetupCard
+          hint="Paste your Anthropic API key to power the agent chat."
+          docsUrl="https://console.anthropic.com/settings/keys"
+          docsLabel="Get an API key"
+        >
           {anthropicConfigured ? (
             <div className="flex items-center gap-1.5 text-[10px] text-green-500 mb-1">
               <IconCheck size={10} />
@@ -488,7 +493,7 @@ export function SettingsPanel({
           />
           <ManualSetupCard
             hint="Deploy manually to Netlify, Vercel, Cloudflare, or any Nitro-supported target."
-            docsUrl="https://www.builder.io/c/docs/agent-native-deploy"
+            docsUrl="https://www.builder.io/c/docs/agent-native-deployment"
           />
         </div>
       </SettingsSection>
@@ -530,11 +535,12 @@ export function SettingsPanel({
             connectUrl={connectUrl}
             connected={connected}
             orgName={orgName}
+            comingSoon
             builderEnabled={builderEnabled}
           />
           <ManualSetupCard
-            hint="No provider? Files fall back to your SQL database as base64 blobs — fine for local dev, not recommended for production. Connect Builder.io above or register your own provider (registerFileUploadProvider)."
-            docsUrl="https://www.builder.io/c/docs/upload-api"
+            hint="Without a provider, files are stored as base64 in your database. Fine for dev, not recommended for production."
+            docsUrl="https://www.builder.io/c/docs/agent-native-file-uploads"
           />
         </div>
       </SettingsSection>
@@ -557,7 +563,7 @@ export function SettingsPanel({
           />
           <ManualSetupCard
             hint="Configure Better Auth with BETTER_AUTH_SECRET and optional Google/GitHub OAuth providers."
-            docsUrl="https://www.builder.io/c/docs/agent-native-auth"
+            docsUrl="https://www.builder.io/c/docs/agent-native-authentication"
           />
         </div>
       </SettingsSection>
@@ -575,6 +581,7 @@ export function SettingsPanel({
           connectUrl={connectUrl}
           connected={connected}
           orgName={orgName}
+          comingSoon
           builderEnabled={builderEnabled}
         />
       </SettingsSection>
@@ -592,6 +599,7 @@ export function SettingsPanel({
           connectUrl={connectUrl}
           connected={connected}
           orgName={orgName}
+          comingSoon
           builderEnabled={builderEnabled}
         />
       </SettingsSection>
@@ -611,7 +619,7 @@ export function SettingsPanel({
 
       {/* A2A Agents */}
       <SettingsSection
-        icon={<IconPlugConnected size={14} />}
+        icon={<IconTopologyRing2 size={14} />}
         title="Connected Agents (A2A)"
         subtitle="Manage remote agents connected via the A2A protocol."
         open={openSection === "a2a"}

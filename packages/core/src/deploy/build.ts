@@ -393,13 +393,13 @@ async function buildCloudflarePages() {
       // browser platform for npm resolution; node builtins externalized separately
       "--platform=browser",
       "--minify",
-      // Single-file bundle. We tried --splitting + --chunk-names here to
-      // shrink the entry, but CF Pages rejected any chunk containing a
-      // "node:*" import ("No such module 'node:fs' imported from chunks/..")
-      // — the banner shim lands in every chunk and Pages' validation can't
-      // resolve node builtins from non-entry modules even with
-      // `nodejs_compat` set. Staying single-file matches what main shipped.
+      // Splitting is required for CF Pages: a single-file bundle exceeds
+      // the 25 MiB Pages Functions limit. The post-build loop below strips
+      // the `node:` prefix from every import so workerd (which runs Pages
+      // Functions under nodejs_compat v1) resolves them as bare builtins.
       `--outdir=${workerOutDir}`,
+      "--splitting",
+      "--chunk-names=chunks/[name]-[hash]",
       "--conditions=workerd,worker,import",
       // The ssr-handler imports a virtual module that only exists at dev time
       "--external:virtual:react-router/server-build",
@@ -431,12 +431,19 @@ async function buildCloudflarePages() {
     let code = fs.readFileSync(jsFile, "utf-8");
     const isEntry = path.basename(jsFile) === "index.js";
 
-    // Keep "node:" prefix on imports — nodejs_compat_v2 (implicit for
-    // compatibility_date ≥ 2024-09-23) requires the `node:` prefix and
-    // rejects bare module names. This is especially important for split
-    // chunks: each chunk's banner imports `node:fs` etc., and a plain
-    // "fs" would fail CF Pages deploy validation with
-    // `No such module "node:fs"`.
+    // Strip "node:" prefix from all imports/requires. Cloudflare Pages
+    // Functions runs under nodejs_compat v1, which exposes builtins as
+    // bare names ("fs") and rejects "node:fs" at worker init:
+    //   No such module "node:fs" imported from chunks/...
+    // (Workers-on-the-edge use v2 and require the prefix; Pages lags.)
+    code = code.replace(
+      /\bfrom\s*["']node:([^"']+)["']/g,
+      (_, mod) => `from"${mod}"`,
+    );
+    code = code.replace(
+      /\bimport\s*["']node:([^"']+)["']/g,
+      (_, mod) => `import"${mod}"`,
+    );
 
     // Rewrite virtual:react-router/server-build imports to the local stub.
     // The generated entry handles SSR directly; this import is dead code from ssr-handler.
@@ -567,10 +574,12 @@ function generateRequireShim(): string {
     "module",
   ];
 
-  // Use node: prefix — plain "fs" imports are rejected under nodejs_compat_v2
-  // (the default behavior for compatibility_date ≥ 2024-09-23).
+  // Bare module names — CF Pages Functions runs under nodejs_compat v1,
+  // which rejects "node:fs" and only accepts "fs". The post-build pass in
+  // buildCloudflarePages() also strips any `node:` prefix that esbuild or
+  // dependencies emit elsewhere.
   const imports = shimmed
-    .map((m) => `import __${m.replace("/", "_")} from "node:${m}";`)
+    .map((m) => `import __${m.replace("/", "_")} from "${m}";`)
     .join("");
   const entries = shimmed
     .map(
