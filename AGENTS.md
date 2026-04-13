@@ -19,6 +19,8 @@ Every new feature or integration MUST update all four areas. Skipping any one br
 
 This applies to every feature: a new form builder, a new chart type, a new email filter. If the UI has it, there's an action for it. If the agent needs context, app-state provides it. If there's a non-obvious pattern, a skill documents it.
 
+When a user configures local MCP servers in `mcp.config.json` (see [mcp-clients](./packages/docs/content/mcp-clients.md)), their tools appear in the agent's registry with the `mcp__<server-id>__` prefix and are usable like any other action. Design features to compose with those tools — e.g. a browser-automation workflow can delegate to `mcp__claude-in-chrome__navigate` / `click` if present rather than reimplementing every capability in-template.
+
 ## Context Awareness
 
 The agent must always know what the user is currently viewing. This is achieved through two mechanisms:

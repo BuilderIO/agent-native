@@ -7,7 +7,15 @@
  *   3. `MCP_SERVERS` env var (JSON string) — for CI / production deploys
  *
  * Returns `null` when nothing is configured.
+ *
+ * This module is Node-only — it reads the filesystem. `loadMcpConfig()` guards
+ * every fs operation with `isNode()` so a non-Node bundle simply gets `null`.
  */
+
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
+import { findWorkspaceRoot } from "../scripts/utils.js";
 
 export interface McpServerConfig {
   /** Executable or path to spawn over stdio */
@@ -46,7 +54,6 @@ function parseConfig(raw: string, source: string): McpConfig | null {
         ? (parsed.servers as Record<string, McpServerConfig>)
         : null;
     if (!servers) return null;
-    // Validate each server entry
     const valid: Record<string, McpServerConfig> = {};
     for (const [id, cfg] of Object.entries(servers)) {
       if (!cfg || typeof cfg !== "object") continue;
@@ -79,11 +86,8 @@ function parseConfig(raw: string, source: string): McpConfig | null {
  * @param startDir - Directory to start the upward search from (defaults to cwd)
  */
 export function loadMcpConfig(startDir?: string): McpConfig | null {
-  // Env-var form works in every runtime (including edge) and takes effect
-  // independently of the filesystem walk.
   const envConfig = readEnvConfig();
 
-  // File-based config only works in Node runtimes.
   let fileConfig: McpConfig | null = null;
   if (isNode()) {
     try {
@@ -93,8 +97,6 @@ export function loadMcpConfig(startDir?: string): McpConfig | null {
     }
   }
 
-  // Workspace-root file > app-local file > env
-  // readFileConfig already enforces workspace-over-app precedence.
   if (fileConfig) return fileConfig;
   return envConfig;
 }
@@ -103,45 +105,28 @@ function readEnvConfig(): McpConfig | null {
   if (typeof process === "undefined") return null;
   const raw = process.env?.MCP_SERVERS;
   if (!raw || !raw.trim()) return null;
-  // MCP_SERVERS is either the inner servers map or the full {servers: {...}} shape.
   const trimmed = raw.trim();
-  // Try full shape first
+  // Try full shape first ({ servers: {...} })
   const full = parseConfig(trimmed, "env:MCP_SERVERS");
   if (full) return full;
-  // Then try inner shape (just the server map)
+  // Then try inner-map shape ({ <id>: {...} })
   return parseConfig(`{"servers":${trimmed}}`, "env:MCP_SERVERS");
 }
 
 function readFileConfig(startDir?: string): McpConfig | null {
-  // Lazy-require Node-only modules so this file can be imported safely in
-  // edge builds (the caller still gates on `isNode()` before calling here).
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const fs = require("node:fs") as typeof import("node:fs");
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const path = require("node:path") as typeof import("node:path");
-
   const cwd = startDir ?? process.cwd();
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { findWorkspaceRoot } = require("../scripts/utils.js") as {
-    findWorkspaceRoot: (dir: string) => string | null;
-  };
-
-  const tried: string[] = [];
 
   const workspaceRoot = findWorkspaceRoot(cwd);
   if (workspaceRoot) {
-    const p = path.join(workspaceRoot, "mcp.config.json");
-    tried.push(p);
-    if (fs.existsSync(p)) {
-      return parseConfig(fs.readFileSync(p, "utf-8"), p);
+    const wsConfigPath = path.join(workspaceRoot, "mcp.config.json");
+    if (fs.existsSync(wsConfigPath)) {
+      return parseConfig(fs.readFileSync(wsConfigPath, "utf-8"), wsConfigPath);
     }
   }
 
-  const appPath = path.join(cwd, "mcp.config.json");
-  if (!tried.includes(appPath)) {
-    if (fs.existsSync(appPath)) {
-      return parseConfig(fs.readFileSync(appPath, "utf-8"), appPath);
-    }
+  const appConfigPath = path.join(cwd, "mcp.config.json");
+  if (fs.existsSync(appConfigPath)) {
+    return parseConfig(fs.readFileSync(appConfigPath, "utf-8"), appConfigPath);
   }
 
   return null;
@@ -158,16 +143,8 @@ export function autoDetectMcpConfig(): McpConfig | null {
   if (!isNode()) return null;
   if (process.env.AGENT_NATIVE_DISABLE_MCP_AUTODETECT) return null;
 
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const fs = require("node:fs") as typeof import("node:fs");
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const path = require("node:path") as typeof import("node:path");
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const os = require("node:os") as typeof import("node:os");
-
   const candidates: string[] = [];
 
-  // Well-known install location
   const home = os.homedir();
   if (home) {
     candidates.push(
@@ -175,7 +152,6 @@ export function autoDetectMcpConfig(): McpConfig | null {
     );
   }
 
-  // Anything on PATH
   const pathEnv = process.env.PATH || "";
   const sep = process.platform === "win32" ? ";" : ":";
   const exeSuffix = process.platform === "win32" ? ".exe" : "";

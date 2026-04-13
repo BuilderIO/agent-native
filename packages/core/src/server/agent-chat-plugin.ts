@@ -19,6 +19,12 @@ import type {
   MentionProviderItem,
 } from "../agent/types.js";
 import type { ActionHttpConfig } from "../action.js";
+import {
+  McpClientManager,
+  loadMcpConfig,
+  autoDetectMcpConfig,
+  mcpToolsToActionEntries,
+} from "../mcp-client/index.js";
 import { discoverAgents } from "./agent-discovery.js";
 import { loadSchemaPromptBlock } from "./schema-prompt.js";
 import {
@@ -1185,6 +1191,53 @@ export function createAgentChatPlugin(
       process.env.AGENT_MODE !== "production";
     const routePath = options?.path ?? "/_agent-native/agent-chat";
 
+    // Initialize MCP client (connects to user-configured local MCP servers).
+    // Graceful-degrade: any failure yields zero MCP tools and agent-chat keeps
+    // working as before. No-op outside Node runtimes.
+    let mcpConfig = loadMcpConfig();
+    if (!mcpConfig) {
+      mcpConfig = autoDetectMcpConfig();
+      if (mcpConfig) {
+        const detected = Object.keys(mcpConfig.servers).join(", ");
+        console.log(
+          `[mcp-client] auto-detected ${detected} — set AGENT_NATIVE_DISABLE_MCP_AUTODETECT=1 to opt out`,
+        );
+      }
+    } else if (mcpConfig.source) {
+      console.log(
+        `[mcp-client] loaded config from ${mcpConfig.source} (${Object.keys(mcpConfig.servers).length} server(s))`,
+      );
+    }
+    const mcpManager = new McpClientManager(mcpConfig);
+    try {
+      await mcpManager.start();
+    } catch (err: any) {
+      console.warn(
+        `[mcp-client] start() failed: ${err?.message ?? err}. Continuing without MCP tools.`,
+      );
+    }
+    setGlobalMcpManager(mcpManager);
+    const mcpActionEntries = mcpToolsToActionEntries(mcpManager);
+
+    // Mount status route so tooling/onboarding can inspect MCP state.
+    mountMcpStatusRoute(nitroApp, mcpManager);
+
+    // Ensure we tear down child processes if the host shuts down cleanly.
+    if (
+      typeof process !== "undefined" &&
+      typeof process.once === "function" &&
+      !(globalThis as any).__agentNativeMcpExitHooked
+    ) {
+      (globalThis as any).__agentNativeMcpExitHooked = true;
+      const stop = () => {
+        const mgr = getGlobalMcpManager();
+        if (mgr) void mgr.stop();
+      };
+      process.once("exit", stop);
+      process.once("SIGTERM", stop);
+      process.once("SIGINT", stop);
+    }
+
     // Resolve actions — prefer `actions`, fall back to deprecated `scripts`
     const rawActions = options?.actions ?? options?.scripts;
     const templateScripts =
@@ -1777,6 +1830,7 @@ export function createAgentChatPlugin(
       ...teamTools,
       ...jobTools,
       ...browserTools,
+      ...mcpActionEntries,
     };
 
     // Always build the production handler (includes resource tools + call-agent + team tools)
@@ -1832,6 +1886,7 @@ export function createAgentChatPlugin(
         ...teamTools,
         ...jobTools,
         ...browserTools,
+        ...mcpActionEntries,
         ...(await createDevScriptRegistry()),
       };
       devHandler = createProductionAgentHandler({
@@ -2660,3 +2715,42 @@ export function createAgentChatPlugin(
  * In production, provides only the default system prompt.
  */
 export const defaultAgentChatPlugin: NitroPluginDef = createAgentChatPlugin();
+
+// ---------------------------------------------------------------------------
+// MCP client glue — a shared manager reference + a /_agent-native/mcp/status
+// route so onboarding / settings UIs can see which MCP servers are live.
+// ---------------------------------------------------------------------------
+
+let _globalMcpManager: McpClientManager | null = null;
+
+function setGlobalMcpManager(manager: McpClientManager): void {
+  _globalMcpManager = manager;
+}
+
+/** Internal: access the current process's MCP client manager, if any. */
+export function getGlobalMcpManager(): McpClientManager | null {
+  return _globalMcpManager;
+}
+
+function mountMcpStatusRoute(nitroApp: any, manager: McpClientManager): void {
+  // Idempotent — agent-chat-plugin can be invoked once per process; guard anyway.
+  if ((globalThis as any).__agentNativeMcpStatusMounted) return;
+  (globalThis as any).__agentNativeMcpStatusMounted = true;
+  try {
+    getH3App(nitroApp).use(
+      "/_agent-native/mcp/status",
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "GET") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        setResponseHeader(event, "Content-Type", "application/json");
+        return manager.getStatus();
+      }),
+    );
+  } catch (err: any) {
+    console.warn(
+      `[mcp-client] Failed to mount /_agent-native/mcp/status: ${err?.message ?? err}`,
+    );
+  }
+}
