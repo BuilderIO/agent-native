@@ -70,9 +70,12 @@ export async function saveOAuthTokens(
   await ensureTable();
   const client = getDbExec();
 
+  // Never store "local@localhost" as owner — it creates shared-ownership bugs
+  const sanitizedOwner = owner === "local@localhost" ? accountId : owner;
+
   // When owner is not provided (e.g. during token refresh), preserve the existing
   // owner and display_name so they don't get wiped by INSERT OR REPLACE.
-  let resolvedOwner = owner ?? accountId;
+  let resolvedOwner = sanitizedOwner ?? accountId;
   let existingDisplayName: string | null = null;
   if (!owner) {
     const { rows: existing } = await client.execute({
