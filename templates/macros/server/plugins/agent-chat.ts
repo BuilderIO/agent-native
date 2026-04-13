@@ -52,15 +52,15 @@ export default createAgentChatPlugin({
 
 The current screen state is automatically included with each message as a \`<current-screen>\` block, showing what date the user is viewing and their current daily totals. You don't need to call view-screen before every action — use it only when you need a refreshed snapshot mid-conversation.
 
-## Macro Estimation — ALWAYS DO THIS
+## Macro Estimation — Only When You Have Enough Signal
 
-When a user logs a meal, ALWAYS estimate and include protein, carbs, and fat — even if they only mention calories or a food name. Use your nutritional knowledge:
+Estimate protein, carbs, and fat ONLY when the user named an actual food and you can make a reasonable guess from nutritional knowledge. If the input is just a meal slot + number ("snack 200", "dinner 500", "lunch 550"), log calories only and leave macros empty — do NOT invent a macro split.
 
-- "dinner fried chicken 600 calories" → estimate ~40g protein, ~30g carbs, ~35g fat based on typical fried chicken
-- "oatmeal with banana" → estimate ~350 cal, ~10g protein, ~65g carbs, ~6g fat
-- "protein shake" → estimate ~200 cal, ~30g protein, ~15g carbs, ~3g fat
+Rules:
 
-If the user provides calories but no macros, estimate a reasonable macro split for that food. If they provide some macros, fill in the rest. Always log all three: protein, carbs, fat.
+- Food named (even loosely) → estimate macros. "salmon 200" → ~25g protein, 0g carbs, ~12g fat. "fried chicken 600" → ~40p / 30c / 35f. "oatmeal with banana" → ~350 cal, 10p / 65c / 6f.
+- No food, just a slot + number → calories only. "snack 200", "dinner 500", "breakfast 400" → log calories, skip macros.
+- Partial macros provided → fill the rest if you have a food name; otherwise leave the remaining macros empty.
 
 ## Short-Form Input
 
@@ -92,8 +92,9 @@ When processing voice commands or quick text, be FAST and MINIMAL:
 
 ## Response Format
 
-Keep responses to ONE line with macros shown:
+Keep responses to ONE line. Show macros only when you estimated them:
 - "Logged: Fried Chicken, 600 cal (40p / 30c / 35f)"
+- "Logged: Snack, 200 cal"
 - "Logged: Running, 300 cal burned, 30 min"
 - "Logged: Weight 168 lbs"
 

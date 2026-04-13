@@ -31,7 +31,6 @@ import React, {
   Suspense,
   startTransition,
 } from "react";
-import * as SelectPrimitive from "@radix-ui/react-select";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import {
   IconMessage,
@@ -39,7 +38,6 @@ import {
   IconSettings,
   IconLayoutSidebarRightCollapse,
   IconLayoutGrid,
-  IconChevronDown,
   IconCheck,
   IconPlus,
   IconFolder,
@@ -48,10 +46,6 @@ import {
   IconDotsVertical,
   IconHistory,
   IconTrash,
-  IconPlugConnected,
-  IconChevronLeft,
-  IconCopy,
-  IconExternalLink,
 } from "@tabler/icons-react";
 import {
   MultiTabAssistantChat,
@@ -73,10 +67,10 @@ const ResourcesPanel = lazy(() =>
   })),
 );
 
-// Lazy-load IntegrationsPanel to avoid bundling when not needed
-const IntegrationsPanel = lazy(() =>
-  import("./integrations/IntegrationsPanel.js").then((m) => ({
-    default: m.IntegrationsPanel,
+// Lazy-load SettingsPanel to avoid bundling when not needed
+const SettingsPanel = lazy(() =>
+  import("./settings/index.js").then((m) => ({
+    default: m.SettingsPanel,
   })),
 );
 
@@ -84,6 +78,7 @@ const CLI_STORAGE_KEY = "agent-native-cli-command";
 const CLI_DEFAULT = "claude";
 const EXEC_MODE_KEY = "agent-native-exec-mode";
 type ExecMode = "build" | "plan";
+type PanelMode = "chat" | "cli" | "resources" | "settings";
 const AGENT_PANEL_FONT_FAMILY =
   'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
 const AGENT_PANEL_ROOT_STYLE = {
@@ -142,79 +137,7 @@ function useCliSelection(keyPrefix: string) {
 // Detect dev mode at build time (Vite replaces this)
 const IS_DEV: boolean = import.meta.env?.DEV === true;
 
-interface SettingsSelectOption {
-  value: string;
-  label: string;
-  description?: string;
-}
-
-function SettingsSelect({
-  label,
-  value,
-  options,
-  onValueChange,
-}: {
-  label: string;
-  value: string;
-  options: SettingsSelectOption[];
-  onValueChange: (value: string) => void;
-}) {
-  const selected = options.find((option) => option.value === value);
-
-  return (
-    <div className="space-y-1.5">
-      <p className="text-[12px] font-medium text-foreground">{label}</p>
-      <SelectPrimitive.Root value={value} onValueChange={onValueChange}>
-        <SelectPrimitive.Trigger
-          className="flex h-9 w-full items-center justify-between rounded-md border border-border bg-background px-3 text-left text-[12px] text-foreground outline-none transition-colors hover:bg-accent/40 data-[placeholder]:text-muted-foreground"
-          aria-label={label}
-          style={AGENT_PANEL_CONTROL_STYLE}
-        >
-          <SelectPrimitive.Value>
-            {selected?.label ?? value}
-          </SelectPrimitive.Value>
-          <SelectPrimitive.Icon asChild>
-            <IconChevronDown size={14} className="text-muted-foreground" />
-          </SelectPrimitive.Icon>
-        </SelectPrimitive.Trigger>
-        <SelectPrimitive.Portal>
-          <SelectPrimitive.Content
-            position="popper"
-            sideOffset={6}
-            className="z-[9999] w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-border bg-popover shadow-lg"
-          >
-            <SelectPrimitive.Viewport className="p-1">
-              {options.map((option) => (
-                <SelectPrimitive.Item
-                  key={option.value}
-                  value={option.value}
-                  className="relative flex w-full cursor-pointer select-none items-start gap-2 rounded-md px-8 py-2.5 text-[12px] outline-none data-[highlighted]:bg-accent/60 data-[state=checked]:bg-accent/40"
-                  style={AGENT_PANEL_CONTROL_STYLE}
-                >
-                  <span className="absolute left-2 top-2.5 flex h-4 w-4 items-center justify-center text-muted-foreground">
-                    <SelectPrimitive.ItemIndicator>
-                      <IconCheck size={14} />
-                    </SelectPrimitive.ItemIndicator>
-                  </span>
-                  <div className="flex min-w-0 flex-col">
-                    <SelectPrimitive.ItemText>
-                      <span className="text-foreground">{option.label}</span>
-                    </SelectPrimitive.ItemText>
-                    {option.description ? (
-                      <span className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-                        {option.description}
-                      </span>
-                    ) : null}
-                  </div>
-                </SelectPrimitive.Item>
-              ))}
-            </SelectPrimitive.Viewport>
-          </SelectPrimitive.Content>
-        </SelectPrimitive.Portal>
-      </SelectPrimitive.Root>
-    </div>
-  );
-}
+// ─── Settings panel components moved to ./settings/ ────────────────────────
 
 function IconTooltip({
   content,
@@ -242,477 +165,7 @@ function IconTooltip({
   );
 }
 
-// ─── Agent Settings Popover ──────────────────────────────────────────────────
-
-function AgentSettingsPopover({
-  isDevMode,
-  onToggle,
-  devAppUrl,
-  showEnvToggle = true,
-}: {
-  isDevMode: boolean;
-  onToggle: () => void;
-  devAppUrl?: string;
-  showEnvToggle?: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const popoverRef = useRef<HTMLDivElement>(null);
-  const buttonRef = useRef<HTMLButtonElement>(null);
-
-  // Close on outside click
-  useEffect(() => {
-    if (!open) return;
-    function handleClick(e: MouseEvent) {
-      const target = e.target as Node;
-      // Ignore clicks inside the popover itself or its trigger button
-      if (popoverRef.current?.contains(target)) return;
-      if (buttonRef.current?.contains(target)) return;
-      // Ignore clicks inside portaled Radix Select content (rendered outside the popover DOM)
-      if (
-        (target as Element).closest?.(
-          "[data-radix-popper-content-wrapper], [data-radix-select-viewport], [role='listbox']",
-        )
-      )
-        return;
-      setOpen(false);
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [open]);
-
-  // Close on Escape
-  useEffect(() => {
-    if (!open) return;
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("keydown", handleKey);
-    return () => document.removeEventListener("keydown", handleKey);
-  }, [open]);
-
-  useEffect(() => {
-    function handleOpenSettings() {
-      setOpen(true);
-    }
-    window.addEventListener("agent-panel:open-settings", handleOpenSettings);
-    return () =>
-      window.removeEventListener(
-        "agent-panel:open-settings",
-        handleOpenSettings,
-      );
-  }, []);
-
-  const environmentOptions: SettingsSelectOption[] = [
-    {
-      value: "production",
-      label: "Production",
-      description: "Restricted to app tools only.",
-    },
-    {
-      value: "development",
-      label: "Development",
-      description: "Full access to code editing, shell, and files.",
-    },
-  ];
-  // Compute fixed position from the button so the popover escapes all
-  // stacking contexts (the CLI terminal otherwise paints over it).
-  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
-  useEffect(() => {
-    if (!open || !buttonRef.current) return;
-    const rect = buttonRef.current.getBoundingClientRect();
-    setPos({
-      top: rect.bottom + 6,
-      right: window.innerWidth - rect.right,
-    });
-  }, [open]);
-
-  return (
-    <div className="relative">
-      <button
-        ref={buttonRef}
-        onClick={() => setOpen(!open)}
-        className={cn(
-          "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50",
-          open && "bg-accent/50 text-foreground",
-        )}
-        title="Agent settings"
-      >
-        <IconSettings size={14} />
-      </button>
-      {open &&
-        pos &&
-        ReactDOM.createPortal(
-          <div
-            ref={popoverRef}
-            className="fixed z-[9990] w-72 rounded-lg border border-border bg-popover shadow-md animate-in fade-in-0 zoom-in-95 duration-100"
-            style={{ top: pos.top, right: pos.right }}
-          >
-            <div className="space-y-3 p-3">
-              {showEnvToggle && (
-                <SettingsSelect
-                  label="Environment"
-                  value={isDevMode ? "development" : "production"}
-                  options={environmentOptions}
-                  onValueChange={(next) => {
-                    const nextIsDev = next === "development";
-                    if (nextIsDev !== isDevMode) onToggle();
-                  }}
-                />
-              )}
-              {devAppUrl && (
-                <a
-                  href={devAppUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground mt-1"
-                >
-                  <IconExternalLink size={12} />
-                  Open app in new tab
-                </a>
-              )}
-              <div
-                className={
-                  showEnvToggle || devAppUrl
-                    ? "border-t border-border pt-3 mt-3"
-                    : ""
-                }
-              >
-                <Suspense fallback={null}>
-                  <IntegrationsPanel />
-                </Suspense>
-              </div>
-              <div className="border-t border-border pt-3 mt-3">
-                <AgentsSection />
-              </div>
-            </div>
-          </div>,
-          document.body,
-        )}
-    </div>
-  );
-}
-
-// ─── Agents Management Section ───────────────────────────────────────────────
-
-interface AgentInfo {
-  id: string;
-  path: string;
-  name: string;
-  url: string;
-  description?: string;
-}
-
-function AgentDetail({
-  agent,
-  onBack,
-  onDelete,
-}: {
-  agent: AgentInfo;
-  onBack: () => void;
-  onDelete: (id: string) => void;
-}) {
-  const [copied, setCopied] = useState(false);
-  const handleCopy = useCallback(async () => {
-    await navigator.clipboard.writeText(agent.url);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }, [agent.url]);
-
-  return (
-    <div>
-      <button
-        onClick={onBack}
-        className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground mb-2"
-      >
-        <IconChevronLeft size={12} />
-        Back
-      </button>
-
-      <div className="flex items-center gap-2 mb-3">
-        <IconPlugConnected size={16} className="text-foreground shrink-0" />
-        <div className="min-w-0">
-          <div className="text-xs font-medium text-foreground truncate">
-            {agent.name}
-          </div>
-          {agent.description && (
-            <div className="text-[10px] text-muted-foreground">
-              {agent.description}
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="mb-3">
-        <div className="text-[10px] font-medium text-muted-foreground mb-1">
-          A2A Endpoint
-        </div>
-        <div className="flex items-center gap-1">
-          <code className="flex-1 truncate rounded bg-muted px-1.5 py-0.5 text-[10px] text-foreground">
-            {agent.url}
-          </code>
-          <button
-            onClick={handleCopy}
-            className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-accent/50"
-            title="Copy URL"
-          >
-            {copied ? <IconCheck size={12} /> : <IconCopy size={12} />}
-          </button>
-        </div>
-      </div>
-
-      <div className="rounded-md border border-border bg-muted/30 px-2.5 py-2 text-[10px] text-muted-foreground mb-3">
-        @-mention this agent in chat to send it tasks via the A2A protocol. It
-        will use its own tools and skills to respond.
-      </div>
-
-      <button
-        onClick={() => onDelete(agent.id)}
-        className="w-full rounded-md border border-red-800/50 px-2 py-1.5 text-[11px] font-medium text-red-400 hover:bg-red-900/20"
-      >
-        Remove agent
-      </button>
-    </div>
-  );
-}
-
-function AgentsSection() {
-  const [expanded, setExpanded] = useState(false);
-  const [showAdd, setShowAdd] = useState(false);
-  const [selectedAgent, setSelectedAgent] = useState<AgentInfo | null>(null);
-  const [name, setName] = useState("");
-  const [url, setUrl] = useState("");
-  const [description, setDescription] = useState("");
-  const nameRef = useRef<HTMLInputElement>(null);
-
-  // Fetch agents from resources
-  const [agents, setAgents] = useState<AgentInfo[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const fetchAgents = useCallback(async () => {
-    try {
-      const res = await fetch("/_agent-native/resources?scope=all");
-      if (!res.ok) return;
-      const data = await res.json();
-      const agentResources = (data.resources ?? []).filter(
-        (r: { path: string }) =>
-          r.path.startsWith("agents/") && r.path.endsWith(".json"),
-      );
-      const parsed = await Promise.all(
-        agentResources.map(async (r: { id: string; path: string }) => {
-          try {
-            const detail = await fetch(`/_agent-native/resources/${r.id}`);
-            if (!detail.ok) return null;
-            const d = await detail.json();
-            const config = JSON.parse(d.content);
-            return {
-              id: r.id,
-              path: r.path,
-              name: config.name,
-              url: config.url,
-              description: config.description,
-            };
-          } catch {
-            return null;
-          }
-        }),
-      );
-      setAgents(parsed.filter(Boolean));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchAgents();
-  }, [fetchAgents]);
-
-  useEffect(() => {
-    if (showAdd) {
-      setName("");
-      setUrl("");
-      setDescription("");
-      const t = setTimeout(() => nameRef.current?.focus(), 50);
-      return () => clearTimeout(t);
-    }
-  }, [showAdd]);
-
-  const handleAdd = async () => {
-    const trimmedName = name.trim();
-    const trimmedUrl = url.trim();
-    if (!trimmedName || !trimmedUrl) return;
-
-    const id = trimmedName.toLowerCase().replace(/[^a-z0-9-]/g, "-");
-    const agentJson = JSON.stringify(
-      {
-        id,
-        name: trimmedName,
-        description: description.trim() || undefined,
-        url: trimmedUrl,
-        color: "#6B7280",
-      },
-      null,
-      2,
-    );
-
-    try {
-      const res = await fetch("/_agent-native/resources", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          path: `agents/${id}.json`,
-          content: agentJson,
-          shared: true,
-        }),
-      });
-      if (res.ok) {
-        setShowAdd(false);
-        fetchAgents();
-      }
-    } catch {}
-  };
-
-  const handleDelete = async (agentId: string) => {
-    try {
-      const res = await fetch(`/_agent-native/resources/${agentId}`, {
-        method: "DELETE",
-      });
-      if (res.ok) {
-        setSelectedAgent(null);
-        fetchAgents();
-      }
-    } catch {}
-  };
-
-  if (selectedAgent) {
-    return (
-      <AgentDetail
-        agent={selectedAgent}
-        onBack={() => setSelectedAgent(null)}
-        onDelete={handleDelete}
-      />
-    );
-  }
-
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-1.5">
-        <div>
-          <div className="text-xs font-medium text-foreground">
-            Connected Agents
-          </div>
-          <div className="text-[10px] text-muted-foreground">
-            {loading
-              ? "Loading..."
-              : agents.length > 0
-                ? `${agents.length} connected via A2A`
-                : "Connect remote A2A agents"}
-          </div>
-        </div>
-        <button
-          onClick={() => {
-            if (expanded || showAdd) {
-              setExpanded(false);
-              setShowAdd(false);
-            } else {
-              setExpanded(true);
-            }
-          }}
-          className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
-          title={expanded ? "Collapse" : "Manage agents"}
-        >
-          {expanded || showAdd ? <IconX size={12} /> : <IconPlus size={12} />}
-        </button>
-      </div>
-
-      {(expanded || showAdd) && (
-        <>
-          {!showAdd && (
-            <div className="flex flex-col gap-0.5 mb-1.5">
-              {agents.map((agent) => (
-                <button
-                  key={agent.id}
-                  onClick={() => setSelectedAgent(agent)}
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent/30"
-                >
-                  <IconPlugConnected
-                    size={13}
-                    className="shrink-0 text-muted-foreground"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[11px] font-medium text-foreground truncate">
-                      {agent.name}
-                    </div>
-                    <div className="text-[10px] text-muted-foreground/60 truncate">
-                      {agent.url}
-                    </div>
-                  </div>
-                </button>
-              ))}
-              <button
-                onClick={() => setShowAdd(true)}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent/30"
-              >
-                <IconPlus size={12} className="shrink-0" />
-                Add agent
-              </button>
-            </div>
-          )}
-
-          {showAdd && (
-            <div className="mb-1.5 flex flex-col gap-1.5 rounded-md border border-border bg-background p-2">
-              <input
-                ref={nameRef}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleAdd();
-                  if (e.key === "Escape") setShowAdd(false);
-                }}
-                className="w-full rounded border border-border bg-background px-2 py-1 text-[12px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-                placeholder="Name"
-              />
-              <input
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleAdd();
-                  if (e.key === "Escape") setShowAdd(false);
-                }}
-                className="w-full rounded border border-border bg-background px-2 py-1 text-[12px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-                placeholder="URL (e.g. http://localhost:8085)"
-              />
-              <input
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleAdd();
-                  if (e.key === "Escape") setShowAdd(false);
-                }}
-                className="w-full rounded border border-border bg-background px-2 py-1 text-[12px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-                placeholder="Description (optional)"
-              />
-              <div className="flex justify-end gap-1.5">
-                <button
-                  onClick={() => setShowAdd(false)}
-                  className="rounded px-2.5 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleAdd}
-                  disabled={!name.trim() || !url.trim()}
-                  className="rounded bg-accent px-2.5 py-1 text-[11px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40 disabled:pointer-events-none"
-                >
-                  Add
-                </button>
-              </div>
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
+// AgentSettingsPopover and AgentsSection moved to ./settings/
 
 // ─── AgentPanel ─────────────────────────────────────────────────────────────
 
@@ -777,10 +230,15 @@ export function AgentPanel({
     [execModeKey],
   );
 
-  const [mode, setMode] = useState<"chat" | "cli" | "resources">(() => {
+  const [mode, setMode] = useState<PanelMode>(() => {
     try {
       const saved = localStorage.getItem(panelModeKey);
-      if (saved === "chat" || saved === "cli" || saved === "resources")
+      if (
+        saved === "chat" ||
+        saved === "cli" ||
+        saved === "resources" ||
+        saved === "settings"
+      )
         return saved;
     } catch {}
     return defaultMode;
@@ -790,7 +248,7 @@ export function AgentPanel({
       localStorage.setItem(panelModeKey, mode);
     } catch {}
   }, [mode, panelModeKey]);
-  const switchMode = useCallback((m: "chat" | "cli" | "resources") => {
+  const switchMode = useCallback((m: PanelMode) => {
     startTransition(() => setMode(m));
   }, []);
 
@@ -802,6 +260,19 @@ export function AgentPanel({
     }
     window.addEventListener("agent-panel:set-mode", handler);
     return () => window.removeEventListener("agent-panel:set-mode", handler);
+  }, [switchMode]);
+
+  // Open settings tab when requested (replaces the old popover open event)
+  useEffect(() => {
+    function handleOpenSettings() {
+      switchMode("settings");
+    }
+    window.addEventListener("agent-panel:open-settings", handleOpenSettings);
+    return () =>
+      window.removeEventListener(
+        "agent-panel:open-settings",
+        handleOpenSettings,
+      );
   }, [switchMode]);
 
   // CLI terminal tabs (ephemeral — not persisted to SQL)
@@ -883,7 +354,7 @@ export function AgentPanel({
   const showDevToggle = canToggle && isLocalhost;
 
   const renderModeButtons = useCallback(
-    (activeMode: "chat" | "cli" | "resources") => (
+    (activeMode: PanelMode) => (
       <div className="flex shrink-0 items-center gap-1">
         <button
           onClick={() => switchMode("chat")}
@@ -927,6 +398,20 @@ export function AgentPanel({
           <IconLayoutGrid size={14} />
           Workspace
         </button>
+        <button
+          onClick={() => switchMode("settings")}
+          className={cn(
+            "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
+            activeMode === "settings"
+              ? "bg-accent text-foreground"
+              : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+          )}
+          title="Setup and configuration"
+          style={AGENT_PANEL_CONTROL_STYLE}
+        >
+          <IconSettings size={14} />
+          Setup
+        </button>
       </div>
     ),
     [isDevMode],
@@ -935,16 +420,6 @@ export function AgentPanel({
   const renderHeaderActions = useCallback(
     () => (
       <div className="flex shrink-0 items-center gap-1.5">
-        <IconTooltip content="Agent settings">
-          <div>
-            <AgentSettingsPopover
-              isDevMode={isDevMode}
-              onToggle={() => setDevMode(!isDevMode)}
-              devAppUrl={devAppUrl}
-              showEnvToggle={showDevToggle}
-            />
-          </div>
-        </IconTooltip>
         {onCollapse && (
           <IconTooltip content="Collapse sidebar">
             <button
@@ -957,7 +432,7 @@ export function AgentPanel({
         )}
       </div>
     ),
-    [isDevMode, onCollapse, setDevMode, showDevToggle, devAppUrl],
+    [onCollapse],
   );
 
   const [tabMenuOpen, setTabMenuOpen] = useState<string | null>(null);
@@ -1547,6 +1022,28 @@ export function AgentPanel({
             }
           >
             <ResourcesPanel />
+          </Suspense>
+        </div>
+      )}
+
+      {/* Settings / Setup view */}
+      {mode === "settings" && (
+        <div className="flex-1 min-h-0">
+          <Suspense
+            fallback={
+              <div className="p-3 space-y-2">
+                <div className="h-10 w-full rounded-lg bg-muted animate-pulse" />
+                <div className="h-10 w-full rounded-lg bg-muted animate-pulse" />
+                <div className="h-10 w-full rounded-lg bg-muted animate-pulse" />
+              </div>
+            }
+          >
+            <SettingsPanel
+              isDevMode={isDevMode}
+              onToggleDevMode={() => setDevMode(!isDevMode)}
+              showDevToggle={showDevToggle}
+              devAppUrl={devAppUrl}
+            />
           </Suspense>
         </div>
       )}
