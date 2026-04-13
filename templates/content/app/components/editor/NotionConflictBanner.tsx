@@ -42,47 +42,38 @@ export function NotionConflictBanner({
   const isWorking = resolveConflict.isPending;
 
   return (
-    <div className="shrink-0 border-b border-amber-500/40 bg-amber-100/80 dark:bg-amber-500/10">
-      <div className="flex flex-wrap items-center gap-3 px-4 py-2.5 sm:px-8 md:px-16">
-        <IconAlertTriangle
-          size={18}
-          className="shrink-0 text-amber-600 dark:text-amber-400"
-        />
-        <div className="mr-auto min-w-0">
-          <p className="text-sm font-medium text-amber-900 dark:text-amber-100">
-            Notion sync paused — conflict detected
-          </p>
-          <p className="text-xs text-amber-800/80 dark:text-amber-200/80">
-            Both this document and the Notion page changed since the last sync.
-            Pick which version to keep.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="secondary"
-            className="bg-white text-amber-900 hover:bg-amber-50 border border-amber-300 dark:bg-amber-950/40 dark:text-amber-100 dark:hover:bg-amber-900/40 dark:border-amber-700"
-            onClick={() => handleResolve("pull")}
-            disabled={isWorking}
-          >
-            {direction === "pull" ? (
-              <IconLoader2 size={14} className="mr-1.5 animate-spin" />
-            ) : null}
-            Use Notion version
-          </Button>
-          <Button
-            size="sm"
-            className="bg-amber-600 text-white hover:bg-amber-700 dark:bg-amber-500 dark:hover:bg-amber-600"
-            onClick={() => handleResolve("push")}
-            disabled={isWorking}
-          >
-            {direction === "push" ? (
-              <IconLoader2 size={14} className="mr-1.5 animate-spin" />
-            ) : null}
-            Use local version
-          </Button>
-        </div>
-      </div>
+    <div className="shrink-0 flex items-center gap-2 px-4 py-1.5 border-b border-amber-500/40 bg-amber-100/80 dark:bg-amber-500/10 sm:px-8 md:px-16">
+      <IconAlertTriangle
+        size={14}
+        className="shrink-0 text-amber-600 dark:text-amber-400"
+      />
+      <span className="text-xs text-amber-900 dark:text-amber-100 mr-auto">
+        Notion sync conflict — both sides changed
+      </span>
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-6 px-2 text-xs text-amber-900 hover:bg-amber-200/60 dark:text-amber-100 dark:hover:bg-amber-800/40"
+        onClick={() => handleResolve("pull")}
+        disabled={isWorking}
+      >
+        {direction === "pull" ? (
+          <IconLoader2 size={12} className="mr-1 animate-spin" />
+        ) : null}
+        Use Notion
+      </Button>
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-6 px-2 text-xs text-amber-900 hover:bg-amber-200/60 dark:text-amber-100 dark:hover:bg-amber-800/40"
+        onClick={() => handleResolve("push")}
+        disabled={isWorking}
+      >
+        {direction === "push" ? (
+          <IconLoader2 size={12} className="mr-1 animate-spin" />
+        ) : null}
+        Use local
+      </Button>
     </div>
   );
 }

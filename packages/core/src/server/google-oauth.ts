@@ -8,7 +8,14 @@
  */
 
 import crypto from "node:crypto";
-import { getHeader, setCookie, type H3Event } from "h3";
+import {
+  getHeader,
+  setCookie,
+  sendRedirect,
+  setResponseStatus,
+  setResponseHeader,
+  type H3Event,
+} from "h3";
 import { addSession, getSession } from "./auth.js";
 
 // ─── Platform Detection ─────────────────────────────────────────────────────
@@ -158,11 +165,11 @@ export async function resolveOAuthOwner(
   const isDevSession = existingSession?.email === "local@localhost";
   const hasProductionSession = !!(existingSession?.email && !isDevSession);
 
-  const owner = isDevSession
-    ? "local@localhost"
-    : hasProductionSession
-      ? existingSession!.email
-      : stateOwner || undefined;
+  // Never use "local@localhost" as a token owner — it creates shared-ownership
+  // bugs where multiple users can see the same tokens.
+  const owner = hasProductionSession
+    ? existingSession!.email
+    : stateOwner || undefined;
 
   return { owner, isDevSession, hasProductionSession };
 }
@@ -222,7 +229,7 @@ export function oauthCallbackResponse(
     desktop?: boolean;
     addAccount?: boolean;
   },
-): Response | void | Promise<Response | void> {
+): Response | string | void | Promise<Response | string | void> {
   const mobile = isMobile(event);
 
   // Mobile: deep link back to native app
@@ -261,8 +268,12 @@ export function oauthCallbackResponse(
       </script></body></html>`);
   }
 
-  // Web: redirect to app home
-  return new Response(null, { status: 302, headers: { Location: "/" } });
+  // Web: redirect to app home.
+  // Use h3's native redirect (not web Response) to preserve Set-Cookie headers
+  // from createOAuthSession — a raw `new Response()` drops them.
+  setResponseStatus(event, 302);
+  setResponseHeader(event, "Location", "/");
+  return "";
 }
 
 /** HTML error page for OAuth failures. */

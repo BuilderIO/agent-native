@@ -469,46 +469,7 @@ export function DocumentToolbar({
                 ) : null}
               </div>
 
-              {/* Conflict banner */}
-              {hasConflict && (
-                <div className="px-4 py-2.5 border-b border-amber-500/30 bg-amber-500/10">
-                  <p className="text-[11px] text-amber-800 dark:text-amber-200 mb-2">
-                    Both sides changed since last sync.
-                  </p>
-                  <div className="flex gap-1.5">
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      className="flex-1 h-7 text-xs"
-                      onClick={() => handleResolve("pull")}
-                      disabled={isWorking}
-                    >
-                      {resolvingDirection === "pull" ? (
-                        <IconLoader2
-                          size={12}
-                          className="animate-spin mr-1.5"
-                        />
-                      ) : null}
-                      Use Notion
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      className="flex-1 h-7 text-xs"
-                      onClick={() => handleResolve("push")}
-                      disabled={isWorking}
-                    >
-                      {resolvingDirection === "push" ? (
-                        <IconLoader2
-                          size={12}
-                          className="animate-spin mr-1.5"
-                        />
-                      ) : null}
-                      Use local
-                    </Button>
-                  </div>
-                </div>
-              )}
+              {/* Conflict is shown via NotionConflictBanner above the title */}
 
               <div className="p-1.5">
                 <button

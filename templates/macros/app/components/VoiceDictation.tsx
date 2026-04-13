@@ -66,6 +66,8 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
     (text: string) => {
       setState("processing");
       try {
+        // Open the agent sidebar now that the voice message is captured
+        window.dispatchEvent(new Event("agent-panel:open"));
         sendToAgent({ message: text, submit: true });
         // Timeout fallback: if sidebar is closed or event never fires,
         // don't leave the mic stuck in processing forever
@@ -95,9 +97,6 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
       } catch {}
       recognitionRef.current = null;
     }
-
-    // Open the agent sidebar so the user can see the response
-    window.dispatchEvent(new Event("agent-panel:open"));
 
     isProcessingRef.current = false;
     setState("listening");

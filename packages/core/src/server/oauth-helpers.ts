@@ -22,13 +22,14 @@ export async function isOAuthConnected(
 /**
  * Get OAuth accounts for a provider, scoped to the given owner.
  * Always scopes by owner email — never returns tokens across users.
+ * Returns empty array when forEmail is not provided (prevents leaking all accounts).
  */
 export async function getOAuthAccounts(
   provider: string,
   forEmail?: string,
 ): Promise<Array<{ accountId: string; tokens: Record<string, unknown> }>> {
-  if (forEmail) {
-    return listOAuthAccountsByOwner(provider, forEmail);
+  if (!forEmail) {
+    return [];
   }
-  return listOAuthAccounts(provider);
+  return listOAuthAccountsByOwner(provider, forEmail);
 }
