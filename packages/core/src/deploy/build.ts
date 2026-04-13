@@ -481,10 +481,7 @@ async function buildCloudflarePages() {
       "worker_threads",
       "sqlite",
     ].join("|");
-    const builtinRe = new RegExp(
-      `(["'])node:(${builtinsPattern})\\1`,
-      "g",
-    );
+    const builtinRe = new RegExp(`(["'])node:(${builtinsPattern})\\1`, "g");
     code = code.replace(
       builtinRe,
       (_, q: string, mod: string) => `${q}${mod}${q}`,

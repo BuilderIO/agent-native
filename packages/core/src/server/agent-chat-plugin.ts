@@ -131,11 +131,13 @@ async function createResourceScriptEntries(): Promise<
   Record<string, ActionEntry>
 > {
   try {
-    const [list, read, write, del] = await Promise.all([
+    const [list, read, write, del, saveMem, delMem] = await Promise.all([
       import("../scripts/resources/list.js"),
       import("../scripts/resources/read.js"),
       import("../scripts/resources/write.js"),
       import("../scripts/resources/delete.js"),
+      import("../scripts/resources/save-memory.js"),
+      import("../scripts/resources/delete-memory.js"),
     ]);
 
     return {
@@ -240,6 +242,56 @@ async function createResourceScriptEntries(): Promise<
           },
         },
         del.default,
+      ),
+      "save-memory": wrapCliScript(
+        {
+          description:
+            "Save a memory for future conversations. Creates or updates a memory file and its index entry. Use proactively when you learn preferences, corrections, project context, or references.",
+          parameters: {
+            type: "object",
+            properties: {
+              name: {
+                type: "string",
+                description:
+                  "Short kebab-case identifier (e.g. 'coding-style', 'deploy-process'). Used as the filename.",
+              },
+              type: {
+                type: "string",
+                description: "Memory category",
+                enum: ["user", "feedback", "project", "reference"],
+              },
+              description: {
+                type: "string",
+                description:
+                  "One-line summary shown in the memory index (keep under 80 chars)",
+              },
+              content: {
+                type: "string",
+                description:
+                  "The memory content in markdown. For updates, read first and provide full updated content.",
+              },
+            },
+            required: ["name", "type", "description", "content"],
+          },
+        },
+        saveMem.default,
+      ),
+      "delete-memory": wrapCliScript(
+        {
+          description:
+            "Delete a memory entry and remove it from the memory index.",
+          parameters: {
+            type: "object",
+            properties: {
+              name: {
+                type: "string",
+                description: "The memory name to delete (e.g. 'coding-style')",
+              },
+            },
+            required: ["name"],
+          },
+        },
+        delMem.default,
       ),
     };
   } catch {
@@ -730,16 +782,15 @@ const FRAMEWORK_CORE = `
 2. **Context awareness** — The user's current screen state is automatically included in each message as a \`<current-screen>\` block. Use it to understand what the user is looking at. You can still call \`view-screen\` for a more detailed snapshot if needed, but you should NOT need to call it before every action.
 3. **Navigate the UI** — Use the \`navigate\` tool to switch views, open items, or focus elements for the user.
 4. **Application state** — Ephemeral UI state (drafts, selections, navigation) lives in \`application_state\`. Use \`readAppState\`/\`writeAppState\` to read and write it. When you write state, the UI updates automatically.
-5. **Resources for memory** — Use the Resources system for persistent notes and context. Update LEARNINGS.md when you learn user preferences or corrections. Update the shared AGENTS.md for instructions that should apply to all users.
+5. **Memory** — Use the structured memory system to persist knowledge across sessions. Use \`save-memory\` proactively when you learn preferences, corrections, or project context. Update shared AGENTS.md for instructions that should apply to all users.
 
 ### Resources
 
-You have access to a Resources system for persistent notes, learnings, and context files.
+You have access to a Resources system for persistent notes and context files.
 Use resource-list, resource-read, resource-write, and resource-delete to manage resources.
 Resources can be personal (per-user) or shared (team-wide). By default, resources are personal.
 
-When you learn something important (user corrections, preferences, patterns), update the "LEARNINGS.md" resource. Keep it tidy — revise, consolidate, and remove outdated entries rather than only appending.
-When the user gives instructions that should apply to all users/sessions, update the shared "AGENTS.md" resource instead.
+When the user gives instructions that should apply to all users/sessions, update the shared "AGENTS.md" resource.
 
 ### Navigation Rule
 
@@ -817,15 +868,34 @@ The \`call-agent\` tool sends a message to a DIFFERENT, separately-deployed app'
 
 If \`call-agent\` returns an error saying the agent is yourself — stop and use your own tools instead.
 
-### Auto-Memory
+### Structured Memory
 
-Proactively update \`LEARNINGS.md\` when you learn something important during conversations:
-- User corrects your approach → capture the correct way
-- User shares preferences (tone, style, workflow) → capture them
-- You discover a non-obvious pattern or gotcha → capture it
-- User provides personal context (contacts, team info, domain knowledge) → capture it
+You have a structured memory system. Your memory index (\`memory/MEMORY.md\`) is loaded at the start of every conversation (shown above). Individual memories are stored as separate files under \`memory/\`.
 
-**Don't ask permission — just save it.** Keep entries concise (one line each, grouped by category). Don't save things that are obvious from reading the code or that are temporary.
+**Tools:**
+- \`save-memory\` — Create or update a memory. Provide name, type, description, and content. Atomically updates both the memory file and the index.
+- \`delete-memory\` — Remove a memory and its index entry.
+- \`resource-read --path memory/<name>.md\` — Read the full content of a specific memory when you need details beyond the index.
+
+**Memory types:**
+- \`user\` — Preferences, role, personal context, contacts
+- \`feedback\` — Corrections ("don't do X, do Y instead"), confirmed approaches
+- \`project\` — Ongoing work context, decisions, status
+- \`reference\` — Pointers to external systems, URLs, API details
+
+**When to save (do it proactively, don't ask permission):**
+- User corrects your approach → save as \`feedback\`
+- User shares preferences (tone, style, workflow) → save as \`user\`
+- You discover a non-obvious pattern or gotcha → save as \`feedback\`
+- User provides personal context (contacts, team, domain) → save as \`user\`
+- A project gains enough context to track → save as \`project\`
+
+**Rules:**
+- Don't save things obvious from the code or standard framework behavior
+- When updating an existing memory, read it first and merge — don't overwrite blindly
+- Keep descriptions concise — the index is loaded every message
+- One memory per logical topic (e.g. 'coding-style', 'project-alpha')
+- Don't save temporary debugging notes or ephemeral task details
 `;
 
 const PROD_FRAMEWORK_PROMPT = `## Agent-Native Framework — Production Mode
@@ -881,25 +951,17 @@ const DEFAULT_SYSTEM_PROMPT = PROD_FRAMEWORK_PROMPT;
 
 /**
  * Pre-load the agent's context: AGENTS.md (template instructions), the skills
- * index, and LEARNINGS.md (user notes). These all get appended to the system
- * prompt so the agent has everything it needs from the first turn — no tool
- * calls required to figure out "what is this app".
+ * index, shared LEARNINGS.md (team notes), and memory/MEMORY.md (personal
+ * structured memory index). These all get appended to the system prompt so
+ * the agent has everything it needs from the first turn.
  *
  * Four sources are layered:
  *
- *   1. `<workspace>` — AGENTS.md from the enterprise workspace core (when the
- *      app sits inside a monorepo with an `agent-native.workspaceCore` package
- *      configured). Enterprise-wide instructions that apply to every app in
- *      the workspace.
- *   2. `<template>` — AGENTS.md + skills index from the `virtual:agents-bundle`
- *      module (inlined at build time by the Vite plugin, falls back to a
- *      filesystem read from `process.cwd()` in dev). Canonical source for
- *      "what is this app, what can it do, what skills are available". The
- *      skills block merges workspace-core skills with template skills (template
- *      wins on name collision).
+ *   1. `<workspace>` — AGENTS.md from the enterprise workspace core.
+ *   2. `<template>` — AGENTS.md + skills index from the Vite plugin bundle.
  *   3. `<shared>` — LEARNINGS.md from the SQL shared scope. Team-level notes.
- *   4. `<personal>` — LEARNINGS.md from the SQL personal scope. The current
- *      user's own notes.
+ *   4. `<personal>` — memory/MEMORY.md from the SQL personal scope. The
+ *      current user's structured memory index.
  *
  * Each source is read independently — no copying between them. Editing
  * AGENTS.md and restarting the server is all it takes; Vite HMR invalidates
@@ -944,13 +1006,13 @@ async function loadResourcesForPrompt(owner: string): Promise<string> {
     }
   } catch {}
 
-  // 3. Personal SQL scope (skip if owner is the shared sentinel)
+  // 3. Personal memory index (skip if owner is the shared sentinel)
   if (owner !== SHARED_OWNER) {
     try {
-      const personal = await resourceGetByPath(owner, "LEARNINGS.md");
-      if (personal?.content?.trim()) {
+      const memoryIndex = await resourceGetByPath(owner, "memory/MEMORY.md");
+      if (memoryIndex?.content?.trim()) {
         sections.push(
-          `<resource name="LEARNINGS.md" scope="personal">\n${personal.content.trim()}\n</resource>`,
+          `<resource name="memory/MEMORY.md" scope="personal">\n${memoryIndex.content.trim()}\n</resource>`,
         );
       }
     } catch {}
