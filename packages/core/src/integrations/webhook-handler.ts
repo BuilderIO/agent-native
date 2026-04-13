@@ -53,6 +53,19 @@ export interface WebhookHandlerOptions {
   model: string;
   /** Anthropic API key */
   apiKey: string;
+  /** Thread owner for personal/shared resource loading */
+  ownerEmail: string;
+  /** Optional hook to intercept inbound commands before agent execution */
+  beforeProcess?: (
+    incoming: IncomingMessage,
+    adapter: PlatformAdapter,
+  ) => Promise<
+    | {
+        handled: true;
+        responseText?: string;
+      }
+    | { handled: false }
+  >;
 }
 
 /**
@@ -71,7 +84,8 @@ export async function handleWebhook(
   event: H3Event,
   options: WebhookHandlerOptions,
 ): Promise<{ status: number; body: unknown }> {
-  const { adapter, systemPrompt, actions, model, apiKey } = options;
+  const { adapter, systemPrompt, actions, model, apiKey, beforeProcess } =
+    options;
 
   // Step 1: Handle platform-specific verification challenges
   const verification = await adapter.handleVerification(event);
@@ -98,6 +112,17 @@ export async function handleWebhook(
     return { status: 200, body: "ok" };
   }
 
+  if (beforeProcess) {
+    const result = await beforeProcess(incoming, adapter);
+    if (result.handled) {
+      if (result.responseText?.trim()) {
+        const outgoing = adapter.formatAgentResponse(result.responseText);
+        await adapter.sendResponse(outgoing, incoming);
+      }
+      return { status: 200, body: "ok" };
+    }
+  }
+
   // Step 4: Return immediately — processing happens in background
   // (The caller should send this response before awaiting processMessage)
   processMessageInBackground(incoming, options).catch((err) => {
@@ -118,7 +143,7 @@ async function processMessageInBackground(
   incoming: IncomingMessage,
   options: WebhookHandlerOptions,
 ): Promise<void> {
-  const { adapter, systemPrompt, actions, model, apiKey } = options;
+  const { adapter, systemPrompt, actions, model, apiKey, ownerEmail } = options;
 
   // Step 5: Resolve or create internal thread
   let mapping = await getThreadMapping(
@@ -127,7 +152,7 @@ async function processMessageInBackground(
   );
 
   if (!mapping) {
-    const thread = await createThread(`integration@${incoming.platform}`, {
+    const thread = await createThread(ownerEmail, {
       title: `${adapter.label}: ${incoming.senderName || incoming.senderId || "User"}`,
     });
     await saveThreadMapping(

@@ -953,6 +953,155 @@ function mountLocalModeRoutes(app: H3App): void {
 }
 
 // ---------------------------------------------------------------------------
+// mountAuthFallbackRoutes — minimal auth endpoints when Better Auth init fails
+// ---------------------------------------------------------------------------
+
+function mountAuthFallbackRoutes(app: H3App): void {
+  app.use(
+    "/_agent-native/auth/login",
+    defineEventHandler(async (event) => {
+      if (getMethod(event) !== "POST") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+
+      const body = await readBody(event);
+      const email = body?.email?.trim?.()?.toLowerCase?.();
+      const password = body?.password;
+
+      if (!email || !password) {
+        setResponseStatus(event, 400);
+        return { error: "Email and password are required" };
+      }
+
+      try {
+        const auth = await getBetterAuth();
+        const result = await auth.api.signInEmail({
+          body: { email, password },
+        });
+        if (result?.token) {
+          setCookie(event, COOKIE_NAME, result.token, {
+            httpOnly: true,
+            secure: !isDevEnvironment(),
+            sameSite: "lax",
+            path: "/",
+            maxAge: sessionMaxAge,
+          });
+          await addSession(result.token, email);
+        }
+        return { ok: true };
+      } catch (e: any) {
+        setResponseStatus(event, 401);
+        return { error: e?.message || "Invalid email or password" };
+      }
+    }),
+  );
+
+  app.use(
+    "/_agent-native/auth/register",
+    defineEventHandler(async (event) => {
+      if (getMethod(event) !== "POST") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+
+      const body = await readBody(event);
+      const email = body?.email?.trim?.()?.toLowerCase?.();
+      const password = body?.password;
+
+      if (!email || typeof email !== "string" || !email.includes("@")) {
+        setResponseStatus(event, 400);
+        return { error: "Valid email is required" };
+      }
+      if (!password || typeof password !== "string" || password.length < 8) {
+        setResponseStatus(event, 400);
+        return { error: "Password must be at least 8 characters" };
+      }
+
+      try {
+        const auth = await getBetterAuth();
+        await auth.api.signUpEmail({
+          body: { email, password, name: email.split("@")[0] },
+        });
+        return { ok: true };
+      } catch (e: any) {
+        setResponseStatus(event, 409);
+        return { error: e?.message || "Registration failed" };
+      }
+    }),
+  );
+
+  app.use(
+    "/_agent-native/auth/logout",
+    defineEventHandler(async (event) => {
+      const cookie = getCookie(event, COOKIE_NAME);
+      if (cookie) await removeSession(cookie);
+      deleteCookie(event, COOKIE_NAME, { path: "/" });
+
+      try {
+        const auth = await getBetterAuth();
+        await auth.api.signOut({ headers: event.headers });
+      } catch {
+        // Ignore if Better Auth is still unavailable
+      }
+
+      return { ok: true };
+    }),
+  );
+
+  app.use(
+    "/_agent-native/auth/local-mode",
+    defineEventHandler(async (event) => {
+      if (getMethod(event) !== "POST") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      if (!isDevEnvironment()) {
+        setResponseStatus(event, 403);
+        return {
+          error:
+            "Local mode is not available in production. Create an account to continue.",
+        };
+      }
+      const ok = await setAuthModeLocal();
+      if (!ok) {
+        setResponseStatus(event, 500);
+        return { error: "Failed to enable local mode" };
+      }
+      return { ok: true };
+    }),
+  );
+
+  app.use(
+    "/_agent-native/auth/exit-local-mode",
+    defineEventHandler(async (event) => {
+      if (getMethod(event) !== "POST") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      const ok = await removeAuthModeLocal();
+      if (!ok) {
+        setResponseStatus(event, 500);
+        return { error: "Failed to disable local mode" };
+      }
+      return { ok: true };
+    }),
+  );
+
+  app.use(
+    "/_agent-native/auth/session",
+    defineEventHandler(async (event) => {
+      if (getMethod(event) !== "GET") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      const session = await getSession(event);
+      return session ?? { error: "Not authenticated" };
+    }),
+  );
+}
+
+// ---------------------------------------------------------------------------
 // autoMountAuth — the recommended entry point
 // ---------------------------------------------------------------------------
 
@@ -1101,6 +1250,7 @@ export async function autoMountAuth(
     );
   } catch (err) {
     console.error("[agent-native] Failed to initialize Better Auth:", err);
+    mountAuthFallbackRoutes(app);
     // CRITICAL: Even if Better Auth fails, register the auth guard so
     // unauthenticated users can't access the app. They'll see the login
     // page but won't be able to sign in until the DB is available.

@@ -32,6 +32,20 @@ export interface OutgoingMessage {
 }
 
 /**
+ * Proactive outbound message target for a platform.
+ * Used when the agent needs to send to a saved destination instead of replying
+ * to the current inbound thread.
+ */
+export interface OutboundTarget {
+  /** Canonical platform-specific destination id (channel, chat, thread, etc.) */
+  destination: string;
+  /** Optional thread reference when the destination supports threading */
+  threadRef?: string | null;
+  /** Optional fallback display label */
+  label?: string;
+}
+
+/**
  * Connection status for a platform integration.
  */
 export interface IntegrationStatus {
@@ -99,6 +113,15 @@ export interface PlatformAdapter {
   ): Promise<void>;
 
   /**
+   * Send a proactive outbound message to a platform destination. Adapters that
+   * only support direct replies can omit this.
+   */
+  sendMessageToTarget?(
+    message: OutgoingMessage,
+    target: OutboundTarget,
+  ): Promise<void>;
+
+  /**
    * Format plain agent response text into a platform-appropriate message.
    * Handles markdown conversion, message splitting for length limits, etc.
    */
@@ -122,4 +145,23 @@ export interface IntegrationsPluginOptions {
   model?: string;
   /** Anthropic API key. Falls back to ANTHROPIC_API_KEY env var. */
   apiKey?: string;
+  /**
+   * Resolve which owner should receive personal resource context and own the
+   * created chat thread for an incoming platform message.
+   */
+  resolveOwner?: (incoming: IncomingMessage) => string | Promise<string>;
+  /**
+   * Optional preprocessor for inbound platform messages. Can intercept special
+   * commands (such as `/link`) before the agent loop runs.
+   */
+  beforeProcess?: (
+    incoming: IncomingMessage,
+    adapter: PlatformAdapter,
+  ) => Promise<
+    | {
+        handled: true;
+        responseText?: string;
+      }
+    | { handled: false }
+  >;
 }

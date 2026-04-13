@@ -38,6 +38,7 @@ import {
   IconTerminal2,
   IconSettings,
   IconLayoutSidebarRightCollapse,
+  IconLayoutGrid,
   IconChevronDown,
   IconCheck,
   IconPlus,
@@ -911,7 +912,7 @@ export function AgentPanel({
           title="Workspace files, agents, skills, and tasks"
           style={AGENT_PANEL_CONTROL_STYLE}
         >
-          <IconFolder size={14} />
+          <IconLayoutGrid size={14} />
           Workspace
         </button>
       </div>

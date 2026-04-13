@@ -47,7 +47,11 @@ export function AppLayout({ activeDocumentId, children }: AppLayoutProps) {
       {isMobile ? (
         <>
           <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
-            <SheetContent side="left" className="w-72 p-0">
+            <SheetContent
+              side="left"
+              showClose={false}
+              className="w-[85vw] max-w-[85vw] sm:max-w-[85vw] p-0"
+            >
               <DocumentSidebar
                 activeDocumentId={activeDocumentId}
                 collapsed={false}

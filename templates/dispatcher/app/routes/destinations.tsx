@@ -1,0 +1,195 @@
+import { useState } from "react";
+import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import { toast } from "sonner";
+import { DispatcherShell } from "@/components/dispatcher-shell";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+
+export function meta() {
+  return [{ title: "Routes — Dispatcher" }];
+}
+
+export default function DestinationsRoute() {
+  const { data } = useActionQuery("list-destinations", {});
+  const [form, setForm] = useState({
+    name: "",
+    platform: "slack",
+    destination: "",
+    threadRef: "",
+    notes: "",
+    text: "",
+  });
+
+  const upsert = useActionMutation("upsert-destination", {
+    onSuccess: () => {
+      toast.success("Destination saved");
+      setForm((current) => ({
+        ...current,
+        name: "",
+        destination: "",
+        threadRef: "",
+        notes: "",
+      }));
+    },
+  });
+  const remove = useActionMutation("delete-destination", {
+    onSuccess: () => toast.success("Destination removed"),
+  });
+  const send = useActionMutation("send-platform-message", {
+    onSuccess: () => toast.success("Message sent"),
+  });
+
+  return (
+    <DispatcherShell
+      title="Save once, post anywhere"
+      description="Define the channels, chats, and threads the dispatcher can target for digests, alerts, and proactive follow-ups."
+    >
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+        <section className="rounded-3xl border border-border/60 bg-card/70 p-5">
+          <h2 className="text-lg font-semibold text-foreground">
+            Saved destinations
+          </h2>
+          <div className="mt-4 space-y-3">
+            {(data || []).map((destination) => (
+              <div
+                key={destination.id}
+                className="rounded-2xl border border-border/50 bg-muted/35 p-4"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-medium text-foreground">
+                      {destination.name}
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {destination.platform} · {destination.destination}
+                      {destination.threadRef
+                        ? ` · thread ${destination.threadRef}`
+                        : ""}
+                    </div>
+                    {destination.notes && (
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        {destination.notes}
+                      </p>
+                    )}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => remove.mutate({ id: destination.id })}
+                  >
+                    Delete
+                  </Button>
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <Input
+                    value={form.text}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        text: event.target.value,
+                      }))
+                    }
+                    placeholder="Quick test message"
+                  />
+                  <Button
+                    onClick={() =>
+                      send.mutate({
+                        destinationId: destination.id,
+                        text:
+                          form.text || `Test message to ${destination.name}`,
+                      })
+                    }
+                  >
+                    Send
+                  </Button>
+                </div>
+              </div>
+            ))}
+            {(data?.length || 0) === 0 && (
+              <div className="rounded-2xl border border-dashed border-border/60 px-4 py-8 text-sm text-muted-foreground">
+                No destinations saved yet. Add your first Slack channel or
+                Telegram chat on the right.
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="rounded-3xl border border-border/60 bg-card/70 p-5">
+          <h2 className="text-lg font-semibold text-foreground">
+            Add destination
+          </h2>
+          <div className="mt-4 space-y-3">
+            <Input
+              value={form.name}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, name: event.target.value }))
+              }
+              placeholder="Daily digest channel"
+            />
+            <select
+              value={form.platform}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  platform: event.target.value,
+                }))
+              }
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
+              <option value="slack">Slack</option>
+              <option value="telegram">Telegram</option>
+            </select>
+            <Input
+              value={form.destination}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  destination: event.target.value,
+                }))
+              }
+              placeholder={
+                form.platform === "slack" ? "C0123456789" : "123456789"
+              }
+            />
+            <Input
+              value={form.threadRef}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  threadRef: event.target.value,
+                }))
+              }
+              placeholder="Optional thread or topic id"
+            />
+            <Textarea
+              value={form.notes}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  notes: event.target.value,
+                }))
+              }
+              placeholder="What should use this destination?"
+            />
+            <Button
+              className="w-full"
+              onClick={() =>
+                upsert.mutate({
+                  name: form.name,
+                  platform: form.platform as "slack" | "telegram",
+                  destination: form.destination,
+                  threadRef: form.threadRef || undefined,
+                  notes: form.notes || undefined,
+                })
+              }
+              disabled={!form.name || !form.destination}
+            >
+              Save destination
+            </Button>
+          </div>
+        </section>
+      </div>
+    </DispatcherShell>
+  );
+}
