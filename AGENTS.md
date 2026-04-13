@@ -21,6 +21,33 @@ This applies to every feature: a new form builder, a new chart type, a new email
 
 When a user configures local MCP servers in `mcp.config.json` (see [mcp-clients](./packages/docs/content/mcp-clients.md)), their tools appear in the agent's registry with the `mcp__<server-id>__` prefix and are usable like any other action. Design features to compose with those tools — e.g. a browser-automation workflow can delegate to `mcp__claude-in-chrome__navigate` / `click` if present rather than reimplementing every capability in-template.
 
+### Onboarding
+
+If the feature requires user-facing setup (API keys, OAuth, connecting a third-party service), register an onboarding step so it shows up in the agent sidebar's setup checklist:
+
+```ts
+import { registerOnboardingStep } from "@agent-native/core/onboarding";
+
+registerOnboardingStep({
+  id: "gmail",
+  order: 100,
+  title: "Connect Gmail",
+  description: "Grant read/send access.",
+  methods: [
+    {
+      id: "oauth",
+      kind: "link",
+      primary: true,
+      label: "Sign in with Google",
+      payload: { url: "/_agent-native/google/auth-url" },
+    },
+  ],
+  isComplete: () => !!process.env.GMAIL_REFRESH_TOKEN,
+});
+```
+
+See `packages/docs/content/onboarding.md` for method kinds and built-in steps.
+
 ## Context Awareness
 
 The agent must always know what the user is currently viewing. This is achieved through two mechanisms:

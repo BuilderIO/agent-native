@@ -74,6 +74,13 @@ const SettingsPanel = lazy(() =>
   })),
 );
 
+// Lazy-load OnboardingPanel — only pulled in when onboarding is active.
+const OnboardingPanel = lazy(() =>
+  import("./onboarding/OnboardingPanel.js").then((m) => ({
+    default: m.OnboardingPanel,
+  })),
+);
+
 const CLI_STORAGE_KEY = "agent-native-cli-command";
 const CLI_DEFAULT = "claude";
 const EXEC_MODE_KEY = "agent-native-exec-mode";
@@ -924,6 +931,15 @@ export function AgentPanel({
             ".agent-tab-close{opacity:0}.agent-tab:hover .agent-tab-close{opacity:1}",
         }}
       />
+      {/* Framework onboarding — appears above the chat when setup is
+          incomplete. The panel hides itself once all required steps are
+          done or the user dismisses it. */}
+      {mounted && mode === "chat" && (
+        <Suspense fallback={null}>
+          <OnboardingPanel />
+        </Suspense>
+      )}
+
       {/* Chat view — always mounted to preserve state.
           Header (with tabs + mode buttons) is always visible.
           Chat content is hidden when CLI or resources mode is active.

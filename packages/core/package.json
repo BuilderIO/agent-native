@@ -25,6 +25,8 @@
     "./db": "./dist/db/index.js",
     "./db/schema": "./dist/db/schema.js",
     "./client": "./dist/client/index.js",
+    "./client/onboarding": "./dist/client/onboarding/index.js",
+    "./onboarding": "./dist/onboarding/index.js",
     "./shared": "./dist/shared/index.js",
     "./scripts": "./dist/scripts/index.js",
     "./application-state": "./dist/application-state/index.js",
