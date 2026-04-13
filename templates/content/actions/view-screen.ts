@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
 import { getDbExec } from "@agent-native/core/db";
+import { getCurrentOwnerEmail } from "../server/lib/documents.js";
 
 export default defineAction({
   description:
@@ -14,11 +15,12 @@ export default defineAction({
 
     const nav = navigation as any;
     const client = getDbExec();
+    const ownerEmail = getCurrentOwnerEmail();
 
     if (nav?.documentId) {
       const result = await client.execute({
-        sql: "SELECT id, parent_id, title, content, icon, position, is_favorite, created_at, updated_at FROM documents WHERE id = ?",
-        args: [nav.documentId],
+        sql: "SELECT id, parent_id, title, content, icon, position, is_favorite, created_at, updated_at FROM documents WHERE id = ? AND owner_email = ?",
+        args: [nav.documentId, ownerEmail],
       });
       if (result.rows && result.rows.length > 0) {
         screen.document = result.rows[0];
@@ -26,8 +28,8 @@ export default defineAction({
     }
 
     const treeResult = await client.execute({
-      sql: "SELECT id, parent_id, title, icon, position, is_favorite FROM documents ORDER BY position",
-      args: [],
+      sql: "SELECT id, parent_id, title, icon, position, is_favorite FROM documents WHERE owner_email = ? ORDER BY position",
+      args: [ownerEmail],
     });
     const docs = (treeResult.rows || []) as any[];
 

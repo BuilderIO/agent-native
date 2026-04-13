@@ -20,6 +20,8 @@
     "./vite": "./dist/vite/index.js",
     "./server": "./dist/server/index.js",
     "./server/ssr-handler": "./dist/server/ssr-handler.js",
+    "./server/agent-discovery": "./dist/server/agent-discovery.js",
+    "./server/request-context": "./dist/server/request-context.js",
     "./db": "./dist/db/index.js",
     "./db/schema": "./dist/db/schema.js",
     "./client": "./dist/client/index.js",
@@ -29,6 +31,8 @@
     "./settings": "./dist/settings/index.js",
     "./credentials": "./dist/credentials/index.js",
     "./resources": "./dist/resources/index.js",
+    "./resources/store": "./dist/resources/store.js",
+    "./resources/metadata": "./dist/resources/metadata.js",
     "./oauth-tokens": "./dist/oauth-tokens/index.js",
     "./org": "./dist/org/index.js",
     "./client/org": "./dist/client/org/index.js",
@@ -57,6 +61,7 @@
     "release": "npm version patch && npm publish --access public"
   },
   "dependencies": {
+    "@agent-native/shared-app-config": "workspace:*",
     "@anthropic-ai/sdk": "^0.80.0",
     "@clack/prompts": "^1.2.0",
     "@libsql/client": "^0.15.0",

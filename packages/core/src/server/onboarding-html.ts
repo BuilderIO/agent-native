@@ -20,6 +20,19 @@ function hasGoogleOAuth(): boolean {
   return !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
 }
 
+function getConnectionLabel(): string {
+  const url = process.env.DATABASE_URL || "";
+  if (!url) return "SQLite (local file)";
+  if (url.startsWith("postgres://") || url.startsWith("postgresql://")) {
+    if (url.includes("neon.tech")) return "Neon Postgres";
+    if (url.includes("supabase")) return "Supabase Postgres";
+    return "Postgres";
+  }
+  if (url.startsWith("file:")) return "SQLite (local file)";
+  if (url.startsWith("libsql://") || url.includes("turso.io")) return "Turso";
+  return "SQL database";
+}
+
 export interface OnboardingHtmlOptions {
   /**
    * Hide email/password forms and show ONLY the Google sign-in button.
@@ -73,7 +86,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Welcome</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -82,9 +95,11 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     background: #0a0a0a;
     color: #e5e5e5;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
     min-height: 100vh;
+    padding: 1rem;
   }
   .card {
     width: 100%;
@@ -219,6 +234,23 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   .btn-google svg { width: 18px; height: 18px; flex-shrink: 0; }
   .google-error { margin-top: 0.5rem; font-size: 0.8125rem; color: #f87171; display: none; }
   .google-error.show { display: block; }
+  .local-note {
+    display: none;
+    max-width: 400px;
+    width: 100%;
+    margin-top: 1rem;
+    padding: 0.625rem 0.875rem;
+    font-size: 0.6875rem;
+    line-height: 1.5;
+    color: #666;
+    border: 1px dashed rgba(255,255,255,0.08);
+    border-radius: 8px;
+    text-align: center;
+  }
+  .local-note.show { display: block; }
+  .local-note strong { color: #999; font-weight: 500; }
+  .local-note a { color: #888; text-decoration: underline; text-underline-offset: 2px; }
+  .local-note a:hover { color: #bbb; }
 </style>
 </head>
 <body>
@@ -278,7 +310,19 @@ ${
 }
 ${localModeBlock}
 </div>
+<p class="local-note" id="local-note">
+  This account lives in <strong>your app</strong>, not an external service. Current connection: <strong>${getConnectionLabel()}</strong>.
+  <br />
+  <a href="https://github.com/BuilderIO/agent-native#readme" target="_blank" rel="noreferrer">Connect a different database or auth provider →</a>
+</p>
 <script>
+  (function revealLocalNote() {
+    var h = location.hostname;
+    if (h === 'localhost' || h === '127.0.0.1' || h === '::1' || h.endsWith('.local')) {
+      var n = document.getElementById('local-note');
+      if (n) n.classList.add('show');
+    }
+  })();
 ${
   googleOnly
     ? ""

@@ -2,6 +2,7 @@ import type { ActionTool } from "../agent/types.js";
 import type { ActionRunContext } from "../agent/production-agent.js";
 import { findAgent, discoverAgents } from "../server/agent-discovery.js";
 import { A2AClient, callAgent } from "../a2a/client.js";
+import { getRequestUserEmail } from "../server/request-context.js";
 
 export const tool: ActionTool = {
   description:
@@ -50,7 +51,7 @@ export async function run(
     // If we have a send context, use streaming so the UI shows progressive text
     if (context?.send) {
       const client = new A2AClient(agent.url);
-      const callerEmail = process.env.AGENT_USER_EMAIL;
+      const callerEmail = getRequestUserEmail();
 
       // Build metadata with identity
       const a2aMetadata: Record<string, unknown> = {};
@@ -127,7 +128,7 @@ export async function run(
 
     // No context — use simple blocking call
     const response = await callAgent(agent.url, message, {
-      userEmail: process.env.AGENT_USER_EMAIL,
+      userEmail: getRequestUserEmail(),
     });
     return response || "(empty response)";
   } catch (err: any) {

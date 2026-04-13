@@ -12,8 +12,12 @@ import {
   resourceList,
   SHARED_OWNER,
 } from "../resources/store.js";
+import {
+  getRequestUserEmail,
+  getRequestOrgId,
+} from "../server/request-context.js";
 function getOwner(): string {
-  return process.env.AGENT_USER_EMAIL || "local@localhost";
+  return getRequestUserEmail() || "local@localhost";
 }
 
 export function createJobTools(): Record<string, ActionEntry> {
@@ -80,7 +84,7 @@ export function createJobTools(): Record<string, ActionEntry> {
           schedule,
           enabled: true,
           createdBy: getOwner(),
-          orgId: process.env.AGENT_ORG_ID || undefined,
+          orgId: getRequestOrgId() || undefined,
           runAs: runAs === "shared" ? "shared" : "creator",
           nextRun: next.toISOString(),
         };

@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { getDbExec } from "@agent-native/core/db";
+import { getCurrentOwnerEmail } from "../server/lib/documents.js";
 import { z } from "zod";
 
 export default defineAction({
@@ -12,10 +13,11 @@ export default defineAction({
     const documentId = args.documentId;
     if (!documentId) throw new Error("--documentId is required");
 
+    const ownerEmail = getCurrentOwnerEmail();
     const client = getDbExec();
     const { rows } = await client.execute({
-      sql: `SELECT * FROM document_comments WHERE document_id = ? ORDER BY created_at ASC`,
-      args: [documentId],
+      sql: `SELECT * FROM document_comments WHERE document_id = ? AND owner_email = ? ORDER BY created_at ASC`,
+      args: [documentId, ownerEmail],
     });
 
     return { comments: rows };

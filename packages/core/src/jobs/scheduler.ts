@@ -1,3 +1,4 @@
+import { runWithRequestContext } from "../server/request-context.js";
 import { nextOccurrence, isValidCron, describeCron } from "./cron.js";
 import {
   resourceListAllOwners,
@@ -200,94 +201,92 @@ async function executeJob(
 
   // Set owner context so all scoped operations (app-state, resources, etc.)
   // operate on the correct user's data
-  const prevOwner = process.env.AGENT_USER_EMAIL;
-  const prevOrgId = process.env.AGENT_ORG_ID;
   const effectiveRunAs = meta.runAs ?? "creator";
-  process.env.AGENT_USER_EMAIL =
+  const jobUserEmail =
     effectiveRunAs === "creator"
       ? meta.createdBy || resource.owner
       : resource.owner;
-  if (meta.orgId) {
-    process.env.AGENT_ORG_ID = meta.orgId;
+  const jobOrgId = meta.orgId ?? undefined;
+
+  // Also set process.env for backwards compat with CLI scripts
+  process.env.AGENT_USER_EMAIL = jobUserEmail;
+  if (jobOrgId) {
+    process.env.AGENT_ORG_ID = jobOrgId;
   } else {
     delete process.env.AGENT_ORG_ID;
   }
 
-  try {
-    const actions = deps.getActions();
-    const systemPrompt = await deps.getSystemPrompt(resource.owner);
-    const tools = actionsToEngineTools(actions);
+  await runWithRequestContext(
+    { userEmail: jobUserEmail, orgId: jobOrgId },
+    async () => {
+      try {
+        const actions = deps.getActions();
+        const systemPrompt = await deps.getSystemPrompt(resource.owner);
+        const tools = actionsToEngineTools(actions);
 
-    const engine =
-      deps.engine ?? createAnthropicEngine({ apiKey: deps.apiKey });
+        const engine =
+          deps.engine ?? createAnthropicEngine({ apiKey: deps.apiKey });
 
-    // Create a chat thread for this run
-    const threadTitle = `Job: ${jobName} — ${now.toLocaleDateString()}`;
-    const thread = await createThread(threadTitle);
+        // Create a chat thread for this run
+        const threadTitle = `Job: ${jobName} — ${now.toLocaleDateString()}`;
+        const thread = await createThread(threadTitle);
 
-    const jobText = `[Recurring Job: ${jobName}]\nSchedule: ${describeCron(meta.schedule)}\n\nExecute the following job instructions:\n\n${body}`;
-    const messages = [
-      {
-        role: "user" as const,
-        content: [{ type: "text" as const, text: jobText }],
-      },
-    ];
+        const jobText = `[Recurring Job: ${jobName}]\nSchedule: ${describeCron(meta.schedule)}\n\nExecute the following job instructions:\n\n${body}`;
+        const messages = [
+          {
+            role: "user" as const,
+            content: [{ type: "text" as const, text: jobText }],
+          },
+        ];
 
-    // 5-minute timeout
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5 * 60 * 1000);
+        // 5-minute timeout
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5 * 60 * 1000);
 
-    const events: AgentChatEvent[] = [];
-    const send = (event: AgentChatEvent) => {
-      events.push(event);
-    };
+        const events: AgentChatEvent[] = [];
+        const send = (event: AgentChatEvent) => {
+          events.push(event);
+        };
 
-    try {
-      await runAgentLoop({
-        engine,
-        model: deps.model,
-        systemPrompt,
-        tools,
-        messages,
-        actions,
-        send,
-        signal: controller.signal,
-      });
-    } finally {
-      clearTimeout(timeout);
-    }
+        try {
+          await runAgentLoop({
+            engine,
+            model: deps.model,
+            systemPrompt,
+            tools,
+            messages,
+            actions,
+            send,
+            signal: controller.signal,
+          });
+        } finally {
+          clearTimeout(timeout);
+        }
 
-    // Success — update status
-    const next = nextOccurrence(meta.schedule, now);
-    meta.lastStatus = "success";
-    meta.nextRun = next.toISOString();
-    await updateResource(resource, meta, body);
+        // Success — update status
+        const next = nextOccurrence(meta.schedule, now);
+        meta.lastStatus = "success";
+        meta.nextRun = next.toISOString();
+        await updateResource(resource, meta, body);
 
-    console.log(
-      `[recurring-jobs] Job "${jobName}" completed. Next run: ${meta.nextRun}`,
-    );
-  } catch (err: any) {
-    // Error — update status
-    const next = nextOccurrence(meta.schedule, now);
-    meta.lastStatus = "error";
-    meta.lastError = err?.message?.slice(0, 200) || "Unknown error";
-    meta.nextRun = next.toISOString();
-    await updateResource(resource, meta, body);
+        console.log(
+          `[recurring-jobs] Job "${jobName}" completed. Next run: ${meta.nextRun}`,
+        );
+      } catch (err: any) {
+        // Error — update status
+        const next = nextOccurrence(meta.schedule, now);
+        meta.lastStatus = "error";
+        meta.lastError = err?.message?.slice(0, 200) || "Unknown error";
+        meta.nextRun = next.toISOString();
+        await updateResource(resource, meta, body);
 
-    console.error(`[recurring-jobs] Job "${jobName}" failed:`, err?.message);
-  } finally {
-    // Restore previous owner context
-    if (prevOwner !== undefined) {
-      process.env.AGENT_USER_EMAIL = prevOwner;
-    } else {
-      delete process.env.AGENT_USER_EMAIL;
-    }
-    if (prevOrgId !== undefined) {
-      process.env.AGENT_ORG_ID = prevOrgId;
-    } else {
-      delete process.env.AGENT_ORG_ID;
-    }
-  }
+        console.error(
+          `[recurring-jobs] Job "${jobName}" failed:`,
+          err?.message,
+        );
+      }
+    },
+  ); // end runWithRequestContext
 }
 
 async function updateResource(

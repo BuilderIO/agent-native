@@ -1,26 +1,26 @@
 import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
 import { readBody } from "@agent-native/core/server";
 import {
-  getSetting,
-  putSetting,
-  deleteSetting,
-  getAllSettings,
-} from "@agent-native/core/settings";
+  deleteScopedSettingRecord,
+  getScopedSettingRecord,
+  listScopedSettingRecords,
+  putScopedSettingRecord,
+  resolveSettingsScope,
+} from "../lib/scoped-settings";
 
 const KEY_PREFIX = "dashboard-";
 
-export const listExplorerDashboards = defineEventHandler(async (_event) => {
+export const listExplorerDashboards = defineEventHandler(async (event) => {
   try {
-    const all = await getAllSettings();
-    const dashboards = Object.entries(all)
-      .filter(([key]) => key.startsWith(KEY_PREFIX))
-      .map(([key, data]) => ({
-        id: key.slice(KEY_PREFIX.length),
-        ...data,
-      }));
+    const scope = await resolveSettingsScope(event);
+    const all = await listScopedSettingRecords(scope, KEY_PREFIX);
+    const dashboards = Object.entries(all).map(([key, data]) => ({
+      id: key.slice(KEY_PREFIX.length),
+      ...data,
+    }));
     return { dashboards };
   } catch (err: any) {
-    setResponseStatus(_event, 500);
+    setResponseStatus(event, 500);
     return { error: err.message };
   }
 });
@@ -28,7 +28,8 @@ export const listExplorerDashboards = defineEventHandler(async (_event) => {
 export const getExplorerDashboard = defineEventHandler(async (event) => {
   const id = getRouterParam(event, "id");
   try {
-    const data = await getSetting(`${KEY_PREFIX}${id}`);
+    const scope = await resolveSettingsScope(event);
+    const data = await getScopedSettingRecord(scope, `${KEY_PREFIX}${id}`);
     if (!data) {
       setResponseStatus(event, 404);
       return { error: "Dashboard not found" };
@@ -44,7 +45,12 @@ export const saveExplorerDashboard = defineEventHandler(async (event) => {
   const id = getRouterParam(event, "id");
   try {
     const body = await readBody(event);
-    await putSetting(`${KEY_PREFIX}${id}`, body);
+    const scope = await resolveSettingsScope(event);
+    await putScopedSettingRecord(
+      scope,
+      `${KEY_PREFIX}${id}`,
+      body as Record<string, unknown>,
+    );
     return { id, success: true };
   } catch (err: any) {
     setResponseStatus(event, 500);
@@ -54,6 +60,7 @@ export const saveExplorerDashboard = defineEventHandler(async (event) => {
 
 export const deleteExplorerDashboard = defineEventHandler(async (event) => {
   const id = getRouterParam(event, "id");
-  await deleteSetting(`${KEY_PREFIX}${id}`);
+  const scope = await resolveSettingsScope(event);
+  await deleteScopedSettingRecord(scope, `${KEY_PREFIX}${id}`);
   return { id, success: true };
 });

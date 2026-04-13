@@ -138,19 +138,22 @@ After any create, update, or delete operation, the scripts automatically trigger
 
 Documents are stored in the SQL `documents` table via Drizzle ORM:
 
-| Column        | Type    | Description                        |
-| ------------- | ------- | ---------------------------------- |
-| `id`          | text    | Primary key (12-char hex)          |
-| `parent_id`   | text    | Parent document ID (null for root) |
-| `title`       | text    | Document title                     |
-| `content`     | text    | Markdown content                   |
-| `icon`        | text    | Emoji icon                         |
-| `position`    | integer | Sort order within parent           |
-| `is_favorite` | integer | Whether favorited (0 or 1)         |
-| `created_at`  | text    | ISO timestamp                      |
-| `updated_at`  | text    | ISO timestamp                      |
+| Column        | Type    | Description                                            |
+| ------------- | ------- | ------------------------------------------------------ |
+| `id`          | text    | Primary key (12-char hex)                              |
+| `owner_email` | text    | Per-user owner; local mode starts as `local@localhost` |
+| `parent_id`   | text    | Parent document ID (null for root)                     |
+| `title`       | text    | Document title                                         |
+| `content`     | text    | Markdown content                                       |
+| `icon`        | text    | Emoji icon                                             |
+| `position`    | integer | Sort order within parent                               |
+| `is_favorite` | integer | Whether favorited (0 or 1)                             |
+| `created_at`  | text    | ISO timestamp                                          |
+| `updated_at`  | text    | ISO timestamp                                          |
 
 Documents form a tree via `parent_id`. Content is stored as markdown.
+
+Related tables (`document_versions`, `document_comments`, `document_sync_links`) also carry `owner_email` so a workspace can be upgraded cleanly from local mode to a real account without losing document history, comments, or Notion links.
 
 ## UI Components
 

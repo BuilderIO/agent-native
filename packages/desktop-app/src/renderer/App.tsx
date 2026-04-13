@@ -66,7 +66,16 @@ export default function App() {
   }, []);
 
   const enabledApps = apps.filter((a) => a.enabled);
-  const appDefs = enabledApps.map(toAppDefinition);
+  const rawAppDefs = enabledApps.map(toAppDefinition);
+  // Keep this in sync with Sidebar's pinned-bottom order.
+  const PINNED_BOTTOM_ORDER = ["dispatcher", "starter"];
+  const pinnedBottomDefs = PINNED_BOTTOM_ORDER.map((id) =>
+    rawAppDefs.find((a) => a.id === id),
+  ).filter((a): a is NonNullable<typeof a> => !!a);
+  const mainDefs = rawAppDefs.filter(
+    (a) => !PINNED_BOTTOM_ORDER.includes(a.id),
+  );
+  const appDefs = [...mainDefs, ...pinnedBottomDefs];
 
   const defaultApp = appDefs.find((a) => !a.placeholder) ?? appDefs[0];
 
