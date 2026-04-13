@@ -1836,6 +1836,7 @@ export function AgentSidebar({
         height: "100%",
         maxWidth: "85vw",
         zIndex: 50,
+        background: "var(--background, #fff)",
       }
     : {};
 
