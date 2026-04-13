@@ -332,6 +332,10 @@ Auth is powered by **Better Auth** with account-first design. Users create an ac
 
 Better Auth's organization plugin is built into the framework. Every app supports creating orgs, inviting members, and role-based access (owner/admin/member). The active organization flows automatically: `session.orgId` → `AGENT_ORG_ID` → SQL scoping.
 
+### Builder Browser Access
+
+Apps can connect to Builder through the `cli-auth` flow and persist shared browser credentials in `.env`. When connected, agents can use the built-in `get-browser-connection` tool to provision a real browser session via AI Services without each app wiring a separate browser integration.
+
 ### A2A Identity
 
 Set `A2A_SECRET` (same value) on all apps that need to verify each other's identity. Outbound A2A calls are signed with JWTs; inbound calls are verified cryptographically. Without `A2A_SECRET`, A2A calls are unauthenticated (fine for local dev).

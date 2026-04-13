@@ -33,6 +33,7 @@ import {
 } from "h3";
 import { agentEnv } from "../shared/agent-env.js";
 import { getSession } from "./auth.js";
+import { getOrigin } from "./google-oauth.js";
 import {
   createThread,
   getThread,
@@ -51,6 +52,10 @@ import {
 } from "../resources/store.js";
 import nodePath from "node:path";
 import { readBody } from "./h3-helpers.js";
+import {
+  getBuilderBrowserConnectUrl,
+  requestBuilderBrowserConnection,
+} from "./builder-browser.js";
 
 // Lazy fs — loaded via dynamic import() on first use.
 // This avoids require() which bundlers convert to createRequire(import.meta.url)
@@ -338,6 +343,82 @@ async function createCallAgentScriptEntry(
   } catch {
     return {};
   }
+}
+
+function createBuilderBrowserTool(deps: {
+  getOrigin: () => string;
+}): Record<string, ActionEntry> {
+  return {
+    "get-browser-connection": {
+      tool: {
+        description:
+          "Provision a Builder-backed browser session and return browser websocket connection details. If Builder browser access is not configured yet, this returns setup guidance instead.",
+        parameters: {
+          type: "object",
+          properties: {
+            sessionId: {
+              type: "string",
+              description:
+                "Stable browser session identifier. Reuse it to reconnect to the same browser session.",
+            },
+            projectId: {
+              type: "string",
+              description:
+                "Optional Builder project or space identifier to scope the session.",
+            },
+            branchName: {
+              type: "string",
+              description: "Optional branch name for Builder preview sessions.",
+            },
+            proxyOrigin: {
+              type: "string",
+              description:
+                "Optional source origin to proxy from when browsing a local app.",
+            },
+            proxyDefaultOrigin: {
+              type: "string",
+              description:
+                "Optional default origin that the browser should use for proxied requests.",
+            },
+            proxyDestination: {
+              type: "string",
+              description:
+                "Optional destination origin for proxying local development traffic.",
+            },
+          },
+          required: ["sessionId"],
+        },
+      },
+      run: async (args) => {
+        if (
+          !process.env.BUILDER_PRIVATE_KEY ||
+          !process.env.BUILDER_PUBLIC_KEY
+        ) {
+          return JSON.stringify({
+            configured: false,
+            message:
+              "Builder browser access is not configured. Connect Builder from the workspace Resources panel before requesting a browser session.",
+            connectUrl: getBuilderBrowserConnectUrl(deps.getOrigin()),
+          });
+        }
+
+        const connection = await requestBuilderBrowserConnection({
+          sessionId: args.sessionId,
+          projectId: args.projectId,
+          branchName: args.branchName,
+          proxyOrigin: args.proxyOrigin,
+          proxyDefaultOrigin: args.proxyDefaultOrigin,
+          proxyDestination: args.proxyDestination,
+        });
+
+        return JSON.stringify({
+          configured: true,
+          sessionId: args.sessionId,
+          ...connection,
+        });
+      },
+    },
+  };
 }
 
 /**
@@ -704,6 +785,14 @@ When the user asks for something recurring ("every morning", "daily at 9am", "we
 - "twice a day" / "morning and evening" → \`0 9,17 * * *\`
 
 Job instructions should be self-contained — include which actions to call, what conditions to check, and what to do with results. The agent executing the job has access to all the same tools you do.
+
+### Browser Access
+
+Use \`get-browser-connection\` when you need a real browser session backed by Builder. It returns websocket connection details for a provisioned browser session.
+
+- If the tool says Builder is not configured, tell the user to connect Builder from the workspace Resources panel.
+- Reuse a stable \`sessionId\` when you want to reconnect to the same browser session.
+- Include proxy parameters when you need the browser to reach a local dev server through Builder's browser connection flow.
 
 ### call-agent — External Apps Only
 
@@ -1110,6 +1199,10 @@ export function createAgentChatPlugin(
       ...engineScripts,
     };
     const callAgentScript = await createCallAgentScriptEntry(options?.appId);
+    let _currentRequestOrigin = "http://localhost:3000";
+    const browserTools = createBuilderBrowserTool({
+      getOrigin: () => _currentRequestOrigin,
+    });
 
     // Auto-mount A2A protocol endpoints so every app is discoverable
     // and callable by other agents via the standard protocol.
@@ -1257,6 +1350,7 @@ export function createAgentChatPlugin(
           ...resourceScripts,
           ...chatScripts,
           ...callAgentScript,
+          ...browserTools,
           ...devScriptsForA2A,
         }
       : {
@@ -1265,6 +1359,7 @@ export function createAgentChatPlugin(
           ...resourceScripts,
           ...chatScripts,
           ...callAgentScript,
+          ...browserTools,
           ...devScriptsForA2A,
         };
 
@@ -1367,12 +1462,14 @@ export function createAgentChatPlugin(
           ? {
               ...resourceScripts,
               ...chatScripts,
+              ...browserTools,
               ...devScriptsForA2A,
             }
           : {
               ...templateScripts,
               ...resourceScripts,
               ...chatScripts,
+              ...browserTools,
             };
 
         const a2aTools = actionsToEngineTools(a2aActions);
@@ -1678,6 +1775,7 @@ export function createAgentChatPlugin(
       ...callAgentScript,
       ...teamTools,
       ...jobTools,
+      ...browserTools,
     };
 
     // Always build the production handler (includes resource tools + call-agent + team tools)
@@ -1686,6 +1784,7 @@ export function createAgentChatPlugin(
     const prodHandler = createProductionAgentHandler({
       actions: prodActions,
       systemPrompt: async (event: any) => {
+        _currentRequestOrigin = getOrigin(event);
         const owner = await getOwnerFromEvent(event);
         _currentRunOwner = owner;
         const resources = await loadResourcesForPrompt(owner);
@@ -1731,11 +1830,13 @@ export function createAgentChatPlugin(
         ...callAgentScript,
         ...teamTools,
         ...jobTools,
+        ...browserTools,
         ...(await createDevScriptRegistry()),
       };
       devHandler = createProductionAgentHandler({
         actions: devActions,
         systemPrompt: async (event: any) => {
+          _currentRequestOrigin = getOrigin(event);
           const owner = await getOwnerFromEvent(event);
           _currentRunOwner = owner;
           const resources = await loadResourcesForPrompt(owner);

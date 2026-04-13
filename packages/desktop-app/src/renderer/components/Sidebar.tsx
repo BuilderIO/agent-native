@@ -10,6 +10,7 @@ import {
   IconClipboardList,
   IconUsers,
   IconCode,
+  IconMessageCircle,
   IconSettings,
 } from "@tabler/icons-react";
 import type { AppDefinition } from "@shared/app-registry";
@@ -27,6 +28,7 @@ const ICON_MAP: Record<string, React.ComponentType<Record<string, unknown>>> = {
   ClipboardList: IconClipboardList,
   Users: IconUsers,
   Code: IconCode,
+  MessageCircle: IconMessageCircle,
 };
 
 interface SidebarProps {
