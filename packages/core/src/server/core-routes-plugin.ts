@@ -1,5 +1,10 @@
 import { getH3App, awaitBootstrap } from "./framework-request-handler.js";
-import { defineEventHandler, setResponseStatus, getMethod } from "h3";
+import {
+  defineEventHandler,
+  setResponseStatus,
+  setResponseHeader,
+  getMethod,
+} from "h3";
 import type { H3Event } from "h3";
 import path from "node:path";
 import { createPollHandler } from "./poll.js";
@@ -7,6 +12,12 @@ import { createSSEHandler } from "./sse.js";
 import { upsertEnvFile } from "./create-server.js";
 import type { EnvKeyConfig } from "./create-server.js";
 import { readBody } from "./h3-helpers.js";
+import {
+  createBuilderBrowserCallbackPage,
+  getBuilderBrowserStatusForEvent,
+  getBuilderCallbackEnvVars,
+  resolveSafePreviewUrl,
+} from "./builder-browser.js";
 import {
   getState,
   putState,
@@ -19,6 +30,7 @@ import {
 } from "../application-state/handlers.js";
 import { getSetting, putSetting } from "../settings/store.js";
 import { getSession } from "./auth.js";
+import { getOrigin } from "./google-oauth.js";
 
 /**
  * The base path prefix for all framework-level routes.
@@ -91,6 +103,59 @@ export function createCoreRoutesPlugin(
         })),
       );
     }
+
+    getH3App(nitroApp).use(
+      `${P}/builder/status`,
+      defineEventHandler((event) => getBuilderBrowserStatusForEvent(event)),
+    );
+
+    getH3App(nitroApp).use(
+      `${P}/builder/callback`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "GET") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+
+        const requestUrl = new URL(
+          `${event.url?.pathname || "/"}${event.url?.search || ""}`,
+          getOrigin(event),
+        );
+        const privateKey = requestUrl.searchParams.get("p-key");
+        const publicKey = requestUrl.searchParams.get("api-key");
+
+        if (!privateKey || !publicKey) {
+          setResponseStatus(event, 400);
+          return { error: "Missing Builder credentials in callback" };
+        }
+
+        const vars = getBuilderCallbackEnvVars({
+          privateKey,
+          publicKey,
+          userId: requestUrl.searchParams.get("user-id"),
+          orgName: requestUrl.searchParams.get("org-name"),
+          orgKind: requestUrl.searchParams.get("kind"),
+        });
+
+        try {
+          const envPath = path.join(process.cwd(), ".env");
+          await upsertEnvFile(envPath, vars);
+        } catch {
+          // Edge runtime — skip file write
+        }
+
+        for (const { key, value } of vars) {
+          process.env[key] = value;
+        }
+
+        const previewUrl = resolveSafePreviewUrl(
+          requestUrl.searchParams.get("preview-url"),
+          event,
+        );
+        setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
+        return createBuilderBrowserCallbackPage(previewUrl);
+      }),
+    );
 
     // Env key management
     if (options.envKeys) {

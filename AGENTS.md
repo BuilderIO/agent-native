@@ -179,12 +179,6 @@ Never use Node-specific APIs (`fs`, `child_process`, `path`) in server routes an
 
 Never assume a persistent server process. Use the SQL database for all state.
 
-## Single-Tenant Model
-
-Agent-native apps are single-tenant. Each deployment serves one organization. You fork the app, customize it, and deploy it for your team. Builder.io provides hosting and services that make this easy.
-
-Per-user data isolation exists for multi-user organizations (via `owner_email` column convention and `AGENT_USER_EMAIL`), but large-scale multi-tenancy across organizations is not the architecture.
-
 ## Data Scoping
 
 In production mode, the framework automatically restricts agent SQL queries (via `db-query` and `db-exec`) to the current user's data using temporary views. This is enforced at the SQL level — agents cannot bypass it.
@@ -337,6 +331,10 @@ Auth is powered by **Better Auth** with account-first design. Users create an ac
 ### Organizations
 
 Better Auth's organization plugin is built into the framework. Every app supports creating orgs, inviting members, and role-based access (owner/admin/member). The active organization flows automatically: `session.orgId` → `AGENT_ORG_ID` → SQL scoping.
+
+### Builder Browser Access
+
+Apps can connect to Builder through the `cli-auth` flow and persist shared browser credentials in `.env`. When connected, agents can use the built-in `get-browser-connection` tool to provision a real browser session via AI Services without each app wiring a separate browser integration.
 
 ### A2A Identity
 

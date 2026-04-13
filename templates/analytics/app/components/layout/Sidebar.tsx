@@ -2,15 +2,11 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Link, useLocation } from "react-router";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/auth/AuthProvider";
-import {
-  useQuery,
-  useQueryClient as __useQueryClient,
-} from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   IconFlask,
   IconLogout,
   IconChevronDown,
-  IconPlus,
   IconSun,
   IconMoon,
   IconInfoCircle,
@@ -27,8 +23,6 @@ import {
   dashboards,
   hideDashboard,
   getHiddenDashboards,
-  getFavoriteDashboards,
-  toggleFavoriteDashboard,
   getDashboardOrder,
   setDashboardOrder,
   type DashboardMeta,
@@ -47,6 +41,11 @@ import {
 import { AgentToggleButton } from "@agent-native/core/client";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { NewDashboardDialog } from "./NewDashboardDialog";
+import { useUserPref } from "@/hooks/use-user-pref";
+import {
+  useAllDashboardViews,
+  type DashboardView,
+} from "@/hooks/use-dashboard-views";
 
 import {
   DndContext,
@@ -101,18 +100,20 @@ function SortableDashboardItem({
   location,
   favoriteIds,
   deletingId,
-  setFavoriteIds,
+  onToggleFavorite,
   setDeletingId,
   setHiddenIds,
+  views,
 }: {
   d: DashboardMeta;
   isActive: boolean;
   location: ReturnType<typeof useLocation>;
   favoriteIds: Set<string>;
   deletingId: string | null;
-  setFavoriteIds: (ids: Set<string>) => void;
+  onToggleFavorite: (id: string) => void;
   setDeletingId: (id: string | null) => void;
   setHiddenIds: (ids: Set<string>) => void;
+  views?: DashboardView[];
 }) {
   const {
     attributes,
@@ -132,11 +133,50 @@ function SortableDashboardItem({
 
   const href = `/adhoc/${d.id}`;
 
+  // Merge static subviews with dynamic views
+  const allSubviews = useMemo(() => {
+    const items: Array<{
+      id: string;
+      name: string;
+      href: string;
+      isDynamic: boolean;
+    }> = [];
+
+    // Static subviews from registry
+    if (d.subviews) {
+      for (const sv of d.subviews) {
+        const svSearch = new URLSearchParams(sv.params).toString();
+        items.push({
+          id: sv.id,
+          name: sv.name,
+          href: `${href}?${svSearch}`,
+          isDynamic: false,
+        });
+      }
+    }
+
+    // Dynamic views from server
+    if (views) {
+      for (const v of views) {
+        const params = new URLSearchParams(v.filters);
+        params.set("view", v.id);
+        items.push({
+          id: v.id,
+          name: v.name,
+          href: `${href}?${params.toString()}`,
+          isDynamic: true,
+        });
+      }
+    }
+
+    return items;
+  }, [d.subviews, views, href]);
+
   return (
-    <div ref={setNodeRef} style={style} className="group relative min-w-0">
+    <div ref={setNodeRef} style={style} className="group/dash relative min-w-0">
       <div className="flex items-center min-w-0">
         <button
-          className="p-1 cursor-grab active:cursor-grabbing text-muted-foreground/30 hover:text-muted-foreground/60 transition-colors shrink-0 opacity-0 group-hover:opacity-100"
+          className="p-1 cursor-grab active:cursor-grabbing text-muted-foreground/30 hover:text-muted-foreground/60 transition-colors shrink-0 opacity-0 group-hover/dash:opacity-100"
           {...attributes}
           {...listeners}
         >
@@ -154,12 +194,12 @@ function SortableDashboardItem({
           <span className="truncate">{d.name}</span>
         </Link>
         <button
-          onClick={() => setFavoriteIds(toggleFavoriteDashboard(d.id))}
+          onClick={() => onToggleFavorite(d.id)}
           className={cn(
             "p-1 rounded transition-all shrink-0",
             favoriteIds.has(d.id)
               ? "text-yellow-500 opacity-100"
-              : "opacity-0 group-hover:opacity-100 text-muted-foreground/50 hover:text-yellow-500",
+              : "opacity-0 group-hover/dash:opacity-100 text-muted-foreground/50 hover:text-yellow-500",
           )}
           title={favoriteIds.has(d.id) ? "Unfavorite" : "Favorite"}
         >
@@ -173,7 +213,7 @@ function SortableDashboardItem({
         >
           <PopoverTrigger asChild>
             <button
-              className="opacity-0 group-hover:opacity-100 p-1 rounded text-muted-foreground/50 hover:text-destructive transition-all shrink-0 mr-1"
+              className="opacity-0 group-hover/dash:opacity-100 p-1 rounded text-muted-foreground/50 hover:text-destructive transition-all shrink-0 mr-1"
               title={`Remove ${d.name}`}
             >
               <IconTrash className="h-3 w-3" />
@@ -204,27 +244,52 @@ function SortableDashboardItem({
           </PopoverContent>
         </Popover>
       </div>
-      {isActive && d.subviews && d.subviews.length > 0 && (
+      {isActive && allSubviews.length > 0 && (
         <div className="ml-6 mt-0.5 space-y-0.5">
-          {d.subviews.map((sv) => {
-            const svSearch = new URLSearchParams(sv.params).toString();
-            const svHref = `${href}?${svSearch}`;
+          {allSubviews.map((sv) => {
             const currentSearch = new URLSearchParams(location.search);
-            const isSubviewActive = Array.from(Object.entries(sv.params)).every(
-              ([k, v]) => currentSearch.get(k) === v,
-            );
+            const svUrl = new URL(sv.href, window.location.origin);
+            const svParams = new URLSearchParams(svUrl.search);
+            const isSubviewActive = sv.isDynamic
+              ? currentSearch.get("view") === sv.id
+              : Array.from(svParams.entries()).every(
+                  ([k, v]) => currentSearch.get(k) === v,
+                );
             return (
               <Link
                 key={sv.id}
-                to={svHref}
+                to={sv.href}
                 className={cn(
-                  "flex items-center gap-2 rounded-md px-3 py-1 text-[11px] transition-all hover:text-primary truncate",
+                  "group/sv flex items-center gap-2 rounded-md px-3 py-1 text-[11px] transition-all hover:text-primary truncate",
                   isSubviewActive
                     ? "bg-primary/10 text-primary"
                     : "text-muted-foreground/70 hover:bg-sidebar-accent/50",
                 )}
               >
-                {sv.name}
+                <span className="truncate flex-1">{sv.name}</span>
+                {sv.isDynamic && (
+                  <button
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      onToggleFavorite(`view:${d.id}:${sv.id}`);
+                    }}
+                    className={cn(
+                      "p-0.5 rounded shrink-0",
+                      favoriteIds.has(`view:${d.id}:${sv.id}`)
+                        ? "text-yellow-500 opacity-100"
+                        : "opacity-0 group-hover/sv:opacity-100 text-muted-foreground/50 hover:text-yellow-500",
+                    )}
+                  >
+                    <IconStar
+                      className={cn(
+                        "h-2.5 w-2.5",
+                        favoriteIds.has(`view:${d.id}:${sv.id}`) &&
+                          "fill-current",
+                      )}
+                    />
+                  </button>
+                )}
               </Link>
             );
           })}
@@ -279,11 +344,29 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const [hiddenIds, setHiddenIds] = useState(() =>
     typeof window === "undefined" ? new Set<string>() : getHiddenDashboards(),
   );
-  const [favoriteIds, setFavoriteIds] = useState(() =>
-    typeof window === "undefined" ? new Set<string>() : getFavoriteDashboards(),
-  );
   const [dashboardOrderState, setDashboardOrderState] = useState(() =>
     typeof window === "undefined" ? [] : getDashboardOrder(),
+  );
+
+  // Server-backed favorites
+  const { data: favoritesData, save: saveFavorites } = useUserPref<{
+    ids: string[];
+  }>("favorites");
+  const favoriteIds = useMemo(
+    () => new Set(favoritesData?.ids ?? []),
+    [favoritesData],
+  );
+  const toggleFavorite = useCallback(
+    (id: string) => {
+      const next = new Set(favoriteIds);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      saveFavorites({ ids: Array.from(next) });
+    },
+    [favoriteIds, saveFavorites],
   );
 
   const { data: sqlDashboards = [] } = useQuery({
@@ -291,6 +374,17 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     queryFn: fetchSqlDashboards,
     staleTime: 30_000,
   });
+
+  // Fetch views for all dashboards (for sidebar sub-items)
+  const allDashboardIds = useMemo(() => {
+    const ids = dashboards.map((d) => d.id);
+    for (const sd of sqlDashboards) {
+      if (!ids.includes(sd.id)) ids.push(sd.id);
+    }
+    return ids;
+  }, [sqlDashboards]);
+
+  const { data: allViewsMap = {} } = useAllDashboardViews(allDashboardIds);
 
   const visibleDashboards = useMemo(() => {
     const filtered = dashboards.filter((d) => !hiddenIds.has(d.id));
@@ -439,26 +533,105 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       location={location}
                       favoriteIds={favoriteIds}
                       deletingId={deletingId}
-                      setFavoriteIds={setFavoriteIds}
+                      onToggleFavorite={toggleFavorite}
                       setDeletingId={setDeletingId}
                       setHiddenIds={setHiddenIds}
+                      views={allViewsMap[d.id]}
                     />
                   ))}
-                  {sqlDashboards.map((d) => (
-                    <Link
-                      key={`sql-${d.id}`}
-                      to={`/adhoc/${d.id}`}
-                      className={cn(
-                        "flex items-center gap-2 rounded-md px-3 py-1 text-[13px] transition-all hover:text-primary",
-                        location.pathname === `/adhoc/${d.id}`
-                          ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                          : "text-muted-foreground hover:bg-sidebar-accent/50",
-                      )}
-                    >
-                      <IconChartBar className="h-3.5 w-3.5 shrink-0" />
-                      <span className="truncate">{d.name}</span>
-                    </Link>
-                  ))}
+                  {sqlDashboards.map((d) => {
+                    const isActive = location.pathname === `/adhoc/${d.id}`;
+                    const views = allViewsMap[d.id];
+                    return (
+                      <div key={`sql-${d.id}`} className="group/sqld">
+                        <div className="flex items-center min-w-0">
+                          <Link
+                            to={`/adhoc/${d.id}`}
+                            className={cn(
+                              "flex-1 min-w-0 flex items-center gap-2 rounded-md px-3 py-1 text-[13px] transition-all hover:text-primary",
+                              isActive
+                                ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                                : "text-muted-foreground hover:bg-sidebar-accent/50",
+                            )}
+                          >
+                            <IconChartBar className="h-3.5 w-3.5 shrink-0" />
+                            <span className="truncate">{d.name}</span>
+                          </Link>
+                          <button
+                            onClick={() => toggleFavorite(d.id)}
+                            className={cn(
+                              "p-1 rounded transition-all shrink-0",
+                              favoriteIds.has(d.id)
+                                ? "text-yellow-500 opacity-100"
+                                : "opacity-0 group-hover/sqld:opacity-100 text-muted-foreground/50 hover:text-yellow-500",
+                            )}
+                            title={
+                              favoriteIds.has(d.id) ? "Unfavorite" : "Favorite"
+                            }
+                          >
+                            <IconStar
+                              className={cn(
+                                "h-3 w-3",
+                                favoriteIds.has(d.id) && "fill-current",
+                              )}
+                            />
+                          </button>
+                        </div>
+                        {isActive && views && views.length > 0 && (
+                          <div className="ml-6 mt-0.5 space-y-0.5">
+                            {views.map((v) => {
+                              const params = new URLSearchParams(v.filters);
+                              params.set("view", v.id);
+                              const viewHref = `/adhoc/${d.id}?${params.toString()}`;
+                              const currentSearch = new URLSearchParams(
+                                location.search,
+                              );
+                              const isViewActive =
+                                currentSearch.get("view") === v.id;
+                              return (
+                                <Link
+                                  key={v.id}
+                                  to={viewHref}
+                                  className={cn(
+                                    "group/sv flex items-center gap-2 rounded-md px-3 py-1 text-[11px] transition-all hover:text-primary truncate",
+                                    isViewActive
+                                      ? "bg-primary/10 text-primary"
+                                      : "text-muted-foreground/70 hover:bg-sidebar-accent/50",
+                                  )}
+                                >
+                                  <span className="truncate flex-1">
+                                    {v.name}
+                                  </span>
+                                  <button
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      toggleFavorite(`view:${d.id}:${v.id}`);
+                                    }}
+                                    className={cn(
+                                      "p-0.5 rounded shrink-0",
+                                      favoriteIds.has(`view:${d.id}:${v.id}`)
+                                        ? "text-yellow-500 opacity-100"
+                                        : "opacity-0 group-hover/sv:opacity-100 text-muted-foreground/50 hover:text-yellow-500",
+                                    )}
+                                  >
+                                    <IconStar
+                                      className={cn(
+                                        "h-2.5 w-2.5",
+                                        favoriteIds.has(
+                                          `view:${d.id}:${v.id}`,
+                                        ) && "fill-current",
+                                      )}
+                                    />
+                                  </button>
+                                </Link>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                   <NewDashboardDialog />
                 </div>
               </SortableContext>

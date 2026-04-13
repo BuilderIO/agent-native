@@ -2,9 +2,14 @@ import {
   createAgentChatPlugin,
   autoDiscoverActions,
 } from "@agent-native/core/server";
+import { getOrgContext } from "@agent-native/core/org";
 
 export default createAgentChatPlugin({
   appId: "calendar",
+  resolveOrgId: async (event) => {
+    const ctx = await getOrgContext(event);
+    return ctx.orgId;
+  },
   actions: () => autoDiscoverActions(import.meta.url),
   systemPrompt: `You are an AI calendar assistant. You manage the user's Google Calendar events, bookings, and availability.
 

@@ -171,7 +171,14 @@ export function createIntegrationsPlugin(
             setResponseStatus(event, 404);
             return { error: `Integration ${platform} is not enabled` };
           }
-          const owner = `integration@${platform}`;
+          const incoming = await adapter.parseIncomingMessage(event);
+          if (!incoming) {
+            setResponseStatus(event, 200);
+            return "ok";
+          }
+          const owner = options?.resolveOwner
+            ? await options.resolveOwner(incoming)
+            : `integration@${platform}`;
           const resources = await loadResourcesForPrompt(owner);
           const systemPrompt = baseSystemPrompt + resources;
           const result = await handleWebhook(event, {
@@ -180,6 +187,8 @@ export function createIntegrationsPlugin(
             actions,
             model,
             apiKey: options?.apiKey ?? process.env.ANTHROPIC_API_KEY ?? "",
+            ownerEmail: owner,
+            beforeProcess: options?.beforeProcess,
           });
           setResponseStatus(event, result.status);
           return result.body;

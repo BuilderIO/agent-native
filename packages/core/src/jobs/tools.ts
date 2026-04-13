@@ -46,12 +46,18 @@ export function createJobTools(): Record<string, ActionEntry> {
                 "personal (only your jobs) or shared (team jobs). Default: shared.",
               enum: ["personal", "shared"],
             },
+            runAs: {
+              type: "string",
+              description:
+                "Who shared jobs execute as: creator or shared. Default: creator.",
+              enum: ["creator", "shared"],
+            },
           },
           required: ["name", "schedule", "instructions"],
         },
       },
       run: async (args) => {
-        const { name, schedule, instructions, scope } = args;
+        const { name, schedule, instructions, scope, runAs } = args;
 
         if (!name || !schedule || !instructions) {
           return JSON.stringify({
@@ -73,6 +79,9 @@ export function createJobTools(): Record<string, ActionEntry> {
         const meta: JobFrontmatter = {
           schedule,
           enabled: true,
+          createdBy: getOwner(),
+          orgId: process.env.AGENT_ORG_ID || undefined,
+          runAs: runAs === "shared" ? "shared" : "creator",
           nextRun: next.toISOString(),
         };
 
@@ -179,12 +188,17 @@ export function createJobTools(): Record<string, ActionEntry> {
                 "Which scope to search: personal, shared, or all. Default: all.",
               enum: ["personal", "shared", "all"],
             },
+            runAs: {
+              type: "string",
+              description: "Update execution principal to creator or shared.",
+              enum: ["creator", "shared"],
+            },
           },
           required: ["name"],
         },
       },
       run: async (args) => {
-        const { name, schedule, instructions, enabled, scope } = args;
+        const { name, schedule, instructions, enabled, scope, runAs } = args;
         const path = `jobs/${name}.md`;
 
         // Try to find the resource
@@ -211,6 +225,10 @@ export function createJobTools(): Record<string, ActionEntry> {
 
         if (enabled !== undefined) {
           meta.enabled = enabled === "true";
+        }
+
+        if (runAs === "creator" || runAs === "shared") {
+          meta.runAs = runAs;
         }
 
         const newBody = instructions || body;

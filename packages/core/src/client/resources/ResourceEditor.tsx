@@ -12,6 +12,14 @@ import Link from "@tiptap/extension-link";
 import { Markdown } from "tiptap-markdown";
 import { cn } from "../utils.js";
 import type { Resource } from "./use-resources.js";
+import {
+  type ParsedFrontmatter,
+  getFrontmatterValue,
+  isCustomAgentPath,
+  isSkillPath,
+  parseFrontmatter,
+  serializeFrontmatter,
+} from "../../resources/metadata.js";
 
 export interface ResourceEditorProps {
   resource: Resource;
@@ -43,77 +51,6 @@ function setViewPref(v: "visual" | "code") {
   } catch {}
 }
 
-// --- Frontmatter parsing ---
-
-interface Frontmatter {
-  raw: string; // The full frontmatter block including --- delimiters
-  fields: Array<{ key: string; value: string }>;
-}
-
-function parseFrontmatter(content: string): {
-  frontmatter: Frontmatter | null;
-  body: string;
-} {
-  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
-  if (!match) return { frontmatter: null, body: content };
-
-  const raw = match[0];
-  const yamlBlock = match[1];
-  const body = content.slice(raw.length);
-
-  // Parse simple key: value pairs (handles multiline >- syntax)
-  const fields: Array<{ key: string; value: string }> = [];
-  const lines = yamlBlock.split("\n");
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i];
-    const kvMatch = line.match(/^(\w[\w-]*):\s*(.*)/);
-    if (kvMatch) {
-      let value = kvMatch[2].trim();
-      // Handle YAML multiline indicators (>- or |)
-      if (value === ">-" || value === ">" || value === "|" || value === "|-") {
-        const multiLines: string[] = [];
-        i++;
-        while (i < lines.length && /^\s+/.test(lines[i])) {
-          multiLines.push(lines[i].trim());
-          i++;
-        }
-        value = multiLines.join(" ");
-      } else {
-        i++;
-      }
-      fields.push({ key: kvMatch[1], value });
-    } else {
-      i++;
-    }
-  }
-
-  return { frontmatter: { raw, fields }, body };
-}
-
-function serializeFrontmatter(fields: Frontmatter["fields"]): string {
-  const lines = fields.map(({ key, value }) => {
-    // Use multiline >- for long descriptions
-    if (key === "description" && value.length > 60) {
-      const words = value.split(" ");
-      const wrapped: string[] = [];
-      let line = "";
-      for (const w of words) {
-        if (line && line.length + w.length + 1 > 72) {
-          wrapped.push("  " + line);
-          line = w;
-        } else {
-          line = line ? line + " " + w : w;
-        }
-      }
-      if (line) wrapped.push("  " + line);
-      return `${key}: >-\n${wrapped.join("\n")}`;
-    }
-    return `${key}: ${value}`;
-  });
-  return "---\n" + lines.join("\n") + "\n---\n";
-}
-
 const FM_INPUT_STYLE: React.CSSProperties = {
   background: "transparent",
   border: "none",
@@ -126,21 +63,22 @@ const FM_INPUT_STYLE: React.CSSProperties = {
 };
 
 function FrontmatterBar({
+  resourcePath,
   frontmatter,
   onChange,
 }: {
-  frontmatter: Frontmatter;
-  onChange: (updated: Frontmatter) => void;
+  resourcePath: string;
+  frontmatter: ParsedFrontmatter;
+  onChange: (updated: ParsedFrontmatter) => void;
 }) {
-  const getField = (key: string) =>
-    frontmatter.fields.find((f) => f.key === key)?.value ?? "";
+  const getField = (key: string) => getFrontmatterValue(frontmatter, key) ?? "";
 
   const updateField = (key: string, value: string) => {
     const exists = frontmatter.fields.some((f) => f.key === key);
     const newFields = exists
       ? frontmatter.fields.map((f) => (f.key === key ? { ...f, value } : f))
       : [...frontmatter.fields, { key, value }];
-    const updated: Frontmatter = {
+    const updated: ParsedFrontmatter = {
       ...frontmatter,
       raw: serializeFrontmatter(newFields),
       fields: newFields,
@@ -151,6 +89,10 @@ function FrontmatterBar({
   const name = getField("name");
   const description = getField("description");
   const isUserInvocable = getField("user-invocable") === "true";
+  const model = getField("model") || "inherit";
+  const tools = getField("tools") || "inherit";
+  const isCustomAgent = isCustomAgentPath(resourcePath);
+  const isSkill = isSkillPath(resourcePath);
 
   return (
     <div
@@ -169,7 +111,7 @@ function FrontmatterBar({
         <input
           value={name}
           onChange={(e) => updateField("name", e.target.value)}
-          placeholder="Skill name"
+          placeholder={isCustomAgent ? "Agent name" : "Skill name"}
           style={{
             ...FM_INPUT_STYLE,
             fontWeight: 600,
@@ -178,42 +120,71 @@ function FrontmatterBar({
             flex: 1,
           }}
         />
-        <label
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 4,
-            fontSize: 10,
-            cursor: "pointer",
-            whiteSpace: "nowrap",
-            userSelect: "none",
-            padding: "1px 5px",
-            borderRadius: 3,
-            background: isUserInvocable
-              ? "hsl(var(--primary) / 0.15)"
-              : "transparent",
-            color: isUserInvocable
-              ? "hsl(var(--primary))"
-              : "hsl(var(--muted-foreground))",
-            border: isUserInvocable ? "none" : "1px dashed hsl(var(--border))",
-            fontWeight: 500,
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={isUserInvocable}
-            onChange={(e) =>
-              updateField("user-invocable", e.target.checked ? "true" : "false")
-            }
-            style={{ display: "none" }}
-          />
-          /{name || "command"}
-        </label>
+        {isSkill ? (
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              fontSize: 10,
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+              userSelect: "none",
+              padding: "1px 5px",
+              borderRadius: 3,
+              background: isUserInvocable
+                ? "hsl(var(--primary) / 0.15)"
+                : "transparent",
+              color: isUserInvocable
+                ? "hsl(var(--primary))"
+                : "hsl(var(--muted-foreground))",
+              border: isUserInvocable
+                ? "none"
+                : "1px dashed hsl(var(--border))",
+              fontWeight: 500,
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={isUserInvocable}
+              onChange={(e) =>
+                updateField(
+                  "user-invocable",
+                  e.target.checked ? "true" : "false",
+                )
+              }
+              style={{ display: "none" }}
+            />
+            /{name || "command"}
+          </label>
+        ) : null}
+        {isCustomAgent ? (
+          <select
+            value={model}
+            onChange={(e) => updateField("model", e.target.value)}
+            style={{
+              borderRadius: 4,
+              border: "1px solid hsl(var(--border))",
+              background: "hsl(var(--background))",
+              color: "hsl(var(--foreground))",
+              fontSize: 11,
+              padding: "2px 6px",
+            }}
+          >
+            <option value="inherit">Default model</option>
+            <option value="claude-sonnet-4-6">Claude Sonnet 4.6</option>
+            <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5</option>
+          </select>
+        ) : null}
       </div>
       <input
         value={description}
         onChange={(e) => updateField("description", e.target.value)}
-        placeholder="Description — what this skill does"
+        placeholder={
+          isCustomAgent
+            ? "Description — what this agent should handle"
+            : "Description — what this skill does"
+        }
         style={{
           ...FM_INPUT_STYLE,
           marginTop: 2,
@@ -221,6 +192,42 @@ function FrontmatterBar({
           color: "hsl(var(--muted-foreground))",
         }}
       />
+      {isCustomAgent ? (
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            marginTop: 6,
+            alignItems: "center",
+          }}
+        >
+          <label
+            style={{
+              fontSize: 10,
+              color: "hsl(var(--muted-foreground))",
+              minWidth: 28,
+            }}
+          >
+            Tools
+          </label>
+          <select
+            value={tools}
+            onChange={(e) => updateField("tools", e.target.value)}
+            style={{
+              borderRadius: 4,
+              border: "1px solid hsl(var(--border))",
+              background: "hsl(var(--background))",
+              color: "hsl(var(--foreground))",
+              fontSize: 11,
+              padding: "2px 6px",
+            }}
+          >
+            <option value="inherit">Inherit</option>
+            <option value="allowlist">Allowlist later</option>
+            <option value="denylist">Denylist later</option>
+          </select>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -813,11 +820,11 @@ function SyntaxHighlightEditor({
 function VisualMarkdownEditor({
   content,
   onChange,
-  resourceId,
+  resourcePath,
 }: {
   content: string;
   onChange: (md: string) => void;
-  resourceId: string;
+  resourcePath: string;
 }) {
   const isSettingContent = useRef(false);
   const onChangeRef = useRef(onChange);
@@ -825,8 +832,8 @@ function VisualMarkdownEditor({
 
   // Parse frontmatter — strip it from tiptap content, re-prepend on save
   const parsed = useMemo(() => parseFrontmatter(content), [content]);
-  const frontmatterRef = useRef(parsed.frontmatter);
-  frontmatterRef.current = parsed.frontmatter;
+  const frontmatterRef = useRef(parsed);
+  frontmatterRef.current = parsed;
 
   const editor = useEditor({
     extensions: [
@@ -858,7 +865,7 @@ function VisualMarkdownEditor({
         transformCopiedText: true,
       }),
     ],
-    content: parsed.body,
+    content: parsed?.body ?? content,
     editorProps: {
       attributes: {
         class: "re-prose",
@@ -881,13 +888,13 @@ function VisualMarkdownEditor({
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
     const currentMd = (editor.storage as any).markdown.getMarkdown();
-    if (currentMd !== parsed.body) {
+    if (currentMd !== (parsed?.body ?? content)) {
       if (editor.isFocused) return;
       isSettingContent.current = true;
-      editor.commands.setContent(parsed.body);
+      editor.commands.setContent(parsed?.body ?? content);
       isSettingContent.current = false;
     }
-  }, [parsed.body, editor]);
+  }, [content, editor, parsed]);
 
   useEffect(() => {
     return () => {
@@ -914,9 +921,10 @@ function VisualMarkdownEditor({
       onClick={handleWrapperClick}
       style={{ position: "relative", minHeight: "100%", cursor: "text" }}
     >
-      {parsed.frontmatter && (
+      {parsed && (
         <FrontmatterBar
-          frontmatter={parsed.frontmatter}
+          resourcePath={resourcePath}
+          frontmatter={parsed}
           onChange={(updated) => {
             frontmatterRef.current = updated;
             // Get current body and combine with updated frontmatter
@@ -1071,7 +1079,7 @@ export function ResourceEditor({
             <VisualMarkdownEditor
               content={content}
               onChange={handleChange}
-              resourceId={resource.id}
+              resourcePath={resource.path}
             />
           </div>
         ) : (

@@ -289,3 +289,22 @@ export function stripGcalInviteHtml(html: string): string {
 export function isHtml(str: string): boolean {
   return /<[a-z][\s\S]*>/i.test(str);
 }
+
+const URL_RE = /https?:\/\/[^\s<>"{}|\\^`[\]]+/g;
+
+/**
+ * Convert plain-text URLs to clickable <a> tags.
+ * Returns HTML — use with dangerouslySetInnerHTML.
+ */
+export function linkifyText(text: string): string {
+  // Escape HTML entities first to prevent XSS
+  const escaped = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+
+  return escaped.replace(URL_RE, (url) => {
+    return `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:hsl(var(--primary));text-decoration:underline;word-break:break-all;">${url}</a>`;
+  });
+}

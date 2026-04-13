@@ -33,6 +33,7 @@ import {
 } from "h3";
 import { agentEnv } from "../shared/agent-env.js";
 import { getSession } from "./auth.js";
+import { getOrigin } from "./google-oauth.js";
 import {
   createThread,
   getThread,
@@ -51,6 +52,10 @@ import {
 } from "../resources/store.js";
 import nodePath from "node:path";
 import { readBody } from "./h3-helpers.js";
+import {
+  getBuilderBrowserConnectUrl,
+  requestBuilderBrowserConnection,
+} from "./builder-browser.js";
 
 // Lazy fs — loaded via dynamic import() on first use.
 // This avoids require() which bundlers convert to createRequire(import.meta.url)
@@ -340,6 +345,82 @@ async function createCallAgentScriptEntry(
   }
 }
 
+function createBuilderBrowserTool(deps: {
+  getOrigin: () => string;
+}): Record<string, ActionEntry> {
+  return {
+    "get-browser-connection": {
+      tool: {
+        description:
+          "Provision a Builder-backed browser session and return browser websocket connection details. If Builder browser access is not configured yet, this returns setup guidance instead.",
+        parameters: {
+          type: "object",
+          properties: {
+            sessionId: {
+              type: "string",
+              description:
+                "Stable browser session identifier. Reuse it to reconnect to the same browser session.",
+            },
+            projectId: {
+              type: "string",
+              description:
+                "Optional Builder project or space identifier to scope the session.",
+            },
+            branchName: {
+              type: "string",
+              description: "Optional branch name for Builder preview sessions.",
+            },
+            proxyOrigin: {
+              type: "string",
+              description:
+                "Optional source origin to proxy from when browsing a local app.",
+            },
+            proxyDefaultOrigin: {
+              type: "string",
+              description:
+                "Optional default origin that the browser should use for proxied requests.",
+            },
+            proxyDestination: {
+              type: "string",
+              description:
+                "Optional destination origin for proxying local development traffic.",
+            },
+          },
+          required: ["sessionId"],
+        },
+      },
+      run: async (args) => {
+        if (
+          !process.env.BUILDER_PRIVATE_KEY ||
+          !process.env.BUILDER_PUBLIC_KEY
+        ) {
+          return JSON.stringify({
+            configured: false,
+            message:
+              "Builder browser access is not configured. Connect Builder from the workspace Resources panel before requesting a browser session.",
+            connectUrl: getBuilderBrowserConnectUrl(deps.getOrigin()),
+          });
+        }
+
+        const connection = await requestBuilderBrowserConnection({
+          sessionId: args.sessionId,
+          projectId: args.projectId,
+          branchName: args.branchName,
+          proxyOrigin: args.proxyOrigin,
+          proxyDefaultOrigin: args.proxyDefaultOrigin,
+          proxyDestination: args.proxyDestination,
+        });
+
+        return JSON.stringify({
+          configured: true,
+          sessionId: args.sessionId,
+          ...connection,
+        });
+      },
+    },
+  };
+}
+
 /**
  * Creates agent team orchestration tools (spawn-task, task-status, read-task-result).
  * These let the main agent spawn sub-agents and coordinate work.
@@ -378,6 +459,11 @@ function createTeamTools(deps: {
               description:
                 "Short name for the sub-agent tab (e.g. 'Research', 'Draft email'). If omitted, derived from the task.",
             },
+            agent: {
+              type: "string",
+              description:
+                "Optional custom agent profile from agents/*.md to use for this task.",
+            },
           },
           required: ["task"],
         },
@@ -400,14 +486,37 @@ function createTeamTools(deps: {
             ([name]) => !teamToolNames.has(name),
           ),
         );
+        let instructions = args.instructions;
+        let selectedModel = deps.getModel();
+        let selectedName = args.name || "";
+        if (args.agent) {
+          const { findAccessibleCustomAgent } =
+            await import("../resources/agents.js");
+          const profile = await findAccessibleCustomAgent(
+            deps.getOwner(),
+            args.agent,
+          );
+          if (!profile) {
+            throw new Error(`Custom agent not found: ${args.agent}`);
+          }
+          const profileInstructions =
+            `## Custom Agent Profile: ${profile.name}\n\n` +
+            (profile.description ? `${profile.description}\n\n` : "") +
+            profile.instructions;
+          instructions = instructions
+            ? `${profileInstructions}\n\n## Extra Task Context\n\n${instructions}`
+            : profileInstructions;
+          selectedModel = profile.model ?? selectedModel;
+          selectedName = selectedName || profile.name;
+        }
         const task = await spawnTask({
           description: args.task,
-          instructions: args.instructions,
+          instructions,
           ownerEmail: deps.getOwner(),
           systemPrompt: deps.getSystemPrompt(),
           actions: subAgentActions,
           engine: deps.getEngine(),
-          model: deps.getModel(),
+          model: selectedModel,
           parentThreadId: deps.getParentThreadId(),
           parentSend: (event) => {
             if (capturedSend) capturedSend(event);
@@ -418,7 +527,7 @@ function createTeamTools(deps: {
           threadId: task.threadId,
           status: task.status,
           description: task.description,
-          name: args.name || "",
+          name: selectedName,
         });
       },
     },
@@ -640,7 +749,7 @@ When the user asks to find a previous conversation, use \`search-chats\` first t
 ### Agent Teams — Orchestration
 
 You are an orchestrator. For complex or multi-step tasks, delegate to sub-agents:
-- \`spawn-task\` — Spawn a sub-agent for a task. It runs in its own thread while you stay available. A live preview card appears in the chat.
+- \`spawn-task\` — Spawn a sub-agent for a task. It runs in its own thread while you stay available. A live preview card appears in the chat. You can optionally choose a custom agent profile from \`agents/*.md\`.
 - \`task-status\` — Check the progress of a running sub-agent.
 - \`read-task-result\` — Read the result when a sub-agent finishes.
 
@@ -656,7 +765,7 @@ You are an orchestrator. For complex or multi-step tasks, delegate to sub-agents
 4. Use \`read-task-result\` to check results when needed, or the user can see live progress in the card.
 5. If the user's request has multiple steps, you can spawn one sub-agent per step, or chain them.
 
-Sub-agents have access to all template tools but **cannot spawn sub-agents themselves** — only you (the orchestrator) can do that. Give the sub-agent a specific, actionable task description — it will figure out which tools to use.
+Sub-agents have access to all template tools but **cannot spawn sub-agents themselves** — only you (the orchestrator) can do that. Give the sub-agent a specific, actionable task description — it will figure out which tools to use. If a matching custom agent profile exists, pass it via the \`agent\` parameter on \`spawn-task\`.
 
 ### Recurring Jobs
 
@@ -676,6 +785,14 @@ When the user asks for something recurring ("every morning", "daily at 9am", "we
 - "twice a day" / "morning and evening" → \`0 9,17 * * *\`
 
 Job instructions should be self-contained — include which actions to call, what conditions to check, and what to do with results. The agent executing the job has access to all the same tools you do.
+
+### Browser Access
+
+Use \`get-browser-connection\` when you need a real browser session backed by Builder. It returns websocket connection details for a provisioned browser session.
+
+- If the tool says Builder is not configured, tell the user to connect Builder from the workspace Resources panel.
+- Reuse a stable \`sessionId\` when you want to reconnect to the same browser session.
+- Include proxy parameters when you need the browser to reach a local dev server through Builder's browser connection flow.
 
 ### call-agent — External Apps Only
 
@@ -1082,6 +1199,10 @@ export function createAgentChatPlugin(
       ...engineScripts,
     };
     const callAgentScript = await createCallAgentScriptEntry(options?.appId);
+    let _currentRequestOrigin = "http://localhost:3000";
+    const browserTools = createBuilderBrowserTool({
+      getOrigin: () => _currentRequestOrigin,
+    });
 
     // Auto-mount A2A protocol endpoints so every app is discoverable
     // and callable by other agents via the standard protocol.
@@ -1229,6 +1350,7 @@ export function createAgentChatPlugin(
           ...resourceScripts,
           ...chatScripts,
           ...callAgentScript,
+          ...browserTools,
           ...devScriptsForA2A,
         }
       : {
@@ -1237,6 +1359,7 @@ export function createAgentChatPlugin(
           ...resourceScripts,
           ...chatScripts,
           ...callAgentScript,
+          ...browserTools,
           ...devScriptsForA2A,
         };
 
@@ -1339,12 +1462,14 @@ export function createAgentChatPlugin(
           ? {
               ...resourceScripts,
               ...chatScripts,
+              ...browserTools,
               ...devScriptsForA2A,
             }
           : {
               ...templateScripts,
               ...resourceScripts,
               ...chatScripts,
+              ...browserTools,
             };
 
         const a2aTools = actionsToEngineTools(a2aActions);
@@ -1650,6 +1775,7 @@ export function createAgentChatPlugin(
       ...callAgentScript,
       ...teamTools,
       ...jobTools,
+      ...browserTools,
     };
 
     // Always build the production handler (includes resource tools + call-agent + team tools)
@@ -1658,6 +1784,7 @@ export function createAgentChatPlugin(
     const prodHandler = createProductionAgentHandler({
       actions: prodActions,
       systemPrompt: async (event: any) => {
+        _currentRequestOrigin = getOrigin(event);
         const owner = await getOwnerFromEvent(event);
         _currentRunOwner = owner;
         const resources = await loadResourcesForPrompt(owner);
@@ -1703,11 +1830,13 @@ export function createAgentChatPlugin(
         ...callAgentScript,
         ...teamTools,
         ...jobTools,
+        ...browserTools,
         ...(await createDevScriptRegistry()),
       };
       devHandler = createProductionAgentHandler({
         actions: devActions,
         systemPrompt: async (event: any) => {
+          _currentRequestOrigin = getOrigin(event);
           const owner = await getOwnerFromEvent(event);
           _currentRunOwner = owner;
           const resources = await loadResourcesForPrompt(owner);
@@ -2144,7 +2273,37 @@ export function createAgentChatPlugin(
               );
             }
 
-            // 4. Peer agent discovery (network call — often slowest)
+            // 4. Custom workspace agents
+            sources.push(
+              (async () => {
+                try {
+                  const owner = await getOwnerFromEvent(event);
+                  const { listAccessibleCustomAgents } =
+                    await import("../resources/agents.js");
+                  const agents = await listAccessibleCustomAgents(owner);
+                  flush(
+                    agents.map((agent) => ({
+                      id: `custom-agent:${agent.id}`,
+                      label: agent.name,
+                      description: agent.description || agent.path,
+                      icon: "agent",
+                      source: "agent:custom",
+                      refType: "custom-agent",
+                      refPath: agent.path,
+                      refId: agent.id,
+                      section: "Agents",
+                    })),
+                  );
+                } catch (e) {
+                  console.error(
+                    "[agent-native] Custom agent discovery failed:",
+                    e,
+                  );
+                }
+              })(),
+            );
+
+            // 5. Peer agent discovery (network call — often slowest)
             sources.push(
               (async () => {
                 try {
@@ -2159,7 +2318,7 @@ export function createAgentChatPlugin(
                       refType: "agent",
                       refPath: agent.url,
                       refId: agent.id,
-                      section: "Agents",
+                      section: "Connected Agents",
                     })),
                   );
                 } catch (e) {

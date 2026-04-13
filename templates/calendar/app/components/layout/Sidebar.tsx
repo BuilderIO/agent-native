@@ -15,6 +15,7 @@ import {
   IconCheck,
   IconEye,
   IconEyeOff,
+  IconUsers,
 } from "@tabler/icons-react";
 import {
   startOfMonth,
@@ -60,10 +61,12 @@ import {
 } from "@/components/ui/popover";
 import { useCalendarContext } from "./AppLayout";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { OrgSwitcher } from "@agent-native/core/client/org";
 
 const navItems = [
   { path: "/", label: "Calendar", icon: IconCalendar },
   { path: "/booking-links", label: "Booking Links", icon: IconLink },
+  { path: "/team", label: "Team", icon: IconUsers },
   { path: "/settings", label: "Settings", icon: IconSettings },
 ];
 
@@ -497,6 +500,11 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           selectedDate={selectedDate}
           onDateSelect={setSelectedDate}
         />
+
+        {/* Org switcher */}
+        <div className="border-t border-border px-3 py-2">
+          <OrgSwitcher hideWhenSingle />
+        </div>
 
         {/* Nav */}
         <nav className="flex-1 space-y-0.5 border-t border-border p-2.5">

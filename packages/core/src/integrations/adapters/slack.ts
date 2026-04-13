@@ -5,6 +5,7 @@ import type {
   IncomingMessage,
   OutgoingMessage,
   IntegrationStatus,
+  OutboundTarget,
 } from "../types.js";
 import type { EnvKeyConfig } from "../../server/create-server.js";
 import { getIntegrationConfig } from "../config-store.js";
@@ -185,6 +186,44 @@ export function slackAdapter(): PlatformAdapter {
           }
         } catch (err) {
           console.error("[slack] Failed to send message:", err);
+        }
+      }
+    },
+
+    async sendMessageToTarget(
+      message: OutgoingMessage,
+      target: OutboundTarget,
+    ): Promise<void> {
+      const token = process.env.SLACK_BOT_TOKEN;
+      if (!token) {
+        console.error("[slack] SLACK_BOT_TOKEN not configured");
+        return;
+      }
+
+      const chunks = splitMessage(message.text, SLACK_MAX_LENGTH);
+      for (const chunk of chunks) {
+        const body: Record<string, unknown> = {
+          channel: target.destination,
+          text: chunk,
+        };
+        if (target.threadRef) body.thread_ts = target.threadRef;
+
+        try {
+          const res = await fetch("https://slack.com/api/chat.postMessage", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(body),
+          });
+          const data = (await res.json()) as { ok: boolean; error?: string };
+          if (!data.ok) {
+            throw new Error(data.error || "chat.postMessage failed");
+          }
+        } catch (err) {
+          console.error("[slack] Failed to send proactive message:", err);
+          throw err;
         }
       }
     },

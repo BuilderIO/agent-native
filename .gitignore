@@ -32,6 +32,7 @@ node-compile-cache/
 
 # React Router generated types
 .react-router/
+.agent-native/
 
 # Generated at dev/build time
 packages/docs/app/components/searchIndex.ts

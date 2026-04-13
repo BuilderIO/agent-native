@@ -475,7 +475,9 @@ export function TiptapComposer({
               ? "file"
               : refType === "agent"
                 ? "agent"
-                : "mention",
+                : refType === "custom-agent"
+                  ? "custom-agent"
+                  : "mention",
           path: node.attrs.refPath || "",
           name: node.attrs.label,
           source: node.attrs.source,

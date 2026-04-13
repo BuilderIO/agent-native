@@ -133,6 +133,7 @@ function enrichMessage(
 
   const fileRefs = references.filter((r) => r.type === "file");
   const skillRefs = references.filter((r) => r.type === "skill");
+  const customAgentRefs = references.filter((r) => r.type === "custom-agent");
   const mentionRefs = references.filter((r) => r.type === "mention");
 
   const parts: string[] = [];
@@ -153,6 +154,17 @@ function enrichMessage(
           .map(
             (r) =>
               `- ${r.name} (${r.path})${r.source === "resource" ? " — read with resource-read" : " — read with read-file"}`,
+          )
+          .join("\n"),
+    );
+  }
+  if (customAgentRefs.length > 0) {
+    parts.push(
+      "Requested custom agents:\n" +
+        customAgentRefs
+          .map(
+            (r) =>
+              `- ${r.name}${r.refId ? ` (id: ${r.refId})` : ""}${r.path ? ` (path: ${r.path})` : ""}`,
           )
           .join("\n"),
     );
@@ -526,8 +538,96 @@ export function createProductionAgentHandler(
       // DB not ready or no navigation state — skip silently
     }
 
+    // On the first message of a conversation, inject workspace inventory
+    // so the agent knows what files, skills, jobs, and custom agents exist.
+    let filesContext = "";
+    if (history.length === 0) {
+      try {
+        const { resourceListAccessible, SHARED_OWNER, resourceGet } =
+          await import("../resources/store.js");
+        const {
+          getResourceKind,
+          parseCustomAgentProfile,
+          parseRemoteAgentManifest,
+          parseSkillMetadata,
+        } = await import("../resources/metadata.js");
+        const ownerEmail = process.env.AGENT_USER_EMAIL || "local@localhost";
+        const allResources = await resourceListAccessible(ownerEmail);
+
+        if (allResources.length > 0) {
+          const fileLines: string[] = [];
+          const skillLines: string[] = [];
+          const agentLines: string[] = [];
+          const jobLines: string[] = [];
+          for (const r of allResources) {
+            const scope = r.owner === SHARED_OWNER ? "shared" : "personal";
+            const kind = getResourceKind(r.path);
+            if (kind === "file") {
+              fileLines.push(`  ${r.path} (${scope})`);
+              continue;
+            }
+
+            if (kind === "job") {
+              jobLines.push(`  ${r.path} (${scope})`);
+              continue;
+            }
+
+            if (
+              kind === "skill" ||
+              kind === "agent" ||
+              kind === "remote-agent"
+            ) {
+              const full = await resourceGet(r.id);
+              if (!full) continue;
+              if (kind === "skill") {
+                const skill = parseSkillMetadata(full.content, r.path);
+                skillLines.push(
+                  `  ${skill?.name || r.path} — ${skill?.description || r.path} (${scope}, ${r.path})`,
+                );
+              } else if (kind === "agent") {
+                const agent = parseCustomAgentProfile(full.content, r.path);
+                agentLines.push(
+                  `  ${agent?.name || r.path} — ${agent?.description || "Custom workspace agent"} (${scope}, ${r.path}${agent?.model ? `, model: ${agent.model}` : ""})`,
+                );
+              } else {
+                const agent = parseRemoteAgentManifest(full.content, r.path);
+                agentLines.push(
+                  `  ${agent?.name || r.path} — ${agent?.description || "Connected A2A agent"} (${scope}, remote via ${r.path})`,
+                );
+              }
+            }
+          }
+          const blocks: string[] = [];
+          if (fileLines.length > 0) {
+            blocks.push(
+              `<available-files>\nFiles in the workspace:\n${fileLines.join("\n")}\n\nTo read a file's contents, use the resource-read action with the file path.\n</available-files>`,
+            );
+          }
+          if (skillLines.length > 0) {
+            blocks.push(
+              `<available-skills>\nSkills in the workspace:\n${skillLines.join("\n")}\n</available-skills>`,
+            );
+          }
+          if (agentLines.length > 0) {
+            blocks.push(
+              `<available-agents>\nCustom and connected agents in the workspace:\n${agentLines.join("\n")}\n\nCustom agents under agents/*.md can be mentioned or used via spawn-task with the agent parameter.\n</available-agents>`,
+            );
+          }
+          if (jobLines.length > 0) {
+            blocks.push(
+              `<available-jobs>\nScheduled tasks in the workspace:\n${jobLines.join("\n")}\n</available-jobs>`,
+            );
+          }
+          filesContext = blocks.length > 0 ? `\n\n${blocks.join("\n\n")}` : "";
+        }
+      } catch {
+        // Resources not available — skip silently
+      }
+    }
+
     // Pre-compute agent references for A2A resolution inside the run
     const agentRefs = references.filter((r) => r.type === "agent");
+    const customAgentRefs = references.filter((r) => r.type === "custom-agent");
 
     // Build user content: text + any image attachments
     const userContent: EngineContentPart[] = [];
@@ -551,7 +651,7 @@ export function createProductionAgentHandler(
     }
     userContent.push({
       type: "text",
-      text: enrichedMessage + screenContext,
+      text: enrichedMessage + screenContext + filesContext,
     });
 
     const messages: EngineMessage[] = [
@@ -575,11 +675,105 @@ export function createProductionAgentHandler(
           options.onRunStart(send, threadId ?? runId);
         }
 
-        // Resolve agent @-mentions via A2A calls (inside run so we can emit SSE events)
+        // Resolve custom workspace agent mentions first.
+        if (customAgentRefs.length > 0) {
+          const ownerEmail = process.env.AGENT_USER_EMAIL || "local@localhost";
+          const { findAccessibleCustomAgent } =
+            await import("../resources/agents.js");
+          const customResults = await Promise.allSettled(
+            customAgentRefs.map(async (ref) => {
+              send({
+                type: "agent_call",
+                agent: ref.name,
+                status: "start",
+              });
+              try {
+                const profile = await findAccessibleCustomAgent(
+                  ownerEmail,
+                  ref.refId || ref.path || ref.name,
+                );
+                if (!profile) {
+                  throw new Error("Profile not found");
+                }
+
+                const profilePrompt =
+                  `${systemPrompt}\n\n<custom-agent-profile name="${profile.name}" path="${profile.path}">\n` +
+                  (profile.description ? `${profile.description}\n\n` : "") +
+                  `${profile.instructions}\n</custom-agent-profile>`;
+
+                let responseText = "";
+                await runAgentLoop({
+                  engine,
+                  model: profile.model ?? model,
+                  systemPrompt: profilePrompt,
+                  tools: engineTools,
+                  messages: [
+                    {
+                      role: "user",
+                      content: [
+                        { type: "text", text: enrichedMessage + screenContext },
+                      ],
+                    },
+                  ],
+                  actions: resolvedActions,
+                  send: (event) => {
+                    if (event.type === "text") {
+                      responseText += event.text;
+                      send({
+                        type: "agent_call_text",
+                        agent: ref.name,
+                        text: event.text,
+                      });
+                    }
+                  },
+                  signal,
+                  providerOptions: options.providerOptions,
+                });
+
+                send({
+                  type: "agent_call",
+                  agent: ref.name,
+                  status: "done",
+                });
+                return `<agent-response name="${ref.name}" id="${ref.refId}" type="custom-agent">\n${responseText}\n</agent-response>`;
+              } catch (err: any) {
+                send({
+                  type: "agent_call",
+                  agent: ref.name,
+                  status: "error",
+                });
+                return `<agent-response name="${ref.name}" id="${ref.refId}" type="custom-agent" error="true">\nFailed to run ${ref.name}: ${err?.message}\n</agent-response>`;
+              }
+            }),
+          );
+
+          const customResponses = customResults
+            .filter(
+              (result): result is PromiseFulfilledResult<string> =>
+                result.status === "fulfilled",
+            )
+            .map((result) => result.value);
+
+          if (customResponses.length > 0) {
+            const agentContext =
+              "Responses from custom workspace agents:\n\n" +
+              customResponses.join("\n\n");
+            const lastMsg = messages[messages.length - 1];
+            if (lastMsg?.role === "user" && Array.isArray(lastMsg.content)) {
+              const textPart = lastMsg.content.find(
+                (p): p is import("./engine/types.js").EngineTextPart =>
+                  p.type === "text",
+              );
+              if (textPart) {
+                textPart.text = agentContext + "\n\n" + textPart.text;
+              }
+            }
+          }
+        }
+
+        // Resolve connected agent @-mentions via A2A calls.
         if (agentRefs.length > 0) {
           const { A2AClient, callAgent } = await import("../a2a/client.js");
-          const agentResponses: string[] = [];
-
           const results = await Promise.allSettled(
             agentRefs.map(async (ref) => {
               send({

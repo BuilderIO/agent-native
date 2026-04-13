@@ -23,7 +23,7 @@ export interface AgentMessage {
 }
 
 export interface AgentChatReference {
-  type: "file" | "skill" | "mention" | "agent";
+  type: "file" | "skill" | "mention" | "agent" | "custom-agent";
   path: string;
   name: string;
   source: string;

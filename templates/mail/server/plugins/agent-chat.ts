@@ -1,7 +1,12 @@
 import { createAgentChatPlugin } from "@agent-native/core/server";
+import { getOrgContext } from "@agent-native/core/org";
 
 export default createAgentChatPlugin({
   appId: "mail",
+  resolveOrgId: async (event) => {
+    const ctx = await getOrgContext(event);
+    return ctx.orgId;
+  },
   mentionProviders: {
     emails: {
       label: "Emails",

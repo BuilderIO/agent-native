@@ -193,6 +193,20 @@ export const DEFAULT_APPS: AppConfig[] = [
     enabled: true,
     mode: "prod",
   },
+  {
+    id: "dispatcher",
+    name: "Dispatcher",
+    icon: "MessageCircle",
+    description: "Central messaging router and agent dispatcher",
+    url: "",
+    devPort: 8092,
+    devUrl: "http://localhost:8092",
+    color: "#14B8A6",
+    colorRgb: "20 184 166",
+    isBuiltIn: true,
+    enabled: true,
+    mode: "dev",
+  },
 ];
 
 /**

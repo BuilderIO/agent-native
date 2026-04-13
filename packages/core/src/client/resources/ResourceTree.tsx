@@ -9,13 +9,38 @@ import {
   IconFile,
   IconPlus,
   IconTrash,
+  IconMessageChatbot,
+  IconPlugConnected,
+  IconStack2,
+  IconClockHour3,
 } from "@tabler/icons-react";
 import { cn } from "../utils.js";
 import type { TreeNode, ResourceMeta, JobMetadata } from "./use-resources.js";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-function getFileIcon(name: string): React.ReactNode {
+function getFileIcon(node: TreeNode): React.ReactNode {
+  if (node.kind === "agent") {
+    return (
+      <IconMessageChatbot className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+    );
+  }
+  if (node.kind === "remote-agent") {
+    return (
+      <IconPlugConnected className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+    );
+  }
+  if (node.kind === "skill") {
+    return (
+      <IconStack2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+    );
+  }
+  if (node.kind === "job") {
+    return (
+      <IconClockHour3 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+    );
+  }
+  const name = node.name;
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
   const iconClass = "h-3.5 w-3.5 shrink-0 text-muted-foreground";
   if (ext === "md" || ext === "mdx")
@@ -147,7 +172,7 @@ function TreeNodeRow({
         {isFolder ? (
           <IconFolder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         ) : (
-          getFileIcon(node.name)
+          getFileIcon(node)
         )}
         <span className="min-w-0 truncate text-[12px] leading-none">
           {node.name}

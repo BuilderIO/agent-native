@@ -38,6 +38,7 @@ import {
   sanitizeHtml,
   stripGcalInviteHtml,
   isHtml,
+  linkifyText,
 } from "@/lib/sanitize-description";
 
 function formatDuration(start: string, end: string): string {
@@ -489,6 +490,7 @@ export function EventDetailPopover({
         align="start"
         sideOffset={8}
         className="w-[calc(100vw-2rem)] sm:w-[420px] max-h-[90vh] p-0 overflow-hidden flex flex-col"
+        onClick={(e) => e.stopPropagation()}
         onOpenAutoFocus={(e) => {
           e.preventDefault();
           if (isEditingTitle) {
@@ -980,9 +982,12 @@ export function EventDetailPopover({
                               dangerouslySetInnerHTML={{ __html: cleanedHtml! }}
                             />
                           ) : (
-                            <p className="text-sm leading-relaxed text-foreground/80 whitespace-pre-wrap">
-                              {event.description}
-                            </p>
+                            <p
+                              className="text-sm leading-relaxed text-foreground/80 whitespace-pre-wrap"
+                              dangerouslySetInnerHTML={{
+                                __html: linkifyText(event.description),
+                              }}
+                            />
                           );
                         })()
                       ) : null

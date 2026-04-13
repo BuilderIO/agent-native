@@ -1,4 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import type {
+  CustomAgentProfile,
+  RemoteAgentManifest,
+  ResourceKind,
+  SkillMetadata,
+} from "../../resources/metadata.js";
 
 export interface Resource {
   id: string;
@@ -34,10 +40,14 @@ export interface TreeNode {
   name: string;
   path: string;
   type: "file" | "folder";
+  kind?: ResourceKind;
   children?: TreeNode[];
   resource?: ResourceMeta;
   /** Parsed metadata for job files (under jobs/) */
   jobMeta?: JobMetadata;
+  skillMeta?: SkillMetadata;
+  agentMeta?: CustomAgentProfile;
+  remoteAgentMeta?: RemoteAgentManifest;
 }
 
 export type ResourceScope = "personal" | "shared" | "all";
