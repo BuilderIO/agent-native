@@ -436,23 +436,27 @@ async function buildCloudflarePages() {
     // bare names ("fs") and rejects "node:fs" at worker init:
     //   No such module "node:fs" imported from chunks/...
     // (Workers-on-the-edge use v2 and require the prefix; Pages lags.)
+    // Preserve the original quote char (single vs double) when rewriting —
+    // esbuild's minifier sometimes places `import('node:buffer')` inside a
+    // double-quoted string literal; swapping to double quotes breaks the
+    // outer literal and produces `Unexpected identifier 'buffer'`.
     code = code.replace(
-      /\bfrom\s*["']node:([^"']+)["']/g,
-      (_, mod) => `from"${mod}"`,
+      /\bfrom(\s*)(["'])node:([^"']+)\2/g,
+      (_, ws, q, mod) => `from${ws}${q}${mod}${q}`,
     );
     code = code.replace(
-      /\bimport\s*["']node:([^"']+)["']/g,
-      (_, mod) => `import"${mod}"`,
+      /\bimport(\s*)(["'])node:([^"']+)\2/g,
+      (_, ws, q, mod) => `import${ws}${q}${mod}${q}`,
     );
-    // Also strip node: from dynamic imports (`import("node:fs")`) and
-    // require() calls — any reference Pages' loader tries to resolve.
+    // Dynamic imports and require() — Nitro/h3 emit these and CF Pages'
+    // loader still tries to resolve them.
     code = code.replace(
-      /\bimport\s*\(\s*["']node:([^"']+)["']\s*\)/g,
-      (_, mod) => `import("${mod}")`,
+      /\bimport(\s*\(\s*)(["'])node:([^"']+)\2(\s*\))/g,
+      (_, pre, q, mod, post) => `import${pre}${q}${mod}${q}${post}`,
     );
     code = code.replace(
-      /\brequire\s*\(\s*["']node:([^"']+)["']\s*\)/g,
-      (_, mod) => `require("${mod}")`,
+      /\brequire(\s*\(\s*)(["'])node:([^"']+)\2(\s*\))/g,
+      (_, pre, q, mod, post) => `require${pre}${q}${mod}${q}${post}`,
     );
 
     // Rewrite virtual:react-router/server-build imports to the local stub.
