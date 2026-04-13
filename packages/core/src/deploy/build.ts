@@ -393,11 +393,13 @@ async function buildCloudflarePages() {
       // browser platform for npm resolution; node builtins externalized separately
       "--platform=browser",
       "--minify",
-      // Multi-module output: split shared code into chunks for smaller entry point.
-      // Cloudflare Pages _worker.js/ directory format supports multiple modules.
+      // Single-file bundle. We tried --splitting + --chunk-names here to
+      // shrink the entry, but CF Pages rejected any chunk containing a
+      // "node:*" import ("No such module 'node:fs' imported from chunks/..")
+      // — the banner shim lands in every chunk and Pages' validation can't
+      // resolve node builtins from non-entry modules even with
+      // `nodejs_compat` set. Staying single-file matches what main shipped.
       `--outdir=${workerOutDir}`,
-      "--splitting",
-      "--chunk-names=chunks/[name]-[hash]",
       "--conditions=workerd,worker,import",
       // The ssr-handler imports a virtual module that only exists at dev time
       "--external:virtual:react-router/server-build",
