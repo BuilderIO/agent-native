@@ -46,7 +46,7 @@ export function SettingsSection({
             </span>
           )}
           {required && !connected && (
-            <span className="shrink-0 rounded-full bg-orange-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-orange-500">
+            <span className="shrink-0 rounded-full bg-accent/60 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
               Required
             </span>
           )}

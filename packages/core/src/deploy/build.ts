@@ -444,6 +444,16 @@ async function buildCloudflarePages() {
       /\bimport\s*["']node:([^"']+)["']/g,
       (_, mod) => `import"${mod}"`,
     );
+    // Also strip node: from dynamic imports (`import("node:fs")`) and
+    // require() calls — any reference Pages' loader tries to resolve.
+    code = code.replace(
+      /\bimport\s*\(\s*["']node:([^"']+)["']\s*\)/g,
+      (_, mod) => `import("${mod}")`,
+    );
+    code = code.replace(
+      /\brequire\s*\(\s*["']node:([^"']+)["']\s*\)/g,
+      (_, mod) => `require("${mod}")`,
+    );
 
     // Rewrite virtual:react-router/server-build imports to the local stub.
     // The generated entry handles SSR directly; this import is dead code from ssr-handler.
