@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
-import { openAgentSidebar, useActionQuery } from "@agent-native/core/client";
+import { useActionQuery } from "@agent-native/core/client";
 import {
   IconArrowUpRight,
   IconFingerprint,
@@ -23,11 +23,6 @@ interface IntegrationStatus {
   label: string;
   enabled: boolean;
   configured: boolean;
-}
-
-function openAgentSettings() {
-  openAgentSidebar();
-  window.dispatchEvent(new Event("agent-panel:open-settings"));
 }
 
 function HelpTooltip({ content }: { content: string }) {
@@ -86,19 +81,21 @@ function SetupCard({
   title,
   description,
   actionLabel,
-  onAction,
+  to,
 }: {
   title: string;
   description: string;
   actionLabel: string;
-  onAction: () => void;
+  to: string;
 }) {
   return (
     <div className="rounded-2xl border bg-card p-5">
       <h3 className="text-base font-semibold text-foreground">{title}</h3>
       <p className="mt-1 text-sm text-muted-foreground">{description}</p>
       <div className="mt-4">
-        <Button onClick={onAction}>{actionLabel}</Button>
+        <Button asChild>
+          <Link to={to}>{actionLabel}</Link>
+        </Button>
       </div>
     </div>
   );
@@ -160,16 +157,16 @@ export default function OverviewRoute() {
   return (
     <DispatcherShell
       title="Overview"
-      description="Dispatcher gives your workspace one inbox for incoming Slack or Telegram messages, then routes follow-up work to the right agent and keeps durable behavior visible."
+      description="Dispatcher is the shared entry point for Slack, Telegram, scheduled work, and delegation across your workspace."
     >
       <section className="rounded-2xl border bg-card p-5">
         <h2 className="text-base font-semibold text-foreground">
-          What dispatcher does
+          One place to receive and route work
         </h2>
         <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-          Connect messaging once, receive conversations in one place, delegate
-          work to agents over A2A, and keep shared behavior visible through
-          identities, destinations, approvals, and audit.
+          Connect Slack or Telegram once, let dispatcher hand tasks to the right
+          agents, and keep long-lived behavior reviewable through destinations,
+          identities, approvals, and audit.
         </p>
       </section>
 
@@ -185,18 +182,16 @@ export default function OverviewRoute() {
                     ? `No messaging channels are configured yet. Connect ${missingPlatforms.join(" or ")} to start receiving messages here.`
                     : "No messaging channels are configured yet."
                 }
-                actionLabel="Open integrations"
-                onAction={openAgentSettings}
+                actionLabel="Set up messaging"
+                to="/messaging"
               />
             )}
             {shouldShowAgentSetup && (
               <SetupCard
                 title="Connect agents"
                 description="Choose which agents dispatcher should hand work to. The built-in suite is available automatically, and you can add external agents from the Agents page."
-                actionLabel="Open agents"
-                onAction={() => {
-                  window.location.href = "/agents";
-                }}
+                actionLabel="Review agents"
+                to="/agents"
               />
             )}
           </div>

@@ -4,6 +4,7 @@ import { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";
 import {
   IconArrowUpRight,
   IconBellCog,
+  IconBrandTelegram,
   IconPlugConnected,
   IconBroadcast,
   IconFingerprint,
@@ -26,6 +27,7 @@ import {
 
 const NAV_ITEMS = [
   { to: "/overview", label: "Overview", icon: IconBroadcast },
+  { to: "/messaging", label: "Messaging", icon: IconBrandTelegram },
   { to: "/agents", label: "Agents", icon: IconPlugConnected },
   { to: "/destinations", label: "Destinations", icon: IconArrowUpRight },
   { to: "/identities", label: "Identities", icon: IconFingerprint },
@@ -110,7 +112,7 @@ export function DispatcherShell({
               <div className="flex items-center gap-2">
                 <SidebarTrigger className="md:hidden" />
                 <div className="text-sm font-medium text-muted-foreground">
-                  Dispatcher
+                  Workspace router
                 </div>
               </div>
               <AgentToggleButton />

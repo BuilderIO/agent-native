@@ -1052,30 +1052,6 @@ export function ResourcesPanel() {
       ) : (
         /* Floating action buttons — absolute top-right over tree view */
         <div className="absolute top-1 right-1 z-10 flex items-center gap-1">
-          <div className="mr-1 flex items-center gap-0.5 rounded-md border border-border bg-background/80 p-0.5">
-            <button
-              onClick={() => setActiveScope("personal")}
-              className={cn(
-                "rounded px-2 py-1 text-[10px] font-medium",
-                activeScope === "personal"
-                  ? "bg-accent text-foreground"
-                  : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-              )}
-            >
-              Personal
-            </button>
-            <button
-              onClick={() => setActiveScope("shared")}
-              className={cn(
-                "rounded px-2 py-1 text-[10px] font-medium",
-                activeScope === "shared"
-                  ? "bg-accent text-foreground"
-                  : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-              )}
-            >
-              Shared
-            </button>
-          </div>
           <CreateMenu
             scope={activeScope}
             onCreateFile={handleCreateFromToolbar}
@@ -1148,7 +1124,6 @@ export function ResourcesPanel() {
           </div>
         ) : (
           <div className="flex-1 min-h-0 overflow-y-auto">
-            <BuilderBrowserCard />
             <ResourceTree
               tree={personalTreeQuery.data ?? []}
               selectedId={selectedResourceId}
