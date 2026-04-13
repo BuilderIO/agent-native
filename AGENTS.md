@@ -351,8 +351,9 @@ Run `agent-native setup-agents` to create all symlinks, or they're created autom
 
 Auth is powered by **Better Auth** with account-first design. Users create an account on first visit.
 
-- **Default**: Better Auth with email/password + social providers (Google, GitHub). Organizations built in.
-- **`AUTH_MODE=local`**: Explicit escape hatch for solo local dev. `getSession()` returns `{ email: "local@localhost" }`. Set in `.env` or via the onboarding page's "Use locally" button.
+- **Development mode**: Auth is automatically bypassed. `getSession()` falls back to `{ email: "local@localhost" }` when no other auth method succeeds — no configuration needed.
+- **Default (production)**: Better Auth with email/password + social providers (Google, GitHub). Organizations built in.
+- **`AUTH_MODE=local`**: Explicit escape hatch for any environment. `getSession()` returns `{ email: "local@localhost" }`. Set in `.env` or via the onboarding page's "Use locally" button.
 - Upgrading from `local@localhost` to a real account should preserve SQL-backed workspace data. The built-in migration moves `application_state`, user-scoped `settings`, `oauth_tokens`, and any template table that uses `owner_email`. Templates with legacy global settings can also provide an app-level `POST /api/local-migration` route for one-time re-homing during the upgrade flow.
 - **`ACCESS_TOKEN`/`ACCESS_TOKENS`**: Simple token-based auth for production deployments.
 - **Bring your own auth**: Pass a custom `getSession` to `autoMountAuth(app, { getSession })`.

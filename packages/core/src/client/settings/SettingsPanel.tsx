@@ -12,6 +12,7 @@ import {
   IconShield,
   IconPlugConnected,
   IconLoader2,
+  IconUpload,
 } from "@tabler/icons-react";
 import { SettingsSection } from "./SettingsSection.js";
 import { useBuilderStatus } from "./useBuilderStatus.js";
@@ -104,7 +105,17 @@ function SettingsSelect({
   );
 }
 
-// ─── "Use Builder" card (shared across all sections) ────────────────────────
+// ─── "Connect Builder.io" card (shared across all sections) ─────────────────
+
+const BUILDER_INCLUDES = [
+  "LLM access (Claude, GPT, Gemini, etc.)",
+  "Browser automation",
+  "Background agents",
+  "Hosting & deployment",
+  "Database",
+  "Authentication",
+  "File uploads",
+];
 
 function UseBuilderCard({
   connectUrl,
@@ -113,6 +124,7 @@ function UseBuilderCard({
   comingSoon,
   builderEnabled,
   label = "Connect Builder.io",
+  showIncludes,
 }: {
   connectUrl?: string;
   connected: boolean;
@@ -120,8 +132,8 @@ function UseBuilderCard({
   comingSoon?: boolean;
   builderEnabled?: boolean;
   label?: string;
+  showIncludes?: boolean;
 }) {
-  // In demo mode, never show "Coming soon"
   const showComingSoon = comingSoon && !builderEnabled;
 
   if (connected) {
@@ -167,6 +179,27 @@ function UseBuilderCard({
       <p className="text-[10px] text-muted-foreground mt-1">
         One-click setup via Builder.io
       </p>
+      {showIncludes && (
+        <div className="mt-1.5 rounded bg-accent/30 px-2 py-1.5">
+          <p className="text-[9px] font-medium text-muted-foreground uppercase tracking-wide mb-1">
+            Includes
+          </p>
+          <ul className="space-y-0.5">
+            {BUILDER_INCLUDES.map((item) => (
+              <li
+                key={item}
+                className="flex items-center gap-1.5 text-[10px] text-muted-foreground"
+              >
+                <IconCheck
+                  size={8}
+                  className="shrink-0 text-muted-foreground"
+                />
+                {item}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {connectUrl && !showComingSoon && (
         <a
           href={connectUrl}
@@ -224,11 +257,15 @@ function LLMSectionInner({
   connectUrl,
   connected,
   orgName,
+  open,
+  onToggle,
 }: {
   builderEnabled: boolean;
   connectUrl?: string;
   connected: boolean;
   orgName?: string;
+  open?: boolean;
+  onToggle?: () => void;
 }) {
   const [envKeys, setEnvKeys] = useState<
     Array<{ key: string; configured: boolean }>
@@ -272,8 +309,11 @@ function LLMSectionInner({
     <SettingsSection
       icon={<IconBrain size={14} />}
       title="LLM"
-      subtitle="AI model for the agent chat."
+      subtitle="Connect any major LLM — Claude, GPT, Gemini, and more."
+      required
       connected={anthropicConfigured || connected}
+      open={open}
+      onToggle={onToggle}
     >
       <div className="space-y-2">
         <UseBuilderCard
@@ -283,6 +323,7 @@ function LLMSectionInner({
           comingSoon
           builderEnabled={builderEnabled}
           label="Connect Builder.io"
+          showIncludes
         />
         <ManualSetupCard>
           {anthropicConfigured ? (
@@ -353,9 +394,26 @@ export function SettingsPanel({
 }: SettingsPanelProps) {
   const { status: builder } = useBuilderStatus();
   const connected = builder?.configured ?? false;
-  const builderEnabled = builder?.builderEnabled ?? false;
   const connectUrl = builder?.connectUrl;
   const orgName = builder?.orgName;
+
+  // ENABLE_BUILDER flag — read from env-status (always available)
+  const [builderEnabled, setBuilderEnabled] = useState(false);
+  useEffect(() => {
+    fetch("/_agent-native/env-status")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((keys: Array<{ key: string; configured: boolean }>) => {
+        if (keys.find((k) => k.key === "ENABLE_BUILDER")?.configured) {
+          setBuilderEnabled(true);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Accordion: only one section open at a time (null = all closed)
+  const [openSection, setOpenSection] = useState<string | null>("llm");
+  const toggle = (id: string) =>
+    setOpenSection((prev) => (prev === id ? null : id));
 
   return (
     <div
@@ -396,43 +454,17 @@ export function SettingsPanel({
         connectUrl={connectUrl}
         connected={connected}
         orgName={orgName}
+        open={openSection === "llm"}
+        onToggle={() => toggle("llm")}
       />
-
-      {/* Browser Automation */}
-      <SettingsSection
-        icon={<IconBrowser size={14} />}
-        title="Browser Automation"
-        subtitle="Let agents control a real browser for web tasks."
-        connected={connected}
-      >
-        <UseBuilderCard
-          connectUrl={connectUrl}
-          connected={connected}
-          orgName={orgName}
-          builderEnabled={builderEnabled}
-        />
-      </SettingsSection>
-
-      {/* Background Agent */}
-      <SettingsSection
-        icon={<IconGitBranch size={14} />}
-        title="Background Agent"
-        subtitle="Make code changes from production mode via Builder."
-        connected={connected}
-      >
-        <UseBuilderCard
-          connectUrl={connectUrl}
-          connected={connected}
-          orgName={orgName}
-          builderEnabled={builderEnabled}
-        />
-      </SettingsSection>
 
       {/* Hosting */}
       <SettingsSection
         icon={<IconCloud size={14} />}
         title="Hosting"
         subtitle="Deploy your app to the cloud."
+        open={openSection === "hosting"}
+        onToggle={() => toggle("hosting")}
       >
         <div className="space-y-2">
           <UseBuilderCard
@@ -454,6 +486,8 @@ export function SettingsPanel({
         icon={<IconDatabase size={14} />}
         title="Database"
         subtitle="Connect a cloud database for persistent storage."
+        open={openSection === "database"}
+        onToggle={() => toggle("database")}
       >
         <div className="space-y-2">
           <UseBuilderCard
@@ -470,11 +504,36 @@ export function SettingsPanel({
         </div>
       </SettingsSection>
 
+      {/* File uploads */}
+      <SettingsSection
+        icon={<IconUpload size={14} />}
+        title="File uploads"
+        subtitle="Where user-uploaded files (avatars, chat attachments) are stored."
+        connected={connected}
+        open={openSection === "uploads"}
+        onToggle={() => toggle("uploads")}
+      >
+        <div className="space-y-2">
+          <UseBuilderCard
+            connectUrl={connectUrl}
+            connected={connected}
+            orgName={orgName}
+            builderEnabled={builderEnabled}
+          />
+          <ManualSetupCard
+            hint="No provider? Files fall back to your SQL database as base64 blobs — fine for local dev, not recommended for production. Connect Builder.io above or register your own provider (registerFileUploadProvider)."
+            docsUrl="https://www.builder.io/c/docs/upload-api"
+          />
+        </div>
+      </SettingsSection>
+
       {/* Authentication */}
       <SettingsSection
         icon={<IconShield size={14} />}
         title="Authentication"
         subtitle="Set up user authentication and access control."
+        open={openSection === "auth"}
+        onToggle={() => toggle("auth")}
       >
         <div className="space-y-2">
           <UseBuilderCard
@@ -491,11 +550,47 @@ export function SettingsPanel({
         </div>
       </SettingsSection>
 
+      {/* Browser Automation */}
+      <SettingsSection
+        icon={<IconBrowser size={14} />}
+        title="Browser Automation"
+        subtitle="Let agents control a real browser for web tasks."
+        connected={connected}
+        open={openSection === "browser"}
+        onToggle={() => toggle("browser")}
+      >
+        <UseBuilderCard
+          connectUrl={connectUrl}
+          connected={connected}
+          orgName={orgName}
+          builderEnabled={builderEnabled}
+        />
+      </SettingsSection>
+
+      {/* Background Agent */}
+      <SettingsSection
+        icon={<IconGitBranch size={14} />}
+        title="Background Agent"
+        subtitle="Make code changes from production mode via Builder."
+        connected={connected}
+        open={openSection === "background"}
+        onToggle={() => toggle("background")}
+      >
+        <UseBuilderCard
+          connectUrl={connectUrl}
+          connected={connected}
+          orgName={orgName}
+          builderEnabled={builderEnabled}
+        />
+      </SettingsSection>
+
       {/* Integrations */}
       <SettingsSection
         icon={<IconPlugConnected size={14} />}
         title="Integrations"
         subtitle="Connect messaging platforms and external services."
+        open={openSection === "integrations"}
+        onToggle={() => toggle("integrations")}
       >
         <Suspense fallback={null}>
           <IntegrationsPanel />
@@ -507,6 +602,8 @@ export function SettingsPanel({
         icon={<IconPlugConnected size={14} />}
         title="Connected Agents (A2A)"
         subtitle="Manage remote agents connected via the A2A protocol."
+        open={openSection === "a2a"}
+        onToggle={() => toggle("a2a")}
       >
         <AgentsSection />
       </SettingsSection>

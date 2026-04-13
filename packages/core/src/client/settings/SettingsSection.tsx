@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { IconChevronDown } from "@tabler/icons-react";
 
 interface SettingsSectionProps {
@@ -6,30 +6,33 @@ interface SettingsSectionProps {
   title: string;
   subtitle?: string;
   badge?: string;
+  required?: boolean;
   connected?: boolean;
-  defaultOpen?: boolean;
+  open?: boolean;
+  onToggle?: () => void;
   children: ReactNode;
 }
 
 /**
  * Collapsible settings section card with icon, title, status dot, and optional badge.
+ * Controlled via `open` / `onToggle` for accordion behaviour.
  */
 export function SettingsSection({
   icon,
   title,
   subtitle,
   badge,
+  required,
   connected,
-  defaultOpen = false,
+  open = false,
+  onToggle,
   children,
 }: SettingsSectionProps) {
-  const [open, setOpen] = useState(defaultOpen);
-
   return (
     <div className="rounded-lg border border-border bg-background/50">
       <button
         type="button"
-        onClick={() => setOpen(!open)}
+        onClick={onToggle}
         className="flex w-full items-center justify-between px-3 py-2.5 text-left"
       >
         <div className="flex items-center gap-2 min-w-0">
@@ -38,7 +41,14 @@ export function SettingsSection({
             {title}
           </span>
           {connected && (
-            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-green-500" />
+            <span className="flex items-center gap-1 shrink-0 text-[9px] font-medium text-green-500">
+              Connected
+            </span>
+          )}
+          {required && !connected && (
+            <span className="shrink-0 rounded-full bg-orange-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-orange-500">
+              Required
+            </span>
           )}
           {badge && (
             <span className="shrink-0 rounded-full bg-accent/60 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">

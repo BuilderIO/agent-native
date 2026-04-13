@@ -32,6 +32,7 @@
     "./application-state": "./dist/application-state/index.js",
     "./settings": "./dist/settings/index.js",
     "./credentials": "./dist/credentials/index.js",
+    "./file-upload": "./dist/file-upload/index.js",
     "./resources": "./dist/resources/index.js",
     "./resources/store": "./dist/resources/store.js",
     "./resources/metadata": "./dist/resources/metadata.js",

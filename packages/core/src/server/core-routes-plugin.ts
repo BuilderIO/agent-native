@@ -32,6 +32,12 @@ import { getSetting, putSetting } from "../settings/store.js";
 import { getSession } from "./auth.js";
 import { getOrigin } from "./google-oauth.js";
 import { findWorkspaceRoot } from "../scripts/utils.js";
+import {
+  uploadFile,
+  getActiveFileUploadProvider,
+  listFileUploadProviders,
+} from "../file-upload/index.js";
+import { readMultipartFormData } from "h3";
 
 /**
  * The base path prefix for all framework-level routes.
@@ -223,9 +229,12 @@ export function createCoreRoutesPlugin(
       }),
     );
 
-    // Env key management
-    if (options.envKeys) {
-      const envKeys = options.envKeys;
+    // Env key management — framework keys are always included
+    const frameworkEnvKeys: EnvKeyConfig[] = [
+      { key: "ENABLE_BUILDER", label: "Enable Builder.io features" },
+    ];
+    {
+      const envKeys = [...frameworkEnvKeys, ...(options.envKeys ?? [])];
       const allowedKeys = new Set(envKeys.map((k) => k.key));
 
       getH3App(nitroApp).use(
@@ -293,6 +302,61 @@ export function createCoreRoutesPlugin(
         }),
       );
     }
+
+    // ─── File upload primitive ──────────────────────────────────────
+    // GET  /_agent-native/file-upload/status — report active provider
+    // POST /_agent-native/file-upload        — upload a file, return { url }
+    getH3App(nitroApp).use(
+      `${P}/file-upload/status`,
+      defineEventHandler(() => {
+        const active = getActiveFileUploadProvider();
+        return {
+          configured: !!active,
+          activeProvider: active ? { id: active.id, name: active.name } : null,
+          providers: listFileUploadProviders().map((p) => ({
+            id: p.id,
+            name: p.name,
+            configured: p.isConfigured(),
+          })),
+          builderConfigured: !!process.env.BUILDER_PRIVATE_KEY,
+        };
+      }),
+    );
+
+    getH3App(nitroApp).use(
+      `${P}/file-upload`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const parts = await readMultipartFormData(event);
+        const filePart = parts?.find((p) => p.name === "file");
+        if (!filePart?.data) {
+          setResponseStatus(event, 400);
+          return { error: "No file uploaded" };
+        }
+
+        const session = await getSession(event);
+        const result = await uploadFile({
+          data: filePart.data,
+          filename: filePart.filename,
+          mimeType: filePart.type,
+          ownerEmail: session?.email,
+        });
+
+        if (result) {
+          setResponseStatus(event, 201);
+          return result;
+        }
+
+        setResponseStatus(event, 503);
+        return {
+          error:
+            "No file upload provider configured. Connect Builder.io in Settings → File uploads, or register a provider.",
+        };
+      }),
+    );
 
     // ─── Application State CRUD ──────────────────────────────────────
     // Auto-mounted so templates don't need boilerplate route files.

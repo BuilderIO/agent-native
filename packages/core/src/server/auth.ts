@@ -106,9 +106,10 @@ const LOCAL_MODE_MARKER_PATH = path.resolve(
  * onboarding flow has enabled local mode for the current workspace via
  * a runtime marker file.
  *
- * Local mode is an escape hatch, not the default dev behavior. In development
- * without AUTH_MODE=local, apps should still use Better Auth and show the
- * onboarding flow so users can create real accounts locally.
+ * Local mode is an explicit escape hatch for when you want to guarantee
+ * no auth is used. In development, getSession() also falls back to
+ * local@localhost automatically if no other auth method succeeds, so
+ * apps are always usable without configuration in dev.
  */
 async function isLocalModeEnabled(): Promise<boolean> {
   if (process.env.AUTH_MODE === "local") return true;
@@ -378,6 +379,7 @@ function mapBetterAuthSession(baSession: {
  * 5. Better Auth → check session via Better Auth API (cookie or Bearer)
  * 6. Legacy cookie → check an_session cookie in legacy sessions table
  * 7. Mobile _session query param → promote to cookie
+ * 8. Dev-mode fallback → local@localhost (never block in development)
  */
 export async function getSession(event: H3Event): Promise<AuthSession | null> {
   // 1. AUTH_MODE=local — explicit local-only mode
@@ -465,6 +467,14 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
       setResponseHeader(event, "Referrer-Policy", "no-referrer");
       return { email, token: qToken };
     }
+  }
+
+  // 7. Dev-mode safety net — in development, always fall back to local@localhost
+  // so the app is usable without any auth configuration. This prevents 401
+  // errors when Better Auth isn't configured, the marker file is missing, or
+  // the user simply wants to play around locally.
+  if (isDevEnvironment()) {
+    return LOCAL_SESSION;
   }
 
   return null;

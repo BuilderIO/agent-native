@@ -117,6 +117,18 @@ export {
 } from "../onboarding/plugin.js";
 
 export {
+  registerFileUploadProvider,
+  unregisterFileUploadProvider,
+  listFileUploadProviders,
+  getActiveFileUploadProvider,
+  uploadFile,
+  builderFileUploadProvider,
+  type FileUploadInput,
+  type FileUploadProvider,
+  type FileUploadResult,
+} from "../file-upload/index.js";
+
+export {
   createIntegrationsPlugin,
   defaultIntegrationsPlugin,
   slackAdapter,

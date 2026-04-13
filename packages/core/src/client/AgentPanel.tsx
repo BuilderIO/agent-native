@@ -1053,7 +1053,7 @@ export function AgentPanel({
 
       {/* Settings / Setup view */}
       {mode === "settings" && (
-        <div className="flex-1 min-h-0">
+        <div className="flex flex-col flex-1 min-h-0">
           <Suspense
             fallback={
               <div className="p-3 space-y-2">

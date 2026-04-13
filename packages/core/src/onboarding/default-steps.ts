@@ -128,6 +128,36 @@ const authStep: OnboardingStep = {
   },
 };
 
+/** Step 4 — where uploaded files (avatars, chat attachments) go. */
+const fileUploadStep: OnboardingStep = {
+  id: "file-upload",
+  order: 40,
+  required: false,
+  title: "File uploads",
+  description:
+    "Where user-uploaded files live. SQL fallback works out of the box but isn't optimal for production.",
+  methods: [
+    {
+      id: "builder",
+      kind: "builder-cli-auth",
+      label: "Connect Builder.io",
+      description: "Uploads go to Builder's CDN. Free during beta.",
+      primary: true,
+      badge: "free",
+      payload: { scope: "browser" },
+    },
+    {
+      id: "custom-provider",
+      kind: "link",
+      label: "Use your own provider",
+      description:
+        "Register a FileUploadProvider (S3, R2, etc.) that returns a URL.",
+      payload: { url: "https://www.builder.io/c/docs/upload-api" },
+    },
+  ],
+  isComplete: () => !!process.env.BUILDER_PRIVATE_KEY,
+};
+
 let registered = false;
 
 /** Idempotent. Safe to call from every plugin-mount call. */
@@ -137,4 +167,5 @@ export function registerDefaultOnboardingSteps(): void {
   registerOnboardingStep(llmStep);
   registerOnboardingStep(databaseStep);
   registerOnboardingStep(authStep);
+  registerOnboardingStep(fileUploadStep);
 }
