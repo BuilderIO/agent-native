@@ -18,10 +18,15 @@ type CacheEntry = {
 // Module-level state — survives SPA navigation within a tab.
 const cache = new Map<string, CacheEntry>();
 const inflight = new Map<string, Promise<EmailMessage[]>>();
-const subscribers = new Set<() => void>();
+// Scoped by threadId so warming thread B doesn't re-render the component
+// viewing thread A — that cascade was re-running the expensive iframe
+// doc.write() effect in EmailThread on every cache write.
+const subscribers = new Map<string, Set<() => void>>();
 
-function notify() {
-  for (const fn of subscribers) fn();
+function notify(threadId: string) {
+  const set = subscribers.get(threadId);
+  if (!set) return;
+  for (const fn of set) fn();
 }
 
 async function fetchThread(threadId: string): Promise<EmailMessage[]> {
@@ -54,13 +59,13 @@ export function getCachedThread(threadId: string): EmailMessage[] | undefined {
 
 export function setCachedThread(threadId: string, messages: EmailMessage[]) {
   cache.set(threadId, { messages, fetchedAt: Date.now() });
-  notify();
+  notify(threadId);
 }
 
 export function invalidateCachedThread(threadId: string) {
   cache.delete(threadId);
   inflight.delete(threadId);
-  notify();
+  notify(threadId);
 }
 
 // Fetch if not already cached or in flight. Safe to call many times for the
@@ -82,7 +87,7 @@ export function ensureThread(threadId: string): Promise<EmailMessage[]> {
     .then((messages) => {
       cache.set(threadId, { messages, fetchedAt: Date.now() });
       inflight.delete(threadId);
-      notify();
+      notify(threadId);
       log(
         `ensureThread DONE ${threadId} (${(performance.now() - t0).toFixed(0)}ms)`,
       );
@@ -129,12 +134,19 @@ export function useThreadCache(
 } {
   const [, force] = useState(0);
   useEffect(() => {
+    if (!threadId) return;
     const fn = () => force((n) => n + 1);
-    subscribers.add(fn);
+    let set = subscribers.get(threadId);
+    if (!set) {
+      set = new Set();
+      subscribers.set(threadId, set);
+    }
+    set.add(fn);
     return () => {
-      subscribers.delete(fn);
+      set!.delete(fn);
+      if (set!.size === 0) subscribers.delete(threadId);
     };
-  }, []);
+  }, [threadId]);
 
   useEffect(() => {
     if (!threadId) return;
