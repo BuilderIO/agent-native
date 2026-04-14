@@ -370,6 +370,51 @@ function rolldownInputFix(): Plugin {
  * in-process scripts (which use localFetch → http://localhost:${PORT}/api/...)
  * hit the right address even when Vite auto-increments the port.
  */
+/**
+ * Replace heavy client-only libraries with an empty stub during SSR builds.
+ * These render interactive diagrams / parse files in the browser (or from
+ * Node scripts) and are never executed on the edge, so the server bundle
+ * can ship with `{}` in place of them and save a lot of size.
+ *
+ * If you add new heavy client-only deps to a template, add them here.
+ */
+function ssrStubHeavyClientLibs(): Plugin {
+  const stubbed = new Set([
+    "mermaid",
+    "@excalidraw/excalidraw",
+    "@excalidraw/mermaid-to-excalidraw",
+    "pdf-parse",
+    "@google/genai",
+  ]);
+  const STUB_ID = "\0agent-native-ssr-stub";
+  return {
+    name: "agent-native-ssr-stub-heavy-libs",
+    enforce: "pre",
+    resolveId(id, _importer, opts) {
+      if (!opts?.ssr) return null;
+      // Match the bare package name or any subpath
+      const pkg = id.split("/").slice(0, id.startsWith("@") ? 2 : 1).join("/");
+      if (stubbed.has(pkg)) return STUB_ID;
+      return null;
+    },
+    load(id) {
+      if (id !== STUB_ID) return null;
+      // Proxy that answers any property access with itself — lets dead
+      // import/re-export chains parse without blowing up, and still throws
+      // if code actually tries to call any of it on the server.
+      return (
+        "const handler = { get(_, p) { " +
+        "if (p === Symbol.toPrimitive) return () => ''; " +
+        "if (p === 'then') return undefined; " +
+        "return new Proxy(() => {}, handler); " +
+        "} };" +
+        "const stub = new Proxy(() => {}, handler);" +
+        "export default stub;"
+      );
+    },
+  };
+}
+
 function portExposer(): Plugin {
   return {
     name: "agent-native-port-exposer",
@@ -468,20 +513,16 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     },
     // Bundle all non-Node.js deps into the SSR server build.
     // Edge runtimes (CF Workers, Deno) don't have node_modules at runtime.
-    // Exception: heavy client-only libs that SSR never actually executes —
-    // externalizing them keeps the edge worker under CF Pages' 25 MiB
-    // Functions limit. These only render in the browser.
     ssr: {
       noExternal: /^(?!node:)/,
-      external: [
-        "mermaid",
-        "@excalidraw/excalidraw",
-        "@excalidraw/mermaid-to-excalidraw",
-        "pdf-parse",
-        "@google/genai",
-      ],
     },
     plugins: [
+      // Stub heavy client-only libs in the SSR bundle. mermaid, excalidraw,
+      // and pdf-parse only run in the browser or from Node scripts — SSR
+      // never executes them. Without this, they'd get fully bundled into
+      // the edge worker (via ssr.noExternal above) and push slides over
+      // CF Pages' 25 MiB Functions limit.
+      ssrStubHeavyClientLibs(),
       actionTypesPlugin(),
       agentsBundlePlugin(),
       autoReloadOnOptimizeDep(),
