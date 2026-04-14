@@ -51,29 +51,29 @@ export function NotionConflictBanner({
         <span className="text-xs text-amber-900 dark:text-amber-100 mr-auto">
           Notion sync conflict — both sides changed
         </span>
-      <Button
-        size="sm"
-        variant="ghost"
-        className="h-6 px-2 text-xs text-amber-900 hover:bg-amber-200/60 dark:text-amber-100 dark:hover:bg-amber-800/40"
-        onClick={() => handleResolve("pull")}
-        disabled={isWorking}
-      >
-        {direction === "pull" ? (
-          <IconLoader2 size={12} className="mr-1 animate-spin" />
-        ) : null}
-        Use Notion
-      </Button>
-      <Button
-        size="sm"
-        variant="ghost"
-        className="h-6 px-2 text-xs text-amber-900 hover:bg-amber-200/60 dark:text-amber-100 dark:hover:bg-amber-800/40"
-        onClick={() => handleResolve("push")}
-        disabled={isWorking}
-      >
-        {direction === "push" ? (
-          <IconLoader2 size={12} className="mr-1 animate-spin" />
-        ) : null}
-        Use local
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-6 px-2 text-xs text-amber-900 hover:bg-amber-200/60 dark:text-amber-100 dark:hover:bg-amber-800/40"
+          onClick={() => handleResolve("pull")}
+          disabled={isWorking}
+        >
+          {direction === "pull" ? (
+            <IconLoader2 size={12} className="mr-1 animate-spin" />
+          ) : null}
+          Use Notion
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-6 px-2 text-xs text-amber-900 hover:bg-amber-200/60 dark:text-amber-100 dark:hover:bg-amber-800/40"
+          onClick={() => handleResolve("push")}
+          disabled={isWorking}
+        >
+          {direction === "push" ? (
+            <IconLoader2 size={12} className="mr-1 animate-spin" />
+          ) : null}
+          Use local
         </Button>
       </div>
     </div>
