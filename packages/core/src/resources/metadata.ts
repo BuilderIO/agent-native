@@ -141,7 +141,7 @@ export function isCustomAgentPath(path: string): boolean {
 }
 
 export function isRemoteAgentPath(path: string): boolean {
-  return path.startsWith("agents/") && path.endsWith(".json");
+  return path.startsWith("remote-agents/") && path.endsWith(".json");
 }
 
 export function getResourceKind(path: string): ResourceKind {
@@ -196,7 +196,8 @@ export function parseRemoteAgentManifest(
   if (!isRemoteAgentPath(path)) return null;
   try {
     const data = JSON.parse(content);
-    const id = data.id || path.replace(/^agents\//, "").replace(/\.json$/, "");
+    const id =
+      data.id || path.replace(/^remote-agents\//, "").replace(/\.json$/, "");
     if (!data.url) return null;
     return {
       id,

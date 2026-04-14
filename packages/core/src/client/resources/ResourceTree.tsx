@@ -11,8 +11,9 @@ import {
   IconTrash,
   IconMessageChatbot,
   IconPlugConnected,
-  IconStack2,
+  IconBulb,
   IconClockHour3,
+  IconLoader2,
 } from "@tabler/icons-react";
 import { cn } from "../utils.js";
 import type { TreeNode, ResourceMeta, JobMetadata } from "./use-resources.js";
@@ -31,9 +32,7 @@ function getFileIcon(node: TreeNode): React.ReactNode {
     );
   }
   if (node.kind === "skill") {
-    return (
-      <IconStack2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-    );
+    return <IconBulb className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />;
   }
   if (node.kind === "job") {
     return (
@@ -69,6 +68,10 @@ export interface ResourceTreeProps {
   title?: string;
   /** Tooltip for the section heading */
   titleTooltip?: string;
+  /** Whether this section's tree is still loading */
+  isLoading?: boolean;
+  /** Resource id currently being deleted (shows spinner + muted row) */
+  deletingId?: string | null;
 }
 
 interface CreatingState {
@@ -124,6 +127,7 @@ function TreeNodeRow({
   depth,
   expanded,
   selectedId,
+  deletingId,
   onToggle,
   onSelect,
   onDelete,
@@ -133,6 +137,7 @@ function TreeNodeRow({
   depth: number;
   expanded: Set<string>;
   selectedId: string | null;
+  deletingId?: string | null;
   onToggle: (path: string) => void;
   onSelect: (resource: ResourceMeta) => void;
   onDelete: (id: string) => void;
@@ -141,18 +146,21 @@ function TreeNodeRow({
   const isFolder = node.type === "folder";
   const isExpanded = expanded.has(node.path);
   const isSelected = node.resource?.id === selectedId;
+  const isDeleting = !!node.resource && node.resource.id === deletingId;
 
   return (
     <div>
       <div
         className={cn(
-          "group/row flex items-center gap-1 rounded-md px-1.5 py-1 cursor-pointer select-none",
+          "group/row flex items-center gap-1 rounded-md px-1.5 py-1 select-none",
+          isDeleting ? "pointer-events-none opacity-40" : "cursor-pointer",
           isSelected
             ? "bg-accent text-foreground"
             : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
         )}
         style={{ paddingLeft: depth * 16 + 6 }}
         onClick={() => {
+          if (isDeleting) return;
           if (isFolder) {
             onToggle(node.path);
           } else if (node.resource) {
@@ -191,18 +199,26 @@ function TreeNodeRow({
               <IconPlus className="h-3 w-3" />
             </button>
           )}
-          {node.resource && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete(node.resource!.id);
-              }}
-              className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-accent/50"
-              title="Delete"
-            >
-              <IconTrash className="h-3 w-3" />
-            </button>
-          )}
+          {node.resource &&
+            (isDeleting ? (
+              <span
+                className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground"
+                title="Deleting..."
+              >
+                <IconLoader2 className="h-3 w-3 animate-spin" />
+              </span>
+            ) : (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete(node.resource!.id);
+                }}
+                className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-accent/50"
+                title="Delete"
+              >
+                <IconTrash className="h-3 w-3" />
+              </button>
+            ))}
         </div>
       </div>
       {isFolder && isExpanded && node.children && (
@@ -214,6 +230,7 @@ function TreeNodeRow({
               depth={depth + 1}
               expanded={expanded}
               selectedId={selectedId}
+              deletingId={deletingId}
               onToggle={onToggle}
               onSelect={onSelect}
               onDelete={onDelete}
@@ -287,6 +304,8 @@ export function ResourceTree({
   onDrop,
   title = "Files",
   titleTooltip,
+  isLoading = false,
+  deletingId = null,
 }: ResourceTreeProps) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [creating, setCreating] = useState<CreatingState | null>(null);
@@ -389,12 +408,33 @@ export function ResourceTree({
           depth={0}
           expanded={expanded}
           selectedId={selectedId}
+          deletingId={deletingId}
           onToggle={toggleExpand}
           onSelect={onSelect}
           onDelete={onDelete}
           onStartCreate={handleStartCreate}
         />
       ))}
+
+      {isLoading && tree.length === 0 && (
+        <div className="px-1 py-1">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-2 px-1.5 py-1">
+              <div
+                className="h-3.5 w-3.5 rounded bg-muted-foreground/10 animate-pulse"
+                style={{ animationDelay: `${i * 75}ms` }}
+              />
+              <div
+                className="h-3 rounded bg-muted-foreground/10 animate-pulse"
+                style={{
+                  width: `${50 + ((i * 37) % 40)}%`,
+                  animationDelay: `${i * 75}ms`,
+                }}
+              />
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Inline input for root-level creation */}
       {creating && creating.parentPath === "" && (
@@ -414,7 +454,7 @@ export function ResourceTree({
         />
       )}
 
-      {tree.length === 0 && !creating && (
+      {tree.length === 0 && !creating && !isLoading && (
         <div className="px-2 py-1">
           <p className="text-[11px] text-muted-foreground/40">No files yet</p>
         </div>

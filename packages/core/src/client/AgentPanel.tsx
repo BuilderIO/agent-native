@@ -385,20 +385,22 @@ export function AgentPanel({
           <IconMessage size={14} />
           Chat
         </button>
-        <button
-          onClick={() => switchMode("cli")}
-          className={cn(
-            "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
-            activeMode === "cli"
-              ? "bg-accent text-foreground"
-              : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-          )}
-          title="CLI terminal mode"
-          style={AGENT_PANEL_CONTROL_STYLE}
-        >
-          <IconTerminal2 size={14} />
-          CLI
-        </button>
+        {isDevMode && (
+          <button
+            onClick={() => switchMode("cli")}
+            className={cn(
+              "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
+              activeMode === "cli"
+                ? "bg-accent text-foreground"
+                : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+            )}
+            title="CLI terminal mode"
+            style={AGENT_PANEL_CONTROL_STYLE}
+          >
+            <IconTerminal2 size={14} />
+            CLI
+          </button>
+        )}
         <button
           onClick={() => switchMode("resources")}
           className={cn(

@@ -242,7 +242,7 @@ async function enrichTreeNodes(nodes: TreeNode[]): Promise<void> {
         }
 
         if (
-          node.resource.path.startsWith("agents/") &&
+          node.resource.path.startsWith("remote-agents/") &&
           node.resource.path.endsWith(".json")
         ) {
           node.remoteAgentMeta =
