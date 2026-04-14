@@ -15,6 +15,11 @@ type CacheEntry = {
   fetchedAt: number;
 };
 
+const STORAGE_KEY = "mail.threadCache.v1";
+const STORAGE_TTL = 60 * 60 * 1000; // 1 hour
+const STORAGE_MAX_ENTRIES = 50;
+const STORAGE_MAX_BYTES = 3 * 1024 * 1024; // ~3MB, well under the 5MB cap
+
 // Park state on globalThis so Vite HMR reloads of this module don't wipe the
 // cache — before, every save during dev re-ran `new Map()` and the next
 // thread open had to re-fetch from Gmail (~500ms+).
@@ -35,6 +40,68 @@ function notify(threadId: string) {
   const set = subscribers.get(threadId);
   if (!set) return;
   for (const fn of set) fn();
+}
+
+// ── localStorage persistence ─────────────────────────────────────────────────
+// Hydrate on module load; flush asynchronously on cache writes. Survives page
+// reloads and server restarts so repeat opens within an hour stay instant.
+
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
+
+function loadFromStorage() {
+  if (typeof window === "undefined") return;
+  // If globalThis already has entries (HMR reload with warm in-memory cache),
+  // skip — don't overwrite fresher in-memory state with disk.
+  if (cache.size > 0) return;
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as Record<string, CacheEntry>;
+    const now = Date.now();
+    for (const [id, entry] of Object.entries(parsed)) {
+      if (!entry || now - entry.fetchedAt > STORAGE_TTL) continue;
+      cache.set(id, entry);
+    }
+    log(`hydrated ${cache.size} threads from localStorage`);
+  } catch {
+    // Corrupted entry — nuke it
+    try {
+      window.localStorage.removeItem(STORAGE_KEY);
+    } catch {}
+  }
+}
+
+function scheduleFlush() {
+  if (typeof window === "undefined") return;
+  if (flushTimer) return;
+  flushTimer = setTimeout(() => {
+    flushTimer = null;
+    flushToStorage();
+  }, 250);
+}
+
+function flushToStorage() {
+  if (typeof window === "undefined") return;
+  try {
+    // Keep the N most recently fetched entries, then trim by total size.
+    const entries = [...cache.entries()].sort(
+      (a, b) => b[1].fetchedAt - a[1].fetchedAt,
+    );
+    const out: Record<string, CacheEntry> = {};
+    let bytes = 0;
+    let count = 0;
+    for (const [id, entry] of entries) {
+      if (count >= STORAGE_MAX_ENTRIES) break;
+      const serialized = JSON.stringify(entry);
+      if (bytes + serialized.length > STORAGE_MAX_BYTES) break;
+      out[id] = entry;
+      bytes += serialized.length;
+      count++;
+    }
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(out));
+  } catch {
+    // Quota exceeded or private mode — silently give up, in-memory cache still works
+  }
 }
 
 async function fetchThread(threadId: string): Promise<EmailMessage[]> {
@@ -58,6 +125,10 @@ if (typeof window !== "undefined" && import.meta.env.VITE_DEBUG === "true") {
   (window as any).__cacheDebug = true;
 }
 
+// Hydrate after cache/subscribers are defined. In dev, HMR reloads this module
+// frequently; loadFromStorage skips if the in-memory Map already has entries.
+loadFromStorage();
+
 function log(...args: unknown[]) {
   if (typeof window !== "undefined" && (window as any).__cacheDebug) {
     console.log("[thread-cache]", performance.now().toFixed(0), ...args);
@@ -71,12 +142,14 @@ export function getCachedThread(threadId: string): EmailMessage[] | undefined {
 export function setCachedThread(threadId: string, messages: EmailMessage[]) {
   cache.set(threadId, { messages, fetchedAt: Date.now() });
   notify(threadId);
+  scheduleFlush();
 }
 
 export function invalidateCachedThread(threadId: string) {
   cache.delete(threadId);
   inflight.delete(threadId);
   notify(threadId);
+  scheduleFlush();
 }
 
 // Fetch if not already cached or in flight. Safe to call many times for the
@@ -99,6 +172,7 @@ export function ensureThread(threadId: string): Promise<EmailMessage[]> {
       cache.set(threadId, { messages, fetchedAt: Date.now() });
       inflight.delete(threadId);
       notify(threadId);
+      scheduleFlush();
       log(
         `ensureThread DONE ${threadId} (${(performance.now() - t0).toFixed(0)}ms)`,
       );
@@ -112,9 +186,9 @@ export function ensureThread(threadId: string): Promise<EmailMessage[]> {
   return p;
 }
 
-// Rate-limited bulk warm — serial with minimal parallelism so we don't
-// re-trip Gmail's per-minute quota when warming many threads at once.
-export function warmThreads(threadIds: string[], concurrency = 2) {
+// Rate-limited bulk warm — Gmail's per-user-per-second quota is 250 units
+// and threads.get is 10 units, so 6-in-flight is well under the limit.
+export function warmThreads(threadIds: string[], concurrency = 6) {
   const queue = threadIds.filter((id) => !cache.has(id) && !inflight.has(id));
   if (queue.length === 0) return;
   let active = 0;
@@ -198,6 +272,13 @@ if (typeof window !== "undefined") {
       console.log(
         "[thread-cache] debug on — reload is NOT required, new events will log",
       );
+    },
+    flush: () => flushToStorage(),
+    clearStorage: () => {
+      try {
+        window.localStorage.removeItem(STORAGE_KEY);
+        console.log("[thread-cache] localStorage cleared");
+      } catch {}
     },
   };
 }
