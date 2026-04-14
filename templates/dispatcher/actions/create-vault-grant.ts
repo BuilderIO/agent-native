@@ -7,7 +7,9 @@ export default defineAction({
     "Grant an app access to a vault secret. The secret can then be synced to the app. Admin only.",
   schema: z.object({
     secretId: z.string().describe("ID of the secret to grant"),
-    appId: z.string().describe("App ID to grant access to, e.g. mail, calendar"),
+    appId: z
+      .string()
+      .describe("App ID to grant access to, e.g. mail, calendar"),
   }),
   run: async (args) => createGrant(args.secretId, args.appId),
 });

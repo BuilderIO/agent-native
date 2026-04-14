@@ -434,9 +434,7 @@ export async function approveRequest(
 
   // Check if secret already exists for this credential key
   const secrets = await listSecrets();
-  let secret = secrets.find(
-    (s) => s.credentialKey === request.credentialKey,
-  );
+  let secret = secrets.find((s) => s.credentialKey === request.credentialKey);
 
   if (!secret) {
     // Create the secret

@@ -1,11 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
-  IconPlugConnected,
   IconPlus,
-  IconX,
-  IconChevronLeft,
-  IconCopy,
+  IconPencil,
+  IconTrash,
   IconCheck,
+  IconX,
 } from "@tabler/icons-react";
 
 interface AgentInfo {
@@ -16,90 +15,208 @@ interface AgentInfo {
   description?: string;
 }
 
-function AgentDetail({
+function AgentEditPopover({
   agent,
-  onBack,
+  onSave,
   onDelete,
+  onClose,
 }: {
   agent: AgentInfo;
-  onBack: () => void;
+  onSave: (agent: AgentInfo) => void;
   onDelete: (id: string) => void;
+  onClose: () => void;
 }) {
-  const [copied, setCopied] = useState(false);
-  const handleCopy = useCallback(async () => {
-    await navigator.clipboard.writeText(agent.url);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }, [agent.url]);
+  const [name, setName] = useState(agent.name);
+  const [url, setUrl] = useState(agent.url);
+  const [description, setDescription] = useState(agent.description ?? "");
+  const popoverRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (
+        popoverRef.current &&
+        !popoverRef.current.contains(e.target as Node)
+      ) {
+        onClose();
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [onClose]);
+
+  const handleSave = () => {
+    if (!name.trim() || !url.trim()) return;
+    onSave({
+      ...agent,
+      name: name.trim(),
+      url: url.trim(),
+      description: description.trim() || undefined,
+    });
+  };
 
   return (
-    <div>
-      <button
-        onClick={onBack}
-        className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground mb-2"
-      >
-        <IconChevronLeft size={12} />
-        Back
-      </button>
-
-      <div className="flex items-center gap-2 mb-3">
-        <IconPlugConnected size={16} className="text-foreground shrink-0" />
-        <div className="min-w-0">
-          <div className="text-xs font-medium text-foreground truncate">
-            {agent.name}
+    <div
+      ref={popoverRef}
+      className="absolute right-0 top-full z-50 mt-1 w-64 rounded-lg border border-border bg-popover p-2.5 shadow-lg"
+    >
+      <div className="flex flex-col gap-1.5">
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleSave();
+            if (e.key === "Escape") onClose();
+          }}
+          className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+          placeholder="Name"
+        />
+        <input
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleSave();
+            if (e.key === "Escape") onClose();
+          }}
+          className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+          placeholder="URL (e.g. http://localhost:8085)"
+        />
+        <input
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleSave();
+            if (e.key === "Escape") onClose();
+          }}
+          className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+          placeholder="Description (optional)"
+        />
+        <div className="flex items-center justify-between pt-0.5">
+          <button
+            onClick={() => onDelete(agent.id)}
+            className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-red-400 hover:bg-red-900/20"
+          >
+            <IconTrash size={10} />
+            Remove
+          </button>
+          <div className="flex gap-1">
+            <button
+              onClick={onClose}
+              className="rounded px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={!name.trim() || !url.trim()}
+              className="rounded bg-accent px-2 py-0.5 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
+            >
+              Save
+            </button>
           </div>
-          {agent.description && (
-            <div className="text-[10px] text-muted-foreground">
-              {agent.description}
-            </div>
-          )}
         </div>
       </div>
+    </div>
+  );
+}
 
-      <div className="mb-3">
-        <div className="text-[10px] font-medium text-muted-foreground mb-1">
-          A2A Endpoint
-        </div>
-        <div className="flex items-center gap-1">
-          <code className="flex-1 truncate rounded bg-muted px-1.5 py-0.5 text-[10px] text-foreground">
-            {agent.url}
-          </code>
+function AgentAddPopover({
+  onAdd,
+  onClose,
+}: {
+  onAdd: (name: string, url: string, description: string) => void;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [url, setUrl] = useState("");
+  const [description, setDescription] = useState("");
+  const nameRef = useRef<HTMLInputElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const t = setTimeout(() => nameRef.current?.focus(), 50);
+    return () => clearTimeout(t);
+  }, []);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (
+        popoverRef.current &&
+        !popoverRef.current.contains(e.target as Node)
+      ) {
+        onClose();
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [onClose]);
+
+  const handleAdd = () => {
+    if (!name.trim() || !url.trim()) return;
+    onAdd(name.trim(), url.trim(), description.trim());
+  };
+
+  return (
+    <div
+      ref={popoverRef}
+      className="absolute right-0 top-full z-50 mt-1 w-64 rounded-lg border border-border bg-popover p-2.5 shadow-lg"
+    >
+      <div className="flex flex-col gap-1.5">
+        <input
+          ref={nameRef}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleAdd();
+            if (e.key === "Escape") onClose();
+          }}
+          className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+          placeholder="Name"
+        />
+        <input
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleAdd();
+            if (e.key === "Escape") onClose();
+          }}
+          className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+          placeholder="URL (e.g. http://localhost:8085)"
+        />
+        <input
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleAdd();
+            if (e.key === "Escape") onClose();
+          }}
+          className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+          placeholder="Description (optional)"
+        />
+        <div className="flex justify-end gap-1 pt-0.5">
           <button
-            onClick={handleCopy}
-            className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-accent/50"
-            title="Copy URL"
+            onClick={onClose}
+            className="rounded px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground"
           >
-            {copied ? <IconCheck size={12} /> : <IconCopy size={12} />}
+            Cancel
+          </button>
+          <button
+            onClick={handleAdd}
+            disabled={!name.trim() || !url.trim()}
+            className="rounded bg-accent px-2 py-0.5 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
+          >
+            Add
           </button>
         </div>
       </div>
-
-      <div className="rounded-md border border-border bg-muted/30 px-2.5 py-2 text-[10px] text-muted-foreground mb-3">
-        @-mention this agent in chat to send it tasks via the A2A protocol. It
-        will use its own tools and skills to respond.
-      </div>
-
-      <button
-        onClick={() => onDelete(agent.id)}
-        className="w-full rounded-md border border-red-800/50 px-2 py-1.5 text-[11px] font-medium text-red-400 hover:bg-red-900/20"
-      >
-        Remove agent
-      </button>
     </div>
   );
 }
 
 export function AgentsSection() {
-  const [expanded, setExpanded] = useState(false);
-  const [showAdd, setShowAdd] = useState(false);
-  const [selectedAgent, setSelectedAgent] = useState<AgentInfo | null>(null);
-  const [name, setName] = useState("");
-  const [url, setUrl] = useState("");
-  const [description, setDescription] = useState("");
-  const nameRef = useRef<HTMLInputElement>(null);
-
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [loading, setLoading] = useState(true);
+  const [editingAgent, setEditingAgent] = useState<string | null>(null);
+  const [showAdd, setShowAdd] = useState(false);
 
   const fetchAgents = useCallback(async () => {
     try {
@@ -139,28 +256,14 @@ export function AgentsSection() {
     fetchAgents();
   }, [fetchAgents]);
 
-  useEffect(() => {
-    if (showAdd) {
-      setName("");
-      setUrl("");
-      setDescription("");
-      const t = setTimeout(() => nameRef.current?.focus(), 50);
-      return () => clearTimeout(t);
-    }
-  }, [showAdd]);
-
-  const handleAdd = async () => {
-    const trimmedName = name.trim();
-    const trimmedUrl = url.trim();
-    if (!trimmedName || !trimmedUrl) return;
-
-    const id = trimmedName.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+  const handleAdd = async (name: string, url: string, description: string) => {
+    const id = name.toLowerCase().replace(/[^a-z0-9-]/g, "-");
     const agentJson = JSON.stringify(
       {
         id,
-        name: trimmedName,
-        description: description.trim() || undefined,
-        url: trimmedUrl,
+        name,
+        description: description || undefined,
+        url,
         color: "#6B7280",
       },
       null,
@@ -184,144 +287,130 @@ export function AgentsSection() {
     } catch {}
   };
 
+  const handleSave = async (agent: AgentInfo) => {
+    const agentJson = JSON.stringify(
+      {
+        id: agent.path.replace("agents/", "").replace(".json", ""),
+        name: agent.name,
+        description: agent.description || undefined,
+        url: agent.url,
+        color: "#6B7280",
+      },
+      null,
+      2,
+    );
+
+    try {
+      const res = await fetch(`/_agent-native/resources/${agent.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: agentJson }),
+      });
+      if (res.ok) {
+        setEditingAgent(null);
+        fetchAgents();
+      }
+    } catch {}
+  };
+
   const handleDelete = async (agentId: string) => {
     try {
       const res = await fetch(`/_agent-native/resources/${agentId}`, {
         method: "DELETE",
       });
       if (res.ok) {
-        setSelectedAgent(null);
+        setEditingAgent(null);
         fetchAgents();
       }
     } catch {}
   };
 
-  if (selectedAgent) {
-    return (
-      <AgentDetail
-        agent={selectedAgent}
-        onBack={() => setSelectedAgent(null)}
-        onDelete={handleDelete}
-      />
-    );
-  }
-
   return (
     <div>
-      <div className="flex items-center justify-between mb-1.5">
-        <div>
-          <div className="text-xs font-medium text-foreground">
-            Connected Agents
-          </div>
-          <div className="text-[10px] text-muted-foreground">
-            {loading
-              ? "Loading..."
-              : agents.length > 0
-                ? `${agents.length} connected via A2A`
-                : "Connect remote A2A agents"}
-          </div>
+      {/* Header with + button */}
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-[10px] text-muted-foreground">
+          @-mention agents in chat to delegate tasks via A2A.
         </div>
-        <button
-          onClick={() => {
-            if (expanded || showAdd) {
-              setExpanded(false);
-              setShowAdd(false);
-            } else {
-              setExpanded(true);
-            }
-          }}
-          className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
-          title={expanded ? "Collapse" : "Manage agents"}
-        >
-          {expanded || showAdd ? <IconX size={12} /> : <IconPlus size={12} />}
-        </button>
+        <div className="relative">
+          <button
+            onClick={() => {
+              setShowAdd(!showAdd);
+              setEditingAgent(null);
+            }}
+            className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
+            title="Add agent"
+          >
+            {showAdd ? <IconX size={12} /> : <IconPlus size={12} />}
+          </button>
+          {showAdd && (
+            <AgentAddPopover
+              onAdd={handleAdd}
+              onClose={() => setShowAdd(false)}
+            />
+          )}
+        </div>
       </div>
 
-      {(expanded || showAdd) && (
-        <>
-          {!showAdd && (
-            <div className="flex flex-col gap-0.5 mb-1.5">
-              {agents.map((agent) => (
+      {/* Agent list */}
+      {loading ? (
+        <div className="space-y-1.5">
+          <div className="h-6 w-full rounded bg-muted/50 animate-pulse" />
+          <div className="h-6 w-3/4 rounded bg-muted/50 animate-pulse" />
+        </div>
+      ) : agents.length === 0 ? (
+        <button
+          onClick={() => setShowAdd(true)}
+          className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent/30"
+        >
+          <IconPlus size={12} className="shrink-0" />
+          Add agent
+        </button>
+      ) : (
+        <div className="flex flex-col gap-0.5">
+          {agents.map((agent) => (
+            <div key={agent.id} className="group relative">
+              <div className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent/30">
+                <span className="text-[11px] font-medium text-foreground truncate shrink-0">
+                  {agent.name}
+                </span>
+                <span className="flex-1 text-[10px] text-muted-foreground/60 truncate text-right">
+                  {agent.url}
+                </span>
                 <button
-                  key={agent.id}
-                  onClick={() => setSelectedAgent(agent)}
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent/30"
+                  onClick={() => {
+                    setEditingAgent(
+                      editingAgent === agent.id ? null : agent.id,
+                    );
+                    setShowAdd(false);
+                  }}
+                  className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-foreground hover:bg-accent/50"
+                  title="Edit agent"
                 >
-                  <IconPlugConnected
-                    size={13}
-                    className="shrink-0 text-muted-foreground"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[11px] font-medium text-foreground truncate">
-                      {agent.name}
-                    </div>
-                    <div className="text-[10px] text-muted-foreground/60 truncate">
-                      {agent.url}
-                    </div>
-                  </div>
-                </button>
-              ))}
-              <button
-                onClick={() => setShowAdd(true)}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent/30"
-              >
-                <IconPlus size={12} className="shrink-0" />
-                Add agent
-              </button>
-            </div>
-          )}
-
-          {showAdd && (
-            <div className="mb-1.5 flex flex-col gap-1.5 rounded-md border border-border bg-background p-2">
-              <input
-                ref={nameRef}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleAdd();
-                  if (e.key === "Escape") setShowAdd(false);
-                }}
-                className="w-full rounded border border-border bg-background px-2 py-1 text-[12px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-                placeholder="Name"
-              />
-              <input
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleAdd();
-                  if (e.key === "Escape") setShowAdd(false);
-                }}
-                className="w-full rounded border border-border bg-background px-2 py-1 text-[12px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-                placeholder="URL (e.g. http://localhost:8085)"
-              />
-              <input
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleAdd();
-                  if (e.key === "Escape") setShowAdd(false);
-                }}
-                className="w-full rounded border border-border bg-background px-2 py-1 text-[12px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-                placeholder="Description (optional)"
-              />
-              <div className="flex justify-end gap-1.5">
-                <button
-                  onClick={() => setShowAdd(false)}
-                  className="rounded px-2.5 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleAdd}
-                  disabled={!name.trim() || !url.trim()}
-                  className="rounded bg-accent px-2.5 py-1 text-[11px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40 disabled:pointer-events-none"
-                >
-                  Add
+                  <IconPencil size={11} />
                 </button>
               </div>
+              {editingAgent === agent.id && (
+                <AgentEditPopover
+                  agent={agent}
+                  onSave={handleSave}
+                  onDelete={handleDelete}
+                  onClose={() => setEditingAgent(null)}
+                />
+              )}
             </div>
-          )}
-        </>
+          ))}
+          <button
+            onClick={() => {
+              setShowAdd(true);
+              setEditingAgent(null);
+            }}
+            className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent/30"
+          >
+            <IconPlus size={12} className="shrink-0" />
+            Add agent
+          </button>
+        </div>
       )}
     </div>
   );

@@ -132,3 +132,32 @@ export const vaultAuditLog = table("vault_audit_log", {
   metadata: text("metadata"),
   createdAt: integer("created_at").notNull(),
 });
+
+// ─── Workspace Resources: shared skills, instructions, agents ──────
+
+export const workspaceResources = table("workspace_resources", {
+  id: text("id").primaryKey(),
+  ownerEmail: text("owner_email").notNull(),
+  orgId: text("org_id"),
+  kind: text("kind").notNull(), // "skill" | "instruction" | "agent"
+  name: text("name").notNull(),
+  description: text("description"),
+  path: text("path").notNull(), // resource path, e.g. "skills/designer.md"
+  content: text("content").notNull(),
+  scope: text("scope").notNull(), // "all" (push to all apps) | "selected" (grant per-app)
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+export const workspaceResourceGrants = table("workspace_resource_grants", {
+  id: text("id").primaryKey(),
+  ownerEmail: text("owner_email").notNull(),
+  orgId: text("org_id"),
+  resourceId: text("resource_id").notNull(),
+  appId: text("app_id").notNull(),
+  status: text("status").notNull(), // "active" | "revoked"
+  syncedAt: integer("synced_at"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});

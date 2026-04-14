@@ -5,10 +5,12 @@ import {
   IconArrowUpRight,
   IconBellCog,
   IconBrandTelegram,
+  IconKey,
   IconPlugConnected,
   IconBroadcast,
   IconFingerprint,
   IconHistory,
+  IconPuzzle,
   IconShieldCheck,
   IconUsersGroup,
 } from "@tabler/icons-react";
@@ -27,6 +29,8 @@ import {
 
 const NAV_ITEMS = [
   { to: "/overview", label: "Overview", icon: IconBroadcast },
+  { to: "/vault", label: "Vault", icon: IconKey },
+  { to: "/integrations", label: "Integrations", icon: IconPuzzle },
   { to: "/messaging", label: "Messaging", icon: IconBrandTelegram },
   { to: "/agents", label: "Agents", icon: IconPlugConnected },
   { to: "/destinations", label: "Destinations", icon: IconArrowUpRight },
@@ -37,9 +41,9 @@ const NAV_ITEMS = [
 ] as const;
 
 const SIDEBAR_SUGGESTIONS = [
-  "Create a Slack destination for #daily-digest",
-  "Make a Telegram link token for me",
-  "Set up a weekday 8am digest job",
+  "Add a Google OAuth secret to the vault",
+  "What integrations does the analytics app need?",
+  "Grant ANTHROPIC_API_KEY to the mail app",
   "List the connected A2A agents in this workspace",
 ];
 
@@ -72,7 +76,7 @@ export function DispatcherShell({
                     Dispatcher
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    Central inbox and routing
+                    Workspace control plane
                   </div>
                 </div>
               </div>
@@ -112,7 +116,7 @@ export function DispatcherShell({
               <div className="flex items-center gap-2">
                 <SidebarTrigger className="md:hidden" />
                 <div className="text-sm font-medium text-muted-foreground">
-                  Workspace router
+                  Workspace control plane
                 </div>
               </div>
               <AgentToggleButton />

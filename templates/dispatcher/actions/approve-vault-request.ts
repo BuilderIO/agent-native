@@ -13,5 +13,6 @@ export default defineAction({
       .optional()
       .describe("Human-readable name for the secret"),
   }),
-  run: async (args) => approveRequest(args.id, args.secretValue, args.secretName),
+  run: async (args) =>
+    approveRequest(args.id, args.secretValue, args.secretName),
 });

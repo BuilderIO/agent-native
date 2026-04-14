@@ -385,10 +385,10 @@ async function buildCloudflarePages() {
   // The alias is the authoritative fix; the post-build strip stays as belt
   // & suspenders in case esbuild emits a node: string via some other path.
   const builtinNames = getNodeBuiltinNames();
-  const nodeExternals = builtinNames.flatMap((n) => [
-    `--external:${n}`,
-    `--external:node:${n}`,
-  ]);
+  // Only externalize bare names. node:* externals would otherwise pin
+  // the prefix in output; instead we alias node:* → bare so anything that
+  // resolves past alias land as bare externals.
+  const nodeExternals = builtinNames.map((n) => `--external:${n}`);
   const nodeAliases = builtinNames.map((n) => `--alias:node:${n}=${n}`);
 
   execFileSync(

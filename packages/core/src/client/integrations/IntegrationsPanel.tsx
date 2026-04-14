@@ -415,7 +415,10 @@ export function IntegrationsPanel() {
       </div>
 
       {loading ? (
-        <div className="h-4 w-24 rounded bg-muted/50 animate-pulse" />
+        <div className="space-y-1.5">
+          <div className="h-6 w-full rounded bg-muted/50 animate-pulse" />
+          <div className="h-6 w-3/4 rounded bg-muted/50 animate-pulse" />
+        </div>
       ) : connectedPlatforms.length === 0 ? (
         <div className="space-y-2">
           <button
@@ -431,7 +434,7 @@ export function IntegrationsPanel() {
               href="https://dispatcher.agent-native.com"
               target="_blank"
               rel="noopener noreferrer"
-              className="underline text-foreground hover:text-foreground/80"
+              className="no-underline font-medium text-foreground hover:text-foreground/80"
             >
               dispatcher template
             </a>
