@@ -195,9 +195,8 @@ export function AgentsPanel({
                       <AlertDialogHeader>
                         <AlertDialogTitle>Remove this agent?</AlertDialogTitle>
                         <AlertDialogDescription>
-                          “{agent.name}” will be removed from the workspace.
-                          Any jobs or chats that delegate to it will stop
-                          working.
+                          “{agent.name}” will be removed from the workspace. Any
+                          jobs or chats that delegate to it will stop working.
                         </AlertDialogDescription>
                       </AlertDialogHeader>
                       <AlertDialogFooter>

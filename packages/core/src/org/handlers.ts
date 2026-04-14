@@ -28,8 +28,7 @@ function extractMemberEmail(event: H3Event): string | undefined {
   if (fromRouter) return fromRouter;
   const path = getRequestURL(event).pathname;
   const match =
-    path.match(/^\/([^\/]+)\/?$/) ??
-    path.match(/\/org\/members\/([^\/]+)\/?$/);
+    path.match(/^\/([^\/]+)\/?$/) ?? path.match(/\/org\/members\/([^\/]+)\/?$/);
   return match?.[1] ? decodeURIComponent(match[1]) : undefined;
 }
 const nanoid = (): string =>
