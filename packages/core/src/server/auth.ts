@@ -631,11 +631,7 @@ const migrateLocalDataHandler = defineEventHandler(async (event) => {
     const result = await migrateLocalUserData(session.email);
     return { ok: true, ...result };
   } catch (e: any) {
-    console.error(
-      "[migrate-local-data] Migration threw for",
-      session.email,
-      e,
-    );
+    console.error("[migrate-local-data] Migration threw for", session.email, e);
     setResponseStatus(event, 500);
     return {
       error: e?.message || "Migration failed",
