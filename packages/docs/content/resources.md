@@ -56,101 +56,27 @@ Workspace resources come in two scopes:
 
 Click the `?` icon in the Workspace toolbar to jump back to these docs at any time.
 
-## Getting Started: a 5-minute walkthrough {#getting-started}
+## Getting Started: a 1-minute walkthrough {#getting-started}
 
-A tour that ends with the agent following your house rules and running a skill you wrote yourself.
+Change how the agent behaves, in 60 seconds.
 
-### 1. Write team instructions in `AGENTS.md`
-
-`AGENTS.md` is a Shared resource the agent reads at the start of every conversation. Anything you put here changes the agent's default behavior for everyone on the team.
-
-1. Open the **Workspace** tab.
-2. In the **Shared** tree, click `AGENTS.md` (it's seeded for you). If it doesn't exist, hit `+` → **File**, name it `AGENTS.md`, scope **Shared**.
-3. Paste this as a starter and tweak:
+1. Open the **Workspace** tab → **Shared** → `AGENTS.md` (create it with `+` → **File** if missing).
+2. Add one rule, e.g.:
 
    ```markdown
-   # Agent Instructions
-
    ## Tone
 
-   Be concise. Lead with the answer, then explain.
-
-   ## Code style
-
-   - TypeScript only, never `.js`
-   - Use `defineAction` for new operations
-   - No browser dialogs (`window.confirm`) — use shadcn `AlertDialog`
-
-   ## Domain context
-
-   We are building an internal scheduling app. "Org" means a customer tenant.
+   Be concise. Lead with the answer.
    ```
 
-4. Save. Open the **Chat** tab and ask the agent a question about your project. It should already be following the tone / style rules.
+3. Save, switch to **Chat**, ask anything — the agent follows the new rule immediately.
 
-**Tip:** when the agent misbehaves, ask it to "update AGENTS.md so this doesn't happen again." It will edit the file for you.
+**Next steps, when you want them:**
 
-### 2. Add your first skill
-
-Skills are focused Markdown files the agent pulls in on demand. They're perfect for "here's exactly how we do X" knowledge that's too long for `AGENTS.md`.
-
-1. In Workspace, click `+` → **Skill**.
-2. Name it `bug-triage`, scope **Shared**.
-3. Replace the body with:
-
-   ```markdown
-   ---
-   name: bug-triage
-   description: Triage a new bug report — reproduce, classify, file.
-   ---
-
-   # Bug Triage
-
-   ## When to use
-
-   Use whenever the user pastes a stack trace or describes a bug.
-
-   ## Steps
-
-   1. Restate the bug in one sentence.
-   2. Identify severity: blocker / major / minor.
-   3. Suggest a minimal reproduction.
-   4. Check existing issues with `gh issue list` before filing a new one.
-   ```
-
-4. Save. Switch to **Chat** and type `/bug-triage` — you should see your skill in the dropdown. Select it, add a bug description, send.
-
-The agent will follow the skill's steps. Skills don't need to be registered anywhere — dropping them under `skills/` is enough.
-
-### 3. Teach the agent with a correction
-
-1. In Chat, ask the agent to do anything small, like "add a new button to the homepage."
-2. When the agent finishes, say: "From now on, always put new buttons in the top-right of the header, not the body."
-3. The agent writes that rule to your Personal `learnings.md`. Next time you ask for a button, it places it correctly — for you, not for teammates.
-
-Open `learnings.md` in Workspace anytime to review or edit what the agent has picked up about you.
-
-### 4. Delegate to a custom sub-agent
-
-When one persona keeps coming up ("review my designs," "write release notes"), turn it into a reusable sub-agent.
-
-1. In Workspace, click `+` → **Agent**.
-2. Pick a prompt like "You are a release-notes writer: terse, user-facing, no jargon."
-3. Save. In Chat, type `@release-notes` and ask it to draft notes from the last few commits.
-
-The sub-agent inherits your model and tools but follows only the instructions you wrote.
-
-### 5. (Optional) Make it recurring
-
-Anything a sub-agent can do on request, a **Scheduled Task** can do on a cron.
-
-1. `+` → **Scheduled Task**.
-2. Give it a name, a cron like `0 9 * * MON`, and a prompt ("Summarize last week's PRs and post to Slack").
-3. Save. See the [recurring jobs docs](https://www.builder.io/c/docs/agent-native-jobs) for the full job runner.
-
----
-
-That's the whole loop: instructions in `AGENTS.md`, on-demand knowledge in `skills/`, reusable personas in `agents/`, and automation in `jobs/`. Everything lives in the database, so it survives deploys and is visible to every user (or just you) based on scope.
+- **Skills** (`+` → **Skill**) — focused how-to files invoked in chat with `/skill-name`.
+- **Agents** (`+` → **Agent**) — reusable sub-agent personas invoked with `@agent-name`.
+- **Scheduled Tasks** (`+` → **Scheduled Task**) — prompts that run on a cron.
+- **learnings.md** — your Personal file the agent auto-updates whenever you correct it.
 
 ## How the Agent Uses Resources {#how-the-agent-uses-resources}
 

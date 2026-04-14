@@ -7,10 +7,7 @@
  */
 
 import { parseArgs, fail } from "../utils.js";
-import {
-  resourcePut,
-  resourceGetByPath,
-} from "../../resources/store.js";
+import { resourcePut, resourceGetByPath } from "../../resources/store.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
 
 const VALID_TYPES = ["user", "feedback", "project", "reference"] as const;
@@ -18,9 +15,7 @@ const VALID_TYPES = ["user", "feedback", "project", "reference"] as const;
 const EMPTY_INDEX = `# Memory Index
 `;
 
-export default async function saveMemoryScript(
-  args: string[],
-): Promise<void> {
+export default async function saveMemoryScript(args: string[]): Promise<void> {
   const parsed = parseArgs(args);
 
   const name = parsed.name;

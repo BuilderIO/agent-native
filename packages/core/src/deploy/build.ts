@@ -376,12 +376,20 @@ async function buildCloudflarePages() {
 
   const esbuildBin = findEsbuild();
 
-  // Externalize node builtins (both bare and node: prefixed) — the require shim handles bare ones,
-  // and CF Workers runtime handles node: prefixed ones via nodejs_compat
-  const nodeExternals = getNodeBuiltinNames().flatMap((n) => [
+  // Externalize node builtins (both bare and node: prefixed) — the require
+  // shim handles bare ones. Also alias every `node:*` specifier to its bare
+  // name so esbuild emits `import from "fs"` everywhere, never
+  // `import from "node:fs"`. CF Pages Functions (wrangler 3.x, nodejs_compat
+  // v1) rejects the `node:` prefix in chunks with:
+  //   No such module "node:fs" imported from chunks/...
+  // The alias is the authoritative fix; the post-build strip stays as belt
+  // & suspenders in case esbuild emits a node: string via some other path.
+  const builtinNames = getNodeBuiltinNames();
+  const nodeExternals = builtinNames.flatMap((n) => [
     `--external:${n}`,
     `--external:node:${n}`,
   ]);
+  const nodeAliases = builtinNames.map((n) => `--alias:node:${n}=${n}`);
 
   execFileSync(
     esbuildBin,
@@ -410,6 +418,8 @@ async function buildCloudflarePages() {
       `--banner:js=${generateRequireShim()}`,
       // Externalize node: builtins — CF Workers runtime provides them
       ...nodeExternals,
+      // Rewrite node:* -> bare names so chunks never contain node: imports
+      ...nodeAliases,
     ],
     { stdio: "inherit", cwd },
   );
