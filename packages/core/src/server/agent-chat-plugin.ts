@@ -1942,6 +1942,7 @@ export function createAgentChatPlugin(
     const prodActions = {
       ...templateScripts,
       ...resourceScripts,
+      ...docsScripts,
       ...chatScripts,
       ...callAgentScript,
       ...teamTools,
@@ -1998,6 +1999,7 @@ export function createAgentChatPlugin(
       // listed in the dev system prompt's "Available Actions" section.
       const devActions = {
         ...resourceScripts,
+        ...docsScripts,
         ...chatScripts,
         ...callAgentScript,
         ...teamTools,
