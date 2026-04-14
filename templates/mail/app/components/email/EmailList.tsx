@@ -279,9 +279,6 @@ export function EmailList({
     // Enter on a single focused row is a single-thread action — clear any
     // in-progress multi-selection so shortcuts in detail view start fresh.
     setSelectedIds(new Set());
-    if (thread.hasUnread) {
-      markThreadRead.mutate(targetThreadId);
-    }
     void ensureThread(targetThreadId);
     if ((window as any).__cacheDebug) {
       console.log(
@@ -289,6 +286,15 @@ export function EmailList({
       );
     }
     navigate(`/${view}/${targetThreadId}${labelSuffix}`);
+    // Defer the mark-read mutation until AFTER navigation commits. Its
+    // optimistic update rebuilds the emails cache (new array refs across
+    // every page), which — if it runs before the navigate commit — stalls
+    // React reconciliation and delays the detail view's first render by
+    // hundreds of ms. setTimeout(0) pushes it to the next macrotask, after
+    // React has finished committing the navigation.
+    if (thread.hasUnread) {
+      setTimeout(() => markThreadRead.mutate(targetThreadId), 0);
+    }
     if ((window as any).__cacheDebug) {
       console.log(
         `[nav] openFocused navigate-returned ${performance.now().toFixed(0)}`,
@@ -640,9 +646,6 @@ export function EmailList({
       onDraftOpen(email);
       return;
     }
-    if (thread.hasUnread) {
-      markThreadRead.mutate(targetThreadId);
-    }
     void ensureThread(targetThreadId);
     if ((window as any).__cacheDebug) {
       console.log(
@@ -650,6 +653,11 @@ export function EmailList({
       );
     }
     navigate(`/${view}/${targetThreadId}${labelSuffix}`);
+    // Defer the optimistic mark-read until after navigation commits — see
+    // matching comment in openFocused above.
+    if (thread.hasUnread) {
+      setTimeout(() => markThreadRead.mutate(targetThreadId), 0);
+    }
     if ((window as any).__cacheDebug) {
       console.log(
         `[nav] handleSelect navigate-returned ${performance.now().toFixed(0)}`,

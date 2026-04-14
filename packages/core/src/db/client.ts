@@ -272,9 +272,9 @@ async function initClient(): Promise<void> {
           const rawSql = typeof sql === "string" ? sql : sql.sql;
           const args = typeof sql === "string" ? [] : sql.args || [];
           const pgSql = sqliteToPostgresParams(rawSql);
-          const result: any = await retryOnConnectionError(() =>
-            pool.unsafe(pgSql, args as any[]),
-          );
+          const result = await retryOnConnectionError<
+            ArrayLike<unknown> & { count?: number }
+          >(() => pool.unsafe(pgSql, args as any[]));
           return {
             rows: Array.from(result),
             rowsAffected: result.count ?? 0,

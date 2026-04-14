@@ -364,11 +364,15 @@ export function EmailThread({
   const markRead = useMarkRead();
   const markThreadRead = useMarkThreadRead();
 
-  // Auto-mark all unread messages in this thread as read when viewed
+  // Auto-mark all unread messages in this thread as read when viewed.
+  // Defer the mutation past the commit so its optimistic emails-cache update
+  // doesn't re-render the detail view we just finished mounting.
   const hasUnread = messages.some((m) => !m.isRead);
   useEffect(() => {
     if (threadId && hasUnread) {
-      markThreadRead.mutate(threadId);
+      const id = threadId;
+      const handle = setTimeout(() => markThreadRead.mutate(id), 0);
+      return () => clearTimeout(handle);
     }
     // Only trigger when threadId changes or messages load with unread
     // eslint-disable-next-line react-hooks/exhaustive-deps
