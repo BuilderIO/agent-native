@@ -44,13 +44,9 @@ async function fetchThread(threadId: string): Promise<EmailMessage[]> {
 }
 
 function log(...args: unknown[]) {
-  if (typeof window !== "undefined") {
+  if (typeof window !== "undefined" && (window as any).__cacheDebug) {
     console.log("[thread-cache]", performance.now().toFixed(0), ...args);
   }
-}
-
-if (typeof window !== "undefined") {
-  console.log("[thread-cache] MODULE LOADED");
 }
 
 export function getCachedThread(threadId: string): EmailMessage[] | undefined {
