@@ -32,9 +32,7 @@ export function getEmailProvider(): EmailProvider {
 
 function getFromAddress(override?: string): string {
   return (
-    override ||
-    process.env.EMAIL_FROM ||
-    "Agent Native <onboarding@resend.dev>"
+    override || process.env.EMAIL_FROM || "Agent Native <onboarding@resend.dev>"
   );
 }
 

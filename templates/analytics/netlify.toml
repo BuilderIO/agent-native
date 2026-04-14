@@ -1,0 +1,6 @@
+[build]
+  command = "pnpm install && NITRO_PRESET=netlify pnpm --filter analytics build"
+  publish = "dist"
+
+[build.environment]
+  NITRO_PRESET = "netlify"

@@ -128,6 +128,66 @@ const authStep: OnboardingStep = {
   },
 };
 
+/** Step 4 — transactional email (password resets, invitations). Optional. */
+const emailStep: OnboardingStep = {
+  id: "email",
+  order: 40,
+  required: false,
+  title: "Email delivery",
+  description:
+    "Needed to send password reset links and future invitation emails. Without a provider, reset emails are logged to the server console.",
+  methods: [
+    {
+      id: "resend",
+      kind: "form",
+      label: "Use Resend",
+      description: "Paste an API key from resend.com.",
+      primary: true,
+      badge: "recommended",
+      payload: {
+        writeScope: "workspace",
+        fields: [
+          {
+            key: "RESEND_API_KEY",
+            label: "RESEND_API_KEY",
+            placeholder: "re_...",
+            secret: true,
+          },
+          {
+            key: "EMAIL_FROM",
+            label: "EMAIL_FROM (from address)",
+            placeholder: "Agent Native <noreply@yourdomain.com>",
+          },
+        ],
+      },
+    },
+    {
+      id: "sendgrid",
+      kind: "form",
+      label: "Use SendGrid",
+      description: "Paste an API key from sendgrid.com.",
+      payload: {
+        writeScope: "workspace",
+        fields: [
+          {
+            key: "SENDGRID_API_KEY",
+            label: "SENDGRID_API_KEY",
+            placeholder: "SG....",
+            secret: true,
+          },
+          {
+            key: "EMAIL_FROM",
+            label: "EMAIL_FROM (from address)",
+            placeholder: "Agent Native <noreply@yourdomain.com>",
+          },
+        ],
+      },
+    },
+  ],
+  isComplete: () =>
+    !!(process.env.RESEND_API_KEY || process.env.SENDGRID_API_KEY),
+};
+
 let registered = false;
 
 /** Idempotent. Safe to call from every plugin-mount call. */
@@ -137,4 +197,5 @@ export function registerDefaultOnboardingSteps(): void {
   registerOnboardingStep(llmStep);
   registerOnboardingStep(databaseStep);
   registerOnboardingStep(authStep);
+  registerOnboardingStep(emailStep);
 }

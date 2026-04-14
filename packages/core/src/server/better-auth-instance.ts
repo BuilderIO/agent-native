@@ -341,6 +341,21 @@ async function createBetterAuthInstance(
     emailAndPassword: {
       enabled: true,
       minPasswordLength: 8,
+      sendResetPassword: async ({ user, token }) => {
+        const resetUrl = `${appUrl}/_agent-native/auth/reset?token=${encodeURIComponent(token)}`;
+        await sendEmail({
+          to: user.email,
+          subject: "Reset your password",
+          html:
+            `<p>Hi,</p>` +
+            `<p>Someone requested a password reset for your account. Click the link below to choose a new password. This link expires in 1 hour.</p>` +
+            `<p><a href="${resetUrl}">Reset your password</a></p>` +
+            `<p>If you didn't request this, you can safely ignore this email.</p>`,
+          text:
+            `Reset your password: ${resetUrl}\n\n` +
+            `This link expires in 1 hour. If you didn't request this, you can ignore this email.`,
+        });
+      },
     },
     socialProviders,
     session: {
