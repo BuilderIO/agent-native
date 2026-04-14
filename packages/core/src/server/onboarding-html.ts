@@ -597,10 +597,19 @@ export function getResetPasswordHtml(): string {
     <button type="submit">Save new password</button>
     <p class="msg" id="msg"></p>
   </form>
-  <a class="back" href="/">Back to sign in</a>
+  <a class="back" id="back-link" href="/">Back to sign in</a>
 </div>
 <script>
   (function() {
+    // Derive the app's base path so apps mounted under a prefix
+    // (e.g. /mail, /calendar) get sent home instead of to the root domain.
+    var RESET_PATH = '/_agent-native/auth/reset';
+    var pathname = window.location.pathname;
+    var idx = pathname.indexOf(RESET_PATH);
+    var basePath = (idx >= 0 ? pathname.slice(0, idx) : '') || '';
+    var homeHref = basePath + '/';
+    var backLink = document.getElementById('back-link');
+    if (backLink) backLink.setAttribute('href', homeHref);
     var params = new URLSearchParams(location.search);
     var token = params.get('token') || '';
     var msg = document.getElementById('msg');
@@ -633,7 +642,7 @@ export function getResetPasswordHtml(): string {
         if (res.ok) {
           msg.textContent = 'Password updated — redirecting to sign in…';
           msg.classList.add('show', 'success');
-          setTimeout(function() { window.location.href = '/'; }, 1200);
+          setTimeout(function() { window.location.href = homeHref; }, 1200);
           return;
         }
         var data = await res.json().catch(function() { return {}; });

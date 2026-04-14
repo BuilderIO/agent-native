@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   IconCheck,
   IconExternalLink,
@@ -25,13 +25,29 @@ export function ConnectBuilderCard({
   orgName: initialOrgName,
 }: ConnectBuilderCardProps) {
   const [configured, setConfigured] = useState(initialConfigured);
-  const [orgName, setOrgName] = useState<string | null>(
-    initialOrgName ?? null,
-  );
+  const [orgName, setOrgName] = useState<string | null>(initialOrgName ?? null);
   const [connecting, setConnecting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, []);
 
   const handleConnect = useCallback(async () => {
+    // Clear any in-flight poll from a previous click so intervals can't stack.
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
     setConnecting(true);
     setErr(null);
     try {
@@ -48,16 +64,18 @@ export function ConnectBuilderCard({
         // fall back to the URL baked into the tool result
       }
 
-      const popup = window.open(
-        connectUrl,
-        "_blank",
-        "noopener,noreferrer",
-      );
+      const popup = window.open(connectUrl, "_blank", "noopener,noreferrer");
       if (!popup) throw new Error("Popup blocked — allow popups and retry.");
 
       const start = Date.now();
       const timeoutMs = 5 * 60 * 1000;
-      const interval = setInterval(async () => {
+      const stop = () => {
+        if (pollRef.current) {
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+        }
+      };
+      pollRef.current = setInterval(async () => {
         try {
           const r = await fetch(`${origin}/_agent-native/builder/status`);
           if (!r.ok) return;
@@ -65,13 +83,17 @@ export function ConnectBuilderCard({
             configured: boolean;
             orgName?: string | null;
           };
+          if (!mountedRef.current) {
+            stop();
+            return;
+          }
           if (s.configured) {
-            clearInterval(interval);
+            stop();
             setConfigured(true);
             setOrgName(s.orgName ?? null);
             setConnecting(false);
           } else if (Date.now() - start > timeoutMs) {
-            clearInterval(interval);
+            stop();
             setConnecting(false);
             setErr("Timed out — try again.");
           }
@@ -120,8 +142,7 @@ export function ConnectBuilderCard({
                     <span className="font-medium text-foreground">
                       {orgName}
                     </span>
-                    . LLM access, browser automation, and more are ready to
-                    use.
+                    . LLM access, browser automation, and more are ready to use.
                   </>
                 ) : (
                   <>
@@ -138,9 +159,7 @@ export function ConnectBuilderCard({
               </>
             )}
           </div>
-          {err && (
-            <div className="mt-2 text-xs text-destructive">{err}</div>
-          )}
+          {err && <div className="mt-2 text-xs text-destructive">{err}</div>}
           {!configured && (
             <div className="mt-3">
               <button
