@@ -42,14 +42,15 @@ export function NotionConflictBanner({
   const isWorking = resolveConflict.isPending;
 
   return (
-    <div className="shrink-0 flex items-center gap-2 px-4 py-1.5 border-b border-amber-500/40 bg-amber-100/80 dark:bg-amber-500/10 sm:px-8 md:px-16">
-      <IconAlertTriangle
-        size={14}
-        className="shrink-0 text-amber-600 dark:text-amber-400"
-      />
-      <span className="text-xs text-amber-900 dark:text-amber-100 mr-auto">
-        Notion sync conflict — both sides changed
-      </span>
+    <div className="shrink-0 px-4 pt-12 sm:px-8 sm:pt-14 md:px-16">
+      <div className="flex items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-100/80 dark:bg-amber-500/10 px-3 py-1.5">
+        <IconAlertTriangle
+          size={14}
+          className="shrink-0 text-amber-600 dark:text-amber-400"
+        />
+        <span className="text-xs text-amber-900 dark:text-amber-100 mr-auto">
+          Notion sync conflict — both sides changed
+        </span>
       <Button
         size="sm"
         variant="ghost"
@@ -73,7 +74,8 @@ export function NotionConflictBanner({
           <IconLoader2 size={12} className="mr-1 animate-spin" />
         ) : null}
         Use local
-      </Button>
+        </Button>
+      </div>
     </div>
   );
 }
