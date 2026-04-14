@@ -27,6 +27,7 @@ type Globals = {
   __mailThreadCache?: Map<string, CacheEntry>;
   __mailThreadInflight?: Map<string, Promise<EmailMessage[]>>;
   __mailThreadSubscribers?: Map<string, Set<() => void>>;
+  __mailThreadVersions?: Map<string, number>;
 };
 const g = globalThis as Globals;
 const cache = (g.__mailThreadCache ??= new Map());
@@ -35,6 +36,14 @@ const inflight = (g.__mailThreadInflight ??= new Map());
 // viewing thread A — that cascade was re-running the expensive iframe
 // doc.write() effect in EmailThread on every cache write.
 const subscribers = (g.__mailThreadSubscribers ??= new Map());
+// Version counter per threadId — bumped by invalidateCachedThread so any
+// in-flight fetch started before the invalidate discards its result
+// instead of repopulating stale data.
+const versions = (g.__mailThreadVersions ??= new Map());
+
+function getVersion(threadId: string): number {
+  return versions.get(threadId) ?? 0;
+}
 
 function notify(threadId: string) {
   const set = subscribers.get(threadId);
@@ -148,6 +157,9 @@ export function setCachedThread(threadId: string, messages: EmailMessage[]) {
 export function invalidateCachedThread(threadId: string) {
   cache.delete(threadId);
   inflight.delete(threadId);
+  // Bump the version so any still-pending fetch whose promise hasn't
+  // resolved yet (started with the old version) discards its result.
+  versions.set(threadId, getVersion(threadId) + 1);
   notify(threadId);
   scheduleFlush();
 }
@@ -180,8 +192,16 @@ export function ensureThread(threadId: string): Promise<EmailMessage[]> {
   }
   log("ensureThread FETCH", threadId);
   const t0 = performance.now();
+  const startedVersion = getVersion(threadId);
   const p = fetchThread(threadId)
     .then((messages) => {
+      // If invalidateCachedThread ran while we were in flight, the version
+      // bumped — discard the stale response rather than repopulating.
+      if (getVersion(threadId) !== startedVersion) {
+        inflight.delete(threadId);
+        log("ensureThread DISCARDED (invalidated)", threadId);
+        return messages;
+      }
       cache.set(threadId, { messages, fetchedAt: Date.now() });
       inflight.delete(threadId);
       notify(threadId);
@@ -203,8 +223,14 @@ export function ensureThread(threadId: string): Promise<EmailMessage[]> {
 // subscribers if the content actually changed (avoids re-render churn).
 function backgroundRefresh(threadId: string) {
   log("backgroundRefresh START", threadId);
+  const startedVersion = getVersion(threadId);
   const p = fetchThread(threadId)
     .then((messages) => {
+      if (getVersion(threadId) !== startedVersion) {
+        inflight.delete(threadId);
+        log("backgroundRefresh DISCARDED (invalidated)", threadId);
+        return messages;
+      }
       const prev = cache.get(threadId);
       cache.set(threadId, { messages, fetchedAt: Date.now() });
       inflight.delete(threadId);
@@ -276,13 +302,6 @@ export function useThreadCache(
     };
   }, [threadId]);
 
-  useEffect(() => {
-    if (!threadId) return;
-    if (!cache.has(threadId) && !inflight.has(threadId)) {
-      void ensureThread(threadId);
-    }
-  }, [threadId]);
-
   if (!threadId) {
     return { messages: undefined, isFromCache: false, isLoading: false };
   }
@@ -290,6 +309,15 @@ export function useThreadCache(
   if (hit) {
     log("useThreadCache RENDER HIT", threadId);
     return { messages: hit.messages, isFromCache: true, isLoading: false };
+  }
+  // Kick off the fetch synchronously during render for cold opens so the
+  // hook returns isLoading=true on the first paint. Doing this in useEffect
+  // left isLoading=false for one render, which made callers show the
+  // "Email not found" empty state before the fetch even started.
+  // ensureThread dedupes, so this is safe to call on every render — it'll
+  // only start one network request per thread.
+  if (!inflight.has(threadId)) {
+    void ensureThread(threadId);
   }
   log("useThreadCache RENDER MISS", threadId, "placeholder?", !!placeholder);
   return {

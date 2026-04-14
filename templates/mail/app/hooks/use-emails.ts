@@ -12,6 +12,8 @@ import {
   useThreadCache,
   ensureThread,
   invalidateCachedThread,
+  getCachedThread,
+  setCachedThread,
 } from "@/lib/thread-cache";
 
 // ─── API helpers ─────────────────────────────────────────────────────────────
@@ -105,16 +107,20 @@ export function useAddOptimisticReply() {
       ...(data.accountEmail ? { accountEmail: data.accountEmail } : {}),
     };
 
-    qc.setQueryData<EmailMessage[]>(["thread-messages", threadId], (old) =>
-      [...(old ?? []), optimisticMessage].sort(
+    const prior = getCachedThread(threadId) ?? [];
+    setCachedThread(
+      threadId,
+      [...prior, optimisticMessage].sort(
         (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
       ),
     );
 
     // Return undo function that removes the optimistic message
     return () => {
-      qc.setQueryData<EmailMessage[]>(["thread-messages", threadId], (old) =>
-        (old ?? []).filter((m) => m.id !== optimisticMessage.id),
+      const current = getCachedThread(threadId) ?? [];
+      setCachedThread(
+        threadId,
+        current.filter((m) => m.id !== optimisticMessage.id),
       );
     };
   };
@@ -615,11 +621,6 @@ export function useSendEmail() {
         },
       ),
     onMutate: async (data) => {
-      await qc.cancelQueries({ queryKey: ["thread-messages"] });
-
-      const previousThreads = qc.getQueriesData<EmailMessage[]>({
-        queryKey: ["thread-messages"],
-      });
       const settings = qc.getQueryData<UserSettings>(["settings"]);
       const cachedEmails = qc
         .getQueriesData<InfiniteEmails>({ queryKey: ["emails"] })
@@ -630,17 +631,19 @@ export function useSendEmail() {
       const threadId =
         replyTarget?.threadId || data.replyToId || makeTempId("thread");
 
-      // Check if an optimistic message was already added (by addOptimisticReply)
-      const existingMessages =
-        qc.getQueryData<EmailMessage[]>(["thread-messages", threadId]) ?? [];
+      // Snapshot pre-send thread state so onError can roll back.
+      const previousThread = getCachedThread(threadId);
+
+      // Reuse the optimistic message that addOptimisticReply may have
+      // already inserted, rather than double-adding.
+      const existingMessages = previousThread ?? [];
       const existingOptimistic = existingMessages.find(
         (m) => m.id.startsWith("sent-") && m.isSent,
       );
 
       if (existingOptimistic) {
-        // Reuse the existing optimistic message — don't add another
         return {
-          previousThreads,
+          previousThread,
           optimisticMessage: existingOptimistic,
           threadId,
         };
@@ -670,25 +673,31 @@ export function useSendEmail() {
         ...(data.accountEmail ? { accountEmail: data.accountEmail } : {}),
       };
 
-      qc.setQueryData<EmailMessage[]>(["thread-messages", threadId], (old) =>
-        [...(old ?? []), optimisticMessage].sort(
+      setCachedThread(
+        threadId,
+        [...existingMessages, optimisticMessage].sort(
           (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
         ),
       );
 
-      return { previousThreads, optimisticMessage, threadId };
+      return { previousThread, optimisticMessage, threadId };
     },
     onError: (_err, _vars, context) => {
-      context?.previousThreads.forEach(([key, thread]) => {
-        qc.setQueryData(key, thread);
-      });
+      if (!context) return;
+      if (context.previousThread) {
+        setCachedThread(context.threadId, context.previousThread);
+      } else {
+        invalidateCachedThread(context.threadId);
+      }
     },
     onSuccess: (result, _vars, context) => {
       const threadId = result.threadId || context?.threadId;
       if (!threadId || !context?.optimisticMessage) return;
 
-      qc.setQueryData<EmailMessage[]>(["thread-messages", threadId], (old) =>
-        (old ?? []).map((message) =>
+      const current = getCachedThread(threadId) ?? [];
+      setCachedThread(
+        threadId,
+        current.map((message) =>
           message.id === context.optimisticMessage.id
             ? {
                 ...message,

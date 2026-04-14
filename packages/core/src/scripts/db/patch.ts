@@ -361,9 +361,7 @@ function formatContext(
   const middle = content
     .slice(matchIdx, matchIdx + matchLen)
     .replace(/\s+/g, " ");
-  const after = content
-    .slice(matchIdx + matchLen, end)
-    .replace(/\s+/g, " ");
+  const after = content.slice(matchIdx + matchLen, end).replace(/\s+/g, " ");
   const prefix = start > 0 ? "…" : "";
   const suffix = end < content.length ? "…" : "";
   return `${prefix}${before}⟨${middle}⟩${after}${suffix}`;
