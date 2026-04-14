@@ -272,6 +272,16 @@ let _authGuardFn:
   | null = null;
 
 /**
+ * The H3 app the auth routes + guard were last mounted on. Module-level
+ * state survives Vite HMR restarts, but each HMR cycle creates a fresh
+ * nitroApp/H3 instance whose middleware array is empty again. Tracking the
+ * app here lets autoMountAuth detect "same module state, new app" and
+ * re-mount routes instead of silently skipping them because `_authGuardFn`
+ * looks populated from a previous cycle.
+ */
+let _mountedApp: H3App | null = null;
+
+/**
  * Run the auth guard on an event. Returns a Response/object to block the
  * request (login page or 401), or undefined to allow it through.
  *
@@ -1208,13 +1218,17 @@ export async function autoMountAuth(
   app: H3App,
   options: AuthOptions = {},
 ): Promise<boolean> {
-  // If auth is already mounted (e.g., default plugin ran before custom plugin),
-  // don't re-mount routes — but DO update the live config if custom options
-  // like googleOnly or loginHtml were provided. This fixes the production race
-  // where the default plugin (no googleOnly) mounts first, and the template's
-  // custom auth plugin runs later. Because createAuthGuardFn() reads from
-  // _authGuardConfig on every request, updating it here takes effect immediately.
-  if (_authGuardFn) {
+  // If auth is already mounted on THIS app (e.g., default plugin ran before
+  // custom plugin in the same server boot), don't re-mount routes — but DO
+  // update the live config if custom options like googleOnly or loginHtml
+  // were provided. createAuthGuardFn() reads from _authGuardConfig on every
+  // request, so updating it here takes effect immediately.
+  //
+  // We gate on `_mountedApp === app` because module-level state survives
+  // Vite HMR — without this check, an HMR-restarted Nitro instance (fresh
+  // H3 app, empty middleware) would short-circuit here and end up with no
+  // auth routes mounted at all.
+  if (_authGuardFn && _mountedApp === app) {
     if (_authGuardConfig) {
       if (options.googleOnly || options.loginHtml) {
         _authGuardConfig.loginHtml =
@@ -1230,6 +1244,12 @@ export async function autoMountAuth(
     }
     return true;
   }
+
+  // Fresh app (first boot, or HMR created a new Nitro instance) — reset
+  // the guard so the mount path below installs it on the new app.
+  _authGuardFn = null;
+  _authGuardConfig = null;
+  _mountedApp = app;
 
   if (!app) {
     if ((await isLocalModeEnabled()) || isDevEnvironment()) {
