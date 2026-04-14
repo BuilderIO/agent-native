@@ -38,10 +38,15 @@ let _lastSettingsTs = 0;
 /**
  * Tracks the latest updated_at seen on the `__screen_refresh__` key in
  * application_state. Bumped when the agent calls the `refresh-screen` tool,
- * and surfaced as a distinct `screen-refresh` event so clients can invalidate
- * ALL react-query caches (not just the ones matching their queryKey prefix).
+ * and surfaced as a distinct `screen-refresh` event so clients can remount
+ * the main content subtree via React key.
+ *
+ * `_screenRefreshInitialized` guards against spurious emits on the first
+ * poll after a restart (where an existing row would look like a fresh bump).
+ * Once we've taken a baseline reading, any subsequent increase emits.
  */
 let _lastScreenRefreshTs = 0;
+let _screenRefreshInitialized = false;
 const SCREEN_REFRESH_KEY = "__screen_refresh__";
 
 /** Get the current global version counter. */
@@ -110,23 +115,27 @@ async function checkExternalDbChanges(): Promise<void> {
       args: [SCREEN_REFRESH_KEY],
     });
     const refreshTs = Number(refreshResult.rows[0]?.updated_at) || 0;
-    if (refreshTs > _lastScreenRefreshTs) {
-      if (_lastScreenRefreshTs > 0) {
-        let scope: string | undefined;
-        try {
-          const raw = refreshResult.rows[0]?.value;
-          if (typeof raw === "string") {
-            const parsed = JSON.parse(raw);
-            if (typeof parsed?.scope === "string") scope = parsed.scope;
-          }
-        } catch {}
-        recordChange({
-          source: "screen-refresh",
-          type: "change",
-          key: SCREEN_REFRESH_KEY,
-          ...(scope ? { scope } : {}),
-        });
-      }
+    if (!_screenRefreshInitialized) {
+      // First poll — take a baseline so we don't emit for the existing row
+      // (if any). Subsequent increases will emit normally, including the
+      // very next `refresh-screen` call made by the agent.
+      _lastScreenRefreshTs = refreshTs;
+      _screenRefreshInitialized = true;
+    } else if (refreshTs > _lastScreenRefreshTs) {
+      let scope: string | undefined;
+      try {
+        const raw = refreshResult.rows[0]?.value;
+        if (typeof raw === "string") {
+          const parsed = JSON.parse(raw);
+          if (typeof parsed?.scope === "string") scope = parsed.scope;
+        }
+      } catch {}
+      recordChange({
+        source: "screen-refresh",
+        type: "change",
+        key: SCREEN_REFRESH_KEY,
+        ...(scope ? { scope } : {}),
+      });
       _lastScreenRefreshTs = refreshTs;
     }
 
