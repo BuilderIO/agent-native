@@ -61,6 +61,10 @@ export function useNavigationState() {
 }
 
 function resolveView(pathname: string): string {
+  if (pathname.startsWith("/vault")) return "vault";
+  if (pathname.startsWith("/integrations")) return "integrations";
+  if (pathname.startsWith("/workspace")) return "workspace";
+  if (pathname.startsWith("/agents")) return "agents";
   if (pathname.startsWith("/destinations")) return "destinations";
   if (pathname.startsWith("/identities")) return "identities";
   if (pathname.startsWith("/approvals")) return "approvals";
@@ -73,7 +77,18 @@ function resolvePath(view?: string): string | undefined {
   switch (view) {
     case "overview":
       return "/overview";
+    case "vault":
+    case "secrets":
+      return "/vault";
+    case "integrations":
+      return "/integrations";
+    case "workspace":
+    case "resources":
+      return "/workspace";
+    case "agents":
+      return "/agents";
     case "destinations":
+    case "messaging":
     case "routes":
       return "/destinations";
     case "identities":

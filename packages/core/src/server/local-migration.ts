@@ -29,23 +29,51 @@ export interface LocalMigrationResult {
   tables: Record<string, number>;
   /** Target email the data now belongs to. */
   targetEmail: string;
+  /**
+   * Non-fatal per-step errors encountered during migration. One bad table
+   * no longer fails the whole upgrade — we migrate everything we can and
+   * report any steps that threw here so the UI can surface them.
+   */
+  errors?: Array<{ step: string; message: string }>;
 }
 
-/** Discover every table that has an `owner_email` column. */
+/**
+ * Error messages that indicate a missing/inaccessible table or column — the
+ * migration treats these as "feature not enabled" and skips silently.
+ */
+const SCHEMA_SKIP_ERR =
+  /no such table|no such column|does not exist|undefined table|undefined column|relation .* does not exist|column .* does not exist|permission denied|is not a table|cannot update view|cannot change column in a view/i;
+
+function shouldSkipSchemaError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return SCHEMA_SKIP_ERR.test(message);
+}
+
+/**
+ * Discover every table (not view) in `public` that has an `owner_email`
+ * column. Views and materialized views are excluded — they can't be updated
+ * directly and would 500 the migration.
+ */
 async function discoverOwnerEmailTables(): Promise<string[]> {
   const client = getDbExec();
   if (isPostgres()) {
+    // Join against information_schema.tables to filter out views and
+    // materialized views (anything that isn't a plain BASE TABLE).
     const { rows } = await client.execute({
-      sql: `SELECT table_name
-              FROM information_schema.columns
-             WHERE table_schema = 'public'
-               AND column_name = $1`,
+      sql: `SELECT c.table_name
+              FROM information_schema.columns c
+              JOIN information_schema.tables t
+                ON t.table_schema = c.table_schema
+               AND t.table_name = c.table_name
+             WHERE c.table_schema = 'public'
+               AND c.column_name = $1
+               AND t.table_type = 'BASE TABLE'`,
       args: [OWNER_COLUMN],
     });
     return rows.map((r: any) => r.table_name ?? r[0]).filter(Boolean);
   }
 
-  // SQLite path: iterate tables and inspect columns via PRAGMA
+  // SQLite path: iterate tables (type='table', not 'view') and inspect columns via PRAGMA
   const tablesRes = await client.execute(
     `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`,
   );
@@ -209,23 +237,29 @@ export async function migrateLocalUserData(
     ["application_state", () => migrateApplicationState(email)],
     ["oauth_tokens", () => migrateOauthTokens(email)],
   ];
+  const errors: Array<{ step: string; message: string }> = [];
   for (const [name, fn] of coreSteps) {
     try {
       const count = await fn();
       if (count > 0) tables[name] = count;
     } catch (err: any) {
-      // Missing table or column — skip silently.
-      if (!/no such table|does not exist|undefined table/i.test(String(err))) {
-        throw err;
+      // Missing table or column — skip silently. Other errors are logged
+      // per-step so one bad table doesn't 500 the entire migration.
+      if (!shouldSkipSchemaError(err)) {
+        const message = err?.message ?? String(err);
+        errors.push({ step: name, message });
+        console.error(`[local-migration] ${name} failed:`, err);
       }
     }
   }
 
-  // Template tables — discovered dynamically.
+  // Template tables — discovered dynamically. If discovery itself fails,
+  // fall back to an empty list so the migration doesn't 500.
   let templateTables: string[] = [];
   try {
     templateTables = await discoverOwnerEmailTables();
-  } catch {
+  } catch (err) {
+    console.error("[local-migration] owner_email table discovery failed:", err);
     templateTables = [];
   }
   for (const table of templateTables) {
@@ -233,12 +267,16 @@ export async function migrateLocalUserData(
       const count = await migrateOwnerEmailTable(table, email);
       if (count > 0) tables[table] = count;
     } catch (err: any) {
-      if (!/no such table|does not exist|undefined table/i.test(String(err))) {
-        throw err;
+      if (!shouldSkipSchemaError(err)) {
+        const message = err?.message ?? String(err);
+        errors.push({ step: table, message });
+        console.error(`[local-migration] ${table} failed:`, err);
       }
     }
   }
 
   const migrated = Object.values(tables).some((n) => n > 0);
-  return { migrated, tables, targetEmail: email };
+  const result: LocalMigrationResult = { migrated, tables, targetEmail: email };
+  if (errors.length > 0) result.errors = errors;
+  return result;
 }

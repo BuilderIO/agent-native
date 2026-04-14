@@ -32,6 +32,7 @@ import { getSetting, putSetting } from "../settings/store.js";
 import { getSession } from "./auth.js";
 import { getOrigin } from "./google-oauth.js";
 import { findWorkspaceRoot } from "../scripts/utils.js";
+import { listOnboardingSteps } from "../onboarding/registry.js";
 import {
   uploadFile,
   getActiveFileUploadProvider,
@@ -235,7 +236,26 @@ export function createCoreRoutesPlugin(
     ];
     {
       const envKeys = [...frameworkEnvKeys, ...(options.envKeys ?? [])];
-      const allowedKeys = new Set(envKeys.map((k) => k.key));
+
+      // Onboarding form fields are resolved per-request so late-registered
+      // steps (and template overrides) are picked up without a restart.
+      const collectOnboardingKeys = (): Set<string> => {
+        const keys = new Set<string>();
+        for (const step of listOnboardingSteps()) {
+          for (const method of step.methods) {
+            if (method.kind === "form") {
+              for (const field of method.payload.fields) {
+                if (field?.key) keys.add(field.key);
+              }
+            }
+            if (method.kind === "builder-cli-auth") {
+              keys.add("BUILDER_PRIVATE_KEY");
+              keys.add("BUILDER_PUBLIC_KEY");
+            }
+          }
+        }
+        return keys;
+      };
 
       getH3App(nitroApp).use(
         `${P}/env-status`,
@@ -267,12 +287,31 @@ export function createCoreRoutesPlugin(
             return { error: "vars array required" };
           }
 
+          const allowedKeys = new Set<string>([
+            ...envKeys.map((k) => k.key),
+            ...collectOnboardingKeys(),
+          ]);
+
           const filtered = vars.filter(
-            (v) => typeof v.key === "string" && allowedKeys.has(v.key),
+            (v) =>
+              typeof v.key === "string" &&
+              allowedKeys.has(v.key) &&
+              typeof v.value === "string" &&
+              v.value.trim().length > 0,
           );
           if (filtered.length === 0) {
             setResponseStatus(event, 400);
-            return { error: "No recognized env keys in request" };
+            const rejectedEmpty = vars.some(
+              (v) =>
+                typeof v.key === "string" &&
+                allowedKeys.has(v.key) &&
+                (typeof v.value !== "string" || v.value.trim().length === 0),
+            );
+            return {
+              error: rejectedEmpty
+                ? "Env values must be non-empty — refusing to clear a saved key"
+                : "No recognized env keys in request",
+            };
           }
 
           // Write to .env file. When inside a workspace, write to the

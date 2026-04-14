@@ -2,9 +2,17 @@ import {
   createAgentChatPlugin,
   autoDiscoverActions,
 } from "@agent-native/core/server";
+import { getOrgContext } from "@agent-native/core/org";
 
 export default createAgentChatPlugin({
   appId: "dispatch",
+  // Without this, AGENT_ORG_ID is never set on agent action calls and every
+  // row written through the frontend (vault secrets, destinations, workspace
+  // resources) lands with org_id=NULL — breaking data isolation across orgs.
+  resolveOrgId: async (event) => {
+    const ctx = await getOrgContext(event);
+    return ctx.orgId;
+  },
   actions: () => autoDiscoverActions(import.meta.url),
   systemPrompt: `You are the central dispatch for this workspace.
 
