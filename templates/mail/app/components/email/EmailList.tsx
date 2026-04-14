@@ -13,6 +13,7 @@ import {
   useUnarchiveEmail,
   useTrashEmail,
   useUntrashEmail,
+  unsuppressThread,
 } from "@/hooks/use-emails";
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { ensureThread, warmThreads } from "@/lib/thread-cache";
@@ -333,6 +334,7 @@ export function EmailList({
     for (const id of emailIds) onArchived?.(id);
 
     const undo = () => {
+      for (const key of threadKeys) unsuppressThread(key);
       queryClient.setQueriesData<InfiniteEmails>(
         { queryKey: ["emails"] },
         (old) => {
@@ -415,6 +417,7 @@ export function EmailList({
     }
 
     const undo = () => {
+      for (const key of threadKeys) unsuppressThread(key);
       queryClient.setQueriesData<InfiniteEmails>(
         { queryKey: ["emails"] },
         (old) => {
@@ -657,6 +660,7 @@ export function EmailList({
       onArchived?.(id);
 
       const undo = () => {
+        unsuppressThread(tid);
         queryClient.setQueriesData<InfiniteEmails>(
           { queryKey: ["emails"] },
           (old) => {

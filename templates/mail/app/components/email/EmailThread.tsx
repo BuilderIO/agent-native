@@ -23,6 +23,7 @@ import {
   useUnarchiveEmail,
   useSettings,
   useUpdateSettings,
+  unsuppressThread,
 } from "@/hooks/use-emails";
 import { useQueryClient } from "@tanstack/react-query";
 import { ensureThread, warmThreads } from "@/lib/thread-cache";
@@ -531,24 +532,12 @@ export function EmailThread({
 
     if (targets.length === 0) return;
 
-    // Snapshot thread emails from cache so undo can restore them instantly.
-    const cached = queryClient
-      .getQueriesData<EmailMessage[]>({ queryKey: ["emails"] })
-      .flatMap(([, data]) => data ?? []);
-    const keySet = new Set(threadKeys);
-    const snapshot = cached.filter((e) => keySet.has(e.threadId || e.id));
-
     for (const t of targets) onArchived?.(t.id);
 
     const undo = () => {
-      queryClient.setQueriesData<EmailMessage[]>(
-        { queryKey: ["emails"] },
-        (old) =>
-          [...(old ?? []), ...snapshot].sort(
-            (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
-          ),
-      );
+      for (const key of threadKeys) unsuppressThread(key);
       for (const t of targets) unarchiveEmail.mutate(t.id);
+      queryClient.invalidateQueries({ queryKey: ["emails"] });
     };
     setUndoAction(undo);
     toast(
@@ -600,21 +589,10 @@ export function EmailThread({
 
     if (targets.length === 0) return;
 
-    const cached = queryClient
-      .getQueriesData<EmailMessage[]>({ queryKey: ["emails"] })
-      .flatMap(([, data]) => data ?? []);
-    const keySet = new Set(threadKeys);
-    const snapshot = cached.filter((e) => keySet.has(e.threadId || e.id));
-
     const undo = () => {
-      queryClient.setQueriesData<EmailMessage[]>(
-        { queryKey: ["emails"] },
-        (old) =>
-          [...(old ?? []), ...snapshot].sort(
-            (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
-          ),
-      );
+      for (const key of threadKeys) unsuppressThread(key);
       for (const t of targets) untrashEmail.mutate(t.id);
+      queryClient.invalidateQueries({ queryKey: ["emails"] });
     };
     setUndoAction(undo);
     toast(
