@@ -66,8 +66,10 @@ const MAX_L1_ENTRIES = 200;
 
 const l1Cache = new Map<string, L1Entry>();
 
-function getCacheKey(sql: string): string {
-  return createHash("sha256").update(sql).digest("hex");
+function getCacheKey(sql: string, projectId: string): string {
+  // Scope by project so reconnecting BigQuery to a different GCP project
+  // doesn't serve stale results from the previous project's data.
+  return createHash("sha256").update(`${projectId}\n${sql}`).digest("hex");
 }
 
 function getL1(key: string): QueryResult | null {
@@ -131,6 +133,15 @@ async function setL2(
         expiresAt.toISOString(),
       ],
     });
+    // Opportunistically prune expired rows so the cache table doesn't grow
+    // unbounded — the explorer accepts arbitrary SQL so the keyspace is huge.
+    // Run ~1% of the time to avoid thrashing on every write.
+    if (Math.random() < 0.01) {
+      await db.execute({
+        sql: "DELETE FROM bigquery_cache WHERE expires_at <= ?",
+        args: [now.toISOString()],
+      });
+    }
   } catch (err) {
     console.warn("[bigquery] L2 cache write failed:", err);
   }
@@ -220,7 +231,8 @@ export async function runQuery(sql: string): Promise<QueryResult> {
   let resolvedSql = await resolveTablePlaceholder(sql);
   resolvedSql = filterDevSchema(resolvedSql);
 
-  const cacheKey = getCacheKey(resolvedSql);
+  const projectId = await getProjectId();
+  const cacheKey = getCacheKey(resolvedSql, projectId);
   const l1Hit = getL1(cacheKey);
   if (l1Hit) {
     return { ...l1Hit, cached: true };
@@ -232,7 +244,6 @@ export async function runQuery(sql: string): Promise<QueryResult> {
   }
 
   const token = await getAccessToken();
-  const projectId = await getProjectId();
   const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/queries`;
 
   const res = await fetch(url, {

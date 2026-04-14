@@ -32,6 +32,7 @@ import { createAgentChatAdapter } from "./agent-chat-adapter.js";
 import { type ContentPart, readSSEStreamRaw } from "./sse-event-processor.js";
 import { cn } from "./utils.js";
 import { AgentTaskCard } from "./AgentTaskCard.js";
+import { ConnectBuilderCard } from "./ConnectBuilderCard.js";
 import {
   TiptapComposer,
   type TiptapComposerHandle,
@@ -254,6 +255,24 @@ function ToolCallDisplay({
       streamRef.current.scrollTop = streamRef.current.scrollHeight;
     }
   }, [agentStreamText, isAgentCall, isRunning]);
+
+  // Render connect-builder as ConnectBuilderCard once the result is available
+  if (toolName === "connect-builder" && result) {
+    try {
+      const parsed = JSON.parse(result);
+      if (parsed?.kind === "connect-builder-card") {
+        return (
+          <ConnectBuilderCard
+            configured={!!parsed.configured}
+            connectUrl={parsed.connectUrl || ""}
+            orgName={parsed.orgName ?? null}
+          />
+        );
+      }
+    } catch {
+      // fall through to default pill rendering
+    }
+  }
 
   // Render spawn-task as AgentTaskCard once the result is available
   if (toolName === "spawn-task" && result) {

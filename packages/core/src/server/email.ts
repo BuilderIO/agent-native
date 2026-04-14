@@ -30,15 +30,22 @@ export function getEmailProvider(): EmailProvider {
   return "dev";
 }
 
-function getFromAddress(override?: string): string {
-  return (
-    override || process.env.EMAIL_FROM || "Agent Native <onboarding@resend.dev>"
-  );
+function getFromAddress(override?: string, provider?: EmailProvider): string {
+  const explicit = override || process.env.EMAIL_FROM;
+  if (explicit) return explicit;
+  // Resend lets unverified accounts send from its sandbox domain; SendGrid
+  // does not, so falling back there would cause silent 403s at runtime.
+  if (provider === "sendgrid") {
+    throw new Error(
+      "EMAIL_FROM is required when using SendGrid — set it to a verified sender address.",
+    );
+  }
+  return "Agent Native <onboarding@resend.dev>";
 }
 
 export async function sendEmail(args: SendEmailArgs): Promise<void> {
   const provider = getEmailProvider();
-  const from = getFromAddress(args.from);
+  const from = getFromAddress(args.from, provider);
 
   if (provider === "resend") {
     const res = await fetch("https://api.resend.com/emails", {
@@ -86,7 +93,14 @@ export async function sendEmail(args: SendEmailArgs): Promise<void> {
     return;
   }
 
-  // Dev fallback — no provider configured. Log so the reset link is recoverable.
+  // Dev fallback — no provider configured. Logging the full body exposes
+  // reset tokens, so only do it outside production. In production, refuse
+  // to send rather than silently leaking secrets to logs.
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "No email provider configured. Set RESEND_API_KEY or SENDGRID_API_KEY.",
+    );
+  }
   console.log(
     `\n[agent-native:email] No email provider configured. ` +
       `Set RESEND_API_KEY or SENDGRID_API_KEY to send real emails.\n` +
