@@ -74,16 +74,18 @@ async function injectSessionAndReload(token: string) {
     // the app actually talks to. Dev-mode always gets the frame origin;
     // prod-mode gets the configured URL if available.
     const isProdMode = appConfig.mode !== "dev";
+    let origin = frameOrigin;
     if (isProdMode && appConfig.url) {
       try {
-        targets.push({
-          session: sess,
-          origin: new URL(appConfig.url).origin,
-        });
-      } catch {}
-    } else {
-      targets.push({ session: sess, origin: frameOrigin });
+        origin = new URL(appConfig.url).origin;
+      } catch (err) {
+        console.error(
+          `[main] invalid production URL for ${appConfig.id} (${appConfig.url}); falling back to frame origin:`,
+          err,
+        );
+      }
     }
+    targets.push({ session: sess, origin });
   }
   // Also cover any currently-live webview origins not matched above
   // (e.g. production URLs).
