@@ -225,7 +225,7 @@ export function AgentsSection() {
       const data = await res.json();
       const agentResources = (data.resources ?? []).filter(
         (r: { path: string }) =>
-          r.path.startsWith("agents/") && r.path.endsWith(".json"),
+          r.path.startsWith("remote-agents/") && r.path.endsWith(".json"),
       );
       const parsed = await Promise.all(
         agentResources.map(async (r: { id: string; path: string }) => {
@@ -275,7 +275,7 @@ export function AgentsSection() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          path: `agents/${id}.json`,
+          path: `remote-agents/${id}.json`,
           content: agentJson,
           shared: true,
         }),
@@ -290,7 +290,10 @@ export function AgentsSection() {
   const handleSave = async (agent: AgentInfo) => {
     const agentJson = JSON.stringify(
       {
-        id: agent.path.replace("agents/", "").replace(".json", ""),
+        id: agent.path
+          .replace("remote-agents/", "")
+          .replace("agents/", "")
+          .replace(".json", ""),
         name: agent.name,
         description: agent.description || undefined,
         url: agent.url,

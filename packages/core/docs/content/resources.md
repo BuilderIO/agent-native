@@ -17,15 +17,15 @@ The **Workspace** tab is where you and the agent share persistent files — note
 
 ## What goes in here? {#what-goes-in-here}
 
-| File / path               | What it's for                                                                                          |
-| ------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `AGENTS.md` (Shared)      | Team instructions the agent reads every turn — tone, rules, domain context, skill references.          |
-| `learnings.md` (Personal) | Corrections and preferences the agent records per user so it doesn't repeat mistakes.                  |
-| `skills/<name>.md`        | Focused domain guidance the agent pulls in on demand (invoked with `/` slash commands).                |
-| `agents/<name>.md`        | **Custom agents** — reusable sub-agent profiles the agent can delegate to (invoked with `@` mentions). |
-| `agents/<name>.json`      | A2A manifests for connected remote agents (separate from custom agents).                               |
-| `jobs/<name>.md`          | Scheduled tasks that run on a cron (see the recurring-jobs docs).                                      |
-| Anything else             | Notes, prompts, config, dataset snippets — any text file.                                              |
+| File / path                 | What it's for                                                                                          |
+| --------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `AGENTS.md` (Shared)        | Team instructions the agent reads every turn — tone, rules, domain context, skill references.          |
+| `learnings.md` (Personal)   | Corrections and preferences the agent records per user so it doesn't repeat mistakes.                  |
+| `skills/<name>.md`          | Focused domain guidance the agent pulls in on demand (invoked with `/` slash commands).                |
+| `agents/<name>.md`          | **Custom agents** — reusable sub-agent profiles the agent can delegate to (invoked with `@` mentions). |
+| `remote-agents/<name>.json` | A2A manifests for connected remote agents — edited via a form, not raw JSON.                           |
+| `jobs/<name>.md`            | Scheduled tasks that run on a cron (see the recurring-jobs docs).                                      |
+| Anything else               | Notes, prompts, config, dataset snippets — any text file.                                              |
 
 ## Overview {#overview}
 

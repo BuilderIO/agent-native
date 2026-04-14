@@ -16,6 +16,7 @@ import {
   type ParsedFrontmatter,
   getFrontmatterValue,
   isCustomAgentPath,
+  isRemoteAgentPath,
   isSkillPath,
   parseFrontmatter,
   serializeFrontmatter,
@@ -946,6 +947,147 @@ function VisualMarkdownEditor({
 
 // --- Main ResourceEditor ---
 
+interface RemoteAgentFormValue {
+  id?: string;
+  name: string;
+  description: string;
+  url: string;
+  color: string;
+}
+
+function parseRemoteAgentContent(
+  content: string,
+  path: string,
+): RemoteAgentFormValue {
+  const fallbackId = path
+    .replace(/^remote-agents\//, "")
+    .replace(/\.json$/, "");
+  try {
+    const data = JSON.parse(content || "{}");
+    return {
+      id: data.id || fallbackId,
+      name: data.name ?? "",
+      description: data.description ?? "",
+      url: data.url ?? "",
+      color: data.color ?? "#6B7280",
+    };
+  } catch {
+    return {
+      id: fallbackId,
+      name: "",
+      description: "",
+      url: "",
+      color: "#6B7280",
+    };
+  }
+}
+
+function serializeRemoteAgent(value: RemoteAgentFormValue): string {
+  return (
+    JSON.stringify(
+      {
+        id: value.id,
+        name: value.name,
+        description: value.description || undefined,
+        url: value.url,
+        color: value.color,
+      },
+      null,
+      2,
+    ) + "\n"
+  );
+}
+
+function RemoteAgentFormEditor({
+  resource,
+  onChange,
+}: {
+  resource: Resource;
+  onChange: (content: string) => void;
+}) {
+  const [value, setValue] = useState<RemoteAgentFormValue>(() =>
+    parseRemoteAgentContent(resource.content, resource.path),
+  );
+  const prevIdRef = useRef(resource.id);
+
+  useEffect(() => {
+    if (prevIdRef.current !== resource.id) {
+      setValue(parseRemoteAgentContent(resource.content, resource.path));
+      prevIdRef.current = resource.id;
+    }
+  }, [resource.id, resource.content, resource.path]);
+
+  const update = (patch: Partial<RemoteAgentFormValue>) => {
+    const next = { ...value, ...patch };
+    setValue(next);
+    onChange(serializeRemoteAgent(next));
+  };
+
+  const inputClass =
+    "w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent";
+  const labelClass = "block text-[11px] font-medium text-muted-foreground mb-1";
+
+  return (
+    <div className="flex flex-1 min-h-0 flex-col overflow-y-auto p-4">
+      <div className="max-w-md space-y-3">
+        <p className="text-[11px] text-muted-foreground/70 leading-snug">
+          Connected remote agent over the A2A protocol. @-mention it in chat to
+          delegate tasks.
+        </p>
+        <div>
+          <label className={labelClass}>Name</label>
+          <input
+            className={inputClass}
+            value={value.name}
+            onChange={(e) => update({ name: e.target.value })}
+            placeholder="Analytics"
+          />
+        </div>
+        <div>
+          <label className={labelClass}>URL</label>
+          <input
+            className={inputClass}
+            value={value.url}
+            onChange={(e) => update({ url: e.target.value })}
+            placeholder="https://analytics.example.com"
+          />
+          <p className="mt-1 text-[10px] text-muted-foreground/50">
+            A2A endpoint. The agent card is served at{" "}
+            <code>/.well-known/agent-card.json</code>.
+          </p>
+        </div>
+        <div>
+          <label className={labelClass}>Description</label>
+          <textarea
+            className={cn(inputClass, "resize-y")}
+            rows={3}
+            value={value.description}
+            onChange={(e) => update({ description: e.target.value })}
+            placeholder="What this agent is good at — helps the main agent decide when to delegate."
+          />
+        </div>
+        <div>
+          <label className={labelClass}>Color</label>
+          <div className="flex items-center gap-2">
+            <input
+              type="color"
+              value={value.color}
+              onChange={(e) => update({ color: e.target.value })}
+              className="h-8 w-10 cursor-pointer rounded border border-border bg-transparent"
+            />
+            <input
+              className={cn(inputClass, "flex-1")}
+              value={value.color}
+              onChange={(e) => update({ color: e.target.value })}
+              placeholder="#6B7280"
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ResourceEditor({
   resource,
   onSave,
@@ -1013,6 +1155,16 @@ export function ResourceEditor({
   const isMarkdown =
     resource.mimeType === "text/markdown" || resource.path.endsWith(".md");
   const isImage = resource.mimeType.startsWith("image/");
+  const isRemoteAgent = isRemoteAgentPath(resource.path);
+
+  // Remote-agent manifest → form editor
+  if (isRemoteAgent) {
+    return (
+      <div className="flex h-full flex-col">
+        <RemoteAgentFormEditor resource={resource} onChange={handleChange} />
+      </div>
+    );
+  }
 
   // Image preview
   if (isImage) {
