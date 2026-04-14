@@ -3,7 +3,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useParams, useNavigate, useSearchParams } from "react-router";
 import { cn } from "@/lib/utils";
 import { EmailList, InboxZero } from "@/components/email/EmailList";
-import { groupIntoThreads } from "@/lib/threads";
+import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
 import { EmailThread } from "@/components/email/EmailThread";
 import { useComposeState } from "@/hooks/use-compose-state";
 import {
@@ -360,7 +360,31 @@ export function InboxPage() {
     // Delete the command file so it doesn't re-trigger
     navState.clearCommand();
   }, [navCommand, view, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
-  const threads = useMemo(() => groupIntoThreads(emails), [emails]);
+  // Stable-identity pattern: keep the previous array reference when the
+  // content hasn't meaningfully changed. Without this, markThreadRead's
+  // optimistic update (which rebuilds the emails array for a single isRead
+  // flip) produces a new `threads` reference on every unread-open, which
+  // cascades through EmailThread's props and re-renders the whole detail
+  // view. With this, the props only change when the list of threads (or
+  // their latest-message identities) actually changes.
+  const rawThreads = useMemo(() => groupIntoThreads(emails), [emails]);
+  const prevThreadsRef = useRef<ThreadSummary[]>([]);
+  const threads = useMemo(() => {
+    const prev = prevThreadsRef.current;
+    if (
+      prev.length === rawThreads.length &&
+      prev.every(
+        (t, i) =>
+          t.latestMessage.id === rawThreads[i].latestMessage.id &&
+          t.latestMessage.threadId === rawThreads[i].latestMessage.threadId &&
+          t.hasUnread === rawThreads[i].hasUnread,
+      )
+    ) {
+      return prev;
+    }
+    prevThreadsRef.current = rawThreads;
+    return rawThreads;
+  }, [rawThreads]);
   const threadIds = useMemo(
     () => threads.map((t) => t.latestMessage.threadId || t.latestMessage.id),
     [threads],
