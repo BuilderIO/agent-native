@@ -27,35 +27,36 @@ export function useNavigationState() {
     }).catch(() => {});
   }, [location.pathname]);
 
-  // Listen for navigate commands from agent
+  // Listen for navigate commands from agent.
+  // One-shot semantics: delete on read BEFORE surfacing the command, so
+  // concurrent polls cannot see the same value twice and re-trigger navigation.
   const { data: navCommand } = useQuery({
     queryKey: ["navigate-command"],
     queryFn: async () => {
       const res = await fetch("/_agent-native/application-state/navigate");
       if (!res.ok) return null;
       const data = await res.json();
-      if (data) {
-        // Return with a timestamp to ensure uniqueness
-        return { ...data, _ts: Date.now() };
-      }
-      return null;
+      if (!data) return null;
+      // Atomically consume: delete first, then return the value.
+      await fetch("/_agent-native/application-state/navigate", {
+        method: "DELETE",
+      }).catch(() => {});
+      return data;
     },
     refetchInterval: 2_000,
     refetchIntervalInBackground: true,
-    structuralSharing: false,
+    // Never cache — each poll is a fresh read-and-consume.
+    gcTime: 0,
+    staleTime: 0,
   });
 
   useEffect(() => {
     if (!navCommand) return;
-    // Delete the one-shot command AFTER reading it
-    fetch("/_agent-native/application-state/navigate", {
-      method: "DELETE",
-    }).catch(() => {});
     const cmd = navCommand as NavigationState;
-
-    // Navigate to a specific path or resolve view name to path
     const path = cmd.path || resolvePath(cmd.view) || "/overview";
     navigate(path);
+    // Clear the in-memory query data so the same command can't replay if the
+    // effect re-runs for any reason.
     qc.setQueryData(["navigate-command"], null);
   }, [navCommand, navigate, qc]);
 }

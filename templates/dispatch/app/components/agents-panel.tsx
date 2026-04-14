@@ -64,17 +64,53 @@ export function AgentsPanel({
   const [url, setUrl] = useState("");
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
 
   const customAgents = agents.filter((agent) => agent.source === "custom");
   const builtinAgents = agents.filter((agent) => agent.source === "builtin");
 
   const handleAdd = async () => {
+    setError(null);
     const trimmedName = name.trim();
     const trimmedUrl = url.trim();
-    if (!trimmedName || !trimmedUrl) return;
+    if (!trimmedName) {
+      setError("Name is required.");
+      return;
+    }
+    if (!trimmedUrl) {
+      setError("URL is required.");
+      return;
+    }
+    // Validate URL: must include a protocol and parse as a URL.
+    let parsed: URL | null = null;
+    try {
+      parsed = new URL(trimmedUrl);
+    } catch {
+      setError("URL must be a full URL including protocol (e.g. https://…).");
+      return;
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      setError("URL must use http:// or https://.");
+      return;
+    }
 
     const id = trimmedName.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+    if (!id) {
+      setError("Name must contain at least one letter or number.");
+      return;
+    }
+
+    // Reject duplicate name/id against existing custom or built-in agents.
+    const collision = agents.find(
+      (a) =>
+        a.id === id ||
+        a.name.trim().toLowerCase() === trimmedName.toLowerCase(),
+    );
+    if (collision) {
+      setError(`An agent named "${trimmedName}" already exists.`);
+      return;
+    }
     const agentJson = JSON.stringify(
       {
         id,
@@ -102,8 +138,12 @@ export function AgentsPanel({
         setName("");
         setUrl("");
         setDescription("");
+        setError(null);
         onRefresh();
         nameRef.current?.focus();
+      } else {
+        const body = await res.text().catch(() => "");
+        setError(body || `Failed to save agent (${res.status}).`);
       }
     } finally {
       setSaving(false);
@@ -244,6 +284,11 @@ export function AgentsPanel({
               onChange={(event) => setDescription(event.target.value)}
               placeholder="Description (optional)"
             />
+            {error ? (
+              <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                {error}
+              </div>
+            ) : null}
             <Button
               className="w-full"
               onClick={handleAdd}
