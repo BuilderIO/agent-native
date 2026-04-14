@@ -164,8 +164,8 @@ export async function discoverAgents(
       typeof process !== "undefined" && process.env?.NODE_ENV !== "production";
 
     const resources = isDevMode
-      ? await resourceListAccessible("local@localhost", "agents/")
-      : await resourceList(SHARED_OWNER, "agents/");
+      ? await resourceListAccessible("local@localhost", "remote-agents/")
+      : await resourceList(SHARED_OWNER, "remote-agents/");
     const { parseRemoteAgentManifest } =
       await import("../resources/metadata.js");
 

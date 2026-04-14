@@ -8,10 +8,20 @@
 import React from "react";
 import { IconSparkles } from "@tabler/icons-react";
 import { useOnboarding } from "./use-onboarding.js";
+import { useDevMode } from "../use-dev-mode.js";
+
+const DEV_ONLY_STEP_IDS = new Set(["database", "auth"]);
 
 export function SetupButton({ className }: { className?: string }) {
-  const { dismissed, allComplete, loading, totalCount, reopen } =
-    useOnboarding();
+  const { dismissed, loading, steps, reopen } = useOnboarding();
+  const { isDevMode } = useDevMode();
+  const visibleSteps = isDevMode
+    ? steps
+    : steps.filter((s) => !DEV_ONLY_STEP_IDS.has(s.id));
+  const totalCount = visibleSteps.length;
+  const allComplete = visibleSteps
+    .filter((s) => s.required)
+    .every((s) => s.complete);
 
   if (loading || totalCount === 0) return null;
   if (!dismissed) return null;

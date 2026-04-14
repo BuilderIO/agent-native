@@ -4,6 +4,7 @@ import {
   IconUpload,
   IconArrowLeft,
   IconSparkles,
+  IconBulb,
   IconTrash,
   IconEye,
   IconCode,
@@ -347,7 +348,7 @@ The result should be a reusable agent profile, not a one-off task response.`,
       action: () => setView("file"),
     },
     {
-      icon: <IconSparkles className="h-3.5 w-3.5" />,
+      icon: <IconBulb className="h-3.5 w-3.5" />,
       label: "Create Skill",
       desc: "Teach the agent a new ability",
       action: () => setView("skill"),
@@ -360,7 +361,7 @@ The result should be a reusable agent profile, not a one-off task response.`,
     },
     {
       icon: <IconMessageChatbot className="h-3.5 w-3.5" />,
-      label: "Create Agent",
+      label: "Create Custom Agent",
       desc: "Add a reusable sub-agent profile",
       action: () => setView("agent-mode"),
     },
@@ -1016,28 +1017,11 @@ export function ResourcesPanel() {
               Loading...
             </div>
           )
-        ) : /* Tree view — both sections */
-        sharedTreeQuery.isLoading && personalTreeQuery.isLoading ? (
-          <div className="flex-1 min-h-0 overflow-y-auto px-2 py-1.5">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="flex items-center gap-2 px-2 py-1.5">
-                <div
-                  className="h-3.5 w-3.5 rounded bg-muted-foreground/10 animate-pulse"
-                  style={{ animationDelay: `${i * 75}ms` }}
-                />
-                <div
-                  className="h-3 rounded bg-muted-foreground/10 animate-pulse"
-                  style={{
-                    width: `${50 + ((i * 37) % 40)}%`,
-                    animationDelay: `${i * 75}ms`,
-                  }}
-                />
-              </div>
-            ))}
-          </div>
         ) : (
           <div className="flex-1 min-h-0 overflow-y-auto">
-            {(personalTreeQuery.data ?? []).length === 0 &&
+            {!personalTreeQuery.isLoading &&
+              !sharedTreeQuery.isLoading &&
+              (personalTreeQuery.data ?? []).length === 0 &&
               (sharedTreeQuery.data ?? []).length === 0 && (
                 <div className="mx-2 mt-2 rounded-md border border-border bg-muted/30 p-2.5 text-[11px] text-muted-foreground">
                   <p className="mb-1 font-medium text-foreground">
@@ -1066,6 +1050,12 @@ export function ResourcesPanel() {
               )}
             <ResourceTree
               tree={personalTreeQuery.data ?? []}
+              isLoading={personalTreeQuery.isLoading}
+              deletingId={
+                deleteResource.isPending
+                  ? (deleteResource.variables as string)
+                  : null
+              }
               selectedId={selectedResourceId}
               onSelect={handleSelect}
               onCreateFile={(parentPath, name) =>
@@ -1082,6 +1072,12 @@ export function ResourcesPanel() {
             />
             <ResourceTree
               tree={sharedTreeQuery.data ?? []}
+              isLoading={sharedTreeQuery.isLoading}
+              deletingId={
+                deleteResource.isPending
+                  ? (deleteResource.variables as string)
+                  : null
+              }
               selectedId={selectedResourceId}
               onSelect={handleSelect}
               onCreateFile={(parentPath, name) =>

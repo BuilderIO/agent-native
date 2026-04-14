@@ -18,6 +18,7 @@ import {
 } from "@tabler/icons-react";
 import { useOnboarding } from "./use-onboarding.js";
 import { sendToAgentChat } from "../agent-chat.js";
+import { useDevMode } from "../use-dev-mode.js";
 import { getCallbackOrigin } from "../frame.js";
 import type {
   OnboardingMethod,
@@ -36,18 +37,31 @@ export function OnboardingPanel({
   title = "Setup",
 }: OnboardingPanelProps) {
   const onboarding = useOnboarding();
+  const { isDevMode } = useDevMode();
   const {
-    steps,
-    currentStepId,
-    completeCount,
-    totalCount,
-    allComplete,
+    steps: rawSteps,
+    currentStepId: rawCurrentStepId,
     dismissed,
     loading,
     refresh,
     complete,
     dismiss,
   } = onboarding;
+  // `database` and `auth` steps only apply to local dev (SQLite default,
+  // local-mode auth bypass). In production those are configured via env
+  // vars / deployment config, so don't nag the user about them.
+  const DEV_ONLY_STEP_IDS = new Set(["database", "auth"]);
+  const steps = isDevMode
+    ? rawSteps
+    : rawSteps.filter((s) => !DEV_ONLY_STEP_IDS.has(s.id));
+  const totalCount = steps.length;
+  const completeCount = steps.filter((s) => s.complete).length;
+  const allComplete = steps.filter((s) => s.required).every((s) => s.complete);
+  const currentStepId = steps.some((s) => s.id === rawCurrentStepId)
+    ? rawCurrentStepId
+    : (steps.find((s) => s.required && !s.complete)?.id ??
+      steps.find((s) => !s.complete)?.id ??
+      null);
   // Default expanded when setup is incomplete; collapsed once everything's done.
   const [expanded, setExpanded] = useState(!allComplete);
   const builderEnabled = useBuilderEnabled();

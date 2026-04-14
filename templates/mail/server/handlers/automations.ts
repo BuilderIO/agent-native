@@ -74,7 +74,7 @@ export const updateAutomation = defineEventHandler(async (event) => {
   if (!id) throw new Error("id is required");
 
   const body = await readBody(event);
-  const updates: Record<string, any> = { updated_at: Date.now() };
+  const updates: Record<string, any> = { updatedAt: Date.now() };
 
   if (body.name !== undefined) updates.name = body.name;
   if (body.condition !== undefined) updates.condition = body.condition;

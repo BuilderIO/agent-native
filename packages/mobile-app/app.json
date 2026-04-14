@@ -7,7 +7,7 @@
     "icon": "./assets/icon.png",
     "scheme": "agentnative",
     "userInterfaceStyle": "dark",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "ios": {
       "bundleIdentifier": "com.agentnative.mobile",
       "supportsTablet": true,

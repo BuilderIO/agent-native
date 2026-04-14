@@ -111,6 +111,18 @@ export function DayView({
   const currentTimeRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
+  // Escape clears the highlighted/elevated event so it drops behind others
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setFocusedEventId(null);
+        setFocusedEvent(null);
+      }
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [setFocusedEvent]);
+
   // Update current time every minute
   useEffect(() => {
     const interval = setInterval(() => setNow(new Date()), 60_000);
@@ -406,7 +418,7 @@ export function DayView({
                   style={{
                     ...posStyle,
                     left: `${li.left}px`,
-                    width: `calc(100% - ${li.left + 2}px)`,
+                    width: `calc(min(85%, 100% - ${li.left + 2}px))`,
                     zIndex:
                       isBeingDragged && isDragging
                         ? 100

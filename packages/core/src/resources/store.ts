@@ -277,7 +277,7 @@ async function _doEnsureTable(): Promise<void> {
         sql: seedSql,
         args: [
           crypto.randomUUID(),
-          `agents/${agent.id}.json`,
+          `remote-agents/${agent.id}.json`,
           SHARED_OWNER,
           agentJson,
           "application/json",
@@ -289,6 +289,31 @@ async function _doEnsureTable(): Promise<void> {
     }
   } catch {
     // Agent discovery not available — skip seeding
+  }
+
+  // One-time migration: rename legacy agents/*.json (A2A manifests) to
+  // remote-agents/*.json so they live in their own folder, separate from
+  // custom agents (agents/*.md).
+  try {
+    const legacy = await client.execute({
+      sql: `SELECT id, path FROM resources WHERE path LIKE ? AND path LIKE ?`,
+      args: ["agents/%", "%.json"],
+    });
+    const rows = (legacy.rows ?? []) as Array<{ id: string; path: string }>;
+    for (const row of rows) {
+      const newPath = row.path.replace(/^agents\//, "remote-agents/");
+      try {
+        await client.execute({
+          sql: `UPDATE resources SET path = ?, updated_at = ? WHERE id = ?`,
+          args: [newPath, Date.now(), row.id],
+        });
+      } catch {
+        // Skip if destination path already exists (unique constraint) —
+        // we'll leave the old row in place; it'll be ignored by readers.
+      }
+    }
+  } catch {
+    // Migration best-effort
   }
 }
 
