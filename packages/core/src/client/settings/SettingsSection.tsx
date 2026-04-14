@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { IconChevronDown } from "@tabler/icons-react";
+import { IconChevronDown, IconCheck } from "@tabler/icons-react";
 
 interface SettingsSectionProps {
   icon: ReactNode;
@@ -33,7 +33,7 @@ export function SettingsSection({
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-center justify-between px-3 py-2.5 text-left"
+        className="flex w-full cursor-pointer items-center justify-between px-3 py-2.5 text-left rounded-lg hover:bg-accent/40 transition-colors"
       >
         <div className="flex items-center gap-2 min-w-0">
           <span className="shrink-0 text-muted-foreground">{icon}</span>
@@ -41,8 +41,8 @@ export function SettingsSection({
             {title}
           </span>
           {connected && (
-            <span className="flex items-center gap-1 shrink-0 text-[9px] font-medium text-green-500">
-              Connected
+            <span className="flex items-center justify-center shrink-0 rounded-full bg-green-500/15 text-green-500 w-4 h-4">
+              <IconCheck size={10} stroke={3} />
             </span>
           )}
           {required && !connected && (

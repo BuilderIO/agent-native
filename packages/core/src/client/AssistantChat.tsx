@@ -267,6 +267,7 @@ function ToolCallDisplay({
             builderEnabled={!!parsed.builderEnabled}
             connectUrl={parsed.connectUrl || ""}
             orgName={parsed.orgName ?? null}
+            prompt={typeof parsed.prompt === "string" ? parsed.prompt : ""}
           />
         );
       }

@@ -11,22 +11,29 @@ import { useChatThreads, type ChatThreadSummary } from "./use-chat-threads.js";
 
 // ─── Skeleton Loader ─────────────────────────────────────────────────────────
 
-function ChatSkeleton() {
+function ChatSkeleton({ headerOnly = false }: { headerOnly?: boolean }) {
   return (
-    <div className="flex flex-1 flex-col h-full min-h-0">
-      <div className="flex items-center h-8 px-2 border-b border-border shrink-0 gap-2">
-        <div className="h-4 w-12 rounded bg-muted animate-pulse" />
-        <div className="ml-auto flex gap-1">
-          <div className="h-5 w-5 rounded bg-muted animate-pulse" />
-          <div className="h-5 w-5 rounded bg-muted animate-pulse" />
+    <div
+      className={cn(
+        "flex flex-col min-h-0",
+        headerOnly ? "shrink-0" : "flex-1 h-full",
+      )}
+    >
+      <div className="flex items-center px-1 py-1 border-b border-border shrink-0 gap-0.5">
+        <div className="h-[22px] w-20 rounded-md bg-muted animate-pulse" />
+        <div className="ml-auto flex gap-0.5">
+          <div className="h-[22px] w-[22px] rounded-md bg-muted animate-pulse" />
+          <div className="h-[22px] w-[22px] rounded-md bg-muted animate-pulse" />
         </div>
       </div>
-      <div className="flex-1 flex flex-col gap-3 p-4">
-        <div className="flex justify-center py-8">
-          <div className="h-10 w-10 rounded-full bg-muted animate-pulse" />
+      {!headerOnly && (
+        <div className="flex-1 flex flex-col gap-3 p-4">
+          <div className="flex justify-center py-8">
+            <div className="h-10 w-10 rounded-full bg-muted animate-pulse" />
+          </div>
+          <div className="h-3 w-32 rounded bg-muted animate-pulse mx-auto" />
         </div>
-        <div className="h-3 w-32 rounded bg-muted animate-pulse mx-auto" />
-      </div>
+      )}
     </div>
   );
 }
@@ -863,7 +870,7 @@ export function MultiTabAssistantChat({
   };
 
   if (isLoading) {
-    return <ChatSkeleton />;
+    return <ChatSkeleton headerOnly={contentHidden} />;
   }
 
   return (
