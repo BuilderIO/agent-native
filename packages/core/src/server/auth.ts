@@ -32,7 +32,7 @@ type H3App = H3AppShim;
 import { getDbExec, isPostgres, intType } from "../db/client.js";
 import { getBetterAuth, getBetterAuthSync } from "./better-auth-instance.js";
 import type { BetterAuthConfig } from "./better-auth-instance.js";
-import { getOnboardingHtml } from "./onboarding-html.js";
+import { getOnboardingHtml, getResetPasswordHtml } from "./onboarding-html.js";
 import { migrateLocalUserData } from "./local-migration.js";
 import { readBody } from "../server/h3-helpers.js";
 
@@ -914,6 +914,22 @@ async function mountBetterAuthRoutes(
   // the currently signed-in account. Called by the UI after a user upgrades
   // from local mode to a real account so they don't lose their data.
   app.use("/_agent-native/auth/migrate-local-data", migrateLocalDataHandler);
+
+  // GET /_agent-native/auth/reset — HTML page shown when a user clicks the
+  // reset link in their email. Reads ?token=... and POSTs to Better Auth's
+  // /reset-password endpoint on submit.
+  app.use(
+    "/_agent-native/auth/reset",
+    defineEventHandler((event) => {
+      if (getMethod(event) !== "GET") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      return new Response(getResetPasswordHtml(), {
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    }),
+  );
 
   // Auth guard — stored both in framework middleware registry AND in
   // _authGuardFn so the server middleware can enforce it on ALL routes.

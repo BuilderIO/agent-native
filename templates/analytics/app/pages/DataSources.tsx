@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Layout } from "@/components/layout/Layout";
 import {
   Card,
   CardContent,
@@ -803,81 +802,79 @@ export default function DataSources() {
     : null;
 
   return (
-    <Layout>
-      <div className="mx-auto max-w-5xl space-y-8">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight">Data Sources</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Connect your data sources, then ask the agent to create dashboards.{" "}
-            {!isStatusLoading && connectedCount > 0 && (
-              <span className="text-emerald-500 font-medium">
-                {connectedCount} connected
-              </span>
-            )}
-          </p>
-        </div>
-
-        {/* Search bar */}
-        <div className="relative">
-          <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search data sources..."
-            className="flex w-full rounded-md border border-input bg-background pl-9 pr-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
-          />
-        </div>
-
-        {/* Filtered results */}
-        {filteredSources !== null ? (
-          filteredSources.length > 0 ? (
-            <div className="grid gap-3 sm:grid-cols-2">
-              {filteredSources.map((source) => (
-                <DataSourceCard
-                  key={source.id}
-                  source={source}
-                  connected={isSourceConnected(source, envStatus)}
-                  envStatus={envStatus}
-                  isStatusLoading={isStatusLoading}
-                  onSaved={handleSaved}
-                />
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground py-4">
-              No data sources match "{search}"
-            </p>
-          )
-        ) : (
-          categoryOrder.map((category) => {
-            const sources = dataSources.filter((s) => s.category === category);
-            if (sources.length === 0) return null;
-            return (
-              <div key={category} className="space-y-3">
-                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-                  {categoryLabels[category]}
-                </h3>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {sources.map((source) => (
-                    <DataSourceCard
-                      key={source.id}
-                      source={source}
-                      connected={isSourceConnected(source, envStatus)}
-                      envStatus={envStatus}
-                      isStatusLoading={isStatusLoading}
-                      onSaved={handleSaved}
-                    />
-                  ))}
-                </div>
-              </div>
-            );
-          })
-        )}
-
-        {/* Always-visible CTA to request a new data source */}
-        <RequestDataSourceCTA />
+    <div className="mx-auto max-w-5xl space-y-8">
+      <div>
+        <h2 className="text-2xl font-bold tracking-tight">Data Sources</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Connect your data sources, then ask the agent to create dashboards.{" "}
+          {!isStatusLoading && connectedCount > 0 && (
+            <span className="text-emerald-500 font-medium">
+              {connectedCount} connected
+            </span>
+          )}
+        </p>
       </div>
-    </Layout>
+
+      {/* Search bar */}
+      <div className="relative">
+        <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search data sources..."
+          className="flex w-full rounded-md border border-input bg-background pl-9 pr-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
+        />
+      </div>
+
+      {/* Filtered results */}
+      {filteredSources !== null ? (
+        filteredSources.length > 0 ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {filteredSources.map((source) => (
+              <DataSourceCard
+                key={source.id}
+                source={source}
+                connected={isSourceConnected(source, envStatus)}
+                envStatus={envStatus}
+                isStatusLoading={isStatusLoading}
+                onSaved={handleSaved}
+              />
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground py-4">
+            No data sources match "{search}"
+          </p>
+        )
+      ) : (
+        categoryOrder.map((category) => {
+          const sources = dataSources.filter((s) => s.category === category);
+          if (sources.length === 0) return null;
+          return (
+            <div key={category} className="space-y-3">
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+                {categoryLabels[category]}
+              </h3>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {sources.map((source) => (
+                  <DataSourceCard
+                    key={source.id}
+                    source={source}
+                    connected={isSourceConnected(source, envStatus)}
+                    envStatus={envStatus}
+                    isStatusLoading={isStatusLoading}
+                    onSaved={handleSaved}
+                  />
+                ))}
+              </div>
+            </div>
+          );
+        })
+      )}
+
+      {/* Always-visible CTA to request a new data source */}
+      <RequestDataSourceCTA />
+    </div>
   );
 }

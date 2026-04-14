@@ -1,6 +1,5 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router";
-import { AppLayout } from "@/components/layout/AppLayout";
 import { EmptyState } from "@/components/EmptyState";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDocuments } from "@/hooks/use-documents";
@@ -53,9 +52,5 @@ export default function IndexRoute() {
   // show a skeleton instead of the "no page selected" empty state.
   const showSkeleton = isLoading || (documents && documents.length > 0);
 
-  return (
-    <AppLayout activeDocumentId={null}>
-      {showSkeleton ? <DocumentSkeleton /> : <EmptyState />}
-    </AppLayout>
-  );
+  return showSkeleton ? <DocumentSkeleton /> : <EmptyState />;
 }

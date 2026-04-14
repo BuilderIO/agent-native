@@ -1,11 +1,11 @@
-import { TEMPLATES, visibleTemplates } from "./templates.js";
+import { TEMPLATES, visibleTemplates } from "./templates";
 export {
   TEMPLATES,
   visibleTemplates,
   getTemplate,
   allTemplateNames,
-} from "./templates.js";
-export type { TemplateMeta } from "./templates.js";
+} from "./templates";
+export type { TemplateMeta } from "./templates";
 
 export interface AppDefinition {
   id: string;

@@ -415,6 +415,57 @@ All framework-level routes live under the `/_agent-native/` prefix to avoid coll
 
 The Nitro Vite plugin handles both `/api/` and `/_agent-native/` prefixes via file-based routing in `server/routes/`. If you add a new framework route prefix, add routes under the appropriate `server/routes/` directory.
 
+## Client-Side Routing
+
+All templates are single-page apps using React Router's client-side routing. **Navigation must not remount the app shell.** The agent sidebar, document tree, and any other persistent chrome must survive route changes — otherwise the agent chat reconnects/reloads on every click, destroying in-progress work and hammering the backend.
+
+**Hard rule: the app shell (AgentSidebar + any top-level navigation) must be mounted ONCE, above the `<Outlet />`.** Never wrap each page in its own `<AppLayout>` / `<Layout>` — React sees a different component at the outlet position on each navigation and unmounts the entire subtree, including the sidebar.
+
+There are two correct patterns:
+
+**1. All routes need the shell** — mount `<AppLayout>` in `root.tsx` around `<Outlet />`:
+
+```tsx
+// app/root.tsx
+<AppLayout>
+  <Outlet />
+</AppLayout>
+```
+
+**2. Mix of protected and public routes** (e.g. an app shell for logged-in routes, bare pages for public booking/form-fill URLs) — use a React Router **pathless layout route**:
+
+```
+app/routes/
+  _app.tsx                  # renders <AppLayout><Outlet /></AppLayout>
+  _app._index.tsx           # / → under AppLayout
+  _app.settings.tsx         # /settings → under AppLayout
+  _app.team.tsx             # /team → under AppLayout
+  book.$slug.tsx            # /book/:slug → no layout (public)
+  f.$.tsx                   # /f/* → no layout (public form filler)
+```
+
+The `_` prefix on `_app.tsx` makes it a **pathless** parent — it contributes the layout but no URL segment. Route files prefixed with `_app.` nest under it and share the layout instance across navigations. Files without the prefix render bare.
+
+**Never do this** (causes full remount on every nav):
+
+```tsx
+// ❌ BAD — each route wraps its own Layout
+export default function Settings() {
+  return (
+    <AppLayout>
+      <SettingsContent />
+    </AppLayout>
+  );
+}
+```
+
+If a page needs per-route data (e.g. the sidebar highlighting the active document), derive it inside the layout from `useParams()` / `useLocation()` — don't pass it as a prop through every route file.
+
+**When adding a new route:**
+
+- If the template uses pattern #1 (AppLayout in `root.tsx`), just render page content — nothing else.
+- If the template uses pattern #2 (pathless `_app.tsx`), name the file `_app.<segment>.tsx` for authed routes or bare `<segment>.tsx` for public routes.
+
 ## Project Structure
 
 ```

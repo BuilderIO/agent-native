@@ -306,6 +306,19 @@ ${
     <input id="l-pass" type="password" autocomplete="current-password" placeholder="Enter password" required />
     <button type="submit">Sign in</button>
     <p class="msg error" id="l-msg"></p>
+    <p style="margin-top:0.75rem;font-size:0.75rem;text-align:right">
+      <a href="#" id="forgot-link" style="color:#888;text-decoration:underline;text-underline-offset:2px">Forgot password?</a>
+    </p>
+  </form>
+
+  <form id="forgot-form" class="form">
+    <label for="f-email">Email</label>
+    <input id="f-email" type="email" autocomplete="email" placeholder="you@example.com" required />
+    <button type="submit">Send reset link</button>
+    <p class="msg" id="f-msg"></p>
+    <p style="margin-top:0.75rem;font-size:0.75rem;text-align:center">
+      <a href="#" id="back-to-login" style="color:#888;text-decoration:underline;text-underline-offset:2px">Back to sign in</a>
+    </p>
   </form>`
 }
 ${localModeBlock}
@@ -382,6 +395,58 @@ ${
       msg.classList.add('show', 'error');
       btn.disabled = false;
       btn.textContent = originalLabel;
+    }
+  });
+
+  var forgotLink = document.getElementById('forgot-link');
+  var backToLogin = document.getElementById('back-to-login');
+  if (forgotLink) forgotLink.addEventListener('click', function(e) {
+    e.preventDefault();
+    document.getElementById('login-form').classList.remove('active');
+    document.getElementById('forgot-form').classList.add('active');
+    var fEmail = document.getElementById('f-email');
+    var lEmail = document.getElementById('l-email');
+    if (lEmail && lEmail.value) fEmail.value = lEmail.value;
+    setTimeout(function() { fEmail.focus(); }, 0);
+  });
+  if (backToLogin) backToLogin.addEventListener('click', function(e) {
+    e.preventDefault();
+    document.getElementById('forgot-form').classList.remove('active');
+    document.getElementById('login-form').classList.add('active');
+  });
+
+  var forgotForm = document.getElementById('forgot-form');
+  if (forgotForm) forgotForm.addEventListener('submit', async function(e) {
+    e.preventDefault();
+    var btn = e.currentTarget.querySelector('button[type="submit"]');
+    var msg = document.getElementById('f-msg');
+    msg.classList.remove('show', 'error', 'success');
+    var original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Sending…';
+    try {
+      var email = document.getElementById('f-email').value;
+      var res = await fetch('/_agent-native/auth/ba/request-password-reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email }),
+      });
+      if (res.ok) {
+        msg.textContent = 'If that email exists, a reset link is on its way.';
+        msg.classList.add('show', 'success');
+        btn.textContent = 'Sent';
+        return;
+      }
+      var data = await res.json().catch(function() { return {}; });
+      msg.textContent = (data && (data.message || data.error)) || 'Could not send reset email.';
+      msg.classList.add('show', 'error');
+      btn.disabled = false;
+      btn.textContent = original;
+    } catch (err) {
+      msg.textContent = 'Network error — please try again';
+      msg.classList.add('show', 'error');
+      btn.disabled = false;
+      btn.textContent = original;
     }
   });
 
@@ -486,3 +551,114 @@ ${
 
 /** @deprecated Use getOnboardingHtml() instead */
 export const ONBOARDING_HTML = getOnboardingHtml();
+
+/**
+ * HTML for the password reset page — shown when the user clicks the link in
+ * their reset email. Posts `{ newPassword, token }` to Better Auth's
+ * `/reset-password` endpoint, then redirects to the login page.
+ */
+export function getResetPasswordHtml(): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Reset password</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0a0a0a; color: #e5e5e5; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 1rem; }
+  .card { width: 100%; max-width: 400px; padding: 2rem; background: #141414; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; }
+  h1 { font-size: 1.25rem; font-weight: 600; margin-bottom: 0.25rem; color: #fff; }
+  .subtitle { font-size: 0.8125rem; color: #888; margin-bottom: 1.5rem; }
+  label { display: block; font-size: 0.8125rem; color: #888; margin-bottom: 0.375rem; }
+  input { width: 100%; padding: 0.5rem 0.75rem; background: transparent; border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; color: #e5e5e5; font-size: 0.875rem; outline: none; margin-bottom: 0.875rem; }
+  input:focus { border-color: rgba(255,255,255,0.3); box-shadow: 0 0 0 1px rgba(255,255,255,0.1); }
+  input::placeholder { color: #555; }
+  button[type="submit"] { width: 100%; margin-top: 0.25rem; padding: 0.5rem; background: #fff; color: #000; border: none; border-radius: 6px; font-size: 0.875rem; font-weight: 500; cursor: pointer; }
+  button[type="submit"]:hover { background: #e5e5e5; }
+  button[type="submit"]:disabled { opacity: 0.5; cursor: not-allowed; }
+  .msg { margin-top: 0.75rem; font-size: 0.8125rem; display: none; }
+  .msg.error { color: #f87171; }
+  .msg.success { color: #4ade80; }
+  .msg.show { display: block; }
+  .back { display: inline-block; margin-top: 1rem; font-size: 0.75rem; color: #888; text-decoration: none; }
+  .back:hover { color: #bbb; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Choose a new password</h1>
+  <p class="subtitle">Set a new password for your account.</p>
+  <form id="reset-form">
+    <label for="p1">New password</label>
+    <input id="p1" type="password" autocomplete="new-password" autofocus placeholder="At least 8 characters" required minlength="8" />
+    <label for="p2">Confirm password</label>
+    <input id="p2" type="password" autocomplete="new-password" placeholder="Confirm password" required minlength="8" />
+    <button type="submit">Save new password</button>
+    <p class="msg" id="msg"></p>
+  </form>
+  <a class="back" id="back-link" href="/">Back to sign in</a>
+</div>
+<script>
+  (function() {
+    // Derive the app's base path so apps mounted under a prefix
+    // (e.g. /mail, /calendar) get sent home instead of to the root domain.
+    var RESET_PATH = '/_agent-native/auth/reset';
+    var pathname = window.location.pathname;
+    var idx = pathname.indexOf(RESET_PATH);
+    var basePath = (idx >= 0 ? pathname.slice(0, idx) : '') || '';
+    var homeHref = basePath + '/';
+    var backLink = document.getElementById('back-link');
+    if (backLink) backLink.setAttribute('href', homeHref);
+    var params = new URLSearchParams(location.search);
+    var token = params.get('token') || '';
+    var msg = document.getElementById('msg');
+    if (!token) {
+      msg.textContent = 'Missing or invalid reset token. Request a new reset link.';
+      msg.classList.add('show', 'error');
+      document.getElementById('reset-form').style.display = 'none';
+      return;
+    }
+    document.getElementById('reset-form').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      var btn = e.currentTarget.querySelector('button[type="submit"]');
+      var p1 = document.getElementById('p1').value;
+      var p2 = document.getElementById('p2').value;
+      msg.classList.remove('show', 'error', 'success');
+      if (p1 !== p2) {
+        msg.textContent = 'Passwords do not match';
+        msg.classList.add('show', 'error');
+        return;
+      }
+      var original = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
+      try {
+        var res = await fetch(basePath + '/_agent-native/auth/ba/reset-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ newPassword: p1, token: token }),
+        });
+        if (res.ok) {
+          msg.textContent = 'Password updated — redirecting to sign in…';
+          msg.classList.add('show', 'success');
+          setTimeout(function() { window.location.href = homeHref; }, 1200);
+          return;
+        }
+        var data = await res.json().catch(function() { return {}; });
+        msg.textContent = (data && (data.message || data.error)) || 'Reset failed. The link may have expired — request a new one.';
+        msg.classList.add('show', 'error');
+        btn.disabled = false;
+        btn.textContent = original;
+      } catch (err) {
+        msg.textContent = 'Network error — please try again';
+        msg.classList.add('show', 'error');
+        btn.disabled = false;
+        btn.textContent = original;
+      }
+    });
+  })();
+</script>
+</body>
+</html>`;
+}

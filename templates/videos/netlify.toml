@@ -1,15 +1,7 @@
 [build]
-  command = "npm run build:client"
-  functions = "netlify/functions"
-  publish = "dist/spa"
+  command = "pnpm install && NITRO_PRESET=netlify pnpm --filter videos build"
+  publish = "templates/videos/dist"
+  functions = "templates/videos/.netlify/functions-internal"
 
-
-[functions]
-  external_node_modules = ["express"]
-  node_bundler = "esbuild"
-  
-[[redirects]]
-  force = true
-  from = "/api/*"
-  status = 200
-  to = "/.netlify/functions/api/:splat"
+[build.environment]
+  NITRO_PRESET = "netlify"

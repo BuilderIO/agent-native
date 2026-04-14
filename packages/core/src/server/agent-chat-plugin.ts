@@ -1,4 +1,5 @@
 import { runWithRequestContext, getRequestOrgId } from "./request-context.js";
+import { getSetting, putSetting } from "../settings/store.js";
 import { getH3App } from "./framework-request-handler.js";
 import {
   createProductionAgentHandler,
@@ -449,6 +450,25 @@ function createBuilderBrowserTool(deps: {
   getOrigin: () => string;
 }): Record<string, ActionEntry> {
   return {
+    "connect-builder": {
+      tool: {
+        description:
+          "Render a one-click 'Connect Builder.io' card inline in the chat. Call this IMMEDIATELY — no exploration, no planning — whenever (a) the user asks to add a feature, change the UI, edit code, create a component, add a route, add an integration, fix a bug in the app itself, or anything else that requires source-file edits while in hosted/production mode, OR (b) the user needs Builder for LLM access, browser automation, or any other Builder-gated capability. Builder spins up a cloud code sandbox that codes the change for the user — no local setup required. The card handles the connect flow end-to-end; do not write implementation plans, save code to resources, or spawn sub-agents to plan. If Builder is already configured, the card shows a connected status. Takes no arguments.",
+        parameters: { type: "object", properties: {} },
+      },
+      run: async () => {
+        const configured = !!(
+          process.env.BUILDER_PRIVATE_KEY && process.env.BUILDER_PUBLIC_KEY
+        );
+        return JSON.stringify({
+          kind: "connect-builder-card",
+          configured,
+          builderEnabled: !!process.env.ENABLE_BUILDER,
+          connectUrl: getBuilderBrowserConnectUrl(deps.getOrigin()),
+          orgName: process.env.BUILDER_ORG_NAME || null,
+        });
+      },
+    },
     "get-browser-connection": {
       tool: {
         description:
@@ -886,11 +906,15 @@ When the user asks for something recurring ("every morning", "daily at 9am", "we
 
 Job instructions should be self-contained — include which actions to call, what conditions to check, and what to do with results. The agent executing the job has access to all the same tools you do.
 
+### Connecting Builder.io
+
+When the user asks to connect Builder.io, needs Builder for LLM access / browser automation, or you hit a "Builder not configured" error, call the \`connect-builder\` tool. It renders a one-click Connect card inline in the chat — do NOT write out multi-step setup instructions yourself (no "Option 1 / Option 2", no terminal commands). Just call the tool and let the card handle the rest.
+
 ### Browser Access
 
 Use \`get-browser-connection\` when you need a real browser session backed by Builder. It returns websocket connection details for a provisioned browser session.
 
-- If the tool says Builder is not configured, tell the user to connect Builder from the workspace Resources panel.
+- If the tool says Builder is not configured, call \`connect-builder\` to show the user a Connect card.
 - Reuse a stable \`sessionId\` when you want to reconnect to the same browser session.
 - Include proxy parameters when you need the browser to reach a local dev server through Builder's browser connection flow.
 
@@ -948,20 +972,22 @@ The agent and the UI are equal partners — everything the UI can do, you can do
 
 **In production mode, you operate through registered actions exposed as tools.** These are your capabilities — use them to read data, take actions, and help the user. You cannot edit source code or access the filesystem directly. Your tools are the app's API.
 
-### Code Changes Not Available
+### Code Changes Not Available — Call \`connect-builder\` Immediately
 
-When the user asks you to change the UI, modify code, add features, fix bugs in the app itself, change styles, or do anything that requires editing source files — you MUST respond with this exact message (replacing APP_NAME with the current app name from the URL hostname):
+When the user asks you to change the UI, modify code, add a feature, fix a bug in the app itself, change styles, add a hook, create a component, add a route, add an integration, or anything else that requires editing source files — you MUST take exactly these steps, in order:
 
-> This app is running in hosted mode and I can't make code changes here. To customize this app:
->
-> **Option 1:** Connect to [Builder.io](https://www.builder.io/m/agent-native) for a full development environment
->
-> **Option 2:** Clone and run locally:
-> \`\`\`
-> npx agent-native create APP_NAME
-> \`\`\`
+1. Call the \`connect-builder\` tool (no arguments). This renders an inline Connect card with a one-click button. The user can spin up a cloud code sandbox in Builder.io and Builder will code the change for them — no local setup, no clone, no install.
+2. After the card renders, write a single short sentence telling the user to click Connect Builder to have this built for them in the cloud, and mention they can also clone the app locally with \`npx agent-native create <app-name>\` if they'd rather work offline.
 
-Do NOT attempt to work around this limitation. Do NOT say "I can't do that" without providing the options above. Always include both the Builder.io link and the CLI command.
+**Hard rules — do NOT break these:**
+- Do NOT read source files, list directories, or explore the codebase. You have no filesystem tools and don't need to look at code to recommend Builder.
+- Do NOT write an implementation plan. Do NOT write code in your response. Do NOT describe which files to create or modify. Builder will figure that out in its sandbox.
+- Do NOT save plans, specs, or code to \`resource-write\`. Resources are for app data, not implementation plans the user didn't ask for.
+- Do NOT spawn sub-agents (\`spawn-task\`) to design, plan, or research the feature. The answer is always: call \`connect-builder\`, say one sentence, stop. Sub-agents inherit these same rules and have no code-editing tools either.
+- Do NOT say "I don't have a request-code-change tool" or list what tools you lack. Just call \`connect-builder\`.
+- Do NOT wait for the user to ask "how" — call \`connect-builder\` the moment a code change is requested.
+
+Builder.io is the recommended path because it's one-click and runs in the cloud. Local dev is a fallback for users who want to work offline.
 ${FRAMEWORK_CORE}`;
 
 const DEV_FRAMEWORK_PROMPT = `## Agent-Native Framework — Development Mode
@@ -1295,6 +1321,29 @@ export function createAgentChatPlugin(
       process.env.AGENT_MODE !== "production";
     const routePath = options?.path ?? "/_agent-native/agent-chat";
 
+    // Mutable mode flag — persisted to the `settings` table so a user who
+    // toggles to "Production" stays in prod mode across server restarts.
+    // Hoisted here (before any tool-registry / handler closures are built)
+    // so every runtime decision point can close over it and see live changes
+    // when the user toggles the Environment dropdown.
+    const AGENT_MODE_SETTING_KEY = "agent-chat.mode";
+    let currentDevMode = canToggle;
+    if (canToggle) {
+      try {
+        const persisted = await getSetting(AGENT_MODE_SETTING_KEY);
+        if (persisted && typeof persisted.devMode === "boolean") {
+          currentDevMode = persisted.devMode;
+        }
+      } catch {
+        // Settings table may not be ready yet — fall back to default.
+      }
+    }
+    // Every closure that picks between dev/prod tools, prompts, or handlers
+    // at request time should call this getter instead of reading `canToggle`.
+    // `canToggle` means "this environment allows toggling" (static); this
+    // function means "the user currently has dev mode ON" (live).
+    const isDevMode = () => currentDevMode;
+
     // Initialize MCP client (connects to user-configured local MCP servers).
     // Graceful-degrade: any failure yields zero MCP tools and agent-chat keeps
     // working as before. No-op outside Node runtimes.
@@ -1605,13 +1654,14 @@ export function createAgentChatPlugin(
         });
 
         // Use the same handler (dev or prod) that the interactive chat uses
-        const handler = canToggle && devHandler ? devHandler : prodHandler;
+        const devActive = isDevMode();
+        const handler = devActive && devHandler ? devHandler : prodHandler;
 
         // Build the same system prompt the interactive agent uses
         const owner = userEmail || "local@localhost";
         const resources = await loadResourcesForPrompt(owner);
-        const schemaBlock = await buildSchemaBlock(owner, canToggle);
-        const systemPrompt = canToggle
+        const schemaBlock = await buildSchemaBlock(owner, devActive);
+        const systemPrompt = devActive
           ? devPrompt + resources + schemaBlock
           : basePrompt + resources + schemaBlock;
 
@@ -1623,7 +1673,7 @@ export function createAgentChatPlugin(
         // to prevent infinite recursive A2A loops (agent calling itself).
         // In dev mode, template actions are invoked via shell (not native tools),
         // so they're omitted from the tool registry — see allScripts comment.
-        const a2aActions = canToggle
+        const a2aActions = devActive
           ? {
               ...resourceScripts,
               ...docsScripts,
@@ -1739,7 +1789,8 @@ export function createAgentChatPlugin(
 
         // Same actions as A2A — without call-agent to prevent loops.
         // In dev mode, template actions go through shell, not native tools.
-        const mcpActions = canToggle
+        const devActiveMcp = isDevMode();
+        const mcpActions = devActiveMcp
           ? {
               ...resourceScripts,
               ...docsScripts,
@@ -1758,9 +1809,9 @@ export function createAgentChatPlugin(
         const resources = await loadResourcesForPrompt("local@localhost");
         const schemaBlock = await buildSchemaBlock(
           "local@localhost",
-          canToggle,
+          devActiveMcp,
         );
-        const systemPrompt = canToggle
+        const systemPrompt = devActiveMcp
           ? devPrompt + resources + schemaBlock
           : basePrompt + resources + schemaBlock;
 
@@ -1903,7 +1954,7 @@ export function createAgentChatPlugin(
       getOwner: () => _currentRunOwner,
       getSystemPrompt: () => _currentRunSystemPrompt,
       getActions: () =>
-        canToggle
+        isDevMode()
           ? {
               // Sub-agents spawned in dev mode also invoke template actions
               // via shell, so omit them from the native tool registry.
@@ -2042,8 +2093,8 @@ export function createAgentChatPlugin(
         ? await rawProviders()
         : (rawProviders ?? {});
 
-    // Mutable mode flag — starts in dev if environment allows
-    let currentDevMode = canToggle;
+    // currentDevMode + persistence were hoisted to the top of this function
+    // so every closure built below can close over the live flag.
 
     // Mount mode endpoint — GET returns current mode, POST toggles it (localhost only)
     getH3App(nitroApp).use(
@@ -2063,6 +2114,14 @@ export function createAgentChatPlugin(
             currentDevMode = body.devMode;
           } else {
             currentDevMode = !currentDevMode;
+          }
+          try {
+            await putSetting(AGENT_MODE_SETTING_KEY, {
+              devMode: currentDevMode,
+            });
+          } catch {
+            // Persistence is best-effort — in-memory flag still applies for
+            // the lifetime of this process even if the settings write fails.
           }
           return { devMode: currentDevMode, canToggle };
         }

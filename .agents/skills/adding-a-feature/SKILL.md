@@ -64,8 +64,21 @@ Expose navigation and selection state so the agent knows what the user is lookin
 | Skills/AGENTS   | Document supported chart types, config options, data requirements                        |
 | App-state sync  | `navigation` includes selected chart/dashboard, `view-screen` returns chart config       |
 
+## Adding a new route
+
+Templates are single-page apps with client-side routing. The app shell (AgentSidebar + top-level nav) MUST persist across navigation — it is mounted once, either in `root.tsx` around `<Outlet />` or via a pathless `_app.tsx` layout route that all authed routes nest under.
+
+**Never wrap each new route in its own `<AppLayout>` / `<Layout>`.** That causes React to unmount the entire app shell on every navigation, reloading the agent sidebar and destroying in-progress work.
+
+- If the template has `<AppLayout>` in `root.tsx` — just render page content in your new route file, nothing else.
+- If the template has `app/routes/_app.tsx` (pathless layout) — name your new route `_app.<segment>.tsx` to inherit the shell, or bare `<segment>.tsx` for public routes that should NOT have the shell.
+- If a page needs per-route data (e.g. highlighting the active item in the sidebar), read it in the layout from `useParams()` / `useLocation()`. Don't pass it as a prop through every route file.
+
+See the "Client-Side Routing" section in the root `CLAUDE.md` for full details.
+
 ## Anti-Patterns
 
+- **Per-route `<AppLayout>` wrappers** — Every route file wraps its content in `<AppLayout>` or `<Layout>`. React sees a different component at the outlet on each nav and unmounts the whole shell, causing the agent sidebar to reload on every click. Mount the shell once above `<Outlet />` (root.tsx or `_app.tsx` pathless layout).
 - **UI without actions** — The user can create forms but the agent cannot. The agent says "I don't have access to that" when it should be able to do it.
 - **Actions without AGENTS.md** — The actions exist but the agent doesn't know about them because they're not documented. The agent reinvents solutions instead of using the actions.
 - **Duplicate API routes** — Creating `/api/` routes for operations that actions already handle. Actions are auto-exposed as HTTP endpoints — use `useActionQuery`/`useActionMutation` instead.
