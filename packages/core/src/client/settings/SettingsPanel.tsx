@@ -319,13 +319,12 @@ function LLMSectionInner({
           comingSoon
           builderEnabled={builderEnabled}
           label="Connect Builder.io"
-          dim={anthropicConfigured && !connected}
         />
         <ManualSetupCard
           hint="Paste your Anthropic API key to power the agent chat."
           docsUrl="https://console.anthropic.com/settings/keys"
           docsLabel="Get an API key"
-          dim={connected && !anthropicConfigured}
+          dim={connected}
         >
           {anthropicConfigured ? (
             <div className="flex items-center gap-1.5 text-[10px] text-green-500 mb-1">
@@ -482,6 +481,7 @@ export function SettingsPanel({
           <ManualSetupCard
             hint="Deploy manually to Netlify, Vercel, Cloudflare, or any Nitro-supported target."
             docsUrl="https://www.builder.io/c/docs/agent-native-deployment"
+            dim={connected}
           />
         </div>
       </SettingsSection>
@@ -506,6 +506,7 @@ export function SettingsPanel({
           <ManualSetupCard
             hint="Set DATABASE_URL in your .env to connect Neon, Supabase, Turso, or any Postgres/SQLite database."
             docsUrl="https://www.builder.io/c/docs/agent-native-database"
+            dim={connected}
           />
         </div>
       </SettingsSection>
@@ -530,6 +531,7 @@ export function SettingsPanel({
           <ManualSetupCard
             hint="Without a provider, files are stored as base64 in your database. Fine for dev, not recommended for production."
             docsUrl="https://www.builder.io/c/docs/agent-native-file-uploads"
+            dim={connected}
           />
         </div>
       </SettingsSection>
@@ -554,6 +556,7 @@ export function SettingsPanel({
           <ManualSetupCard
             hint="Configure Better Auth with BETTER_AUTH_SECRET and optional Google/GitHub OAuth providers."
             docsUrl="https://www.builder.io/c/docs/agent-native-authentication"
+            dim={connected}
           />
         </div>
       </SettingsSection>

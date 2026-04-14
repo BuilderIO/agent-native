@@ -370,7 +370,9 @@ export default function CalendarView() {
           queryClient.setQueriesData<CalendarEvent[]>(
             { queryKey: ["action", "list-events"] },
             (old) =>
-              old?.map((e) => (e.id === _tempId ? { ...e, ...realEvent } : e)),
+              old?.map((e) =>
+                e.id === _tempId ? { ...e, ...realEvent, _tempId } : e,
+              ),
           );
           setQuickEditEventId(realEvent.id);
         },

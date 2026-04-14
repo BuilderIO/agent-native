@@ -6,7 +6,7 @@
  * its `kind` (link / form / builder-cli-auth / agent-task).
  */
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   IconCheck,
   IconChevronDown,
@@ -449,8 +449,26 @@ function BuilderCliAuthMethod({
 }) {
   const [connecting, setConnecting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, []);
 
   const handleConnect = useCallback(() => {
+    // Restart: clear any lingering poll from a prior click.
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
     setConnecting(true);
     setErr(null);
     // Open SYNCHRONOUSLY inside the click handler — any await before
@@ -468,18 +486,31 @@ function BuilderCliAuthMethod({
     // Poll builder status until credentials appear (user finished the flow).
     const start = Date.now();
     const timeoutMs = 5 * 60 * 1000;
-    const interval = setInterval(async () => {
+    const stop = () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+    pollRef.current = setInterval(async () => {
       try {
         const r = await fetch(`${origin}/_agent-native/builder/status`);
         if (!r.ok) return;
         const s = (await r.json()) as { configured: boolean };
+        if (!mountedRef.current) {
+          stop();
+          return;
+        }
         if (s.configured) {
-          clearInterval(interval);
+          stop();
           setConnecting(false);
           await onCompleted();
         } else if (Date.now() - start > timeoutMs) {
-          clearInterval(interval);
+          stop();
           setConnecting(false);
+          setErr(
+            "Didn't hear back from Builder in 5 minutes. Check the popup, allow popups if blocked, and try again.",
+          );
         }
       } catch {
         // ignore transient poll errors
