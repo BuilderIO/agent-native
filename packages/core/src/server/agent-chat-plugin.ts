@@ -126,6 +126,52 @@ function wrapCliScript(
 }
 
 /**
+ * Creates the `refresh-screen` tool. Writes a bump to `application_state`
+ * under a well-known key; the client's `useDbSync` watches for this and
+ * invalidates react-query caches so the on-screen UI re-fetches its data
+ * without a full page reload.
+ *
+ * This is the standard way for the agent to say "the data on the screen
+ * just changed, please refresh it" — e.g. after editing a dashboard config,
+ * updating a form schema, or mutating a row that the current view renders.
+ */
+function createRefreshScreenEntry(): Record<string, ActionEntry> {
+  return {
+    "refresh-screen": {
+      tool: {
+        description:
+          "Refresh the user's current screen so it picks up data you just changed. Call this immediately after any mutation (db-exec, template action, writeAppState) that affects what the user is currently looking at — a dashboard config, a form, a document, a row in a table they're viewing, etc. The UI re-fetches its queries without a full page reload. Prefer this over asking the user to reload. Optional `scope` hint is passed through to the client for templates that want to narrow the invalidation.",
+        parameters: {
+          type: "object",
+          properties: {
+            scope: {
+              type: "string",
+              description:
+                "Optional hint describing what changed (e.g. 'dashboard', 'form', 'settings'). Templates may use it to narrow which queries to invalidate; if omitted, all queries are invalidated.",
+            },
+          },
+        },
+      },
+      run: async (args) => {
+        const { writeAppState } = await import(
+          "../application-state/script-helpers.js"
+        );
+        const nonce = Date.now();
+        const scope = typeof args?.scope === "string" ? args.scope : undefined;
+        await writeAppState(SCREEN_REFRESH_KEY, {
+          nonce,
+          ...(scope ? { scope } : {}),
+        });
+        return `refreshed${scope ? ` (scope: ${scope})` : ""}`;
+      },
+    },
+  };
+}
+
+/** Well-known application-state key used by the refresh-screen tool. */
+const SCREEN_REFRESH_KEY = "__screen_refresh__";
+
+/**
  * Creates db-* tools (db-query, db-exec, db-patch, db-schema) as native tools.
  * These let the agent read and write the app's own SQL database. Scoping to
  * the current user/org is enforced automatically in production via temp views.
@@ -982,8 +1028,9 @@ const FRAMEWORK_CORE = `
 2. **Context awareness** — The user's current screen state is automatically included in each message as a \`<current-screen>\` block. Use it to understand what the user is looking at. You can still call \`view-screen\` for a more detailed snapshot if needed, but you should NOT need to call it before every action.
 3. **Navigate the UI** — Use the \`navigate\` tool to switch views, open items, or focus elements for the user.
 4. **Application state** — Ephemeral UI state (drafts, selections, navigation) lives in \`application_state\`. Use \`readAppState\`/\`writeAppState\` to read and write it. When you write state, the UI updates automatically.
-5. **Memory** — Use the structured memory system to persist knowledge across sessions. Use \`save-memory\` proactively when you learn preferences, corrections, or project context. Update shared AGENTS.md for instructions that should apply to all users.
-6. **Security** — Always use \`defineAction\` with a Zod \`schema:\` for input validation. Never construct SQL with string concatenation — use parameterized queries via db-query/db-exec. Never use \`dangerouslySetInnerHTML\`, \`innerHTML\`, or \`eval()\`. Never expose secrets in responses or source code. Every table with user data must have \`owner_email\`.
+5. **Refresh after on-screen data changes** — Whenever you mutate data that is visible on the user's CURRENT screen (editing a dashboard config, updating a form schema, changing a row in a table they're viewing, etc.), call \`refresh-screen\` as your final step. The UI re-fetches its queries without a full page reload. Do NOT tell the user to reload the page — call \`refresh-screen\` instead. Skip it only when you're certain the change isn't on the current screen.
+6. **Memory** — Use the structured memory system to persist knowledge across sessions. Use \`save-memory\` proactively when you learn preferences, corrections, or project context. Update shared AGENTS.md for instructions that should apply to all users.
+7. **Security** — Always use \`defineAction\` with a Zod \`schema:\` for input validation. Never construct SQL with string concatenation — use parameterized queries via db-query/db-exec. Never use \`dangerouslySetInnerHTML\`, \`innerHTML\`, or \`eval()\`. Never expose secrets in responses or source code. Every table with user data must have \`owner_email\`.
 
 ### Resources
 
@@ -1548,6 +1595,7 @@ export function createAgentChatPlugin(
     const resourceScripts = await createResourceScriptEntries();
     const docsScripts = await createDocsScriptEntries();
     const dbScripts = await createDbScriptEntries();
+    const refreshScreenTool = createRefreshScreenEntry();
     const engineScripts = await createAgentEngineScriptEntries();
     const chatScripts = {
       ...(await createChatScriptEntries()),
@@ -1715,6 +1763,7 @@ export function createAgentChatPlugin(
           ...resourceScripts,
           ...docsScripts,
           ...dbScripts,
+          ...refreshScreenTool,
           ...chatScripts,
           ...callAgentScript,
           ...browserTools,
@@ -1830,6 +1879,7 @@ export function createAgentChatPlugin(
               ...resourceScripts,
               ...docsScripts,
               ...dbScripts,
+              ...refreshScreenTool,
               ...chatScripts,
               ...browserTools,
             };
@@ -1947,6 +1997,7 @@ export function createAgentChatPlugin(
               ...resourceScripts,
               ...docsScripts,
               ...dbScripts,
+              ...refreshScreenTool,
               ...chatScripts,
             };
 
@@ -2114,6 +2165,7 @@ export function createAgentChatPlugin(
               ...resourceScripts,
               ...docsScripts,
               ...dbScripts,
+              ...refreshScreenTool,
               ...chatScripts,
             },
       getEngine: () =>
@@ -2142,6 +2194,7 @@ export function createAgentChatPlugin(
       ...resourceScripts,
       ...docsScripts,
       ...dbScripts,
+      ...refreshScreenTool,
       ...chatScripts,
       ...callAgentScript,
       ...teamTools,

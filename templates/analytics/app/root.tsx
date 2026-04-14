@@ -4,7 +4,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
-import { ClientOnly, DefaultSpinner } from "@agent-native/core/client";
+import {
+  ClientOnly,
+  DefaultSpinner,
+  useDbSync,
+} from "@agent-native/core/client";
 import { AuthProvider } from "@/components/auth/AuthProvider";
 import { CommandPalette } from "./components/layout/CommandPalette";
 import { Layout as AppLayout } from "./components/layout/Layout";
@@ -40,11 +44,20 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
+function DbSyncBridge({ queryClient }: { queryClient: QueryClient }) {
+  // Invalidate react-query caches when the app DB changes (agent edits,
+  // other tabs, cron jobs). Also picks up `refresh-screen` events from the
+  // agent — those invalidate ALL queries, not just the default prefix.
+  useDbSync({ queryClient });
+  return null;
+}
+
 export default function Root() {
   const [queryClient] = useState(() => new QueryClient());
   return (
     <ClientOnly fallback={<DefaultSpinner />}>
       <QueryClientProvider client={queryClient}>
+        <DbSyncBridge queryClient={queryClient} />
         <TooltipProvider>
           <Toaster />
           <Sonner position="bottom-left" />

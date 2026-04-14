@@ -78,6 +78,12 @@ Every template should have a `navigate` action that writes a one-shot command to
 
 When the agent writes to application-state, the UI updates via polling. But polling must NOT override the user's active edits. Only explicit agent writes should push changes to the UI. Templates use the `ignoreSource` option on `useDbSync()` with a per-tab ID so the UI ignores its own writes while still picking up agent and other-tab changes.
 
+### The `refresh-screen` Tool
+
+The framework registers a built-in `refresh-screen` tool available to every agent in every template. After the agent mutates data that's visible on the user's current screen (editing a dashboard config, updating a form schema, changing a row in a table the user is viewing, etc.), it should call `refresh-screen` as its final step. The tool writes a nonce to `application_state`; the `useDbSync` hook detects it via polling and calls `queryClient.invalidateQueries()` with no filter, re-fetching every query the UI has in flight — no full page reload.
+
+Every template that calls `useDbSync({ queryClient })` in its root gets this for free — there is no per-template action or wiring needed. Templates that don't yet use `useDbSync` must add it for `refresh-screen` to work.
+
 ## The Six Rules
 
 ### 1. Data Lives in SQL

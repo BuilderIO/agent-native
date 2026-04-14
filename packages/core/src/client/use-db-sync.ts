@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 
 interface QueryClient {
-  invalidateQueries(opts: { queryKey: string[] }): void;
+  invalidateQueries(opts?: { queryKey?: string[] }): void;
 }
 
 /**
@@ -71,8 +71,20 @@ export function useDbSync(
             : events;
 
           if (relevant.length > 0) {
-            for (const key of keysRef.current) {
-              queryClient.invalidateQueries({ queryKey: [key] });
+            // Screen-refresh events invalidate EVERY query, not just the
+            // default queryKey prefix. These are explicit agent signals that
+            // the current screen's data just changed — issued via the
+            // framework `refresh-screen` tool — so we treat them as a
+            // blanket "refetch everything the UI has in flight".
+            const hasScreenRefresh = relevant.some(
+              (e: any) => e.source === "screen-refresh",
+            );
+            if (hasScreenRefresh) {
+              queryClient.invalidateQueries();
+            } else {
+              for (const key of keysRef.current) {
+                queryClient.invalidateQueries({ queryKey: [key] });
+              }
             }
           }
 
