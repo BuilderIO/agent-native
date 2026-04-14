@@ -30,6 +30,7 @@ Resources are SQL-backed persistent files for notes, learnings, and context.
 
 ### Framework Skills (`.agents/skills/`)
 
+- **adhoc-analysis** — How to conduct ad-hoc analyses across multiple data sources and save reusable artifacts
 - **dashboard-management** — How dashboards are stored, created, and modified
 - **data-querying** — General patterns for querying data, filtering, and charts
 - **storing-data** — Settings and config in SQL via settings API
@@ -73,7 +74,7 @@ Ephemeral UI state is stored in the SQL `application_state` table. The UI syncs 
 }
 ```
 
-Views: `overview`, `adhoc` (with `dashboardId`), `query`, `data-sources`, `settings`.
+Views: `overview`, `adhoc` (with `dashboardId`), `analyses` (with optional `analysisId`), `query`, `data-sources`, `settings`.
 
 **Do NOT write to `navigation`** — it is overwritten by the UI. Use `navigate` to control the UI.
 
@@ -93,15 +94,16 @@ Agent Chat  ------>  Actions (pnpm action)
 
 Dashboard configs, explorer configs, and theme settings are stored in SQL via the settings API:
 
-| Key Pattern                      | Contents                               |
-| -------------------------------- | -------------------------------------- |
-| `u:<email>:dashboard-{id}`       | Explorer dashboard configuration       |
-| `u:<email>:config-{id}`          | Explorer/tool configuration            |
-| `u:<email>:sql-dashboard-{id}`   | Personal SQL dashboard                 |
-| `o:<orgId>:sql-dashboard-{id}`   | SQL dashboard scoped to an org         |
-| `o:<orgId>:dashboard-views-{id}` | Saved dashboard views scoped to an org |
-| `u:<email>:active-org-id`        | User's currently selected org          |
-| `analytics-theme`                | Theme settings (colors, dark mode)     |
+| Key Pattern                      | Contents                                       |
+| -------------------------------- | ---------------------------------------------- |
+| `u:<email>:dashboard-{id}`       | Explorer dashboard configuration               |
+| `u:<email>:config-{id}`          | Explorer/tool configuration                    |
+| `u:<email>:sql-dashboard-{id}`   | Personal SQL dashboard                         |
+| `o:<orgId>:sql-dashboard-{id}`   | SQL dashboard scoped to an org                 |
+| `o:<orgId>:dashboard-views-{id}` | Saved dashboard views scoped to an org         |
+| `adhoc-analysis-{id}`            | Saved ad-hoc analysis (results + instructions) |
+| `u:<email>:active-org-id`        | User's currently selected org                  |
+| `analytics-theme`                | Theme settings (colors, dark mode)             |
 
 Solo-mode dashboards/configs are user-scoped. Org dashboards/views are org-scoped. Legacy global rows still load as a fallback, and the Team-page upgrade flow can move those legacy rows onto the signed-in user during migration from local mode.
 
@@ -155,10 +157,21 @@ cd templates/analytics && pnpm action <name> [args]
 
 ### Context & Navigation
 
-| Action        | Args                                 | Purpose                    |
-| ------------- | ------------------------------------ | -------------------------- |
-| `view-screen` |                                      | See what the user sees now |
-| `navigate`    | `--view <name> [--dashboardId <id>]` | Navigate the UI            |
+| Action        | Args                                                     | Purpose                    |
+| ------------- | -------------------------------------------------------- | -------------------------- |
+| `view-screen` |                                                          | See what the user sees now |
+| `navigate`    | `--view <name> [--dashboardId <id>] [--analysisId <id>]` | Navigate the UI            |
+
+### Ad-Hoc Analysis
+
+| Action            | Args                                                                                  | Purpose                            |
+| ----------------- | ------------------------------------------------------------------------------------- | ---------------------------------- |
+| `save-analysis`   | `--id <id> --name <name> --question <q> --instructions <steps> --resultMarkdown <md>` | Save or update a reusable analysis |
+| `get-analysis`    | `--id <id>`                                                                           | Retrieve a saved analysis          |
+| `list-analyses`   |                                                                                       | List all saved analyses            |
+| `delete-analysis` | `--id <id>`                                                                           | Delete a saved analysis            |
+
+**Read the `adhoc-analysis` skill** before running an analysis. The key workflow: gather data from multiple sources → synthesize findings → save with `save-analysis` (including re-run instructions) → navigate the user to `/analyses/{id}`.
 
 ### Data Source Scripts
 
@@ -195,18 +208,21 @@ pnpm action hubspot-deals --grep="enterprise" --fields=dealname,amount,stageLabe
 
 ## Common Tasks
 
-| User request                        | What to do                                                         |
-| ----------------------------------- | ------------------------------------------------------------------ |
-| "What am I looking at?"             | `view-screen`                                                      |
-| "Show weekly signup trends"         | Query BigQuery, generate chart, present in chat                    |
-| "Create a dashboard for X"          | Write config to `dashboard-{id}`, navigate to it                   |
-| "How many open bugs?"               | `jira-search --jql="issuetype = Bug AND resolution = Unresolved"`  |
-| "Find deals over $50k"              | `hubspot-deals --grep="50000" --fields=dealname,amount,stageLabel` |
-| "Check error rates"                 | Query Sentry via server lib                                        |
-| "Show me PRs from this week"        | `github-prs --org=YourOrg --query="is:open created:>2026-03-27"`   |
-| "Top keywords for our blog"         | `seo-top-keywords --fields=keyword,rank_absolute,etv`              |
-| "Go to the overview"                | `navigate --view=overview`                                         |
-| "Open the weekly metrics dashboard" | `navigate --view=adhoc --dashboardId=weekly-metrics`               |
+| User request                        | What to do                                                           |
+| ----------------------------------- | -------------------------------------------------------------------- |
+| "What am I looking at?"             | `view-screen`                                                        |
+| "Show weekly signup trends"         | Query BigQuery, generate chart, present in chat                      |
+| "Create a dashboard for X"          | Write config to `dashboard-{id}`, navigate to it                     |
+| "How many open bugs?"               | `jira-search --jql="issuetype = Bug AND resolution = Unresolved"`    |
+| "Find deals over $50k"              | `hubspot-deals --grep="50000" --fields=dealname,amount,stageLabel`   |
+| "Check error rates"                 | Query Sentry via server lib                                          |
+| "Show me PRs from this week"        | `github-prs --org=YourOrg --query="is:open created:>2026-03-27"`     |
+| "Top keywords for our blog"         | `seo-top-keywords --fields=keyword,rank_absolute,etv`                |
+| "Go to the overview"                | `navigate --view=overview`                                           |
+| "Open the weekly metrics dashboard" | `navigate --view=adhoc --dashboardId=weekly-metrics`                 |
+| "Analyze our closed-lost deals"     | Read `adhoc-analysis` skill, gather data, save with `save-analysis`  |
+| "Re-run this analysis"              | Read saved instructions, re-gather data, update with `save-analysis` |
+| "Show me my analyses"               | `navigate --view=analyses`                                           |
 
 **Key principle**: When asked a question, don't say "check the dashboard" — actually query the data, get results, and present the answer directly in chat with tables and/or charts.
 

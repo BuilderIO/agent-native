@@ -7,7 +7,7 @@ export function meta() {
 export default function TeamRoute() {
   return (
     <div className="h-full overflow-y-auto p-4 sm:p-6">
-      <TeamPage />
+      <TeamPage createOrgDescription="Set up a team to share projects and issues with your colleagues." />
     </div>
   );
 }

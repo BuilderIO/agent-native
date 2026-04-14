@@ -55,21 +55,27 @@ Personal preferences, corrections, and patterns — only visible to you.
 const DEFAULT_SKILL_LEARN_MD = `---
 name: learn
 description: >-
-  Update your personal LEARNINGS.md with preferences, corrections, and patterns
-  from this session.
+  Review the conversation and save structured memories for future sessions.
 user-invocable: true
 ---
 
 # Learn
 
-Review the current conversation and update your personal \`LEARNINGS.md\` resource with anything worth remembering for future sessions.
+Review the current conversation and save anything worth remembering using the structured memory system.
 
-## What to capture
+## Memory types
 
-- **Preferences** — tone, style, workflow habits, personal context
-- **Corrections** — "no, do it this way" → capture the right way
-- **Patterns** — recurring approaches, decisions, API quirks
-- **Contacts** — names, emails, relationships mentioned
+- **user** — Preferences, role, personal context, contacts
+- **feedback** — Corrections ("don't do X, do Y instead"), confirmed approaches
+- **project** — Ongoing work context, decisions, status
+- **reference** — Pointers to external systems, URLs, API details
+
+## Steps
+
+1. Review the conversation for new insights
+2. Check your memory index: \`resource-read --path memory/MEMORY.md\`
+3. For each new insight, use \`save-memory\` with a descriptive name, type, and content
+4. If updating an existing memory, read it first with \`resource-read --path memory/<name>.md\`, then save with merged content
 
 ## What NOT to capture
 
@@ -78,14 +84,7 @@ Review the current conversation and update your personal \`LEARNINGS.md\` resour
 - Temporary debugging notes
 - Anything already in AGENTS.md or other skills
 
-## Steps
-
-1. Read your personal learnings: \`pnpm action resource-read --path LEARNINGS.md\`
-2. Review the conversation for new insights
-3. Merge new learnings with existing ones — don't duplicate, refine existing entries
-4. Write back: \`pnpm action resource-write --path LEARNINGS.md --content "..."\`
-
-Keep entries concise — one line per learning, grouped by category (Preferences, Corrections, Patterns).
+Keep one memory per logical topic. Descriptions should be concise — the index is loaded every conversation.
 `;
 
 const DEFAULT_SKILL_LEARN_SHARED_MD = `---
@@ -343,7 +342,24 @@ export async function ensurePersonalDefaults(owner: string): Promise<void> {
     ],
   });
 
-  // skills/learn.md — personal skill for updating personal LEARNINGS.md
+  // memory/MEMORY.md — personal structured memory index
+  const memoryIndexContent = "# Memory Index\n";
+  const memoryIndexSize = Buffer.byteLength(memoryIndexContent, "utf8");
+  await client.execute({
+    sql: seedSql,
+    args: [
+      crypto.randomUUID(),
+      "memory/MEMORY.md",
+      owner,
+      memoryIndexContent,
+      "text/markdown",
+      memoryIndexSize,
+      now,
+      now,
+    ],
+  });
+
+  // skills/learn.md — personal skill for updating memory
   const learnSize = Buffer.byteLength(DEFAULT_SKILL_LEARN_MD, "utf8");
   await client.execute({
     sql: seedSql,

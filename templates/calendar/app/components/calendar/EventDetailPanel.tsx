@@ -24,11 +24,9 @@ import { ResearchMeetingButton } from "@/components/calendar/ApolloPanel";
 import { EventAttendeesSection } from "@/components/calendar/EventAttendeesSection";
 import { useCalendarContext } from "@/components/layout/AppLayout";
 import {
-  sanitizeHtml,
-  stripGcalInviteHtml,
-  isHtml,
-  linkifyText,
-} from "@/lib/sanitize-description";
+  RenderedDescription,
+  AutoGrowTextarea,
+} from "@/components/calendar/EventDescription";
 import { useUpdateEvent } from "@/hooks/use-events";
 
 interface EventDetailPanelProps {
@@ -62,11 +60,11 @@ export function EventDetailPanel({
   const color = event ? getEventColor(event) : null;
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editingTitle, setEditingTitle] = useState("");
+  const [isEditingDescription, setIsEditingDescription] = useState(false);
   const [editDescription, setEditDescription] = useState(
     event?.description || "",
   );
   const titleInputRef = useRef<HTMLInputElement>(null);
-  const descriptionRef = useRef<HTMLTextAreaElement>(null);
   const updateEvent = useUpdateEvent();
   const isOverlay = !!event?.overlayEmail;
   const lastSavedDescriptionRef = useRef(event?.description || "");
@@ -74,6 +72,7 @@ export function EventDetailPanel({
   // Reset editing state when event changes
   useEffect(() => {
     setIsEditingTitle(false);
+    setIsEditingDescription(false);
     setEditDescription(event?.description || "");
     lastSavedDescriptionRef.current = event?.description || "";
   }, [event?.id]);
@@ -120,6 +119,7 @@ export function EventDetailPanel({
         },
       );
     }
+    setIsEditingDescription(false);
   }, [editDescription, event, updateEvent]);
 
   const handleUnpin = () => {
@@ -262,55 +262,25 @@ export function EventDetailPanel({
                     <IconAlignLeft className="mt-1.5 h-4 w-4 shrink-0 text-muted-foreground" />
                     {isOverlay ? (
                       event.description ? (
-                        (() => {
-                          const descIsHtml = isHtml(event.description);
-                          if (descIsHtml) {
-                            const cleanedHtml = stripGcalInviteHtml(
-                              sanitizeHtml(event.description),
-                            );
-                            const hasContent =
-                              cleanedHtml.replace(/<[^>]*>/g, "").trim()
-                                .length > 0;
-                            if (!hasContent) return null;
-                            return (
-                              <div
-                                className="rounded-md bg-muted/50 px-3 py-2.5 text-sm leading-relaxed text-foreground prose prose-sm dark:prose-invert prose-p:my-1 prose-a:text-primary"
-                                dangerouslySetInnerHTML={{
-                                  __html: cleanedHtml,
-                                }}
-                              />
-                            );
-                          }
-                          return (
-                            <p
-                              className="text-sm leading-relaxed text-foreground/80 whitespace-pre-wrap"
-                              dangerouslySetInnerHTML={{
-                                __html: linkifyText(event.description),
-                              }}
-                            />
-                          );
-                        })()
+                        <RenderedDescription description={event.description} />
                       ) : null
-                    ) : (
-                      <textarea
-                        ref={descriptionRef}
+                    ) : isEditingDescription || !event.description ? (
+                      <AutoGrowTextarea
                         value={editDescription}
-                        onChange={(e) => setEditDescription(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Escape") {
-                            e.preventDefault();
-                            setEditDescription(lastSavedDescriptionRef.current);
-                          }
-                          if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                            e.preventDefault();
-                            handleSaveDescription();
-                          }
-                          e.stopPropagation();
-                        }}
+                        onChange={setEditDescription}
                         onBlur={handleSaveDescription}
-                        placeholder="Add description"
-                        rows={3}
-                        className="flex-1 w-full bg-transparent border-none outline-none text-sm text-foreground placeholder:text-muted-foreground/40 focus:ring-0 resize-none"
+                        onSubmit={handleSaveDescription}
+                        onEscape={() => {
+                          setEditDescription(lastSavedDescriptionRef.current);
+                          setIsEditingDescription(false);
+                        }}
+                        autoFocus={isEditingDescription}
+                      />
+                    ) : (
+                      <RenderedDescription
+                        description={event.description}
+                        editable
+                        onClick={() => setIsEditingDescription(true)}
                       />
                     )}
                   </div>

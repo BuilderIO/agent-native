@@ -78,7 +78,7 @@ Query via `getDb()` singleton from `server/db/index.ts`.
 
 ### 4. OAuth Tokens — credentials
 
-For OAuth tokens acquired at runtime (Google, etc.). Never store these in settings — use the dedicated encrypted store.
+For OAuth tokens acquired at runtime (Google, etc.). Never store these in settings — use the dedicated store.
 
 ```ts
 import { saveOAuthTokens, getOAuthTokens, listOAuthAccounts } from "@agent-native/core/oauth-tokens";
@@ -108,3 +108,9 @@ Infrastructure config stays in `.env` — these differ per deployment:
 - `ACCESS_TOKEN` — production auth token
 
 Everything else (user settings, tokens, app state) goes in SQL.
+
+## Security Rules
+
+- **Never store API keys or secrets in Settings or Application State** — use `.env` for API keys (gitignored) and the `oauth_tokens` store for OAuth credentials. Settings and application state are readable by the client.
+- **Every Drizzle table with user data must have `owner_email`** — the framework auto-scopes queries in production so users only see their own data. Run `pnpm action db-check-scoping` to verify. See the `security` skill for the full model.
+- **Never return secrets in action responses** — action responses may be visible in the agent chat or sent to the client. Keep credentials server-side only.

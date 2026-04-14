@@ -9,7 +9,7 @@ export default function TeamRoute() {
   return (
     <AppLayout>
       <div className="p-8">
-        <TeamPage />
+        <TeamPage createOrgDescription="Set up a team to share forms and view responses together." />
       </div>
     </AppLayout>
   );

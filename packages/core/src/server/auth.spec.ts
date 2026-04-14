@@ -213,8 +213,25 @@ describe("server/auth", () => {
       expect(session).toEqual({ email: "local@localhost" });
     });
 
-    it("stops returning the local session once AUTH_MODE=local is cleared", async () => {
+    it("still returns local session in dev after AUTH_MODE=local is cleared (dev fallback)", async () => {
       vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("AUTH_MODE", "local");
+      const { getSession, autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const event = createMockEvent();
+      expect(await getSession(event)).toEqual({ email: "local@localhost" });
+
+      delete process.env.AUTH_MODE;
+
+      // Dev-mode safety net — still returns local@localhost
+      expect(await getSession(event)).toEqual({ email: "local@localhost" });
+    });
+
+    it("returns null in production when AUTH_MODE=local is cleared", async () => {
+      vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("AUTH_MODE", "local");
       const { getSession, autoMountAuth } = await import("./auth.js");
 

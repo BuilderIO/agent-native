@@ -6,6 +6,7 @@ import {
   IconFingerprint,
   IconHistory,
   IconInfoCircle,
+  IconKey,
   IconPlugConnected,
   IconShieldCheck,
   type IconProps,
@@ -157,7 +158,7 @@ export default function OverviewRoute() {
   return (
     <DispatcherShell
       title="Overview"
-      description="Dispatcher is the shared entry point for Slack, Telegram, scheduled work, and delegation across your workspace."
+      description="Workspace control plane — manage secrets, integrations, messaging, and agent delegation."
     >
       <section className="rounded-2xl border bg-card p-5">
         <h2 className="text-base font-semibold text-foreground">
@@ -200,33 +201,33 @@ export default function OverviewRoute() {
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard
+          label="Vault secrets"
+          help="Credentials stored in the workspace vault. Grant them to apps from the Vault page."
+          value={data?.vault?.secretCount || 0}
+          icon={IconKey}
+          cta={
+            (data?.vault?.secretCount || 0) === 0 ? (
+              <Button variant="outline" size="sm" asChild>
+                <Link to="/vault">Set up vault</Link>
+              </Button>
+            ) : undefined
+          }
+        />
+        <StatCard
+          label="Active grants"
+          help="Secrets currently granted to apps. Sync them to push credentials."
+          value={data?.vault?.activeGrantCount || 0}
+          icon={IconShieldCheck}
+        />
+        <StatCard
           label="Destinations"
-          help="Saved outbound targets used for proactive sends and scheduled jobs. Destinations are different from integrations: integrations let messages come in, destinations tell dispatcher where to send messages back out."
+          help="Saved outbound targets used for proactive sends and scheduled jobs."
           value={counts.destinations}
           icon={IconArrowUpRight}
           cta={
             counts.destinations === 0 ? (
               <Button variant="outline" size="sm" asChild>
                 <Link to="/destinations">Set up destinations</Link>
-              </Button>
-            ) : undefined
-          }
-        />
-        <StatCard
-          label="Pending approvals"
-          help="Durable changes waiting for approval before they apply."
-          value={counts.pendingApprovals}
-          icon={IconShieldCheck}
-        />
-        <StatCard
-          label="Linked identities"
-          help="External Slack and Telegram users that are mapped to real workspace users."
-          value={counts.linkedIdentities}
-          icon={IconFingerprint}
-          cta={
-            counts.linkedIdentities === 0 ? (
-              <Button variant="outline" size="sm" asChild>
-                <Link to="/identities">Set up identities</Link>
               </Button>
             ) : undefined
           }

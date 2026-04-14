@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 interface NavigationState {
   view: string;
   dashboardId?: string;
+  analysisId?: string;
 }
 
 export function useNavigationState() {
@@ -26,6 +27,12 @@ export function useNavigationState() {
         state.dashboardId = match[1];
         localStorage.setItem("last-dashboard-id", match[1]);
       }
+    } else if (path === "/analyses") {
+      state.view = "analyses";
+    } else if (path.startsWith("/analyses/")) {
+      state.view = "analyses";
+      const match = path.match(/\/analyses\/(.+)/);
+      if (match) state.analysisId = match[1];
     } else if (path === "/query") {
       state.view = "query";
     } else if (path === "/data-sources") {
@@ -80,6 +87,10 @@ export function useNavigationState() {
 
     if (cmd.view === "adhoc" && cmd.dashboardId) {
       path = `/adhoc/${cmd.dashboardId}`;
+    } else if (cmd.view === "analyses" && cmd.analysisId) {
+      path = `/analyses/${cmd.analysisId}`;
+    } else if (cmd.view === "analyses") {
+      path = "/analyses";
     } else if (cmd.view === "query") {
       path = "/query";
     } else if (cmd.view === "data-sources") {

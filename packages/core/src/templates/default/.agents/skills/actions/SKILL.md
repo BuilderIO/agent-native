@@ -84,7 +84,8 @@ This is the canonical approach for new apps. Action names must be lowercase with
 ## Guidelines
 
 - **One action, one job.** Keep actions focused on a single operation. The agent composes multiple action calls for complex operations.
-- **Use `parseArgs()`** for structured argument parsing. It converts `--key value` pairs to a `Record<string, string>`.
+- **Always use `defineAction` with a Zod `schema:`** for input validation. The framework validates automatically and returns clear error messages for invalid input. This prevents malicious or malformed input from reaching your code. The legacy `parseArgs()` format has no runtime validation — use it only for internal/dev scripts, not user-facing actions.
+- **Never construct SQL with string concatenation** — use the `db-exec`/`db-query` tools which parameterize queries automatically (`?` placeholders). Drizzle ORM queries are always safe.
 - **Use `loadEnv()`** if the action needs environment variables (API keys, etc.).
 - **Use `fail()`** for user-friendly error messages (exits with message, no stack trace).
 - **Write results to the database.** The agent and UI will pick them up via db sync polling.

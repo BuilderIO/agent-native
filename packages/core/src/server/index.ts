@@ -112,6 +112,23 @@ export {
 } from "./action-routes.js";
 
 export {
+  createOnboardingPlugin,
+  defaultOnboardingPlugin,
+} from "../onboarding/plugin.js";
+
+export {
+  registerFileUploadProvider,
+  unregisterFileUploadProvider,
+  listFileUploadProviders,
+  getActiveFileUploadProvider,
+  uploadFile,
+  builderFileUploadProvider,
+  type FileUploadInput,
+  type FileUploadProvider,
+  type FileUploadResult,
+} from "../file-upload/index.js";
+
+export {
   createIntegrationsPlugin,
   defaultIntegrationsPlugin,
   slackAdapter,
@@ -138,6 +155,13 @@ export {
   type OAuthOwnerResult,
   type OAuthSessionResult,
 } from "./google-oauth.js";
+
+export {
+  FeatureNotConfiguredError,
+  hasBuilderPrivateKey,
+  getBuilderProxyOrigin,
+  getBuilderAuthHeader,
+} from "./credential-provider.js";
 
 // SSR handler is NOT re-exported here — it uses a virtual module
 // (virtual:react-router/server-build) that only exists at Vite dev/build time.

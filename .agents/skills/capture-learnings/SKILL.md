@@ -1,7 +1,7 @@
 ---
 name: capture-learnings
 description: >-
-  Capture and apply accumulated knowledge via the Resources system. Use when the
+  Capture and apply accumulated knowledge via structured memory. Use when the
   user gives feedback, shares preferences, corrects a mistake, or when you
   discover something worth remembering for future conversations.
 user-invocable: false
@@ -9,95 +9,66 @@ user-invocable: false
 
 # Capture Learnings
 
-This is background knowledge, not a slash command. **Read the `learnings.md` resource before starting significant work.** Update it when you learn something worth remembering.
+This is background knowledge, not a slash command. **Your memory index is loaded at the start of every conversation.** Use `save-memory` proactively when you learn something worth remembering.
 
-## How to Read & Write Learnings
+## How to Read & Write Memories
 
-Learnings are stored as **resources** in the SQL database, not as files on disk.
+Memories are stored as **resources** in the SQL database (personal scope), not as files on disk.
 
-- **Read:** `pnpm action resource-read --path learnings.md`
-- **Write:** `pnpm action resource-write --path learnings.md --content "..."`
-- **List all resources:** `pnpm action resource-list`
+- **Save a memory:** `save-memory --name <name> --type <type> --description "..." --content "..."`
+- **Read a memory:** `resource-read --path memory/<name>.md`
+- **Delete a memory:** `delete-memory --name <name>`
+- **List all memories:** `resource-list --prefix memory/`
 
-Resources can be **personal** (per-user, default) or **shared** (team-wide):
-- `pnpm action resource-write --path learnings.md --scope personal --content "..."`
-- `pnpm action resource-write --path team-guidelines.md --scope shared --content "..."`
+## Memory Types
+
+| Type | Use for |
+|------|---------|
+| `user` | Preferences, role, personal context, contacts |
+| `feedback` | Corrections, confirmed approaches, things to avoid or repeat |
+| `project` | Ongoing work context, decisions, deadlines, status |
+| `reference` | Pointers to external systems, URLs, API details |
 
 ## When to Capture
 
-### User Preferences & Memory
+### User Preferences & Memory (`user`)
 - **Tone and style** — "I prefer casual tone", "don't use emojis", "keep replies short"
 - **Personal context** — contacts, relationships, habits ("my wife's email is...", "I'm in PST timezone")
 - **Workflow preferences** — "always CC my assistant", "I like to review before sending"
-- **Corrections** — user says "no, do it this way instead" — capture the right way
+- **Role and expertise** — "I'm a data scientist", "new to React"
 
-### Technical Learnings
-- **Surprising behavior** — something didn't work as expected and you figured out why
-- **Repeated friction** — you hit the same issue twice; write it down so there's no third time
-- **Architectural decisions** — why something is done a certain way (the "why" isn't in the code)
-- **API/library quirks** — undocumented behavior, version-specific gotchas
+### Feedback & Corrections (`feedback`)
+- **Corrections** — user says "no, do it this way" → capture the right way
+- **Confirmed approaches** — user validates a non-obvious choice ("yes, that's perfect")
+- **Repeated friction** — you hit the same issue twice; save it
+
+### Project Context (`project`)
+- **Ongoing work** — who is doing what, why, by when
+- **Decisions** — why something is done a certain way
+- **Status** — current state of initiatives
+
+### References (`reference`)
+- **External systems** — "bugs are tracked in Linear project INGEST"
+- **URLs** — dashboards, documentation, tools
+- **API quirks** — undocumented behavior, version-specific gotchas
 
 ### Don't Capture
 - Things obvious from reading the code
 - Standard language/framework behavior
 - Temporary debugging notes
 - Anything already in AGENTS.md or skills
-
-## Format
-
-Write learnings as markdown, grouped by category:
-
-```markdown
-## Preferences
-
-- Prefers casual, direct tone — no corporate speak
-- Always BCC assistant@company.com on client emails
-- Wife's email: jane@example.com — reference as "Jane"
-
-## Technical
-
-- Apollo API returns null for personal Gmail addresses, only works for work emails
-- HubSpot lifecycle stages are lowercase in the API but title case in the UI
-
-## Patterns
-
-- When drafting replies, match the sender's formality level
-- For investor emails, keep it under 3 paragraphs
-```
+- Ephemeral task details (use tasks/plans instead)
 
 ## Key Rules
 
-1. **Read first, write second** — always read the `learnings.md` resource before starting work
-2. **Capture immediately** — don't wait until the end of the conversation
-3. **Keep it concise** — one line per learning, grouped by category
-4. **Don't duplicate** — if a learning exists, refine it rather than adding another
-5. **Resources are SQL-backed** — safe for personal info, preferences, contacts. They persist across sessions and are not in git.
-
-## Organizing Resources
-
-Learnings are just one type of resource. You can create additional resources for different purposes:
-- `learnings.md` — user preferences, corrections, patterns (personal)
-- `contacts.md` — important contacts and relationships (personal)
-- `team-guidelines.md` — shared team conventions (shared)
-- `notes/meeting-2026-03-26.md` — meeting notes (personal or shared)
-
-Use path prefixes like `notes/`, `docs/`, etc. to organize resources into virtual folders.
+1. **Save proactively — don't ask permission.** When you learn something, save it immediately.
+2. **One memory per topic** — e.g. `coding-style`, `project-alpha`, not one giant dump
+3. **Read before updating** — if a memory exists, read it first and merge, don't overwrite
+4. **Keep descriptions concise** — the index is loaded every conversation
+5. **Memories are SQL-backed** — safe for personal info, persist across sessions, not in git
 
 ## Graduation
 
-When a learning is referenced repeatedly, it may belong in AGENTS.md or a skill:
-- Updating the `learnings.md` resource is a Tier 1 modification (data — auto-apply)
-- Updating a SKILL.md based on learnings is Tier 2 (source — verify after)
-
-## Migration
-
-If a `learnings.md` file exists at the project root (from before the Resources system), run:
-```
-pnpm action migrate-learnings
-```
-This imports the file contents into the `learnings.md` resource.
-
-## Related Skills
-
-- **self-modifying-code** — resource updates are Tier 1; skill updates are Tier 2
-- **create-skill** — when a learning graduates, create a skill from it
+When a memory is referenced repeatedly, it may belong in AGENTS.md or a skill:
+- Saving a memory is lightweight (auto-apply, personal scope)
+- Updating AGENTS.md or a skill is heavier (affects all users/agents)

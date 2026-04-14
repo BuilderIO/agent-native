@@ -20,7 +20,7 @@ import {
 } from "./automation-actions.js";
 import type { AutomationAction } from "@shared/types.js";
 
-const HAIKU_MODEL = "claude-haiku-4-5-20251001";
+const DEFAULT_MODEL = "claude-haiku-4-5-20251001";
 const MAX_EMAILS_PER_RUN = 50;
 const MAX_PROCESSED_IDS = 500;
 const PROCESSED_IDS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -283,7 +283,11 @@ interface RuleMatch {
   match: boolean;
 }
 
-async function callHaiku(apiKey: string, prompt: string): Promise<string> {
+async function callModel(
+  apiKey: string,
+  prompt: string,
+  model: string,
+): Promise<string> {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -292,7 +296,7 @@ async function callHaiku(apiKey: string, prompt: string): Promise<string> {
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: HAIKU_MODEL,
+      model,
       max_tokens: 2048,
       messages: [{ role: "user", content: prompt }],
     }),
@@ -313,6 +317,7 @@ async function evaluateRules(
   emails: EmailSummary[],
   rules: RuleRecord[],
   apiKey: string,
+  model: string = DEFAULT_MODEL,
 ): Promise<Map<string, string[]>> {
   // Returns: messageId → array of matched ruleIds
   const results = new Map<string, string[]>();
@@ -354,7 +359,7 @@ For each email, evaluate ALL rules. Respond with ONLY a JSON array, no other tex
 Be precise: only mark a rule as matching if the email clearly fits the condition. When a condition mentions a specific sender, check the From field. When it mentions a topic or category, use the subject and snippet.`;
 
     try {
-      const text = await callHaiku(apiKey, prompt);
+      const text = await callModel(apiKey, prompt, model);
 
       // Parse JSON from response (handle markdown code blocks)
       const jsonStr = text
@@ -442,8 +447,10 @@ export async function processAutomationsForAccount(
 
   result.messagesProcessed = messages.length;
 
-  // 5. Evaluate rules with Haiku
-  const matches = await evaluateRules(messages, rules, apiKey);
+  // 5. Evaluate rules with AI
+  const autoSettings = await getUserSetting(ownerEmail, "automation-settings");
+  const model = (autoSettings as any)?.model || DEFAULT_MODEL;
+  const matches = await evaluateRules(messages, rules, apiKey, model);
 
   // 6. Execute matched actions
   if (matches.size > 0) {

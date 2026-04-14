@@ -4,6 +4,7 @@ import {
   IconBrandSlack,
   IconBrandTelegram,
   IconBrandWhatsapp,
+  IconBrandGoogleDrive,
   IconTerminal2,
   IconBuildingSkyscraper,
   IconMessageCircle,
@@ -73,6 +74,19 @@ const PLATFORMS: PlatformInfo[] = [
       "Copy the access token into your environment",
     ],
     docsUrl: "https://developers.facebook.com/docs/whatsapp",
+  },
+  {
+    id: "google-docs",
+    label: "Google Docs",
+    icon: IconBrandGoogleDrive,
+    description: "Tag the agent in Google Doc comments to get responses.",
+    envVars: ["GOOGLE_SERVICE_ACCOUNT_KEY"],
+    setupSteps: [
+      "Create a Google Cloud service account and download the JSON key",
+      "Set GOOGLE_SERVICE_ACCOUNT_KEY in your environment (JSON string or file path)",
+      "Share your Google Docs with the service account email",
+      'Write a comment containing "@Agent" to trigger the agent',
+    ],
   },
   {
     id: "openclaw",
@@ -401,14 +415,18 @@ export function IntegrationsPanel() {
       </div>
 
       {loading ? (
-        <div className="h-4 w-24 rounded bg-muted/50 animate-pulse" />
+        <div className="space-y-1.5">
+          <div className="h-6 w-full rounded bg-muted/50 animate-pulse" />
+          <div className="h-6 w-3/4 rounded bg-muted/50 animate-pulse" />
+        </div>
       ) : connectedPlatforms.length === 0 ? (
         <div className="space-y-2">
           <button
             onClick={() => setShowPicker(true)}
-            className="text-[10px] text-muted-foreground hover:text-foreground"
+            className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent/30"
           >
-            Add an integration...
+            <IconPlus size={12} className="shrink-0" />
+            Add integration
           </button>
           <div className="rounded-md border border-border bg-muted/30 px-2.5 py-2 text-[10px] text-muted-foreground">
             For a central Slack or Telegram entrypoint that can route work
@@ -417,7 +435,7 @@ export function IntegrationsPanel() {
               href="https://dispatcher.agent-native.com"
               target="_blank"
               rel="noopener noreferrer"
-              className="underline text-foreground hover:text-foreground/80"
+              className="no-underline font-medium text-foreground hover:text-foreground/80"
             >
               dispatcher template
             </a>

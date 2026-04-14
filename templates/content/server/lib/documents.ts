@@ -1,5 +1,6 @@
 import type { H3Event } from "h3";
 import { getSession } from "@agent-native/core/server";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 
 export function parseDocumentFavorite(
   value: boolean | number | string | null | undefined,
@@ -14,7 +15,7 @@ export function parseDocumentFavorite(
 }
 
 export function getCurrentOwnerEmail(): string {
-  return process.env.AGENT_USER_EMAIL || "local@localhost";
+  return getRequestUserEmail() || "local@localhost";
 }
 
 export async function getEventOwnerEmail(event: H3Event): Promise<string> {

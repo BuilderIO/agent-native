@@ -32,6 +32,7 @@ import {
 } from "./metadata.js";
 import { getSession } from "../server/auth.js";
 import { readBody } from "../server/h3-helpers.js";
+import { uploadFile } from "../file-upload/index.js";
 
 // ---------------------------------------------------------------------------
 // Owner resolution
@@ -422,15 +423,34 @@ export async function handleUploadResource(event: any) {
   const path = pathPart?.data?.toString() || `/${fileName}`;
   const shared = sharedPart?.data?.toString() === "true";
   const mimeType = filePart.type || "application/octet-stream";
+  const owner = await resolveOwner(event, shared);
 
-  // Encode binary files as base64, keep text as-is
+  // Prefer a registered file upload provider (e.g. Builder.io) for binary
+  // assets so we get a real CDN URL instead of a base64 blob in SQL.
+  // Text resources still live in SQL — they're edited inline and benefit
+  // from the resource store's metadata/search features.
   const isText =
     mimeType.startsWith("text/") || mimeType === "application/json";
+
+  if (!isText) {
+    const uploaded = await uploadFile({
+      data: filePart.data,
+      filename: fileName,
+      mimeType,
+      ownerEmail: owner,
+    });
+    if (uploaded) {
+      const resource = await resourcePut(owner, path, uploaded.url, mimeType);
+      setResponseStatus(event, 201);
+      return { ...resource, url: uploaded.url, provider: uploaded.provider };
+    }
+  }
+
+  // Fallback: store contents in SQL (base64 for binary, text as-is).
   const content = isText
     ? Buffer.from(filePart.data).toString("utf-8")
     : Buffer.from(filePart.data).toString("base64");
 
-  const owner = await resolveOwner(event, shared);
   const resource = await resourcePut(owner, path, content, mimeType);
 
   setResponseStatus(event, 201);

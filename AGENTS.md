@@ -19,6 +19,35 @@ Every new feature or integration MUST update all four areas. Skipping any one br
 
 This applies to every feature: a new form builder, a new chart type, a new email filter. If the UI has it, there's an action for it. If the agent needs context, app-state provides it. If there's a non-obvious pattern, a skill documents it.
 
+When a user configures local MCP servers in `mcp.config.json` (see [mcp-clients](./packages/docs/content/mcp-clients.md)), their tools appear in the agent's registry with the `mcp__<server-id>__` prefix and are usable like any other action. Design features to compose with those tools — e.g. a browser-automation workflow can delegate to `mcp__claude-in-chrome__navigate` / `click` if present rather than reimplementing every capability in-template.
+
+### Onboarding
+
+If the feature requires user-facing setup (API keys, OAuth, connecting a third-party service), register an onboarding step so it shows up in the agent sidebar's setup checklist:
+
+```ts
+import { registerOnboardingStep } from "@agent-native/core/onboarding";
+
+registerOnboardingStep({
+  id: "gmail",
+  order: 100,
+  title: "Connect Gmail",
+  description: "Grant read/send access.",
+  methods: [
+    {
+      id: "oauth",
+      kind: "link",
+      primary: true,
+      label: "Sign in with Google",
+      payload: { url: "/_agent-native/google/auth-url" },
+    },
+  ],
+  isComplete: () => !!process.env.GMAIL_REFRESH_TOKEN,
+});
+```
+
+See `packages/docs/content/onboarding.md` for method kinds and built-in steps.
+
 ## Context Awareness
 
 The agent must always know what the user is currently viewing. This is achieved through two mechanisms:
@@ -322,8 +351,9 @@ Run `agent-native setup-agents` to create all symlinks, or they're created autom
 
 Auth is powered by **Better Auth** with account-first design. Users create an account on first visit.
 
-- **Default**: Better Auth with email/password + social providers (Google, GitHub). Organizations built in.
-- **`AUTH_MODE=local`**: Explicit escape hatch for solo local dev. `getSession()` returns `{ email: "local@localhost" }`. Set in `.env` or via the onboarding page's "Use locally" button.
+- **Development mode**: Auth is automatically bypassed. `getSession()` falls back to `{ email: "local@localhost" }` when no other auth method succeeds — no configuration needed.
+- **Default (production)**: Better Auth with email/password + social providers (Google, GitHub). Organizations built in.
+- **`AUTH_MODE=local`**: Explicit escape hatch for any environment. `getSession()` returns `{ email: "local@localhost" }`. Set in `.env` or via the onboarding page's "Use locally" button.
 - Upgrading from `local@localhost` to a real account should preserve SQL-backed workspace data. The built-in migration moves `application_state`, user-scoped `settings`, `oauth_tokens`, and any template table that uses `owner_email`. Templates with legacy global settings can also provide an app-level `POST /api/local-migration` route for one-time re-homing during the upgrade flow.
 - **`ACCESS_TOKEN`/`ACCESS_TOKENS`**: Simple token-based auth for production deployments.
 - **Bring your own auth**: Pass a custom `getSession` to `autoMountAuth(app, { getSession })`.
@@ -406,21 +436,21 @@ actions/               # App operations (agent tools + auto-mounted HTTP endpoin
 
 Agent skills in `.agents/skills/` provide detailed guidance. Read the relevant skill before making changes.
 
-| Skill                 | When to use                                                   |
-| --------------------- | ------------------------------------------------------------- |
-| `storing-data`        | Adding data models, reading/writing config or state           |
-| `real-time-sync`      | Wiring polling sync, debugging UI not updating, jitter issues |
-| `delegate-to-agent`   | Delegating AI work from UI or actions to the agent            |
-| `actions`             | Creating or running agent actions                             |
-| `self-modifying-code` | Editing app source, components, or styles                     |
-| `create-skill`        | Adding new skills for the agent                               |
-| `capture-learnings`   | Recording corrections and patterns                            |
-| `frontend-design`     | Building or styling any web UI, components, or pages          |
-| `adding-a-feature`    | Adding any new feature (the four-area checklist)              |
-| `context-awareness`   | Exposing UI state to the agent, view-screen pattern           |
-| `a2a-protocol`        | Enabling inter-agent communication                            |
-| `real-time-collab`    | Multi-user collaborative editing with Yjs CRDT + live cursors |
-| `security`            | Data scoping (owner_email, org_id), auth model, A2A security  |
+| Skill                 | When to use                                                                      |
+| --------------------- | -------------------------------------------------------------------------------- |
+| `storing-data`        | Adding data models, reading/writing config or state                              |
+| `real-time-sync`      | Wiring polling sync, debugging UI not updating, jitter issues                    |
+| `delegate-to-agent`   | Delegating AI work from UI or actions to the agent                               |
+| `actions`             | Creating or running agent actions                                                |
+| `self-modifying-code` | Editing app source, components, or styles                                        |
+| `create-skill`        | Adding new skills for the agent                                                  |
+| `capture-learnings`   | Recording corrections and patterns                                               |
+| `frontend-design`     | Building or styling any web UI, components, or pages                             |
+| `adding-a-feature`    | Adding any new feature (the four-area checklist)                                 |
+| `context-awareness`   | Exposing UI state to the agent, view-screen pattern                              |
+| `a2a-protocol`        | Enabling inter-agent communication                                               |
+| `real-time-collab`    | Multi-user collaborative editing with Yjs CRDT + live cursors                    |
+| `security`            | Secure coding: input validation, SQL injection, XSS, secrets, data scoping, auth |
 
 **Always use shadcn/ui components** for standard UI patterns. Check `app/components/ui/` before building custom UI elements.
 
@@ -555,6 +585,17 @@ Per-user data scoping is automatic in production mode via `AGENT_USER_EMAIL` —
 - **Change a small slice of a large text/JSON column** — use `db-patch`. Instead of re-sending the whole column (which burns tokens on multi-kilobyte documents, slide HTML, dashboard/form JSON), the agent sends `{find, replace}` pairs and the script applies them server-side. Targets exactly one row per call — narrow `--where` by primary key.
 - **A template-specific action exists** (e.g. `edit-document`, `update-slide`) — always prefer that action. It encodes business rules and pushes live Yjs updates to any open collaborative editor; raw SQL does neither. `db-patch` is the generic fallback for tables without a bespoke edit action.
 - **Read** — `db-query`. Don't re-add `WHERE owner_email = ...` — scoping already applies it.
+
+## Security
+
+These rules apply to ALL generated code. The framework provides strong security primitives — use them.
+
+- **Input validation** — Use `defineAction` with a Zod `schema:` for every action. The framework validates input automatically and returns clear error messages. The legacy `parameters:` format has no runtime validation — do not use it for new code.
+- **SQL injection** — Never concatenate user input into SQL strings. The framework's `db-query`/`db-exec` tools use parameterized queries (`?` placeholders). Drizzle ORM is always safe. If you must write raw SQL, use `{ sql: "... WHERE id = ?", args: [id] }`.
+- **XSS** — Never use `dangerouslySetInnerHTML`, `innerHTML`, `eval()`, or `document.write()` with user-controlled content. React auto-escapes JSX by default — trust it. For rich text editing, use TipTap (framework dependency). For rendering markdown, use `react-markdown`.
+- **Secrets** — API keys and credentials go in `.env` only (gitignored). OAuth tokens go in the `oauth_tokens` store via `saveOAuthTokens()`. Never store secrets in `settings`, `application_state`, source code, or action responses sent to the client.
+- **Auth** — Use `defineAction` for all operations (auto-protected by the auth guard). If you must create custom `/api/` routes, always call `getSession(event)` and reject requests without a session. Never create unprotected routes that modify data.
+- **Data scoping** — Every table with user data needs an `owner_email` column. The framework auto-scopes all queries in production so users only see their own data. Run `pnpm action db-check-scoping` to verify. Read the `security` skill for the full model.
 
 ## Conventions
 

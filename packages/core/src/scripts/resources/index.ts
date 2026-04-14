@@ -9,4 +9,8 @@ export const coreResourceScripts: Record<
     import("./delete.js").then((m) => m.default(args)),
   "migrate-learnings": (args) =>
     import("./migrate-learnings.js").then((m) => m.default(args)),
+  "save-memory": (args) =>
+    import("./save-memory.js").then((m) => m.default(args)),
+  "delete-memory": (args) =>
+    import("./delete-memory.js").then((m) => m.default(args)),
 };

@@ -12,13 +12,16 @@ const TEMPLATES_DIR = path.resolve("templates");
 const DOCS_PORT = 3000;
 const FALLBACK_BASE_PORT = 9001; // for templates not in the config
 
-// Import the app config to get stable ports
-const configPath = path.resolve("packages/shared-app-config/index.ts");
+// Import the app config to get stable ports. Ports live in templates.ts
+// (the single source of truth for template metadata); shared-app-config/index.ts
+// derives AppConfig[] from it at runtime, so there are no literal id/port pairs
+// there to regex against.
+const configPath = path.resolve("packages/shared-app-config/templates.ts");
 const configSrc = fs.readFileSync(configPath, "utf8");
 
-// Quick parse: extract { id, devPort } pairs from DEFAULT_APPS
+// Quick parse: extract { name, devPort } pairs from TEMPLATES entries.
 const portMap = new Map<string, number>();
-const re = /id:\s*"([^"]+)"[\s\S]*?devPort:\s*(\d+)/g;
+const re = /name:\s*"([^"]+)"[\s\S]*?devPort:\s*(\d+)/g;
 let m: RegExpExecArray | null;
 while ((m = re.exec(configSrc)) !== null) {
   portMap.set(m[1], Number(m[2]));

@@ -131,6 +131,22 @@ export interface ClientConfigOptions {
   /** Additional Vite optimizeDeps configuration */
   optimizeDeps?: { include?: string[]; exclude?: string[] };
   /**
+   * Package names to stub in the SSR bundle with an empty proxy object.
+   *
+   * Use this for dependencies that only run in the browser (canvas / diagram
+   * libraries, editors, WebGL) but would otherwise get pulled into the
+   * server bundle via SSR's noExternal policy — pushing the CF Pages
+   * Functions bundle over the 25 MiB limit.
+   *
+   * Only add packages that are provably never called during SSR. If the
+   * server imports one, it will receive a Proxy that throws on any real
+   * use (which is better than bundling a 10 MiB dep the worker never calls).
+   *
+   * @example
+   * ssrStubs: ["mermaid", "@excalidraw/excalidraw"]
+   */
+  ssrStubs?: string[];
+  /**
    * @deprecated Pass `reactRouter()` directly in the `plugins` array instead.
    * Previously used to auto-load the React Router Vite plugin via require(),
    * but this fails in ESM contexts. Templates should now do:
@@ -370,6 +386,49 @@ function rolldownInputFix(): Plugin {
  * in-process scripts (which use localFetch → http://localhost:${PORT}/api/...)
  * hit the right address even when Vite auto-increments the port.
  */
+/**
+ * Replace caller-specified packages with an empty proxy stub during SSR
+ * builds. For apps whose heavy browser-only deps would otherwise bloat the
+ * edge worker past CF Pages' 25 MiB Functions limit.
+ *
+ * The template lists the packages in its `defineConfig({ ssrStubs })` call —
+ * the framework never hardcodes package names.
+ */
+function ssrStubPlugin(packages: string[]): Plugin | null {
+  if (!packages.length) return null;
+  const stubbed = new Set(packages);
+  const STUB_ID = "\0agent-native-ssr-stub";
+  return {
+    name: "agent-native-ssr-stub-heavy-libs",
+    enforce: "pre",
+    resolveId(id, _importer, opts) {
+      if (!opts?.ssr) return null;
+      // Match the bare package name or any subpath
+      const pkg = id
+        .split("/")
+        .slice(0, id.startsWith("@") ? 2 : 1)
+        .join("/");
+      if (stubbed.has(pkg)) return STUB_ID;
+      return null;
+    },
+    load(id) {
+      if (id !== STUB_ID) return null;
+      // Proxy that answers any property access with itself — lets dead
+      // import/re-export chains parse without blowing up, and still throws
+      // if code actually tries to call any of it on the server.
+      return (
+        "const handler = { get(_, p) { " +
+        "if (p === Symbol.toPrimitive) return () => ''; " +
+        "if (p === 'then') return undefined; " +
+        "return new Proxy(() => {}, handler); " +
+        "} };" +
+        "const stub = new Proxy(() => {}, handler);" +
+        "export default stub;"
+      );
+    },
+  };
+}
+
 function portExposer(): Plugin {
   return {
     name: "agent-native-port-exposer",
@@ -472,6 +531,13 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
       noExternal: /^(?!node:)/,
     },
     plugins: [
+      // Stub packages from `options.ssrStubs` in the SSR bundle so they
+      // don't bloat the edge worker. Opt-in per template — the framework
+      // hardcodes nothing.
+      ...(() => {
+        const p = ssrStubPlugin(options.ssrStubs ?? []);
+        return p ? [p] : [];
+      })(),
       actionTypesPlugin(),
       agentsBundlePlugin(),
       autoReloadOnOptimizeDep(),

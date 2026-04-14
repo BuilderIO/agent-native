@@ -23,6 +23,9 @@ export default defineAction({
     view: z
       .enum([
         "overview",
+        "vault",
+        "integrations",
+        "workspace",
         "destinations",
         "routes",
         "identities",

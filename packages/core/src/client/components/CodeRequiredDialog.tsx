@@ -1,10 +1,11 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   IconPackageExport,
   IconCode,
   IconExternalLink,
   IconX,
+  IconLoader2,
 } from "@tabler/icons-react";
 
 export interface CodeRequiredDialogProps {
@@ -12,6 +13,25 @@ export interface CodeRequiredDialogProps {
   onClose: () => void;
   /** Label describing the feature that requires code changes */
   featureLabel?: string;
+}
+
+function useBuilderConnected() {
+  const [connected, setConnected] = useState(false);
+  const [connectUrl, setConnectUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/_agent-native/builder/status")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data) {
+          setConnected(!!data.configured);
+          setConnectUrl(data.connectUrl || null);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  return { connected, connectUrl };
 }
 
 /**
@@ -24,6 +44,11 @@ export function CodeRequiredDialog({
   onClose,
   featureLabel,
 }: CodeRequiredDialogProps) {
+  const { connected: builderConnected, connectUrl } = useBuilderConnected();
+  const [submitting, setSubmitting] = useState(false);
+  const [branchUrl, setBranchUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -37,6 +62,46 @@ export function CodeRequiredDialog({
       return () => document.removeEventListener("keydown", handleKeyDown);
     }
   }, [open, handleKeyDown]);
+
+  useEffect(() => {
+    if (open) {
+      setSubmitting(false);
+      setBranchUrl(null);
+      setError(null);
+    }
+  }, [open]);
+
+  const handleBuilderAgent = async () => {
+    if (!builderConnected) {
+      // Open settings tab
+      window.dispatchEvent(new Event("agent-panel:open-settings"));
+      onClose();
+      return;
+    }
+
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch("/_agent-native/builder/agents-run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userMessage:
+            featureLabel || "Make the requested code changes to this app",
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error || `Failed (${res.status})`);
+      }
+      const data = await res.json();
+      setBranchUrl(data.url || null);
+    } catch (err: any) {
+      setError(err?.message || "Failed to create branch");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   if (!open || typeof document === "undefined") return null;
 
@@ -90,30 +155,70 @@ export function CodeRequiredDialog({
           </button>
 
           <button
-            style={s.optionCard}
+            style={{
+              ...s.optionCard,
+              ...(submitting
+                ? { opacity: 0.7, pointerEvents: "none" as const }
+                : {}),
+            }}
             onMouseEnter={(e) =>
               Object.assign(e.currentTarget.style, s.optionCardHover)
             }
             onMouseLeave={(e) =>
               Object.assign(e.currentTarget.style, { borderColor: "#e5e7eb" })
             }
-            onClick={() => {
-              onClose();
-            }}
+            onClick={handleBuilderAgent}
           >
             <div style={s.optionIcon}>
-              <IconExternalLink size={24} />
+              {submitting ? (
+                <IconLoader2
+                  size={24}
+                  style={{ animation: "spin 1s linear infinite" }}
+                />
+              ) : (
+                <IconExternalLink size={24} />
+              )}
             </div>
             <div style={s.optionText}>
-              <span style={s.optionTitle}>Use Builder.io Agent</span>
+              <span style={s.optionTitle}>
+                {builderConnected
+                  ? "Use Builder.io Agent"
+                  : "Connect Builder.io"}
+              </span>
               <span style={s.optionDesc}>
-                Let our cloud agent make the changes for you. You'll get a link
-                to preview and deploy.
+                {builderConnected
+                  ? "Let our cloud agent make the changes for you. You'll get a link to preview and deploy."
+                  : "Connect Builder to enable cloud-based code changes. Opens the Setup tab."}
               </span>
             </div>
-            <span style={s.badge}>Coming soon</span>
+            {!builderConnected && !connectUrl && (
+              <span style={s.badge}>Setup required</span>
+            )}
           </button>
         </div>
+
+        {/* Branch result */}
+        {branchUrl && (
+          <div style={s.result}>
+            <span style={{ fontSize: 13, fontWeight: 600 }}>
+              Branch created
+            </span>
+            <a
+              href={branchUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={s.resultLink}
+            >
+              {branchUrl}
+            </a>
+          </div>
+        )}
+
+        {error && (
+          <p style={{ color: "#ef4444", fontSize: 12, marginTop: 12 }}>
+            {error}
+          </p>
+        )}
 
         {/* Close */}
         <button style={s.closeButton} onClick={onClose} aria-label="Close">
@@ -254,5 +359,21 @@ const s: Record<string, React.CSSProperties> = {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
+  },
+  result: {
+    marginTop: "16px",
+    padding: "12px",
+    borderRadius: "8px",
+    border: "1px solid #22c55e40",
+    background: "#f0fdf4",
+    display: "flex",
+    flexDirection: "column",
+    gap: "4px",
+  },
+  resultLink: {
+    fontSize: "12px",
+    color: "#6366f1",
+    textDecoration: "none",
+    wordBreak: "break-all",
   },
 };

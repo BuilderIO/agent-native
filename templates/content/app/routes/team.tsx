@@ -10,7 +10,7 @@ export default function TeamRoute() {
     <AppLayout activeDocumentId={null}>
       <div className="flex-1 overflow-auto">
         <div className="max-w-3xl mx-auto p-8">
-          <TeamPage />
+          <TeamPage createOrgDescription="Set up a team to share documents and collaborate with your colleagues." />
         </div>
       </div>
     </AppLayout>

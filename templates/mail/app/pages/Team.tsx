@@ -6,6 +6,7 @@ export default function Team() {
     <TeamPage
       layout={(content) => <AppLayout>{content}</AppLayout>}
       title="Team"
+      createOrgDescription="Set up a team to share email automations and settings with your colleagues."
     />
   );
 }
