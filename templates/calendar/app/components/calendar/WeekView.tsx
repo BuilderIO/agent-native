@@ -824,7 +824,7 @@ export function WeekView({
 
                     return (
                       <EventDetailPopover
-                        key={event.id}
+                        key={event._tempId ?? event.id}
                         event={event}
                         onDelete={onDeleteEvent}
                         defaultOpen={quickEditEventId === event.id}
