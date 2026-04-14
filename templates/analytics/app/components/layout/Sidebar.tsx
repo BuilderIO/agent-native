@@ -14,7 +14,6 @@ import {
   IconStar,
   IconSettings,
   IconGripVertical,
-  IconChartBar,
   IconDatabase,
   IconUsers,
   IconReportAnalytics,
@@ -585,7 +584,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                                 : "text-muted-foreground hover:bg-sidebar-accent/50",
                             )}
                           >
-                            <IconChartBar className="h-3.5 w-3.5 shrink-0" />
                             <span className="truncate">{d.name}</span>
                           </Link>
                           <button

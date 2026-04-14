@@ -449,6 +449,24 @@ function createBuilderBrowserTool(deps: {
   getOrigin: () => string;
 }): Record<string, ActionEntry> {
   return {
+    "connect-builder": {
+      tool: {
+        description:
+          "Show a prominent 'Connect Builder.io' card in the chat. Call this whenever the user needs to connect Builder.io — for LLM access, browser automation, or any other Builder-gated feature. The UI renders a card with a one-click connect button; do not write long setup instructions yourself. If Builder is already configured, the card shows a connected status. Takes no arguments.",
+        parameters: { type: "object", properties: {} },
+      },
+      run: async () => {
+        const configured = !!(
+          process.env.BUILDER_PRIVATE_KEY && process.env.BUILDER_PUBLIC_KEY
+        );
+        return JSON.stringify({
+          kind: "connect-builder-card",
+          configured,
+          connectUrl: getBuilderBrowserConnectUrl(deps.getOrigin()),
+          orgName: process.env.BUILDER_ORG_NAME || null,
+        });
+      },
+    },
     "get-browser-connection": {
       tool: {
         description:
@@ -886,11 +904,15 @@ When the user asks for something recurring ("every morning", "daily at 9am", "we
 
 Job instructions should be self-contained — include which actions to call, what conditions to check, and what to do with results. The agent executing the job has access to all the same tools you do.
 
+### Connecting Builder.io
+
+When the user asks to connect Builder.io, needs Builder for LLM access / browser automation, or you hit a "Builder not configured" error, call the \`connect-builder\` tool. It renders a one-click Connect card inline in the chat — do NOT write out multi-step setup instructions yourself (no "Option 1 / Option 2", no terminal commands). Just call the tool and let the card handle the rest.
+
 ### Browser Access
 
 Use \`get-browser-connection\` when you need a real browser session backed by Builder. It returns websocket connection details for a provisioned browser session.
 
-- If the tool says Builder is not configured, tell the user to connect Builder from the workspace Resources panel.
+- If the tool says Builder is not configured, call \`connect-builder\` to show the user a Connect card.
 - Reuse a stable \`sessionId\` when you want to reconnect to the same browser session.
 - Include proxy parameters when you need the browser to reach a local dev server through Builder's browser connection flow.
 

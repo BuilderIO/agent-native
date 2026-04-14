@@ -1,6 +1,5 @@
 import { useState, useCallback } from "react";
 import { useSearchParams } from "react-router";
-import { Layout } from "@/components/layout/Layout";
 import { QueryEditor } from "@/components/query/QueryEditor";
 import { QueryResults } from "@/components/query/QueryResults";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -81,61 +80,59 @@ export default function QueryExplorer() {
   };
 
   return (
-    <Layout>
-      <div className="space-y-6">
-        <h2 className="text-2xl font-bold tracking-tight">Query Explorer</h2>
+    <div className="space-y-6">
+      <h2 className="text-2xl font-bold tracking-tight">Query Explorer</h2>
 
+      <Card className="bg-card border-border/50">
+        <CardHeader>
+          <CardTitle className="text-base">SQL Query</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <QueryEditor
+            onExecute={handleExecute}
+            isLoading={isLoading}
+            initialSql={initialSql}
+          />
+        </CardContent>
+      </Card>
+
+      <QueryResults data={results} isLoading={isLoading} error={error} />
+
+      {history.length > 0 && (
         <Card className="bg-card border-border/50">
-          <CardHeader>
-            <CardTitle className="text-base">SQL Query</CardTitle>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-base">Query History</CardTitle>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={clearHistory}
+              className="h-7 text-xs text-muted-foreground"
+            >
+              <IconTrash className="h-3 w-3 mr-1" />
+              Clear
+            </Button>
           </CardHeader>
           <CardContent>
-            <QueryEditor
-              onExecute={handleExecute}
-              isLoading={isLoading}
-              initialSql={initialSql}
-            />
+            <div className="space-y-2">
+              {history.map((entry, i) => (
+                <button
+                  key={i}
+                  onClick={() => handleExecute(entry.sql)}
+                  className="w-full text-left rounded-lg border border-border p-3 hover:bg-accent/50 transition-colors"
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs text-muted-foreground">
+                      {entry.rowCount} rows &middot;{" "}
+                      {new Date(entry.timestamp).toLocaleString()}
+                    </span>
+                  </div>
+                  <p className="text-sm font-mono truncate">{entry.sql}</p>
+                </button>
+              ))}
+            </div>
           </CardContent>
         </Card>
-
-        <QueryResults data={results} isLoading={isLoading} error={error} />
-
-        {history.length > 0 && (
-          <Card className="bg-card border-border/50">
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-base">Query History</CardTitle>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={clearHistory}
-                className="h-7 text-xs text-muted-foreground"
-              >
-                <IconTrash className="h-3 w-3 mr-1" />
-                Clear
-              </Button>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {history.map((entry, i) => (
-                  <button
-                    key={i}
-                    onClick={() => handleExecute(entry.sql)}
-                    className="w-full text-left rounded-lg border border-border p-3 hover:bg-accent/50 transition-colors"
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs text-muted-foreground">
-                        {entry.rowCount} rows &middot;{" "}
-                        {new Date(entry.timestamp).toLocaleString()}
-                      </span>
-                    </div>
-                    <p className="text-sm font-mono truncate">{entry.sql}</p>
-                  </button>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-      </div>
-    </Layout>
+      )}
+    </div>
   );
 }

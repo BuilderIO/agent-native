@@ -1,6 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
-import { Layout } from "@/components/layout/Layout";
 import {
   Card,
   CardContent,
@@ -59,7 +58,7 @@ export default function AnalysesList() {
   const { send, codeRequiredDialog } = useSendToAgentChat();
 
   return (
-    <Layout>
+    <>
       {codeRequiredDialog}
       <div className="space-y-6">
         <div className="flex items-center justify-between">
@@ -146,6 +145,6 @@ export default function AnalysesList() {
           </div>
         )}
       </div>
-    </Layout>
+    </>
   );
 }

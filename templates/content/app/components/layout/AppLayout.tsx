@@ -1,4 +1,5 @@
 import { ReactNode, useCallback, useState } from "react";
+import { useLocation } from "react-router";
 import { DocumentSidebar } from "@/components/sidebar/DocumentSidebar";
 import { AgentSidebar } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
@@ -23,11 +24,13 @@ function loadSidebarWidth(): number {
 }
 
 interface AppLayoutProps {
-  activeDocumentId: string | null;
   children: ReactNode;
 }
 
-export function AppLayout({ activeDocumentId, children }: AppLayoutProps) {
+export function AppLayout({ children }: AppLayoutProps) {
+  const location = useLocation();
+  const activeDocumentId =
+    location.pathname.match(/^\/page\/([^/]+)/)?.[1] ?? null;
   const isMobile = useIsMobile();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);

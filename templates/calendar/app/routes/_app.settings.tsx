@@ -1,8 +1,7 @@
-import CalendarView from "@/pages/CalendarView";
-import { AppLayout } from "@/components/layout/AppLayout";
+import Settings from "@/pages/Settings";
 
 export function meta() {
-  return [{ title: "Calendar" }];
+  return [{ title: "Settings — Calendar" }];
 }
 
 export function HydrateFallback() {
@@ -13,10 +12,6 @@ export function HydrateFallback() {
   );
 }
 
-export default function IndexRoute() {
-  return (
-    <AppLayout>
-      <CalendarView />
-    </AppLayout>
-  );
+export default function SettingsRoute() {
+  return <Settings />;
 }
