@@ -15,13 +15,21 @@ type CacheEntry = {
   fetchedAt: number;
 };
 
-// Module-level state — survives SPA navigation within a tab.
-const cache = new Map<string, CacheEntry>();
-const inflight = new Map<string, Promise<EmailMessage[]>>();
+// Park state on globalThis so Vite HMR reloads of this module don't wipe the
+// cache — before, every save during dev re-ran `new Map()` and the next
+// thread open had to re-fetch from Gmail (~500ms+).
+type Globals = {
+  __mailThreadCache?: Map<string, CacheEntry>;
+  __mailThreadInflight?: Map<string, Promise<EmailMessage[]>>;
+  __mailThreadSubscribers?: Map<string, Set<() => void>>;
+};
+const g = globalThis as Globals;
+const cache = (g.__mailThreadCache ??= new Map());
+const inflight = (g.__mailThreadInflight ??= new Map());
 // Scoped by threadId so warming thread B doesn't re-render the component
 // viewing thread A — that cascade was re-running the expensive iframe
 // doc.write() effect in EmailThread on every cache write.
-const subscribers = new Map<string, Set<() => void>>();
+const subscribers = (g.__mailThreadSubscribers ??= new Map());
 
 function notify(threadId: string) {
   const set = subscribers.get(threadId);
@@ -41,6 +49,13 @@ async function fetchThread(threadId: string): Promise<EmailMessage[]> {
     throw new Error(body?.error || `Request failed (${res.status})`);
   }
   return res.json();
+}
+
+// Auto-enable debug logging when running with DEBUG=true (forwarded by
+// dev-all to VITE_DEBUG). Turn on/off manually with
+// `window.__threadCache.enableDebug()` at any time.
+if (typeof window !== "undefined" && import.meta.env.VITE_DEBUG === "true") {
+  (window as any).__cacheDebug = true;
 }
 
 function log(...args: unknown[]) {
