@@ -1,5 +1,5 @@
 name = "an-issues"
-compatibility_date = "2024-09-22"
+compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 pages_build_output_dir = "./templates/issues/dist"
 
