@@ -11,7 +11,7 @@ import {
   IconCheck,
   IconChevronDown,
   IconChevronRight,
-  IconX,
+  IconChevronUp,
   IconExternalLink,
   IconLoader2,
   IconSparkles,
@@ -48,40 +48,33 @@ export function OnboardingPanel({
     complete,
     dismiss,
   } = onboarding;
-  const [expanded, setExpanded] = useState(false);
+  // Default expanded when setup is incomplete; collapsed once everything's done.
+  const [expanded, setExpanded] = useState(!allComplete);
+  const builderEnabled = useBuilderEnabled();
 
   if (loading || totalCount === 0) return null;
   if (dismissed) return null;
 
-  // When every required step is done, show a compact banner that can be
-  // expanded to see remaining optional steps.
-  if (allComplete && !expanded) {
+  if (!expanded) {
     return (
       <div className={className} style={styles.compactBanner}>
         <button
           type="button"
           onClick={() => setExpanded(true)}
           style={styles.compactBannerBtn}
+          title="Expand setup"
+          aria-label="Expand setup"
         >
-          <span style={styles.checkDone}>
-            <IconCheck size={12} strokeWidth={3} />
+          <span style={allComplete ? styles.checkDone : styles.checkTodo}>
+            {allComplete ? <IconCheck size={12} strokeWidth={3} /> : null}
           </span>
           <span style={styles.headerTitle}>{title}</span>
           <span style={styles.headerCounter}>
             {completeCount} of {totalCount}
           </span>
-          {completeCount < totalCount && (
-            <IconChevronRight size={14} style={{ opacity: 0.5 }} />
-          )}
-        </button>
-        <button
-          type="button"
-          onClick={dismiss}
-          title="Dismiss"
-          aria-label="Dismiss onboarding"
-          style={styles.dismissBtn}
-        >
-          <IconX size={14} />
+          <span style={{ marginLeft: "auto", opacity: 0.5, display: "flex" }}>
+            <IconChevronDown size={14} />
+          </span>
         </button>
       </div>
     );
@@ -105,14 +98,12 @@ export function OnboardingPanel({
         </div>
         <button
           type="button"
-          onClick={allComplete ? () => setExpanded(false) : dismiss}
-          title={allComplete ? "Collapse" : "Dismiss"}
-          aria-label={
-            allComplete ? "Collapse onboarding" : "Dismiss onboarding"
-          }
+          onClick={() => setExpanded(false)}
+          title="Collapse"
+          aria-label="Collapse onboarding"
           style={styles.dismissBtn}
         >
-          {allComplete ? <IconChevronDown size={14} /> : <IconX size={14} />}
+          <IconChevronUp size={14} />
         </button>
       </div>
 
@@ -122,13 +113,35 @@ export function OnboardingPanel({
             key={step.id}
             step={step}
             expanded={step.id === currentStepId}
+            builderEnabled={builderEnabled}
             onMarkComplete={() => complete(step.id)}
             onRefresh={refresh}
           />
         ))}
       </div>
+
+      <div style={styles.footer}>
+        <button type="button" onClick={dismiss} style={styles.hideLink}>
+          Hide setup
+        </button>
+      </div>
     </div>
   );
+}
+
+function useBuilderEnabled(): boolean {
+  const [enabled, setEnabled] = useState(false);
+  useEffect(() => {
+    fetch("/_agent-native/env-status")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((keys: Array<{ key: string; configured: boolean }>) => {
+        if (keys.find((k) => k.key === "ENABLE_BUILDER")?.configured) {
+          setEnabled(true);
+        }
+      })
+      .catch(() => {});
+  }, []);
+  return enabled;
 }
 
 // ─── StepCard ──────────────────────────────────────────────────────────────
@@ -136,11 +149,13 @@ export function OnboardingPanel({
 function StepCard({
   step,
   expanded: expandedProp,
+  builderEnabled,
   onMarkComplete,
   onRefresh,
 }: {
   step: OnboardingStepStatus;
   expanded: boolean;
+  builderEnabled: boolean;
   onMarkComplete: () => void;
   onRefresh: () => Promise<void>;
 }) {
@@ -186,7 +201,7 @@ function StepCard({
         </span>
       </button>
 
-      {expanded && !isDone && (
+      {expanded && (
         <div style={styles.cardBody}>
           <p style={styles.cardDesc}>{step.description}</p>
           <div style={styles.methods}>
@@ -195,6 +210,7 @@ function StepCard({
                 key={method.id}
                 method={method}
                 stepId={step.id}
+                builderEnabled={builderEnabled}
                 onCompleted={async () => {
                   await onRefresh();
                 }}
@@ -213,21 +229,29 @@ function StepCard({
 function MethodBlock({
   method,
   stepId,
+  builderEnabled,
   onCompleted,
   onMarkManualComplete,
 }: {
   method: OnboardingMethod;
   stepId: string;
+  builderEnabled: boolean;
   onCompleted: () => Promise<void>;
   onMarkManualComplete: () => void;
 }) {
+  const isBuilder = method.kind === "builder-cli-auth";
+  const waitlist = isBuilder && !builderEnabled;
   return (
     <div style={method.primary ? styles.methodPrimary : styles.method}>
       <div style={styles.methodHeader}>
         <span style={styles.methodLabel}>
           {method.label}
-          {method.badge && (
-            <span style={badgeStyle(method.badge)}>{method.badge}</span>
+          {waitlist ? (
+            <span style={badgeStyle("beta")}>coming soon</span>
+          ) : (
+            method.badge && (
+              <span style={badgeStyle(method.badge)}>{method.badge}</span>
+            )
           )}
         </span>
       </div>
@@ -237,6 +261,7 @@ function MethodBlock({
       <MethodBody
         method={method}
         stepId={stepId}
+        waitlist={waitlist}
         onCompleted={onCompleted}
         onMarkManualComplete={onMarkManualComplete}
       />
@@ -247,11 +272,13 @@ function MethodBlock({
 function MethodBody({
   method,
   stepId,
+  waitlist,
   onCompleted,
   onMarkManualComplete,
 }: {
   method: OnboardingMethod;
   stepId: string;
+  waitlist: boolean;
   onCompleted: () => Promise<void>;
   onMarkManualComplete: () => void;
 }) {
@@ -263,10 +290,25 @@ function MethodBody({
     case "form":
       return <FormMethod method={method} onCompleted={onCompleted} />;
     case "builder-cli-auth":
+      if (waitlist) return <WaitlistMethod primary={method.primary} />;
       return <BuilderCliAuthMethod onCompleted={onCompleted} />;
     case "agent-task":
       return <AgentTaskMethod method={method} stepId={stepId} />;
   }
+}
+
+function WaitlistMethod({ primary }: { primary?: boolean }) {
+  return (
+    <a
+      href="https://www.builder.io/c/waitlist"
+      target="_blank"
+      rel="noopener noreferrer"
+      style={{ ...buttonPrimary(primary), textDecoration: "none" }}
+    >
+      Join the waitlist
+      <IconExternalLink size={12} style={{ marginLeft: 4 }} />
+    </a>
+  );
 }
 
 // ─── link ──────────────────────────────────────────────────────────────────
@@ -695,4 +737,18 @@ const styles: Record<string, React.CSSProperties> = {
     boxSizing: "border-box" as const,
   },
   errText: { margin: 0, fontSize: 11, color: "#f87171" },
+  footer: {
+    padding: "0 12px 10px",
+    display: "flex",
+    justifyContent: "flex-end",
+  },
+  hideLink: {
+    background: "transparent",
+    border: "none",
+    color: "inherit",
+    opacity: 0.5,
+    cursor: "pointer",
+    fontSize: 11,
+    padding: "2px 4px",
+  },
 };
