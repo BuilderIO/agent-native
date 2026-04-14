@@ -342,7 +342,14 @@ async function createBetterAuthInstance(
       enabled: true,
       minPasswordLength: 8,
       sendResetPassword: async ({ user, token }) => {
-        const resetUrl = `${appUrl}/_agent-native/auth/reset?token=${encodeURIComponent(token)}`;
+        // APP_BASE_PATH lets this app mount under a prefix (e.g. /mail). The
+        // reset link must include that prefix so the page resolves correctly.
+        const appBasePath = (
+          process.env.VITE_APP_BASE_PATH ||
+          process.env.APP_BASE_PATH ||
+          ""
+        ).replace(/\/$/, "");
+        const resetUrl = `${appUrl}${appBasePath}/_agent-native/auth/reset?token=${encodeURIComponent(token)}`;
         await sendEmail({
           to: user.email,
           subject: "Reset your password",

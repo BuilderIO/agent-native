@@ -184,8 +184,14 @@ const emailStep: OnboardingStep = {
       },
     },
   ],
-  isComplete: () =>
-    !!(process.env.RESEND_API_KEY || process.env.SENDGRID_API_KEY),
+  isComplete: () => {
+    if (process.env.RESEND_API_KEY) return true;
+    // SendGrid rejects Resend's sandbox sender, so EMAIL_FROM must also be
+    // set — otherwise sendEmail() throws at runtime even though the API key
+    // is configured.
+    if (process.env.SENDGRID_API_KEY) return !!process.env.EMAIL_FROM;
+    return false;
+  },
 };
 
 let registered = false;

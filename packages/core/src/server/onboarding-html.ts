@@ -634,7 +634,7 @@ export function getResetPasswordHtml(): string {
       btn.disabled = true;
       btn.textContent = 'Saving…';
       try {
-        var res = await fetch('/_agent-native/auth/ba/reset-password', {
+        var res = await fetch(basePath + '/_agent-native/auth/ba/reset-password', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ newPassword: p1, token: token }),
