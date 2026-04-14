@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface QueryClient {
   invalidateQueries(opts?: { queryKey?: string[] }): void;
@@ -71,20 +71,8 @@ export function useDbSync(
             : events;
 
           if (relevant.length > 0) {
-            // Screen-refresh events invalidate EVERY query, not just the
-            // default queryKey prefix. These are explicit agent signals that
-            // the current screen's data just changed — issued via the
-            // framework `refresh-screen` tool — so we treat them as a
-            // blanket "refetch everything the UI has in flight".
-            const hasScreenRefresh = relevant.some(
-              (e: any) => e.source === "screen-refresh",
-            );
-            if (hasScreenRefresh) {
-              queryClient.invalidateQueries();
-            } else {
-              for (const key of keysRef.current) {
-                queryClient.invalidateQueries({ queryKey: [key] });
-              }
+            for (const key of keysRef.current) {
+              queryClient.invalidateQueries({ queryKey: [key] });
             }
           }
 
@@ -115,3 +103,63 @@ export function useDbSync(
 
 /** @deprecated Use useDbSync instead */
 export const useFileWatcher = useDbSync;
+
+/**
+ * Subscribe to `refresh-screen` events from the agent. Returns an integer
+ * that increments every time the agent invokes the framework's `refresh-screen`
+ * tool. Apply it as a React `key` on the main content wrapper (the part
+ * OUTSIDE the agent chat sidebar) so that region remounts and re-fetches its
+ * data while the chat, sidebar, and any other persistent chrome keep their
+ * in-flight state.
+ *
+ * Usage in a template's root:
+ *
+ *   const screenKey = useScreenRefreshKey();
+ *   return (
+ *     <AppLayout>
+ *       <div key={screenKey}>
+ *         <Outlet />
+ *       </div>
+ *     </AppLayout>
+ *   );
+ */
+export function useScreenRefreshKey(
+  options: { pollUrl?: string; interval?: number } = {},
+): number {
+  const { pollUrl = "/_agent-native/poll", interval = 2000 } = options;
+  const [key, setKey] = useState(0);
+
+  useEffect(() => {
+    let versionRef = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let stopped = false;
+
+    async function poll() {
+      if (stopped) return;
+      try {
+        const res = await fetch(`${pollUrl}?since=${versionRef}`);
+        if (res.ok) {
+          const data = (await res.json()) as {
+            version: number;
+            events: Array<{ source: string }>;
+          };
+          if (data.events?.some((e) => e.source === "screen-refresh")) {
+            setKey((k) => k + 1);
+          }
+          versionRef = data.version;
+        }
+      } catch {
+        // Network error — retry on next interval.
+      }
+      if (!stopped) timer = setTimeout(poll, interval);
+    }
+
+    poll();
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [pollUrl, interval]);
+
+  return key;
+}

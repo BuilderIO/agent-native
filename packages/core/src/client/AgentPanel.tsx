@@ -53,6 +53,7 @@ import {
 } from "./MultiTabAssistantChat.js";
 import type { AssistantChatProps } from "./AssistantChat.js";
 import { useDevMode } from "./use-dev-mode.js";
+import { useScreenRefreshKey } from "./use-db-sync.js";
 import { cn } from "./utils.js";
 
 // Lazy-load AgentTerminal to avoid bundling xterm.js when not needed
@@ -1170,6 +1171,16 @@ function ResizeHandle({
   );
 }
 
+/**
+ * Remounts its children whenever the framework's `refresh-screen` tool is
+ * invoked. Used inside AgentSidebar so the main content area re-fetches
+ * without disturbing the chat sidebar's in-flight state.
+ */
+function ScreenRefreshBoundary({ children }: { children: React.ReactNode }) {
+  const key = useScreenRefreshKey();
+  return <React.Fragment key={key}>{children}</React.Fragment>;
+}
+
 // ─── AgentSidebar — wraps content with a toggleable agent panel ─────────────
 
 export interface AgentSidebarProps {
@@ -1430,7 +1441,10 @@ export function AgentSidebar({
       )}
       {isLeft && !presentationMode ? sidebar : null}
       <div className="flex flex-1 flex-col overflow-auto min-w-0">
-        {children}
+        {/* Screen-refresh key: the agent's `refresh-screen` tool bumps this
+            counter, remounting only the main content subtree so it re-fetches
+            its data. The sidebar above stays mounted, preserving chat state. */}
+        <ScreenRefreshBoundary>{children}</ScreenRefreshBoundary>
       </div>
       {!isLeft && !presentationMode ? sidebar : null}
     </div>

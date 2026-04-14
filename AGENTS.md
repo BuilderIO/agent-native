@@ -80,9 +80,11 @@ When the agent writes to application-state, the UI updates via polling. But poll
 
 ### The `refresh-screen` Tool
 
-The framework registers a built-in `refresh-screen` tool available to every agent in every template. After the agent mutates data that's visible on the user's current screen (editing a dashboard config, updating a form schema, changing a row in a table the user is viewing, etc.), it should call `refresh-screen` as its final step. The tool writes a nonce to `application_state`; the `useDbSync` hook detects it via polling and calls `queryClient.invalidateQueries()` with no filter, re-fetching every query the UI has in flight — no full page reload.
+The framework registers a built-in `refresh-screen` tool available to every agent in every template. After the agent mutates data visible on the user's current screen (editing a dashboard config, updating a form schema, changing a row in a table the user is viewing, etc.), it should call `refresh-screen` as its final step. The tool writes a nonce to `application_state`; `AgentSidebar` polls for this event and bumps a React `key` on the main content subtree — so that region remounts and re-fetches its data while the chat sidebar, left nav, and any other persistent chrome keep their in-flight state. No full page reload.
 
-Every template that calls `useDbSync({ queryClient })` in its root gets this for free — there is no per-template action or wiring needed. Templates that don't yet use `useDbSync` must add it for `refresh-screen` to work.
+This is wired **automatically** for every template that uses `<AgentSidebar>` (all of them). No per-template code needed — the key wrapper lives inside `AgentSidebar` itself.
+
+For a rare template that doesn't use `AgentSidebar`, call `useScreenRefreshKey()` from `@agent-native/core/client` and apply the returned integer as a `key` on your main content wrapper.
 
 ## The Six Rules
 
