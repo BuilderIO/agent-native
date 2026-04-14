@@ -449,52 +449,63 @@ function BuilderCliAuthMethod({
 }) {
   const [connecting, setConnecting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [cachedConnectUrl, setCachedConnectUrl] = useState<string | null>(null);
 
-  const handleConnect = useCallback(async () => {
+  // Pre-fetch the connect URL on mount so the click handler can call
+  // window.open synchronously. Any async work between the click and
+  // window.open breaks the popup (blockers downgrade to same-tab nav).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const origin = getCallbackOrigin() || window.location.origin;
+        const res = await fetch(`${origin}/_agent-native/builder/status`);
+        if (!res.ok) return;
+        const s = (await res.json()) as { connectUrl?: string };
+        if (!cancelled && s.connectUrl) setCachedConnectUrl(s.connectUrl);
+      } catch {
+        // will fall back to fetching on click
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleConnect = useCallback(() => {
     setConnecting(true);
     setErr(null);
-    try {
-      // The /builder/status endpoint returns the builder connect URL that
-      // embeds the correct callback origin for this deployment.
-      const origin = getCallbackOrigin() || window.location.origin;
-      const res = await fetch(`${origin}/_agent-native/builder/status`);
-      if (!res.ok) throw new Error(`status: ${res.status}`);
-      const status = (await res.json()) as {
-        connectUrl: string;
-        configured: boolean;
-      };
-      const popup = window.open(
-        status.connectUrl,
-        "_blank",
-        "noopener,noreferrer",
-      );
-      if (!popup) throw new Error("Popup blocked — allow popups and retry.");
-
-      // Poll builder status until credentials appear (user finished the flow).
-      const start = Date.now();
-      const timeoutMs = 5 * 60 * 1000;
-      const interval = setInterval(async () => {
-        try {
-          const r = await fetch(`${origin}/_agent-native/builder/status`);
-          if (!r.ok) return;
-          const s = (await r.json()) as { configured: boolean };
-          if (s.configured) {
-            clearInterval(interval);
-            setConnecting(false);
-            await onCompleted();
-          } else if (Date.now() - start > timeoutMs) {
-            clearInterval(interval);
-            setConnecting(false);
-          }
-        } catch {
-          // ignore transient poll errors
-        }
-      }, 2000);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Connect failed");
+    // Open SYNCHRONOUSLY — user gesture is still active. With noopener
+    // the return is null in most browsers, but the new tab still opens.
+    if (!cachedConnectUrl) {
+      setErr("Still preparing the Builder link — try again in a moment.");
       setConnecting(false);
+      return;
     }
-  }, [onCompleted]);
+    window.open(cachedConnectUrl, "_blank", "noopener,noreferrer");
+
+    const origin = getCallbackOrigin() || window.location.origin;
+    // Poll builder status until credentials appear (user finished the flow).
+    const start = Date.now();
+    const timeoutMs = 5 * 60 * 1000;
+    const interval = setInterval(async () => {
+      try {
+        const r = await fetch(`${origin}/_agent-native/builder/status`);
+        if (!r.ok) return;
+        const s = (await r.json()) as { configured: boolean };
+        if (s.configured) {
+          clearInterval(interval);
+          setConnecting(false);
+          await onCompleted();
+        } else if (Date.now() - start > timeoutMs) {
+          clearInterval(interval);
+          setConnecting(false);
+        }
+      } catch {
+        // ignore transient poll errors
+      }
+    }, 2000);
+  }, [cachedConnectUrl, onCompleted]);
 
   return (
     <>

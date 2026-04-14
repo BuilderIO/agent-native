@@ -115,21 +115,24 @@ export function ConnectBuilderCard({
     }
     setConnecting(true);
     setErr(null);
+    // Open the popup SYNCHRONOUSLY inside the click handler. Any await
+    // before window.open() lets the user-gesture token expire, which
+    // causes popup blockers to block entirely or fall back to same-tab
+    // navigation. The URL was generated server-side with the correct
+    // callback origin, so no re-fetch is needed.
     try {
-      const origin = getCallbackOrigin() || window.location.origin;
-      let connectUrl = initialConnectUrl;
-      try {
-        const res = await fetch(`${origin}/_agent-native/builder/status`);
-        if (res.ok) {
-          const s = (await res.json()) as { connectUrl?: string };
-          if (s.connectUrl) connectUrl = s.connectUrl;
-        }
-      } catch {
-        // fall back to the URL baked into the tool result
+      const popup = window.open(
+        initialConnectUrl,
+        "_blank",
+        "noopener,noreferrer",
+      );
+      // Some browsers return null with noopener — treat as "opened" since
+      // the navigation still happens. Only treat explicit popup-blocker
+      // errors as failures.
+      if (popup === null && !initialConnectUrl) {
+        throw new Error("Popup blocked — allow popups and retry.");
       }
-
-      const popup = window.open(connectUrl, "_blank", "noopener,noreferrer");
-      if (!popup) throw new Error("Popup blocked — allow popups and retry.");
+      const origin = getCallbackOrigin() || window.location.origin;
 
       const start = Date.now();
       const timeoutMs = 5 * 60 * 1000;

@@ -33,7 +33,7 @@ export function SettingsSection({
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-center justify-between px-3 py-2.5 text-left"
+        className="flex w-full cursor-pointer items-center justify-between px-3 py-2.5 text-left rounded-lg hover:bg-accent/40 transition-colors"
       >
         <div className="flex items-center gap-2 min-w-0">
           <span className="shrink-0 text-muted-foreground">{icon}</span>

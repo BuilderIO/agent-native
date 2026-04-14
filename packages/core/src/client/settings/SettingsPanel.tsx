@@ -120,6 +120,7 @@ function UseBuilderCard({
   comingSoon,
   builderEnabled,
   label = "Connect Builder.io",
+  dim,
 }: {
   connectUrl?: string;
   connected: boolean;
@@ -127,12 +128,14 @@ function UseBuilderCard({
   comingSoon?: boolean;
   builderEnabled?: boolean;
   label?: string;
+  dim?: boolean;
 }) {
   const showComingSoon = comingSoon && !builderEnabled;
+  const bgClass = dim ? "" : "bg-accent/30";
 
   if (connected) {
     return (
-      <div className="rounded-md border border-border px-2.5 py-2">
+      <div className={`rounded-md border border-border px-2.5 py-2 ${bgClass}`}>
         <div className="flex items-center justify-between">
           <div className="text-[11px] font-medium text-foreground">
             Builder.io
@@ -148,6 +151,8 @@ function UseBuilderCard({
         {connectUrl && (
           <a
             href={connectUrl}
+            target="_blank"
+            rel="noopener noreferrer"
             className="inline-flex items-center gap-1 mt-2.5 rounded border border-border px-2 py-0.5 text-[10px] no-underline text-muted-foreground hover:text-foreground hover:bg-accent/40"
           >
             Reconnect
@@ -159,7 +164,7 @@ function UseBuilderCard({
   }
 
   return (
-    <div className="rounded-md border border-border bg-accent/30 px-2.5 py-2">
+    <div className={`rounded-md border border-border px-2.5 py-2 ${bgClass}`}>
       <div className="flex items-center justify-between">
         <div className="text-[11px] font-medium text-foreground">
           Connect Builder.io
@@ -187,6 +192,8 @@ function UseBuilderCard({
         connectUrl && (
           <a
             href={connectUrl}
+            target="_blank"
+            rel="noopener noreferrer"
             className="inline-flex items-center gap-1 mt-2.5 rounded bg-foreground px-2.5 py-1 text-[10px] font-medium no-underline text-background hover:opacity-90"
           >
             {label}
@@ -205,14 +212,18 @@ function ManualSetupCard({
   docsUrl,
   docsLabel = "Read the docs",
   children,
+  dim,
 }: {
   hint?: string;
   docsUrl?: string;
   docsLabel?: string;
   children?: React.ReactNode;
+  dim?: boolean;
 }) {
   return (
-    <div className="rounded-md border border-border bg-accent/30 px-2.5 py-2">
+    <div
+      className={`rounded-md border border-border px-2.5 py-2 ${dim ? "" : "bg-accent/30"}`}
+    >
       <div className="text-[11px] font-medium text-foreground mb-1">
         Set up manually
       </div>
@@ -308,11 +319,13 @@ function LLMSectionInner({
           comingSoon
           builderEnabled={builderEnabled}
           label="Connect Builder.io"
+          dim={anthropicConfigured && !connected}
         />
         <ManualSetupCard
           hint="Paste your Anthropic API key to power the agent chat."
           docsUrl="https://console.anthropic.com/settings/keys"
           docsLabel="Get an API key"
+          dim={connected && !anthropicConfigured}
         >
           {anthropicConfigured ? (
             <div className="flex items-center gap-1.5 text-[10px] text-green-500 mb-1">
@@ -454,6 +467,7 @@ export function SettingsPanel({
         icon={<IconCloud size={14} />}
         title="Hosting"
         subtitle="Deploy your app to the cloud."
+        connected={connected}
         open={openSection === "hosting"}
         onToggle={() => toggle("hosting")}
       >
@@ -477,6 +491,7 @@ export function SettingsPanel({
         icon={<IconDatabase size={14} />}
         title="Database"
         subtitle="Connect a cloud database for persistent storage."
+        connected={connected}
         open={openSection === "database"}
         onToggle={() => toggle("database")}
       >
@@ -524,6 +539,7 @@ export function SettingsPanel({
         icon={<IconShield size={14} />}
         title="Authentication"
         subtitle="Set up user authentication and access control."
+        connected={connected}
         open={openSection === "auth"}
         onToggle={() => toggle("auth")}
       >

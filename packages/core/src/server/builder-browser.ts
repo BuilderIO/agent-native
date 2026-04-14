@@ -166,13 +166,22 @@ export function createBuilderBrowserCallbackPage(previewUrl: string): string {
     <main class="card">
       <h1>Builder connected</h1>
       <p>Browser access is now available to your agent-native app.</p>
-      <p>Returning you to the workspace…</p>
-      <p><a href=${escapedUrl}>Open the workspace</a></p>
+      <p>You can close this tab and return to the workspace.</p>
+      <p><a href=${escapedUrl} target="_blank" rel="noopener noreferrer">Open the workspace</a></p>
     </main>
     <script>
+      // If we're a popup opened by the app, close ourselves and let the
+      // parent tab keep polling for connection status. If close() is
+      // blocked (e.g. we're the top-level tab because popups were
+      // downgraded), fall back to navigating back to the workspace.
       window.setTimeout(function () {
-        window.location.replace(${escapedUrl});
-      }, 900);
+        try { window.close(); } catch (e) {}
+        window.setTimeout(function () {
+          if (!window.closed) {
+            window.location.replace(${escapedUrl});
+          }
+        }, 200);
+      }, 700);
     </script>
   </body>
 </html>`;
