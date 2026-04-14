@@ -108,8 +108,8 @@ export const TEMPLATES: TemplateMeta[] = [
     defaultMode: "prod",
   },
   {
-    name: "dispatcher",
-    label: "Dispatcher",
+    name: "dispatch",
+    label: "Dispatch",
     hint: "Central Slack/Telegram router with jobs, memory, approvals, and A2A delegation",
     icon: "MessageCircle",
     color: "#14B8A6",
