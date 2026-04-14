@@ -30,7 +30,7 @@ Use resources for:
 
 The UI writes:
 
-- `navigation.view`: `overview`, `vault`, `integrations`, `destinations`, `identities`, `approvals`, `audit`, or `team`
+- `navigation.view`: `overview`, `vault`, `integrations`, `workspace`, `destinations`, `identities`, `approvals`, `audit`, or `team`
 - `navigation.path`: current route path
 
 The agent can navigate with:
@@ -38,6 +38,7 @@ The agent can navigate with:
 - `navigate(view="overview")`
 - `navigate(view="vault")`
 - `navigate(view="integrations")`
+- `navigate(view="workspace")`
 - `navigate(view="destinations")`
 - `navigate(view="identities")`
 - `navigate(view="approvals")`
@@ -63,6 +64,18 @@ The agent can navigate with:
 - `approve-vault-request`: approve a request, creating the secret and grant (admin only)
 - `deny-vault-request`: deny a pending request (admin only)
 
+### Workspace Resources (shared skills, instructions, agents)
+
+- `list-workspace-resources`: list all workspace skills, instructions, and agent profiles
+- `create-workspace-resource`: create a new workspace resource (skill, instruction, or agent)
+- `update-workspace-resource`: update a resource's name, description, content, or scope
+- `delete-workspace-resource`: delete a resource and revoke all grants
+- `list-workspace-resource-grants`: list which apps have access to which resources
+- `create-workspace-resource-grant`: grant an app access to a resource
+- `revoke-workspace-resource-grant`: revoke an app's access to a resource
+- `sync-workspace-resources-to-app`: push applicable resources to an app
+- `sync-workspace-resources-to-all`: push resources to all discovered apps
+
 ### Messaging & Routing
 
 - `list-dispatcher-overview`: high-level counts, recent audit, approvals, vault health
@@ -87,6 +100,8 @@ The agent can navigate with:
 - Keep outbound messages concise and operational.
 - When a user asks about integrations or credentials, use `list-integrations-catalog` to check cross-app status.
 - After granting a secret to an app, always offer to sync it immediately with `sync-vault-to-app`.
+- When creating workspace skills or agents, use proper YAML frontmatter (name, description fields).
+- After creating or updating workspace resources, offer to sync them to apps with `sync-workspace-resources-to-app` or `sync-workspace-resources-to-all`.
 
 ## Current Approval Scope
 

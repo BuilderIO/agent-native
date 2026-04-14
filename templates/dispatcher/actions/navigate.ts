@@ -25,6 +25,7 @@ export default defineAction({
         "overview",
         "vault",
         "integrations",
+        "workspace",
         "destinations",
         "routes",
         "identities",

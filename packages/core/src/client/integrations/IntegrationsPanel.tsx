@@ -423,9 +423,10 @@ export function IntegrationsPanel() {
         <div className="space-y-2">
           <button
             onClick={() => setShowPicker(true)}
-            className="text-[10px] text-muted-foreground hover:text-foreground"
+            className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent/30"
           >
-            Add an integration...
+            <IconPlus size={12} className="shrink-0" />
+            Add integration
           </button>
           <div className="rounded-md border border-border bg-muted/30 px-2.5 py-2 text-[10px] text-muted-foreground">
             For a central Slack or Telegram entrypoint that can route work

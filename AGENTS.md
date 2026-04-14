@@ -586,6 +586,17 @@ Per-user data scoping is automatic in production mode via `AGENT_USER_EMAIL` —
 - **A template-specific action exists** (e.g. `edit-document`, `update-slide`) — always prefer that action. It encodes business rules and pushes live Yjs updates to any open collaborative editor; raw SQL does neither. `db-patch` is the generic fallback for tables without a bespoke edit action.
 - **Read** — `db-query`. Don't re-add `WHERE owner_email = ...` — scoping already applies it.
 
+## Security
+
+These rules apply to ALL generated code. The framework provides strong security primitives — use them.
+
+- **Input validation** — Use `defineAction` with a Zod `schema:` for every action. The framework validates input automatically and returns clear error messages. The legacy `parameters:` format has no runtime validation — do not use it for new code.
+- **SQL injection** — Never concatenate user input into SQL strings. The framework's `db-query`/`db-exec` tools use parameterized queries (`?` placeholders). Drizzle ORM is always safe. If you must write raw SQL, use `{ sql: "... WHERE id = ?", args: [id] }`.
+- **XSS** — Never use `dangerouslySetInnerHTML`, `innerHTML`, `eval()`, or `document.write()` with user-controlled content. React auto-escapes JSX by default — trust it. For rich text editing, use TipTap (framework dependency). For rendering markdown, use `react-markdown`.
+- **Secrets** — API keys and credentials go in `.env` only (gitignored). OAuth tokens go in the `oauth_tokens` store via `saveOAuthTokens()`. Never store secrets in `settings`, `application_state`, source code, or action responses sent to the client.
+- **Auth** — Use `defineAction` for all operations (auto-protected by the auth guard). If you must create custom `/api/` routes, always call `getSession(event)` and reject requests without a session. Never create unprotected routes that modify data.
+- **Data scoping** — Every table with user data needs an `owner_email` column. The framework auto-scopes all queries in production so users only see their own data. Run `pnpm action db-check-scoping` to verify. Read the `security` skill for the full model.
+
 ## Conventions
 
 - **Actions first** — for any new operation, create a `defineAction` in `actions/`. It serves both the agent (tool) and the frontend (HTTP endpoint). Only create `/api/` routes for special cases (file uploads, streaming, webhooks).
