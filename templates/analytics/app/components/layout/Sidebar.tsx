@@ -39,6 +39,7 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
 import { AgentToggleButton } from "@agent-native/core/client";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { NewDashboardDialog } from "./NewDashboardDialog";
@@ -370,11 +371,12 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     [favoriteIds, saveFavorites],
   );
 
-  const { data: sqlDashboards = [] } = useQuery({
-    queryKey: ["sql-dashboards-sidebar"],
-    queryFn: fetchSqlDashboards,
-    staleTime: 30_000,
-  });
+  const { data: sqlDashboards = [], isLoading: sqlDashboardsLoading } =
+    useQuery({
+      queryKey: ["sql-dashboards-sidebar"],
+      queryFn: fetchSqlDashboards,
+      staleTime: 30_000,
+    });
 
   // Fetch views for all dashboards (for sidebar sub-items)
   const allDashboardIds = useMemo(() => {
@@ -554,6 +556,20 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       views={allViewsMap[d.id]}
                     />
                   ))}
+                  {sqlDashboardsLoading &&
+                    sqlDashboards.length === 0 &&
+                    Array.from({ length: 3 }).map((_, i) => (
+                      <div
+                        key={`sql-skeleton-${i}`}
+                        className="flex items-center gap-2 px-3 py-1"
+                      >
+                        <Skeleton className="h-3.5 w-3.5 shrink-0 rounded-sm" />
+                        <Skeleton
+                          className="h-3 rounded"
+                          style={{ width: `${60 + ((i * 17) % 30)}%` }}
+                        />
+                      </div>
+                    ))}
                   {sqlDashboards.map((d) => {
                     const isActive = location.pathname === `/adhoc/${d.id}`;
                     const views = allViewsMap[d.id];

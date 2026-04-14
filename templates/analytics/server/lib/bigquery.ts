@@ -1,6 +1,7 @@
 import { createHash } from "crypto";
 import { getAccessToken } from "./gcloud";
 import { resolveCredential } from "./credentials";
+import { getDbExec } from "@agent-native/core/db";
 
 async function getProjectId(): Promise<string> {
   return (
@@ -48,41 +49,91 @@ function filterDevSchema(sql: string): string {
   return `-- Excluding dbt_dev schema\n${sql}`;
 }
 
-// --- In-memory query cache ---
+// --- Query cache ---
+//
+// Two tiers:
+//   L1: per-process Map (fast hits within a single invocation)
+//   L2: SQL-backed `bigquery_cache` table (shared across serverless invocations
+//       and deployments). Global scope — BigQuery results are not user-specific.
 
-interface CacheEntry {
+interface L1Entry {
   result: QueryResult;
   createdAt: number;
 }
 
-// Cache TTL: 24 hours
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const MAX_CACHE_ENTRIES = 200;
+const MAX_L1_ENTRIES = 200;
 
-const queryCache = new Map<string, CacheEntry>();
+const l1Cache = new Map<string, L1Entry>();
 
 function getCacheKey(sql: string): string {
   return createHash("sha256").update(sql).digest("hex");
 }
 
-function getCached(sql: string): QueryResult | null {
-  const key = getCacheKey(sql);
-  const entry = queryCache.get(key);
+function getL1(key: string): QueryResult | null {
+  const entry = l1Cache.get(key);
   if (!entry) return null;
   if (Date.now() - entry.createdAt > CACHE_TTL_MS) {
-    queryCache.delete(key);
+    l1Cache.delete(key);
     return null;
   }
   return entry.result;
 }
 
-function setCache(sql: string, result: QueryResult): void {
-  // Evict oldest entries if cache is full
-  if (queryCache.size >= MAX_CACHE_ENTRIES) {
-    const oldest = queryCache.keys().next().value;
-    if (oldest) queryCache.delete(oldest);
+function setL1(key: string, result: QueryResult): void {
+  if (l1Cache.size >= MAX_L1_ENTRIES) {
+    const oldest = l1Cache.keys().next().value;
+    if (oldest) l1Cache.delete(oldest);
   }
-  queryCache.set(getCacheKey(sql), { result, createdAt: Date.now() });
+  l1Cache.set(key, { result, createdAt: Date.now() });
+}
+
+async function getL2(key: string): Promise<QueryResult | null> {
+  try {
+    const db = getDbExec();
+    const nowIso = new Date().toISOString();
+    const { rows } = await db.execute({
+      sql: "SELECT result FROM bigquery_cache WHERE key = ? AND expires_at > ?",
+      args: [key, nowIso],
+    });
+    if (!rows.length) return null;
+    const raw = (rows[0] as { result: string }).result;
+    return JSON.parse(raw) as QueryResult;
+  } catch (err) {
+    console.warn("[bigquery] L2 cache read failed:", err);
+    return null;
+  }
+}
+
+async function setL2(
+  key: string,
+  sql: string,
+  result: QueryResult,
+): Promise<void> {
+  try {
+    const db = getDbExec();
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + CACHE_TTL_MS);
+    const serialized = JSON.stringify(result);
+    // Upsert — use delete+insert to stay dialect-agnostic (SQLite/Postgres).
+    await db.execute({
+      sql: "DELETE FROM bigquery_cache WHERE key = ?",
+      args: [key],
+    });
+    await db.execute({
+      sql: "INSERT INTO bigquery_cache (key, sql, result, bytes_processed, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)",
+      args: [
+        key,
+        sql,
+        serialized,
+        result.bytesProcessed ?? 0,
+        now.toISOString(),
+        expiresAt.toISOString(),
+      ],
+    });
+  } catch (err) {
+    console.warn("[bigquery] L2 cache write failed:", err);
+  }
 }
 
 // --- Query execution ---
@@ -169,9 +220,15 @@ export async function runQuery(sql: string): Promise<QueryResult> {
   let resolvedSql = await resolveTablePlaceholder(sql);
   resolvedSql = filterDevSchema(resolvedSql);
 
-  const cached = getCached(resolvedSql);
-  if (cached) {
-    return { ...cached, cached: true };
+  const cacheKey = getCacheKey(resolvedSql);
+  const l1Hit = getL1(cacheKey);
+  if (l1Hit) {
+    return { ...l1Hit, cached: true };
+  }
+  const l2Hit = await getL2(cacheKey);
+  if (l2Hit) {
+    setL1(cacheKey, l2Hit);
+    return { ...l2Hit, cached: true };
   }
 
   const token = await getAccessToken();
@@ -241,7 +298,8 @@ export async function runQuery(sql: string): Promise<QueryResult> {
     bytesProcessed,
   };
 
-  setCache(resolvedSql, result);
+  setL1(cacheKey, result);
+  await setL2(cacheKey, resolvedSql, result);
 
   return result;
 }

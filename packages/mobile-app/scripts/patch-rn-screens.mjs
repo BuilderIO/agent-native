@@ -15,33 +15,37 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const target = resolve(
-  here,
-  "..",
-  "node_modules",
-  "react-native-screens",
-  "src",
-  "fabric",
-  "SearchBarNativeComponent.ts",
-);
+// rn-screens ships both the TS source AND compiled .d.ts declarations that
+// codegen reads at build time; patch both copies so the build can't pick up
+// the stale Readonly<{}> signature from whichever one codegen prefers.
+const rnScreensRoot = resolve(here, "..", "node_modules", "react-native-screens");
+const targets = [
+  resolve(rnScreensRoot, "src", "fabric", "SearchBarNativeComponent.ts"),
+  resolve(rnScreensRoot, "lib", "typescript", "fabric", "SearchBarNativeComponent.d.ts"),
+];
 
-if (!existsSync(target)) {
-  console.log(`[patch-rn-screens] file not present, skipping: ${target}`);
-  process.exit(0);
-}
-
-const src = readFileSync(target, "utf8");
-const patched = src.replace(
-  "export type SearchBarEvent = Readonly<{}>;",
-  "export type SearchBarEvent = Readonly<{ placeholder?: string }>;",
-);
-
-if (src === patched) {
-  console.log(
-    "[patch-rn-screens] no change needed (already patched or signature moved)",
+let patchedCount = 0;
+for (const target of targets) {
+  if (!existsSync(target)) {
+    console.log(`[patch-rn-screens] not present, skipping: ${target}`);
+    continue;
+  }
+  const src = readFileSync(target, "utf8");
+  const patched = src.replace(
+    "export type SearchBarEvent = Readonly<{}>;",
+    "export type SearchBarEvent = Readonly<{ placeholder?: string }>;",
   );
-  process.exit(0);
+  if (src === patched) {
+    console.log(`[patch-rn-screens] already patched: ${target}`);
+    continue;
+  }
+  writeFileSync(target, patched, "utf8");
+  console.log(`[patch-rn-screens] patched ${target}`);
+  patchedCount++;
 }
 
-writeFileSync(target, patched, "utf8");
-console.log(`[patch-rn-screens] patched ${target}`);
+if (patchedCount === 0) {
+  console.log(
+    "[patch-rn-screens] no changes applied (either already patched or signature moved)",
+  );
+}

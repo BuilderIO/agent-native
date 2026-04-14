@@ -10,6 +10,7 @@ import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { organization } from "better-auth/plugins/organization";
 import { jwt } from "better-auth/plugins/jwt";
 import { bearer } from "better-auth/plugins/bearer";
+import { sendEmail } from "./email.js";
 import { getDbExec, isPostgres } from "../db/client.js";
 import {
   getDialect,
