@@ -125,6 +125,47 @@ function wrapCliScript(
 }
 
 /**
+ * Creates the docs-search tool so agents can look up framework documentation.
+ * Docs are bundled in @agent-native/core and read via fs at runtime.
+ */
+async function createDocsScriptEntries(): Promise<Record<string, ActionEntry>> {
+  try {
+    const mod = await import("../scripts/docs/search.js");
+    return {
+      "docs-search": wrapCliScript(
+        {
+          description:
+            "Search and read agent-native framework documentation. Use --list to see all pages, --query to search, --slug to read a specific page.",
+          parameters: {
+            type: "object",
+            properties: {
+              query: {
+                type: "string",
+                description:
+                  "Search term to find relevant docs (e.g. 'actions', 'authentication', 'database')",
+              },
+              slug: {
+                type: "string",
+                description:
+                  "Read a specific doc page by slug (e.g. 'actions', 'authentication', 'database')",
+              },
+              list: {
+                type: "string",
+                description: 'Set to "true" to list all available doc pages',
+                enum: ["true"],
+              },
+            },
+          },
+        },
+        mod.default,
+      ),
+    };
+  } catch {
+    return {};
+  }
+}
+
+/**
  * Creates resource ScriptEntries available in both prod and dev modes.
  */
 async function createResourceScriptEntries(): Promise<
@@ -1312,8 +1353,9 @@ export function createAgentChatPlugin(
         ? await rawActions()
         : (rawActions ?? {});
 
-    // Resource, chat, and cross-agent scripts are available in both prod and dev modes
+    // Resource, chat, docs, and cross-agent scripts are available in both prod and dev modes
     const resourceScripts = await createResourceScriptEntries();
+    const docsScripts = await createDocsScriptEntries();
     const engineScripts = await createAgentEngineScriptEntries();
     const chatScripts = {
       ...(await createChatScriptEntries()),
@@ -1469,6 +1511,7 @@ export function createAgentChatPlugin(
     const allScripts = canToggle
       ? {
           ...resourceScripts,
+          ...docsScripts,
           ...chatScripts,
           ...callAgentScript,
           ...browserTools,
@@ -1478,6 +1521,7 @@ export function createAgentChatPlugin(
           ...discoveredActions,
           ...templateScripts,
           ...resourceScripts,
+          ...docsScripts,
           ...chatScripts,
           ...callAgentScript,
           ...browserTools,
@@ -1582,6 +1626,7 @@ export function createAgentChatPlugin(
         const a2aActions = canToggle
           ? {
               ...resourceScripts,
+              ...docsScripts,
               ...chatScripts,
               ...browserTools,
               ...devScriptsForA2A,
@@ -1589,6 +1634,7 @@ export function createAgentChatPlugin(
           : {
               ...templateScripts,
               ...resourceScripts,
+              ...docsScripts,
               ...chatScripts,
               ...browserTools,
             };
@@ -1696,12 +1742,14 @@ export function createAgentChatPlugin(
         const mcpActions = canToggle
           ? {
               ...resourceScripts,
+              ...docsScripts,
               ...chatScripts,
               ...devScriptsForA2A,
             }
           : {
               ...templateScripts,
               ...resourceScripts,
+              ...docsScripts,
               ...chatScripts,
             };
 
@@ -1860,12 +1908,14 @@ export function createAgentChatPlugin(
               // Sub-agents spawned in dev mode also invoke template actions
               // via shell, so omit them from the native tool registry.
               ...resourceScripts,
+              ...docsScripts,
               ...chatScripts,
               ...devScriptsForA2A,
             }
           : {
               ...templateScripts,
               ...resourceScripts,
+              ...docsScripts,
               ...chatScripts,
             },
       getEngine: () =>
@@ -2748,6 +2798,7 @@ export function createAgentChatPlugin(
         getActions: () => ({
           ...templateScripts,
           ...resourceScripts,
+          ...docsScripts,
           ...chatScripts,
           ...jobTools,
         }),

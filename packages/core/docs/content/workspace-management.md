@@ -156,14 +156,14 @@ Labels apply automatically when PRs are opened or updated. Teams can then filter
 
 ### By Change Type
 
-| Change type | Who reviews | What to watch for |
-|---|---|---|
-| **App-only** (`templates/<app>/`) | Owning app team | Domain correctness, action schemas |
-| **Framework** (`packages/core/`) | Platform team + one affected app team | Breaking changes, performance, backwards compat |
-| **Schema migrations** | Platform team + senior engineer | Data safety, dialect agnosticism (SQLite + Postgres) |
-| **Actions** | Owning team | Actions are both agent tools AND HTTP endpoints — review from both angles |
-| **Cross-app A2A** | Both app teams | If you change an A2A interface, the callers need to know |
-| **Dispatch vault/resources** | Platform team | Secret access, grant scope, who gets what |
+| Change type                       | Who reviews                           | What to watch for                                                         |
+| --------------------------------- | ------------------------------------- | ------------------------------------------------------------------------- |
+| **App-only** (`templates/<app>/`) | Owning app team                       | Domain correctness, action schemas                                        |
+| **Framework** (`packages/core/`)  | Platform team + one affected app team | Breaking changes, performance, backwards compat                           |
+| **Schema migrations**             | Platform team + senior engineer       | Data safety, dialect agnosticism (SQLite + Postgres)                      |
+| **Actions**                       | Owning team                           | Actions are both agent tools AND HTTP endpoints — review from both angles |
+| **Cross-app A2A**                 | Both app teams                        | If you change an A2A interface, the callers need to know                  |
+| **Dispatch vault/resources**      | Platform team                         | Secret access, grant scope, who gets what                                 |
 
 ### Concurrent Agent Work
 
@@ -181,16 +181,16 @@ When reviewing PRs in this environment:
 
 The dispatch app is the workspace's runtime control plane. It complements git-level governance with runtime governance:
 
-| Concern | Git / GitHub | Dispatch |
-|---|---|---|
-| Who can change code | CODEOWNERS, branch protection | — |
-| Who can access secrets | — | Vault grants + request workflow |
-| What instructions agents follow | — | Workspace resources (skills, instructions) |
-| Which agents are shared | — | Workspace agent profiles |
-| Integration inventory | — | Integrations catalog |
-| Runtime change approval | — | Dispatch approval flow |
-| Audit trail | `git log` / `git blame` | Vault audit + dispatch audit logs |
-| Messaging & routing | — | Slack / Telegram integration |
+| Concern                         | Git / GitHub                  | Dispatch                                   |
+| ------------------------------- | ----------------------------- | ------------------------------------------ |
+| Who can change code             | CODEOWNERS, branch protection | —                                          |
+| Who can access secrets          | —                             | Vault grants + request workflow            |
+| What instructions agents follow | —                             | Workspace resources (skills, instructions) |
+| Which agents are shared         | —                             | Workspace agent profiles                   |
+| Integration inventory           | —                             | Integrations catalog                       |
+| Runtime change approval         | —                             | Dispatch approval flow                     |
+| Audit trail                     | `git log` / `git blame`       | Vault audit + dispatch audit logs          |
+| Messaging & routing             | —                             | Slack / Telegram integration               |
 
 **Git handles code governance. Dispatch handles runtime governance.** Don't try to replicate git workflows inside dispatch or vice versa. They cover different surfaces.
 

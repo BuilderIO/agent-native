@@ -393,7 +393,10 @@ function ssrStubHeavyClientLibs(): Plugin {
     resolveId(id, _importer, opts) {
       if (!opts?.ssr) return null;
       // Match the bare package name or any subpath
-      const pkg = id.split("/").slice(0, id.startsWith("@") ? 2 : 1).join("/");
+      const pkg = id
+        .split("/")
+        .slice(0, id.startsWith("@") ? 2 : 1)
+        .join("/");
       if (stubbed.has(pkg)) return STUB_ID;
       return null;
     },
