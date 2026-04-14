@@ -11,13 +11,23 @@ import { getIntegrationConfig, saveIntegrationConfig } from "./config-store.js";
 import { slackAdapter } from "./adapters/slack.js";
 import { telegramAdapter } from "./adapters/telegram.js";
 import { whatsappAdapter } from "./adapters/whatsapp.js";
+import { googleDocsAdapter } from "./adapters/google-docs.js";
+import {
+  startGoogleDocsPoller,
+  handlePushNotification,
+} from "./google-docs-poller.js";
 import { resourceGetByPath, SHARED_OWNER } from "../resources/store.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
 /** Built-in adapters, instantiated lazily */
 function getDefaultAdapters(): PlatformAdapter[] {
-  return [slackAdapter(), telegramAdapter(), whatsappAdapter()];
+  return [
+    slackAdapter(),
+    telegramAdapter(),
+    whatsappAdapter(),
+    googleDocsAdapter(),
+  ];
 }
 
 /**
@@ -166,6 +176,15 @@ export function createIntegrationsPlugin(
 
         // ─── POST /:platform/webhook ───────────────────────────
         if (action === "webhook" && method === "POST") {
+          // Google Docs push notifications bypass the normal webhook flow —
+          // they're opaque "something changed" pings, not message payloads.
+          if (platform === "google-docs") {
+            handlePushNotification().catch((err) => {
+              console.error("[google-docs] Push handler error:", err);
+            });
+            return "ok";
+          }
+
           const config = await getIntegrationConfig(platform);
           if (!config?.configData?.enabled) {
             setResponseStatus(event, 404);
@@ -239,6 +258,31 @@ export function createIntegrationsPlugin(
         return { error: "Not found" };
       }),
     );
+
+    // ─── Start Google Docs poller/push ────────────────────────────
+    if (adapterMap.has("google-docs")) {
+      // Defer startup slightly so the server is fully ready
+      setTimeout(() => {
+        // We don't know the base URL at plugin init time — it depends on
+        // the incoming request. For push mode, the webhook URL needs to be
+        // resolved. We pass it as a special option; the poller will attempt
+        // to register a watch when the first request reveals the base URL,
+        // or use the WEBHOOK_BASE_URL env var if set.
+        const baseUrl = process.env.WEBHOOK_BASE_URL;
+        const webhookUrl = baseUrl
+          ? `${baseUrl}${P}/google-docs/webhook`
+          : undefined;
+
+        startGoogleDocsPoller({
+          systemPrompt: baseSystemPrompt,
+          actions,
+          model,
+          apiKey,
+          ownerEmail: "integration@google-docs",
+          webhookUrl,
+        });
+      }, 2000);
+    }
 
     if (process.env.DEBUG)
       console.log(

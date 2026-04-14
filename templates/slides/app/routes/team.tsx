@@ -26,7 +26,7 @@ export default function TeamRoute() {
         </div>
       </header>
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
-        <TeamPage />
+        <TeamPage createOrgDescription="Set up a team to share presentations with your colleagues." />
       </main>
     </div>
   );

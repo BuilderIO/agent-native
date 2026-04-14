@@ -1,10 +1,11 @@
 /**
- * Loads all markdown doc files from content/ at build time via Vite glob import.
+ * Loads all markdown doc files from @agent-native/core at build time via Vite glob import.
+ * The source of truth for docs lives in packages/core/docs/content/.
  * Provides parsed frontmatter, raw markdown, and heading extraction for TOC + search.
  */
 
-// Import all .md files from content/ as raw strings
-const mdModules = import.meta.glob("../../content/*.md", {
+// Import all .md files from core's docs as raw strings
+const mdModules = import.meta.glob("../../../core/docs/content/*.md", {
   query: "?raw",
   import: "default",
   eager: true,

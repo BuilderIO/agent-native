@@ -1,10 +1,10 @@
 # Dispatcher — Agent Guide
 
-Dispatcher is the workspace router. It is the central entrypoint for Slack, Telegram, scheduled jobs, durable memory, and delegation to specialized agents.
+Dispatcher is the workspace control plane. It is the central entrypoint for secrets management, cross-app integrations, Slack, Telegram, scheduled jobs, durable memory, and delegation to specialized agents.
 
 ## Operating Model
 
-- Prefer acting as the central inbox and orchestration layer, not as the domain specialist.
+- Prefer acting as the central inbox, control plane, and orchestration layer, not as the domain specialist.
 - Delegate domain work to remote A2A agents with `call-agent` when another app owns the task.
 - Use local sub-agents from `agents/*.md` when the dispatcher itself needs durable specialist behavior.
 - Save durable behavior in resources and jobs, not just in chat replies.
@@ -30,12 +30,15 @@ Use resources for:
 
 The UI writes:
 
-- `navigation.view`: `overview`, `destinations`, `identities`, `approvals`, `audit`, or `team`
+- `navigation.view`: `overview`, `vault`, `integrations`, `workspace`, `destinations`, `identities`, `approvals`, `audit`, or `team`
 - `navigation.path`: current route path
 
 The agent can navigate with:
 
 - `navigate(view="overview")`
+- `navigate(view="vault")`
+- `navigate(view="integrations")`
+- `navigate(view="workspace")`
 - `navigate(view="destinations")`
 - `navigate(view="identities")`
 - `navigate(view="approvals")`
@@ -44,7 +47,38 @@ The agent can navigate with:
 
 ## Dispatcher Actions
 
-- `list-dispatcher-overview`: high-level counts, recent audit, approvals, and settings
+### Vault (workspace-wide secrets)
+
+- `list-vault-secrets`: list all secrets in the vault (values are masked)
+- `create-vault-secret`: store a new secret (admin only)
+- `update-vault-secret`: update a secret's value (admin only)
+- `delete-vault-secret`: remove a secret and all its grants (admin only)
+- `list-vault-grants`: list which apps have access to which secrets
+- `create-vault-grant`: grant an app access to a secret (admin only)
+- `revoke-vault-grant`: revoke an app's access to a secret (admin only)
+- `sync-vault-to-app`: push all granted secrets to an app's env-vars endpoint
+- `list-vault-audit`: view secret access, grant, and sync history
+- `list-integrations-catalog`: discover all apps and their credential requirements
+- `request-vault-secret`: request a credential for an app (non-admins)
+- `list-vault-requests`: list pending/approved/denied secret requests
+- `approve-vault-request`: approve a request, creating the secret and grant (admin only)
+- `deny-vault-request`: deny a pending request (admin only)
+
+### Workspace Resources (shared skills, instructions, agents)
+
+- `list-workspace-resources`: list all workspace skills, instructions, and agent profiles
+- `create-workspace-resource`: create a new workspace resource (skill, instruction, or agent)
+- `update-workspace-resource`: update a resource's name, description, content, or scope
+- `delete-workspace-resource`: delete a resource and revoke all grants
+- `list-workspace-resource-grants`: list which apps have access to which resources
+- `create-workspace-resource-grant`: grant an app access to a resource
+- `revoke-workspace-resource-grant`: revoke an app's access to a resource
+- `sync-workspace-resources-to-app`: push applicable resources to an app
+- `sync-workspace-resources-to-all`: push resources to all discovered apps
+
+### Messaging & Routing
+
+- `list-dispatcher-overview`: high-level counts, recent audit, approvals, vault health
 - `list-destinations`: saved Slack and Telegram targets
 - `upsert-destination`: create or update a saved destination
 - `delete-destination`: remove a saved destination
@@ -64,6 +98,10 @@ The agent can navigate with:
 - If a user asks to “remember” something, write it into the appropriate resource.
 - If the request belongs to analytics, content, recruiting, or another connected app, delegate instead of re-implementing the domain logic in dispatcher.
 - Keep outbound messages concise and operational.
+- When a user asks about integrations or credentials, use `list-integrations-catalog` to check cross-app status.
+- After granting a secret to an app, always offer to sync it immediately with `sync-vault-to-app`.
+- When creating workspace skills or agents, use proper YAML frontmatter (name, description fields).
+- After creating or updating workspace resources, offer to sync them to apps with `sync-workspace-resources-to-app` or `sync-workspace-resources-to-all`.
 
 ## Current Approval Scope
 

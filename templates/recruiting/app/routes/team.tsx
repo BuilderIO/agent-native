@@ -9,7 +9,7 @@ export default function TeamRoute() {
   return (
     <AppLayout>
       <div className="p-8">
-        <TeamPage />
+        <TeamPage createOrgDescription="Set up a team to share candidate pipelines and hiring workflows with your colleagues." />
       </div>
     </AppLayout>
   );

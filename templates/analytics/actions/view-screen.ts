@@ -34,6 +34,11 @@ export default defineAction({
       } catch {
         // Dashboard config not found
       }
+    } else if (nav?.view === "analyses") {
+      screen.page = "analyses";
+      if (nav?.analysisId) {
+        screen.analysisId = nav.analysisId;
+      }
     } else if (nav?.view === "overview" || nav?.view === "home" || !nav?.view) {
       screen.page = "overview";
     } else if (nav?.view === "query") {

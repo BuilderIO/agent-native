@@ -64,6 +64,9 @@ export default runMigrations([
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
   },
+  // v5-v8: add owner_email to tables that may have been created before the
+  // column was part of the initial CREATE TABLE (v1-v4 now include it, but
+  // databases created with older schema versions still need the ALTER).
   {
     version: 5,
     sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost'`,

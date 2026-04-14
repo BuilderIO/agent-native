@@ -13,6 +13,7 @@ import {
   IconBrowser,
   IconExternalLink,
   IconLoader2,
+  IconHelp,
 } from "@tabler/icons-react";
 import { cn } from "../utils.js";
 import { sendToAgentChat } from "../agent-chat.js";
@@ -708,104 +709,7 @@ Create skill files under \`skills/\` to give the agent specialized knowledge. Re
 | *(use the skill button to create one)* | | |
 `;
 
-interface BuilderBrowserStatus {
-  configured: boolean;
-  connectUrl: string;
-  userId?: string;
-  orgName?: string;
-}
-
-function BuilderBrowserCard() {
-  const [status, setStatus] = useState<BuilderBrowserStatus | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let active = true;
-
-    async function load() {
-      try {
-        const res = await fetch("/_agent-native/builder/status");
-        if (!res.ok) throw new Error("Failed to load Builder status");
-        const data = (await res.json()) as BuilderBrowserStatus;
-        if (active) setStatus(data);
-      } catch {
-        if (active) setStatus(null);
-      } finally {
-        if (active) setLoading(false);
-      }
-    }
-
-    load();
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  if (loading) {
-    return (
-      <div className="mx-2 mt-2 mb-1 rounded-xl border border-border/70 bg-background/70 px-3 py-2">
-        <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-          <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-          Checking Builder browser access...
-        </div>
-      </div>
-    );
-  }
-
-  if (!status) return null;
-
-  return (
-    <div className="mx-2 mt-2 mb-1 rounded-xl border border-border/70 bg-background/80 px-3 py-3">
-      <div className="flex items-start gap-2">
-        <div className="mt-0.5 flex h-7 w-7 items-center justify-center rounded-lg bg-accent/60 text-foreground">
-          {status.configured ? (
-            <IconBrowser className="h-3.5 w-3.5" />
-          ) : (
-            <IconBuildingSkyscraper className="h-3.5 w-3.5" />
-          )}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="text-[12px] font-medium text-foreground">
-            {status.configured
-              ? "Builder browser access enabled"
-              : "Connect Builder for browser access"}
-          </div>
-          <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
-            {status.configured
-              ? "Agents can request live browser sessions with get-browser-connection."
-              : "Connect Builder once and your workspace can provision browser sessions without wiring browser setup into every app separately."}
-          </p>
-          {status.configured && (
-            <div className="mt-1 text-[10px] text-muted-foreground/80">
-              {status.orgName
-                ? `Connected to ${status.orgName}`
-                : "Builder credentials saved"}
-            </div>
-          )}
-          <div className="mt-2 flex items-center gap-2">
-            <a
-              href={status.connectUrl}
-              className={cn(
-                "inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium",
-                status.configured
-                  ? "border border-border text-muted-foreground hover:bg-accent/40 hover:text-foreground"
-                  : "bg-accent text-foreground hover:bg-accent/80",
-              )}
-            >
-              {status.configured ? "Reconnect" : "Connect Builder"}
-              <IconExternalLink className="h-3 w-3" />
-            </a>
-            {status.configured && (
-              <span className="text-[10px] text-muted-foreground/70">
-                Tool: <code>get-browser-connection</code>
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+// BuilderBrowserCard moved to settings/BrowserSection.tsx
 
 export function ResourcesPanel() {
   const [activeScope, setActiveScope] = useState<ResourceScope>("shared");
@@ -1064,6 +968,15 @@ export function ResourcesPanel() {
           >
             <IconUpload className="h-3.5 w-3.5" />
           </button>
+          <a
+            href="https://www.builder.io/c/docs/agent-native-resources"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
+            title="What is the Workspace? — open docs"
+          >
+            <IconHelp className="h-3.5 w-3.5" />
+          </a>
           <input
             ref={fileInputRef}
             type="file"
@@ -1124,6 +1037,33 @@ export function ResourcesPanel() {
           </div>
         ) : (
           <div className="flex-1 min-h-0 overflow-y-auto">
+            {(personalTreeQuery.data ?? []).length === 0 &&
+              (sharedTreeQuery.data ?? []).length === 0 && (
+                <div className="mx-2 mt-2 rounded-md border border-border bg-muted/30 p-2.5 text-[11px] text-muted-foreground">
+                  <p className="mb-1 font-medium text-foreground">
+                    This is your Workspace
+                  </p>
+                  <p className="mb-1.5 leading-snug">
+                    Files the agent reads and writes — notes, instructions,
+                    skills, custom agents, scheduled jobs. They live in the
+                    database, so they persist across sessions and deploys.
+                  </p>
+                  <p className="mb-2 leading-snug">
+                    <span className="text-foreground">Personal</span> is just
+                    for you. <span className="text-foreground">Shared</span> is
+                    visible across your team.
+                  </p>
+                  <a
+                    href="https://www.builder.io/c/docs/agent-native-resources"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-foreground hover:underline"
+                  >
+                    Learn more
+                    <IconExternalLink className="h-3 w-3" />
+                  </a>
+                </div>
+              )}
             <ResourceTree
               tree={personalTreeQuery.data ?? []}
               selectedId={selectedResourceId}

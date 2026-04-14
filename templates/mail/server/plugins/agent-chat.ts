@@ -1,3 +1,4 @@
+import "../onboarding.js";
 import { createAgentChatPlugin } from "@agent-native/core/server";
 import { getOrgContext } from "@agent-native/core/org";
 

@@ -17,7 +17,12 @@ import {
 import { toast } from "sonner";
 
 function OrgSection() {
-  return <TeamPage title="Organization" />;
+  return (
+    <TeamPage
+      title="Organization"
+      createOrgDescription="Set up a team to share candidate pipelines and hiring workflows with your colleagues."
+    />
+  );
 }
 
 export function SettingsPage() {

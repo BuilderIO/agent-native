@@ -9,6 +9,7 @@ export default function TeamRoute() {
   return (
     <TeamPage
       title="Team"
+      createOrgDescription="Set up a team to share dispatch destinations and approvals with your colleagues."
       layout={(children) => (
         <DispatcherShell
           title="Team"

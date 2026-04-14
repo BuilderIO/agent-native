@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "type": "module",
   "description": "Framework for agent-native application development — where AI agents and UI share state via files",
   "license": "MIT",
@@ -25,11 +25,14 @@
     "./db": "./dist/db/index.js",
     "./db/schema": "./dist/db/schema.js",
     "./client": "./dist/client/index.js",
+    "./client/onboarding": "./dist/client/onboarding/index.js",
+    "./onboarding": "./dist/onboarding/index.js",
     "./shared": "./dist/shared/index.js",
     "./scripts": "./dist/scripts/index.js",
     "./application-state": "./dist/application-state/index.js",
     "./settings": "./dist/settings/index.js",
     "./credentials": "./dist/credentials/index.js",
+    "./file-upload": "./dist/file-upload/index.js",
     "./resources": "./dist/resources/index.js",
     "./resources/store": "./dist/resources/store.js",
     "./resources/metadata": "./dist/resources/metadata.js",
@@ -41,6 +44,7 @@
     "./collab": "./dist/collab/index.js",
     "./a2a": "./dist/a2a/index.js",
     "./mcp": "./dist/mcp/index.js",
+    "./mcp-client": "./dist/mcp-client/index.js",
     "./terminal": "./dist/client/terminal/index.js",
     "./terminal/server": "./dist/terminal/index.js",
     "./tailwind": "./dist/tailwind.preset.js",
@@ -48,6 +52,7 @@
   },
   "files": [
     "dist",
+    "docs",
     "tsconfig.base.json",
     "src/templates"
   ],

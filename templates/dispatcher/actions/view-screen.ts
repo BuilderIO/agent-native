@@ -10,19 +10,26 @@
 import { defineAction } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
 import { listOverview } from "../server/lib/dispatcher-store.js";
+import {
+  listVaultOverview,
+  listSecrets,
+  listGrants,
+  listRequests,
+} from "../server/lib/vault-store.js";
 
 export default defineAction({
   description:
     "See what the user is currently looking at in the dispatcher UI, including navigation state and a compact operational summary.",
   http: false,
   run: async () => {
-    const [navigation, overview] = await Promise.all([
+    const [navigation, overview, vaultOverview] = await Promise.all([
       readAppState("navigation"),
       listOverview(),
+      listVaultOverview(),
     ]);
 
     const screen: Record<string, unknown> = {
-      counts: overview.counts,
+      counts: { ...overview.counts, ...vaultOverview },
       approvalPolicy: overview.settings,
     };
     if (navigation) screen.navigation = navigation;
@@ -32,6 +39,23 @@ export default defineAction({
     }
     if (navigation?.view === "destinations") {
       screen.recentDestinations = overview.recentDestinations;
+    }
+    if (navigation?.view === "vault") {
+      const [secrets, grants, requests] = await Promise.all([
+        listSecrets(),
+        listGrants(),
+        listRequests({ status: "pending" }),
+      ]);
+      screen.vaultSecrets = secrets.map((s) => ({
+        id: s.id,
+        name: s.name,
+        credentialKey: s.credentialKey,
+        provider: s.provider,
+      }));
+      screen.vaultActiveGrants = grants
+        .filter((g) => g.status === "active")
+        .map((g) => ({ secretId: g.secretId, appId: g.appId }));
+      screen.vaultPendingRequests = requests;
     }
 
     if (Object.keys(screen).length === 0) {
