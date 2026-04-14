@@ -48,6 +48,8 @@ export interface CalendarEvent {
   organizer?: { email: string; displayName?: string; self?: boolean };
   createdAt: string;
   updatedAt: string;
+  /** Client-only: temp id preserved across optimistic→real swap to keep React keys stable */
+  _tempId?: string;
 }
 
 export type DeleteEventScope = "single" | "all" | "thisAndFollowing";
