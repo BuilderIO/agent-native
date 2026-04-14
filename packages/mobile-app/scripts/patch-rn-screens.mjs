@@ -37,7 +37,9 @@ const patched = src.replace(
 );
 
 if (src === patched) {
-  console.log("[patch-rn-screens] no change needed (already patched or signature moved)");
+  console.log(
+    "[patch-rn-screens] no change needed (already patched or signature moved)",
+  );
   process.exit(0);
 }
 

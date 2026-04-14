@@ -4,7 +4,7 @@
   "type": "module",
   "packageManager": "pnpm@10.29.1",
   "scripts": {
-    "postinstall": "pnpm --filter @agent-native/core build && pnpm --filter @agent-native/pinpoint build",
+    "postinstall": "pnpm --filter @agent-native/core build && pnpm --filter @agent-native/pinpoint build && node packages/mobile-app/scripts/patch-rn-screens.mjs",
     "setup": "pnpm install && pnpm --filter @agent-native/core build && pnpm install",
     "build": "pnpm -r build",
     "dev": "pnpm -r --parallel dev",
