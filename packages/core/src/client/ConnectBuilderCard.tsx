@@ -152,7 +152,8 @@ export function ConnectBuilderCard({
               </>
             ) : (
               <>
-                Unlocks AI, browser automation, and hosted deploys.{" "}
+                One click to spin up a cloud code sandbox — Builder writes the
+                changes for you, no local setup needed.{" "}
                 <span className="inline-flex items-center rounded-sm bg-emerald-500/10 px-1.5 py-0 text-[10px] font-medium text-emerald-600">
                   Free during beta
                 </span>
