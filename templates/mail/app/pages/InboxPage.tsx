@@ -149,6 +149,12 @@ function ThreadListSidebar({
   );
 }
 
+// Stable references for the default "empty" fallbacks of useQuery data —
+// using `[]` inline creates a fresh array on every render, which cascades
+// through memos into EmailThread's props and causes re-render storms.
+const EMPTY_ACCOUNTS: { email: string; displayName?: string }[] = [];
+const EMPTY_LABELS: string[] = [];
+
 export function InboxPage() {
   const { view = "inbox", threadId } = useParams<{
     view: string;
@@ -179,18 +185,35 @@ export function InboxPage() {
   const googleStatus = useGoogleAuthStatus();
   const { activeAccounts } = useAccountFilter();
 
-  const connectedAccounts = googleStatus.data?.accounts ?? [];
+  // Memoize every derived array — the emails memo depends on these, and fresh
+  // array refs on every render were cascading into EmailThread as unstable
+  // threads/emailIds props.
+  const connectedAccounts = useMemo(
+    () => googleStatus.data?.accounts ?? EMPTY_ACCOUNTS,
+    [googleStatus.data?.accounts],
+  );
   const isGoogleConnected = connectedAccounts.length > 0;
   const connectedEmails = useMemo(
     () => new Set(connectedAccounts.map((a) => a.email.toLowerCase())),
     [connectedAccounts],
   );
-  const userPinnedLabels = settings?.pinnedLabels ?? [];
-  const pinnedLabels = isGoogleConnected
-    ? ["important", ...userPinnedLabels.filter((id) => id !== "important")]
-    : userPinnedLabels;
-  const pinnedUserLabels = pinnedLabels.filter(
-    (id) => !["starred", "sent", "drafts", "archive", "trash"].includes(id),
+  const userPinnedLabels = useMemo(
+    () => settings?.pinnedLabels ?? EMPTY_LABELS,
+    [settings?.pinnedLabels],
+  );
+  const pinnedLabels = useMemo(
+    () =>
+      isGoogleConnected
+        ? ["important", ...userPinnedLabels.filter((id) => id !== "important")]
+        : userPinnedLabels,
+    [isGoogleConnected, userPinnedLabels],
+  );
+  const pinnedUserLabels = useMemo(
+    () =>
+      pinnedLabels.filter(
+        (id) => !["starred", "sent", "drafts", "archive", "trash"].includes(id),
+      ),
+    [pinnedLabels],
   );
   const hasNoteToSelf = pinnedLabels.includes("note-to-self");
 

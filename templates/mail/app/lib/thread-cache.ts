@@ -154,10 +154,23 @@ export function invalidateCachedThread(threadId: string) {
 
 // Fetch if not already cached or in flight. Safe to call many times for the
 // same id — dedupes via the inflight map.
+// If a cached entry is older than this, we still return it instantly (instant
+// UX) but kick off a background refresh so updates land without the user
+// waiting. Anything newer than this we trust as-is.
+const STALE_AFTER = 60 * 1000; // 1 minute
+
 export function ensureThread(threadId: string): Promise<EmailMessage[]> {
   const cached = cache.get(threadId);
   if (cached) {
     log("ensureThread HIT", threadId);
+    // Stale-while-revalidate: fire a background refresh if the entry is old
+    // but avoid refetching if one's already in flight for this id.
+    if (
+      Date.now() - cached.fetchedAt > STALE_AFTER &&
+      !inflight.get(threadId)
+    ) {
+      void backgroundRefresh(threadId);
+    }
     return Promise.resolve(cached.messages);
   }
   const existing = inflight.get(threadId);
@@ -181,6 +194,36 @@ export function ensureThread(threadId: string): Promise<EmailMessage[]> {
     .catch((err) => {
       inflight.delete(threadId);
       throw err;
+    });
+  inflight.set(threadId, p);
+  return p;
+}
+
+// Silently refresh a cached thread in the background. Only notifies
+// subscribers if the content actually changed (avoids re-render churn).
+function backgroundRefresh(threadId: string) {
+  log("backgroundRefresh START", threadId);
+  const p = fetchThread(threadId)
+    .then((messages) => {
+      const prev = cache.get(threadId);
+      cache.set(threadId, { messages, fetchedAt: Date.now() });
+      inflight.delete(threadId);
+      scheduleFlush();
+      // Only notify if the payload actually changed — otherwise we'd re-render
+      // the detail view for no observable reason.
+      const prevJson = prev ? JSON.stringify(prev.messages) : "";
+      const nextJson = JSON.stringify(messages);
+      if (prevJson !== nextJson) {
+        log("backgroundRefresh UPDATED", threadId);
+        notify(threadId);
+      } else {
+        log("backgroundRefresh no-change", threadId);
+      }
+      return messages;
+    })
+    .catch(() => {
+      inflight.delete(threadId);
+      return [];
     });
   inflight.set(threadId, p);
   return p;
