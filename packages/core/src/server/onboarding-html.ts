@@ -337,6 +337,8 @@ ${
 
   document.getElementById('signup-form').addEventListener('submit', async function(e) {
     e.preventDefault();
+    var form = e.currentTarget;
+    var btn = form.querySelector('button[type="submit"]');
     var msg = document.getElementById('s-msg');
     msg.classList.remove('show', 'error', 'success');
     var pass = document.getElementById('s-pass').value;
@@ -346,48 +348,75 @@ ${
       msg.classList.add('show', 'error');
       return;
     }
-    var email = document.getElementById('s-email').value;
-    var res = await fetch('/_agent-native/auth/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: email, password: pass }),
-    });
-    var data = await res.json().catch(function() { return {}; });
-    if (res.ok) {
-      msg.textContent = 'Account created — signing you in...';
-      msg.classList.add('show', 'success');
-      var loginRes = await fetch('/_agent-native/auth/login', {
+    var originalLabel = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Creating account…';
+    try {
+      var email = document.getElementById('s-email').value;
+      var res = await fetch('/_agent-native/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email, password: pass }),
       });
-      if (loginRes.ok) {
-        window.location.reload();
+      var data = await res.json().catch(function() { return {}; });
+      if (res.ok) {
+        msg.textContent = 'Account created — signing you in…';
+        msg.classList.add('show', 'success');
+        btn.textContent = 'Signing in…';
+        var loginRes = await fetch('/_agent-native/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: email, password: pass }),
+        });
+        if (loginRes.ok) {
+          window.location.reload();
+          return;
+        }
       }
-    } else {
       msg.textContent = data.error || 'Registration failed';
       msg.classList.add('show', 'error');
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+    } catch (err) {
+      msg.textContent = 'Network error — please try again';
+      msg.classList.add('show', 'error');
+      btn.disabled = false;
+      btn.textContent = originalLabel;
     }
   });
 
   document.getElementById('login-form').addEventListener('submit', async function(e) {
     e.preventDefault();
+    var form = e.currentTarget;
+    var btn = form.querySelector('button[type="submit"]');
     var msg = document.getElementById('l-msg');
     msg.classList.remove('show');
-    var res = await fetch('/_agent-native/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: document.getElementById('l-email').value,
-        password: document.getElementById('l-pass').value,
-      }),
-    });
-    if (res.ok) {
-      window.location.reload();
-    } else {
+    var originalLabel = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Signing in…';
+    try {
+      var res = await fetch('/_agent-native/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: document.getElementById('l-email').value,
+          password: document.getElementById('l-pass').value,
+        }),
+      });
+      if (res.ok) {
+        window.location.reload();
+        return;
+      }
       var data = await res.json().catch(function() { return {}; });
       msg.textContent = data.error || 'Invalid email or password';
       msg.classList.add('show');
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+    } catch (err) {
+      msg.textContent = 'Network error — please try again';
+      msg.classList.add('show');
+      btn.disabled = false;
+      btn.textContent = originalLabel;
     }
   });
 `

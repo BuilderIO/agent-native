@@ -2,6 +2,7 @@
 // Runs reports for active users, top pages, sessions by source
 
 import { resolveCredential } from "./credentials";
+import { signRs256Jwt } from "./sign-jwt";
 
 const API_BASE = "https://analyticsdata.googleapis.com/v1beta";
 
@@ -27,26 +28,16 @@ async function getAccessToken(): Promise<string> {
   const creds = JSON.parse(credsJson);
   const now = Math.floor(Date.now() / 1000);
 
-  // Build JWT for service account auth
-  const header = Buffer.from(
-    JSON.stringify({ alg: "RS256", typ: "JWT" }),
-  ).toString("base64url");
-  const payload = Buffer.from(
-    JSON.stringify({
+  const jwt = await signRs256Jwt(
+    {
       iss: creds.client_email,
       scope: "https://www.googleapis.com/auth/analytics.readonly",
       aud: "https://oauth2.googleapis.com/token",
       iat: now,
       exp: now + 3600,
-    }),
-  ).toString("base64url");
-
-  const crypto = await import("crypto");
-  const sign = crypto.createSign("RSA-SHA256");
-  sign.update(`${header}.${payload}`);
-  const signature = sign.sign(creds.private_key, "base64url");
-
-  const jwt = `${header}.${payload}.${signature}`;
+    },
+    creds.private_key,
+  );
 
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",

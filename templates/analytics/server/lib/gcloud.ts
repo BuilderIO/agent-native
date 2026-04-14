@@ -2,8 +2,8 @@
 // Fetches Cloud Run services, Cloud Functions, metrics, and logs
 // Uses manual JWT-based service account auth (no SDK dependencies)
 
-import { createPrivateKey } from "crypto";
 import { resolveCredential } from "./credentials";
+import { signRs256Jwt } from "./sign-jwt";
 
 async function getProjectId(): Promise<string> {
   return (
@@ -18,11 +18,6 @@ const MAX_CACHE = 120;
 
 // Token cache
 let cachedToken: { token: string; expiresAt: number } | null = null;
-
-function base64url(data: Buffer | Uint8Array | string): string {
-  const buf = typeof data === "string" ? Buffer.from(data) : Buffer.from(data);
-  return buf.toString("base64url");
-}
 
 async function getServiceAccountCredentials() {
   const credsJson = await resolveCredential(
@@ -70,22 +65,6 @@ async function getServiceAccountCredentials() {
   };
 }
 
-async function signJwt(
-  payload: object,
-  privateKeyPem: string,
-): Promise<string> {
-  const header = { alg: "RS256", typ: "JWT" };
-  const encodedHeader = base64url(JSON.stringify(header));
-  const encodedPayload = base64url(JSON.stringify(payload));
-  const signingInput = `${encodedHeader}.${encodedPayload}`;
-
-  const key = createPrivateKey(privateKeyPem);
-  const { sign } = await import("crypto");
-  const signature = sign("sha256", Buffer.from(signingInput), key);
-
-  return `${signingInput}.${base64url(signature)}`;
-}
-
 export async function getAccessToken(): Promise<string> {
   if (cachedToken && Date.now() < cachedToken.expiresAt - 30_000) {
     return cachedToken.token;
@@ -107,7 +86,7 @@ export async function getAccessToken(): Promise<string> {
     exp: now + 3600,
   };
 
-  const jwt = await signJwt(jwtPayload, creds.private_key);
+  const jwt = await signRs256Jwt(jwtPayload, creds.private_key);
 
   const tokenUri = creds.token_uri || "https://oauth2.googleapis.com/token";
   const res = await fetch(tokenUri, {
