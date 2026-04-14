@@ -102,10 +102,17 @@ export function EmailThread({
       (k) => curr[k] !== _prevProps.current[k],
     );
     console.log(
-      `[EmailThread] render#${_renderCount.current} threadId=${threadId?.slice(-6)} changed=[${changed.join(",")}]`,
+      `[EmailThread] render#${_renderCount.current} threadId=${threadId?.slice(-6)} changed=[${changed.join(",")}] t=${performance.now().toFixed(0)}`,
     );
     _prevProps.current = curr;
   }
+  useEffect(() => {
+    if (typeof window !== "undefined" && (window as any).__cacheDebug) {
+      console.log(
+        `[EmailThread] mount-effect threadId=${threadId?.slice(-6)} at ${performance.now().toFixed(0)}`,
+      );
+    }
+  }, [threadId]);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const labelParam = searchParams.get("label");

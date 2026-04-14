@@ -275,7 +275,8 @@ async function createDbScriptEntries(): Promise<Record<string, ActionEntry>> {
               },
               find: {
                 type: "string",
-                description: "Text mode: substring to find",
+                description:
+                  "Text mode: substring to find. Must match EXACTLY ONE occurrence by default (like Claude Code's Edit tool). If 0 matches, you get 'NOT FOUND'. If >1 matches, you get surrounding context for each match — widen `find` with unique context and retry. Use `all: \"true\"` to replace every occurrence.",
               },
               replace: {
                 type: "string",
@@ -284,7 +285,7 @@ async function createDbScriptEntries(): Promise<Record<string, ActionEntry>> {
               edits: {
                 type: "string",
                 description:
-                  'Text mode batch: JSON array of {find, replace} pairs, e.g. \'[{"find":"a","replace":"b"}]\'',
+                  'Text mode batch: JSON array of {find, replace} pairs. Same uniqueness rule applies to each `find`. Example: \'[{"find":"a","replace":"b"}]\'',
               },
               "json-ops": {
                 type: "string",
@@ -294,7 +295,7 @@ async function createDbScriptEntries(): Promise<Record<string, ActionEntry>> {
               all: {
                 type: "string",
                 description:
-                  'Text mode: set to "true" to replace every occurrence of each `find` (default: first only)',
+                  'Text mode: set to "true" to replace every occurrence of each `find` (default requires exactly one match)',
                 enum: ["true"],
               },
             },

@@ -271,6 +271,11 @@ export function EmailList({
     const thread = threads.find((t) => t.latestMessage.id === id);
     if (!thread) return;
     const targetThreadId = thread.latestMessage.threadId || id;
+    if ((window as any).__cacheDebug) {
+      console.log(
+        `[nav] openFocused start ${performance.now().toFixed(0)} target=${targetThreadId.slice(-6)}`,
+      );
+    }
     // Enter on a single focused row is a single-thread action — clear any
     // in-progress multi-selection so shortcuts in detail view start fresh.
     setSelectedIds(new Set());
@@ -278,7 +283,17 @@ export function EmailList({
       markThreadRead.mutate(targetThreadId);
     }
     void ensureThread(targetThreadId);
+    if ((window as any).__cacheDebug) {
+      console.log(
+        `[nav] openFocused about-to-navigate ${performance.now().toFixed(0)}`,
+      );
+    }
     navigate(`/${view}/${targetThreadId}${labelSuffix}`);
+    if ((window as any).__cacheDebug) {
+      console.log(
+        `[nav] openFocused navigate-returned ${performance.now().toFixed(0)}`,
+      );
+    }
   }, [
     threads,
     view,
@@ -611,6 +626,11 @@ export function EmailList({
   const handleSelect = (thread: ThreadSummary) => {
     const email = thread.latestMessage;
     const targetThreadId = email.threadId || email.id;
+    if ((window as any).__cacheDebug) {
+      console.log(
+        `[nav] handleSelect start ${performance.now().toFixed(0)} target=${targetThreadId.slice(-6)}`,
+      );
+    }
     setFocusedId(email.id);
     // A plain click is a single-thread action — clear any in-progress
     // multi-selection so the next keyboard shortcut doesn't act on a stale set.
@@ -624,7 +644,17 @@ export function EmailList({
       markThreadRead.mutate(targetThreadId);
     }
     void ensureThread(targetThreadId);
+    if ((window as any).__cacheDebug) {
+      console.log(
+        `[nav] handleSelect about-to-navigate ${performance.now().toFixed(0)}`,
+      );
+    }
     navigate(`/${view}/${targetThreadId}${labelSuffix}`);
+    if ((window as any).__cacheDebug) {
+      console.log(
+        `[nav] handleSelect navigate-returned ${performance.now().toFixed(0)}`,
+      );
+    }
   };
 
   const handleStar = (e: React.MouseEvent, thread: ThreadSummary) => {

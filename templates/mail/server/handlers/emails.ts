@@ -1274,6 +1274,13 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
           },
         );
 
+        // Bust the server-side thread cache so the next fetch shows the new
+        // message. Without this, replies sent within the 5-min TTL don't
+        // appear until the cache entry expires.
+        if (sent.threadId) {
+          invalidateThreadCache(email, sent.threadId);
+        }
+
         // Track contact frequency for all recipients
         const allRecipients = [to, cc, bcc]
           .filter(Boolean)

@@ -389,7 +389,16 @@ export function useMarkThreadRead() {
       }
     },
     onMutate: async (threadId) => {
+      const _t0 = performance.now();
+      const _log =
+        typeof window !== "undefined" && (window as any).__cacheDebug;
+      if (_log)
+        console.log(`[markThreadRead] onMutate start t=${_t0.toFixed(0)}`);
       await qc.cancelQueries({ queryKey: ["emails"] });
+      if (_log)
+        console.log(
+          `[markThreadRead] cancelQueries done +${(performance.now() - _t0).toFixed(0)}ms`,
+        );
       const previous = qc.getQueriesData<InfiniteEmails>({
         queryKey: ["emails"],
       });
@@ -413,6 +422,10 @@ export function useMarkThreadRead() {
           ),
         ),
       );
+      if (_log)
+        console.log(
+          `[markThreadRead] onMutate end +${(performance.now() - _t0).toFixed(0)}ms emails=${allEmails.length} unread=${unreadEntries.length}`,
+        );
       return { previous, overrideIds: [...unreadIds] };
     },
     onError: (_err, _vars, context) => {

@@ -335,9 +335,77 @@ function countOccurrences(haystack: string, needle: string): number {
   return count;
 }
 
-/** Apply edits sequentially. By default replaces only the first occurrence
- *  of each `find` (matching the behavior of the template-specific
- *  `edit-document` action). `--all` switches to replace-every-occurrence. */
+/** Find all match positions (up to a cap so we don't explode memory). */
+function findAll(haystack: string, needle: string, cap = 10): number[] {
+  const out: number[] = [];
+  if (!needle) return out;
+  let idx = 0;
+  while ((idx = haystack.indexOf(needle, idx)) !== -1 && out.length < cap) {
+    out.push(idx);
+    idx += needle.length;
+  }
+  return out;
+}
+
+/** Format a single match with ~40 chars of surrounding context so the agent
+ *  can widen its `find` string to disambiguate ambiguous matches. */
+function formatContext(
+  content: string,
+  matchIdx: number,
+  matchLen: number,
+  radius = 40,
+): string {
+  const start = Math.max(0, matchIdx - radius);
+  const end = Math.min(content.length, matchIdx + matchLen + radius);
+  const before = content.slice(start, matchIdx).replace(/\s+/g, " ");
+  const middle = content
+    .slice(matchIdx, matchIdx + matchLen)
+    .replace(/\s+/g, " ");
+  const after = content
+    .slice(matchIdx + matchLen, end)
+    .replace(/\s+/g, " ");
+  const prefix = start > 0 ? "…" : "";
+  const suffix = end < content.length ? "…" : "";
+  return `${prefix}${before}⟨${middle}⟩${after}${suffix}`;
+}
+
+/** Build a "string not unique" error message showing each match in
+ *  context — matches Claude Code's Edit-tool UX so the agent can
+ *  widen the find string and retry. */
+function buildAmbiguousMessage(
+  findStr: string,
+  content: string,
+  count: number,
+): string {
+  const positions = findAll(content, findStr, 6);
+  const lines = [
+    `Found ${count} occurrences of the 'find' string — db-patch requires exactly one match by default.`,
+    `Widen 'find' with unique surrounding context, or pass --all to replace every occurrence.`,
+    `'find' preview: "${preview(findStr)}"`,
+    "Matches:",
+  ];
+  for (let i = 0; i < positions.length; i++) {
+    lines.push(
+      `  [${i + 1}] ${formatContext(content, positions[i], findStr.length)}`,
+    );
+  }
+  if (count > positions.length) {
+    lines.push(`  … and ${count - positions.length} more`);
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Apply edits sequentially.
+ *
+ * Default behavior matches Claude Code's Edit tool: the `find` string must
+ * match exactly one occurrence. If 0 → "not found". If >1 → error with
+ * surrounding context for each match so the agent can widen `find` and
+ * retry. Pass `replaceAll` (`--all`) to allow replacing every occurrence.
+ *
+ * This strict-uniqueness default is a deliberate reliability upgrade — 9×
+ * fewer silent wrong-match bugs at the cost of slightly more verbose finds.
+ */
 function applyEdits(
   content: string,
   edits: TextEdit[],
@@ -349,9 +417,9 @@ function applyEdits(
 
   for (let i = 0; i < edits.length; i++) {
     const edit = edits[i];
-    const idx = out.indexOf(edit.find);
+    const occurrences = countOccurrences(out, edit.find);
 
-    if (idx === -1) {
+    if (occurrences === 0) {
       results.push({
         index: i,
         status: "not-found",
@@ -362,7 +430,6 @@ function applyEdits(
     }
 
     if (replaceAll) {
-      const occurrences = countOccurrences(out, edit.find);
       // Literal replaceAll via split/join — no regex, no special chars.
       out = out.split(edit.find).join(edit.replace);
       applied++;
@@ -372,7 +439,15 @@ function applyEdits(
         detail: `${edit.replace === "" ? "deleted" : "replaced"} ${occurrences}×: "${preview(edit.find)}"`,
         occurrences,
       });
+    } else if (occurrences > 1) {
+      results.push({
+        index: i,
+        status: "not-found",
+        detail: buildAmbiguousMessage(edit.find, out, occurrences),
+        occurrences,
+      });
     } else {
+      const idx = out.indexOf(edit.find);
       out =
         out.slice(0, idx) + edit.replace + out.slice(idx + edit.find.length);
       applied++;
