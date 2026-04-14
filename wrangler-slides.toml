@@ -1,5 +1,5 @@
 name = "an-slides"
-compatibility_date = "2025-01-01"
+compatibility_date = "2024-09-22"
 compatibility_flags = ["nodejs_compat"]
 pages_build_output_dir = "./templates/slides/dist"
 

@@ -450,7 +450,7 @@ Agent skills in `.agents/skills/` provide detailed guidance. Read the relevant s
 | `context-awareness`   | Exposing UI state to the agent, view-screen pattern           |
 | `a2a-protocol`        | Enabling inter-agent communication                            |
 | `real-time-collab`    | Multi-user collaborative editing with Yjs CRDT + live cursors |
-| `security`            | Data scoping (owner_email, org_id), auth model, A2A security  |
+| `security`            | Secure coding: input validation, SQL injection, XSS, secrets, data scoping, auth |
 
 **Always use shadcn/ui components** for standard UI patterns. Check `app/components/ui/` before building custom UI elements.
 
