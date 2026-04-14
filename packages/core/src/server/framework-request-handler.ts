@@ -12,6 +12,7 @@
  * first call to `getH3App()` per nitroApp instance.
  */
 import type { EventHandler, H3Event } from "h3";
+import { setResponseHeader, setResponseStatus } from "h3";
 import { getMissingDefaultPlugins } from "../deploy/route-discovery.js";
 
 const BOOTSTRAPPED = new WeakSet<object>();
@@ -141,6 +142,36 @@ function registerMiddleware(
     try {
       const result = await handler(event);
       return result === undefined ? next() : result;
+    } catch (err) {
+      // Log 500s to the server console so they're debuggable, and respond
+      // with JSON instead of the default HTML error page so clients can
+      // surface error messages. This only applies to routes mounted under
+      // the framework prefix (or middleware mounted at `/`, for which we
+      // still want visibility).
+      const reqPath = originalPathname ?? event.url?.pathname ?? "";
+      const e = err as any;
+      const status =
+        typeof e?.statusCode === "number"
+          ? e.statusCode
+          : typeof e?.status === "number"
+            ? e.status
+            : 500;
+      console.error(
+        `[agent-native] ${event.method ?? ""} ${reqPath} failed (${status}):`,
+        e?.stack || e?.message || e,
+      );
+      try {
+        setResponseStatus(event, status);
+        setResponseHeader(event, "content-type", "application/json");
+      } catch {
+        // Response already sent — best effort.
+      }
+      return {
+        error: e?.message || "Internal server error",
+        ...(process.env.NODE_ENV !== "production" && e?.stack
+          ? { stack: e.stack }
+          : {}),
+      };
     } finally {
       // Restore the original pathname so downstream middleware sees the
       // full URL.
