@@ -38,6 +38,12 @@ async function fetchThread(threadId: string): Promise<EmailMessage[]> {
   return res.json();
 }
 
+function log(...args: unknown[]) {
+  if (typeof window !== "undefined" && (window as any).__cacheDebug) {
+    console.log("[thread-cache]", performance.now().toFixed(0), ...args);
+  }
+}
+
 export function getCachedThread(threadId: string): EmailMessage[] | undefined {
   return cache.get(threadId)?.messages;
 }
@@ -57,14 +63,25 @@ export function invalidateCachedThread(threadId: string) {
 // same id — dedupes via the inflight map.
 export function ensureThread(threadId: string): Promise<EmailMessage[]> {
   const cached = cache.get(threadId);
-  if (cached) return Promise.resolve(cached.messages);
+  if (cached) {
+    log("ensureThread HIT", threadId);
+    return Promise.resolve(cached.messages);
+  }
   const existing = inflight.get(threadId);
-  if (existing) return existing;
+  if (existing) {
+    log("ensureThread INFLIGHT", threadId);
+    return existing;
+  }
+  log("ensureThread FETCH", threadId);
+  const t0 = performance.now();
   const p = fetchThread(threadId)
     .then((messages) => {
       cache.set(threadId, { messages, fetchedAt: Date.now() });
       inflight.delete(threadId);
       notify();
+      log(
+        `ensureThread DONE ${threadId} (${(performance.now() - t0).toFixed(0)}ms)`,
+      );
       return messages;
     })
     .catch((err) => {
@@ -126,8 +143,11 @@ export function useThreadCache(
     return { messages: undefined, isFromCache: false, isLoading: false };
   }
   const hit = cache.get(threadId);
-  if (hit)
+  if (hit) {
+    log("useThreadCache RENDER HIT", threadId);
     return { messages: hit.messages, isFromCache: true, isLoading: false };
+  }
+  log("useThreadCache RENDER MISS", threadId, "placeholder?", !!placeholder);
   return {
     messages: placeholder,
     isFromCache: false,
@@ -136,6 +156,7 @@ export function useThreadCache(
 }
 
 // Devtools: inspect via `window.__threadCache` in the browser console.
+// Enable verbose logging with `window.__cacheDebug = true` then reload.
 if (typeof window !== "undefined") {
   (window as any).__threadCache = {
     cache,
@@ -145,5 +166,11 @@ if (typeof window !== "undefined") {
     invalidate: invalidateCachedThread,
     size: () => cache.size,
     keys: () => [...cache.keys()],
+    enableDebug: () => {
+      (window as any).__cacheDebug = true;
+      console.log(
+        "[thread-cache] debug on — reload is NOT required, new events will log",
+      );
+    },
   };
 }
