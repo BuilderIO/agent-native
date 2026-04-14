@@ -54,17 +54,23 @@ async function handleDeepLink(url: string) {
 }
 
 async function injectSessionAndReload(token: string) {
+  // Each webview runs in its own persisted partition (persist:app-<id>), so
+  // cookies must be set on each webview's session — not session.defaultSession.
   const allContents = webContents.getAllWebContents();
-  const origins = new Set<string>();
+  const pairs: { session: Electron.Session; origin: string }[] = [];
+  const seen = new Set<string>();
   for (const wc of allContents) {
-    if (wc.getType() === "webview") {
-      try {
-        origins.add(new URL(wc.getURL()).origin);
-      } catch {}
-    }
+    if (wc.getType() !== "webview") continue;
+    try {
+      const origin = new URL(wc.getURL()).origin;
+      const key = `${(wc.session as any).storagePath || ""}|${origin}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      pairs.push({ session: wc.session, origin });
+    } catch {}
   }
-  for (const origin of origins) {
-    await session.defaultSession.cookies.set({
+  for (const { session: sess, origin } of pairs) {
+    await sess.cookies.set({
       url: origin,
       name: "an_session",
       value: token,
@@ -556,43 +562,65 @@ app.whenReady().then(() => {
     pendingDeepLink = null;
   }
 
-  // Allow webviews to load any localhost URL during development
-  if (IS_DEV) {
-    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-      callback({
-        responseHeaders: {
-          ...details.responseHeaders,
-          "Content-Security-Policy": [
-            "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:",
-          ],
-        },
+  // Webviews now run in per-app persisted partitions (persist:app-<id>), so
+  // webRequest handlers must be attached to each partitioned session, not
+  // just session.defaultSession.
+  const configuredSessions = new WeakSet<Electron.Session>();
+  function configureWebviewSession(sess: Electron.Session) {
+    if (configuredSessions.has(sess)) return;
+    configuredSessions.add(sess);
+
+    if (IS_DEV) {
+      sess.webRequest.onHeadersReceived((details, callback) => {
+        callback({
+          responseHeaders: {
+            ...details.responseHeaders,
+            "Content-Security-Policy": [
+              "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:",
+            ],
+          },
+        });
       });
-    });
+    }
+
+    // Intercept OAuth callbacks on the frame port and redirect to the app's server.
+    // Google redirects to localhost:3334/api/google/... but the frame doesn't
+    // serve API routes — the actual app server runs on a different port.
+    sess.webRequest.onBeforeRequest(
+      { urls: [`http://localhost:${FRAME_PORT}/api/google/*`] },
+      (details, callback) => {
+        const apps = AppStore.loadApps();
+        const app =
+          apps.find((a) => a.id === "mail") ||
+          apps.find((a) => a.id === "calendar");
+        if (app) {
+          const appUrl = details.url.replace(
+            `http://localhost:${FRAME_PORT}`,
+            `http://localhost:${app.devPort}`,
+          );
+          callback({ redirectURL: appUrl });
+        } else {
+          callback({});
+        }
+      },
+    );
   }
 
-  // Intercept OAuth callbacks on the frame port and redirect to the app's server.
-  // Google redirects to localhost:3334/api/google/... but the frame doesn't
-  // serve API routes — the actual app server runs on a different port.
-  session.defaultSession.webRequest.onBeforeRequest(
-    { urls: [`http://localhost:${FRAME_PORT}/api/google/*`] },
-    (details, callback) => {
-      // Route to the correct app's server based on the callback path
-      const apps = AppStore.loadApps();
-      // Try mail first, then calendar — both have Google OAuth
-      const app =
-        apps.find((a) => a.id === "mail") ||
-        apps.find((a) => a.id === "calendar");
-      if (app) {
-        const appUrl = details.url.replace(
-          `http://localhost:${FRAME_PORT}`,
-          `http://localhost:${app.devPort}`,
-        );
-        callback({ redirectURL: appUrl });
-      } else {
-        callback({});
-      }
-    },
-  );
+  // Pre-configure each known app's partition so handlers are ready before
+  // the first request fires.
+  for (const appConfig of AppStore.loadApps()) {
+    configureWebviewSession(
+      session.fromPartition(`persist:app-${appConfig.id}`),
+    );
+  }
+
+  // Catch any webview sessions we didn't pre-configure (e.g. custom apps
+  // added at runtime) when their web contents are created.
+  app.on("web-contents-created", (_event, wc) => {
+    if (wc.getType() === "webview") {
+      configureWebviewSession(wc.session);
+    }
+  });
 
   // Replace the default app menu so Cmd+Option+I doesn't open shell DevTools.
   // We handle this shortcut ourselves via before-input-event → toggleWebviewDevTools().
