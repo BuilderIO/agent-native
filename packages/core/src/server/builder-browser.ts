@@ -166,16 +166,102 @@ export function createBuilderBrowserCallbackPage(previewUrl: string): string {
     <main class="card">
       <h1>Builder connected</h1>
       <p>Browser access is now available to your agent-native app.</p>
-      <p>Returning you to the workspace…</p>
-      <p><a href=${escapedUrl}>Open the workspace</a></p>
+      <p>You can close this tab and return to the workspace.</p>
+      <p><a href=${escapedUrl} target="_blank" rel="noopener noreferrer">Open the workspace</a></p>
     </main>
     <script>
+      // If we're a popup opened by the app, close ourselves and let the
+      // parent tab keep polling for connection status. If close() is
+      // blocked (e.g. we're the top-level tab because popups were
+      // downgraded), fall back to navigating back to the workspace.
       window.setTimeout(function () {
-        window.location.replace(${escapedUrl});
-      }, 900);
+        try { window.close(); } catch (e) {}
+        window.setTimeout(function () {
+          if (!window.closed) {
+            window.location.replace(${escapedUrl});
+          }
+        }, 200);
+      }, 700);
     </script>
   </body>
 </html>`;
+}
+
+export interface RunBuilderAgentArgs {
+  prompt: string;
+  projectId?: string;
+  branchName?: string;
+  userEmail?: string;
+  userId?: string;
+}
+
+export interface RunBuilderAgentResult {
+  branchName: string;
+  projectId: string;
+  url: string;
+  status: string;
+}
+
+/**
+ * POST a prompt to the Builder agents-run API. The Builder agent runs in a
+ * cloud sandbox and writes code to a branch; the returned URL opens that
+ * branch in the Visual Editor so the user can watch progress.
+ *
+ * Spec: https://www.builder.io/c/docs/agents-run-api
+ */
+export async function runBuilderAgent(
+  args: RunBuilderAgentArgs,
+): Promise<RunBuilderAgentResult> {
+  const privateKey = process.env.BUILDER_PRIVATE_KEY;
+  const publicKey = process.env.BUILDER_PUBLIC_KEY;
+  if (!privateKey || !publicKey) {
+    throw new Error("Builder keys are not configured");
+  }
+  if (!args.prompt || !args.prompt.trim()) {
+    throw new Error("prompt is required");
+  }
+  if (!args.userEmail && !args.userId) {
+    throw new Error("userEmail or userId is required");
+  }
+
+  const url = new URL("/agents/run", getBuilderApiHost());
+  url.searchParams.set("apiKey", publicKey);
+
+  const body: Record<string, unknown> = {
+    userMessage: { userPrompt: args.prompt },
+  };
+  if (args.projectId) body.projectId = args.projectId;
+  if (args.branchName) body.branchName = args.branchName;
+  if (args.userEmail) body.userEmail = args.userEmail;
+  if (args.userId) body.userId = args.userId;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${privateKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  const parsed = (await response.json().catch(() => ({}))) as Record<
+    string,
+    unknown
+  >;
+  if (!response.ok) {
+    const msg =
+      typeof parsed.error === "string"
+        ? parsed.error
+        : `Builder agent run failed (${response.status})`;
+    throw new Error(msg);
+  }
+
+  return {
+    branchName: String(parsed.branchName ?? ""),
+    projectId: String(parsed.projectId ?? ""),
+    url: String(parsed.url ?? ""),
+    status: String(parsed.status ?? "processing"),
+  };
 }
 
 export async function requestBuilderBrowserConnection(

@@ -88,6 +88,8 @@ export function LLMSection() {
             ) : builder?.connectUrl ? (
               <a
                 href={builder.connectUrl}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-medium bg-accent text-foreground hover:bg-accent/80"
               >
                 Connect Builder

@@ -450,50 +450,41 @@ function BuilderCliAuthMethod({
   const [connecting, setConnecting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const handleConnect = useCallback(async () => {
+  const handleConnect = useCallback(() => {
     setConnecting(true);
     setErr(null);
-    try {
-      // The /builder/status endpoint returns the builder connect URL that
-      // embeds the correct callback origin for this deployment.
-      const origin = getCallbackOrigin() || window.location.origin;
-      const res = await fetch(`${origin}/_agent-native/builder/status`);
-      if (!res.ok) throw new Error(`status: ${res.status}`);
-      const status = (await res.json()) as {
-        connectUrl: string;
-        configured: boolean;
-      };
-      const popup = window.open(
-        status.connectUrl,
-        "_blank",
-        "noopener,noreferrer",
-      );
-      if (!popup) throw new Error("Popup blocked — allow popups and retry.");
+    // Open SYNCHRONOUSLY inside the click handler — any await before
+    // window.open lets the user gesture expire and popup blockers
+    // downgrade to same-tab navigation. The /builder/connect endpoint
+    // 302-redirects to the real CLI-auth URL so the new tab always
+    // ends up where it should, with no client-side prefetch needed.
+    const origin = getCallbackOrigin() || window.location.origin;
+    window.open(
+      `${origin}/_agent-native/builder/connect`,
+      "_blank",
+      "noopener,noreferrer",
+    );
 
-      // Poll builder status until credentials appear (user finished the flow).
-      const start = Date.now();
-      const timeoutMs = 5 * 60 * 1000;
-      const interval = setInterval(async () => {
-        try {
-          const r = await fetch(`${origin}/_agent-native/builder/status`);
-          if (!r.ok) return;
-          const s = (await r.json()) as { configured: boolean };
-          if (s.configured) {
-            clearInterval(interval);
-            setConnecting(false);
-            await onCompleted();
-          } else if (Date.now() - start > timeoutMs) {
-            clearInterval(interval);
-            setConnecting(false);
-          }
-        } catch {
-          // ignore transient poll errors
+    // Poll builder status until credentials appear (user finished the flow).
+    const start = Date.now();
+    const timeoutMs = 5 * 60 * 1000;
+    const interval = setInterval(async () => {
+      try {
+        const r = await fetch(`${origin}/_agent-native/builder/status`);
+        if (!r.ok) return;
+        const s = (await r.json()) as { configured: boolean };
+        if (s.configured) {
+          clearInterval(interval);
+          setConnecting(false);
+          await onCompleted();
+        } else if (Date.now() - start > timeoutMs) {
+          clearInterval(interval);
+          setConnecting(false);
         }
-      }, 2000);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Connect failed");
-      setConnecting(false);
-    }
+      } catch {
+        // ignore transient poll errors
+      }
+    }, 2000);
   }, [onCompleted]);
 
   return (

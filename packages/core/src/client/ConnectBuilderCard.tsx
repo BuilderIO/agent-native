@@ -11,6 +11,16 @@ export interface ConnectBuilderCardProps {
   builderEnabled: boolean;
   connectUrl: string;
   orgName?: string | null;
+  /** The user's feature/change request, forwarded to Builder's cloud agent
+   *  when they click Send. Empty for generic "connect Builder" prompts. */
+  prompt?: string;
+}
+
+interface BuilderRunResult {
+  branchName: string;
+  projectId: string;
+  url: string;
+  status: string;
 }
 
 const WAITLIST_URL = "https://www.builder.io/c/waitlist";
@@ -47,13 +57,45 @@ export function ConnectBuilderCard({
   builderEnabled,
   connectUrl: initialConnectUrl,
   orgName: initialOrgName,
+  prompt = "",
 }: ConnectBuilderCardProps) {
   const [configured, setConfigured] = useState(initialConfigured);
   const [orgName, setOrgName] = useState<string | null>(initialOrgName ?? null);
   const [connecting, setConnecting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const [runResult, setRunResult] = useState<BuilderRunResult | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
+
+  const handleSend = useCallback(async () => {
+    if (!prompt.trim()) return;
+    setSending(true);
+    setErr(null);
+    try {
+      const origin = getCallbackOrigin() || window.location.origin;
+      const res = await fetch(`${origin}/_agent-native/builder/run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof data?.error === "string"
+            ? data.error
+            : `Request failed (${res.status})`,
+        );
+      }
+      if (!mountedRef.current) return;
+      setRunResult(data as BuilderRunResult);
+      setSending(false);
+    } catch (e) {
+      if (!mountedRef.current) return;
+      setErr(e instanceof Error ? e.message : "Send failed");
+      setSending(false);
+    }
+  }, [prompt]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -73,21 +115,24 @@ export function ConnectBuilderCard({
     }
     setConnecting(true);
     setErr(null);
+    // Open the popup SYNCHRONOUSLY inside the click handler. Any await
+    // before window.open() lets the user-gesture token expire, which
+    // causes popup blockers to block entirely or fall back to same-tab
+    // navigation. The URL was generated server-side with the correct
+    // callback origin, so no re-fetch is needed.
     try {
-      const origin = getCallbackOrigin() || window.location.origin;
-      let connectUrl = initialConnectUrl;
-      try {
-        const res = await fetch(`${origin}/_agent-native/builder/status`);
-        if (res.ok) {
-          const s = (await res.json()) as { connectUrl?: string };
-          if (s.connectUrl) connectUrl = s.connectUrl;
-        }
-      } catch {
-        // fall back to the URL baked into the tool result
+      const popup = window.open(
+        initialConnectUrl,
+        "_blank",
+        "noopener,noreferrer",
+      );
+      // Some browsers return null with noopener — treat as "opened" since
+      // the navigation still happens. Only treat explicit popup-blocker
+      // errors as failures.
+      if (popup === null && !initialConnectUrl) {
+        throw new Error("Popup blocked — allow popups and retry.");
       }
-
-      const popup = window.open(connectUrl, "_blank", "noopener,noreferrer");
-      if (!popup) throw new Error("Popup blocked — allow popups and retry.");
+      const origin = getCallbackOrigin() || window.location.origin;
 
       const start = Date.now();
       const timeoutMs = 5 * 60 * 1000;
@@ -130,6 +175,51 @@ export function ConnectBuilderCard({
   }, [initialConnectUrl]);
 
   const showWaitlist = !configured && !builderEnabled;
+  const canSend = configured && builderEnabled && prompt.trim().length > 0;
+
+  // Title + subtitle depend on which mode we're in. We compute them up front
+  // so the render tree below stays flat.
+  let title: string;
+  let subtitle: React.ReactNode;
+  if (runResult) {
+    title = "Sent to Builder";
+    subtitle = (
+      <>
+        Working on branch{" "}
+        <span className="font-mono text-foreground">
+          {runResult.branchName}
+        </span>
+        . Click through to watch progress in the Visual Editor.
+      </>
+    );
+  } else if (canSend) {
+    title = "Send this to Builder";
+    subtitle = (
+      <>
+        Builder's cloud agent will code this change on a fresh branch — click
+        through when it's ready.
+      </>
+    );
+  } else if (configured) {
+    title = "Builder.io connected";
+    subtitle = orgName ? (
+      <>
+        Connected to{" "}
+        <span className="font-medium text-foreground">{orgName}</span>. LLM
+        access, browser automation, and more are ready to use.
+      </>
+    ) : (
+      <>LLM access, browser automation, and more are ready to use.</>
+    );
+  } else {
+    title = "Connect Builder.io";
+    subtitle = (
+      <>
+        One click to spin up a cloud code sandbox — Builder writes the changes
+        for you, no local setup needed.
+      </>
+    );
+  }
 
   return (
     <div className={cn("my-2 rounded-lg border border-border overflow-hidden")}>
@@ -140,7 +230,7 @@ export function ConnectBuilderCard({
             "bg-foreground text-background",
           )}
         >
-          {configured ? (
+          {runResult ? (
             <IconCheck className="h-5 w-5" />
           ) : (
             <BuilderBMark className="h-5 w-5" />
@@ -149,7 +239,7 @@ export function ConnectBuilderCard({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-semibold text-foreground">
-              {configured ? "Builder.io connected" : "Connect Builder.io"}
+              {title}
             </span>
             {showWaitlist && (
               <span className="inline-flex items-center rounded-sm bg-muted px-1.5 py-0 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -158,65 +248,93 @@ export function ConnectBuilderCard({
             )}
           </div>
           <div className="mt-0.5 text-xs text-muted-foreground leading-relaxed">
-            {configured ? (
-              orgName ? (
-                <>
-                  Connected to{" "}
-                  <span className="font-medium text-foreground">{orgName}</span>
-                  . LLM access, browser automation, and more are ready to use.
-                </>
-              ) : (
-                <>LLM access, browser automation, and more are ready to use.</>
-              )
-            ) : (
-              <>
-                One click to spin up a cloud code sandbox — Builder writes the
-                changes for you, no local setup needed.
-              </>
-            )}
+            {subtitle}
           </div>
-          {err && <div className="mt-2 text-xs text-destructive">{err}</div>}
-          {!configured && (
-            <div className="mt-3">
-              {showWaitlist ? (
-                <a
-                  href={WAITLIST_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={cn(
-                    "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-                    "bg-foreground text-background hover:bg-foreground/90",
-                  )}
-                >
-                  Join the waitlist
-                  <IconExternalLink className="h-3.5 w-3.5" />
-                </a>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleConnect}
-                  disabled={connecting}
-                  className={cn(
-                    "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-                    "bg-foreground text-background hover:bg-foreground/90",
-                    connecting && "opacity-70 cursor-wait",
-                  )}
-                >
-                  {connecting ? (
-                    <>
-                      <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-                      Waiting for Builder…
-                    </>
-                  ) : (
-                    <>
-                      Connect Builder
-                      <IconExternalLink className="h-3.5 w-3.5" />
-                    </>
-                  )}
-                </button>
-              )}
+
+          {canSend && prompt && !runResult && (
+            <div className="mt-2 rounded-md bg-muted/50 px-2.5 py-1.5 text-xs text-muted-foreground line-clamp-3 break-words">
+              {prompt}
             </div>
           )}
+
+          {err && <div className="mt-2 text-xs text-destructive">{err}</div>}
+
+          <div className="mt-3">
+            {runResult ? (
+              <a
+                href={runResult.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                  "bg-foreground text-background hover:bg-foreground/90",
+                )}
+              >
+                <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                Open branch in Builder
+                <IconExternalLink className="h-3.5 w-3.5" />
+              </a>
+            ) : canSend ? (
+              <button
+                type="button"
+                onClick={handleSend}
+                disabled={sending}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                  "bg-foreground text-background hover:bg-foreground/90",
+                  sending && "opacity-70 cursor-wait",
+                )}
+              >
+                {sending ? (
+                  <>
+                    <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                    Sending to Builder…
+                  </>
+                ) : (
+                  <>
+                    Send to Builder
+                    <IconExternalLink className="h-3.5 w-3.5" />
+                  </>
+                )}
+              </button>
+            ) : showWaitlist ? (
+              <a
+                href={WAITLIST_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                  "bg-foreground text-background hover:bg-foreground/90",
+                )}
+              >
+                Join the waitlist
+                <IconExternalLink className="h-3.5 w-3.5" />
+              </a>
+            ) : !configured ? (
+              <button
+                type="button"
+                onClick={handleConnect}
+                disabled={connecting}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                  "bg-foreground text-background hover:bg-foreground/90",
+                  connecting && "opacity-70 cursor-wait",
+                )}
+              >
+                {connecting ? (
+                  <>
+                    <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                    Waiting for Builder…
+                  </>
+                ) : (
+                  <>
+                    Connect Builder
+                    <IconExternalLink className="h-3.5 w-3.5" />
+                  </>
+                )}
+              </button>
+            ) : null}
+          </div>
         </div>
       </div>
     </div>

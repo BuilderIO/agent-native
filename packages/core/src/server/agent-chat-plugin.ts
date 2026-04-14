@@ -453,19 +453,30 @@ function createBuilderBrowserTool(deps: {
     "connect-builder": {
       tool: {
         description:
-          "Render a one-click 'Connect Builder.io' card inline in the chat. Call this IMMEDIATELY — no exploration, no planning — whenever (a) the user asks to add a feature, change the UI, edit code, create a component, add a route, add an integration, fix a bug in the app itself, or anything else that requires source-file edits while in hosted/production mode, OR (b) the user needs Builder for LLM access, browser automation, or any other Builder-gated capability. Builder spins up a cloud code sandbox that codes the change for the user — no local setup required. The card handles the connect flow end-to-end; do not write implementation plans, save code to resources, or spawn sub-agents to plan. If Builder is already configured, the card shows a connected status. Takes no arguments.",
-        parameters: { type: "object", properties: {} },
+          "Render a Builder.io card inline in the chat. Call this IMMEDIATELY — no exploration, no planning — whenever (a) the user asks to add a feature, change the UI, edit code, create a component, add a route, add an integration, fix a bug in the app itself, or anything else that requires source-file edits while in hosted/production mode, OR (b) the user needs Builder for LLM access, browser automation, or any other Builder-gated capability. If Builder is already connected, the card shows a 'Send to Builder' button that hands the work off to Builder's cloud agent and returns a branch URL. When you call this for a code-change request, pass the user's request verbatim as the `prompt` arg so the card can forward it to Builder unchanged.",
+        parameters: {
+          type: "object",
+          properties: {
+            prompt: {
+              type: "string",
+              description:
+                "The user's feature / change request, verbatim. Forwarded to Builder's cloud agent when the user clicks Send. Omit only for generic 'connect Builder' requests that aren't tied to a specific code change.",
+            },
+          },
+        },
       },
-      run: async () => {
+      run: async (args) => {
         const configured = !!(
           process.env.BUILDER_PRIVATE_KEY && process.env.BUILDER_PUBLIC_KEY
         );
+        const prompt = typeof args?.prompt === "string" ? args.prompt : "";
         return JSON.stringify({
           kind: "connect-builder-card",
           configured,
           builderEnabled: !!process.env.ENABLE_BUILDER,
           connectUrl: getBuilderBrowserConnectUrl(deps.getOrigin()),
           orgName: process.env.BUILDER_ORG_NAME || null,
+          prompt,
         });
       },
     },
@@ -976,7 +987,7 @@ The agent and the UI are equal partners — everything the UI can do, you can do
 
 When the user asks you to change the UI, modify code, add a feature, fix a bug in the app itself, change styles, add a hook, create a component, add a route, add an integration, or anything else that requires editing source files — you MUST take exactly these steps, in order:
 
-1. Call the \`connect-builder\` tool (no arguments). This renders an inline Connect card with a one-click button. The user can spin up a cloud code sandbox in Builder.io and Builder will code the change for them — no local setup, no clone, no install.
+1. Call the \`connect-builder\` tool, passing the user's full request verbatim as the \`prompt\` argument. This renders an inline card. If Builder is connected, the card hands the prompt off to Builder's cloud agent on one click and returns a branch URL; otherwise it shows a connect / waitlist flow. Either way, Builder writes the code — no local setup, no clone, no install.
 2. After the card renders, write a single short sentence telling the user to click Connect Builder to have this built for them in the cloud, and mention they can also clone the app locally with \`npx agent-native create <app-name>\` if they'd rather work offline.
 
 **Hard rules — do NOT break these:**
