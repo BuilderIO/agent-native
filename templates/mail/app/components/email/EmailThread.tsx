@@ -83,6 +83,28 @@ export function EmailThread({
     view: string;
     threadId: string;
   }>();
+  // Diagnose re-render storms: log which prop changed since last render.
+  const _renderCount = useRef(0);
+  const _prevProps = useRef<Record<string, unknown>>({});
+  _renderCount.current++;
+  if (typeof window !== "undefined" && (window as any).__cacheDebug) {
+    const curr: Record<string, unknown> = {
+      threadId,
+      emailIdsRef: emailIds,
+      threadsRef: threads,
+      selectedIdsRef: selectedIds,
+      onArchivedRef: onArchived,
+      setSelectedIdsRef: setSelectedIds,
+      onContactSelectRef: onContactSelect,
+    };
+    const changed = Object.keys(curr).filter(
+      (k) => curr[k] !== _prevProps.current[k],
+    );
+    console.log(
+      `[EmailThread] render#${_renderCount.current} threadId=${threadId?.slice(-6)} changed=[${changed.join(",")}]`,
+    );
+    _prevProps.current = curr;
+  }
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const labelParam = searchParams.get("label");
