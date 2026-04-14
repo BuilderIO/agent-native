@@ -68,7 +68,7 @@ export default function App() {
   const enabledApps = apps.filter((a) => a.enabled);
   const rawAppDefs = enabledApps.map(toAppDefinition);
   // Keep this in sync with Sidebar's pinned-bottom order.
-  const PINNED_BOTTOM_ORDER = ["dispatcher", "starter"];
+  const PINNED_BOTTOM_ORDER = ["dispatch", "starter"];
   const pinnedBottomDefs = PINNED_BOTTOM_ORDER.map((id) =>
     rawAppDefs.find((a) => a.id === id),
   ).filter((a): a is NonNullable<typeof a> => !!a);

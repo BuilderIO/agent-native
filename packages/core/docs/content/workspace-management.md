@@ -62,7 +62,7 @@ packages/core/                     @your-org/platform-team
 packages/desktop-app/              @your-org/platform-team
 
 # Dispatch control plane — secrets, integrations, workspace resources
-templates/dispatcher/              @your-org/platform-team
+templates/dispatch/                @your-org/platform-team
 
 # Per-app ownership — each team reviews their own app
 templates/mail/                    @your-org/mail-team
@@ -125,7 +125,7 @@ app:recruiting:
 
 dispatch:
   - changed-files:
-      - any-glob-to-any-file: templates/dispatcher/**
+      - any-glob-to-any-file: templates/dispatch/**
 
 core:
   - changed-files:
