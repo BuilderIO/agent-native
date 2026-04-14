@@ -58,6 +58,24 @@ const labelMapCache = new Map<
 >();
 const LABEL_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
+// In-memory cache for fully-fetched thread messages. Keyed by
+// `${ownerEmail}:${threadId}` so different users don't share entries.
+// Keeps prefetches and repeat opens from hammering the Gmail API (which
+// tripped the per-minute quota and made every navigation feel slow).
+const threadMessagesCache = new Map<
+  string,
+  { messages: EmailMessage[]; expiresAt: number }
+>();
+const THREAD_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+function threadCacheKey(ownerEmail: string, threadId: string) {
+  return `${ownerEmail}:${threadId}`;
+}
+
+export function invalidateThreadCache(ownerEmail: string, threadId: string) {
+  threadMessagesCache.delete(threadCacheKey(ownerEmail, threadId));
+}
+
 async function getCachedLabelMap(
   accountTokens: Array<{ email: string; accessToken: string }>,
 ): Promise<Map<string, string>> {
@@ -480,6 +498,14 @@ export const getThreadMessages = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
   const threadId = getRouterParam(event, "threadId") as string;
 
+  // Cache hit: skip Gmail entirely. Survives prefetch → navigate within TTL,
+  // and across sibling j/k navigation for the same thread.
+  const cacheKey = threadCacheKey(email, threadId);
+  const cached = threadMessagesCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.messages;
+  }
+
   if (await isConnected(email)) {
     try {
       const accountTokens = await getAccountTokens(email);
@@ -501,6 +527,10 @@ export const getThreadMessages = defineEventHandler(async (event: H3Event) => {
             (a: any, b: any) =>
               new Date(a.date).getTime() - new Date(b.date).getTime(),
           );
+          threadMessagesCache.set(cacheKey, {
+            messages,
+            expiresAt: Date.now() + THREAD_CACHE_TTL,
+          });
           return messages;
         } catch (error: any) {
           const status = error?.message?.match(/\((\d+)\)/)?.[1];
@@ -676,6 +706,7 @@ export const archiveEmail = defineEventHandler(async (event: H3Event) => {
         undefined,
         removeLabels,
       );
+      invalidateThreadCache(email, msg.threadId);
       return { id, threadId: msg.threadId, isArchived: true };
     } catch (error: any) {
       console.error("[archiveEmail] Gmail error:", error.message);
@@ -727,6 +758,7 @@ export const unarchiveEmail = defineEventHandler(async (event: H3Event) => {
       const id = getRouterParam(event, "id") as string;
       const msg = await gmailGetMessage(accessToken, id, "minimal");
       await gmailModifyThread(accessToken, msg.threadId, ["INBOX"]);
+      invalidateThreadCache(email, msg.threadId);
       return { id, threadId: msg.threadId, isArchived: false };
     } catch (error: any) {
       console.error("[unarchiveEmail] Gmail error:", error.message);
@@ -780,6 +812,7 @@ export const trashEmail = defineEventHandler(async (event: H3Event) => {
       const id = getRouterParam(event, "id") as string;
       const msg = await gmailGetMessage(accessToken, id, "minimal");
       await gmailTrashThread(accessToken, msg.threadId);
+      invalidateThreadCache(email, msg.threadId);
       return { id, threadId: msg.threadId, isTrashed: true };
     } catch (error: any) {
       console.error("[trashEmail] Gmail error:", error.message);
@@ -827,6 +860,7 @@ export const untrashEmail = defineEventHandler(async (event: H3Event) => {
       const id = getRouterParam(event, "id") as string;
       const msg = await gmailGetMessage(accessToken, id, "minimal");
       await gmailUntrashThread(accessToken, msg.threadId);
+      invalidateThreadCache(email, msg.threadId);
       return { id, threadId: msg.threadId, isTrashed: false };
     } catch (error: any) {
       console.error("[untrashEmail] Gmail error:", error.message);
@@ -891,6 +925,7 @@ export const reportSpam = defineEventHandler(async (event: H3Event) => {
       }
       // Report spam on entire thread
       await gmailModifyThread(accessToken, threadId, ["SPAM"], ["INBOX"]);
+      invalidateThreadCache(email, threadId);
       return { id, threadId, spam: true };
     } catch (error: any) {
       console.error("[reportSpam] Gmail error:", error.message);
@@ -968,6 +1003,7 @@ export const blockSender = defineEventHandler(async (event: H3Event) => {
       // Report the entire thread as spam
       const msg = await gmailGetMessage(accessToken, id, "minimal");
       await gmailModifyThread(accessToken, msg.threadId, ["SPAM"], ["INBOX"]);
+      invalidateThreadCache(email, msg.threadId);
 
       // Create a filter to auto-delete future emails from this sender
       try {
@@ -1067,6 +1103,7 @@ export const muteThread = defineEventHandler(async (event: H3Event) => {
       const threadId = getRouterParam(event, "threadId") as string;
       // Gmail "mute" = remove from inbox; future replies also skip inbox
       await gmailModifyThread(accessToken, threadId, undefined, ["INBOX"]);
+      invalidateThreadCache(email, threadId);
       return { threadId, muted: true };
     } catch (error: any) {
       console.error("[muteThread] Gmail error:", error.message);
