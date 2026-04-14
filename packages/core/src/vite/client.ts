@@ -570,6 +570,19 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
         : {}),
     },
     resolve: {
+      // Dedupe React and Radix — without this, a second copy of React can get
+      // loaded from `packages/core`'s own node_modules (via pnpm symlinks),
+      // which breaks hooks-based libraries like Radix Select with "Invalid
+      // hook call" / "Cannot read properties of null (reading 'useMemo')".
+      dedupe: [
+        "react",
+        "react-dom",
+        "react-dom/client",
+        "@radix-ui/react-select",
+        "@radix-ui/react-popover",
+        "@radix-ui/react-tooltip",
+        "@radix-ui/react-dialog",
+      ],
       alias: [
         // In monorepo dev: resolve @agent-native/core to source for HMR.
         // Uses regex with $ anchor for exact matching to prevent

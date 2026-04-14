@@ -4,7 +4,9 @@ import {
   createError,
   type H3Event,
 } from "h3";
-import { nanoid } from "nanoid";
+const nanoid = (): string =>
+  globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
+  Math.random().toString(36).slice(2) + Date.now().toString(36);
 import { readBody } from "../server/h3-helpers.js";
 import { getSession } from "../server/auth.js";
 import { putUserSetting } from "../settings/user-settings.js";
