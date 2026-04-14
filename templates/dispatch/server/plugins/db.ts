@@ -78,4 +78,90 @@ export default runMigrations([
       );
     `,
   },
+  {
+    version: 2,
+    sql: `
+      CREATE TABLE IF NOT EXISTS vault_secrets (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        name TEXT NOT NULL,
+        credential_key TEXT NOT NULL,
+        value TEXT NOT NULL,
+        provider TEXT,
+        description TEXT,
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS vault_grants (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        secret_id TEXT NOT NULL,
+        app_id TEXT NOT NULL,
+        granted_by TEXT NOT NULL,
+        status TEXT NOT NULL,
+        synced_at INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS vault_requests (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        credential_key TEXT NOT NULL,
+        app_id TEXT NOT NULL,
+        reason TEXT,
+        requested_by TEXT NOT NULL,
+        status TEXT NOT NULL,
+        reviewed_by TEXT,
+        reviewed_at INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS vault_audit_log (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        secret_id TEXT,
+        app_id TEXT,
+        action TEXT NOT NULL,
+        actor TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        metadata TEXT,
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS workspace_resources (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        kind TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        path TEXT NOT NULL,
+        content TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS workspace_resource_grants (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        resource_id TEXT NOT NULL,
+        app_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        synced_at INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+    `,
+  },
 ]);

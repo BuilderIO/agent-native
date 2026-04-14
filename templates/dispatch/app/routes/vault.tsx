@@ -24,6 +24,17 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -360,15 +371,36 @@ function SecretRow({ secret, grants }: { secret: any; grants: any[] }) {
           </div>
 
           <div className="flex justify-end border-t pt-3">
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={() => deleteSecret.mutate({ id: secret.id })}
-              disabled={deleteSecret.isPending}
-            >
-              <IconTrash size={14} className="mr-1" />
-              Delete secret
-            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  disabled={deleteSecret.isPending}
+                >
+                  <IconTrash size={14} className="mr-1" />
+                  Delete secret
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete this secret?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Removing “{secret.name}” revokes all of its grants. Apps
+                    that depended on this credential will lose access on the
+                    next sync. This cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() => deleteSecret.mutate({ id: secret.id })}
+                  >
+                    Delete secret
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
         </div>
       )}

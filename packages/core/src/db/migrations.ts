@@ -26,6 +26,55 @@ function adaptSqlForSqlite(sql: string): string {
   return sql.replace(/ADD\s+COLUMN\s+IF\s+NOT\s+EXISTS/gi, "ADD COLUMN");
 }
 
+/**
+ * Split a multi-statement SQL blob into individual statements.
+ *
+ * libsql's `execute(sql)` only runs the first statement in a multi-statement
+ * string. This splitter is intentionally simple: it respects single-quoted
+ * string literals (with `''` escaping) and `--` line comments, and splits on
+ * top-level `;`. It does NOT attempt to parse `$$`-quoted Postgres function
+ * bodies — migrations that define functions/triggers with `;` inside bodies
+ * should pass a single-statement migration per entry instead.
+ */
+function splitSqlStatements(sql: string): string[] {
+  const out: string[] = [];
+  let buf = "";
+  let i = 0;
+  let inSingle = false;
+  while (i < sql.length) {
+    const ch = sql[i];
+    const next = sql[i + 1];
+    if (!inSingle && ch === "-" && next === "-") {
+      // Skip to end of line
+      while (i < sql.length && sql[i] !== "\n") i++;
+      continue;
+    }
+    if (ch === "'") {
+      buf += ch;
+      if (inSingle && next === "'") {
+        buf += next;
+        i += 2;
+        continue;
+      }
+      inSingle = !inSingle;
+      i++;
+      continue;
+    }
+    if (ch === ";" && !inSingle) {
+      const trimmed = buf.trim();
+      if (trimmed) out.push(trimmed);
+      buf = "";
+      i++;
+      continue;
+    }
+    buf += ch;
+    i++;
+  }
+  const tail = buf.trim();
+  if (tail) out.push(tail);
+  return out;
+}
+
 export interface RunMigrationsOptions {
   /**
    * Name of the migrations bookkeeping table. Defaults to `_migrations` for
@@ -57,13 +106,16 @@ export function runMigrations(
 
         for (const m of migrations.filter((m) => m.version > current)) {
           try {
+            const statements = splitSqlStatements(m.sql);
             await d1.batch([
-              d1.prepare(m.sql),
+              ...statements.map((s: string) => d1.prepare(s)),
               d1
                 .prepare(`INSERT OR IGNORE INTO ${table} VALUES (?)`)
                 .bind(m.version),
             ]);
-            console.log(`[db] Applied migration v${m.version}`);
+            console.log(
+              `[db] Applied migration v${m.version} (${statements.length} statement${statements.length === 1 ? "" : "s"})`,
+            );
           } catch (err) {
             console.error(
               `[db] Migration v${m.version} FAILED:`,
@@ -109,16 +161,23 @@ export function runMigrations(
 
       for (const m of pending) {
         const sql = pg ? adaptSqlForPostgres(m.sql) : adaptSqlForSqlite(m.sql);
+        const statements = splitSqlStatements(sql);
+        let currentStmt = "";
         try {
-          await exec.execute(sql);
+          for (const stmt of statements) {
+            currentStmt = stmt;
+            await exec.execute(stmt);
+          }
           await exec.execute({ sql: insertSql, args: [m.version] });
-          console.log(`[db] Applied migration v${m.version}`);
+          console.log(
+            `[db] Applied migration v${m.version} (${statements.length} statement${statements.length === 1 ? "" : "s"})`,
+          );
         } catch (err) {
           console.error(
             `[db] Migration v${m.version} FAILED:`,
             (err as Error).message,
-            "\nSQL:",
-            sql,
+            "\nStatement:",
+            currentStmt,
           );
           throw err;
         }
