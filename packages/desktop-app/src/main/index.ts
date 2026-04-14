@@ -68,10 +68,22 @@ async function injectSessionAndReload(token: string) {
   }
   const targets: { session: Electron.Session; origin: string }[] = [];
   for (const appConfig of apps) {
-    targets.push({
-      session: session.fromPartition(`persist:app-${appConfig.id}`),
-      origin: frameOrigin,
-    });
+    const sess = session.fromPartition(`persist:app-${appConfig.id}`);
+    // Dev-mode apps load through the frame (localhost:3334); prod-mode apps
+    // load their production URL directly. Set the cookie on whichever origin
+    // the app actually talks to. Dev-mode always gets the frame origin;
+    // prod-mode gets the configured URL if available.
+    const isProdMode = appConfig.mode !== "dev";
+    if (isProdMode && appConfig.url) {
+      try {
+        targets.push({
+          session: sess,
+          origin: new URL(appConfig.url).origin,
+        });
+      } catch {}
+    } else {
+      targets.push({ session: sess, origin: frameOrigin });
+    }
   }
   // Also cover any currently-live webview origins not matched above
   // (e.g. production URLs).
@@ -638,6 +650,11 @@ app.whenReady().then(() => {
       },
     );
   }
+
+  // Also configure session.defaultSession so the OAuth BrowserWindow (which
+  // is not a webview and uses defaultSession) gets the redirect handler.
+  // With no specific targetAppId, the handler falls back to mail/calendar.
+  configureWebviewSession(session.defaultSession, null);
 
   // Pre-configure each known app's partition so handlers are ready before
   // the first request fires. Each partition knows its own app id.
