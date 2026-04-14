@@ -1,0 +1,7 @@
+[build]
+  command = "pnpm install && NITRO_PRESET=netlify pnpm --filter calendar build"
+  publish = "templates/calendar/dist"
+  functions = "templates/calendar/.netlify/functions-internal"
+
+[build.environment]
+  NITRO_PRESET = "netlify"

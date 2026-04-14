@@ -1,0 +1,7 @@
+[build]
+  command = "pnpm install && NITRO_PRESET=netlify pnpm --filter issues build"
+  publish = "templates/issues/dist"
+  functions = "templates/issues/.netlify/functions-internal"
+
+[build.environment]
+  NITRO_PRESET = "netlify"
