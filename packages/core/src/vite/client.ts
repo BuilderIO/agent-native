@@ -131,6 +131,22 @@ export interface ClientConfigOptions {
   /** Additional Vite optimizeDeps configuration */
   optimizeDeps?: { include?: string[]; exclude?: string[] };
   /**
+   * Package names to stub in the SSR bundle with an empty proxy object.
+   *
+   * Use this for dependencies that only run in the browser (canvas / diagram
+   * libraries, editors, WebGL) but would otherwise get pulled into the
+   * server bundle via SSR's noExternal policy — pushing the CF Pages
+   * Functions bundle over the 25 MiB limit.
+   *
+   * Only add packages that are provably never called during SSR. If the
+   * server imports one, it will receive a Proxy that throws on any real
+   * use (which is better than bundling a 10 MiB dep the worker never calls).
+   *
+   * @example
+   * ssrStubs: ["mermaid", "@excalidraw/excalidraw"]
+   */
+  ssrStubs?: string[];
+  /**
    * @deprecated Pass `reactRouter()` directly in the `plugins` array instead.
    * Previously used to auto-load the React Router Vite plugin via require(),
    * but this fails in ESM contexts. Templates should now do:
@@ -371,21 +387,16 @@ function rolldownInputFix(): Plugin {
  * hit the right address even when Vite auto-increments the port.
  */
 /**
- * Replace heavy client-only libraries with an empty stub during SSR builds.
- * These render interactive diagrams / parse files in the browser (or from
- * Node scripts) and are never executed on the edge, so the server bundle
- * can ship with `{}` in place of them and save a lot of size.
+ * Replace caller-specified packages with an empty proxy stub during SSR
+ * builds. For apps whose heavy browser-only deps would otherwise bloat the
+ * edge worker past CF Pages' 25 MiB Functions limit.
  *
- * If you add new heavy client-only deps to a template, add them here.
+ * The template lists the packages in its `defineConfig({ ssrStubs })` call —
+ * the framework never hardcodes package names.
  */
-function ssrStubHeavyClientLibs(): Plugin {
-  const stubbed = new Set([
-    "mermaid",
-    "@excalidraw/excalidraw",
-    "@excalidraw/mermaid-to-excalidraw",
-    "pdf-parse",
-    "@google/genai",
-  ]);
+function ssrStubPlugin(packages: string[]): Plugin | null {
+  if (!packages.length) return null;
+  const stubbed = new Set(packages);
   const STUB_ID = "\0agent-native-ssr-stub";
   return {
     name: "agent-native-ssr-stub-heavy-libs",
@@ -520,12 +531,13 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
       noExternal: /^(?!node:)/,
     },
     plugins: [
-      // Stub heavy client-only libs in the SSR bundle. mermaid, excalidraw,
-      // and pdf-parse only run in the browser or from Node scripts — SSR
-      // never executes them. Without this, they'd get fully bundled into
-      // the edge worker (via ssr.noExternal above) and push slides over
-      // CF Pages' 25 MiB Functions limit.
-      ssrStubHeavyClientLibs(),
+      // Stub packages from `options.ssrStubs` in the SSR bundle so they
+      // don't bloat the edge worker. Opt-in per template — the framework
+      // hardcodes nothing.
+      ...(() => {
+        const p = ssrStubPlugin(options.ssrStubs ?? []);
+        return p ? [p] : [];
+      })(),
       actionTypesPlugin(),
       agentsBundlePlugin(),
       autoReloadOnOptimizeDep(),
