@@ -126,6 +126,134 @@ function wrapCliScript(
 }
 
 /**
+ * Creates db-* tools (db-query, db-exec, db-patch, db-schema) as native tools.
+ * These let the agent read and write the app's own SQL database. Scoping to
+ * the current user/org is enforced automatically in production via temp views.
+ *
+ * In dev mode template actions are invoked via shell and the agent can call
+ * `pnpm action db-query ...` — but in production there is no shell, so these
+ * must be registered as native tools for the agent to reach the app DB at all.
+ */
+async function createDbScriptEntries(): Promise<Record<string, ActionEntry>> {
+  try {
+    const [schemaMod, queryMod, execMod, patchMod] = await Promise.all([
+      import("../scripts/db/schema.js"),
+      import("../scripts/db/query.js"),
+      import("../scripts/db/exec.js"),
+      import("../scripts/db/patch.js"),
+    ]);
+
+    return {
+      "db-schema": wrapCliScript(
+        {
+          description:
+            "Show the app's SQL schema — all tables, columns, types, indexes, and foreign keys. Use this to understand the data model before querying.",
+          parameters: {
+            type: "object",
+            properties: {
+              format: {
+                type: "string",
+                description: 'Output format: "json" or "text" (default: text)',
+                enum: ["json", "text"],
+              },
+            },
+          },
+        },
+        schemaMod.default,
+      ),
+      "db-query": wrapCliScript(
+        {
+          description:
+            "Read from the app's SQL database. Runs a SELECT (or WITH/EXPLAIN/PRAGMA) against the app's own tables — settings, application_state, and all template tables. Results are automatically scoped to the current user/org; DO NOT add `WHERE owner_email = ...` yourself. This queries the APP DATABASE — not any external data source.",
+          parameters: {
+            type: "object",
+            properties: {
+              sql: {
+                type: "string",
+                description:
+                  "SELECT query to run, e.g. \"SELECT key, value FROM settings WHERE key LIKE 'sql-dashboard-%'\"",
+              },
+              format: {
+                type: "string",
+                description: 'Output format: "json" or "text" (default: text)',
+                enum: ["json", "text"],
+              },
+              limit: {
+                type: "string",
+                description:
+                  "Append LIMIT N if the query doesn't already have one",
+              },
+            },
+            required: ["sql"],
+          },
+        },
+        queryMod.default,
+      ),
+      "db-exec": wrapCliScript(
+        {
+          description:
+            "Write to the app's SQL database. Runs INSERT / UPDATE / DELETE against the app's own tables. Writes are automatically scoped to the current user/org, and `owner_email` / `org_id` are auto-injected on INSERT. Use this to update rows in the settings table (e.g. edit a dashboard config stored under `o:<orgId>:sql-dashboard-<id>`). This writes to the APP DATABASE — not any external data source.",
+          parameters: {
+            type: "object",
+            properties: {
+              sql: {
+                type: "string",
+                description:
+                  "INSERT / UPDATE / DELETE statement. Use parameterized placeholders (?) if possible.",
+              },
+            },
+            required: ["sql"],
+          },
+        },
+        execMod.default,
+      ),
+      "db-patch": wrapCliScript(
+        {
+          description:
+            "Surgical search-and-replace on a large text/JSON column in the app's SQL database. Send `{find, replace}` pairs instead of the full new value — saves tokens when editing multi-kilobyte documents, dashboard JSON, slide HTML, etc. Targets exactly one row (narrow `--where` by primary key). Uses the same per-user/org scoping as db-exec.",
+          parameters: {
+            type: "object",
+            properties: {
+              table: {
+                type: "string",
+                description: "Table name (e.g. 'settings')",
+              },
+              column: {
+                type: "string",
+                description:
+                  "Text/JSON column to patch (e.g. 'value' for settings)",
+              },
+              where: {
+                type: "string",
+                description:
+                  "WHERE clause that matches exactly one row (e.g. \"key = 'o:org1:sql-dashboard-foo'\")",
+              },
+              find: {
+                type: "string",
+                description: "Substring to find",
+              },
+              replace: {
+                type: "string",
+                description: "Replacement substring",
+              },
+              patches: {
+                type: "string",
+                description:
+                  'Optional JSON array of {find, replace} pairs for multiple edits in one call, e.g. \'[{"find":"a","replace":"b"}]\'',
+              },
+            },
+            required: ["table", "column", "where"],
+          },
+        },
+        patchMod.default,
+      ),
+    };
+  } catch {
+    return {};
+  }
+}
+
+/**
  * Creates the docs-search tool so agents can look up framework documentation.
  * Docs are bundled in @agent-native/core and read via fs at runtime.
  */
@@ -1111,13 +1239,16 @@ async function loadResourcesForPrompt(owner: string): Promise<string> {
  */
 async function buildSchemaBlock(
   owner: string,
-  hasRawDbTools: boolean,
+  _legacyHasRawDbTools?: boolean,
 ): Promise<string> {
+  // db-* tools are always registered (see createDbScriptEntries), in both dev
+  // and prod. The legacy boolean is kept for call-site compatibility but
+  // ignored — always advertise the tools to the agent.
   try {
     return await loadSchemaPromptBlock({
       owner,
       orgId: getRequestOrgId() ?? null,
-      hasRawDbTools,
+      hasRawDbTools: true,
     });
   } catch {
     return "";
@@ -1413,9 +1544,10 @@ export function createAgentChatPlugin(
         ? await rawActions()
         : (rawActions ?? {});
 
-    // Resource, chat, docs, and cross-agent scripts are available in both prod and dev modes
+    // Resource, chat, docs, db, and cross-agent scripts are available in both prod and dev modes
     const resourceScripts = await createResourceScriptEntries();
     const docsScripts = await createDocsScriptEntries();
+    const dbScripts = await createDbScriptEntries();
     const engineScripts = await createAgentEngineScriptEntries();
     const chatScripts = {
       ...(await createChatScriptEntries()),
@@ -1582,6 +1714,7 @@ export function createAgentChatPlugin(
           ...templateScripts,
           ...resourceScripts,
           ...docsScripts,
+          ...dbScripts,
           ...chatScripts,
           ...callAgentScript,
           ...browserTools,
@@ -1696,6 +1829,7 @@ export function createAgentChatPlugin(
               ...templateScripts,
               ...resourceScripts,
               ...docsScripts,
+              ...dbScripts,
               ...chatScripts,
               ...browserTools,
             };
@@ -1812,6 +1946,7 @@ export function createAgentChatPlugin(
               ...templateScripts,
               ...resourceScripts,
               ...docsScripts,
+              ...dbScripts,
               ...chatScripts,
             };
 
@@ -1978,6 +2113,7 @@ export function createAgentChatPlugin(
               ...templateScripts,
               ...resourceScripts,
               ...docsScripts,
+              ...dbScripts,
               ...chatScripts,
             },
       getEngine: () =>
@@ -2005,6 +2141,7 @@ export function createAgentChatPlugin(
       ...templateScripts,
       ...resourceScripts,
       ...docsScripts,
+      ...dbScripts,
       ...chatScripts,
       ...callAgentScript,
       ...teamTools,
