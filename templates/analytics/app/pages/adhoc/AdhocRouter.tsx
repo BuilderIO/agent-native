@@ -1,7 +1,6 @@
 import { Suspense, lazy, useEffect } from "react";
 import { useParams, useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Layout } from "@/components/layout/Layout";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getIdToken } from "@/lib/auth";
 import { dashboardComponents } from "./registry";
@@ -65,20 +64,14 @@ export default function AdhocRouter() {
   // Code-based dashboards take priority
   if (Component) {
     return (
-      <Layout>
-        <Suspense fallback={<DashboardSkeleton />}>
-          <Component />
-        </Suspense>
-      </Layout>
+      <Suspense fallback={<DashboardSkeleton />}>
+        <Component />
+      </Suspense>
     );
   }
 
   // Check for SQL dashboard (id passed via URL param, or use the route id)
   const sqlId = searchParams.get("id") || id;
 
-  return (
-    <Layout>
-      <SqlDashboardLoader id={sqlId} />
-    </Layout>
-  );
+  return <SqlDashboardLoader id={sqlId} />;
 }

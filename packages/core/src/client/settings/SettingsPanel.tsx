@@ -40,11 +40,13 @@ const CONTROL_STYLE = {
 
 function SettingsSelect({
   label,
+  labelAdornment,
   value,
   options,
   onValueChange,
 }: {
   label: string;
+  labelAdornment?: React.ReactNode;
   value: string;
   options: SettingsSelectOption[];
   onValueChange: (value: string) => void;
@@ -53,7 +55,10 @@ function SettingsSelect({
 
   return (
     <div className="space-y-1.5">
-      <p className="text-[12px] font-medium text-foreground">{label}</p>
+      <div className="flex items-center justify-between">
+        <p className="text-[12px] font-medium text-foreground">{label}</p>
+        {labelAdornment}
+      </div>
       <SelectPrimitive.Root value={value} onValueChange={onValueChange}>
         <SelectPrimitive.Trigger
           className="flex h-9 w-full items-center justify-between rounded-md border border-border bg-background px-3 text-left text-[12px] text-foreground outline-none transition-colors hover:bg-accent/40 data-[placeholder]:text-muted-foreground"
@@ -409,6 +414,20 @@ export function SettingsPanel({
           {showDevToggle && (
             <SettingsSelect
               label="Environment"
+              labelAdornment={
+                devAppUrl ? (
+                  <a
+                    href={devAppUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="Open app in new tab"
+                    aria-label="Open app in new tab"
+                    className="flex items-center text-muted-foreground hover:text-foreground"
+                  >
+                    <IconExternalLink size={14} />
+                  </a>
+                ) : undefined
+              }
               value={isDevMode ? "development" : "production"}
               options={environmentOptions}
               onValueChange={(next) => {
@@ -416,17 +435,6 @@ export function SettingsPanel({
                 if (nextIsDev !== isDevMode) onToggleDevMode();
               }}
             />
-          )}
-          {devAppUrl && (
-            <a
-              href={devAppUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 text-[11px] no-underline text-muted-foreground hover:text-foreground"
-            >
-              <IconExternalLink size={12} />
-              Open app in new tab
-            </a>
           )}
         </div>
       )}

@@ -7,6 +7,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { ClientOnly, DefaultSpinner } from "@agent-native/core/client";
 import { AuthProvider } from "@/components/auth/AuthProvider";
 import { CommandPalette } from "./components/layout/CommandPalette";
+import { Layout as AppLayout } from "./components/layout/Layout";
 import "./global.css";
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -49,7 +50,9 @@ export default function Root() {
           <Sonner position="bottom-left" />
           <AuthProvider>
             <CommandPalette />
-            <Outlet />
+            <AppLayout>
+              <Outlet />
+            </AppLayout>
           </AuthProvider>
         </TooltipProvider>
       </QueryClientProvider>

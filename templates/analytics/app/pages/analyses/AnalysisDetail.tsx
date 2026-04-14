@@ -1,6 +1,5 @@
 import { useParams } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -104,34 +103,30 @@ export default function AnalysisDetail() {
 
   if (isLoading) {
     return (
-      <Layout>
-        <div className="space-y-6">
-          <Skeleton className="h-8 w-64" />
-          <Skeleton className="h-4 w-96" />
-          <Skeleton className="h-[400px] w-full rounded-xl" />
-        </div>
-      </Layout>
+      <div className="space-y-6">
+        <Skeleton className="h-8 w-64" />
+        <Skeleton className="h-4 w-96" />
+        <Skeleton className="h-[400px] w-full rounded-xl" />
+      </div>
     );
   }
 
   if (!analysis) {
     return (
-      <Layout>
-        <div className="flex flex-col items-center justify-center py-24 text-center">
-          <h3 className="text-lg font-semibold mb-2">Analysis not found</h3>
-          <p className="text-sm text-muted-foreground mb-4">
-            This analysis may have been deleted.
-          </p>
-          <Link to="/analyses" className="text-sm text-primary hover:underline">
-            Back to analyses
-          </Link>
-        </div>
-      </Layout>
+      <div className="flex flex-col items-center justify-center py-24 text-center">
+        <h3 className="text-lg font-semibold mb-2">Analysis not found</h3>
+        <p className="text-sm text-muted-foreground mb-4">
+          This analysis may have been deleted.
+        </p>
+        <Link to="/analyses" className="text-sm text-primary hover:underline">
+          Back to analyses
+        </Link>
+      </div>
     );
   }
 
   return (
-    <Layout>
+    <>
       {codeRequiredDialog}
       <div className="space-y-6 max-w-4xl">
         {/* Header */}
@@ -223,6 +218,6 @@ export default function AnalysisDetail() {
           <Markdown content={analysis.resultMarkdown} />
         </div>
       </div>
-    </Layout>
+    </>
   );
 }

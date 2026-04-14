@@ -10,6 +10,7 @@ import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { organization } from "better-auth/plugins/organization";
 import { jwt } from "better-auth/plugins/jwt";
 import { bearer } from "better-auth/plugins/bearer";
+import { sendEmail } from "./email.js";
 import { getDbExec, isPostgres } from "../db/client.js";
 import {
   getDialect,
@@ -340,6 +341,28 @@ async function createBetterAuthInstance(
     emailAndPassword: {
       enabled: true,
       minPasswordLength: 8,
+      sendResetPassword: async ({ user, token }) => {
+        // APP_BASE_PATH lets this app mount under a prefix (e.g. /mail). The
+        // reset link must include that prefix so the page resolves correctly.
+        const appBasePath = (
+          process.env.VITE_APP_BASE_PATH ||
+          process.env.APP_BASE_PATH ||
+          ""
+        ).replace(/\/$/, "");
+        const resetUrl = `${appUrl}${appBasePath}/_agent-native/auth/reset?token=${encodeURIComponent(token)}`;
+        await sendEmail({
+          to: user.email,
+          subject: "Reset your password",
+          html:
+            `<p>Hi,</p>` +
+            `<p>Someone requested a password reset for your account. Click the link below to choose a new password. This link expires in 1 hour.</p>` +
+            `<p><a href="${resetUrl}">Reset your password</a></p>` +
+            `<p>If you didn't request this, you can safely ignore this email.</p>`,
+          text:
+            `Reset your password: ${resetUrl}\n\n` +
+            `This link expires in 1 hour. If you didn't request this, you can ignore this email.`,
+        });
+      },
     },
     socialProviders,
     session: {

@@ -1,0 +1,7 @@
+[build]
+  command = "pnpm install && NITRO_PRESET=netlify pnpm --filter starter build"
+  publish = "templates/starter/dist"
+  functions = "templates/starter/.netlify/functions-internal"
+
+[build.environment]
+  NITRO_PRESET = "netlify"

@@ -1,8 +1,7 @@
-import Settings from "@/pages/Settings";
-import { AppLayout } from "@/components/layout/AppLayout";
+import { Outlet } from "react-router";
 
 export function meta() {
-  return [{ title: "Settings — Calendar" }];
+  return [{ title: "Booking Links — Calendar" }];
 }
 
 export function HydrateFallback() {
@@ -13,10 +12,6 @@ export function HydrateFallback() {
   );
 }
 
-export default function SettingsRoute() {
-  return (
-    <AppLayout>
-      <Settings />
-    </AppLayout>
-  );
+export default function BookingLinksLayout() {
+  return <Outlet />;
 }

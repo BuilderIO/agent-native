@@ -435,9 +435,11 @@ export function AgentPanel({
   const renderHeaderActions = useCallback(
     () => (
       <div className="flex shrink-0 items-center gap-1.5">
-        <Suspense fallback={null}>
-          <SetupButton />
-        </Suspense>
+        {isDevMode && (
+          <Suspense fallback={null}>
+            <SetupButton />
+          </Suspense>
+        )}
         {onCollapse && (
           <IconTooltip content="Collapse sidebar">
             <button
@@ -450,7 +452,7 @@ export function AgentPanel({
         )}
       </div>
     ),
-    [onCollapse],
+    [onCollapse, isDevMode],
   );
 
   const [tabMenuOpen, setTabMenuOpen] = useState<string | null>(null);
@@ -946,7 +948,7 @@ export function AgentPanel({
           so it's visible regardless of which tab the user is on. The panel
           hides itself once all required steps are done or the user
           dismisses it. */}
-      {mounted && (
+      {mounted && isDevMode && (
         <Suspense fallback={null}>
           <OnboardingPanel />
         </Suspense>
