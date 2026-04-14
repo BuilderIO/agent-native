@@ -14,6 +14,12 @@ function notifyListeners(state: DevModeState) {
   listeners.forEach((fn) => fn(state));
 }
 
+function isLocalhostHostname(): boolean {
+  if (typeof window === "undefined") return false;
+  const h = window.location.hostname;
+  return h === "localhost" || h === "127.0.0.1" || h === "::1";
+}
+
 function fetchDevMode(apiBase: string): Promise<DevModeState> {
   if (!fetchPromise) {
     fetchPromise = fetch(`${apiBase}/mode`)
@@ -26,7 +32,16 @@ function fetchDevMode(apiBase: string): Promise<DevModeState> {
         return cached;
       })
       .catch(() => {
-        cached = { devMode: false, canToggle: false };
+        // If the server isn't reachable (503 during boot, connection refused,
+        // etc.) but we're clearly on localhost, assume dev mode so the CLI
+        // tab and dev toggle still work. Without this, a transient server
+        // error permanently disables dev features in the sidebar.
+        cached = isLocalhostHostname()
+          ? { devMode: true, canToggle: true }
+          : { devMode: false, canToggle: false };
+        // Null the in-flight promise so the next call retries the fetch
+        // and we can pick up the real answer once the server is back.
+        fetchPromise = null;
         return cached;
       });
   }

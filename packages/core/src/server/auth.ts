@@ -437,6 +437,9 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
           headers: event.headers,
         });
         if (baSession?.user?.email) {
+          // Successful real sign-in — clear the upgrade-pending marker so
+          // the dev fallback becomes reachable again for future local work.
+          clearUpgradePendingCookie(event);
           return mapBetterAuthSession(baSession);
         }
       }
@@ -448,7 +451,10 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
     const cookie = getCookie(event, COOKIE_NAME);
     if (cookie) {
       const email = await getSessionEmail(cookie);
-      if (email) return { email, token: cookie };
+      if (email) {
+        clearUpgradePendingCookie(event);
+        return { email, token: cookie };
+      }
     }
   }
 
@@ -473,11 +479,51 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
   // so the app is usable without any auth configuration. This prevents 401
   // errors when Better Auth isn't configured, the marker file is missing, or
   // the user simply wants to play around locally.
-  if (isDevEnvironment()) {
+  //
+  // EXCEPTION: if the user has explicitly exited local mode (clicked "Upgrade
+  // to real account"), they've signaled they want real auth. The upgrade
+  // cookie suppresses this fallback so the onboarding/sign-in page is served
+  // instead of silently re-authenticating them as local@localhost.
+  if (isDevEnvironment() && !isUpgradePending(event)) {
     return LOCAL_SESSION;
   }
 
   return null;
+}
+
+/**
+ * Cookie set by POST /_agent-native/auth/exit-local-mode so we know the user
+ * is in the middle of upgrading from local@localhost to a real account.
+ * While this cookie is present we skip the dev-mode "auto local session"
+ * fallback so the onboarding/sign-in page can actually render.
+ * Cleared on successful sign-in/sign-up.
+ */
+const UPGRADE_COOKIE = "an_upgrade_pending";
+
+function isUpgradePending(event: H3Event): boolean {
+  try {
+    return getCookie(event, UPGRADE_COOKIE) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function setUpgradePendingCookie(event: H3Event): void {
+  setCookie(event, UPGRADE_COOKIE, "1", {
+    httpOnly: true,
+    secure: !isDevEnvironment(),
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 60, // 1 hour — enough to complete sign-in
+  });
+}
+
+function clearUpgradePendingCookie(event: H3Event): void {
+  try {
+    deleteCookie(event, UPGRADE_COOKIE, { path: "/" });
+  } catch {
+    // ignore
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -718,6 +764,9 @@ async function mountBetterAuthRoutes(
         setResponseStatus(event, 500);
         return { error: "Failed to disable local mode" };
       }
+      // Mark the browser so getSession's dev-mode fallback won't silently
+      // re-authenticate the user as local@localhost on the next request.
+      setUpgradePendingCookie(event);
       return { ok: true };
     }),
   );
@@ -970,6 +1019,9 @@ function mountLocalModeRoutes(app: H3App): void {
         setResponseStatus(event, 500);
         return { error: "Failed to disable local mode" };
       }
+      // Mark the browser so getSession's dev-mode fallback won't silently
+      // re-authenticate the user as local@localhost on the next request.
+      setUpgradePendingCookie(event);
       return { ok: true };
     }),
   );
@@ -1110,6 +1162,9 @@ function mountAuthFallbackRoutes(app: H3App): void {
         setResponseStatus(event, 500);
         return { error: "Failed to disable local mode" };
       }
+      // Mark the browser so getSession's dev-mode fallback won't silently
+      // re-authenticate the user as local@localhost on the next request.
+      setUpgradePendingCookie(event);
       return { ok: true };
     }),
   );

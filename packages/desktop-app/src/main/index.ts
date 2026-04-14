@@ -54,24 +54,64 @@ async function handleDeepLink(url: string) {
 }
 
 async function injectSessionAndReload(token: string) {
-  const allContents = webContents.getAllWebContents();
-  const origins = new Set<string>();
-  for (const wc of allContents) {
-    if (wc.getType() === "webview") {
-      try {
-        origins.add(new URL(wc.getURL()).origin);
-      } catch {}
-    }
+  // Each webview runs in its own persisted partition (persist:app-<id>), so
+  // cookies must be written to every known app partition — not just the
+  // active webviews and not session.defaultSession. Otherwise apps that
+  // haven't been opened yet (e.g. Calendar when only Mail is visible at
+  // login) won't pick up the session cookie.
+  const frameOrigin = `http://localhost:${FRAME_PORT}`;
+  let apps: AppConfig[] = [];
+  try {
+    apps = AppStore.loadApps();
+  } catch (err) {
+    console.error("[main] failed to load apps for session injection:", err);
   }
-  for (const origin of origins) {
-    await session.defaultSession.cookies.set({
-      url: origin,
-      name: "an_session",
-      value: token,
-      httpOnly: true,
-      path: "/",
-      expirationDate: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60,
-    });
+  const targets: { session: Electron.Session; origin: string }[] = [];
+  for (const appConfig of apps) {
+    const sess = session.fromPartition(`persist:app-${appConfig.id}`);
+    // Dev-mode apps load through the frame (localhost:3334); prod-mode apps
+    // load their production URL directly. Set the cookie on whichever origin
+    // the app actually talks to. Dev-mode always gets the frame origin;
+    // prod-mode gets the configured URL if available.
+    const isProdMode = appConfig.mode !== "dev";
+    let origin = frameOrigin;
+    if (isProdMode && appConfig.url) {
+      try {
+        origin = new URL(appConfig.url).origin;
+      } catch (err) {
+        console.error(
+          `[main] invalid production URL for ${appConfig.id} (${appConfig.url}); falling back to frame origin:`,
+          err,
+        );
+      }
+    }
+    targets.push({ session: sess, origin });
+  }
+  // Also cover any currently-live webview origins not matched above
+  // (e.g. production URLs).
+  const seenOrigins = new Set<string>(targets.map((t) => t.origin));
+  for (const wc of webContents.getAllWebContents()) {
+    if (wc.getType() !== "webview") continue;
+    try {
+      const origin = new URL(wc.getURL()).origin;
+      if (seenOrigins.has(origin)) continue;
+      seenOrigins.add(origin);
+      targets.push({ session: wc.session, origin });
+    } catch {}
+  }
+  for (const { session: sess, origin } of targets) {
+    try {
+      await sess.cookies.set({
+        url: origin,
+        name: "an_session",
+        value: token,
+        httpOnly: true,
+        path: "/",
+        expirationDate: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60,
+      });
+    } catch (err) {
+      console.error(`[main] cookie.set failed for ${origin}:`, err);
+    }
   }
   reloadAllWebviews();
   const win = BrowserWindow.getAllWindows()[0];
@@ -556,43 +596,96 @@ app.whenReady().then(() => {
     pendingDeepLink = null;
   }
 
-  // Allow webviews to load any localhost URL during development
-  if (IS_DEV) {
-    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-      callback({
-        responseHeaders: {
-          ...details.responseHeaders,
-          "Content-Security-Policy": [
-            "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:",
-          ],
-        },
+  // Webviews now run in per-app persisted partitions (persist:app-<id>), so
+  // webRequest handlers must be attached to each partitioned session, not
+  // just session.defaultSession.
+  const configuredSessions = new WeakSet<Electron.Session>();
+  function configureWebviewSession(
+    sess: Electron.Session,
+    targetAppId: string | null,
+  ) {
+    if (configuredSessions.has(sess)) return;
+    configuredSessions.add(sess);
+
+    if (IS_DEV) {
+      sess.webRequest.onHeadersReceived((details, callback) => {
+        callback({
+          responseHeaders: {
+            ...details.responseHeaders,
+            "Content-Security-Policy": [
+              "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:",
+            ],
+          },
+        });
       });
-    });
+    }
+
+    // Intercept OAuth callbacks on the frame port and redirect to the app's server.
+    // Google redirects to localhost:3334/api/google/... but the frame doesn't
+    // serve API routes — the actual app server runs on a different port.
+    // Each partition is bound to a specific app, so route to that app's port
+    // rather than falling back to a hardcoded mail/calendar preference.
+    sess.webRequest.onBeforeRequest(
+      { urls: [`http://localhost:${FRAME_PORT}/api/google/*`] },
+      (details, callback) => {
+        let apps: AppConfig[] = [];
+        try {
+          apps = AppStore.loadApps();
+        } catch (err) {
+          console.error("[main] OAuth redirect: loadApps failed:", err);
+          callback({});
+          return;
+        }
+        const app =
+          (targetAppId && apps.find((a) => a.id === targetAppId)) ||
+          apps.find((a) => a.id === "mail") ||
+          apps.find((a) => a.id === "calendar");
+        if (app) {
+          const appUrl = details.url.replace(
+            `http://localhost:${FRAME_PORT}`,
+            `http://localhost:${app.devPort}`,
+          );
+          callback({ redirectURL: appUrl });
+        } else {
+          callback({});
+        }
+      },
+    );
   }
 
-  // Intercept OAuth callbacks on the frame port and redirect to the app's server.
-  // Google redirects to localhost:3334/api/google/... but the frame doesn't
-  // serve API routes — the actual app server runs on a different port.
-  session.defaultSession.webRequest.onBeforeRequest(
-    { urls: [`http://localhost:${FRAME_PORT}/api/google/*`] },
-    (details, callback) => {
-      // Route to the correct app's server based on the callback path
-      const apps = AppStore.loadApps();
-      // Try mail first, then calendar — both have Google OAuth
-      const app =
-        apps.find((a) => a.id === "mail") ||
-        apps.find((a) => a.id === "calendar");
-      if (app) {
-        const appUrl = details.url.replace(
-          `http://localhost:${FRAME_PORT}`,
-          `http://localhost:${app.devPort}`,
-        );
-        callback({ redirectURL: appUrl });
-      } else {
-        callback({});
-      }
-    },
-  );
+  // Also configure session.defaultSession so the OAuth BrowserWindow (which
+  // is not a webview and uses defaultSession) gets the redirect handler.
+  // With no specific targetAppId, the handler falls back to mail/calendar.
+  configureWebviewSession(session.defaultSession, null);
+
+  // Pre-configure each known app's partition so handlers are ready before
+  // the first request fires. Each partition knows its own app id.
+  let initialApps: AppConfig[] = [];
+  try {
+    initialApps = AppStore.loadApps();
+  } catch (err) {
+    console.error("[main] failed to load apps for session setup:", err);
+  }
+  const sessionToAppId = new Map<Electron.Session, string>();
+  for (const appConfig of initialApps) {
+    const sess = session.fromPartition(`persist:app-${appConfig.id}`);
+    sessionToAppId.set(sess, appConfig.id);
+    configureWebviewSession(sess, appConfig.id);
+  }
+
+  // Catch any webview sessions we didn't pre-configure (e.g. custom apps
+  // added at runtime) when their web contents are created. Derive the app
+  // id from the webview URL's ?app= param when possible.
+  app.on("web-contents-created", (_event, wc) => {
+    if (wc.getType() !== "webview") return;
+    let id = sessionToAppId.get(wc.session) ?? null;
+    if (!id) {
+      try {
+        id = new URL(wc.getURL()).searchParams.get("app");
+      } catch {}
+    }
+    configureWebviewSession(wc.session, id);
+  });
 
   // Replace the default app menu so Cmd+Option+I doesn't open shell DevTools.
   // We handle this shortcut ourselves via before-input-event → toggleWebviewDevTools().
