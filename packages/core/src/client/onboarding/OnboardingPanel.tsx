@@ -449,42 +449,22 @@ function BuilderCliAuthMethod({
 }) {
   const [connecting, setConnecting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [cachedConnectUrl, setCachedConnectUrl] = useState<string | null>(null);
-
-  // Pre-fetch the connect URL on mount so the click handler can call
-  // window.open synchronously. Any async work between the click and
-  // window.open breaks the popup (blockers downgrade to same-tab nav).
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const origin = getCallbackOrigin() || window.location.origin;
-        const res = await fetch(`${origin}/_agent-native/builder/status`);
-        if (!res.ok) return;
-        const s = (await res.json()) as { connectUrl?: string };
-        if (!cancelled && s.connectUrl) setCachedConnectUrl(s.connectUrl);
-      } catch {
-        // will fall back to fetching on click
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const handleConnect = useCallback(() => {
     setConnecting(true);
     setErr(null);
-    // Open SYNCHRONOUSLY — user gesture is still active. With noopener
-    // the return is null in most browsers, but the new tab still opens.
-    if (!cachedConnectUrl) {
-      setErr("Still preparing the Builder link — try again in a moment.");
-      setConnecting(false);
-      return;
-    }
-    window.open(cachedConnectUrl, "_blank", "noopener,noreferrer");
-
+    // Open SYNCHRONOUSLY inside the click handler — any await before
+    // window.open lets the user gesture expire and popup blockers
+    // downgrade to same-tab navigation. The /builder/connect endpoint
+    // 302-redirects to the real CLI-auth URL so the new tab always
+    // ends up where it should, with no client-side prefetch needed.
     const origin = getCallbackOrigin() || window.location.origin;
+    window.open(
+      `${origin}/_agent-native/builder/connect`,
+      "_blank",
+      "noopener,noreferrer",
+    );
+
     // Poll builder status until credentials appear (user finished the flow).
     const start = Date.now();
     const timeoutMs = 5 * 60 * 1000;
@@ -505,7 +485,7 @@ function BuilderCliAuthMethod({
         // ignore transient poll errors
       }
     }, 2000);
-  }, [cachedConnectUrl, onCompleted]);
+  }, [onCompleted]);
 
   return (
     <>

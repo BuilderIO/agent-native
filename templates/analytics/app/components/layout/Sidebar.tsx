@@ -234,9 +234,12 @@ function SortableDashboardItem({
             </p>
             <div className="flex gap-2">
               <button
-                onClick={() => {
-                  onDelete(d);
-                  setDeletingId(null);
+                onClick={async () => {
+                  try {
+                    await onDelete(d);
+                  } finally {
+                    setDeletingId(null);
+                  }
                 }}
                 className="flex-1 rounded-md bg-destructive px-3 py-1.5 text-xs font-medium text-destructive-foreground hover:bg-destructive/90 transition-colors"
               >
@@ -430,10 +433,16 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         return;
       }
       const token = await getIdToken();
-      await fetch(`/api/sql-dashboards/${d.id}`, {
+      const res = await fetch(`/api/sql-dashboards/${d.id}`, {
         method: "DELETE",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
+      if (!res.ok) {
+        // Surface failures instead of silently "succeeding" — otherwise the
+        // sidebar refreshes and the deleted-looking row reappears, leaving
+        // the user confused about what happened.
+        throw new Error(`Delete failed: ${res.status}`);
+      }
       queryClient.invalidateQueries({ queryKey: ["sql-dashboards-sidebar"] });
     },
     [queryClient],

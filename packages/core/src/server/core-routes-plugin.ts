@@ -118,6 +118,20 @@ export function createCoreRoutesPlugin(
       defineEventHandler((event) => getBuilderBrowserStatusForEvent(event)),
     );
 
+    // Lightweight 302 to the Builder CLI-auth URL. Lets clients do
+    // `window.open('/_agent-native/builder/connect', '_blank')` synchronously
+    // inside a click handler, avoiding the popup-blocker downgrade that
+    // happens when an await sits before window.open.
+    getH3App(nitroApp).use(
+      `${P}/builder/connect`,
+      defineEventHandler((event) => {
+        const status = getBuilderBrowserStatusForEvent(event);
+        setResponseStatus(event, 302);
+        setResponseHeader(event, "Location", status.connectUrl);
+        return "";
+      }),
+    );
+
     // Hardcoded for the early preview — later this will come from workspace/org
     // config so each team can point at its own Builder project.
     const DEFAULT_BUILDER_PROJECT_ID = "274d28fec94b48f2b2d68f2274d390eb";
@@ -137,11 +151,18 @@ export function createCoreRoutesPlugin(
         }
         const session = await getSession(event).catch(() => null);
         const userEmail = session?.email || "local@localhost";
+        // Server-controlled projectId — don't let clients target arbitrary
+        // Builder projects with our private key. When this feature graduates
+        // past the hardcoded preview, the projectId will come from
+        // workspace/org config, still resolved server-side.
         try {
           const result = await runBuilderAgent({
             prompt,
-            projectId: body?.projectId || DEFAULT_BUILDER_PROJECT_ID,
-            branchName: body?.branchName,
+            projectId: DEFAULT_BUILDER_PROJECT_ID,
+            branchName:
+              typeof body?.branchName === "string"
+                ? body.branchName
+                : undefined,
             userEmail,
           });
           return result;

@@ -19,11 +19,11 @@ function ChatSkeleton({ headerOnly = false }: { headerOnly?: boolean }) {
         headerOnly ? "shrink-0" : "flex-1 h-full",
       )}
     >
-      <div className="flex items-center h-8 px-2 border-b border-border shrink-0 gap-2">
-        <div className="h-4 w-12 rounded bg-muted animate-pulse" />
-        <div className="ml-auto flex gap-1">
-          <div className="h-5 w-5 rounded bg-muted animate-pulse" />
-          <div className="h-5 w-5 rounded bg-muted animate-pulse" />
+      <div className="flex items-center px-1 py-1 border-b border-border shrink-0 gap-0.5">
+        <div className="h-[22px] w-20 rounded-md bg-muted animate-pulse" />
+        <div className="ml-auto flex gap-0.5">
+          <div className="h-[22px] w-[22px] rounded-md bg-muted animate-pulse" />
+          <div className="h-[22px] w-[22px] rounded-md bg-muted animate-pulse" />
         </div>
       </div>
       {!headerOnly && (
