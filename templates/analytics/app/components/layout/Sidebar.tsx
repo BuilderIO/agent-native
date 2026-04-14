@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Link, useLocation } from "react-router";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/auth/AuthProvider";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   IconFlask,
   IconLogout,
@@ -26,7 +26,15 @@ import {
   getDashboardOrder,
   setDashboardOrder,
   type DashboardMeta,
+  type DashboardSubview,
 } from "@/pages/adhoc/registry";
+
+type SidebarDashboard = {
+  id: string;
+  name: string;
+  subviews?: DashboardSubview[];
+  source: "static" | "sql";
+};
 import {
   Tooltip,
   TooltipTrigger,
@@ -103,17 +111,17 @@ function SortableDashboardItem({
   deletingId,
   onToggleFavorite,
   setDeletingId,
-  setHiddenIds,
+  onDelete,
   views,
 }: {
-  d: DashboardMeta;
+  d: SidebarDashboard;
   isActive: boolean;
   location: ReturnType<typeof useLocation>;
   favoriteIds: Set<string>;
   deletingId: string | null;
   onToggleFavorite: (id: string) => void;
   setDeletingId: (id: string | null) => void;
-  setHiddenIds: (ids: Set<string>) => void;
+  onDelete: (d: SidebarDashboard) => void;
   views?: DashboardView[];
 }) {
   const {
@@ -227,8 +235,7 @@ function SortableDashboardItem({
             <div className="flex gap-2">
               <button
                 onClick={() => {
-                  hideDashboard(d.id);
-                  setHiddenIds(getHiddenDashboards());
+                  onDelete(d);
                   setDeletingId(null);
                 }}
                 className="flex-1 rounded-md bg-destructive px-3 py-1.5 text-xs font-medium text-destructive-foreground hover:bg-destructive/90 transition-colors"
@@ -315,6 +322,7 @@ async function fetchSqlDashboards(): Promise<{ id: string; name: string }[]> {
 export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const location = useLocation();
   const { logout } = useAuth();
+  const queryClient = useQueryClient();
 
   const [dashOpen, setDashOpen] = useState(true);
 
@@ -388,18 +396,48 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
 
   const { data: allViewsMap = {} } = useAllDashboardViews(allDashboardIds);
 
-  const visibleDashboards = useMemo(() => {
-    const filtered = dashboards.filter((d) => !hiddenIds.has(d.id));
+  const visibleDashboards = useMemo<SidebarDashboard[]>(() => {
+    const staticItems: SidebarDashboard[] = dashboards
+      .filter((d) => !hiddenIds.has(d.id))
+      .map((d) => ({
+        id: d.id,
+        name: d.name,
+        subviews: d.subviews,
+        source: "static",
+      }));
+    const sqlItems: SidebarDashboard[] = sqlDashboards.map((d) => ({
+      id: d.id,
+      name: d.name,
+      source: "sql",
+    }));
+    const all = [...staticItems, ...sqlItems];
     // If no custom order yet, sort favorites to top
     if (dashboardOrderState.length === 0) {
-      return filtered.sort((a, b) => {
+      return all.sort((a, b) => {
         const aFav = favoriteIds.has(a.id) ? 0 : 1;
         const bFav = favoriteIds.has(b.id) ? 0 : 1;
         return aFav - bFav;
       });
     }
-    return applyOrder(filtered, dashboardOrderState);
-  }, [hiddenIds, favoriteIds, dashboardOrderState]);
+    return applyOrder(all, dashboardOrderState);
+  }, [hiddenIds, favoriteIds, dashboardOrderState, sqlDashboards]);
+
+  const handleDashboardDelete = useCallback(
+    async (d: SidebarDashboard) => {
+      if (d.source === "static") {
+        hideDashboard(d.id);
+        setHiddenIds(getHiddenDashboards());
+        return;
+      }
+      const token = await getIdToken();
+      await fetch(`/api/sql-dashboards/${d.id}`, {
+        method: "DELETE",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      queryClient.invalidateQueries({ queryKey: ["sql-dashboards-sidebar"] });
+    },
+    [queryClient],
+  );
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -551,7 +589,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       deletingId={deletingId}
                       onToggleFavorite={toggleFavorite}
                       setDeletingId={setDeletingId}
-                      setHiddenIds={setHiddenIds}
+                      onDelete={handleDashboardDelete}
                       views={allViewsMap[d.id]}
                     />
                   ))}
@@ -569,98 +607,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                         />
                       </div>
                     ))}
-                  {sqlDashboards.map((d) => {
-                    const isActive = location.pathname === `/adhoc/${d.id}`;
-                    const views = allViewsMap[d.id];
-                    return (
-                      <div key={`sql-${d.id}`} className="group/sqld">
-                        <div className="flex items-center min-w-0">
-                          <Link
-                            to={`/adhoc/${d.id}`}
-                            className={cn(
-                              "flex-1 min-w-0 flex items-center gap-2 rounded-md px-3 py-1 text-[13px] transition-all hover:text-primary",
-                              isActive
-                                ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                                : "text-muted-foreground hover:bg-sidebar-accent/50",
-                            )}
-                          >
-                            <span className="truncate">{d.name}</span>
-                          </Link>
-                          <button
-                            onClick={() => toggleFavorite(d.id)}
-                            className={cn(
-                              "p-1 rounded transition-all shrink-0",
-                              favoriteIds.has(d.id)
-                                ? "text-yellow-500 opacity-100"
-                                : "opacity-0 group-hover/sqld:opacity-100 text-muted-foreground/50 hover:text-yellow-500",
-                            )}
-                            title={
-                              favoriteIds.has(d.id) ? "Unfavorite" : "Favorite"
-                            }
-                          >
-                            <IconStar
-                              className={cn(
-                                "h-3 w-3",
-                                favoriteIds.has(d.id) && "fill-current",
-                              )}
-                            />
-                          </button>
-                        </div>
-                        {isActive && views && views.length > 0 && (
-                          <div className="ml-6 mt-0.5 space-y-0.5">
-                            {views.map((v) => {
-                              const params = new URLSearchParams(v.filters);
-                              params.set("view", v.id);
-                              const viewHref = `/adhoc/${d.id}?${params.toString()}`;
-                              const currentSearch = new URLSearchParams(
-                                location.search,
-                              );
-                              const isViewActive =
-                                currentSearch.get("view") === v.id;
-                              return (
-                                <Link
-                                  key={v.id}
-                                  to={viewHref}
-                                  className={cn(
-                                    "group/sv flex items-center gap-2 rounded-md px-3 py-1 text-[11px] transition-all hover:text-primary truncate",
-                                    isViewActive
-                                      ? "bg-primary/10 text-primary"
-                                      : "text-muted-foreground/70 hover:bg-sidebar-accent/50",
-                                  )}
-                                >
-                                  <span className="truncate flex-1">
-                                    {v.name}
-                                  </span>
-                                  <button
-                                    onClick={(e) => {
-                                      e.preventDefault();
-                                      e.stopPropagation();
-                                      toggleFavorite(`view:${d.id}:${v.id}`);
-                                    }}
-                                    className={cn(
-                                      "p-0.5 rounded shrink-0",
-                                      favoriteIds.has(`view:${d.id}:${v.id}`)
-                                        ? "text-yellow-500 opacity-100"
-                                        : "opacity-0 group-hover/sv:opacity-100 text-muted-foreground/50 hover:text-yellow-500",
-                                    )}
-                                  >
-                                    <IconStar
-                                      className={cn(
-                                        "h-2.5 w-2.5",
-                                        favoriteIds.has(
-                                          `view:${d.id}:${v.id}`,
-                                        ) && "fill-current",
-                                      )}
-                                    />
-                                  </button>
-                                </Link>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
                   <NewDashboardDialog />
                 </div>
               </SortableContext>

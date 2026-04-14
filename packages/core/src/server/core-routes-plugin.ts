@@ -17,6 +17,7 @@ import {
   getBuilderBrowserStatusForEvent,
   getBuilderCallbackEnvVars,
   resolveSafePreviewUrl,
+  runBuilderAgent,
 } from "./builder-browser.js";
 import {
   getState,
@@ -115,6 +116,42 @@ export function createCoreRoutesPlugin(
     getH3App(nitroApp).use(
       `${P}/builder/status`,
       defineEventHandler((event) => getBuilderBrowserStatusForEvent(event)),
+    );
+
+    // Hardcoded for the early preview — later this will come from workspace/org
+    // config so each team can point at its own Builder project.
+    const DEFAULT_BUILDER_PROJECT_ID = "274d28fec94b48f2b2d68f2274d390eb";
+
+    getH3App(nitroApp).use(
+      `${P}/builder/run`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const body = await readBody(event).catch(() => ({}) as any);
+        const prompt = typeof body?.prompt === "string" ? body.prompt : "";
+        if (!prompt.trim()) {
+          setResponseStatus(event, 400);
+          return { error: "prompt is required" };
+        }
+        const session = await getSession(event).catch(() => null);
+        const userEmail = session?.email || "local@localhost";
+        try {
+          const result = await runBuilderAgent({
+            prompt,
+            projectId: body?.projectId || DEFAULT_BUILDER_PROJECT_ID,
+            branchName: body?.branchName,
+            userEmail,
+          });
+          return result;
+        } catch (e) {
+          setResponseStatus(event, 500);
+          return {
+            error: e instanceof Error ? e.message : "Builder run failed",
+          };
+        }
+      }),
     );
 
     getH3App(nitroApp).use(
