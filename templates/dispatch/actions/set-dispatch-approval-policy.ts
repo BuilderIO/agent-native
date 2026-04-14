@@ -6,8 +6,7 @@ import {
 } from "../server/lib/dispatch-store.js";
 
 export default defineAction({
-  description:
-    "Enable or disable dispatch approval flow for durable changes.",
+  description: "Enable or disable dispatch approval flow for durable changes.",
   schema: z.object({
     enabled: z.boolean(),
     approverEmails: z.array(z.string().email()).default([]),

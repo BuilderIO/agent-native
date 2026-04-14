@@ -41,27 +41,24 @@ export const dispatchLinkTokens = table("dispatch_link_tokens", {
   updatedAt: integer("updated_at").notNull(),
 });
 
-export const dispatchApprovalRequests = table(
-  "dispatch_approval_requests",
-  {
-    id: text("id").primaryKey(),
-    ownerEmail: text("owner_email").notNull(),
-    orgId: text("org_id"),
-    changeType: text("change_type").notNull(),
-    targetType: text("target_type").notNull(),
-    targetId: text("target_id"),
-    status: text("status").notNull(),
-    summary: text("summary").notNull(),
-    payload: text("payload").notNull(),
-    beforeValue: text("before_value"),
-    afterValue: text("after_value"),
-    requestedBy: text("requested_by").notNull(),
-    reviewedBy: text("reviewed_by"),
-    reviewedAt: integer("reviewed_at"),
-    createdAt: integer("created_at").notNull(),
-    updatedAt: integer("updated_at").notNull(),
-  },
-);
+export const dispatchApprovalRequests = table("dispatch_approval_requests", {
+  id: text("id").primaryKey(),
+  ownerEmail: text("owner_email").notNull(),
+  orgId: text("org_id"),
+  changeType: text("change_type").notNull(),
+  targetType: text("target_type").notNull(),
+  targetId: text("target_id"),
+  status: text("status").notNull(),
+  summary: text("summary").notNull(),
+  payload: text("payload").notNull(),
+  beforeValue: text("before_value"),
+  afterValue: text("after_value"),
+  requestedBy: text("requested_by").notNull(),
+  reviewedBy: text("reviewed_by"),
+  reviewedAt: integer("reviewed_at"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
 
 export const dispatchAuditEvents = table("dispatch_audit_events", {
   id: text("id").primaryKey(),
