@@ -11,15 +11,15 @@ Agent-native apps are designed to be secure by default. The framework provides a
 
 The framework architecture prevents common vulnerabilities when you use the standard patterns:
 
-| Vulnerability | Framework Protection |
-|--------------|---------------------|
-| SQL injection | Parameterized queries in `db-query`/`db-exec` and Drizzle ORM |
-| XSS | React auto-escapes JSX; TipTap sanitizes rich text |
-| Data leaks | SQL-level scoping via temporary views (`owner_email`, `org_id`) |
-| Auth bypass | Auth guard auto-protects all `defineAction` endpoints |
-| Input injection | Zod schema validation in `defineAction` |
-| CSRF | `SameSite=lax` + `httpOnly` cookies |
-| Secret exposure | `.env` files gitignored; OAuth tokens in dedicated store |
+| Vulnerability   | Framework Protection                                            |
+| --------------- | --------------------------------------------------------------- |
+| SQL injection   | Parameterized queries in `db-query`/`db-exec` and Drizzle ORM   |
+| XSS             | React auto-escapes JSX; TipTap sanitizes rich text              |
+| Data leaks      | SQL-level scoping via temporary views (`owner_email`, `org_id`) |
+| Auth bypass     | Auth guard auto-protects all `defineAction` endpoints           |
+| Input injection | Zod schema validation in `defineAction`                         |
+| CSRF            | `SameSite=lax` + `httpOnly` cookies                             |
+| Secret exposure | `.env` files gitignored; OAuth tokens in dedicated store        |
 
 ## Input Validation {#input-validation}
 
@@ -49,13 +49,13 @@ The framework's `db-query` and `db-exec` tools use parameterized queries. User i
 
 ```typescript
 // SAFE — parameterized query (framework default)
-await exec({ sql: "INSERT INTO notes (title) VALUES (?)", args: [title] })
+await exec({ sql: "INSERT INTO notes (title) VALUES (?)", args: [title] });
 
 // SAFE — Drizzle ORM (always generates parameterized queries)
-await db.insert(notes).values({ title, ownerEmail: email })
+await db.insert(notes).values({ title, ownerEmail: email });
 
 // DANGEROUS — string concatenation (never do this)
-await exec(`INSERT INTO notes (title) VALUES ('${title}')`)
+await exec(`INSERT INTO notes (title) VALUES ('${title}')`);
 ```
 
 ## XSS Prevention {#xss}
@@ -109,11 +109,11 @@ pnpm action db-check-scoping --require-org  # Also require org_id
 
 ## Secrets Management {#secrets}
 
-| Secret type | Where to store |
-|-------------|---------------|
-| API keys (OpenAI, Stripe, etc.) | `.env` file (gitignored, server-side only) |
-| OAuth tokens (Google, GitHub) | `oauth_tokens` store via `saveOAuthTokens()` |
-| Session tokens | Automatic (Better Auth handles this) |
+| Secret type                     | Where to store                               |
+| ------------------------------- | -------------------------------------------- |
+| API keys (OpenAI, Stripe, etc.) | `.env` file (gitignored, server-side only)   |
+| OAuth tokens (Google, GitHub)   | `oauth_tokens` store via `saveOAuthTokens()` |
+| Session tokens                  | Automatic (Better Auth handles this)         |
 
 Never store secrets in `settings`, `application_state`, source code, or action responses.
 
@@ -122,6 +122,7 @@ Never store secrets in `settings`, `application_state`, source code, or action r
 Auth is automatic. See the [Authentication](/docs/authentication) docs for the full setup.
 
 **Key points for security:**
+
 - `defineAction` endpoints are auto-protected by the auth guard
 - Custom `/api/` routes must call `getSession(event)` and check the result
 - State-changing operations should use POST (the default for actions)

@@ -436,20 +436,20 @@ actions/               # App operations (agent tools + auto-mounted HTTP endpoin
 
 Agent skills in `.agents/skills/` provide detailed guidance. Read the relevant skill before making changes.
 
-| Skill                 | When to use                                                   |
-| --------------------- | ------------------------------------------------------------- |
-| `storing-data`        | Adding data models, reading/writing config or state           |
-| `real-time-sync`      | Wiring polling sync, debugging UI not updating, jitter issues |
-| `delegate-to-agent`   | Delegating AI work from UI or actions to the agent            |
-| `actions`             | Creating or running agent actions                             |
-| `self-modifying-code` | Editing app source, components, or styles                     |
-| `create-skill`        | Adding new skills for the agent                               |
-| `capture-learnings`   | Recording corrections and patterns                            |
-| `frontend-design`     | Building or styling any web UI, components, or pages          |
-| `adding-a-feature`    | Adding any new feature (the four-area checklist)              |
-| `context-awareness`   | Exposing UI state to the agent, view-screen pattern           |
-| `a2a-protocol`        | Enabling inter-agent communication                            |
-| `real-time-collab`    | Multi-user collaborative editing with Yjs CRDT + live cursors |
+| Skill                 | When to use                                                                      |
+| --------------------- | -------------------------------------------------------------------------------- |
+| `storing-data`        | Adding data models, reading/writing config or state                              |
+| `real-time-sync`      | Wiring polling sync, debugging UI not updating, jitter issues                    |
+| `delegate-to-agent`   | Delegating AI work from UI or actions to the agent                               |
+| `actions`             | Creating or running agent actions                                                |
+| `self-modifying-code` | Editing app source, components, or styles                                        |
+| `create-skill`        | Adding new skills for the agent                                                  |
+| `capture-learnings`   | Recording corrections and patterns                                               |
+| `frontend-design`     | Building or styling any web UI, components, or pages                             |
+| `adding-a-feature`    | Adding any new feature (the four-area checklist)                                 |
+| `context-awareness`   | Exposing UI state to the agent, view-screen pattern                              |
+| `a2a-protocol`        | Enabling inter-agent communication                                               |
+| `real-time-collab`    | Multi-user collaborative editing with Yjs CRDT + live cursors                    |
 | `security`            | Secure coding: input validation, SQL injection, XSS, secrets, data scoping, auth |
 
 **Always use shadcn/ui components** for standard UI patterns. Check `app/components/ui/` before building custom UI elements.
