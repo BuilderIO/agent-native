@@ -271,34 +271,18 @@ export function EmailList({
     const thread = threads.find((t) => t.latestMessage.id === id);
     if (!thread) return;
     const targetThreadId = thread.latestMessage.threadId || id;
-    if ((window as any).__cacheDebug) {
-      console.log(
-        `[nav] openFocused start ${performance.now().toFixed(0)} target=${targetThreadId.slice(-6)}`,
-      );
-    }
     // Enter on a single focused row is a single-thread action — clear any
     // in-progress multi-selection so shortcuts in detail view start fresh.
     setSelectedIds(new Set());
     void ensureThread(targetThreadId);
-    if ((window as any).__cacheDebug) {
-      console.log(
-        `[nav] openFocused about-to-navigate ${performance.now().toFixed(0)}`,
-      );
-    }
     navigate(`/${view}/${targetThreadId}${labelSuffix}`);
-    // Defer the mark-read mutation until AFTER navigation commits. Its
-    // optimistic update rebuilds the emails cache (new array refs across
-    // every page), which — if it runs before the navigate commit — stalls
-    // React reconciliation and delays the detail view's first render by
-    // hundreds of ms. setTimeout(0) pushes it to the next macrotask, after
-    // React has finished committing the navigation.
+    // Defer the mark-read mutation past the navigation commit. Its onMutate
+    // calls setQueriesData on the whole ['emails'] tree; running it before
+    // React commits the route change stalls reconciliation and delays the
+    // detail view's first render by hundreds of ms. setTimeout(0) pushes it
+    // to the next macrotask, after React has committed the navigation.
     if (thread.hasUnread) {
       setTimeout(() => markThreadRead.mutate(targetThreadId), 0);
-    }
-    if ((window as any).__cacheDebug) {
-      console.log(
-        `[nav] openFocused navigate-returned ${performance.now().toFixed(0)}`,
-      );
     }
   }, [
     threads,
@@ -632,11 +616,6 @@ export function EmailList({
   const handleSelect = (thread: ThreadSummary) => {
     const email = thread.latestMessage;
     const targetThreadId = email.threadId || email.id;
-    if ((window as any).__cacheDebug) {
-      console.log(
-        `[nav] handleSelect start ${performance.now().toFixed(0)} target=${targetThreadId.slice(-6)}`,
-      );
-    }
     setFocusedId(email.id);
     // A plain click is a single-thread action — clear any in-progress
     // multi-selection so the next keyboard shortcut doesn't act on a stale set.
@@ -647,21 +626,11 @@ export function EmailList({
       return;
     }
     void ensureThread(targetThreadId);
-    if ((window as any).__cacheDebug) {
-      console.log(
-        `[nav] handleSelect about-to-navigate ${performance.now().toFixed(0)}`,
-      );
-    }
     navigate(`/${view}/${targetThreadId}${labelSuffix}`);
     // Defer the optimistic mark-read until after navigation commits — see
     // matching comment in openFocused above.
     if (thread.hasUnread) {
       setTimeout(() => markThreadRead.mutate(targetThreadId), 0);
-    }
-    if ((window as any).__cacheDebug) {
-      console.log(
-        `[nav] handleSelect navigate-returned ${performance.now().toFixed(0)}`,
-      );
     }
   };
 

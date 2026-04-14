@@ -84,35 +84,6 @@ export function EmailThread({
     view: string;
     threadId: string;
   }>();
-  // Diagnose re-render storms: log which prop changed since last render.
-  const _renderCount = useRef(0);
-  const _prevProps = useRef<Record<string, unknown>>({});
-  _renderCount.current++;
-  if (typeof window !== "undefined" && (window as any).__cacheDebug) {
-    const curr: Record<string, unknown> = {
-      threadId,
-      emailIdsRef: emailIds,
-      threadsRef: threads,
-      selectedIdsRef: selectedIds,
-      onArchivedRef: onArchived,
-      setSelectedIdsRef: setSelectedIds,
-      onContactSelectRef: onContactSelect,
-    };
-    const changed = Object.keys(curr).filter(
-      (k) => curr[k] !== _prevProps.current[k],
-    );
-    console.log(
-      `[EmailThread] render#${_renderCount.current} threadId=${threadId?.slice(-6)} changed=[${changed.join(",")}] t=${performance.now().toFixed(0)}`,
-    );
-    _prevProps.current = curr;
-  }
-  useEffect(() => {
-    if (typeof window !== "undefined" && (window as any).__cacheDebug) {
-      console.log(
-        `[EmailThread] mount-effect threadId=${threadId?.slice(-6)} at ${performance.now().toFixed(0)}`,
-      );
-    }
-  }, [threadId]);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const labelParam = searchParams.get("label");
@@ -392,9 +363,15 @@ export function EmailThread({
       const ids = emailIdsRef.current;
       if (!threadId || ids.length === 0) return;
       const idx = ids.indexOf(threadId);
-      if (idx === -1) return;
-      const nextIdx = idx + delta;
-      if (nextIdx < 0 || nextIdx >= ids.length) return;
+      let nextIdx: number;
+      if (idx === -1) {
+        // Current thread isn't in the list (e.g. opened from search or a direct link) —
+        // jump to the first (j) or last (k) email so navigation still works.
+        nextIdx = delta > 0 ? 0 : ids.length - 1;
+      } else {
+        nextIdx = idx + delta;
+        if (nextIdx < 0 || nextIdx >= ids.length) return;
+      }
       const nextThreadId = ids[nextIdx];
       // Plain j/k is a single-thread action — clear any in-progress
       // multi-selection so the next shortcut (e/d/s/u) doesn't act on it.
@@ -2314,16 +2291,7 @@ function HtmlEmailBody({
   const [height, setHeight] = useState(200);
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
-  const sanitizedHtml = useMemo(() => {
-    const t0 = performance.now();
-    const r = sanitizeEmailHtml(html);
-    if ((window as any).__cacheDebug) {
-      console.log(
-        `[iframe] sanitizeEmailHtml ${(performance.now() - t0).toFixed(0)}ms (html=${html.length}b)`,
-      );
-    }
-    return r;
-  }, [html]);
+  const sanitizedHtml = useMemo(() => sanitizeEmailHtml(html), [html]);
   // Only fall back to light bg when the email has actual designed colored backgrounds
   // (not white/near-white which we override to dark). This matches Superhuman behavior.
   const hasDesignedBg = useMemo(() => emailHasDesignedBackground(html), [html]);
@@ -2349,16 +2317,10 @@ function HtmlEmailBody({
         : imagePolicy
       : imagePolicy;
 
-  const [processedHtml, blockedCount] = useMemo(() => {
-    const t0 = performance.now();
-    const r = processHtmlImages(sanitizedHtml.bodyHtml, effectivePolicy);
-    if ((window as any).__cacheDebug) {
-      console.log(
-        `[iframe] processHtmlImages ${(performance.now() - t0).toFixed(0)}ms (body=${sanitizedHtml.bodyHtml.length}b, blocked=${r[1]})`,
-      );
-    }
-    return r;
-  }, [sanitizedHtml.bodyHtml, effectivePolicy]);
+  const [processedHtml, blockedCount] = useMemo(
+    () => processHtmlImages(sanitizedHtml.bodyHtml, effectivePolicy),
+    [sanitizedHtml.bodyHtml, effectivePolicy],
+  );
 
   const handleAlwaysTrust = () => {
     if (!senderDomain) return;
@@ -2379,7 +2341,6 @@ function HtmlEmailBody({
     const doc = iframe.contentDocument;
     if (!doc) return;
 
-    const _effectStart = performance.now();
     doc.open();
     const iframeCss = useDarkIframeCss
       ? `
@@ -2780,11 +2741,6 @@ function HtmlEmailBody({
     images.forEach((img) => img.addEventListener("load", resize));
 
     resize();
-    if ((window as any).__cacheDebug) {
-      console.log(
-        `[iframe] effect total ${(performance.now() - _effectStart).toFixed(0)}ms (processedHtml=${processedHtml.length}b, imgs=${images.length})`,
-      );
-    }
     const timer = setTimeout(resize, 100);
     const timer2 = setTimeout(resize, 500);
 
