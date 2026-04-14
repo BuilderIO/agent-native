@@ -8,6 +8,11 @@ import {
 import type { EmailMessage, Label, UserSettings } from "@shared/types";
 import { TAB_ID } from "@/lib/tab-id";
 import { bodyToHtml } from "@/lib/utils";
+import {
+  useThreadCache,
+  ensureThread,
+  invalidateCachedThread,
+} from "@/lib/thread-cache";
 
 // ─── API helpers ─────────────────────────────────────────────────────────────
 
@@ -284,27 +289,43 @@ export function useEmail(id: string | undefined) {
 
 export function useThreadMessages(threadId: string | undefined) {
   const qc = useQueryClient();
-  return useQuery<EmailMessage[]>({
-    queryKey: ["thread-messages", threadId],
-    queryFn: () => fetchThreadMessages(threadId!),
-    enabled: !!threadId,
-    staleTime: 30_000,
-    // Seed from list cache so the detail view never shows a full skeleton when
-    // the list has already loaded — we at least have the latest message to render.
-    placeholderData: () => {
-      if (!threadId) return undefined;
-      const queries = qc.getQueriesData<InfiniteEmails>({
-        queryKey: ["emails"],
-      });
-      for (const [, data] of queries) {
-        const flat = flattenInfiniteEmails(data);
-        for (const email of flat) {
-          if ((email.threadId || email.id) === threadId) return [email];
-        }
+  // Synchronous read from the plain-Map thread cache. Placeholder comes from
+  // the list cache so the first frame of the detail view has at least the
+  // latest message.
+  const placeholder = (() => {
+    if (!threadId) return undefined;
+    const queries = qc.getQueriesData<InfiniteEmails>({
+      queryKey: ["emails"],
+    });
+    for (const [, data] of queries) {
+      const flat = flattenInfiniteEmails(data);
+      for (const email of flat) {
+        if ((email.threadId || email.id) === threadId) return [email];
       }
-      return undefined;
+    }
+    return undefined;
+  })();
+  const { messages, isFromCache, isLoading } = useThreadCache(
+    threadId,
+    placeholder,
+  );
+  return {
+    data: messages,
+    isLoading: isLoading && !messages,
+    isFetching: isLoading,
+    isError: false,
+    error: null,
+    refetch: () => {
+      if (threadId) {
+        invalidateCachedThread(threadId);
+        return ensureThread(threadId);
+      }
+      return Promise.resolve(undefined);
     },
-  });
+    // true when the returned messages are the final server payload (not a
+    // placeholder). Callers can use this to show "loading full body" hints.
+    isFromCache,
+  };
 }
 
 export function useMarkRead() {
@@ -465,6 +486,7 @@ export function useArchiveEmail() {
         .find((e) => e.id === id);
       const threadId = target?.threadId || id;
       suppressThread(threadId, "archive");
+      invalidateCachedThread(threadId);
       qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
         mapInfiniteEmails(old, (emails) =>
           emails.filter((e) => (e.threadId || e.id) !== threadId),

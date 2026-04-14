@@ -13,7 +13,6 @@ import { useTheme } from "next-themes";
 import { useComposeState } from "@/hooks/use-compose-state";
 import { useAccountFilter } from "@/hooks/use-account-filter";
 import {
-  fetchThreadMessages,
   useThreadMessages,
   useArchiveEmail,
   useTrashEmail,
@@ -26,6 +25,7 @@ import {
   useUpdateSettings,
 } from "@/hooks/use-emails";
 import { useQueryClient } from "@tanstack/react-query";
+import { ensureThread, warmThreads } from "@/lib/thread-cache";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { setUndoAction } from "@/hooks/use-undo";
 import { toast } from "sonner";
@@ -365,14 +365,10 @@ export function EmailThread({
       // Plain j/k is a single-thread action — clear any in-progress
       // multi-selection so the next shortcut (e/d/s/u) doesn't act on it.
       setSelectedIds?.(new Set());
-      void queryClient.prefetchQuery({
-        queryKey: ["thread-messages", nextThreadId],
-        queryFn: () => fetchThreadMessages(nextThreadId),
-        staleTime: 30_000,
-      });
+      void ensureThread(nextThreadId);
       navigate(`/${view}/${nextThreadId}${labelSuffix}`);
     },
-    [threadId, view, navigate, labelSuffix, setSelectedIds, queryClient],
+    [threadId, view, navigate, labelSuffix, setSelectedIds],
   );
 
   // Shift+j/k extends multi-selection across siblings and auto-previews the
@@ -404,33 +400,13 @@ export function EmailThread({
     [threadId, view, navigate, labelSuffix, setSelectedIds],
   );
 
-  // Prefetch the ±1 adjacent threads after a short idle delay so j/k is
-  // instant without burning Gmail quota. Mashing j only queues one request per
-  // 250ms (the timeout resets on each threadId change) and skips already-cached
-  // neighbors.
+  // Warm the full list of siblings through the plain-Map cache. warmThreads
+  // dedupes cached entries and caps concurrency so mass-warming doesn't trip
+  // Gmail quota.
   useEffect(() => {
-    if (!threadId || emailIds.length === 0) return;
-    const idx = emailIds.indexOf(threadId);
-    if (idx === -1) return;
-
-    const neighbors = [emailIds[idx + 1], emailIds[idx - 1]].filter(
-      (id): id is string => !!id,
-    );
-    if (neighbors.length === 0) return;
-
-    const timeout = setTimeout(() => {
-      for (const id of neighbors) {
-        const existing = queryClient.getQueryState(["thread-messages", id]);
-        if (existing?.data) continue;
-        void queryClient.prefetchQuery({
-          queryKey: ["thread-messages", id],
-          queryFn: () => fetchThreadMessages(id),
-          staleTime: 30_000,
-        });
-      }
-    }, 250);
-    return () => clearTimeout(timeout);
-  }, [threadId, emailIds, queryClient]);
+    if (emailIds.length === 0) return;
+    warmThreads(emailIds);
+  }, [emailIds]);
 
   const advanceOrGoBack = useCallback(() => {
     if (!threadId || emailIds.length === 0) {

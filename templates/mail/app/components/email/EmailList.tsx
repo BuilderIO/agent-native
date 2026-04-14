@@ -5,7 +5,6 @@ import { cn } from "@/lib/utils";
 import { EmailListItem } from "./EmailListItem";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import {
-  fetchThreadMessages,
   useEmails,
   useMarkRead,
   useMarkThreadRead,
@@ -16,6 +15,7 @@ import {
   useUntrashEmail,
 } from "@/hooks/use-emails";
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
+import { ensureThread, warmThreads } from "@/lib/thread-cache";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import type { EmailMessage } from "@shared/types";
 
@@ -276,11 +276,7 @@ export function EmailList({
     if (thread.hasUnread) {
       markThreadRead.mutate(targetThreadId);
     }
-    void queryClient.prefetchQuery({
-      queryKey: ["thread-messages", targetThreadId],
-      queryFn: () => fetchThreadMessages(targetThreadId),
-      staleTime: 30_000,
-    });
+    void ensureThread(targetThreadId);
     navigate(`/${view}/${targetThreadId}${labelSuffix}`);
   }, [
     threads,
@@ -320,15 +316,11 @@ export function EmailList({
       const nextIdx = Math.min(lastIdx, remaining.length - 1);
       const nextThread = remaining[nextIdx];
       setFocusedId(nextThread.latestMessage.id);
-      // Warm full-body cache for the thread that's about to take focus so
-      // repeated `e` stays instant all the way down the list.
+      // Warm the thread that's about to take focus so repeated `e` stays
+      // instant down the list.
       const nextTid =
         nextThread.latestMessage.threadId || nextThread.latestMessage.id;
-      void queryClient.prefetchQuery({
-        queryKey: ["thread-messages", nextTid],
-        queryFn: () => fetchThreadMessages(nextTid),
-        staleTime: 30_000,
-      });
+      void ensureThread(nextTid);
     } else {
       setFocusedId(null);
     }
@@ -569,25 +561,15 @@ export function EmailList({
     }
   }, [threads, focusedId, setFocusedId]);
 
-  // Prefetch the focused thread's full body after a short idle delay so the
-  // next Enter/click is instant without hammering Gmail's quota. We debounce
-  // per-key so fast j/k scrolling doesn't fire one request per keystroke.
+  // Warm the cache for ALL visible threads as soon as the list loads.
+  // warmThreads dedupes and caps concurrency so we don't trip Gmail quota.
   useEffect(() => {
-    if (!focusedId) return;
-    const thread = threads.find((t) => t.latestMessage.id === focusedId);
-    if (!thread) return;
-    const threadId = thread.latestMessage.threadId || thread.latestMessage.id;
-    const existing = queryClient.getQueryState(["thread-messages", threadId]);
-    if (existing?.data) return; // already cached — skip
-    const timeout = setTimeout(() => {
-      void queryClient.prefetchQuery({
-        queryKey: ["thread-messages", threadId],
-        queryFn: () => fetchThreadMessages(threadId),
-        staleTime: 30_000,
-      });
-    }, 250);
-    return () => clearTimeout(timeout);
-  }, [focusedId, threads, queryClient]);
+    if (threads.length === 0) return;
+    const ids = threads.map(
+      (t) => t.latestMessage.threadId || t.latestMessage.id,
+    );
+    warmThreads(ids);
+  }, [threads]);
 
   // Infinite scroll — fetch next page when the sentinel enters the viewport
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -638,11 +620,7 @@ export function EmailList({
     if (thread.hasUnread) {
       markThreadRead.mutate(targetThreadId);
     }
-    void queryClient.prefetchQuery({
-      queryKey: ["thread-messages", targetThreadId],
-      queryFn: () => fetchThreadMessages(targetThreadId),
-      staleTime: 30_000,
-    });
+    void ensureThread(targetThreadId);
     navigate(`/${view}/${targetThreadId}${labelSuffix}`);
   };
 
@@ -857,11 +835,7 @@ export function EmailList({
               setFocusedId(thread.latestMessage.id);
               const targetThreadId =
                 thread.latestMessage.threadId || thread.latestMessage.id;
-              void queryClient.prefetchQuery({
-                queryKey: ["thread-messages", targetThreadId],
-                queryFn: () => fetchThreadMessages(targetThreadId),
-                staleTime: 30_000,
-              });
+              void ensureThread(targetThreadId);
             }}
             onSwipeArchive={() => handleSwipeArchive(thread)}
             onSwipeSnooze={() => handleSwipeSnooze(thread)}
