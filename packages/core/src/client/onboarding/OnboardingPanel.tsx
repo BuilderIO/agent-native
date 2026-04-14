@@ -48,16 +48,21 @@ export function OnboardingPanel({
     complete,
     dismiss,
   } = onboarding;
+  const [expanded, setExpanded] = useState(false);
 
   if (loading || totalCount === 0) return null;
   if (dismissed) return null;
 
-  // When every required step is done, show a compact banner instead of the
-  // full checklist. User can dismiss to hide it entirely.
-  if (allComplete) {
+  // When every required step is done, show a compact banner that can be
+  // expanded to see remaining optional steps.
+  if (allComplete && !expanded) {
     return (
       <div className={className} style={styles.compactBanner}>
-        <div style={styles.headerLeft}>
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          style={styles.compactBannerBtn}
+        >
           <span style={styles.checkDone}>
             <IconCheck size={12} strokeWidth={3} />
           </span>
@@ -65,7 +70,10 @@ export function OnboardingPanel({
           <span style={styles.headerCounter}>
             {completeCount} of {totalCount}
           </span>
-        </div>
+          {completeCount < totalCount && (
+            <IconChevronRight size={14} style={{ opacity: 0.5 }} />
+          )}
+        </button>
         <button
           type="button"
           onClick={dismiss}
@@ -83,7 +91,13 @@ export function OnboardingPanel({
     <div className={className} style={styles.root}>
       <div style={styles.header}>
         <div style={styles.headerLeft}>
-          <IconSparkles size={14} style={styles.headerIcon} aria-hidden />
+          {allComplete ? (
+            <span style={styles.checkDone}>
+              <IconCheck size={12} strokeWidth={3} />
+            </span>
+          ) : (
+            <IconSparkles size={14} style={styles.headerIcon} aria-hidden />
+          )}
           <span style={styles.headerTitle}>{title}</span>
           <span style={styles.headerCounter}>
             {completeCount} of {totalCount}
@@ -91,12 +105,14 @@ export function OnboardingPanel({
         </div>
         <button
           type="button"
-          onClick={dismiss}
-          title="Dismiss"
-          aria-label="Dismiss onboarding"
+          onClick={allComplete ? () => setExpanded(false) : dismiss}
+          title={allComplete ? "Collapse" : "Dismiss"}
+          aria-label={
+            allComplete ? "Collapse onboarding" : "Dismiss onboarding"
+          }
           style={styles.dismissBtn}
         >
-          <IconX size={14} />
+          {allComplete ? <IconChevronDown size={14} /> : <IconX size={14} />}
         </button>
       </div>
 
@@ -521,10 +537,21 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    padding: "6px 12px",
     borderBottom: "1px solid rgba(255,255,255,0.06)",
     background: "rgba(34,197,94,0.04)",
     fontSize: 12,
+  },
+  compactBannerBtn: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    background: "transparent",
+    border: "none",
+    color: "inherit",
+    cursor: "pointer",
+    padding: "6px 12px",
+    flex: 1,
+    minWidth: 0,
   },
   header: {
     display: "flex",

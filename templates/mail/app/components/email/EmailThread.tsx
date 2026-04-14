@@ -361,12 +361,18 @@ export function EmailThread({
       if (idx === -1) return;
       const nextIdx = idx + delta;
       if (nextIdx < 0 || nextIdx >= ids.length) return;
+      const nextThreadId = ids[nextIdx];
       // Plain j/k is a single-thread action — clear any in-progress
       // multi-selection so the next shortcut (e/d/s/u) doesn't act on it.
       setSelectedIds?.(new Set());
-      navigate(`/${view}/${ids[nextIdx]}${labelSuffix}`);
+      void queryClient.prefetchQuery({
+        queryKey: ["thread-messages", nextThreadId],
+        queryFn: () => fetchThreadMessages(nextThreadId),
+        staleTime: 30_000,
+      });
+      navigate(`/${view}/${nextThreadId}${labelSuffix}`);
     },
-    [threadId, view, navigate, labelSuffix, setSelectedIds],
+    [threadId, view, navigate, labelSuffix, setSelectedIds, queryClient],
   );
 
   // Shift+j/k extends multi-selection across siblings and auto-previews the
@@ -411,16 +417,17 @@ export function EmailThread({
       if (idx - d >= 0) ordered.push(emailIds[idx - d]);
     }
 
-    // Chain prefetches so nearest resolves first
-    let chain = Promise.resolve();
+    // Fire in parallel — nearest are first in the array so they win the
+    // browser's connection slots. Skip entries already cached fresh.
     for (const id of ordered) {
-      chain = chain.then(() =>
-        queryClient.prefetchQuery({
-          queryKey: ["thread-messages", id],
-          queryFn: () => fetchThreadMessages(id),
-          staleTime: 30_000,
-        }),
-      );
+      const existing = queryClient.getQueryState(["thread-messages", id]);
+      if (existing?.data && Date.now() - existing.dataUpdatedAt < 30_000)
+        continue;
+      void queryClient.prefetchQuery({
+        queryKey: ["thread-messages", id],
+        queryFn: () => fetchThreadMessages(id),
+        staleTime: 30_000,
+      });
     }
   }, [threadId, emailIds, queryClient]);
 

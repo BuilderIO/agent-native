@@ -21,6 +21,7 @@ import { IconAlertTriangleFilled } from "@tabler/icons-react";
 import { EventDetailPopover } from "./EventDetailPopover";
 import type { CalendarEvent } from "@shared/api";
 import { useEventDrag } from "@/hooks/use-event-drag";
+import { useCalendarContext } from "@/components/layout/AppLayout";
 import { useIsMobile } from "@/hooks/use-mobile";
 
 interface WeekViewProps {
@@ -181,6 +182,7 @@ export function WeekView({
   onQuickEditCancel,
   isLoading = false,
 }: WeekViewProps) {
+  const { setFocusedEvent } = useCalendarContext();
   const isMobile = useIsMobile();
   const GUTTER_WIDTH = isMobile ? MOBILE_GUTTER_WIDTH : DESKTOP_GUTTER_WIDTH;
   const [now, setNow] = useState(new Date());
@@ -655,6 +657,7 @@ export function WeekView({
                       <button
                         onPointerDown={(e) => {
                           setFocusedEventId(event.id);
+                          setFocusedEvent(event);
                           if (
                             canDrag &&
                             !(e.target as HTMLElement).dataset.resizeHandle

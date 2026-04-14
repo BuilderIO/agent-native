@@ -429,7 +429,7 @@ export default function CalendarView() {
 
       // Skip all other shortcuts when typing or when a dialog is open
       if (isTypingInInput(e)) return;
-      if (createDialogOpen || shortcutsHelpOpen) return;
+      if (createDialogOpen || shortcutsHelpOpen || deleteDialogEvent) return;
 
       // Delete/Backspace — delete the selected event
       if (e.key === "Delete" || e.key === "Backspace") {
@@ -494,6 +494,7 @@ export default function CalendarView() {
   }, [
     createDialogOpen,
     shortcutsHelpOpen,
+    deleteDialogEvent,
     isTypingInInput,
     viewMode,
     selectedDate,
