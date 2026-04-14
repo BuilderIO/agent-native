@@ -401,13 +401,11 @@ async function buildCloudflarePages() {
       // browser platform for npm resolution; node builtins externalized separately
       "--platform=browser",
       "--minify",
-      // Splitting is required for CF Pages: a single-file bundle exceeds
-      // the 25 MiB Pages Functions limit. The post-build loop below strips
-      // the `node:` prefix from every import so workerd (which runs Pages
-      // Functions under nodejs_compat v1) resolves them as bare builtins.
+      // Single-file bundle (no --splitting). CF Pages Functions' deploy
+      // validator fails to load chunked _worker.js/ bundles even when the
+      // chunks contain only bare node-builtin imports (wrangler 3.101.0
+      // + nodejs_compat v2). Matches main's working config.
       `--outdir=${workerOutDir}`,
-      "--splitting",
-      "--chunk-names=chunks/[name]-[hash]",
       "--conditions=workerd,worker,import",
       // The ssr-handler imports a virtual module that only exists at dev time
       "--external:virtual:react-router/server-build",
