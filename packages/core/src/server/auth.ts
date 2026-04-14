@@ -608,6 +608,42 @@ async function removeAuthModeLocal(): Promise<boolean> {
   }
 }
 
+/**
+ * POST /_agent-native/auth/migrate-local-data handler. Exposed here (not
+ * inlined in a single mount function) because it must be registered from
+ * every auth-mount path — including local-mode and fallback — so the
+ * upgrade-from-local flow never 500s when BetterAuth init is skipped or
+ * failed. Previously this was only mounted inside mountBetterAuthRoutes()
+ * which meant that in local mode (or when BetterAuth failed to init) the
+ * request fell through to the Nitro SSR renderer and produced a 500.
+ */
+const migrateLocalDataHandler = defineEventHandler(async (event) => {
+  if (getMethod(event) !== "POST") {
+    setResponseStatus(event, 405);
+    return { error: "Method not allowed" };
+  }
+  const session = await getSession(event);
+  if (!session?.email || session.email === "local@localhost") {
+    setResponseStatus(event, 401);
+    return { error: "Not authenticated as a real account" };
+  }
+  try {
+    const result = await migrateLocalUserData(session.email);
+    return { ok: true, ...result };
+  } catch (e: any) {
+    console.error(
+      "[migrate-local-data] Migration threw for",
+      session.email,
+      e,
+    );
+    setResponseStatus(event, 500);
+    return {
+      error: e?.message || "Migration failed",
+      stack: isDevEnvironment() ? e?.stack : undefined,
+    };
+  }
+});
+
 // ---------------------------------------------------------------------------
 // mountBetterAuthRoutes — Better Auth powered auth with backward-compat routes
 // ---------------------------------------------------------------------------
@@ -822,27 +858,7 @@ async function mountBetterAuthRoutes(
   // POST /_agent-native/auth/migrate-local-data — move local-mode data to
   // the currently signed-in account. Called by the UI after a user upgrades
   // from local mode to a real account so they don't lose their data.
-  app.use(
-    "/_agent-native/auth/migrate-local-data",
-    defineEventHandler(async (event) => {
-      if (getMethod(event) !== "POST") {
-        setResponseStatus(event, 405);
-        return { error: "Method not allowed" };
-      }
-      const session = await getSession(event);
-      if (!session?.email || session.email === "local@localhost") {
-        setResponseStatus(event, 401);
-        return { error: "Not authenticated as a real account" };
-      }
-      try {
-        const result = await migrateLocalUserData(session.email);
-        return { ok: true, ...result };
-      } catch (e: any) {
-        setResponseStatus(event, 500);
-        return { error: e?.message || "Migration failed" };
-      }
-    }),
-  );
+  app.use("/_agent-native/auth/migrate-local-data", migrateLocalDataHandler);
 
   // Auth guard — stored both in framework middleware registry AND in
   // _authGuardFn so the server middleware can enforce it on ALL routes.
@@ -914,6 +930,7 @@ function mountTokenOnlyRoutes(
       return session ?? { error: "Not authenticated" };
     }),
   );
+  app.use("/_agent-native/auth/migrate-local-data", migrateLocalDataHandler);
 
   _authGuardConfig = { loginHtml: TOKEN_LOGIN_HTML, publicPaths };
   const guardFn = createAuthGuardFn();
@@ -960,6 +977,9 @@ function mountLocalModeRoutes(app: H3App): void {
       return { ok: true };
     }),
   );
+  // Upgrade path: migrate-local-data must be reachable from local mode
+  // because the user is still in local mode when they trigger the upgrade.
+  app.use("/_agent-native/auth/migrate-local-data", migrateLocalDataHandler);
 }
 
 // ---------------------------------------------------------------------------
@@ -1109,6 +1129,11 @@ function mountAuthFallbackRoutes(app: H3App): void {
       return session ?? { error: "Not authenticated" };
     }),
   );
+
+  // Must be reachable from fallback mode too — otherwise a user who
+  // upgrades-from-local on a server that couldn't init Better Auth gets a
+  // 500 instead of a clear 401.
+  app.use("/_agent-native/auth/migrate-local-data", migrateLocalDataHandler);
 }
 
 // ---------------------------------------------------------------------------
@@ -1220,6 +1245,7 @@ export async function autoMountAuth(
         return { ok: true };
       }),
     );
+    app.use("/_agent-native/auth/migrate-local-data", migrateLocalDataHandler);
 
     const byoaLoginHtml = options.loginHtml ?? TOKEN_LOGIN_HTML;
     _authGuardConfig = { loginHtml: byoaLoginHtml, publicPaths };
