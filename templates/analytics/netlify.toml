@@ -1,6 +1,7 @@
 [build]
   command = "pnpm install && NITRO_PRESET=netlify pnpm --filter analytics build"
-  publish = "dist"
+  publish = "templates/analytics/dist"
+  functions = "templates/analytics/.netlify/functions-internal"
 
 [build.environment]
   NITRO_PRESET = "netlify"
