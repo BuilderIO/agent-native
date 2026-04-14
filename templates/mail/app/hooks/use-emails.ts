@@ -283,11 +283,27 @@ export function useEmail(id: string | undefined) {
 }
 
 export function useThreadMessages(threadId: string | undefined) {
+  const qc = useQueryClient();
   return useQuery<EmailMessage[]>({
     queryKey: ["thread-messages", threadId],
     queryFn: () => fetchThreadMessages(threadId!),
     enabled: !!threadId,
     staleTime: 30_000,
+    // Seed from list cache so the detail view never shows a full skeleton when
+    // the list has already loaded — we at least have the latest message to render.
+    placeholderData: () => {
+      if (!threadId) return undefined;
+      const queries = qc.getQueriesData<InfiniteEmails>({
+        queryKey: ["emails"],
+      });
+      for (const [, data] of queries) {
+        const flat = flattenInfiniteEmails(data);
+        for (const email of flat) {
+          if ((email.threadId || email.id) === threadId) return [email];
+        }
+      }
+      return undefined;
+    },
   });
 }
 

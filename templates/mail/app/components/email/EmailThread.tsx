@@ -404,31 +404,32 @@ export function EmailThread({
     [threadId, view, navigate, labelSuffix, setSelectedIds],
   );
 
-  // Prefetch ±5 siblings in order (nearest first) for fast e/j/k navigation
+  // Prefetch the ±1 adjacent threads after a short idle delay so j/k is
+  // instant without burning Gmail quota. Mashing j only queues one request per
+  // 250ms (the timeout resets on each threadId change) and skips already-cached
+  // neighbors.
   useEffect(() => {
     if (!threadId || emailIds.length === 0) return;
     const idx = emailIds.indexOf(threadId);
     if (idx === -1) return;
 
-    // Build ordered list: +1, -1, +2, -2, ... ±5 (nearest first)
-    const ordered: string[] = [];
-    for (let d = 1; d <= 5; d++) {
-      if (idx + d < emailIds.length) ordered.push(emailIds[idx + d]);
-      if (idx - d >= 0) ordered.push(emailIds[idx - d]);
-    }
+    const neighbors = [emailIds[idx + 1], emailIds[idx - 1]].filter(
+      (id): id is string => !!id,
+    );
+    if (neighbors.length === 0) return;
 
-    // Fire in parallel — nearest are first in the array so they win the
-    // browser's connection slots. Skip entries already cached fresh.
-    for (const id of ordered) {
-      const existing = queryClient.getQueryState(["thread-messages", id]);
-      if (existing?.data && Date.now() - existing.dataUpdatedAt < 30_000)
-        continue;
-      void queryClient.prefetchQuery({
-        queryKey: ["thread-messages", id],
-        queryFn: () => fetchThreadMessages(id),
-        staleTime: 30_000,
-      });
-    }
+    const timeout = setTimeout(() => {
+      for (const id of neighbors) {
+        const existing = queryClient.getQueryState(["thread-messages", id]);
+        if (existing?.data) continue;
+        void queryClient.prefetchQuery({
+          queryKey: ["thread-messages", id],
+          queryFn: () => fetchThreadMessages(id),
+          staleTime: 30_000,
+        });
+      }
+    }, 250);
+    return () => clearTimeout(timeout);
   }, [threadId, emailIds, queryClient]);
 
   const advanceOrGoBack = useCallback(() => {
@@ -1292,13 +1293,6 @@ export function EmailThread({
             );
           })}
 
-          {isHydratingThread && (
-            <>
-              <ThreadMessageSkeleton compact />
-              <ThreadMessageSkeleton />
-            </>
-          )}
-
           {/* Inline reply composer fallback (replyToId not matched) */}
           {inlineDraft &&
             !messages.some((m) => m.id === inlineDraft.replyToId) && (
@@ -1686,13 +1680,18 @@ const ExpandedMessageCard = forwardRef<
             searchTerm={searchTerm}
             activeLocalIdx={activeLocalIdx}
           />
-        ) : (
+        ) : email.body ? (
           <PlainTextBody
             body={email.body}
             searchTerm={searchTerm}
             activeLocalIdx={activeLocalIdx}
           />
-        )}
+        ) : email.snippet ? (
+          <div className="text-[13px] text-muted-foreground whitespace-pre-wrap">
+            {email.snippet}
+            <span className="text-muted-foreground/60">…</span>
+          </div>
+        ) : null}
       </div>
 
       {/* Attachments */}

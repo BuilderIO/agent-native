@@ -318,7 +318,17 @@ export function EmailList({
     );
     if (remaining.length > 0) {
       const nextIdx = Math.min(lastIdx, remaining.length - 1);
-      setFocusedId(remaining[nextIdx].latestMessage.id);
+      const nextThread = remaining[nextIdx];
+      setFocusedId(nextThread.latestMessage.id);
+      // Warm full-body cache for the thread that's about to take focus so
+      // repeated `e` stays instant all the way down the list.
+      const nextTid =
+        nextThread.latestMessage.threadId || nextThread.latestMessage.id;
+      void queryClient.prefetchQuery({
+        queryKey: ["thread-messages", nextTid],
+        queryFn: () => fetchThreadMessages(nextTid),
+        staleTime: 30_000,
+      });
     } else {
       setFocusedId(null);
     }
@@ -559,65 +569,25 @@ export function EmailList({
     }
   }, [threads, focusedId, setFocusedId]);
 
-  // Prefetch ±1 around focused item for instant j/k response
+  // Prefetch the focused thread's full body after a short idle delay so the
+  // next Enter/click is instant without hammering Gmail's quota. We debounce
+  // per-key so fast j/k scrolling doesn't fire one request per keystroke.
   useEffect(() => {
     if (!focusedId) return;
-    const index = threads.findIndex((t) => t.latestMessage.id === focusedId);
-    if (index === -1) return;
-
-    const threadIdsToWarm = new Set<string>();
-    for (const candidate of [
-      threads[index - 1],
-      threads[index],
-      threads[index + 1],
-    ]) {
-      const id =
-        candidate?.latestMessage.threadId || candidate?.latestMessage.id;
-      if (id) threadIdsToWarm.add(id);
-    }
-
-    threadIdsToWarm.forEach((threadId) => {
+    const thread = threads.find((t) => t.latestMessage.id === focusedId);
+    if (!thread) return;
+    const threadId = thread.latestMessage.threadId || thread.latestMessage.id;
+    const existing = queryClient.getQueryState(["thread-messages", threadId]);
+    if (existing?.data) return; // already cached — skip
+    const timeout = setTimeout(() => {
       void queryClient.prefetchQuery({
         queryKey: ["thread-messages", threadId],
         queryFn: () => fetchThreadMessages(threadId),
         staleTime: 30_000,
       });
-    });
+    }, 250);
+    return () => clearTimeout(timeout);
   }, [focusedId, threads, queryClient]);
-
-  // Prefetch all visible threads so any click/Enter opens instantly
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container || threads.length === 0) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
-          const id = (entry.target as HTMLElement).dataset.threadId;
-          if (id) {
-            void queryClient.prefetchQuery({
-              queryKey: ["thread-messages", id],
-              queryFn: () => fetchThreadMessages(id),
-              staleTime: 30_000,
-            });
-          }
-        }
-      },
-      { root: container.querySelector(".overflow-y-auto"), threshold: 0 },
-    );
-
-    // Observe all rows after a tick (rows need to be rendered)
-    const raf = requestAnimationFrame(() => {
-      const rows = container.querySelectorAll<HTMLElement>("[data-thread-id]");
-      rows.forEach((row) => observer.observe(row));
-    });
-
-    return () => {
-      cancelAnimationFrame(raf);
-      observer.disconnect();
-    };
-  }, [threads, queryClient]);
 
   // Infinite scroll — fetch next page when the sentinel enters the viewport
   const sentinelRef = useRef<HTMLDivElement>(null);
