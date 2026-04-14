@@ -108,16 +108,6 @@ function SettingsSelect({
 
 // ─── "Connect Builder.io" card (shared across all sections) ─────────────────
 
-const BUILDER_INCLUDES = [
-  "LLM access (Claude, GPT, Gemini, etc.)",
-  "Browser automation",
-  "Background agents",
-  "Hosting & deployment",
-  "Database",
-  "Authentication",
-  "File uploads",
-];
-
 function UseBuilderCard({
   connectUrl,
   connected,
@@ -125,7 +115,6 @@ function UseBuilderCard({
   comingSoon,
   builderEnabled,
   label = "Connect Builder.io",
-  showIncludes,
 }: {
   connectUrl?: string;
   connected: boolean;
@@ -133,7 +122,6 @@ function UseBuilderCard({
   comingSoon?: boolean;
   builderEnabled?: boolean;
   label?: string;
-  showIncludes?: boolean;
 }) {
   const showComingSoon = comingSoon && !builderEnabled;
 
@@ -166,7 +154,7 @@ function UseBuilderCard({
   }
 
   return (
-    <div className="rounded-md border border-border px-2.5 py-2">
+    <div className="rounded-md border border-border bg-accent/30 px-2.5 py-2">
       <div className="flex items-center justify-between">
         <div className="text-[11px] font-medium text-foreground">
           Connect Builder.io
@@ -178,29 +166,8 @@ function UseBuilderCard({
         )}
       </div>
       <p className="text-[10px] text-muted-foreground mt-1">
-        One-click setup via Builder.io
+        Includes LLM, DB, Auth, hosting, & more
       </p>
-      {showIncludes && (
-        <div className="mt-1.5 rounded bg-accent/30 px-2 py-1.5">
-          <p className="text-[9px] font-medium text-muted-foreground uppercase tracking-wide mb-1">
-            Includes
-          </p>
-          <ul className="space-y-0.5">
-            {BUILDER_INCLUDES.map((item) => (
-              <li
-                key={item}
-                className="flex items-center gap-1.5 text-[10px] text-muted-foreground"
-              >
-                <IconCheck
-                  size={8}
-                  className="shrink-0 text-muted-foreground"
-                />
-                {item}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
       {showComingSoon ? (
         <a
           href="https://forms.gle/WGpRR5ENCwEppFWL7"
@@ -336,7 +303,6 @@ function LLMSectionInner({
           comingSoon
           builderEnabled={builderEnabled}
           label="Connect Builder.io"
-          showIncludes
         />
         <ManualSetupCard
           hint="Paste your Anthropic API key to power the agent chat."
