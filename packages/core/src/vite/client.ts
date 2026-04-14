@@ -468,8 +468,18 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     },
     // Bundle all non-Node.js deps into the SSR server build.
     // Edge runtimes (CF Workers, Deno) don't have node_modules at runtime.
+    // Exception: heavy client-only libs that SSR never actually executes —
+    // externalizing them keeps the edge worker under CF Pages' 25 MiB
+    // Functions limit. These only render in the browser.
     ssr: {
       noExternal: /^(?!node:)/,
+      external: [
+        "mermaid",
+        "@excalidraw/excalidraw",
+        "@excalidraw/mermaid-to-excalidraw",
+        "pdf-parse",
+        "@google/genai",
+      ],
     },
     plugins: [
       actionTypesPlugin(),

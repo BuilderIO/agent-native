@@ -391,6 +391,19 @@ async function buildCloudflarePages() {
   const nodeExternals = builtinNames.map((n) => `--external:${n}`);
   const nodeAliases = builtinNames.map((n) => `--alias:node:${n}=${n}`);
 
+  // Hard externalize large client-only / node-only libraries so they don't
+  // bloat the edge worker. These are never executed in the CF Pages runtime
+  // — mermaid/excalidraw render in the browser, pdf-parse and @google/genai
+  // run from node-only action scripts. Without this, slides' bundle hits
+  // the 25 MiB Pages Functions limit.
+  const heavyClientExternals = [
+    "mermaid",
+    "@excalidraw/excalidraw",
+    "@excalidraw/mermaid-to-excalidraw",
+    "pdf-parse",
+    "@google/genai",
+  ].map((p) => `--external:${p}`);
+
   execFileSync(
     esbuildBin,
     [
@@ -416,6 +429,7 @@ async function buildCloudflarePages() {
       `--banner:js=${generateRequireShim()}`,
       // Externalize node: builtins — CF Workers runtime provides them
       ...nodeExternals,
+      ...heavyClientExternals,
       // Rewrite node:* -> bare names so chunks never contain node: imports
       ...nodeAliases,
     ],
