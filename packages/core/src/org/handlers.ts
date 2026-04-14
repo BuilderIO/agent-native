@@ -70,7 +70,7 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
 
   const e = await exec();
   const allOrgsRes = await e.execute({
-    sql: `SELECT m.org_id AS orgId, m.role AS role, o.name AS orgName
+    sql: `SELECT m.org_id AS "orgId", m.role AS role, o.name AS "orgName"
           FROM org_members m
           INNER JOIN organizations o ON m.org_id = o.id
           WHERE m.email = ?`,
@@ -83,7 +83,7 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
   }));
 
   const invitesRes = await e.execute({
-    sql: `SELECT i.id AS id, i.org_id AS orgId, o.name AS orgName, i.invited_by AS invitedBy
+    sql: `SELECT i.id AS id, i.org_id AS "orgId", o.name AS "orgName", i.invited_by AS "invitedBy"
           FROM org_invitations i
           INNER JOIN organizations o ON i.org_id = o.id
           WHERE i.email = ? AND i.status = 'pending'`,
@@ -146,7 +146,7 @@ export const listMembersHandler = defineEventHandler(async (event: H3Event) => {
 
   const e = await exec();
   const { rows } = await e.execute({
-    sql: `SELECT email, role, joined_at AS joinedAt FROM org_members WHERE org_id = ?`,
+    sql: `SELECT email, role, joined_at AS "joinedAt" FROM org_members WHERE org_id = ?`,
     args: [ctx.orgId],
   });
   const members = rows.map((r: any) => ({
@@ -222,7 +222,7 @@ export const listInvitationsHandler = defineEventHandler(
 
     const e = await exec();
     const { rows } = await e.execute({
-      sql: `SELECT id, email, invited_by AS invitedBy, created_at AS createdAt, status
+      sql: `SELECT id, email, invited_by AS "invitedBy", created_at AS "createdAt", status
             FROM org_invitations
             WHERE org_id = ? AND status = 'pending'`,
       args: [ctx.orgId],
@@ -255,7 +255,7 @@ export const acceptInvitationHandler = defineEventHandler(
     const e = await exec();
 
     const invRes = await e.execute({
-      sql: `SELECT id, org_id AS orgId FROM org_invitations
+      sql: `SELECT id, org_id AS "orgId" FROM org_invitations
             WHERE id = ? AND email = ? AND status = 'pending' LIMIT 1`,
       args: [invitationId, email],
     });
@@ -370,7 +370,7 @@ export const switchOrgHandler = defineEventHandler(async (event: H3Event) => {
 
   const e = await exec();
   const membership = await e.execute({
-    sql: `SELECT m.role AS role, o.name AS orgName
+    sql: `SELECT m.role AS role, o.name AS "orgName"
           FROM org_members m
           INNER JOIN organizations o ON m.org_id = o.id
           WHERE m.org_id = ? AND m.email = ? LIMIT 1`,

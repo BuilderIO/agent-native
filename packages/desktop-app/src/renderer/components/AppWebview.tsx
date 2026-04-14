@@ -239,6 +239,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
             className="app-webview"
             allowpopups=""
             webpreferences="contextIsolation=false"
+            partition={`persist:app-${app.id}`}
           />
         )}
       </div>
