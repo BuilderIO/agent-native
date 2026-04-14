@@ -2,6 +2,7 @@
   "name": "agentnative",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@10.29.1",
   "scripts": {
     "postinstall": "pnpm --filter @agent-native/core build && pnpm --filter @agent-native/pinpoint build",
     "setup": "pnpm install && pnpm --filter @agent-native/core build && pnpm install",
