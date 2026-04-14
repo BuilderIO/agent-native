@@ -47,7 +47,7 @@ export function ComingSoonSection({
         </div>
 
         {/* Manual path */}
-        <div className="rounded-md border border-border px-2.5 py-2">
+        <div className="rounded-md border border-border bg-accent/30 px-2.5 py-2">
           <div className="text-[11px] font-medium text-foreground mb-1">
             Set up manually
           </div>
