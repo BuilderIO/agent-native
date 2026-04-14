@@ -153,9 +153,8 @@ function createRefreshScreenEntry(): Record<string, ActionEntry> {
         },
       },
       run: async (args) => {
-        const { writeAppState } = await import(
-          "../application-state/script-helpers.js"
-        );
+        const { writeAppState } =
+          await import("../application-state/script-helpers.js");
         const nonce = Date.now();
         const scope = typeof args?.scope === "string" ? args.scope : undefined;
         await writeAppState(SCREEN_REFRESH_KEY, {
@@ -256,7 +255,7 @@ async function createDbScriptEntries(): Promise<Record<string, ActionEntry>> {
       "db-patch": wrapCliScript(
         {
           description:
-            "Surgical search-and-replace on a large text/JSON column in the app's SQL database. Send `{find, replace}` pairs instead of the full new value — saves tokens when editing multi-kilobyte documents, dashboard JSON, slide HTML, etc. Targets exactly one row (narrow `--where` by primary key). Uses the same per-user/org scoping as db-exec.",
+            "Surgical patch on a large text/JSON column in the app's SQL database. Two modes: (1) text find/replace via `find`/`replace`/`edits` — best for small edits to documents, slide HTML, etc. (2) structural JSON ops via `json-ops` — STRONGLY PREFERRED when the column is JSON (dashboard configs, form schemas, slide decks) because it avoids all the brace/quote/comma surgery that text find/replace requires. Use `json-ops` to set/remove values at a JSON Pointer path, or to move/insert array items — e.g. reorder dashboard panels, add a filter, rename a field. Targets exactly one row (narrow `where` by primary key). Same per-user/org scoping as db-exec.",
           parameters: {
             type: "object",
             properties: {
@@ -276,16 +275,27 @@ async function createDbScriptEntries(): Promise<Record<string, ActionEntry>> {
               },
               find: {
                 type: "string",
-                description: "Substring to find",
+                description: "Text mode: substring to find",
               },
               replace: {
                 type: "string",
-                description: "Replacement substring",
+                description: "Text mode: replacement substring",
               },
-              patches: {
+              edits: {
                 type: "string",
                 description:
-                  'Optional JSON array of {find, replace} pairs for multiple edits in one call, e.g. \'[{"find":"a","replace":"b"}]\'',
+                  'Text mode batch: JSON array of {find, replace} pairs, e.g. \'[{"find":"a","replace":"b"}]\'',
+              },
+              "json-ops": {
+                type: "string",
+                description:
+                  'JSON mode: JSON array of structural ops. Each op is {op, path, value?, from?}. `op` is one of "set", "remove", "insert", "move", "move-before". `path` / `from` use JSON Pointer ("/panels/3/title"). Examples — reorder: \'[{"op":"move","from":"/panels/7","path":"/panels/1"}]\'; edit field: \'[{"op":"set","path":"/panels/0/title","value":"New"}]\'; delete filter: \'[{"op":"remove","path":"/filters/2"}]\'; add panel: \'[{"op":"insert","path":"/panels/0","value":{"id":"p","title":"..."}}]\'. Much safer than text find/replace for JSON columns.',
+              },
+              all: {
+                type: "string",
+                description:
+                  'Text mode: set to "true" to replace every occurrence of each `find` (default: first only)',
+                enum: ["true"],
               },
             },
             required: ["table", "column", "where"],

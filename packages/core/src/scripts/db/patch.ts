@@ -58,6 +58,22 @@ interface TextEdit {
   replace: string;
 }
 
+/**
+ * JSON patch operation — a subset of RFC 6902 plus a convenience `move-before`
+ * that's rare in the spec but common for list reordering. The agent ends up
+ * needing this all the time (reordering dashboard panels, form fields, slide
+ * layers) and without it has to do multi-step string surgery.
+ */
+interface JsonOp {
+  op: "set" | "replace" | "remove" | "move" | "move-before" | "insert";
+  /** JSON Pointer-style path, e.g. "/panels/3/title". "" = root. */
+  path?: string;
+  /** For move / move-before: source path. */
+  from?: string;
+  /** For set / replace / insert: value to write. */
+  value?: unknown;
+}
+
 interface EditResult {
   index: number;
   status: "replaced" | "deleted" | "not-found";
@@ -164,6 +180,150 @@ function preview(s: string): string {
   return trimmed.length > max ? trimmed.slice(0, max) + "..." : trimmed;
 }
 
+// ─── JSON patch helpers ─────────────────────────────────────────────────────
+
+/** Parse a JSON Pointer ("/panels/3/title") into path segments. "" = root. */
+function parsePointer(pointer: string): string[] {
+  if (pointer === "" || pointer === "/") return [];
+  if (!pointer.startsWith("/")) {
+    fail(`JSON path must start with '/' (got: ${pointer})`);
+  }
+  return pointer
+    .slice(1)
+    .split("/")
+    .map((s) => s.replace(/~1/g, "/").replace(/~0/g, "~"));
+}
+
+/** Walk to the parent container of the given path. Returns [parent, lastKey]. */
+function resolveParent(
+  root: unknown,
+  segments: string[],
+): [any, string | number] {
+  if (segments.length === 0) {
+    fail("Root path is not supported for this operation");
+  }
+  let node: any = root;
+  for (let i = 0; i < segments.length - 1; i++) {
+    const seg = segments[i];
+    if (Array.isArray(node)) {
+      const idx = parseInt(seg, 10);
+      if (isNaN(idx) || idx < 0 || idx >= node.length) {
+        fail(
+          `Path segment "${seg}" is out of bounds for array of length ${node.length}`,
+        );
+      }
+      node = node[idx];
+    } else if (node && typeof node === "object") {
+      if (!(seg in node)) {
+        fail(`Path segment "${seg}" not found in object`);
+      }
+      node = node[seg];
+    } else {
+      fail(`Cannot descend into ${typeof node} at segment "${seg}"`);
+    }
+  }
+  const last = segments[segments.length - 1];
+  if (Array.isArray(node)) {
+    const idx = last === "-" ? node.length : parseInt(last, 10);
+    if (isNaN(idx)) fail(`Expected numeric index, got "${last}"`);
+    return [node, idx];
+  }
+  return [node, last];
+}
+
+/** Apply one JSON op, mutating `root` in place. Returns a short detail string. */
+function applyJsonOp(root: any, op: JsonOp): string {
+  switch (op.op) {
+    case "set":
+    case "replace": {
+      if (op.path === undefined) fail(`${op.op} requires 'path'`);
+      const [parent, key] = resolveParent(root, parsePointer(op.path));
+      parent[key as any] = op.value;
+      return `${op.op} ${op.path}`;
+    }
+    case "remove": {
+      if (op.path === undefined) fail("remove requires 'path'");
+      const [parent, key] = resolveParent(root, parsePointer(op.path));
+      if (Array.isArray(parent)) {
+        parent.splice(key as number, 1);
+      } else {
+        delete parent[key as string];
+      }
+      return `remove ${op.path}`;
+    }
+    case "insert": {
+      if (op.path === undefined) fail("insert requires 'path'");
+      const [parent, key] = resolveParent(root, parsePointer(op.path));
+      if (!Array.isArray(parent)) fail(`insert target must be an array`);
+      parent.splice(key as number, 0, op.value);
+      return `insert at ${op.path}`;
+    }
+    case "move":
+    case "move-before": {
+      if (!op.from || op.path === undefined) {
+        fail(`${op.op} requires 'from' and 'path'`);
+      }
+      const fromSeg = parsePointer(op.from);
+      const toSeg = parsePointer(op.path);
+      const [fromParent, fromKey] = resolveParent(root, fromSeg);
+      // Extract the value
+      let value: unknown;
+      if (Array.isArray(fromParent)) {
+        value = fromParent[fromKey as number];
+        fromParent.splice(fromKey as number, 1);
+      } else {
+        value = fromParent[fromKey as string];
+        delete fromParent[fromKey as string];
+      }
+      // For array moves where the destination is in the same array and
+      // after the removed index, shift the target index down by one so
+      // "move /panels/7 to /panels/3" lands exactly at index 3 even after
+      // the earlier splice shifted indices.
+      let [toParent, toKey] = resolveParent(root, toSeg);
+      if (
+        Array.isArray(toParent) &&
+        Array.isArray(fromParent) &&
+        toParent === fromParent
+      ) {
+        const fromIdx = fromKey as number;
+        const toIdx = toKey as number;
+        if (toIdx > fromIdx) {
+          toKey = toIdx - 1;
+        }
+      }
+      if (Array.isArray(toParent)) {
+        toParent.splice(toKey as number, 0, value);
+      } else {
+        toParent[toKey as string] = value;
+      }
+      return `${op.op} ${op.from} → ${op.path}`;
+    }
+    default:
+      fail(`Unknown JSON op: ${(op as any).op}`);
+  }
+  return "";
+}
+
+function parseJsonOps(parsed: Record<string, string>): JsonOp[] | null {
+  if (!parsed.jsonOps && !parsed["json-ops"]) return null;
+  const raw = parsed.jsonOps ?? parsed["json-ops"];
+  let parsedJson: unknown;
+  try {
+    parsedJson = JSON.parse(raw);
+  } catch (e: any) {
+    fail(`Invalid --json-ops JSON: ${e.message}`);
+  }
+  if (!Array.isArray(parsedJson) || parsedJson.length === 0) {
+    fail("--json-ops must be a non-empty JSON array");
+  }
+  for (const op of parsedJson as any[]) {
+    if (!op || typeof op !== "object" || typeof op.op !== "string") {
+      fail("Each op must be an object with an 'op' field");
+    }
+  }
+  return parsedJson as JsonOp[];
+}
+
 function countOccurrences(haystack: string, needle: string): number {
   if (!needle) return 0;
   let count = 0;
@@ -247,8 +407,60 @@ interface RunOpts {
   column: string;
   where: string;
   edits: TextEdit[];
+  jsonOps?: JsonOp[];
   replaceAll: boolean;
   format?: string;
+}
+
+function applyEither(
+  original: string,
+  opts: RunOpts,
+): {
+  content: string;
+  results: EditResult[];
+  applied: number;
+  total: number;
+} {
+  if (opts.jsonOps && opts.jsonOps.length > 0) {
+    let root: unknown;
+    try {
+      root = JSON.parse(original);
+    } catch (e: any) {
+      fail(
+        `--json-ops requires the column value to be valid JSON. Parse failed: ${e.message}`,
+      );
+    }
+    const results: EditResult[] = [];
+    let applied = 0;
+    for (let i = 0; i < opts.jsonOps.length; i++) {
+      const op = opts.jsonOps[i];
+      try {
+        const detail = applyJsonOp(root, op);
+        results.push({
+          index: i,
+          status: "replaced",
+          detail,
+          occurrences: 1,
+        });
+        applied++;
+      } catch (e: any) {
+        results.push({
+          index: i,
+          status: "not-found",
+          detail: `FAILED: ${e?.message ?? String(e)}`,
+          occurrences: 0,
+        });
+      }
+    }
+    return {
+      content: JSON.stringify(root),
+      results,
+      applied,
+      total: opts.jsonOps.length,
+    };
+  }
+  const out = applyEdits(original, opts.edits, opts.replaceAll);
+  return { ...out, total: opts.edits.length };
 }
 
 // ─── Postgres path ──────────────────────────────────────────────────────────
@@ -287,11 +499,7 @@ async function runPostgres(opts: RunOpts): Promise<void> {
       );
     }
 
-    const { content, results, applied } = applyEdits(
-      original,
-      opts.edits,
-      opts.replaceAll,
-    );
+    const { content, results, applied, total } = applyEither(original, opts);
 
     if (applied > 0) {
       await pgSql.unsafe(
@@ -305,7 +513,7 @@ async function runPostgres(opts: RunOpts): Promise<void> {
         table: opts.table,
         column: opts.column,
         applied,
-        total: opts.edits.length,
+        total,
         bytesBefore: original.length,
         bytesAfter: content.length,
         results,
@@ -357,11 +565,7 @@ async function runSqlite(opts: RunOpts): Promise<void> {
       );
     }
 
-    const { content, results, applied } = applyEdits(
-      original,
-      opts.edits,
-      opts.replaceAll,
-    );
+    const { content, results, applied, total } = applyEither(original, opts);
 
     if (applied > 0) {
       await client.execute({
@@ -375,7 +579,7 @@ async function runSqlite(opts: RunOpts): Promise<void> {
         table: opts.table,
         column: opts.column,
         applied,
-        total: opts.edits.length,
+        total,
         bytesBefore: original.length,
         bytesAfter: content.length,
         results,
@@ -411,6 +615,15 @@ Edit mode (pick one):
   --find <text>         Text to find (single edit; default replace = "")
   --replace <text>      Replacement text (used with --find)
   --edits <json>        Batch: JSON array of {find, replace} objects
+  --json-ops <json>     Structural JSON edits on a JSON column — array of ops:
+                          { op: "set",     path, value }    → set/replace at path
+                          { op: "remove",  path }           → delete at path
+                          { op: "insert",  path, value }    → insert into array
+                          { op: "move",    from, path }     → move node
+                          { op: "move-before", from, path } → move, stable indexing
+                        Paths use JSON Pointer ("/panels/3/title").
+                        Much safer than string patches for JSON columns
+                        (dashboards, forms, slide decks).
 
 Options:
   --all                 Replace every occurrence of each 'find' (default: first only)
@@ -452,7 +665,10 @@ When to use db-patch vs other tools:
     );
   validateWhere(where);
 
-  const edits = parseEdits(parsed);
+  const jsonOps = parseJsonOps(parsed);
+  // Edit parsing only runs when json-ops isn't provided — otherwise the
+  // find/replace args are irrelevant and would error if missing.
+  const edits = jsonOps ? [] : parseEdits(parsed);
   const replaceAll = parsed.all === "true";
 
   // Resolve database URL: --db flag → DATABASE_URL env → default file path
@@ -472,6 +688,7 @@ When to use db-patch vs other tools:
       column,
       where,
       edits,
+      jsonOps: jsonOps ?? undefined,
       replaceAll,
       format: parsed.format,
     });
@@ -482,6 +699,7 @@ When to use db-patch vs other tools:
       column,
       where,
       edits,
+      jsonOps: jsonOps ?? undefined,
       replaceAll,
       format: parsed.format,
     });
