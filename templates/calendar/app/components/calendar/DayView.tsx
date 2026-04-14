@@ -16,6 +16,7 @@ import { IconAlertTriangleFilled } from "@tabler/icons-react";
 import { EventDetailPopover } from "./EventDetailPopover";
 import type { CalendarEvent } from "@shared/api";
 import { useEventDrag } from "@/hooks/use-event-drag";
+import { useCalendarContext } from "@/components/layout/AppLayout";
 
 interface DayViewProps {
   events: CalendarEvent[];
@@ -104,6 +105,7 @@ export function DayView({
   onQuickEditCancel,
   isLoading = false,
 }: DayViewProps) {
+  const { setFocusedEvent } = useCalendarContext();
   const [now, setNow] = useState(new Date());
   const [focusedEventId, setFocusedEventId] = useState<string | null>(null);
   const currentTimeRef = useRef<HTMLDivElement>(null);
@@ -378,6 +380,7 @@ export function DayView({
                 <button
                   onPointerDown={(e) => {
                     setFocusedEventId(event.id);
+                    setFocusedEvent(event);
                     if (
                       canDrag &&
                       !(e.target as HTMLElement).dataset.resizeHandle

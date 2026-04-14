@@ -26,22 +26,21 @@ export default function TableOfContents({ items }: { items: TocItem[] }) {
   }, [items]);
 
   useEffect(() => {
-    const headings = items
-      .map((item) => document.getElementById(item.id))
-      .filter(Boolean) as HTMLElement[];
-
-    if (headings.length === 0) return;
+    const ids = items.map((item) => item.id);
+    if (ids.length === 0) return;
 
     // How far from the top of the viewport a heading is considered "active"
     const OFFSET = 120;
 
     const getActiveId = () => {
-      // Walk headings in order; the last one whose top edge is above OFFSET is active
-      let active = headings[0]?.id ?? "";
-      for (const heading of headings) {
-        if (heading.getBoundingClientRect().top <= OFFSET) {
-          active = heading.id;
-        } else {
+      // Query elements fresh each time — MarkdownRenderer replaces the DOM
+      // when async syntax highlighting finishes, which detaches old nodes.
+      let active = ids[0] ?? "";
+      for (const id of ids) {
+        const el = document.getElementById(id);
+        if (el && el.getBoundingClientRect().top <= OFFSET) {
+          active = id;
+        } else if (el) {
           break;
         }
       }
