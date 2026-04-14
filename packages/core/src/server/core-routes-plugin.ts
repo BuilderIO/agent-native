@@ -150,7 +150,14 @@ export function createCoreRoutesPlugin(
           return { error: "prompt is required" };
         }
         const session = await getSession(event).catch(() => null);
-        const userEmail = session?.email || "local@localhost";
+        if (!session?.email) {
+          // Don't spend the server's Builder private key on anonymous
+          // requests. In dev, the local-mode bypass still yields a
+          // "local@localhost" session so this doesn't break solo workflows.
+          setResponseStatus(event, 401);
+          return { error: "Authentication required" };
+        }
+        const userEmail = session.email;
         // Server-controlled projectId — don't let clients target arbitrary
         // Builder projects with our private key. When this feature graduates
         // past the hardcoded preview, the projectId will come from
