@@ -7,7 +7,8 @@
     "start": "expo start",
     "ios": "expo run:ios",
     "android": "expo run:android",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "eas-build-post-install": "node scripts/patch-rn-screens.mjs"
   },
   "dependencies": {
     "@agent-native/shared-app-config": "workspace:*",

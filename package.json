@@ -49,10 +49,7 @@
       "esbuild",
       "lightningcss",
       "node-pty"
-    ],
-    "patchedDependencies": {
-      "react-native-screens@4.24.0": "patches/react-native-screens@4.24.0.patch"
-    }
+    ]
   },
   "dependencies": {
     "diff-match-patch": "^1.0.5",
