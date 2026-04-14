@@ -1,4 +1,5 @@
 import { runWithRequestContext, getRequestOrgId } from "./request-context.js";
+import { getSetting, putSetting } from "../settings/store.js";
 import { getH3App } from "./framework-request-handler.js";
 import {
   createProductionAgentHandler,
@@ -2064,8 +2065,22 @@ export function createAgentChatPlugin(
         ? await rawProviders()
         : (rawProviders ?? {});
 
-    // Mutable mode flag — starts in dev if environment allows
+    // Mutable mode flag — persisted to the `settings` table so a user who
+    // toggles to "Production" stays in prod mode across server restarts.
+    // Without persistence, every dev server reload silently reset the flag
+    // back to dev, making prod-mode testing impossible without deploying.
+    const AGENT_MODE_SETTING_KEY = "agent-chat.mode";
     let currentDevMode = canToggle;
+    if (canToggle) {
+      try {
+        const persisted = await getSetting(AGENT_MODE_SETTING_KEY);
+        if (persisted && typeof persisted.devMode === "boolean") {
+          currentDevMode = persisted.devMode;
+        }
+      } catch {
+        // Settings table may not be ready yet — fall back to default.
+      }
+    }
 
     // Mount mode endpoint — GET returns current mode, POST toggles it (localhost only)
     getH3App(nitroApp).use(
@@ -2085,6 +2100,14 @@ export function createAgentChatPlugin(
             currentDevMode = body.devMode;
           } else {
             currentDevMode = !currentDevMode;
+          }
+          try {
+            await putSetting(AGENT_MODE_SETTING_KEY, {
+              devMode: currentDevMode,
+            });
+          } catch {
+            // Persistence is best-effort — in-memory flag still applies for
+            // the lifetime of this process even if the settings write fails.
           }
           return { devMode: currentDevMode, canToggle };
         }
