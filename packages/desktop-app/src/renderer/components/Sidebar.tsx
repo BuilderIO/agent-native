@@ -44,7 +44,7 @@ export default function Sidebar({
   onTabChange,
   onSettingsClick,
 }: SidebarProps) {
-  const pinnedBottomOrder = ["dispatcher", "starter"];
+  const pinnedBottomOrder = ["dispatch", "starter"];
   const pinnedBottom = pinnedBottomOrder
     .map((id) => apps.find((app) => app.id === id))
     .filter((app): app is AppDefinition => !!app);

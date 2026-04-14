@@ -1,0 +1,10 @@
+name = "an-dispatch"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = "./templates/dispatch/dist"
+
+[placement]
+mode = "smart"
+
+[vars]
+GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
