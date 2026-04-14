@@ -293,11 +293,25 @@ export function createCoreRoutesPlugin(
           ]);
 
           const filtered = vars.filter(
-            (v) => typeof v.key === "string" && allowedKeys.has(v.key),
+            (v) =>
+              typeof v.key === "string" &&
+              allowedKeys.has(v.key) &&
+              typeof v.value === "string" &&
+              v.value.trim().length > 0,
           );
           if (filtered.length === 0) {
             setResponseStatus(event, 400);
-            return { error: "No recognized env keys in request" };
+            const rejectedEmpty = vars.some(
+              (v) =>
+                typeof v.key === "string" &&
+                allowedKeys.has(v.key) &&
+                (typeof v.value !== "string" || v.value.trim().length === 0),
+            );
+            return {
+              error: rejectedEmpty
+                ? "Env values must be non-empty — refusing to clear a saved key"
+                : "No recognized env keys in request",
+            };
           }
 
           // Write to .env file. When inside a workspace, write to the

@@ -1,9 +1,37 @@
 import {
   defineEventHandler,
   getRouterParam,
+  getRequestURL,
   createError,
   type H3Event,
 } from "h3";
+
+/**
+ * Extract the :id from invitation-accept paths. The framework request handler
+ * strips the mount prefix before calling the handler, so `event.url.pathname`
+ * is the relative tail — e.g. `/some-id/accept`. Falls back to matching the
+ * full path for contexts that don't strip, and to the h3 router param.
+ */
+function extractInvitationId(event: H3Event): string | undefined {
+  const fromRouter = getRouterParam(event, "id");
+  if (fromRouter) return fromRouter;
+  const path = getRequestURL(event).pathname;
+  const match =
+    path.match(/^\/([^\/]+)\/accept\/?$/) ??
+    path.match(/\/org\/invitations\/([^\/]+)\/accept\/?$/);
+  return match?.[1] ? decodeURIComponent(match[1]) : undefined;
+}
+
+/** Extract the :email from member-delete paths. Same prefix-stripping caveat. */
+function extractMemberEmail(event: H3Event): string | undefined {
+  const fromRouter = getRouterParam(event, "email");
+  if (fromRouter) return fromRouter;
+  const path = getRequestURL(event).pathname;
+  const match =
+    path.match(/^\/([^\/]+)\/?$/) ??
+    path.match(/\/org\/members\/([^\/]+)\/?$/);
+  return match?.[1] ? decodeURIComponent(match[1]) : undefined;
+}
 const nanoid = (): string =>
   globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
   Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -217,7 +245,7 @@ export const acceptInvitationHandler = defineEventHandler(
     const session = await getSession(event);
     const email = requireAuthEmail(session);
 
-    const invitationId = getRouterParam(event, "id");
+    const invitationId = extractInvitationId(event);
     if (!invitationId) {
       throw createError({
         statusCode: 400,
@@ -295,7 +323,7 @@ export const removeMemberHandler = defineEventHandler(
       });
     }
 
-    const memberEmail = getRouterParam(event, "email");
+    const memberEmail = extractMemberEmail(event);
     if (!memberEmail) {
       throw createError({ statusCode: 400, message: "Email is required" });
     }

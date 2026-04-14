@@ -2,6 +2,7 @@ import {
   defineEventHandler,
   setResponseStatus,
   getMethod,
+  getRequestURL,
   type H3Event,
 } from "h3";
 import {
@@ -61,21 +62,28 @@ export function createOrgPlugin(): NitroPluginDef {
       }),
     );
 
-    // GET /members + DELETE /members/:email
+    // /members and /members/:email — dispatch by path-tail + method in a
+    // single handler so H3's prefix-based `app.use` doesn't route a DELETE
+    // for /members/alice@example.com to the GET-only /members handler.
+    //
+    // NOTE: the framework request handler (packages/core/src/server/
+    // framework-request-handler.ts) strips the mount prefix from
+    // event.url.pathname before calling the handler, so inside here
+    // `url.pathname` is ALREADY the tail relative to this mount point.
     app.use(
       `${ORG_PREFIX}/members`,
       defineEventHandler(async (event: H3Event) => {
-        if (getMethod(event) !== "GET") {
-          setResponseStatus(event, 405);
-          return { error: "Method not allowed" };
+        const tail = getRequestURL(event).pathname || "/";
+        const method = getMethod(event);
+        if (tail === "" || tail === "/") {
+          if (method !== "GET") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+          return listMembersHandler(event);
         }
-        return listMembersHandler(event);
-      }),
-    );
-    app.use(
-      `${ORG_PREFIX}/members/:email`,
-      defineEventHandler(async (event: H3Event) => {
-        if (getMethod(event) !== "DELETE") {
+        // Tail is /:email
+        if (method !== "DELETE") {
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
@@ -83,26 +91,28 @@ export function createOrgPlugin(): NitroPluginDef {
       }),
     );
 
-    // GET + POST /invitations
+    // /invitations and /invitations/:id/accept — same pattern.
     app.use(
       `${ORG_PREFIX}/invitations`,
       defineEventHandler(async (event: H3Event) => {
-        const m = getMethod(event);
-        if (m === "GET") return listInvitationsHandler(event);
-        if (m === "POST") return createInvitationHandler(event);
-        setResponseStatus(event, 405);
-        return { error: "Method not allowed" };
-      }),
-    );
-    // POST /invitations/:id/accept
-    app.use(
-      `${ORG_PREFIX}/invitations/:id/accept`,
-      defineEventHandler(async (event: H3Event) => {
-        if (getMethod(event) !== "POST") {
+        const tail = getRequestURL(event).pathname || "/";
+        const method = getMethod(event);
+        if (tail === "" || tail === "/") {
+          if (method === "GET") return listInvitationsHandler(event);
+          if (method === "POST") return createInvitationHandler(event);
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
-        return acceptInvitationHandler(event);
+        // Tail is /:id/accept
+        if (/^\/[^\/]+\/accept\/?$/.test(tail)) {
+          if (method !== "POST") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+          return acceptInvitationHandler(event);
+        }
+        setResponseStatus(event, 404);
+        return { error: "Not found" };
       }),
     );
 
