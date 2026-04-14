@@ -102,9 +102,7 @@ export default function DestinationsRoute() {
                       <AlertDialogFooter>
                         <AlertDialogCancel>Cancel</AlertDialogCancel>
                         <AlertDialogAction
-                          onClick={() =>
-                            remove.mutate({ id: destination.id })
-                          }
+                          onClick={() => remove.mutate({ id: destination.id })}
                         >
                           Delete
                         </AlertDialogAction>
