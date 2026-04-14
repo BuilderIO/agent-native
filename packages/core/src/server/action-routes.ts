@@ -115,10 +115,10 @@ export function mountActionRoutes(
           } catch (err: any) {
             const msg = err?.message ?? String(err);
             // Return 400 for validation errors, 500 for everything else
-            setResponseStatus(
-              event,
-              msg.startsWith("Invalid action parameters:") ? 400 : 500,
+            const isValidationErr = /^Invalid action parameters[:\s—–-]/.test(
+              msg,
             );
+            setResponseStatus(event, isValidationErr ? 400 : 500);
             return { error: msg };
           }
         }); // end runWithRequestContext

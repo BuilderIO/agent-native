@@ -1796,12 +1796,21 @@ export function createAgentChatPlugin(
       }
     };
 
+    // Job management tools (create-job, list-jobs, update-job) — used by
+    // both the agent and the UI (the Jobs panel calls them over HTTP).
+    let jobToolsForHttp: Record<string, ActionEntry> = {};
+    try {
+      const { createJobTools } = await import("../jobs/tools.js");
+      jobToolsForHttp = createJobTools();
+    } catch {}
+
     // Auto-mount template actions as HTTP endpoints under /_agent-native/actions/
     // Include engine management scripts so the UI can call list/set/test-agent-engine.
     const httpActions = {
       ...discoveredActions,
       ...templateScripts,
       ...engineScripts,
+      ...jobToolsForHttp,
     };
     if (Object.keys(httpActions).length > 0) {
       const { mountActionRoutes } = await import("./action-routes.js");
@@ -1932,12 +1941,9 @@ export function createAgentChatPlugin(
     });
 
     // Hook into the run lifecycle to set/clear the send reference.
-    // Job management tools (create-job, list-jobs, update-job)
-    let jobTools: Record<string, ActionEntry> = {};
-    try {
-      const { createJobTools } = await import("../jobs/tools.js");
-      jobTools = createJobTools();
-    } catch {}
+    // Reuse the job tools we created above for HTTP mounting so the agent
+    // and the UI share the same instances.
+    const jobTools: Record<string, ActionEntry> = jobToolsForHttp;
 
     const prodActions = {
       ...templateScripts,
