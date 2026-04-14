@@ -2303,7 +2303,16 @@ function HtmlEmailBody({
   const [height, setHeight] = useState(200);
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
-  const sanitizedHtml = useMemo(() => sanitizeEmailHtml(html), [html]);
+  const sanitizedHtml = useMemo(() => {
+    const t0 = performance.now();
+    const r = sanitizeEmailHtml(html);
+    if ((window as any).__cacheDebug) {
+      console.log(
+        `[iframe] sanitizeEmailHtml ${(performance.now() - t0).toFixed(0)}ms (html=${html.length}b)`,
+      );
+    }
+    return r;
+  }, [html]);
   // Only fall back to light bg when the email has actual designed colored backgrounds
   // (not white/near-white which we override to dark). This matches Superhuman behavior.
   const hasDesignedBg = useMemo(() => emailHasDesignedBackground(html), [html]);
@@ -2329,10 +2338,16 @@ function HtmlEmailBody({
         : imagePolicy
       : imagePolicy;
 
-  const [processedHtml, blockedCount] = useMemo(
-    () => processHtmlImages(sanitizedHtml.bodyHtml, effectivePolicy),
-    [sanitizedHtml.bodyHtml, effectivePolicy],
-  );
+  const [processedHtml, blockedCount] = useMemo(() => {
+    const t0 = performance.now();
+    const r = processHtmlImages(sanitizedHtml.bodyHtml, effectivePolicy);
+    if ((window as any).__cacheDebug) {
+      console.log(
+        `[iframe] processHtmlImages ${(performance.now() - t0).toFixed(0)}ms (body=${sanitizedHtml.bodyHtml.length}b, blocked=${r[1]})`,
+      );
+    }
+    return r;
+  }, [sanitizedHtml.bodyHtml, effectivePolicy]);
 
   const handleAlwaysTrust = () => {
     if (!senderDomain) return;
@@ -2353,6 +2368,7 @@ function HtmlEmailBody({
     const doc = iframe.contentDocument;
     if (!doc) return;
 
+    const _effectStart = performance.now();
     doc.open();
     const iframeCss = useDarkIframeCss
       ? `
@@ -2753,6 +2769,11 @@ function HtmlEmailBody({
     images.forEach((img) => img.addEventListener("load", resize));
 
     resize();
+    if ((window as any).__cacheDebug) {
+      console.log(
+        `[iframe] effect total ${(performance.now() - _effectStart).toFixed(0)}ms (processedHtml=${processedHtml.length}b, imgs=${images.length})`,
+      );
+    }
     const timer = setTimeout(resize, 100);
     const timer2 = setTimeout(resize, 500);
 
