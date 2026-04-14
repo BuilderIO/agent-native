@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Link, useLocation } from "react-router";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   IconFlask,
@@ -237,8 +238,14 @@ function SortableDashboardItem({
                 onClick={async () => {
                   try {
                     await onDelete(d);
-                  } finally {
                     setDeletingId(null);
+                  } catch (e) {
+                    // Keep the dialog open so the user can retry or cancel.
+                    toast.error(
+                      e instanceof Error
+                        ? `Couldn't remove ${d.name}: ${e.message}`
+                        : `Couldn't remove ${d.name}`,
+                    );
                   }
                 }}
                 className="flex-1 rounded-md bg-destructive px-3 py-1.5 text-xs font-medium text-destructive-foreground hover:bg-destructive/90 transition-colors"
