@@ -463,6 +463,7 @@ function createBuilderBrowserTool(deps: {
         return JSON.stringify({
           kind: "connect-builder-card",
           configured,
+          builderEnabled: !!process.env.ENABLE_BUILDER,
           connectUrl: getBuilderBrowserConnectUrl(deps.getOrigin()),
           orgName: process.env.BUILDER_ORG_NAME || null,
         });

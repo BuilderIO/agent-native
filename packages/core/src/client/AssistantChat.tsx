@@ -264,6 +264,7 @@ function ToolCallDisplay({
         return (
           <ConnectBuilderCard
             configured={!!parsed.configured}
+            builderEnabled={!!parsed.builderEnabled}
             connectUrl={parsed.connectUrl || ""}
             orgName={parsed.orgName ?? null}
           />
