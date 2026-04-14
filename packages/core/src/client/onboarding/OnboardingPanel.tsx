@@ -54,6 +54,9 @@ export function OnboardingPanel({
 
   if (loading || totalCount === 0) return null;
   if (dismissed) return null;
+  // Auto-hide once every required step is done — no need to take up sidebar
+  // space when there's nothing left to do.
+  if (allComplete) return null;
 
   if (!expanded) {
     return (

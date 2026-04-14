@@ -940,10 +940,11 @@ export function AgentPanel({
             ".agent-tab-close{opacity:0}.agent-tab:hover .agent-tab-close{opacity:1}",
         }}
       />
-      {/* Framework onboarding — appears above the chat when setup is
-          incomplete. The panel hides itself once all required steps are
-          done or the user dismisses it. */}
-      {mounted && mode === "chat" && (
+      {/* Framework onboarding — appears above the chat/cli/settings tabs
+          so it's visible regardless of which tab the user is on. The panel
+          hides itself once all required steps are done or the user
+          dismisses it. */}
+      {mounted && (
         <Suspense fallback={null}>
           <OnboardingPanel />
         </Suspense>
