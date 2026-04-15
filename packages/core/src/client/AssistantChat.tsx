@@ -1057,18 +1057,17 @@ const AssistantChatInner = forwardRef<
   const [reconnectFrozen, setReconnectFrozen] = useState(false);
   const reconnectRunIdRef = useRef<string | null>(null);
   const reconnectAbortRef = useRef<AbortController | null>(null);
-  // Nuclear stop: user clicked stop but runtime hasn't cleared yet.
-  // This ONLY affects UI display (button + thinking indicator). Submission
-  // and queue gating still use the real `isRunning` so we never overlap a
-  // new run on top of one that's still cancelling on the server.
+  // Nuclear stop: user clicked stop. Clears the stop button/indicator AND
+  // lets new submissions go through immediately — prevents the "stuck
+  // queueing forever" state where isReconnecting or isRuntimeRunning gets
+  // wedged (e.g. after a tab refresh + stop during reconnect).
   const [forceStopped, setForceStopped] = useState(false);
   // Real running state — drives submission/queue gating. Treat reconnecting
-  // to an active run the same as running.
-  const isRunning = isRuntimeRunning || isReconnecting;
+  // to an active run the same as running, UNLESS the user has explicitly
+  // clicked stop (forceStopped).
+  const isRunning = !forceStopped && (isRuntimeRunning || isReconnecting);
   // UI-only running state — drives the stop button and thinking indicator.
-  // forceStopped lets us flip the indicator off immediately even if the
-  // underlying runtime or reconnect state hasn't caught up yet.
-  const showRunningInUI = !forceStopped && isRunning;
+  const showRunningInUI = isRunning;
   const wasRunningRef = useRef(false);
   const tiptapRef = useRef<TiptapComposerHandle>(null);
 
@@ -1800,34 +1799,30 @@ const AssistantChatInner = forwardRef<
             onSlashCommand={onSlashCommand}
             execMode={execMode}
             onExecModeChange={onExecModeChange}
-            actionButton={
+            extraActionButton={
               showRunningInUI ? (
                 <button
+                  type="button"
                   onClick={() => {
-                    // Immediately force the indicator off — belt-and-suspenders
-                    // so the UI is never stuck even if the runtime or reconnect
-                    // state takes time (or fails) to clear on its own.
+                    // Nuclear stop: flip forceStopped so isRunning is false
+                    // immediately. This unblocks submission even if the
+                    // runtime or reconnect state is stuck.
                     setForceStopped(true);
 
                     if (isReconnecting) {
-                      // Abort the server-side run (fire-and-forget)
                       if (reconnectRunIdRef.current) {
                         fetch(
                           `${apiUrl}/runs/${encodeURIComponent(reconnectRunIdRef.current)}/abort`,
                           { method: "POST" },
                         );
                       }
-                      // Abort the client-side SSE stream
                       reconnectAbortRef.current?.abort();
                       reconnectAbortRef.current = null;
                       reconnectRunIdRef.current = null;
                       setIsReconnecting(false);
-                      // Keep reconnectContent visible (frozen) — don't wipe it
                       setReconnectFrozen(reconnectContent.length > 0);
                     }
 
-                    // Always try to cancel the runtime run too (handles the
-                    // normal non-reconnect path and is a no-op if not running)
                     threadRuntime.cancelRun();
 
                     window.dispatchEvent(
@@ -1839,7 +1834,7 @@ const AssistantChatInner = forwardRef<
                       }),
                     );
                   }}
-                  className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90"
+                  className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-muted text-foreground hover:bg-muted/80"
                   title="Stop generating"
                 >
                   <IconPlayerStop className="h-3.5 w-3.5" />
