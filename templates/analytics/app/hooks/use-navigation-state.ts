@@ -1,25 +1,21 @@
 import { useEffect } from "react";
-import { useLocation, useNavigate, useSearchParams } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 interface NavigationState {
   view: string;
   dashboardId?: string;
   analysisId?: string;
-  /** Filter values to set in the URL query string (`?f_<id>=...`). Null or
-   *  empty string clears the filter. Passed by the `navigate` agent action. */
-  filters?: Record<string, string | null>;
-  /** If true (default), merge over existing filters. If false, replace them. */
-  keepOtherFilters?: boolean;
 }
 
 export function useNavigationState() {
   const location = useLocation();
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
   const qc = useQueryClient();
 
-  // Sync current route to application state
+  // Sync current route to application state. URL query params (filters)
+  // are synced separately by the framework's <URLSync /> under the
+  // `__url__` key, so the agent sees them in the <current-url> block.
   useEffect(() => {
     const path = location.pathname;
     const state: NavigationState = { view: "overview" };
@@ -112,27 +108,6 @@ export function useNavigationState() {
     }
 
     navigate(path);
-
-    // Apply filter changes to the URL query string. Filters live in
-    // search params as `f_<id>=<value>` — this is where the dashboard
-    // filter bar reads them. Changing the settings row does NOT update
-    // active filters, so the agent goes through here instead.
-    if (cmd.filters) {
-      const next =
-        cmd.keepOtherFilters === false
-          ? new URLSearchParams()
-          : new URLSearchParams(searchParams);
-      for (const [key, value] of Object.entries(cmd.filters)) {
-        const paramKey = `f_${key}`;
-        if (value === null || value === "") {
-          next.delete(paramKey);
-        } else {
-          next.set(paramKey, value);
-        }
-      }
-      setSearchParams(next, { replace: true });
-    }
-
     qc.setQueryData(["navigate-command"], null);
-  }, [navCommand, navigate, qc, searchParams, setSearchParams]);
+  }, [navCommand, navigate, qc]);
 }

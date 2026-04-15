@@ -171,6 +171,105 @@ function createRefreshScreenEntry(): Record<string, ActionEntry> {
 const SCREEN_REFRESH_KEY = "__screen_refresh__";
 
 /**
+ * Creates the `set-search-params` / `set-url-path` tools. Writes a one-shot
+ * URL command to application_state; the client's URLSync component applies
+ * it via react-router (no full page reload) and then deletes the command.
+ *
+ * This is how the agent edits URL state — filter query params, route
+ * changes, hash — without needing a per-template navigate action. The
+ * current URL is visible to the agent via the auto-injected `<current-url>`
+ * block, which includes parsed search params.
+ */
+function createUrlTools(): Record<string, ActionEntry> {
+  return {
+    "set-search-params": {
+      tool: {
+        description:
+          "Update the URL query string on the user's current page. Use this to change dashboard/list filters, search terms, or any other state the app stores in `?foo=bar` style query params. One-shot — the UI applies it in ~1s without a page reload. See the current URL + parsed search params in the auto-injected `<current-url>` block. Keys are the exact query param names as they appear in the URL (e.g. `f_pubDateStart`, not just `pubDateStart`). Set a value to null or empty string to clear that param. By default merges over existing params — pass `merge: false` to replace them all.",
+        parameters: {
+          type: "object",
+          properties: {
+            params: {
+              type: "object",
+              description:
+                'Map of query param → value. Each value is a string, or null/"" to clear. Example: {"f_pubDateStart": null, "f_cadence": "MONTH"}.',
+            },
+            merge: {
+              type: "string",
+              description:
+                '"true" (default) merges over existing params; "false" replaces them entirely.',
+              enum: ["true", "false"],
+            },
+          },
+          required: ["params"],
+        },
+      },
+      run: async (args) => {
+        const params = (args?.params ?? {}) as unknown as Record<
+          string,
+          string | null
+        >;
+        const merge = (args as any)?.merge !== "false";
+        const { writeAppState } =
+          await import("../application-state/script-helpers.js");
+        await writeAppState("__set_url__", {
+          searchParams: params,
+          mergeSearchParams: merge,
+        });
+        const keys = Object.keys(params);
+        return `set-search-params: ${keys.length} key${keys.length === 1 ? "" : "s"}${merge ? "" : " (replace)"}`;
+      },
+    },
+    "set-url-path": {
+      tool: {
+        description:
+          "Navigate the user to a different pathname, optionally also setting search params. For most template-specific routing prefer the template's `navigate` action if it exists — this is the generic fallback. One-shot, applied by the client without a page reload.",
+        parameters: {
+          type: "object",
+          properties: {
+            pathname: {
+              type: "string",
+              description: "New URL pathname (e.g. '/adhoc/weekly').",
+            },
+            params: {
+              type: "object",
+              description:
+                'Optional query params to set alongside the path change. String values set, null/"" clears.',
+            },
+            merge: {
+              type: "string",
+              description:
+                '"true" (default) merges over existing params; "false" starts fresh.',
+              enum: ["true", "false"],
+            },
+          },
+          required: ["pathname"],
+        },
+      },
+      run: async (args) => {
+        const pathname = String(args?.pathname ?? "");
+        if (!pathname.startsWith("/")) {
+          return "Error: pathname must start with '/'.";
+        }
+        const params = (args?.params ?? {}) as unknown as Record<
+          string,
+          string | null
+        >;
+        const merge = (args as any)?.merge !== "false";
+        const { writeAppState } =
+          await import("../application-state/script-helpers.js");
+        await writeAppState("__set_url__", {
+          pathname,
+          searchParams: params,
+          mergeSearchParams: merge,
+        });
+        return `set-url-path: ${pathname}`;
+      },
+    },
+  };
+}
+
+/**
  * Creates db-* tools (db-query, db-exec, db-patch, db-schema) as native tools.
  * These let the agent read and write the app's own SQL database. Scoping to
  * the current user/org is enforced automatically in production via temp views.
@@ -1036,7 +1135,7 @@ const FRAMEWORK_CORE = `
 ### Core Rules
 
 1. **Data lives in SQL** — All app state is in a SQL database (could be SQLite, Postgres, Turso, or Cloudflare D1 — never assume which). Use the available database tools.
-2. **Context awareness** — The user's current screen state is automatically included in each message as a \`<current-screen>\` block. Use it to understand what the user is looking at. You can still call \`view-screen\` for a more detailed snapshot if needed, but you should NOT need to call it before every action.
+2. **Context awareness** — The user's current screen state is automatically included in each message as a \`<current-screen>\` block, and the current URL (path + search params) as a \`<current-url>\` block. Use both to understand what the user is looking at — filters, search terms, and other URL-driven state live in \`<current-url>\`'s \`searchParams\`, NOT in the settings table. To change URL state (e.g. toggle a filter, clear a query string), use the \`set-search-params\` or \`set-url-path\` tools — never try to edit URL state by writing to settings or application_state directly.
 3. **Navigate the UI** — Use the \`navigate\` tool to switch views, open items, or focus elements for the user.
 4. **Application state** — Ephemeral UI state (drafts, selections, navigation) lives in \`application_state\`. Use \`readAppState\`/\`writeAppState\` to read and write it. When you write state, the UI updates automatically.
 5. **Refresh after on-screen data changes** — Whenever you mutate data that is visible on the user's CURRENT screen (editing a dashboard config, updating a form schema, changing a row in a table they're viewing, etc.), call \`refresh-screen\` as your final step. The UI re-fetches its queries without a full page reload. Do NOT tell the user to reload the page — call \`refresh-screen\` instead. Skip it only when you're certain the change isn't on the current screen.
@@ -1607,6 +1706,7 @@ export function createAgentChatPlugin(
     const docsScripts = await createDocsScriptEntries();
     const dbScripts = await createDbScriptEntries();
     const refreshScreenTool = createRefreshScreenEntry();
+    const urlTools = createUrlTools();
     const engineScripts = await createAgentEngineScriptEntries();
     const chatScripts = {
       ...(await createChatScriptEntries()),
@@ -1775,6 +1875,7 @@ export function createAgentChatPlugin(
           ...docsScripts,
           ...dbScripts,
           ...refreshScreenTool,
+          ...urlTools,
           ...chatScripts,
           ...callAgentScript,
           ...browserTools,
@@ -1891,6 +1992,7 @@ export function createAgentChatPlugin(
               ...docsScripts,
               ...dbScripts,
               ...refreshScreenTool,
+              ...urlTools,
               ...chatScripts,
               ...browserTools,
             };
@@ -2009,6 +2111,7 @@ export function createAgentChatPlugin(
               ...docsScripts,
               ...dbScripts,
               ...refreshScreenTool,
+              ...urlTools,
               ...chatScripts,
             };
 
@@ -2177,6 +2280,7 @@ export function createAgentChatPlugin(
               ...docsScripts,
               ...dbScripts,
               ...refreshScreenTool,
+              ...urlTools,
               ...chatScripts,
             },
       getEngine: () =>
@@ -2206,6 +2310,7 @@ export function createAgentChatPlugin(
       ...docsScripts,
       ...dbScripts,
       ...refreshScreenTool,
+      ...urlTools,
       ...chatScripts,
       ...callAgentScript,
       ...teamTools,
