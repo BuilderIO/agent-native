@@ -117,7 +117,20 @@ export default function SqlDashboardPage() {
     );
     if (hasUrlFilters) return;
 
-    // Apply saved filter defaults
+    // If the agent just wrote the URL via set-search-params (URLSync in
+    // AgentPanel.tsx sets this), don't clobber it with saved defaults.
+    // The agent's write is authoritative for the current intent.
+    try {
+      const appliedAt = Number(
+        sessionStorage.getItem("__agentUrlAppliedAt__") || 0,
+      );
+      if (appliedAt && Date.now() - appliedAt < 5000) return;
+    } catch {
+      // sessionStorage unavailable — fall through.
+    }
+
+    // Apply saved filter defaults — use replace so the restore doesn't
+    // leave an extra history entry behind the user's actual nav.
     if (savedFilters?.filters && Object.keys(savedFilters.filters).length > 0) {
       setSearchParams(
         (prev) => {

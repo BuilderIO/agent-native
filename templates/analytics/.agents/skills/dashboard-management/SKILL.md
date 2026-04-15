@@ -11,7 +11,7 @@ Dashboards are the primary UI for visualizing data. Each dashboard is a configur
 
 ## Storage
 
-Dashboards are stored in the app's SQL `settings` table. The agent reads and writes them using the standard `db-query` / `db-exec` / `db-patch` tools — this is the same path any SQL access takes and is automatically scoped to the current user/org.
+Dashboards are stored in the app's SQL `settings` table. For SQL dashboards, **always use the `update-dashboard` action** — it resolves org vs. user scope correctly so edits land on the row the UI actually renders. Only drop down to raw `db-query` / `db-exec` / `db-patch` when you need to edit a non-dashboard setting.
 
 Key patterns:
 
@@ -21,7 +21,15 @@ Key patterns:
 - `u:<email>:sql-dashboard-{id}` — user-scoped SQL dashboard
 - `o:<orgId>:sql-dashboard-{id}` — org-scoped SQL dashboard (most common for team deployments)
 
-The settings table is scoped by key prefix — the framework automatically shows only rows whose key matches the active user/org (`u:<email>:*` or `o:<orgId>:*`). You'll still see unscoped keys (e.g. bare `sql-dashboard-foo`) for backward compatibility.
+### Scope resolution (IMPORTANT)
+
+When the same dashboard id exists under multiple scopes (e.g. both `u:<email>:sql-dashboard-foo` AND `o:<orgId>:sql-dashboard-foo`), the UI renders **one** of them based on the active context. Priority is **org > user > global**:
+
+1. If the signed-in user has an active org, the app reads `o:<orgId>:sql-dashboard-{id}`.
+2. Else it reads `u:<email>:sql-dashboard-{id}`.
+3. Else it falls back to the bare `sql-dashboard-{id}`.
+
+**Hard rule: if you use raw `db-patch` on the `settings` table, do NOT just pick the first `LIKE '%dashboard-id%'` match.** Patching the `u:` row when the user is in an org writes to a row the UI never reads — the screen will look unchanged and `refresh-screen` won't help. Either use `update-dashboard` (recommended), or query the active scope first (`SELECT AGENT_ORG_ID` context) and patch the matching key.
 
 ```ts
 // In server/action code you can use the settings API directly:
@@ -74,9 +82,28 @@ The UI picks up the new dashboard via SSE events on settings changes.
 
 ## Modifying a Dashboard
 
-1. Read the current config with `db-query`.
-2. For small edits (rename a column, change a label, tweak one SQL snippet), use `db-patch` — it sends only the find/replace pair, not the whole JSON.
-3. For structural changes, re-serialize the full config and run `db-exec UPDATE settings SET value = '<json>' WHERE key = '...'`.
+**Preferred:** use the `update-dashboard` action — it's scope-aware and handles org/user/global resolution automatically:
+
+```
+# Reorder panels (move the panel at /panels/2 to position 0):
+pnpm action update-dashboard --id devrel-leaderboard \
+  --ops '[{"op":"move","from":"/panels/2","path":"/panels/0"}]'
+
+# Rename a panel title:
+pnpm action update-dashboard --id devrel-leaderboard \
+  --ops '[{"op":"replace","path":"/panels/0/title","value":"Top Articles"}]'
+
+# Replace the whole config:
+pnpm action update-dashboard --id devrel-leaderboard --config '<full json>'
+```
+
+After any mutation, call `refresh-screen` so the user's open dashboard re-fetches.
+
+Fallback (only for non-dashboard settings, or when `update-dashboard` can't express the edit):
+
+1. Read the current config with `db-query`. If both `u:` and `o:` rows exist, patch the one matching the active scope (see "Scope resolution" above).
+2. For small edits, use `db-patch` with `--find` / `--replace` or `--json-ops`.
+3. For full rewrites, use `db-exec UPDATE settings SET value = '<json>' WHERE key = '...'` — specifying the exact scoped key.
 
 The UI updates automatically via SSE.
 
@@ -225,30 +252,32 @@ Numeric formats render right-aligned with tabular nums. `link` opens in a new ta
 
 ### Reading and writing dashboards
 
-Dashboards live in the `settings` table. The agent reads and writes them via the standard `db-query` / `db-exec` / `db-patch` tools — these work in both dev and prod and are automatically scoped to the current user/org (so you'll only see your own rows, and `owner_email` / `org_id` are auto-injected on INSERT).
-
-**Read a dashboard:**
+**Always use `update-dashboard` to edit SQL dashboards.** It reads from the correct scope (org > user > global), applies JSON-patch-style ops in memory, and writes back to the same scope — so the row the UI renders is the one that changes.
 
 ```
-db-query --sql "SELECT key, value FROM settings WHERE key = 'sql-dashboard-devrel-leaderboard'"
+# Edit: reorder panels, insert/remove/rename, or set any field by JSON Pointer.
+pnpm action update-dashboard --id devrel-leaderboard \
+  --ops '[{"op":"move","from":"/panels/2","path":"/panels/0"}]'
+
+# Replace whole config (creation or full rewrite):
+pnpm action update-dashboard --id devrel-leaderboard --config '<json>'
 ```
 
-**List all SQL dashboards visible to the current user/org:**
+**Read a dashboard** (read-only lookups are still fine via `db-query` — just be aware multiple rows may exist):
 
 ```
-db-query --sql "SELECT key FROM settings WHERE key LIKE 'sql-dashboard-%'"
+db-query --sql "SELECT key, value FROM settings WHERE key LIKE 'sql-dashboard-devrel-leaderboard' OR key LIKE '%:sql-dashboard-devrel-leaderboard'"
 ```
 
-**Create or replace a dashboard config** (use db-exec with a parameterized value):
+**List all SQL dashboards:**
 
 ```
-db-exec --sql "INSERT INTO settings (key, value) VALUES ('sql-dashboard-devrel-leaderboard', '<json>') ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"
+db-query --sql "SELECT key FROM settings WHERE key LIKE '%sql-dashboard-%'"
 ```
 
-**Modify a small slice of an existing dashboard config** (preferred — saves tokens vs re-sending the whole JSON):
+After any edit, navigate the user or refresh their screen:
 
 ```
-db-patch --table settings --column value --where "key = 'sql-dashboard-devrel-leaderboard'" --find '"title":"Old"' --replace '"title":"New"'
+pnpm action navigate --view=adhoc --dashboardId=devrel-leaderboard
+# or, if they're already on the dashboard, call the built-in refresh-screen tool.
 ```
-
-Then navigate the user: `pnpm action navigate --view=adhoc --dashboardId=devrel-leaderboard`.
