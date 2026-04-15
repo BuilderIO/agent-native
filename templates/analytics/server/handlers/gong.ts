@@ -3,7 +3,9 @@ import { requireCredential } from "../lib/credentials";
 import { getCalls, searchCalls, getUsers } from "../lib/gong";
 
 export const handleGongCalls = defineEventHandler(async (event) => {
-  const missing = await requireCredential(event, "GONG_ACCESS_KEY", "Gong");
+  const missing =
+    (await requireCredential(event, "GONG_ACCESS_KEY", "Gong")) ||
+    (await requireCredential(event, "GONG_ACCESS_SECRET", "Gong"));
   if (missing) return missing;
   try {
     const { company, days: daysParam } = getQuery(event);
@@ -27,7 +29,9 @@ export const handleGongCalls = defineEventHandler(async (event) => {
 });
 
 export const handleGongUsers = defineEventHandler(async (event) => {
-  const missing = await requireCredential(event, "GONG_ACCESS_KEY", "Gong");
+  const missing =
+    (await requireCredential(event, "GONG_ACCESS_KEY", "Gong")) ||
+    (await requireCredential(event, "GONG_ACCESS_SECRET", "Gong"));
   if (missing) return missing;
   try {
     const users = await getUsers();

@@ -5,9 +5,15 @@ import {
   useState,
   useImperativeHandle,
 } from "react";
-import { IconAlertCircle, IconRefresh } from "@tabler/icons-react";
+import {
+  IconAlertCircle,
+  IconRefresh,
+  IconCopy,
+  IconCheck,
+  IconTerminal2,
+} from "@tabler/icons-react";
 import type { AppDefinition, AppConfig } from "@shared/app-registry";
-import { getAppUrl } from "@shared/app-registry";
+import { getAppUrl, FRAME_PORT } from "@shared/app-registry";
 
 const IS_DEV = window.location.protocol !== "file:";
 
@@ -55,8 +61,11 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
   ({ app, appConfig, isActive, refreshKey = 0 }: AppWebviewProps, ref) => {
     const webviewRef = useRef<ElectronWebviewElement>(null);
     const [error, setError] = useState(false);
+    const [isLoading, setIsLoading] = useState(true);
+    const [slowLoad, setSlowLoad] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const url = resolveUrl(app, appConfig);
+    const isDevMode = appConfig?.mode === "dev";
     const optimizeDepRecoveryRef = useRef(false);
 
     useImperativeHandle(
@@ -113,6 +122,8 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
 
       const onReady = () => {
         setError(false);
+        setIsLoading(false);
+        setSlowLoad(false);
         optimizeDepRecoveryRef.current = false;
         reportActiveWebview();
       };
@@ -129,6 +140,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           return;
         }
         setError(true);
+        setIsLoading(false);
       };
       const onConsoleMessage = (e: Event) => {
         const message = String((e as any).message || "");
@@ -171,12 +183,23 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       }
     }, [refreshKey, isActive, app.placeholder]);
 
+    // If the webview hasn't fired dom-ready within a few seconds, surface
+    // a "still loading" hint. If it's still not ready after a bit longer,
+    // assume the dev server isn't running and show the error screen.
     useEffect(() => {
-      if (isActive && error && !app.placeholder) {
-        handleRetry();
-      }
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isActive]);
+      if (app.placeholder || error || !isLoading) return;
+      const slowT = setTimeout(() => setSlowLoad(true), 2500);
+      const failT = setTimeout(() => {
+        if (isLoading) {
+          setError(true);
+          setIsLoading(false);
+        }
+      }, 8000);
+      return () => {
+        clearTimeout(slowT);
+        clearTimeout(failT);
+      };
+    }, [app.placeholder, error, isLoading, url]);
 
     // Auto-focus the webview when it becomes active so keyboard events
     // (e.g. Tab to cycle mail filters) go to the app, not the shell.
@@ -204,9 +227,27 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
 
     function handleRetry() {
       setError(false);
+      setIsLoading(true);
+      setSlowLoad(false);
       const wv = webviewRef.current;
       if (wv) {
-        wv.src = url;
+        try {
+          wv.reloadIgnoringCache();
+        } catch {
+          wv.src = url;
+        }
+      }
+    }
+
+    async function handleSwitchToProd() {
+      if (!appConfig?.id) return;
+      try {
+        await window.electronAPI?.appConfig?.update(appConfig.id, {
+          mode: "prod",
+        });
+        // Reload will happen when parent re-renders with new appConfig.
+      } catch {
+        /* ignore */
       }
     }
 
@@ -223,12 +264,20 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       >
         {app.placeholder && <PlaceholderScreen app={app} />}
 
+        {!app.placeholder && !error && isLoading && (
+          <LoadingScreen app={app} slow={slowLoad} isDev={isDevMode} />
+        )}
+
         {!app.placeholder && error && (
           <ErrorScreen
             app={app}
             appConfig={appConfig}
             url={url}
+            isDev={isDevMode}
             onRetry={handleRetry}
+            onSwitchToProd={
+              appConfig?.url && isDevMode ? handleSwitchToProd : undefined
+            }
           />
         )}
 
@@ -249,36 +298,136 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
 
 export default AppWebview;
 
+function LoadingScreen({
+  app,
+  slow,
+  isDev,
+}: {
+  app: AppDefinition;
+  slow: boolean;
+  isDev: boolean;
+}) {
+  return (
+    <div className="loading-overlay">
+      <div className="loading-spinner" style={{ borderTopColor: app.color }} />
+      <p className="loading-title">Loading {app.name}…</p>
+      {slow && (
+        <p className="loading-hint">
+          {isDev ? "Still connecting to the dev server…" : "Still loading…"}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function ErrorScreen({
   app,
   appConfig,
   url,
+  isDev,
   onRetry,
+  onSwitchToProd,
 }: {
   app: AppDefinition;
   appConfig?: AppConfig;
   url: string;
+  isDev: boolean;
   onRetry: () => void;
+  onSwitchToProd?: () => void;
 }) {
+  const [copied, setCopied] = useState(false);
+  const devCommand = appConfig?.devCommand?.trim();
+
+  const title = isDev
+    ? "Dev server not running"
+    : `Couldn't connect to ${app.name}`;
+  const subtitle = isDev
+    ? `${app.name} couldn't be reached at ${url}.`
+    : `Check that ${app.name} is running at ${url}.`;
+
+  async function copyCommand(cmd: string) {
+    try {
+      await navigator.clipboard.writeText(cmd);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* ignore */
+    }
+  }
+
   return (
     <div className="error-overlay">
       <IconAlertCircle size={40} className="error-icon" />
-      <p className="error-title">Could not connect to {app.name}</p>
-      <p className="error-hint">
-        {appConfig?.devCommand ? (
-          <>
-            Run: <code>{appConfig.devCommand}</code>
-          </>
-        ) : (
-          <>
-            Make sure the app is running at <code>{url}</code>
-          </>
+      <p className="error-title">{title}</p>
+      <p className="error-hint">{subtitle}</p>
+
+      {isDev && (
+        <div className="error-commands">
+          {devCommand ? (
+            <CommandRow
+              label={`Start ${app.name}`}
+              command={devCommand}
+              copied={copied}
+              onCopy={() => copyCommand(devCommand)}
+            />
+          ) : (
+            <p className="error-hint error-hint--muted">
+              Tip: set a dev command for this app in Settings so it appears
+              here.
+            </p>
+          )}
+          <p className="error-hint error-hint--muted">
+            The local frame also needs to be running on port {FRAME_PORT}.
+          </p>
+        </div>
+      )}
+
+      <div className="error-actions">
+        <button className="retry-button" onClick={onRetry}>
+          <IconRefresh size={11} style={{ marginRight: 5 }} />
+          Retry
+        </button>
+        {onSwitchToProd && (
+          <button
+            className="retry-button retry-button--primary"
+            onClick={onSwitchToProd}
+          >
+            Use Production
+          </button>
         )}
-      </p>
-      <button className="retry-button" onClick={onRetry}>
-        <IconRefresh size={11} style={{ display: "inline", marginRight: 5 }} />
-        Retry
-      </button>
+      </div>
+    </div>
+  );
+}
+
+function CommandRow({
+  label,
+  command,
+  copied,
+  onCopy,
+}: {
+  label: string;
+  command: string;
+  copied: boolean;
+  onCopy: () => void;
+}) {
+  return (
+    <div className="command-row">
+      <div className="command-row__label">
+        <IconTerminal2 size={12} style={{ marginRight: 6, opacity: 0.6 }} />
+        {label}
+      </div>
+      <div className="command-row__code">
+        <code>{command}</code>
+        <button
+          className="command-copy"
+          onClick={onCopy}
+          title="Copy command"
+          aria-label="Copy command"
+        >
+          {copied ? <IconCheck size={12} /> : <IconCopy size={12} />}
+        </button>
+      </div>
     </div>
   );
 }
