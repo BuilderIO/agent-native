@@ -66,7 +66,22 @@ async function injectSessionAndReload(token: string) {
   } catch (err) {
     console.error("[main] failed to load apps for session injection:", err);
   }
-  const targets: { session: Electron.Session; origin: string }[] = [];
+  // Per-app cookie name. The framework derives session cookies from APP_NAME
+  // (e.g. an_session_mail, an_session_calendar) so apps don't share one cookie
+  // slot on localhost — browsers scope cookies by host, not host+port. Mirror
+  // that here so each partition gets the right cookie.
+  const cookieNameForApp = (id: string) => {
+    const slug = id
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    return slug ? `an_session_${slug}` : "an_session";
+  };
+  const targets: {
+    session: Electron.Session;
+    origin: string;
+    cookieName: string;
+  }[] = [];
   for (const appConfig of apps) {
     const sess = session.fromPartition(`persist:app-${appConfig.id}`);
     // Dev-mode apps load through the frame (localhost:3334); prod-mode apps
@@ -85,32 +100,43 @@ async function injectSessionAndReload(token: string) {
         );
       }
     }
-    targets.push({ session: sess, origin });
+    targets.push({
+      session: sess,
+      origin,
+      cookieName: cookieNameForApp(appConfig.id),
+    });
   }
   // Also cover any currently-live webview origins not matched above
-  // (e.g. production URLs).
-  const seenOrigins = new Set<string>(targets.map((t) => t.origin));
+  // (e.g. production URLs). For unknown origins we don't know which app they
+  // belong to, so set the legacy cookie name as a fallback.
+  const seen = new Set<string>(
+    targets.map((t) => `${t.origin}|${t.cookieName}`),
+  );
   for (const wc of webContents.getAllWebContents()) {
     if (wc.getType() !== "webview") continue;
     try {
       const origin = new URL(wc.getURL()).origin;
-      if (seenOrigins.has(origin)) continue;
-      seenOrigins.add(origin);
-      targets.push({ session: wc.session, origin });
+      const key = `${origin}|an_session`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      targets.push({ session: wc.session, origin, cookieName: "an_session" });
     } catch {}
   }
-  for (const { session: sess, origin } of targets) {
+  for (const { session: sess, origin, cookieName } of targets) {
     try {
       await sess.cookies.set({
         url: origin,
-        name: "an_session",
+        name: cookieName,
         value: token,
         httpOnly: true,
         path: "/",
         expirationDate: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60,
       });
     } catch (err) {
-      console.error(`[main] cookie.set failed for ${origin}:`, err);
+      console.error(
+        `[main] cookie.set (${cookieName}) failed for ${origin}:`,
+        err,
+      );
     }
   }
   reloadAllWebviews();
