@@ -59,6 +59,11 @@ function renderInline(text: string): string {
       .replace(/_(.+?)_/g, "<em>$1</em>")
       // Inline code
       .replace(/`([^`]+)`/g, "<code>$1</code>")
+      // Images — must run before the link pattern since ![alt](url) contains [alt](url)
+      .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_m, alt, rawUrl) => {
+        const safe = sanitizeUrl(rawUrl);
+        return `<img src="${escapeHtml(safe)}" alt="${alt}" loading="lazy" />`;
+      })
       // Links — sanitize URL to block javascript:/data:/vbscript:/file:
       .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, label, rawUrl) => {
         const safe = sanitizeUrl(rawUrl);

@@ -81,8 +81,6 @@ export default function QueryExplorer() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold tracking-tight">Query Explorer</h2>
-
       <Card className="bg-card border-border/50">
         <CardHeader>
           <CardTitle className="text-base">SQL Query</CardTitle>

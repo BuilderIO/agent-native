@@ -61,14 +61,9 @@ export default function AnalysesList() {
     <>
       {codeRequiredDialog}
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Analyses</h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Ad-hoc analyses that can be re-run anytime for fresh results
-            </p>
-          </div>
-        </div>
+        <p className="text-sm text-muted-foreground">
+          Ad-hoc analyses that can be re-run anytime for fresh results
+        </p>
 
         {isLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

@@ -25,6 +25,10 @@ import { Link, useNavigate } from "react-router";
 import { getIdToken } from "@/lib/auth";
 import { useSendToAgentChat } from "@agent-native/core/client";
 import Markdown from "@/components/Markdown";
+import {
+  useSetPageTitle,
+  useSetHeaderActions,
+} from "@/components/layout/HeaderActions";
 
 interface Analysis {
   id: string;
@@ -101,6 +105,51 @@ export default function AnalysisDetail() {
     navigate("/analyses");
   };
 
+  useSetPageTitle(
+    analysis ? (
+      <h1 className="text-lg font-semibold tracking-tight truncate">
+        {analysis.name}
+      </h1>
+    ) : null,
+  );
+
+  useSetHeaderActions(
+    analysis ? (
+      <>
+        <Button
+          variant="default"
+          size="sm"
+          onClick={handleRerun}
+          disabled={isGenerating}
+        >
+          <IconRefresh className="h-4 w-4 mr-1.5" />
+          Re-run
+        </Button>
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button variant="ghost" size="sm">
+              <IconTrash className="h-4 w-4" />
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete analysis?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will permanently delete "{analysis.name}" and its results.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={handleDelete}>
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </>
+    ) : null,
+  );
+
   if (isLoading) {
     return (
       <div className="space-y-6">
@@ -138,51 +187,11 @@ export default function AnalysisDetail() {
             <IconArrowLeft className="h-3 w-3" />
             All analyses
           </Link>
-          <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0">
-              <h1 className="text-2xl font-bold tracking-tight">
-                {analysis.name}
-              </h1>
-              {analysis.description && (
-                <p className="text-sm text-muted-foreground mt-1">
-                  {analysis.description}
-                </p>
-              )}
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <Button
-                variant="default"
-                size="sm"
-                onClick={handleRerun}
-                disabled={isGenerating}
-              >
-                <IconRefresh className="h-4 w-4 mr-1.5" />
-                Re-run
-              </Button>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button variant="ghost" size="sm">
-                    <IconTrash className="h-4 w-4" />
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Delete analysis?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This will permanently delete "{analysis.name}" and its
-                      results.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleDelete}>
-                      Delete
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            </div>
-          </div>
+          {analysis.description && (
+            <p className="text-sm text-muted-foreground">
+              {analysis.description}
+            </p>
+          )}
 
           {/* Metadata bar */}
           <div className="flex flex-wrap items-center gap-3 mt-3 text-xs text-muted-foreground">

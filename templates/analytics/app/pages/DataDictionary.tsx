@@ -42,6 +42,7 @@ import {
   IconSearch,
   IconExternalLink,
 } from "@tabler/icons-react";
+import { useSetHeaderActions } from "@/components/layout/HeaderActions";
 
 interface DictionaryEntry {
   id: string;
@@ -123,25 +124,20 @@ export default function DataDictionary() {
     [entries],
   );
 
+  useSetHeaderActions(
+    <Button size="sm" onClick={() => setEditing({ ...EMPTY_ENTRY })}>
+      <IconPlus className="h-4 w-4 mr-1" />
+      New entry
+    </Button>,
+  );
+
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <IconBook2 className="h-6 w-6 text-primary" />
-            Data Dictionary
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
-            The catalog of metrics, tables, and business definitions the
-            analytics agent uses when building dashboards from prompts. Keep
-            entries accurate and the agent will stop guessing about your data.
-          </p>
-        </div>
-        <Button onClick={() => setEditing({ ...EMPTY_ENTRY })}>
-          <IconPlus className="h-4 w-4 mr-1" />
-          New entry
-        </Button>
-      </div>
+      <p className="text-sm text-muted-foreground max-w-2xl">
+        The catalog of metrics, tables, and business definitions the analytics
+        agent uses when building dashboards from prompts. Keep entries accurate
+        and the agent will stop guessing about your data.
+      </p>
 
       <div className="relative max-w-md">
         <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
