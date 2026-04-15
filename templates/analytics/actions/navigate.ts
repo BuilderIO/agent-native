@@ -4,7 +4,7 @@ import { writeAppState } from "@agent-native/core/application-state";
 
 export default defineAction({
   description:
-    "Navigate the UI to a specific view or dashboard. Writes a navigate command to application state which the UI reads and auto-deletes.",
+    "Navigate the UI to a specific view or dashboard. For filter changes (dashboard filter query params like ?f_date=...), use the framework-level `set-search-params` tool instead of this action.",
   schema: z.object({
     view: z
       .string()

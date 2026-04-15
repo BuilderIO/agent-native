@@ -3,7 +3,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useParams, useNavigate, useSearchParams } from "react-router";
 import { cn } from "@/lib/utils";
 import { EmailList, InboxZero } from "@/components/email/EmailList";
-import { groupIntoThreads } from "@/lib/threads";
+import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
 import { EmailThread } from "@/components/email/EmailThread";
 import { useComposeState } from "@/hooks/use-compose-state";
 import {
@@ -149,6 +149,12 @@ function ThreadListSidebar({
   );
 }
 
+// Stable references for the default "empty" fallbacks of useQuery data —
+// using `[]` inline creates a fresh array on every render, which cascades
+// through memos into EmailThread's props and causes re-render storms.
+const EMPTY_ACCOUNTS: { email: string; displayName?: string }[] = [];
+const EMPTY_LABELS: string[] = [];
+
 export function InboxPage() {
   const { view = "inbox", threadId } = useParams<{
     view: string;
@@ -179,18 +185,35 @@ export function InboxPage() {
   const googleStatus = useGoogleAuthStatus();
   const { activeAccounts } = useAccountFilter();
 
-  const connectedAccounts = googleStatus.data?.accounts ?? [];
+  // Memoize every derived array — the emails memo depends on these, and fresh
+  // array refs on every render were cascading into EmailThread as unstable
+  // threads/emailIds props.
+  const connectedAccounts = useMemo(
+    () => googleStatus.data?.accounts ?? EMPTY_ACCOUNTS,
+    [googleStatus.data?.accounts],
+  );
   const isGoogleConnected = connectedAccounts.length > 0;
   const connectedEmails = useMemo(
     () => new Set(connectedAccounts.map((a) => a.email.toLowerCase())),
     [connectedAccounts],
   );
-  const userPinnedLabels = settings?.pinnedLabels ?? [];
-  const pinnedLabels = isGoogleConnected
-    ? ["important", ...userPinnedLabels.filter((id) => id !== "important")]
-    : userPinnedLabels;
-  const pinnedUserLabels = pinnedLabels.filter(
-    (id) => !["starred", "sent", "drafts", "archive", "trash"].includes(id),
+  const userPinnedLabels = useMemo(
+    () => settings?.pinnedLabels ?? EMPTY_LABELS,
+    [settings?.pinnedLabels],
+  );
+  const pinnedLabels = useMemo(
+    () =>
+      isGoogleConnected
+        ? ["important", ...userPinnedLabels.filter((id) => id !== "important")]
+        : userPinnedLabels,
+    [isGoogleConnected, userPinnedLabels],
+  );
+  const pinnedUserLabels = useMemo(
+    () =>
+      pinnedLabels.filter(
+        (id) => !["starred", "sent", "drafts", "archive", "trash"].includes(id),
+      ),
+    [pinnedLabels],
   );
   const hasNoteToSelf = pinnedLabels.includes("note-to-self");
 
@@ -337,7 +360,31 @@ export function InboxPage() {
     // Delete the command file so it doesn't re-trigger
     navState.clearCommand();
   }, [navCommand, view, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
-  const threads = useMemo(() => groupIntoThreads(emails), [emails]);
+  // Stable-identity pattern: keep the previous array reference when the
+  // content hasn't meaningfully changed. Without this, markThreadRead's
+  // optimistic update (which rebuilds the emails array for a single isRead
+  // flip) produces a new `threads` reference on every unread-open, which
+  // cascades through EmailThread's props and re-renders the whole detail
+  // view. With this, the props only change when the list of threads (or
+  // their latest-message identities) actually changes.
+  const rawThreads = useMemo(() => groupIntoThreads(emails), [emails]);
+  const prevThreadsRef = useRef<ThreadSummary[]>([]);
+  const threads = useMemo(() => {
+    const prev = prevThreadsRef.current;
+    if (
+      prev.length === rawThreads.length &&
+      prev.every(
+        (t, i) =>
+          t.latestMessage.id === rawThreads[i].latestMessage.id &&
+          t.latestMessage.threadId === rawThreads[i].latestMessage.threadId &&
+          t.hasUnread === rawThreads[i].hasUnread,
+      )
+    ) {
+      return prev;
+    }
+    prevThreadsRef.current = rawThreads;
+    return rawThreads;
+  }, [rawThreads]);
   const threadIds = useMemo(
     () => threads.map((t) => t.latestMessage.threadId || t.latestMessage.id),
     [threads],

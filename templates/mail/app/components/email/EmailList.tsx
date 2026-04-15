@@ -5,7 +5,6 @@ import { cn } from "@/lib/utils";
 import { EmailListItem } from "./EmailListItem";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import {
-  fetchThreadMessages,
   useEmails,
   useMarkRead,
   useMarkThreadRead,
@@ -14,8 +13,10 @@ import {
   useUnarchiveEmail,
   useTrashEmail,
   useUntrashEmail,
+  unsuppressThread,
 } from "@/hooks/use-emails";
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
+import { ensureThread, warmThreads } from "@/lib/thread-cache";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import type { EmailMessage } from "@shared/types";
 
@@ -273,15 +274,16 @@ export function EmailList({
     // Enter on a single focused row is a single-thread action — clear any
     // in-progress multi-selection so shortcuts in detail view start fresh.
     setSelectedIds(new Set());
-    if (thread.hasUnread) {
-      markThreadRead.mutate(targetThreadId);
-    }
-    void queryClient.prefetchQuery({
-      queryKey: ["thread-messages", targetThreadId],
-      queryFn: () => fetchThreadMessages(targetThreadId),
-      staleTime: 30_000,
-    });
+    void ensureThread(targetThreadId);
     navigate(`/${view}/${targetThreadId}${labelSuffix}`);
+    // Defer the mark-read mutation past the navigation commit. Its onMutate
+    // calls setQueriesData on the whole ['emails'] tree; running it before
+    // React commits the route change stalls reconciliation and delays the
+    // detail view's first render by hundreds of ms. setTimeout(0) pushes it
+    // to the next macrotask, after React has committed the navigation.
+    if (thread.hasUnread) {
+      setTimeout(() => markThreadRead.mutate(targetThreadId), 0);
+    }
   }, [
     threads,
     view,
@@ -318,7 +320,13 @@ export function EmailList({
     );
     if (remaining.length > 0) {
       const nextIdx = Math.min(lastIdx, remaining.length - 1);
-      setFocusedId(remaining[nextIdx].latestMessage.id);
+      const nextThread = remaining[nextIdx];
+      setFocusedId(nextThread.latestMessage.id);
+      // Warm the thread that's about to take focus so repeated `e` stays
+      // instant down the list.
+      const nextTid =
+        nextThread.latestMessage.threadId || nextThread.latestMessage.id;
+      void ensureThread(nextTid);
     } else {
       setFocusedId(null);
     }
@@ -331,6 +339,7 @@ export function EmailList({
     for (const id of emailIds) onArchived?.(id);
 
     const undo = () => {
+      for (const key of threadKeys) unsuppressThread(key);
       queryClient.setQueriesData<InfiniteEmails>(
         { queryKey: ["emails"] },
         (old) => {
@@ -413,6 +422,7 @@ export function EmailList({
     }
 
     const undo = () => {
+      for (const key of threadKeys) unsuppressThread(key);
       queryClient.setQueriesData<InfiniteEmails>(
         { queryKey: ["emails"] },
         (old) => {
@@ -559,65 +569,15 @@ export function EmailList({
     }
   }, [threads, focusedId, setFocusedId]);
 
-  // Prefetch ±1 around focused item for instant j/k response
+  // Warm the cache for ALL visible threads as soon as the list loads.
+  // warmThreads dedupes and caps concurrency so we don't trip Gmail quota.
   useEffect(() => {
-    if (!focusedId) return;
-    const index = threads.findIndex((t) => t.latestMessage.id === focusedId);
-    if (index === -1) return;
-
-    const threadIdsToWarm = new Set<string>();
-    for (const candidate of [
-      threads[index - 1],
-      threads[index],
-      threads[index + 1],
-    ]) {
-      const id =
-        candidate?.latestMessage.threadId || candidate?.latestMessage.id;
-      if (id) threadIdsToWarm.add(id);
-    }
-
-    threadIdsToWarm.forEach((threadId) => {
-      void queryClient.prefetchQuery({
-        queryKey: ["thread-messages", threadId],
-        queryFn: () => fetchThreadMessages(threadId),
-        staleTime: 30_000,
-      });
-    });
-  }, [focusedId, threads, queryClient]);
-
-  // Prefetch all visible threads so any click/Enter opens instantly
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container || threads.length === 0) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
-          const id = (entry.target as HTMLElement).dataset.threadId;
-          if (id) {
-            void queryClient.prefetchQuery({
-              queryKey: ["thread-messages", id],
-              queryFn: () => fetchThreadMessages(id),
-              staleTime: 30_000,
-            });
-          }
-        }
-      },
-      { root: container.querySelector(".overflow-y-auto"), threshold: 0 },
+    if (threads.length === 0) return;
+    const ids = threads.map(
+      (t) => t.latestMessage.threadId || t.latestMessage.id,
     );
-
-    // Observe all rows after a tick (rows need to be rendered)
-    const raf = requestAnimationFrame(() => {
-      const rows = container.querySelectorAll<HTMLElement>("[data-thread-id]");
-      rows.forEach((row) => observer.observe(row));
-    });
-
-    return () => {
-      cancelAnimationFrame(raf);
-      observer.disconnect();
-    };
-  }, [threads, queryClient]);
+    warmThreads(ids);
+  }, [threads]);
 
   // Infinite scroll — fetch next page when the sentinel enters the viewport
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -665,15 +625,13 @@ export function EmailList({
       onDraftOpen(email);
       return;
     }
-    if (thread.hasUnread) {
-      markThreadRead.mutate(targetThreadId);
-    }
-    void queryClient.prefetchQuery({
-      queryKey: ["thread-messages", targetThreadId],
-      queryFn: () => fetchThreadMessages(targetThreadId),
-      staleTime: 30_000,
-    });
+    void ensureThread(targetThreadId);
     navigate(`/${view}/${targetThreadId}${labelSuffix}`);
+    // Defer the optimistic mark-read until after navigation commits — see
+    // matching comment in openFocused above.
+    if (thread.hasUnread) {
+      setTimeout(() => markThreadRead.mutate(targetThreadId), 0);
+    }
   };
 
   const handleStar = (e: React.MouseEvent, thread: ThreadSummary) => {
@@ -709,6 +667,7 @@ export function EmailList({
       onArchived?.(id);
 
       const undo = () => {
+        unsuppressThread(tid);
         queryClient.setQueriesData<InfiniteEmails>(
           { queryKey: ["emails"] },
           (old) => {
@@ -887,11 +846,7 @@ export function EmailList({
               setFocusedId(thread.latestMessage.id);
               const targetThreadId =
                 thread.latestMessage.threadId || thread.latestMessage.id;
-              void queryClient.prefetchQuery({
-                queryKey: ["thread-messages", targetThreadId],
-                queryFn: () => fetchThreadMessages(targetThreadId),
-                staleTime: 30_000,
-              });
+              void ensureThread(targetThreadId);
             }}
             onSwipeArchive={() => handleSwipeArchive(thread)}
             onSwipeSnooze={() => handleSwipeSnooze(thread)}

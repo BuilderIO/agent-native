@@ -402,7 +402,13 @@ async function buildDatabaseConfig(
     // Use postgres.js — same driver as the framework
     const { default: postgres } = await import("postgres");
     const url = getDatabaseUrl();
-    const sql = postgres(url);
+    const sql = postgres(url, {
+      onnotice: () => {},
+      idle_timeout: 240,
+      max_lifetime: 60 * 30,
+      connect_timeout: 10,
+      ...(url.includes("supabase") ? { prepare: false } : {}),
+    });
     const { drizzle } = await import("drizzle-orm/postgres-js");
     const db = drizzle(sql, { schema: pgAuthSchema });
     const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
