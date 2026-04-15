@@ -53,6 +53,9 @@ import {
 } from "./MultiTabAssistantChat.js";
 import type { AssistantChatProps } from "./AssistantChat.js";
 import { useDevMode } from "./use-dev-mode.js";
+import { useScreenRefreshKey } from "./use-db-sync.js";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocation, useNavigate } from "react-router";
 import { cn } from "./utils.js";
 
 // Lazy-load AgentTerminal to avoid bundling xterm.js when not needed
@@ -1170,6 +1173,142 @@ function ResizeHandle({
   );
 }
 
+/**
+ * Remounts its children whenever the framework's `refresh-screen` tool is
+ * invoked. Used inside AgentSidebar so the main content area re-fetches
+ * without disturbing the chat sidebar's in-flight state.
+ *
+ * Two mechanisms work together here:
+ *
+ *  1. Before the remount, every react-query cache entry is marked stale
+ *     via `invalidateQueries({ refetchType: "none" })`. This does NOT
+ *     trigger a refetch on its own, so active queries elsewhere (chat
+ *     sidebar, left nav) keep their current data — they'll refetch only
+ *     on their next natural trigger.
+ *  2. The React `key` then bumps, unmounting and remounting the subtree.
+ *     On remount, child components re-subscribe to their queries, see
+ *     the data is stale, and refetch — regardless of configured
+ *     `staleTime`. This is what makes the dashboard pick up the agent's
+ *     edits even when the query uses `staleTime: 30_000` or similar.
+ */
+/**
+ * Syncs the current URL (pathname + search + hash) to application_state
+ * under `__url__`, and processes one-shot URL-update commands the agent
+ * writes to `__set_url__`. Lives inside AgentSidebar so every framework
+ * template gets URL visibility + URL-write capability for its agent
+ * without per-template wiring.
+ *
+ * Two directions:
+ *   UI → state  — on route change, write `{ pathname, search, hash,
+ *                 searchParams }` to `__url__`. The production agent reads
+ *                 this and includes it in the auto-injected `<current-url>`
+ *                 block, so the agent always knows what page the user is
+ *                 on, including filter/search params like `?f_date=2026-01`.
+ *
+ *   state → UI  — the framework's `set-search-params` / `set-url-path`
+ *                 tools write a command to `__set_url__`. This hook reads
+ *                 the command, applies it via react-router, then deletes
+ *                 the key. The UI reacts in one tick, no page reload.
+ */
+function URLSync() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
+  // Outbound: write the current URL to app-state whenever it changes.
+  React.useEffect(() => {
+    const searchParams: Record<string, string> = {};
+    for (const [k, v] of new URLSearchParams(location.search).entries()) {
+      searchParams[k] = v;
+    }
+    const body = {
+      pathname: location.pathname,
+      search: location.search,
+      hash: location.hash,
+      searchParams,
+    };
+    fetch("/_agent-native/application-state/__url__", {
+      method: "PUT",
+      keepalive: true,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).catch(() => {});
+  }, [location.pathname, location.search, location.hash]);
+
+  // Inbound: poll for URL-update commands from the agent. We piggyback on
+  // the same 2-second cadence useDbSync uses so there's no extra timer.
+  const { data: command } = useQuery({
+    queryKey: ["__set_url__"],
+    queryFn: async () => {
+      try {
+        const res = await fetch("/_agent-native/application-state/__set_url__");
+        if (!res.ok || res.status === 204) return null;
+        const text = await res.text();
+        if (!text) return null;
+        const data = JSON.parse(text);
+        return data ? { ...data, _ts: Date.now() } : null;
+      } catch {
+        return null;
+      }
+    },
+    refetchInterval: 2_000,
+    refetchIntervalInBackground: true,
+    structuralSharing: false,
+    retry: false,
+  });
+
+  React.useEffect(() => {
+    if (!command) return;
+    // Delete the one-shot command before applying so duplicate events
+    // don't cause repeated navigation.
+    fetch("/_agent-native/application-state/__set_url__", {
+      method: "DELETE",
+    }).catch(() => {});
+    const cmd = command as {
+      pathname?: string;
+      searchParams?: Record<string, string | null>;
+      mergeSearchParams?: boolean;
+      hash?: string;
+    };
+    try {
+      const current = new URL(window.location.href);
+      const nextPath = cmd.pathname ?? current.pathname;
+      const nextSearch =
+        cmd.mergeSearchParams !== false
+          ? new URLSearchParams(current.search)
+          : new URLSearchParams();
+      if (cmd.searchParams) {
+        for (const [k, v] of Object.entries(cmd.searchParams)) {
+          if (v === null || v === "") nextSearch.delete(k);
+          else nextSearch.set(k, v);
+        }
+      }
+      const nextHash = cmd.hash ?? current.hash;
+      const qs = nextSearch.toString();
+      const url = nextPath + (qs ? `?${qs}` : "") + (nextHash || "");
+      navigate(url, { replace: true });
+    } catch {
+      // Malformed command — ignore.
+    }
+    queryClient.setQueryData(["__set_url__"], null);
+  }, [command, navigate, queryClient]);
+
+  return null;
+}
+function ScreenRefreshBoundary({ children }: { children: React.ReactNode }) {
+  const key = useScreenRefreshKey();
+  const queryClient = useQueryClient();
+  const lastKeyRef = React.useRef(key);
+  if (key !== lastKeyRef.current) {
+    lastKeyRef.current = key;
+    // Mark every cached query stale without kicking off a refetch. The
+    // subtree-level refetches happen naturally when the new tree mounts
+    // below and child components re-subscribe.
+    queryClient.invalidateQueries({ refetchType: "none" });
+  }
+  return <React.Fragment key={key}>{children}</React.Fragment>;
+}
+
 // ─── AgentSidebar — wraps content with a toggleable agent panel ─────────────
 
 export interface AgentSidebarProps {
@@ -1428,9 +1567,16 @@ export function AgentSidebar({
           onClick={() => setOpenPersisted(false)}
         />
       )}
+      {/* URLSync writes the current URL to application-state so the agent
+          sees what page/filters the user is on, and applies URL-update
+          commands the agent writes via `set-search-params` / `set-url`. */}
+      <URLSync />
       {isLeft && !presentationMode ? sidebar : null}
       <div className="flex flex-1 flex-col overflow-auto min-w-0">
-        {children}
+        {/* Screen-refresh key: the agent's `refresh-screen` tool bumps this
+            counter, remounting only the main content subtree so it re-fetches
+            its data. The sidebar above stays mounted, preserving chat state. */}
+        <ScreenRefreshBoundary>{children}</ScreenRefreshBoundary>
       </div>
       {!isLeft && !presentationMode ? sidebar : null}
     </div>

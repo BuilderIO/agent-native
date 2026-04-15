@@ -51,6 +51,12 @@ export function resolveFilterVars(
       const endKey = `${f.id}End`;
       out[startKey] = getParam(startKey) || resolveDefault(f.default);
       out[endKey] = getParam(endKey) || daysAgo(0);
+    } else if (f.type === "toggle" || f.type === "toggle-date") {
+      // Toggles have no "off value" default — if the user hasn't opted in
+      // via the URL, the SQL-side conditional block ({{?id}}...{{/id}})
+      // must see an empty value so it doesn't emit. Otherwise the filter
+      // looks "off" in the UI but still filters the data.
+      out[f.id] = getParam(f.id);
     } else {
       const v = getParam(f.id);
       out[f.id] = v || resolveDefault(f.default);
@@ -210,6 +216,7 @@ export function DashboardFilterBar({
               key={f.id}
               filter={f}
               vars={vars}
+              hasParam={(key) => searchParams.has(FILTER_PARAM_PREFIX + key)}
               setValue={(updates) => setParam(updates)}
             />
           ))}
@@ -255,10 +262,20 @@ export function DashboardFilterBar({
 interface FilterControlProps {
   filter: DashboardFilter;
   vars: Record<string, string>;
+  /** True when the user has an explicit value in the URL for this key.
+   *  Distinct from `vars[key]`, which falls back to the resolved default —
+   *  toggle filters need to check "is the URL param set" to render On/Off
+   *  state correctly, not "does a resolved value exist". */
+  hasParam: (key: string) => boolean;
   setValue: (updates: Record<string, string>) => void;
 }
 
-function FilterControl({ filter, vars, setValue }: FilterControlProps) {
+function FilterControl({
+  filter,
+  vars,
+  hasParam,
+  setValue,
+}: FilterControlProps) {
   if (filter.type === "date-range") {
     const startKey = `${filter.id}Start`;
     const endKey = `${filter.id}End`;
@@ -323,7 +340,7 @@ function FilterControl({ filter, vars, setValue }: FilterControlProps) {
   }
 
   if (filter.type === "toggle") {
-    const active = !!vars[filter.id];
+    const active = hasParam(filter.id) && !!vars[filter.id];
     return (
       <div className="flex flex-col gap-1">
         <label className="text-xs text-muted-foreground font-medium">
@@ -342,8 +359,11 @@ function FilterControl({ filter, vars, setValue }: FilterControlProps) {
   }
 
   if (filter.type === "toggle-date") {
-    const current = vars[filter.id] || "";
-    const active = !!current;
+    // The toggle reflects whether the user has an explicit URL param, not
+    // whether a default would resolve to a value. Otherwise a filter with
+    // default "30d" would appear stuck in the "On" state forever.
+    const active = hasParam(filter.id);
+    const current = active ? vars[filter.id] || "" : "";
     return (
       <div className="flex items-end gap-2">
         <div className="flex flex-col gap-1">

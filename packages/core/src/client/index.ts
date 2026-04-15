@@ -14,7 +14,11 @@ export {
   CodeAgentIndicator,
   type CodeAgentIndicatorProps,
 } from "./components/CodeAgentIndicator.js";
-export { useDbSync, useFileWatcher } from "./use-db-sync.js";
+export {
+  useDbSync,
+  useFileWatcher,
+  useScreenRefreshKey,
+} from "./use-db-sync.js";
 export { cn } from "./utils.js";
 export { ApiKeySettings } from "./components/ApiKeySettings.js";
 export { useSession, type AuthSession } from "./use-session.js";

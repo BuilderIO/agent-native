@@ -127,6 +127,12 @@ const proc = spawn(
   {
     stdio: "inherit",
     cwd: process.cwd(),
+    env: {
+      ...process.env,
+      // Forward DEBUG=true to the Vite client as VITE_DEBUG so client code
+      // (e.g. mail's thread-cache logs) can opt into verbose output.
+      ...(process.env.DEBUG ? { VITE_DEBUG: process.env.DEBUG } : {}),
+    },
   },
 );
 

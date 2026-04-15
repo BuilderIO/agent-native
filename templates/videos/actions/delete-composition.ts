@@ -14,15 +14,10 @@ export default defineAction({
     }
 
     const db = getDb();
-    const result = await db
+    await db
       .delete(schema.compositions)
-      .where(eq(schema.compositions.id, args.id))
-      .returning();
+      .where(eq(schema.compositions.id, args.id));
 
-    if (result.length > 0) {
-      return { success: true };
-    }
-
-    return { error: "Composition not found" };
+    return { success: true };
   },
 });

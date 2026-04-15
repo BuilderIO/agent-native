@@ -13,7 +13,6 @@ import { useTheme } from "next-themes";
 import { useComposeState } from "@/hooks/use-compose-state";
 import { useAccountFilter } from "@/hooks/use-account-filter";
 import {
-  fetchThreadMessages,
   useThreadMessages,
   useArchiveEmail,
   useTrashEmail,
@@ -24,8 +23,10 @@ import {
   useUnarchiveEmail,
   useSettings,
   useUpdateSettings,
+  unsuppressThread,
 } from "@/hooks/use-emails";
 import { useQueryClient } from "@tanstack/react-query";
+import { ensureThread, warmThreads } from "@/lib/thread-cache";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { setUndoAction } from "@/hooks/use-undo";
 import { toast } from "sonner";
@@ -334,11 +335,15 @@ export function EmailThread({
   const markRead = useMarkRead();
   const markThreadRead = useMarkThreadRead();
 
-  // Auto-mark all unread messages in this thread as read when viewed
+  // Auto-mark all unread messages in this thread as read when viewed.
+  // Defer the mutation past the commit so its optimistic emails-cache update
+  // doesn't re-render the detail view we just finished mounting.
   const hasUnread = messages.some((m) => !m.isRead);
   useEffect(() => {
     if (threadId && hasUnread) {
-      markThreadRead.mutate(threadId);
+      const id = threadId;
+      const handle = setTimeout(() => markThreadRead.mutate(id), 0);
+      return () => clearTimeout(handle);
     }
     // Only trigger when threadId changes or messages load with unread
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -358,21 +363,23 @@ export function EmailThread({
       const ids = emailIdsRef.current;
       if (!threadId || ids.length === 0) return;
       const idx = ids.indexOf(threadId);
-      if (idx === -1) return;
-      const nextIdx = idx + delta;
-      if (nextIdx < 0 || nextIdx >= ids.length) return;
+      let nextIdx: number;
+      if (idx === -1) {
+        // Current thread isn't in the list (e.g. opened from search or a direct link) —
+        // jump to the first (j) or last (k) email so navigation still works.
+        nextIdx = delta > 0 ? 0 : ids.length - 1;
+      } else {
+        nextIdx = idx + delta;
+        if (nextIdx < 0 || nextIdx >= ids.length) return;
+      }
       const nextThreadId = ids[nextIdx];
       // Plain j/k is a single-thread action — clear any in-progress
       // multi-selection so the next shortcut (e/d/s/u) doesn't act on it.
       setSelectedIds?.(new Set());
-      void queryClient.prefetchQuery({
-        queryKey: ["thread-messages", nextThreadId],
-        queryFn: () => fetchThreadMessages(nextThreadId),
-        staleTime: 30_000,
-      });
+      void ensureThread(nextThreadId);
       navigate(`/${view}/${nextThreadId}${labelSuffix}`);
     },
-    [threadId, view, navigate, labelSuffix, setSelectedIds, queryClient],
+    [threadId, view, navigate, labelSuffix, setSelectedIds],
   );
 
   // Shift+j/k extends multi-selection across siblings and auto-previews the
@@ -404,32 +411,13 @@ export function EmailThread({
     [threadId, view, navigate, labelSuffix, setSelectedIds],
   );
 
-  // Prefetch ±5 siblings in order (nearest first) for fast e/j/k navigation
+  // Warm the full list of siblings through the plain-Map cache. warmThreads
+  // dedupes cached entries and caps concurrency so mass-warming doesn't trip
+  // Gmail quota.
   useEffect(() => {
-    if (!threadId || emailIds.length === 0) return;
-    const idx = emailIds.indexOf(threadId);
-    if (idx === -1) return;
-
-    // Build ordered list: +1, -1, +2, -2, ... ±5 (nearest first)
-    const ordered: string[] = [];
-    for (let d = 1; d <= 5; d++) {
-      if (idx + d < emailIds.length) ordered.push(emailIds[idx + d]);
-      if (idx - d >= 0) ordered.push(emailIds[idx - d]);
-    }
-
-    // Fire in parallel — nearest are first in the array so they win the
-    // browser's connection slots. Skip entries already cached fresh.
-    for (const id of ordered) {
-      const existing = queryClient.getQueryState(["thread-messages", id]);
-      if (existing?.data && Date.now() - existing.dataUpdatedAt < 30_000)
-        continue;
-      void queryClient.prefetchQuery({
-        queryKey: ["thread-messages", id],
-        queryFn: () => fetchThreadMessages(id),
-        staleTime: 30_000,
-      });
-    }
-  }, [threadId, emailIds, queryClient]);
+    if (emailIds.length === 0) return;
+    warmThreads(emailIds);
+  }, [emailIds]);
 
   const advanceOrGoBack = useCallback(() => {
     if (!threadId || emailIds.length === 0) {
@@ -532,24 +520,12 @@ export function EmailThread({
 
     if (targets.length === 0) return;
 
-    // Snapshot thread emails from cache so undo can restore them instantly.
-    const cached = queryClient
-      .getQueriesData<EmailMessage[]>({ queryKey: ["emails"] })
-      .flatMap(([, data]) => data ?? []);
-    const keySet = new Set(threadKeys);
-    const snapshot = cached.filter((e) => keySet.has(e.threadId || e.id));
-
     for (const t of targets) onArchived?.(t.id);
 
     const undo = () => {
-      queryClient.setQueriesData<EmailMessage[]>(
-        { queryKey: ["emails"] },
-        (old) =>
-          [...(old ?? []), ...snapshot].sort(
-            (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
-          ),
-      );
+      for (const key of threadKeys) unsuppressThread(key);
       for (const t of targets) unarchiveEmail.mutate(t.id);
+      queryClient.invalidateQueries({ queryKey: ["emails"] });
     };
     setUndoAction(undo);
     toast(
@@ -601,21 +577,10 @@ export function EmailThread({
 
     if (targets.length === 0) return;
 
-    const cached = queryClient
-      .getQueriesData<EmailMessage[]>({ queryKey: ["emails"] })
-      .flatMap(([, data]) => data ?? []);
-    const keySet = new Set(threadKeys);
-    const snapshot = cached.filter((e) => keySet.has(e.threadId || e.id));
-
     const undo = () => {
-      queryClient.setQueriesData<EmailMessage[]>(
-        { queryKey: ["emails"] },
-        (old) =>
-          [...(old ?? []), ...snapshot].sort(
-            (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
-          ),
-      );
+      for (const key of threadKeys) unsuppressThread(key);
       for (const t of targets) untrashEmail.mutate(t.id);
+      queryClient.invalidateQueries({ queryKey: ["emails"] });
     };
     setUndoAction(undo);
     toast(
@@ -1292,13 +1257,6 @@ export function EmailThread({
             );
           })}
 
-          {isHydratingThread && (
-            <>
-              <ThreadMessageSkeleton compact />
-              <ThreadMessageSkeleton />
-            </>
-          )}
-
           {/* Inline reply composer fallback (replyToId not matched) */}
           {inlineDraft &&
             !messages.some((m) => m.id === inlineDraft.replyToId) && (
@@ -1686,13 +1644,18 @@ const ExpandedMessageCard = forwardRef<
             searchTerm={searchTerm}
             activeLocalIdx={activeLocalIdx}
           />
-        ) : (
+        ) : email.body ? (
           <PlainTextBody
             body={email.body}
             searchTerm={searchTerm}
             activeLocalIdx={activeLocalIdx}
           />
-        )}
+        ) : email.snippet ? (
+          <div className="text-[13px] text-muted-foreground whitespace-pre-wrap">
+            {email.snippet}
+            <span className="text-muted-foreground/60">…</span>
+          </div>
+        ) : null}
       </div>
 
       {/* Attachments */}

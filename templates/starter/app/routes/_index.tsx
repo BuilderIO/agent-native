@@ -77,20 +77,6 @@ export default function IndexPage() {
     textareaRef.current?.focus();
   }, []);
 
-  // Prefill agent chat with an orientation prompt on first visit
-  useEffect(() => {
-    try {
-      if (localStorage.getItem(FIRST_VISIT_KEY)) return;
-    } catch {
-      return;
-    }
-    sendToAgentChat({
-      message:
-        "I just opened a fresh Agent Native project. Can you give me a quick orientation — how does the agent-UI state sync work, and what's the best first thing to build to see it in action?",
-      submit: false,
-    });
-  }, []);
-
   function markVisited() {
     if (!isFirstVisit) return;
     try {

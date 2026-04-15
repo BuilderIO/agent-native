@@ -139,6 +139,48 @@ function sqliteToPostgresParams(sql: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Connection error retry (ECONNRESET, etc.)
+// ---------------------------------------------------------------------------
+
+/** Error codes that indicate a dead/stale connection we can safely retry. */
+const CONNECTION_ERROR_CODES = new Set([
+  "ECONNRESET",
+  "ETIMEDOUT",
+  "EPIPE",
+  "ENOTFOUND",
+  "CONNECTION_ENDED",
+  "CONNECTION_DESTROYED",
+  "CONNECTION_CLOSED",
+]);
+
+export function isConnectionError(err: any): boolean {
+  if (!err) return false;
+  const code = err.code || err.cause?.code;
+  if (code && CONNECTION_ERROR_CODES.has(code)) return true;
+  const msg = String(err.message || err.cause?.message || "");
+  return /ECONNRESET|ETIMEDOUT|EPIPE|connection.*(closed|ended|terminated)/i.test(
+    msg,
+  );
+}
+
+export async function retryOnConnectionError<T>(
+  fn: () => Promise<T>,
+  maxAttempts = 3,
+): Promise<T> {
+  let last: unknown;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (e) {
+      last = e;
+      if (!isConnectionError(e) || attempt === maxAttempts - 1) throw e;
+      await new Promise((r) => setTimeout(r, 100 * (attempt + 1)));
+    }
+  }
+  throw last;
+}
+
+// ---------------------------------------------------------------------------
 // Singleton client — lazy-initialized on first execute() call
 // ---------------------------------------------------------------------------
 
@@ -211,9 +253,14 @@ async function initClient(): Promise<void> {
         },
       };
     } else {
-      // Node.js: reuse connection pool
+      // Node.js: reuse connection pool.
+      // idle_timeout:240 closes idle connections before Neon's ~5min server-side
+      // timeout, avoiding ECONNRESET when the server hangs up on us.
       _pgPool = postgres(url, {
         onnotice: () => {},
+        idle_timeout: 240,
+        max_lifetime: 60 * 30,
+        connect_timeout: 10,
         // Supabase's connection pooler (Transaction mode) requires prepare: false.
         // Only disable for Supabase URLs to avoid degrading other Postgres deployments.
         ...(url.includes("supabase") ? { prepare: false } : {}),
@@ -225,7 +272,9 @@ async function initClient(): Promise<void> {
           const rawSql = typeof sql === "string" ? sql : sql.sql;
           const args = typeof sql === "string" ? [] : sql.args || [];
           const pgSql = sqliteToPostgresParams(rawSql);
-          const result = await pool.unsafe(pgSql, args as any[]);
+          const result = await retryOnConnectionError<
+            ArrayLike<unknown> & { count?: number }
+          >(() => pool.unsafe(pgSql, args as any[]));
           return {
             rows: Array.from(result),
             rowsAffected: result.count ?? 0,

@@ -49,13 +49,6 @@ export function SqlChartCard({
     >
       <Card className="h-full">
         <CardHeader className="pb-2 flex flex-row items-center gap-2">
-          <button
-            className="cursor-grab active:cursor-grabbing text-muted-foreground/30 hover:text-muted-foreground/60 shrink-0 opacity-0 group-hover:opacity-100"
-            {...attributes}
-            {...listeners}
-          >
-            <IconGripVertical className="h-4 w-4" />
-          </button>
           <CardTitle className="text-sm font-medium flex-1 truncate">
             {panel.title}
           </CardTitle>
@@ -86,6 +79,14 @@ export function SqlChartCard({
               title="Remove panel"
             >
               <IconTrash className="h-3.5 w-3.5" />
+            </button>
+            <button
+              className="p-1 rounded cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground"
+              title="Drag to reorder"
+              {...attributes}
+              {...listeners}
+            >
+              <IconGripVertical className="h-3.5 w-3.5" />
             </button>
           </div>
         </CardHeader>

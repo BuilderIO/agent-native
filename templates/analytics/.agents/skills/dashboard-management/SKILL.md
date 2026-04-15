@@ -11,22 +11,26 @@ Dashboards are the primary UI for visualizing data. Each dashboard is a configur
 
 ## Storage
 
-Dashboards are stored in the SQL settings table using the key pattern `dashboard-{id}`.
+Dashboards are stored in the app's SQL `settings` table. The agent reads and writes them using the standard `db-query` / `db-exec` / `db-patch` tools — this is the same path any SQL access takes and is automatically scoped to the current user/org.
+
+Key patterns:
+
+- `dashboard-{id}` — legacy explorer dashboards
+- `u:<email>:dashboard-{id}` — user-scoped explorer dashboards
+- `sql-dashboard-{id}` — personal SQL dashboard (newer)
+- `u:<email>:sql-dashboard-{id}` — user-scoped SQL dashboard
+- `o:<orgId>:sql-dashboard-{id}` — org-scoped SQL dashboard (most common for team deployments)
+
+The settings table is scoped by key prefix — the framework automatically shows only rows whose key matches the active user/org (`u:<email>:*` or `o:<orgId>:*`). You'll still see unscoped keys (e.g. bare `sql-dashboard-foo`) for backward compatibility.
 
 ```ts
+// In server/action code you can use the settings API directly:
 import { readSetting, writeSetting } from "@agent-native/core/settings";
-
-// Read a dashboard config
 const config = await readSetting("dashboard-my-dashboard");
-
-// Write/update a dashboard config
-await writeSetting("dashboard-my-dashboard", {
-  id: "my-dashboard",
-  title: "Weekly Metrics",
-  description: "Key metrics updated weekly",
-  widgets: [ ... ],
-});
+await writeSetting("dashboard-my-dashboard", { ... });
 ```
+
+From the agent itself, always use `db-query` / `db-exec` / `db-patch` instead of a node script — they work in production where there is no shell, and they enforce scoping automatically.
 
 ## Dashboard Config Shape
 
@@ -62,17 +66,17 @@ await writeSetting("dashboard-my-dashboard", {
 
 The typical flow when the user asks for a new dashboard:
 
-1. Determine what data to show (ask clarifying questions if needed)
-2. Write the dashboard config to settings: `writeSetting("dashboard-{id}", config)`
-3. Navigate the user to it: `pnpm action navigate --view=adhoc --dashboardId={id}`
+1. Determine what data to show (ask clarifying questions if needed).
+2. Write the dashboard config to settings via `db-exec` (INSERT ... ON CONFLICT DO UPDATE). See the "Reading and writing dashboards" section below for the exact command.
+3. Navigate the user to it: `pnpm action navigate --view=adhoc --dashboardId={id}`.
 
 The UI picks up the new dashboard via SSE events on settings changes.
 
 ## Modifying a Dashboard
 
-1. Read the current config: `readSetting("dashboard-{id}")`
-2. Modify the widgets, title, or layout
-3. Write back: `writeSetting("dashboard-{id}", updatedConfig)`
+1. Read the current config with `db-query`.
+2. For small edits (rename a column, change a label, tweak one SQL snippet), use `db-patch` — it sends only the find/replace pair, not the whole JSON.
+3. For structural changes, re-serialize the full config and run `db-exec UPDATE settings SET value = '<json>' WHERE key = '...'`.
 
 The UI updates automatically via SSE.
 
@@ -219,17 +223,32 @@ The discovered series become the y-keys for the chart automatically.
 
 Numeric formats render right-aligned with tabular nums. `link` opens in a new tab; `linkKey` lets the cell text and href come from different columns.
 
-### Provisioning a SQL dashboard
+### Reading and writing dashboards
 
-Use the settings API via a short node script — never `curl`:
+Dashboards live in the `settings` table. The agent reads and writes them via the standard `db-query` / `db-exec` / `db-patch` tools — these work in both dev and prod and are automatically scoped to the current user/org (so you'll only see your own rows, and `owner_email` / `org_id` are auto-injected on INSERT).
 
-```bash
-node -e "
-const { putSetting } = require('@agent-native/core/settings');
-const fs = require('fs');
-const config = JSON.parse(fs.readFileSync('devrel-config.json', 'utf8'));
-putSetting('sql-dashboard-devrel-leaderboard', config).then(() => console.log('saved'));
-"
+**Read a dashboard:**
+
+```
+db-query --sql "SELECT key, value FROM settings WHERE key = 'sql-dashboard-devrel-leaderboard'"
+```
+
+**List all SQL dashboards visible to the current user/org:**
+
+```
+db-query --sql "SELECT key FROM settings WHERE key LIKE 'sql-dashboard-%'"
+```
+
+**Create or replace a dashboard config** (use db-exec with a parameterized value):
+
+```
+db-exec --sql "INSERT INTO settings (key, value) VALUES ('sql-dashboard-devrel-leaderboard', '<json>') ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"
+```
+
+**Modify a small slice of an existing dashboard config** (preferred — saves tokens vs re-sending the whole JSON):
+
+```
+db-patch --table settings --column value --where "key = 'sql-dashboard-devrel-leaderboard'" --find '"title":"Old"' --replace '"title":"New"'
 ```
 
 Then navigate the user: `pnpm action navigate --view=adhoc --dashboardId=devrel-leaderboard`.

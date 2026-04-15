@@ -169,6 +169,7 @@ export function createCoreRoutesPlugin(
           return { error: "A signed-in user is required to run Builder" };
         }
         const userEmail = session.email;
+        const builderUserId = process.env.BUILDER_USER_ID || undefined;
         // Server-controlled projectId — don't let clients target arbitrary
         // Builder projects with our private key. When this feature graduates
         // past the hardcoded preview, the projectId will come from
@@ -182,6 +183,7 @@ export function createCoreRoutesPlugin(
                 ? body.branchName
                 : undefined,
             userEmail,
+            userId: builderUserId,
           });
           return result;
         } catch (e) {

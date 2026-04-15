@@ -49,7 +49,14 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
 
     if (dialect === "postgres") {
       _dbReady = getPgDrizzle().then(({ drizzle, postgres }) => {
-        _db = drizzle(postgres(url), { schema });
+        const client = postgres(url, {
+          onnotice: () => {},
+          idle_timeout: 240,
+          max_lifetime: 60 * 30,
+          connect_timeout: 10,
+          ...(url.includes("supabase") ? { prepare: false } : {}),
+        });
+        _db = drizzle(client, { schema });
       });
     } else {
       _dbReady = getLibsqlDrizzle().then(({ drizzle }) => {

@@ -126,6 +126,290 @@ function wrapCliScript(
 }
 
 /**
+ * Creates the `refresh-screen` tool. Writes a bump to `application_state`
+ * under a well-known key; the client's `useDbSync` watches for this and
+ * invalidates react-query caches so the on-screen UI re-fetches its data
+ * without a full page reload.
+ *
+ * This is the standard way for the agent to say "the data on the screen
+ * just changed, please refresh it" — e.g. after editing a dashboard config,
+ * updating a form schema, or mutating a row that the current view renders.
+ */
+function createRefreshScreenEntry(): Record<string, ActionEntry> {
+  return {
+    "refresh-screen": {
+      tool: {
+        description:
+          "Refresh the user's current screen so it picks up data you just changed. Call this immediately after any mutation (db-exec, template action, writeAppState) that affects what the user is currently looking at — a dashboard config, a form, a document, a row in a table they're viewing, etc. The UI re-fetches its queries without a full page reload. Prefer this over asking the user to reload. Optional `scope` hint is passed through to the client for templates that want to narrow the invalidation.",
+        parameters: {
+          type: "object",
+          properties: {
+            scope: {
+              type: "string",
+              description:
+                "Optional hint describing what changed (e.g. 'dashboard', 'form', 'settings'). Templates may use it to narrow which queries to invalidate; if omitted, all queries are invalidated.",
+            },
+          },
+        },
+      },
+      run: async (args) => {
+        const { writeAppState } =
+          await import("../application-state/script-helpers.js");
+        const nonce = Date.now();
+        const scope = typeof args?.scope === "string" ? args.scope : undefined;
+        await writeAppState(SCREEN_REFRESH_KEY, {
+          nonce,
+          ...(scope ? { scope } : {}),
+        });
+        return `refreshed${scope ? ` (scope: ${scope})` : ""}`;
+      },
+    },
+  };
+}
+
+/** Well-known application-state key used by the refresh-screen tool. */
+const SCREEN_REFRESH_KEY = "__screen_refresh__";
+
+/**
+ * Creates the `set-search-params` / `set-url-path` tools. Writes a one-shot
+ * URL command to application_state; the client's URLSync component applies
+ * it via react-router (no full page reload) and then deletes the command.
+ *
+ * This is how the agent edits URL state — filter query params, route
+ * changes, hash — without needing a per-template navigate action. The
+ * current URL is visible to the agent via the auto-injected `<current-url>`
+ * block, which includes parsed search params.
+ */
+function createUrlTools(): Record<string, ActionEntry> {
+  return {
+    "set-search-params": {
+      tool: {
+        description:
+          "Update the URL query string on the user's current page. Use this to change dashboard/list filters, search terms, or any other state the app stores in `?foo=bar` style query params. One-shot — the UI applies it in ~1s without a page reload. See the current URL + parsed search params in the auto-injected `<current-url>` block. Keys are the exact query param names as they appear in the URL (e.g. `f_pubDateStart`, not just `pubDateStart`). Set a value to null or empty string to clear that param. By default merges over existing params — pass `merge: false` to replace them all.",
+        parameters: {
+          type: "object",
+          properties: {
+            params: {
+              type: "object",
+              description:
+                'Map of query param → value. Each value is a string, or null/"" to clear. Example: {"f_pubDateStart": null, "f_cadence": "MONTH"}.',
+            },
+            merge: {
+              type: "string",
+              description:
+                '"true" (default) merges over existing params; "false" replaces them entirely.',
+              enum: ["true", "false"],
+            },
+          },
+          required: ["params"],
+        },
+      },
+      run: async (args) => {
+        const params = (args?.params ?? {}) as unknown as Record<
+          string,
+          string | null
+        >;
+        const merge = (args as any)?.merge !== "false";
+        const { writeAppState } =
+          await import("../application-state/script-helpers.js");
+        await writeAppState("__set_url__", {
+          searchParams: params,
+          mergeSearchParams: merge,
+        });
+        const keys = Object.keys(params);
+        return `set-search-params: ${keys.length} key${keys.length === 1 ? "" : "s"}${merge ? "" : " (replace)"}`;
+      },
+    },
+    "set-url-path": {
+      tool: {
+        description:
+          "Navigate the user to a different pathname, optionally also setting search params. For most template-specific routing prefer the template's `navigate` action if it exists — this is the generic fallback. One-shot, applied by the client without a page reload.",
+        parameters: {
+          type: "object",
+          properties: {
+            pathname: {
+              type: "string",
+              description: "New URL pathname (e.g. '/adhoc/weekly').",
+            },
+            params: {
+              type: "object",
+              description:
+                'Optional query params to set alongside the path change. String values set, null/"" clears.',
+            },
+            merge: {
+              type: "string",
+              description:
+                '"true" (default) merges over existing params; "false" starts fresh.',
+              enum: ["true", "false"],
+            },
+          },
+          required: ["pathname"],
+        },
+      },
+      run: async (args) => {
+        const pathname = String(args?.pathname ?? "");
+        if (!pathname.startsWith("/")) {
+          return "Error: pathname must start with '/'.";
+        }
+        const params = (args?.params ?? {}) as unknown as Record<
+          string,
+          string | null
+        >;
+        const merge = (args as any)?.merge !== "false";
+        const { writeAppState } =
+          await import("../application-state/script-helpers.js");
+        await writeAppState("__set_url__", {
+          pathname,
+          searchParams: params,
+          mergeSearchParams: merge,
+        });
+        return `set-url-path: ${pathname}`;
+      },
+    },
+  };
+}
+
+/**
+ * Creates db-* tools (db-query, db-exec, db-patch, db-schema) as native tools.
+ * These let the agent read and write the app's own SQL database. Scoping to
+ * the current user/org is enforced automatically in production via temp views.
+ *
+ * In dev mode template actions are invoked via shell and the agent can call
+ * `pnpm action db-query ...` — but in production there is no shell, so these
+ * must be registered as native tools for the agent to reach the app DB at all.
+ */
+async function createDbScriptEntries(): Promise<Record<string, ActionEntry>> {
+  try {
+    const [schemaMod, queryMod, execMod, patchMod] = await Promise.all([
+      import("../scripts/db/schema.js"),
+      import("../scripts/db/query.js"),
+      import("../scripts/db/exec.js"),
+      import("../scripts/db/patch.js"),
+    ]);
+
+    return {
+      "db-schema": wrapCliScript(
+        {
+          description:
+            "Show the app's SQL schema — all tables, columns, types, indexes, and foreign keys. Use this to understand the data model before querying.",
+          parameters: {
+            type: "object",
+            properties: {
+              format: {
+                type: "string",
+                description: 'Output format: "json" or "text" (default: text)',
+                enum: ["json", "text"],
+              },
+            },
+          },
+        },
+        schemaMod.default,
+      ),
+      "db-query": wrapCliScript(
+        {
+          description:
+            "Read from the app's SQL database. Runs a SELECT (or WITH/EXPLAIN/PRAGMA) against the app's own tables — settings, application_state, and all template tables. Results are automatically scoped to the current user/org; DO NOT add `WHERE owner_email = ...` yourself. This queries the APP DATABASE — not any external data source.",
+          parameters: {
+            type: "object",
+            properties: {
+              sql: {
+                type: "string",
+                description:
+                  "SELECT query to run, e.g. \"SELECT key, value FROM settings WHERE key LIKE 'sql-dashboard-%'\"",
+              },
+              format: {
+                type: "string",
+                description: 'Output format: "json" or "text" (default: text)',
+                enum: ["json", "text"],
+              },
+              limit: {
+                type: "string",
+                description:
+                  "Append LIMIT N if the query doesn't already have one",
+              },
+            },
+            required: ["sql"],
+          },
+        },
+        queryMod.default,
+      ),
+      "db-exec": wrapCliScript(
+        {
+          description:
+            "Write to the app's SQL database. Runs INSERT / UPDATE / DELETE against the app's own tables. Writes are automatically scoped to the current user/org, and `owner_email` / `org_id` are auto-injected on INSERT. Use this to update rows in the settings table (e.g. edit a dashboard config stored under `o:<orgId>:sql-dashboard-<id>`). This writes to the APP DATABASE — not any external data source.",
+          parameters: {
+            type: "object",
+            properties: {
+              sql: {
+                type: "string",
+                description:
+                  "INSERT / UPDATE / DELETE statement. Use parameterized placeholders (?) if possible.",
+              },
+            },
+            required: ["sql"],
+          },
+        },
+        execMod.default,
+      ),
+      "db-patch": wrapCliScript(
+        {
+          description:
+            "Surgical patch on a large text/JSON column in the app's SQL database. Two modes: (1) text find/replace via `find`/`replace`/`edits` — best for small edits to documents, slide HTML, etc. (2) structural JSON ops via `json-ops` — STRONGLY PREFERRED when the column is JSON (dashboard configs, form schemas, slide decks) because it avoids all the brace/quote/comma surgery that text find/replace requires. Use `json-ops` to set/remove values at a JSON Pointer path, or to move/insert array items — e.g. reorder dashboard panels, add a filter, rename a field. Targets exactly one row (narrow `where` by primary key). Same per-user/org scoping as db-exec.",
+          parameters: {
+            type: "object",
+            properties: {
+              table: {
+                type: "string",
+                description: "Table name (e.g. 'settings')",
+              },
+              column: {
+                type: "string",
+                description:
+                  "Text/JSON column to patch (e.g. 'value' for settings)",
+              },
+              where: {
+                type: "string",
+                description:
+                  "WHERE clause that matches exactly one row (e.g. \"key = 'o:org1:sql-dashboard-foo'\")",
+              },
+              find: {
+                type: "string",
+                description:
+                  "Text mode: substring to find. Must match EXACTLY ONE occurrence by default (like Claude Code's Edit tool). If 0 matches, you get 'NOT FOUND'. If >1 matches, you get surrounding context for each match — widen `find` with unique context and retry. Use `all: \"true\"` to replace every occurrence.",
+              },
+              replace: {
+                type: "string",
+                description: "Text mode: replacement substring",
+              },
+              edits: {
+                type: "string",
+                description:
+                  'Text mode batch: JSON array of {find, replace} pairs. Same uniqueness rule applies to each `find`. Example: \'[{"find":"a","replace":"b"}]\'',
+              },
+              "json-ops": {
+                type: "string",
+                description:
+                  'JSON mode: JSON array of structural ops. Each op is {op, path, value?, from?}. `op` is one of "set", "remove", "insert", "move", "move-before". `path` / `from` use JSON Pointer ("/panels/3/title"). Examples — reorder: \'[{"op":"move","from":"/panels/7","path":"/panels/1"}]\'; edit field: \'[{"op":"set","path":"/panels/0/title","value":"New"}]\'; delete filter: \'[{"op":"remove","path":"/filters/2"}]\'; add panel: \'[{"op":"insert","path":"/panels/0","value":{"id":"p","title":"..."}}]\'. Much safer than text find/replace for JSON columns.',
+              },
+              all: {
+                type: "string",
+                description:
+                  'Text mode: set to "true" to replace every occurrence of each `find` (default requires exactly one match)',
+                enum: ["true"],
+              },
+            },
+            required: ["table", "column", "where"],
+          },
+        },
+        patchMod.default,
+      ),
+    };
+  } catch {
+    return {};
+  }
+}
+
+/**
  * Creates the docs-search tool so agents can look up framework documentation.
  * Docs are bundled in @agent-native/core and read via fs at runtime.
  */
@@ -851,11 +1135,12 @@ const FRAMEWORK_CORE = `
 ### Core Rules
 
 1. **Data lives in SQL** — All app state is in a SQL database (could be SQLite, Postgres, Turso, or Cloudflare D1 — never assume which). Use the available database tools.
-2. **Context awareness** — The user's current screen state is automatically included in each message as a \`<current-screen>\` block. Use it to understand what the user is looking at. You can still call \`view-screen\` for a more detailed snapshot if needed, but you should NOT need to call it before every action.
+2. **Context awareness** — The user's current screen state is automatically included in each message as a \`<current-screen>\` block, and the current URL (path + search params) as a \`<current-url>\` block. Use both to understand what the user is looking at — filters, search terms, and other URL-driven state live in \`<current-url>\`'s \`searchParams\`, NOT in the settings table. To change URL state (e.g. toggle a filter, clear a query string), use the \`set-search-params\` or \`set-url-path\` tools — never try to edit URL state by writing to settings or application_state directly.
 3. **Navigate the UI** — Use the \`navigate\` tool to switch views, open items, or focus elements for the user.
 4. **Application state** — Ephemeral UI state (drafts, selections, navigation) lives in \`application_state\`. Use \`readAppState\`/\`writeAppState\` to read and write it. When you write state, the UI updates automatically.
-5. **Memory** — Use the structured memory system to persist knowledge across sessions. Use \`save-memory\` proactively when you learn preferences, corrections, or project context. Update shared AGENTS.md for instructions that should apply to all users.
-6. **Security** — Always use \`defineAction\` with a Zod \`schema:\` for input validation. Never construct SQL with string concatenation — use parameterized queries via db-query/db-exec. Never use \`dangerouslySetInnerHTML\`, \`innerHTML\`, or \`eval()\`. Never expose secrets in responses or source code. Every table with user data must have \`owner_email\`.
+5. **Refresh after on-screen data changes** — Whenever you mutate data that is visible on the user's CURRENT screen (editing a dashboard config, updating a form schema, changing a row in a table they're viewing, etc.), call \`refresh-screen\` as your final step. The UI re-fetches its queries without a full page reload. Do NOT tell the user to reload the page — call \`refresh-screen\` instead. Skip it only when you're certain the change isn't on the current screen.
+6. **Memory** — Use the structured memory system to persist knowledge across sessions. Use \`save-memory\` proactively when you learn preferences, corrections, or project context. Update shared AGENTS.md for instructions that should apply to all users.
+7. **Security** — Always use \`defineAction\` with a Zod \`schema:\` for input validation. Never construct SQL with string concatenation — use parameterized queries via db-query/db-exec. Never use \`dangerouslySetInnerHTML\`, \`innerHTML\`, or \`eval()\`. Never expose secrets in responses or source code. Every table with user data must have \`owner_email\`.
 
 ### Resources
 
@@ -1111,13 +1396,16 @@ async function loadResourcesForPrompt(owner: string): Promise<string> {
  */
 async function buildSchemaBlock(
   owner: string,
-  hasRawDbTools: boolean,
+  _legacyHasRawDbTools?: boolean,
 ): Promise<string> {
+  // db-* tools are always registered (see createDbScriptEntries), in both dev
+  // and prod. The legacy boolean is kept for call-site compatibility but
+  // ignored — always advertise the tools to the agent.
   try {
     return await loadSchemaPromptBlock({
       owner,
       orgId: getRequestOrgId() ?? null,
-      hasRawDbTools,
+      hasRawDbTools: true,
     });
   } catch {
     return "";
@@ -1413,9 +1701,12 @@ export function createAgentChatPlugin(
         ? await rawActions()
         : (rawActions ?? {});
 
-    // Resource, chat, docs, and cross-agent scripts are available in both prod and dev modes
+    // Resource, chat, docs, db, and cross-agent scripts are available in both prod and dev modes
     const resourceScripts = await createResourceScriptEntries();
     const docsScripts = await createDocsScriptEntries();
+    const dbScripts = await createDbScriptEntries();
+    const refreshScreenTool = createRefreshScreenEntry();
+    const urlTools = createUrlTools();
     const engineScripts = await createAgentEngineScriptEntries();
     const chatScripts = {
       ...(await createChatScriptEntries()),
@@ -1582,6 +1873,9 @@ export function createAgentChatPlugin(
           ...templateScripts,
           ...resourceScripts,
           ...docsScripts,
+          ...dbScripts,
+          ...refreshScreenTool,
+          ...urlTools,
           ...chatScripts,
           ...callAgentScript,
           ...browserTools,
@@ -1696,6 +1990,9 @@ export function createAgentChatPlugin(
               ...templateScripts,
               ...resourceScripts,
               ...docsScripts,
+              ...dbScripts,
+              ...refreshScreenTool,
+              ...urlTools,
               ...chatScripts,
               ...browserTools,
             };
@@ -1812,6 +2109,9 @@ export function createAgentChatPlugin(
               ...templateScripts,
               ...resourceScripts,
               ...docsScripts,
+              ...dbScripts,
+              ...refreshScreenTool,
+              ...urlTools,
               ...chatScripts,
             };
 
@@ -1978,6 +2278,9 @@ export function createAgentChatPlugin(
               ...templateScripts,
               ...resourceScripts,
               ...docsScripts,
+              ...dbScripts,
+              ...refreshScreenTool,
+              ...urlTools,
               ...chatScripts,
             },
       getEngine: () =>
@@ -2005,6 +2308,9 @@ export function createAgentChatPlugin(
       ...templateScripts,
       ...resourceScripts,
       ...docsScripts,
+      ...dbScripts,
+      ...refreshScreenTool,
+      ...urlTools,
       ...chatScripts,
       ...callAgentScript,
       ...teamTools,

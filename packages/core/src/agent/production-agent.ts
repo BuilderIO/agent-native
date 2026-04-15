@@ -539,6 +539,35 @@ export function createProductionAgentHandler(
       // DB not ready or no navigation state — skip silently
     }
 
+    // Auto-inject the current URL (path + search params) so the agent
+    // knows what filters/search/query-string state is active. Written by
+    // the framework's <URLSync /> component inside AgentSidebar, so every
+    // template gets this for free. Separate block from <current-screen>
+    // so templates' view-screen output is preserved verbatim.
+    try {
+      const url = (await readAppState("__url__")) as {
+        pathname?: string;
+        search?: string;
+        hash?: string;
+        searchParams?: Record<string, string>;
+      } | null;
+      if (url && (url.pathname || url.search || url.hash)) {
+        const lines: string[] = [];
+        if (url.pathname) lines.push(`pathname: ${url.pathname}`);
+        if (url.search) lines.push(`search: ${url.search}`);
+        if (url.hash) lines.push(`hash: ${url.hash}`);
+        if (url.searchParams && Object.keys(url.searchParams).length > 0) {
+          lines.push("searchParams:");
+          for (const [k, v] of Object.entries(url.searchParams)) {
+            lines.push(`  ${k}: ${v}`);
+          }
+        }
+        screenContext += `\n\n<current-url>\n${lines.join("\n")}\n</current-url>`;
+      }
+    } catch {
+      // DB not ready — skip silently
+    }
+
     // On the first message of a conversation, inject workspace inventory
     // so the agent knows what files, skills, jobs, and custom agents exist.
     let filesContext = "";

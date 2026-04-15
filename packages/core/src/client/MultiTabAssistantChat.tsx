@@ -451,17 +451,21 @@ export function MultiTabAssistantChat({
 
   // Ref callback: scroll the active tab into view in the overflow container.
   // Uses getBoundingClientRect for reliable positioning regardless of offsetParent.
+  // A margin keeps the active tab from sitting flush against either container
+  // edge — at the right edge it was landing directly under the +/history/menu
+  // buttons, which visually clipped the tab label.
   const activeTabRefCb = useCallback((el: HTMLButtonElement | null) => {
     if (!el) return;
     const container = el.parentElement;
     if (!container) return;
+    const MARGIN = 24;
     requestAnimationFrame(() => {
       const containerRect = container.getBoundingClientRect();
       const tabRect = el.getBoundingClientRect();
-      if (tabRect.left < containerRect.left) {
-        container.scrollLeft += tabRect.left - containerRect.left;
-      } else if (tabRect.right > containerRect.right) {
-        container.scrollLeft += tabRect.right - containerRect.right;
+      if (tabRect.left < containerRect.left + MARGIN) {
+        container.scrollLeft += tabRect.left - containerRect.left - MARGIN;
+      } else if (tabRect.right > containerRect.right - MARGIN) {
+        container.scrollLeft += tabRect.right - containerRect.right + MARGIN;
       }
     });
   }, []);

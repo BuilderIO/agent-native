@@ -13,7 +13,9 @@ export function useNavigationState() {
   const navigate = useNavigate();
   const qc = useQueryClient();
 
-  // Sync current route to application state
+  // Sync current route to application state. URL query params (filters)
+  // are synced separately by the framework's <URLSync /> under the
+  // `__url__` key, so the agent sees them in the <current-url> block.
   useEffect(() => {
     const path = location.pathname;
     const state: NavigationState = { view: "overview" };
