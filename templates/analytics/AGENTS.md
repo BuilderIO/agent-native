@@ -162,6 +162,24 @@ cd templates/analytics && pnpm action <name> [args]
 | `view-screen` |                                                          | See what the user sees now |
 | `navigate`    | `--view <name> [--dashboardId <id>] [--analysisId <id>]` | Navigate the UI            |
 
+### Data Dictionary
+
+The data dictionary is the canonical catalog of the metrics, tables, columns, and business definitions this organization uses. **Consult it FIRST whenever the user asks you to build a dashboard, compute a metric, or interpret a number** — it saves you from guessing at table names, picking the wrong join, or double-counting. Entries explain the SQL recipe, standard dimensions, data lag, known gotchas, and who owns each metric.
+
+| Action                               | Args                                                                                                                  | Purpose                                                               |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `list-data-dictionary`               | `[--search <q>] [--department <name>]`                                                                                | List all entries. **Call this before SQL.**                           |
+| `save-data-dictionary-entry`         | `--metric <name> --definition <text> [--table --columnsUsed --queryTemplate --knownGotchas --department --owner ...]` | Create or update an entry (upserts by `id`)                           |
+| `delete-data-dictionary-entry`       | `--id <id>`                                                                                                           | Remove an entry                                                       |
+| `import-data-dictionary-from-notion` | `[--databaseId <id>] [--includeUnapproved] [--overwrite]`                                                             | One-time migration from a Notion database (requires `NOTION_API_KEY`) |
+
+**Workflow for "build me a dashboard":**
+
+1. `list-data-dictionary --search <topic>` — find existing definitions that match the user's intent.
+2. If relevant entries exist, use their `queryTemplate`, `table`, and `cuts` verbatim — don't reinvent.
+3. If the user mentions a metric that isn't in the dictionary, either ask them to define it or propose an entry via `save-data-dictionary-entry` (set `aiGenerated: true`, `approved: false` for human review).
+4. Obey `knownGotchas` from any entry you use — note them to the user if the data has limitations.
+
 ### Ad-Hoc Analysis
 
 | Action            | Args                                                                                  | Purpose                            |
