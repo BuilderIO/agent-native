@@ -7,23 +7,58 @@ import {
 import { useActionQuery } from "@agent-native/core/client";
 import type { CalendarEvent } from "@shared/api";
 
-export function useEvents(
+function buildEventsParams(
   from?: string,
   to?: string,
   overlayEmails?: string[],
-) {
+): Record<string, string> {
   const params: Record<string, string> = {};
   if (from) params.from = from;
   if (to) params.to = to;
   if (overlayEmails && overlayEmails.length > 0) {
     params.overlayEmails = overlayEmails.join(",");
   }
+  return params;
+}
+
+export function useEvents(
+  from?: string,
+  to?: string,
+  overlayEmails?: string[],
+) {
+  const params = buildEventsParams(from, to, overlayEmails);
 
   return useActionQuery<CalendarEvent[]>("list-events", params, {
     retry: false,
     staleTime: 30_000,
     gcTime: 30 * 60 * 1000,
     placeholderData: keepPreviousData,
+  });
+}
+
+/**
+ * Warm the events query cache for a given range without triggering a render.
+ * Use to pre-fetch adjacent weeks so j/k navigation is instant — the same
+ * stale/gc settings as `useEvents` apply, so the prefetched data is picked up
+ * by the real query when the user actually navigates.
+ */
+export function prefetchEvents(
+  queryClient: ReturnType<typeof useQueryClient>,
+  from: string,
+  to: string,
+  overlayEmails?: string[],
+) {
+  const params = buildEventsParams(from, to, overlayEmails);
+  return queryClient.prefetchQuery({
+    queryKey: ["action", "list-events", params],
+    queryFn: async () => {
+      const qs = new URLSearchParams(params).toString();
+      const res = await fetch(`/_agent-native/actions/list-events?${qs}`);
+      if (!res.ok) throw new Error("prefetch list-events failed");
+      return res.json();
+    },
+    staleTime: 30_000,
+    gcTime: 30 * 60 * 1000,
   });
 }
 

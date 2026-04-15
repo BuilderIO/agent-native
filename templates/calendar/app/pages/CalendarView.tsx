@@ -49,6 +49,7 @@ import {
   useCreateEvent,
   useUpdateEvent,
   useDeleteEvent,
+  prefetchEvents,
 } from "@/hooks/use-events";
 import { useOverlayPeople } from "@/hooks/use-overlay-people";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
@@ -141,6 +142,51 @@ export default function CalendarView() {
     isLoading,
   } = useEvents(from, to, overlayEmails);
   const rawEvents = Array.isArray(rawEventsData) ? rawEventsData : [];
+
+  // Warm the adjacent ranges so j/k (and the chevron buttons) feel instant.
+  // Borrowed from the mail template's background-warm pattern — fire-and-forget
+  // prefetch that lets React Query dedupe and reuse the response when the user
+  // actually navigates. Only runs once the current range has loaded so we
+  // don't fight the primary fetch for bandwidth.
+  useEffect(() => {
+    if (isLoading) return;
+    const ranges = (() => {
+      switch (viewMode) {
+        case "month": {
+          const next = addMonths(selectedDate, 1);
+          const prev = subMonths(selectedDate, 1);
+          return [next, prev].map((d) => ({
+            from: startOfWeek(startOfMonth(d)).toISOString(),
+            to: endOfWeek(endOfMonth(d)).toISOString(),
+          }));
+        }
+        case "week": {
+          // Two weeks forward so rapid `j j` stays instant, plus one back.
+          const next = addWeeks(selectedDate, 1);
+          const next2 = addWeeks(selectedDate, 2);
+          const prev = subWeeks(selectedDate, 1);
+          return [next, next2, prev].map((d) => ({
+            from: startOfWeek(d).toISOString(),
+            to: endOfWeek(d).toISOString(),
+          }));
+        }
+        case "day": {
+          const next = addDays(selectedDate, 1);
+          const prev = subDays(selectedDate, 1);
+          return [next, prev].map((d) => {
+            const start = new Date(d);
+            start.setHours(0, 0, 0, 0);
+            const end = new Date(d);
+            end.setHours(23, 59, 59, 999);
+            return { from: start.toISOString(), to: end.toISOString() };
+          });
+        }
+      }
+    })();
+    for (const range of ranges) {
+      void prefetchEvents(queryClient, range.from, range.to, overlayEmails);
+    }
+  }, [isLoading, viewMode, selectedDate, overlayEmails, queryClient]);
 
   // Show skeleton only when loading with no cached data (new date range).
   // Tab refocus keeps cached data visible and refetches in background.

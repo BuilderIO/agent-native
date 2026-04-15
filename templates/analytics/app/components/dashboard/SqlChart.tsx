@@ -501,6 +501,7 @@ function BarRenderer({
             }}
             labelFormatter={formatXLabel}
             formatter={(v: number) => formatYValue(v, yFormatter)}
+            itemSorter={(item) => -(Number(item.value) || 0)}
           />
           {yKeys.map((key, i) => (
             <Bar
@@ -568,6 +569,7 @@ function TimeSeriesRenderer({
               }}
               labelFormatter={formatXLabel}
               formatter={(v: number) => formatYValue(v, yFormatter)}
+              itemSorter={(item) => -(Number(item.value) || 0)}
             />
             {yKeys.map((key, i) => (
               <Line
@@ -642,6 +644,7 @@ function TimeSeriesRenderer({
             }}
             labelFormatter={formatXLabel}
             formatter={(v: number) => formatYValue(v, yFormatter)}
+            itemSorter={(item) => -(Number(item.value) || 0)}
           />
           {yKeys.map((key, i) => (
             <Area
