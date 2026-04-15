@@ -1,14 +1,6 @@
 export type DataSourceType = "bigquery" | "app-db";
 
-export type ChartType =
-  | "line"
-  | "area"
-  | "bar"
-  | "metric"
-  | "table"
-  | "pie"
-  | "stacked-bar"
-  | "stacked-area";
+export type ChartType = "line" | "area" | "bar" | "metric" | "table" | "pie";
 
 export type FilterType =
   | "date"

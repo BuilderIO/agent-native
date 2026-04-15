@@ -76,6 +76,36 @@ export function useDashboardViews(dashboardId: string | undefined) {
 }
 
 /**
+ * Standalone delete mutation — lets sidebar rows call delete without
+ * subscribing to the per-dashboard views query (which would double-fetch
+ * what `useAllDashboardViews` already loads).
+ */
+export function useDeleteDashboardView() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      dashboardId,
+      viewId,
+    }: {
+      dashboardId: string;
+      viewId: string;
+    }) => {
+      const res = await fetchWithAuth(
+        `/api/dashboard-views/${encodeURIComponent(dashboardId)}/${encodeURIComponent(viewId)}`,
+        { method: "DELETE" },
+      );
+      if (!res.ok) throw new Error(`Delete failed: ${res.status}`);
+    },
+    onSettled: (_data, _err, { dashboardId }) => {
+      queryClient.invalidateQueries({
+        queryKey: ["dashboard-views", dashboardId],
+      });
+      queryClient.invalidateQueries({ queryKey: ["all-dashboard-views"] });
+    },
+  });
+}
+
+/**
  * Fetch views for all dashboards at once (for sidebar).
  * Returns a map of dashboardId -> DashboardView[].
  */

@@ -1154,6 +1154,33 @@ const AssistantChatInner = forwardRef<
                 // can abort it even if clicked before the function body runs.
                 const abortCtrl = new AbortController();
                 reconnectAbortRef.current = abortCtrl;
+
+                // Watchdog: poll /runs/active to detect when the run is no
+                // longer running server-side. If the SSE stream hangs (e.g.
+                // because the agent process died but its SQL run row is still
+                // marked "running", or the stream just never emits `done`),
+                // this aborts the fetch so we fall through to thread refresh
+                // instead of showing "Thinking..." forever.
+                const watchdog = setInterval(async () => {
+                  try {
+                    const res = await fetch(
+                      `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
+                    );
+                    if (!res.ok) {
+                      abortCtrl.abort();
+                      clearInterval(watchdog);
+                      return;
+                    }
+                    const info = await res.json();
+                    if (info.status !== "running") {
+                      abortCtrl.abort();
+                      clearInterval(watchdog);
+                    }
+                  } catch {
+                    // Network blip — keep polling
+                  }
+                }, 3000);
+
                 const streamReconnect = async () => {
                   try {
                     const sseRes = await fetch(
@@ -1191,6 +1218,8 @@ const AssistantChatInner = forwardRef<
                     }
                   } catch {
                     // Stream error or abort — fall through to re-fetch
+                  } finally {
+                    clearInterval(watchdog);
                   }
 
                   // Poll for thread data — server's updateThreadData may not have
