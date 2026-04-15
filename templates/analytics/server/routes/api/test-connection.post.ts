@@ -103,9 +103,10 @@ export default defineEventHandler(async (event) => {
       }
 
       case "jira": {
-        const email = await resolveCredential("JIRA_EMAIL");
-        const token = await resolveCredential("JIRA_TOKEN");
-        if (!email || !token)
+        const baseUrl = await resolveCredential("JIRA_BASE_URL");
+        const email = await resolveCredential("JIRA_USER_EMAIL");
+        const token = await resolveCredential("JIRA_API_TOKEN");
+        if (!baseUrl || !email || !token)
           return { ok: false, error: "Missing credentials" };
         return { ok: true };
       }
