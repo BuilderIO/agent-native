@@ -125,24 +125,10 @@ function applyJsonOp(root: any, op: JsonOp): string {
         value = fromParent[fromKey as string];
         delete fromParent[fromKey as string];
       }
-      // `move` uses RFC 6902 semantics: `path` is the final index in the
-      // resulting array, so natural splice-after-splice is correct.
-      // `move-before` uses stable (pre-splice) indexing: `path` names the
-      // element the agent wants the source to land *before*, counted in
-      // the original array. When the source was earlier in the same
-      // array, the splice shifted that target left by one, so subtract 1.
-      let [toParent, toKey] = resolveParent(root, parsePointer(op.path));
-      if (
-        op.op === "move-before" &&
-        Array.isArray(toParent) &&
-        Array.isArray(fromParent) &&
-        toParent === fromParent &&
-        typeof toKey === "number" &&
-        typeof fromKey === "number" &&
-        toKey > fromKey
-      ) {
-        toKey = toKey - 1;
-      }
+      // Destination path is resolved AFTER the source splice, so natural
+      // splice semantics place the element at the requested index in the
+      // final array. No adjustment needed for same-array moves.
+      const [toParent, toKey] = resolveParent(root, parsePointer(op.path));
       if (Array.isArray(toParent)) {
         checkArrayIndex(toParent, toKey as number, op.path, "insert");
         toParent.splice(toKey as number, 0, value);
