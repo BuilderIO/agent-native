@@ -169,7 +169,7 @@ export default defineAction({
     "Use `ops` for structural changes (reorder/insert/remove panels, update field values via JSON Pointer paths). " +
     "Use `config` to replace the entire dashboard config. Call `refresh-screen` after to update the UI.",
   schema: z.object({
-    id: z
+    dashboardId: z
       .string()
       .describe(
         "Dashboard id (without the `sql-dashboard-` prefix). e.g. 'devrel-leaderboard'",
@@ -216,18 +216,18 @@ export default defineAction({
     }
 
     const scope = resolveScope();
-    const key = `${KEY_PREFIX}${args.id}`;
+    const key = `${KEY_PREFIX}${args.dashboardId}`;
 
     if (args.config) {
       const existing = await readScoped(scope, key);
       const resolvedScope = existing?.scope ?? (scope.orgId ? "org" : "user");
       await writeScoped(scope, key, args.config, resolvedScope as any);
-      return `Dashboard "${args.id}" replaced (scope: ${resolvedScope}).`;
+      return `Dashboard "${args.dashboardId}" replaced (scope: ${resolvedScope}).`;
     }
 
     const existing = await readScoped(scope, key);
     if (!existing) {
-      return `Error: dashboard "${args.id}" not found in org, user, or global scope.`;
+      return `Error: dashboard "${args.dashboardId}" not found in org, user, or global scope.`;
     }
 
     const root = existing.value as any;
@@ -243,7 +243,7 @@ export default defineAction({
     await writeScoped(scope, key, root, existing.scope);
 
     return (
-      `Dashboard "${args.id}" updated (scope: ${existing.scope}). ` +
+      `Dashboard "${args.dashboardId}" updated (scope: ${existing.scope}). ` +
       `Applied ${details.length} op(s): ${details.join("; ")}. ` +
       `Call refresh-screen to update the UI.`
     );

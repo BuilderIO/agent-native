@@ -86,15 +86,15 @@ The UI picks up the new dashboard via SSE events on settings changes.
 
 ```
 # Reorder panels (move the panel at /panels/2 to position 0):
-pnpm action update-dashboard --id devrel-leaderboard \
+pnpm action update-dashboard --dashboardId devrel-leaderboard \
   --ops '[{"op":"move","from":"/panels/2","path":"/panels/0"}]'
 
 # Rename a panel title:
-pnpm action update-dashboard --id devrel-leaderboard \
+pnpm action update-dashboard --dashboardId devrel-leaderboard \
   --ops '[{"op":"replace","path":"/panels/0/title","value":"Top Articles"}]'
 
 # Replace the whole config:
-pnpm action update-dashboard --id devrel-leaderboard --config '<full json>'
+pnpm action update-dashboard --dashboardId devrel-leaderboard --config '<full json>'
 ```
 
 After any mutation, call `refresh-screen` so the user's open dashboard re-fetches.
@@ -256,11 +256,11 @@ Numeric formats render right-aligned with tabular nums. `link` opens in a new ta
 
 ```
 # Edit: reorder panels, insert/remove/rename, or set any field by JSON Pointer.
-pnpm action update-dashboard --id devrel-leaderboard \
+pnpm action update-dashboard --dashboardId devrel-leaderboard \
   --ops '[{"op":"move","from":"/panels/2","path":"/panels/0"}]'
 
 # Replace whole config (creation or full rewrite):
-pnpm action update-dashboard --id devrel-leaderboard --config '<json>'
+pnpm action update-dashboard --dashboardId devrel-leaderboard --config '<json>'
 ```
 
 **Read a dashboard** (read-only lookups are still fine via `db-query` — just be aware multiple rows may exist):
