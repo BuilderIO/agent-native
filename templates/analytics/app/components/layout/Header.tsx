@@ -1,6 +1,6 @@
 import { useLocation } from "react-router";
 import { dashboards } from "@/pages/adhoc/registry";
-import { useHeaderActions } from "./HeaderActions";
+import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 import { AgentToggleButton } from "@agent-native/core/client";
 
 const pageTitles: Record<string, string> = {
@@ -31,7 +31,8 @@ function resolveTitle(pathname: string): string {
 
 export function Header() {
   const location = useLocation();
-  const { title, actions } = useHeaderActions();
+  const title = useHeaderTitle();
+  const actions = useHeaderActions();
 
   return (
     <header className="hidden md:flex h-14 items-center gap-3 border-b border-border bg-background px-4 lg:h-[60px] lg:px-6 shrink-0">
