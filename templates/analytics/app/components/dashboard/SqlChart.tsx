@@ -32,6 +32,7 @@ const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 import { useSqlQuery } from "@/lib/sql-query";
 import type {
   SqlPanel,
+  ChartType,
   TableColumnConfig,
   ColumnFormat,
 } from "@/pages/adhoc/sql-dashboard/types";
@@ -173,21 +174,30 @@ export function SqlChart({ panel, resolvedSql }: SqlChartProps) {
     );
   }
 
-  if (panel.chartType === "metric") {
+  // Legacy normalization: older saved dashboards may still have stacked-*
+  // chart types. Render them unstacked rather than silently blank.
+  const chartType: ChartType =
+    (panel.chartType as string) === "stacked-bar"
+      ? "bar"
+      : (panel.chartType as string) === "stacked-area"
+        ? "area"
+        : panel.chartType;
+
+  if (chartType === "metric") {
     return <MetricRenderer rows={rows} panel={panel} />;
   }
 
-  if (panel.chartType === "table") {
+  if (chartType === "table") {
     return <TableRenderer rows={rows} panel={panel} />;
   }
 
-  if (panel.chartType === "pie") {
+  if (chartType === "pie") {
     return (
       <PieRenderer rows={rows} xKey={xKey} yKey={yKeys[0]} colors={colors} />
     );
   }
 
-  if (panel.chartType === "bar" || panel.chartType === "stacked-bar") {
+  if (chartType === "bar") {
     return (
       <BarRenderer
         rows={rows}
@@ -195,12 +205,10 @@ export function SqlChart({ panel, resolvedSql }: SqlChartProps) {
         yKeys={yKeys}
         colors={colors}
         yFormatter={yFormatter}
-        stacked={panel.chartType === "stacked-bar"}
       />
     );
   }
 
-  // line, area, stacked-area
   return (
     <TimeSeriesRenderer
       rows={rows}
@@ -208,8 +216,7 @@ export function SqlChart({ panel, resolvedSql }: SqlChartProps) {
       yKeys={yKeys}
       colors={colors}
       yFormatter={yFormatter}
-      chartType={panel.chartType === "stacked-area" ? "area" : panel.chartType}
-      stacked={panel.chartType === "stacked-area"}
+      chartType={chartType}
     />
   );
 }
@@ -516,14 +523,12 @@ function BarRenderer({
   yKeys,
   colors,
   yFormatter,
-  stacked,
 }: {
   rows: Record<string, unknown>[];
   xKey: string;
   yKeys: string[];
   colors: string[];
   yFormatter?: "number" | "currency" | "percent";
-  stacked?: boolean;
 }) {
   return (
     <div className="h-[250px] w-full">
@@ -565,8 +570,7 @@ function BarRenderer({
               key={key}
               dataKey={key}
               fill={colors[i % colors.length]}
-              radius={stacked ? 0 : [4, 4, 0, 0]}
-              stackId={stacked ? "stack" : undefined}
+              radius={[4, 4, 0, 0]}
             />
           ))}
         </BarChart>
@@ -582,7 +586,6 @@ function TimeSeriesRenderer({
   colors,
   yFormatter,
   chartType,
-  stacked,
 }: {
   rows: Record<string, unknown>[];
   xKey: string;
@@ -590,7 +593,6 @@ function TimeSeriesRenderer({
   colors: string[];
   yFormatter?: "number" | "currency" | "percent";
   chartType: "line" | "area";
-  stacked?: boolean;
 }) {
   if (chartType === "line") {
     return (
@@ -644,7 +646,6 @@ function TimeSeriesRenderer({
     );
   }
 
-  // area / stacked-area
   return (
     <div className="h-[250px] w-full">
       <ResponsiveContainer width="100%" height="100%">
@@ -662,12 +663,12 @@ function TimeSeriesRenderer({
                 <stop
                   offset="5%"
                   stopColor={colors[i % colors.length]}
-                  stopOpacity={stacked ? 0.6 : 0.3}
+                  stopOpacity={0.3}
                 />
                 <stop
                   offset="95%"
                   stopColor={colors[i % colors.length]}
-                  stopOpacity={stacked ? 0.2 : 0}
+                  stopOpacity={0}
                 />
               </linearGradient>
             ))}
@@ -712,7 +713,6 @@ function TimeSeriesRenderer({
               strokeWidth={2}
               fillOpacity={1}
               fill={`url(#sql-gradient-${key})`}
-              stackId={stacked ? "stack" : undefined}
             />
           ))}
         </AreaChart>

@@ -12,6 +12,7 @@ import {
   IconMoon,
   IconInfoCircle,
   IconTrash,
+  IconLoader2,
   IconStar,
   IconSettings,
   IconGripVertical,
@@ -55,6 +56,7 @@ import { NewDashboardDialog } from "./NewDashboardDialog";
 import { useUserPref } from "@/hooks/use-user-pref";
 import {
   useAllDashboardViews,
+  useDeleteDashboardView,
   type DashboardView,
 } from "@/hooks/use-dashboard-views";
 
@@ -143,6 +145,9 @@ function SortableDashboardItem({
   };
 
   const href = `/adhoc/${d.id}`;
+
+  const { mutateAsync: deleteView } = useDeleteDashboardView();
+  const [deletingViewId, setDeletingViewId] = useState<string | null>(null);
 
   // Merge static subviews with dynamic views
   const allSubviews = useMemo(() => {
@@ -274,42 +279,114 @@ function SortableDashboardItem({
               : Array.from(svParams.entries()).every(
                   ([k, v]) => currentSearch.get(k) === v,
                 );
+            const isDeleting =
+              sv.isDynamic && deletingViewId === `pending:${sv.id}`;
             return (
-              <Link
+              <div
                 key={sv.id}
-                to={sv.href}
                 className={cn(
-                  "group/sv flex items-center gap-2 rounded-md px-3 py-1 text-[11px] transition-all hover:text-primary truncate",
+                  "group/sv flex items-center gap-1 rounded-md pr-1 transition-all",
                   isSubviewActive
                     ? "bg-primary/10 text-primary"
-                    : "text-muted-foreground/70 hover:bg-sidebar-accent/50",
+                    : "text-muted-foreground/70 hover:bg-sidebar-accent/50 hover:text-primary",
                 )}
               >
-                <span className="truncate flex-1">{sv.name}</span>
+                <Link
+                  to={sv.href}
+                  className="flex-1 min-w-0 px-3 py-1 text-[11px] truncate"
+                >
+                  <span className="truncate">{sv.name}</span>
+                </Link>
                 {sv.isDynamic && (
-                  <button
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      onToggleFavorite(`view:${d.id}:${sv.id}`);
-                    }}
-                    className={cn(
-                      "p-0.5 rounded shrink-0",
-                      favoriteIds.has(`view:${d.id}:${sv.id}`)
-                        ? "text-yellow-500 opacity-100"
-                        : "opacity-0 group-hover/sv:opacity-100 text-muted-foreground/50 hover:text-yellow-500",
-                    )}
-                  >
-                    <IconStar
+                  <>
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onToggleFavorite(`view:${d.id}:${sv.id}`);
+                      }}
                       className={cn(
-                        "h-2.5 w-2.5",
-                        favoriteIds.has(`view:${d.id}:${sv.id}`) &&
-                          "fill-current",
+                        "p-0.5 rounded shrink-0",
+                        favoriteIds.has(`view:${d.id}:${sv.id}`)
+                          ? "text-yellow-500 opacity-100"
+                          : "opacity-0 group-hover/sv:opacity-100 text-muted-foreground/50 hover:text-yellow-500",
                       )}
-                    />
-                  </button>
+                      title={
+                        favoriteIds.has(`view:${d.id}:${sv.id}`)
+                          ? "Unfavorite"
+                          : "Favorite"
+                      }
+                    >
+                      <IconStar
+                        className={cn(
+                          "h-2.5 w-2.5",
+                          favoriteIds.has(`view:${d.id}:${sv.id}`) &&
+                            "fill-current",
+                        )}
+                      />
+                    </button>
+                    <Popover
+                      open={deletingViewId === sv.id}
+                      onOpenChange={(open) =>
+                        setDeletingViewId(open ? sv.id : null)
+                      }
+                    >
+                      <PopoverTrigger asChild>
+                        <button
+                          className="opacity-0 group-hover/sv:opacity-100 p-0.5 rounded text-muted-foreground/50 hover:text-destructive transition-all shrink-0"
+                          title={`Delete ${sv.name}`}
+                        >
+                          <IconTrash className="h-2.5 w-2.5" />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        className="w-56 p-3"
+                        side="right"
+                        align="start"
+                      >
+                        <p className="text-sm mb-3">
+                          Delete view <strong>{sv.name}</strong>?
+                        </p>
+                        <div className="flex gap-2">
+                          <button
+                            disabled={isDeleting}
+                            onClick={async () => {
+                              setDeletingViewId(`pending:${sv.id}`);
+                              try {
+                                await deleteView({
+                                  dashboardId: d.id,
+                                  viewId: sv.id,
+                                });
+                                setDeletingViewId(null);
+                              } catch (err) {
+                                setDeletingViewId(sv.id);
+                                toast.error(
+                                  err instanceof Error
+                                    ? `Couldn't delete view: ${err.message}`
+                                    : "Couldn't delete view",
+                                );
+                              }
+                            }}
+                            className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-md bg-destructive px-3 py-1.5 text-xs font-medium text-destructive-foreground hover:bg-destructive/90 transition-colors disabled:opacity-60"
+                          >
+                            {isDeleting && (
+                              <IconLoader2 className="h-3 w-3 animate-spin" />
+                            )}
+                            {isDeleting ? "Deleting..." : "Delete"}
+                          </button>
+                          <button
+                            disabled={isDeleting}
+                            onClick={() => setDeletingViewId(null)}
+                            className="flex-1 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-sidebar-accent/50 transition-colors disabled:opacity-60"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                  </>
                 )}
-              </Link>
+              </div>
             );
           })}
         </div>

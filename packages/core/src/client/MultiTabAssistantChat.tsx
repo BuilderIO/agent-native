@@ -510,6 +510,13 @@ export function MultiTabAssistantChat({
       const message = event.data.data?.message as string;
       if (!message) return;
       const context = event.data.data?.context as string | undefined;
+      const openSidebar = event.data.data?.openSidebar as boolean | undefined;
+
+      // Make sure the sidebar is visible to show the response, unless the
+      // caller explicitly opted out.
+      if (openSidebar !== false) {
+        window.dispatchEvent(new CustomEvent("agent-panel:open"));
+      }
 
       const isPlanMode = (() => {
         try {

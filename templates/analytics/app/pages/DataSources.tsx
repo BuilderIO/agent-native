@@ -712,7 +712,7 @@ function DataSourceCard({
   );
 }
 
-function RequestDataSourceCTA() {
+function AddDataSourceCTA() {
   const [prompt, setPrompt] = useState("");
   const { send, isGenerating } = useSendToAgentChat();
 
@@ -738,7 +738,7 @@ function RequestDataSourceCTA() {
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
           <IconPlus className="h-4 w-4" />
-          Request a Data Source
+          Add a Data Source
         </CardTitle>
         <CardDescription>
           Don't see the integration you need? Describe it and the agent will add
@@ -765,7 +765,7 @@ function RequestDataSourceCTA() {
               size="sm"
               disabled={!prompt.trim() || isGenerating}
             >
-              {isGenerating ? "Sending..." : "Request Integration"}
+              {isGenerating ? "Sending..." : "Add Integration"}
             </Button>
           </div>
         </form>
@@ -874,7 +874,7 @@ export default function DataSources() {
       )}
 
       {/* Always-visible CTA to request a new data source */}
-      <RequestDataSourceCTA />
+      <AddDataSourceCTA />
     </div>
   );
 }

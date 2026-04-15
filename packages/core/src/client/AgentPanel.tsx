@@ -1286,15 +1286,29 @@ function URLSync() {
       const nextHash = cmd.hash ?? current.hash;
       const qs = nextSearch.toString();
       const url = nextPath + (qs ? `?${qs}` : "") + (nextHash || "");
+      // Skip the navigation if the URL is already at the target state —
+      // avoids needless react-router work and any revalidation side-effects
+      // that come with it.
       // Mark that the agent just wrote the URL so consumers (e.g. a
       // dashboard restoring saved filter defaults) can skip any auto-
-      // restore that would clobber the agent's change.
+      // restore that would clobber the agent's change. Set this BEFORE
+      // the same-URL short-circuit — a no-op nav is still an explicit
+      // "agent authored this state" signal that consumers depend on.
       try {
         sessionStorage.setItem("__agentUrlAppliedAt__", String(Date.now()));
       } catch {
         // sessionStorage unavailable — not fatal.
       }
-      navigate(url);
+      const currentUrl =
+        current.pathname + (current.search || "") + (current.hash || "");
+      if (url === currentUrl) {
+        queryClient.setQueryData(["__set_url__"], null);
+        return;
+      }
+      // Replace rather than push so repeated agent URL updates don't
+      // clutter the history stack and can't trigger extra remounts from
+      // router navigation lifecycle.
+      navigate(url, { replace: true });
     } catch {
       // Malformed command — ignore.
     }

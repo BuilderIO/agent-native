@@ -7,8 +7,6 @@ import path from "path";
  */
 const FILE_SYMLINKS: Array<{ link: string; target: string }> = [
   { link: "CLAUDE.md", target: "AGENTS.md" },
-  { link: ".cursorrules", target: "AGENTS.md" },
-  { link: ".windsurfrules", target: "AGENTS.md" },
 ];
 
 const DIR_SYMLINKS: Array<{ link: string; target: string }> = [

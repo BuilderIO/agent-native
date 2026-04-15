@@ -39,6 +39,12 @@ export interface AgentChatMessage {
   model?: string;
   /** Scoped system prompt additions for this sub-agent */
   instructions?: string;
+  /**
+   * Whether to open the agent sidebar if it's currently hidden.
+   * Defaults to true — submitting a chat should make the response visible.
+   * Pass `false` for background/silent sends that shouldn't pop the UI open.
+   */
+  openSidebar?: boolean;
 }
 
 const AGENT_CHAT_MESSAGE_TYPE = "builder.submitChat";
@@ -81,5 +87,13 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
   const target = window.parent !== window ? window.parent : window;
   const targetOrigin = getFrameOrigin() || window.location.origin;
   target.postMessage(payload, targetOrigin);
+
+  // Surface the sidebar so the user sees the response. Callers can opt out
+  // via `openSidebar: false` for background/silent sends. AgentSidebar
+  // listens for this event; the parent-frame case is handled by whoever
+  // owns that sidebar receiving the postMessage above.
+  if (opts.openSidebar !== false) {
+    window.dispatchEvent(new CustomEvent("agent-panel:open"));
+  }
   return tabId;
 }
