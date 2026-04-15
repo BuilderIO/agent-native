@@ -127,7 +127,7 @@ export function startGoogleTokenRefreshLoop(
 
   // Kick off an initial pass shortly after startup (not immediately — the DB
   // may still be initializing).
-  setTimeout(() => {
+  const initialTimer = setTimeout(() => {
     refreshExpiringGoogleTokens({ bufferMs }).catch((err) => {
       console.error("[google-refresh] initial pass failed:", err);
     });
@@ -139,7 +139,14 @@ export function startGoogleTokenRefreshLoop(
     });
   }, intervalMs);
 
-  // Don't let the timer keep the process alive on its own.
+  // Don't let either timer keep the process alive on its own.
+  if (
+    typeof initialTimer === "object" &&
+    initialTimer &&
+    "unref" in initialTimer
+  ) {
+    (initialTimer as { unref: () => void }).unref();
+  }
   if (typeof _timer === "object" && _timer && "unref" in _timer) {
     (_timer as { unref: () => void }).unref();
   }
