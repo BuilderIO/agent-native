@@ -1286,7 +1286,15 @@ function URLSync() {
       const nextHash = cmd.hash ?? current.hash;
       const qs = nextSearch.toString();
       const url = nextPath + (qs ? `?${qs}` : "") + (nextHash || "");
-      navigate(url, { replace: true });
+      // Mark that the agent just wrote the URL so consumers (e.g. a
+      // dashboard restoring saved filter defaults) can skip any auto-
+      // restore that would clobber the agent's change.
+      try {
+        sessionStorage.setItem("__agentUrlAppliedAt__", String(Date.now()));
+      } catch {
+        // sessionStorage unavailable — not fatal.
+      }
+      navigate(url);
     } catch {
       // Malformed command — ignore.
     }

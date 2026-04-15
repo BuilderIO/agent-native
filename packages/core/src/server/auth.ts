@@ -87,7 +87,24 @@ export interface AuthOptions {
 // Constants
 // ---------------------------------------------------------------------------
 
-const COOKIE_NAME = "an_session";
+/**
+ * Cookie name for the framework's session cookie.
+ *
+ * Browsers scope cookies by host (NOT host+port — RFC 6265), so two apps
+ * running on different localhost ports share one cookie jar. When multiple
+ * templates run side-by-side (`dev:all`, the desktop app, multi-template
+ * deploys on a shared domain), they would otherwise stomp on each other's
+ * `an_session` cookie and ping-pong each other into a logged-out state.
+ *
+ * When `APP_NAME` is set, suffix the cookie so each app gets its own slot.
+ */
+const APP_NAME_SLUG = (process.env.APP_NAME || "")
+  .toLowerCase()
+  .replace(/[^a-z0-9]+/g, "_")
+  .replace(/^_+|_+$/g, "");
+export const COOKIE_NAME = APP_NAME_SLUG
+  ? `an_session_${APP_NAME_SLUG}`
+  : "an_session";
 const DEFAULT_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 const LOCAL_MODE_MARKER_PATH = path.resolve(
   process.cwd(),

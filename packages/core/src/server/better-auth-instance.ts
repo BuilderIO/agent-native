@@ -374,7 +374,17 @@ async function createBetterAuthInstance(
       },
     },
     advanced: {
-      cookiePrefix: "an",
+      // Per-app cookie prefix so multi-template setups (dev:all, desktop,
+      // multi-app deploys on a shared domain) don't share one cookie slot.
+      // Browsers scope cookies by host, not host+port — without this, signing
+      // into one template overwrites another's session cookie.
+      cookiePrefix: (() => {
+        const slug = (process.env.APP_NAME || "")
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "_")
+          .replace(/^_+|_+$/g, "");
+        return slug ? `an_${slug}` : "an";
+      })(),
     },
     plugins: [
       // Organizations: many:many user:org, roles, invitations

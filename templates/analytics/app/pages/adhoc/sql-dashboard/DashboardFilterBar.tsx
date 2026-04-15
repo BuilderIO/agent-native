@@ -128,38 +128,32 @@ export function DashboardFilterBar({
 
   const setParam = useCallback(
     (updates: Record<string, string>) => {
-      setSearchParams(
-        (prev) => {
-          const next = new URLSearchParams(prev);
-          for (const [key, value] of Object.entries(updates)) {
-            const param = FILTER_PARAM_PREFIX + key;
-            if (value) next.set(param, value);
-            else next.delete(param);
-          }
-          return next;
-        },
-        { replace: true },
-      );
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        for (const [key, value] of Object.entries(updates)) {
+          const param = FILTER_PARAM_PREFIX + key;
+          if (value) next.set(param, value);
+          else next.delete(param);
+        }
+        return next;
+      });
     },
     [setSearchParams],
   );
 
   const clearAllFilters = useCallback(() => {
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        // Remove all f_ prefixed params
-        const keysToRemove: string[] = [];
-        next.forEach((_, k) => {
-          if (k.startsWith(FILTER_PARAM_PREFIX)) keysToRemove.push(k);
-        });
-        keysToRemove.forEach((k) => next.delete(k));
-        // Also remove the view param since we're clearing
-        next.delete("view");
-        return next;
-      },
-      { replace: true },
-    );
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      // Remove all f_ prefixed params
+      const keysToRemove: string[] = [];
+      next.forEach((_, k) => {
+        if (k.startsWith(FILTER_PARAM_PREFIX)) keysToRemove.push(k);
+      });
+      keysToRemove.forEach((k) => next.delete(k));
+      // Also remove the view param since we're clearing
+      next.delete("view");
+      return next;
+    });
   }, [setSearchParams]);
 
   const handleSaveView = useCallback(() => {

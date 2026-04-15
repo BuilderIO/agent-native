@@ -160,17 +160,6 @@ export default function OverviewRoute() {
       title="Overview"
       description="Workspace control plane — manage secrets, integrations, messaging, and agent delegation."
     >
-      <section className="rounded-2xl border bg-card p-5">
-        <h2 className="text-base font-semibold text-foreground">
-          One place to receive and route work
-        </h2>
-        <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-          Connect Slack or Telegram once, let dispatch hand tasks to the right
-          agents, and keep long-lived behavior reviewable through destinations,
-          identities, approvals, and audit.
-        </p>
-      </section>
-
       {(shouldShowMessagingSetup || shouldShowAgentSetup) && (
         <section className="space-y-3">
           <h2 className="text-base font-semibold text-foreground">Setup</h2>
