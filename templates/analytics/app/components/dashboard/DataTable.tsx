@@ -34,6 +34,7 @@ export function DataTable({
   columns: columnsProp,
   isLoading,
   error,
+  maxRows,
 }: DataTableProps) {
   const [sortCol, setSortCol] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
@@ -46,9 +47,19 @@ export function DataTable({
     return Object.keys(data[0]);
   }, [data, columnsProp]);
 
+  // Cap the dataset at `maxRows` before sorting/paginating. Callers pass this
+  // to avoid spending a bunch of work formatting + sorting thousands of rows
+  // the user will never scroll to. Applied before sort so a 10k-row query
+  // trimmed to 200 rows sorts 200, not 10k.
+  const rows = useMemo(
+    () =>
+      maxRows != null && data.length > maxRows ? data.slice(0, maxRows) : data,
+    [data, maxRows],
+  );
+
   const sorted = useMemo(() => {
-    if (!sortCol) return data;
-    return [...data].sort((a, b) => {
+    if (!sortCol) return rows;
+    return [...rows].sort((a, b) => {
       const aVal = a[sortCol];
       const bVal = b[sortCol];
       if (aVal == null && bVal == null) return 0;
@@ -60,7 +71,7 @@ export function DataTable({
       const cmp = String(aVal).localeCompare(String(bVal));
       return sortDir === "asc" ? cmp : -cmp;
     });
-  }, [data, sortCol, sortDir]);
+  }, [rows, sortCol, sortDir]);
 
   const pageCount = Math.ceil(sorted.length / pageSize);
   const paged = sorted.slice(page * pageSize, (page + 1) * pageSize);

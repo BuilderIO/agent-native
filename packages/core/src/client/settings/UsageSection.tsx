@@ -53,7 +53,10 @@ const RANGES = [
 ];
 
 function formatCost(cents: number): string {
-  if (cents < 1) return `${(cents * 100).toFixed(2)}¢`;
+  // Sub-cent values (e.g. a single LLM call at $0.0045 = 0.45¢) — keep
+  // three decimals so tiny calls don't round to 0.00¢. The prior impl
+  // multiplied by 100 in this branch, overstating small costs 100×.
+  if (cents < 1) return `${cents.toFixed(3)}¢`;
   if (cents < 100) return `${cents.toFixed(2)}¢`;
   return `$${(cents / 100).toFixed(2)}`;
 }

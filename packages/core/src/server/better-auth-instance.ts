@@ -72,6 +72,10 @@ export interface BetterAuthConfig {
 
 let _auth: BetterAuthInstance | undefined;
 let _initPromise: Promise<BetterAuthInstance> | undefined;
+// Track the Neon serverless Pool we open for Better Auth so closeBetterAuth()
+// can release it. The Pool keeps WebSocket connections open; leaking them on
+// hot-reload or process restart exhausts Neon's connection slot budget.
+let _neonAuthPool: any;
 
 const pgAuthSchema = {
   user: pgTable("user", {
@@ -284,9 +288,17 @@ export function getBetterAuthSync(): BetterAuthInstance | undefined {
 }
 
 /** Reset for testing */
-export function resetBetterAuth(): void {
+export async function resetBetterAuth(): Promise<void> {
   _auth = undefined;
   _initPromise = undefined;
+  if (_neonAuthPool) {
+    try {
+      await _neonAuthPool.end();
+    } catch {
+      // Pool may have already closed (process exiting, etc.) — don't block reset.
+    }
+    _neonAuthPool = undefined;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -407,9 +419,9 @@ async function buildDatabaseConfig(
     // Netlify Functions / Vercel / CF Workers when Neon's pooler is cold.
     if (isNeonUrl(url)) {
       const { Pool } = await import("@neondatabase/serverless");
-      const pool = new Pool({ connectionString: url });
+      _neonAuthPool = new Pool({ connectionString: url });
       const { drizzle } = await import("drizzle-orm/neon-serverless");
-      const db = drizzle(pool, { schema: pgAuthSchema });
+      const db = drizzle(_neonAuthPool, { schema: pgAuthSchema });
       const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
       return drizzleAdapter(db, {
         provider: "pg",

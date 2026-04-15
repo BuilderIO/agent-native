@@ -288,14 +288,22 @@ function TableRenderer({
     return Object.keys(rows[0]).map((key) => ({ key }));
   }, [config?.columns, rows]);
 
+  // Cap the dataset at `config.limit` before sorting/paginating. Saved
+  // dashboards rely on this to keep long-tailed queries snappy — sorting
+  // 50k rows client-side to page through the first 50 wastes a lot of work.
+  const limitedRows = useMemo(() => {
+    const limit = config?.limit;
+    return limit != null && rows.length > limit ? rows.slice(0, limit) : rows;
+  }, [rows, config?.limit]);
+
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(10);
 
   const sortedRows = useMemo(() => {
-    if (!sortable || !sortKey) return rows;
-    const sorted = [...rows].sort((a, b) => {
+    if (!sortable || !sortKey) return limitedRows;
+    const sorted = [...limitedRows].sort((a, b) => {
       const av = a[sortKey];
       const bv = b[sortKey];
       if (av == null && bv == null) return 0;
@@ -308,7 +316,7 @@ function TableRenderer({
     });
     if (sortDir === "desc") sorted.reverse();
     return sorted;
-  }, [rows, sortKey, sortDir, sortable]);
+  }, [limitedRows, sortKey, sortDir, sortable]);
 
   const pageCount = Math.ceil(sortedRows.length / pageSize);
   const displayRows = sortedRows.slice(page * pageSize, (page + 1) * pageSize);

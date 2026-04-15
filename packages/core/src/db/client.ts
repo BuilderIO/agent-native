@@ -186,6 +186,7 @@ export async function retryOnConnectionError<T>(
 
 let _exec: DbExec | undefined;
 let _pgPool: any;
+let _neonPool: any;
 let _initPromise: Promise<void> | undefined;
 
 async function initClient(): Promise<void> {
@@ -233,7 +234,8 @@ async function initClient(): Promise<void> {
     // and keeps the same `pg`-compatible query(...) interface we need here.
     if (isNeonUrl(url)) {
       const { Pool } = await import("@neondatabase/serverless");
-      const pool = new Pool({ connectionString: url });
+      _neonPool = new Pool({ connectionString: url });
+      const pool = _neonPool;
       _exec = {
         async execute(sql) {
           const rawSql = typeof sql === "string" ? sql : sql.sql;
@@ -398,6 +400,10 @@ export async function closeDbExec(): Promise<void> {
   if (_pgPool) {
     await _pgPool.end();
     _pgPool = undefined;
+  }
+  if (_neonPool) {
+    await _neonPool.end();
+    _neonPool = undefined;
   }
   _exec = undefined;
   _initPromise = undefined;
