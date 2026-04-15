@@ -150,8 +150,16 @@ export function defineAction(options: any) {
     httpConfig !== false &&
     httpConfig !== undefined &&
     httpConfig.method === "GET";
-  const readOnly =
-    typeof options.readOnly === "boolean" ? options.readOnly : inferredReadOnly;
+  // Explicit `readOnly` (true OR false) wins. Otherwise infer from http.method.
+  // We store the resolved boolean so downstream checks can trust entry.readOnly
+  // without re-running method inference — including when a caller explicitly
+  // passes readOnly:false to override a GET (rare but valid).
+  const readOnly: boolean | undefined =
+    typeof options.readOnly === "boolean"
+      ? options.readOnly
+      : inferredReadOnly
+        ? true
+        : undefined;
 
   return {
     tool: {
@@ -161,7 +169,7 @@ export function defineAction(options: any) {
     run,
     ...(hasSchema ? { schema: options.schema } : {}),
     ...(options.http !== undefined ? { http: options.http } : {}),
-    ...(readOnly ? { readOnly: true } : {}),
+    ...(typeof readOnly === "boolean" ? { readOnly } : {}),
   };
 }
 

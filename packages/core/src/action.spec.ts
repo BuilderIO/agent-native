@@ -54,7 +54,7 @@ describe("defineAction — readOnly inference", () => {
     expect(action.readOnly).toBe(true);
   });
 
-  it("honors explicit readOnly=false even on GET", () => {
+  it("honors explicit readOnly=false even on GET (overrides method inference)", () => {
     const action = defineAction({
       description: "mutating get",
       parameters: { x: { type: "string" } },
@@ -62,6 +62,8 @@ describe("defineAction — readOnly inference", () => {
       readOnly: false,
       run: async () => "ok",
     });
-    expect(action.readOnly).toBeUndefined();
+    // Stored as explicit false so the HTTP router / agent dispatcher emit a
+    // refresh event even though the method is GET.
+    expect(action.readOnly).toBe(false);
   });
 });

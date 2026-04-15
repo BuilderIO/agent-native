@@ -42,7 +42,10 @@ function getNeonServerlessDrizzle() {
  * runtime we deploy to, so we prefer it whenever the URL points at Neon.
  */
 function isNeonUrl(url: string): boolean {
-  return /\.neon\.tech([:/]|$)/.test(url);
+  // Must match neon.tech followed by port/path/query/end — include `?` so
+  // URLs like `postgres://…@ep.neon.tech?sslmode=require` (no explicit port
+  // or path) still route through the serverless driver.
+  return /\.neon\.tech([:/?]|$)/.test(url);
 }
 
 let _libsqlDrizzle: Promise<{ drizzle: any }> | undefined;

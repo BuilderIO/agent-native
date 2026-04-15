@@ -109,7 +109,14 @@ export function mountActionRoutes(
             // their action queries. The calling tab already refetches via
             // useActionMutation's onSuccess, so this is mainly cross-tab
             // sync (and parity with the agent's tool-call path).
-            const isReadOnly = entry.readOnly === true || method === "GET";
+            // Explicit entry.readOnly (true OR false) wins over the method
+            // heuristic. defineAction already auto-infers GET → readOnly=true,
+            // so for actions registered through that path entry.readOnly is
+            // always set and the fallback just guards legacy wrap paths.
+            const isReadOnly =
+              typeof entry.readOnly === "boolean"
+                ? entry.readOnly
+                : method === "GET";
             if (!isReadOnly) {
               try {
                 recordChange({
