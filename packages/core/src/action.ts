@@ -41,6 +41,11 @@ interface DefineActionWithSchema<
     args: StandardSchemaV1.InferOutput<TSchema>,
   ) => Promise<TReturn> | TReturn;
   http?: ActionHttpConfig | false;
+  /** If true, the framework will NOT emit a screen-refresh poll event after a
+   *  successful call. Auto-inferred as `true` when `http.method === "GET"`.
+   *  Only set this manually when you need to override the inference — e.g. a
+   *  POST action that only reads data but can't use GET for a protocol reason. */
+  readOnly?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -61,6 +66,9 @@ interface DefineActionWithParams<
   schema?: never;
   run: (args: InferParams<TParams>) => Promise<TReturn> | TReturn;
   http?: ActionHttpConfig | false;
+  /** If true, the framework will NOT emit a screen-refresh poll event after a
+   *  successful call. Auto-inferred as `true` when `http.method === "GET"`. */
+  readOnly?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -133,6 +141,26 @@ export function defineAction(options: any) {
     ? wrapWithValidation(options.schema, options.run, toolParameters)
     : options.run;
 
+  // Auto-infer readOnly from http.method === "GET" unless explicitly set.
+  // GET actions are idempotent reads; their completion should NOT trigger a
+  // screen refresh. Everything else is assumed to mutate — the dispatcher
+  // emits a poll event on success so the UI auto-refetches its queries.
+  const httpConfig = options.http as ActionHttpConfig | false | undefined;
+  const inferredReadOnly =
+    httpConfig !== false &&
+    httpConfig !== undefined &&
+    httpConfig.method === "GET";
+  // Explicit `readOnly` (true OR false) wins. Otherwise infer from http.method.
+  // We store the resolved boolean so downstream checks can trust entry.readOnly
+  // without re-running method inference — including when a caller explicitly
+  // passes readOnly:false to override a GET (rare but valid).
+  const readOnly: boolean | undefined =
+    typeof options.readOnly === "boolean"
+      ? options.readOnly
+      : inferredReadOnly
+        ? true
+        : undefined;
+
   return {
     tool: {
       description: options.description,
@@ -141,6 +169,7 @@ export function defineAction(options: any) {
     run,
     ...(hasSchema ? { schema: options.schema } : {}),
     ...(options.http !== undefined ? { http: options.http } : {}),
+    ...(typeof readOnly === "boolean" ? { readOnly } : {}),
   };
 }
 

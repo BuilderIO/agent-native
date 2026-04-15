@@ -1499,26 +1499,23 @@ function AccountPopover({
   const disconnectGoogle = useDisconnectGoogle();
 
   useEffect(() => {
-    if (authUrl.data?.url) {
-      window.open(authUrl.data.url, "_blank");
-      setWantAuthUrl(false);
+    if (!wantAuthUrl || !authUrl.data?.url) return;
+    setWantAuthUrl(false);
+    window.open(authUrl.data.url, "_blank");
 
-      const interval = setInterval(async () => {
-        const res = await fetch("/_agent-native/google/status").catch(
-          () => null,
-        );
-        if (res?.ok) {
-          const data = await res.json();
-          if (data.accounts?.length > accounts.length) {
-            clearInterval(interval);
-            window.location.reload();
-          }
+    const interval = setInterval(async () => {
+      const res = await fetch("/_agent-native/google/status").catch(() => null);
+      if (res?.ok) {
+        const data = await res.json();
+        if (data.accounts?.length > accounts.length) {
+          clearInterval(interval);
+          window.location.reload();
         }
-      }, 2000);
+      }
+    }, 2000);
 
-      return () => clearInterval(interval);
-    }
-  }, [authUrl.data, accounts.length]);
+    return () => clearInterval(interval);
+  }, [wantAuthUrl, authUrl.data, accounts.length]);
 
   // Empty activeAccounts means "all selected"
   const allSelected = activeAccounts.size === 0;

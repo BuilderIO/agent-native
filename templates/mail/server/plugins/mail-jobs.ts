@@ -49,6 +49,16 @@ async function processJobs(): Promise<void> {
 }
 
 export default () => {
+  // Background cron must only run in one place — otherwise every dev server
+  // processes jobs and automations for every connected user globally, leading
+  // to duplicate actions and duplicate Anthropic spend.
+  if (process.env.RUN_BACKGROUND_JOBS !== "1") {
+    console.log(
+      "[mail-jobs] Skipping background cron (set RUN_BACKGROUND_JOBS=1 to enable)",
+    );
+    return;
+  }
+
   setInterval(async () => {
     try {
       await processJobs();

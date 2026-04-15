@@ -74,6 +74,14 @@ export function useDbSync(
             for (const key of keysRef.current) {
               queryClient.invalidateQueries({ queryKey: [key] });
             }
+
+            // Framework-level invalidation: useActionQuery caches under the
+            // ["action", ...] key prefix. We always invalidate that on any
+            // non-own change event so that any mutating action (agent or
+            // HTTP) auto-refreshes the UI — regardless of how the template
+            // configured queryKeys / onEvent. Templates still get their
+            // per-key list and onEvent callback for anything else.
+            queryClient.invalidateQueries({ queryKey: ["action"] });
           }
 
           // Always forward all events to onEvent — templates can decide

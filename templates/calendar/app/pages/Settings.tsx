@@ -68,11 +68,10 @@ export default function Settings() {
   }
 
   useEffect(() => {
-    if (authUrl.data?.url) {
-      window.open(authUrl.data.url, "_blank");
-      setWantAuthUrl(false);
-    }
-  }, [authUrl.data]);
+    if (!wantAuthUrl || !authUrl.data?.url) return;
+    setWantAuthUrl(false);
+    window.open(authUrl.data.url, "_blank");
+  }, [wantAuthUrl, authUrl.data]);
 
   useEffect(() => {
     if (authUrl.error) {
