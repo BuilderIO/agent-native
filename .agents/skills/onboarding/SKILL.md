@@ -35,7 +35,7 @@ registerOnboardingStep({
 });
 ```
 
-See `packages/docs/content/onboarding.md` for method kinds and built-in steps.
+See `packages/core/docs/content/onboarding.md` for method kinds and built-in steps.
 
 ## Related Skills
 

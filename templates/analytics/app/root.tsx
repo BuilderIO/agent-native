@@ -49,7 +49,12 @@ function DbSyncBridge({ queryClient }: { queryClient: QueryClient }) {
   // cron jobs). Screen-refresh is handled automatically inside AgentSidebar.
   useDbSync({
     queryClient,
-    queryKeys: ["data", "sql-dashboards-sidebar"],
+    queryKeys: [
+      "data",
+      "sql-dashboards-sidebar",
+      "dashboard-views",
+      "all-dashboard-views",
+    ],
   });
   return null;
 }
