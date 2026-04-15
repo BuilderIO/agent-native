@@ -163,8 +163,9 @@ export function TiptapComposer({
   const [popover, setPopover] = useState<PopoverState>(null);
   const popoverRef = useRef<MentionPopoverRef>(null);
   const composerRuntime = useComposerRuntime();
-  const canSend = useComposer((state) => !state.isEmpty);
+  const [editorHasText, setEditorHasText] = useState(false);
   const composerText = useComposer((state) => state.text);
+  const canSend = editorHasText;
   const isMac =
     typeof navigator !== "undefined" &&
     /Mac|iPhone|iPad/.test(navigator.userAgent);
@@ -259,12 +260,30 @@ export function TiptapComposer({
         const saved = localStorage.getItem(DRAFT_KEY);
         if (saved) {
           ed.commands.setContent(saved);
-          // Move cursor to end
           ed.commands.focus("end");
+          setEditorHasText(ed.state.doc.textContent.trim().length > 0);
         }
       } catch {}
     },
     onUpdate: ({ editor: ed }) => {
+      // Drive the send button's enabled state from the actual editor contents;
+      // the composer runtime is only synced on submit, so its isEmpty lags.
+      let hasContent = ed.state.doc.textContent.trim().length > 0;
+      if (!hasContent) {
+        ed.state.doc.descendants((node: any) => {
+          if (
+            node.type.name === "mentionReference" ||
+            node.type.name === "fileReference" ||
+            node.type.name === "skillReference"
+          ) {
+            hasContent = true;
+            return false;
+          }
+          return true;
+        });
+      }
+      setEditorHasText(hasContent);
+
       // Debounce-save draft to localStorage
       clearTimeout(draftTimerRef.current);
       draftTimerRef.current = setTimeout(() => {
@@ -538,6 +557,7 @@ export function TiptapComposer({
       composerRuntime.send();
     }
     ed.commands.clearContent();
+    setEditorHasText(false);
     try {
       localStorage.removeItem(DRAFT_KEY);
     } catch {}

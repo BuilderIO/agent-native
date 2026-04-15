@@ -32,6 +32,7 @@ const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 import { useSqlQuery } from "@/lib/sql-query";
 import type {
   SqlPanel,
+  ChartType,
   TableColumnConfig,
   ColumnFormat,
 } from "@/pages/adhoc/sql-dashboard/types";
@@ -173,21 +174,30 @@ export function SqlChart({ panel, resolvedSql }: SqlChartProps) {
     );
   }
 
-  if (panel.chartType === "metric") {
+  // Legacy normalization: older saved dashboards may still have stacked-*
+  // chart types. Render them unstacked rather than silently blank.
+  const chartType: ChartType =
+    (panel.chartType as string) === "stacked-bar"
+      ? "bar"
+      : (panel.chartType as string) === "stacked-area"
+        ? "area"
+        : panel.chartType;
+
+  if (chartType === "metric") {
     return <MetricRenderer rows={rows} panel={panel} />;
   }
 
-  if (panel.chartType === "table") {
+  if (chartType === "table") {
     return <TableRenderer rows={rows} panel={panel} />;
   }
 
-  if (panel.chartType === "pie") {
+  if (chartType === "pie") {
     return (
       <PieRenderer rows={rows} xKey={xKey} yKey={yKeys[0]} colors={colors} />
     );
   }
 
-  if (panel.chartType === "bar") {
+  if (chartType === "bar") {
     return (
       <BarRenderer
         rows={rows}
@@ -206,7 +216,7 @@ export function SqlChart({ panel, resolvedSql }: SqlChartProps) {
       yKeys={yKeys}
       colors={colors}
       yFormatter={yFormatter}
-      chartType={panel.chartType}
+      chartType={chartType}
     />
   );
 }

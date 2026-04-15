@@ -52,6 +52,7 @@ function DbSyncBridge({ queryClient }: { queryClient: QueryClient }) {
     queryKeys: [
       "data",
       "sql-dashboards-sidebar",
+      "sql-dashboards-palette",
       "dashboard-views",
       "all-dashboard-views",
     ],

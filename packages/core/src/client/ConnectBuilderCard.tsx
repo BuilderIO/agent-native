@@ -216,7 +216,7 @@ export function ConnectBuilderCard({
   }, [initialConnectUrl]);
 
   const showWaitlist = !configured && !builderEnabled;
-  const canSend = configured && builderEnabled && prompt.trim().length > 0;
+  const canSend = configured && prompt.trim().length > 0;
 
   // Title + subtitle depend on which mode we're in. We compute them up front
   // so the render tree below stays flat.
