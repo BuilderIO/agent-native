@@ -1286,6 +1286,15 @@ function URLSync() {
       const nextHash = cmd.hash ?? current.hash;
       const qs = nextSearch.toString();
       const url = nextPath + (qs ? `?${qs}` : "") + (nextHash || "");
+      // Skip the navigation if the URL is already at the target state —
+      // avoids needless react-router work and any revalidation side-effects
+      // that come with it.
+      const currentUrl =
+        current.pathname + (current.search || "") + (current.hash || "");
+      if (url === currentUrl) {
+        queryClient.setQueryData(["__set_url__"], null);
+        return;
+      }
       // Mark that the agent just wrote the URL so consumers (e.g. a
       // dashboard restoring saved filter defaults) can skip any auto-
       // restore that would clobber the agent's change.
@@ -1294,7 +1303,10 @@ function URLSync() {
       } catch {
         // sessionStorage unavailable — not fatal.
       }
-      navigate(url);
+      // Replace rather than push so repeated agent URL updates don't
+      // clutter the history stack and can't trigger extra remounts from
+      // router navigation lifecycle.
+      navigate(url, { replace: true });
     } catch {
       // Malformed command — ignore.
     }

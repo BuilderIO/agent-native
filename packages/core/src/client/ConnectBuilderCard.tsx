@@ -238,7 +238,7 @@ export function ConnectBuilderCard({
     subtitle = (
       <>
         Builder's cloud coding agent will make this code change on a fresh
-        branch — click through when it's ready.
+        branch.
       </>
     );
   } else if (configured) {

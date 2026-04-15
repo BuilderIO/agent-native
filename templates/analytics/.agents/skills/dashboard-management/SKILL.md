@@ -147,7 +147,7 @@ Storage key: `sql-dashboard-{id}`. CRUD endpoints: `GET/POST/DELETE /api/sql-das
       "id": "ts",
       "title": "Signups by Author",
       "source": "bigquery",
-      "chartType": "stacked-area",
+      "chartType": "area",
       "width": 2,
       "sql": "SELECT DATE_TRUNC(DATE(v.created_date), {{cadence}}) AS date, v.author, COUNT(*) AS value FROM {{FIRST_PV}} v WHERE v.created_date BETWEEN TIMESTAMP('{{dateStart}}') AND TIMESTAMP('{{dateEnd}}') {{?recent}}AND v.pub_date >= '{{recent}}'{{/recent}} GROUP BY 1, 2 ORDER BY 1",
       "config": {
@@ -212,10 +212,8 @@ Panel SQL is interpolated client-side before execution:
 
 | chartType       | Notes                                                                                |
 | --------------- | ------------------------------------------------------------------------------------ |
-| `line` / `area` | Single or multi-series time series.                                                  |
-| `bar`           | Vertical bars.                                                                        |
-| `stacked-bar`   | Bars stacked per x value. Pairs with `pivot` for long-form data.                     |
-| `stacked-area`  | Stacked area chart. Pairs with `pivot` for long-form data.                           |
+| `line` / `area` | Single or multi-series time series. Pairs with `pivot` for long-form data.           |
+| `bar`           | Vertical bars. Pairs with `pivot` for long-form data.                                |
 | `metric`        | Big number from the first row, first numeric column.                                  |
 | `table`         | Sortable table. Configure columns + formats via `config.columns`.                     |
 | `pie`           | Single-series pie. Uses first row column as label, first numeric as value.            |
