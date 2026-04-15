@@ -17,6 +17,37 @@ function getPgDrizzle() {
   return _pgDrizzle;
 }
 
+let _neonServerlessDrizzle: Promise<{ drizzle: any; Pool: any }> | undefined;
+function getNeonServerlessDrizzle() {
+  if (!_neonServerlessDrizzle) {
+    _neonServerlessDrizzle = Promise.all([
+      import("drizzle-orm/neon-serverless"),
+      import("@neondatabase/serverless"),
+    ]).then(([drizzleMod, neonMod]) => ({
+      drizzle: drizzleMod.drizzle,
+      Pool: neonMod.Pool,
+    }));
+  }
+  return _neonServerlessDrizzle;
+}
+
+/**
+ * Neon's pooler endpoints cold-start in 5–10s. Serverless environments
+ * (Netlify Functions, Vercel Edge, CF Workers) have short cold-start
+ * budgets of their own, and `postgres-js` opens a raw TCP connection on
+ * port 5432 that can't negotiate around Neon's wake-up window — every
+ * request after an idle period 502s. `@neondatabase/serverless` rides
+ * over WebSockets (HTTP/443 upgrade) and handles Neon wake-up
+ * transparently, supports transactions, and works in every serverless
+ * runtime we deploy to, so we prefer it whenever the URL points at Neon.
+ */
+function isNeonUrl(url: string): boolean {
+  // Must match neon.tech followed by port/path/query/end — include `?` so
+  // URLs like `postgres://…@ep.neon.tech?sslmode=require` (no explicit port
+  // or path) still route through the serverless driver.
+  return /\.neon\.tech([:/?]|$)/.test(url);
+}
+
 let _libsqlDrizzle: Promise<{ drizzle: any }> | undefined;
 function getLibsqlDrizzle() {
   if (!_libsqlDrizzle) {
@@ -48,16 +79,23 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
     }
 
     if (dialect === "postgres") {
-      _dbReady = getPgDrizzle().then(({ drizzle, postgres }) => {
-        const client = postgres(url, {
-          onnotice: () => {},
-          idle_timeout: 240,
-          max_lifetime: 60 * 30,
-          connect_timeout: 10,
-          ...(url.includes("supabase") ? { prepare: false } : {}),
+      if (isNeonUrl(url)) {
+        _dbReady = getNeonServerlessDrizzle().then(({ drizzle, Pool }) => {
+          const pool = new Pool({ connectionString: url });
+          _db = drizzle(pool, { schema });
         });
-        _db = drizzle(client, { schema });
-      });
+      } else {
+        _dbReady = getPgDrizzle().then(({ drizzle, postgres }) => {
+          const client = postgres(url, {
+            onnotice: () => {},
+            idle_timeout: 240,
+            max_lifetime: 60 * 30,
+            connect_timeout: 10,
+            ...(url.includes("supabase") ? { prepare: false } : {}),
+          });
+          _db = drizzle(client, { schema });
+        });
+      }
     } else {
       _dbReady = getLibsqlDrizzle().then(({ drizzle }) => {
         _db = drizzle({

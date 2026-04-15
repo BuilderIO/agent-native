@@ -108,6 +108,27 @@ Without jitter prevention, a cycle occurs: the UI writes state, polling detects 
 
 Action routes (`/_agent-native/actions/:name`) work with the same polling system. When a POST/PUT/DELETE action writes to the database, the version counter increments and `useDbSync` picks up the change. Frontend mutations via `useActionMutation` automatically invalidate `["action"]` query keys on success, triggering refetches of `useActionQuery` hooks.
 
+### Auto-emit on mutating actions
+
+The framework emits a poll event with `source: "action"` whenever any non-read-only action runs to completion — whether called via HTTP (`/_agent-native/actions/:name`) or as an agent tool call. Read-only actions (`http: { method: "GET" }` or explicit `readOnly: true`) are skipped.
+
+This means UIs don't need the agent to remember to call `refresh-screen` after every mutation. A listener like this (used in the `macros` template) will refresh after any mutating agent call:
+
+```ts
+useDbSync({
+  queryClient,
+  queryKeys: [],
+  ignoreSource: TAB_ID,
+  onEvent: (data) => {
+    if (data.requestSource === TAB_ID) return;
+    // Invalidate all useActionQuery caches so list-*, get-*, etc. refetch
+    queryClient.invalidateQueries({ queryKey: ["action"] });
+  },
+});
+```
+
+`refresh-screen` remains available for unusual cases — e.g. the agent mutated data via a path the framework can't see (external system the app mirrors), or the agent wants to pass a `scope` hint for narrower invalidation.
+
 ## Related Skills
 
 - **storing-data** — Application-state and settings are the data stores that sync via polling

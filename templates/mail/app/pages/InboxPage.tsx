@@ -181,7 +181,7 @@ export function InboxPage() {
     isLoading,
     isError,
     refetch,
-  } = useEmails(view, searchQuery);
+  } = useEmails(view, searchQuery, activeLabel ?? undefined);
   const googleStatus = useGoogleAuthStatus();
   const { activeAccounts } = useAccountFilter();
 

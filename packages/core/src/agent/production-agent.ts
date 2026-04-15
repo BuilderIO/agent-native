@@ -49,6 +49,9 @@ export interface ActionEntry {
   ) => Promise<any>;
   /** HTTP exposure config. `false` = agent-only. Omitted = auto-inferred from name. */
   http?: import("../action.js").ActionHttpConfig | false;
+  /** If true, completion does NOT trigger a screen-refresh poll event.
+   *  Set automatically by `defineAction` when `http.method === "GET"`. */
+  readOnly?: boolean;
 }
 
 /** @deprecated Use `ActionEntry` instead */
@@ -373,6 +376,25 @@ export async function runAgentLoop(opts: {
         } catch (err: any) {
           result = `Error running ${toolCall.name}: ${err?.message ?? String(err)}`;
           isError = true;
+        }
+
+        // Auto-refresh the UI after a successful mutating tool call. Any action
+        // that isn't explicitly read-only is assumed to mutate. The client's
+        // useDbSync listener sees a poll event with source:"action" and
+        // invalidates ["action"] queries so list-* / get-* refetch. This makes
+        // refresh after agent writes reliable without the model needing to
+        // remember to call `refresh-screen` itself.
+        if (!isError && actionEntry.readOnly !== true) {
+          try {
+            const { recordChange } = await import("../server/poll.js");
+            recordChange({
+              source: "action",
+              type: "change",
+              key: toolCall.name,
+            });
+          } catch {
+            // poll module may be unavailable in non-server contexts — ignore
+          }
         }
 
         send({ type: "tool_done", tool: toolCall.name, result });

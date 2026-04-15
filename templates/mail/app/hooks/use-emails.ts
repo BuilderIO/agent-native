@@ -249,12 +249,17 @@ interface EmailsPage {
   totalEstimate?: number;
 }
 
-export function useEmails(view: string = "inbox", search?: string) {
+export function useEmails(
+  view: string = "inbox",
+  search?: string,
+  label?: string,
+) {
   const q = useInfiniteQuery({
-    queryKey: ["emails", view, search],
+    queryKey: ["emails", view, search, label],
     queryFn: ({ pageParam }: { pageParam: string | undefined }) => {
       const params = new URLSearchParams({ view });
       if (search) params.set("q", search);
+      if (label) params.set("label", label);
       if (pageParam) params.set("pageToken", pageParam);
       return apiFetch<EmailsPage>(`/api/emails?${params}`);
     },

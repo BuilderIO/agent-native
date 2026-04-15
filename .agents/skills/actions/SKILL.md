@@ -66,6 +66,18 @@ Controls how the action is exposed as an HTTP endpoint:
 | `{ method: "GET", path: "custom" }` | Auto-exposed as `GET /_agent-native/actions/custom` | Custom route path                |
 | `false`                   | Agent-only, never exposed as HTTP                           | `navigate`, `view-screen`, internal actions |
 
+### Screen Refresh (automatic)
+
+The framework auto-refreshes the UI after any successful mutating action. On completion of a non-`GET` action, the server emits a poll event that the client's `useDbSync` picks up and uses to invalidate `["action"]` React Query keys — so `list-*` / `get-*` hooks refetch without a full page reload.
+
+Rules:
+
+- `http: { method: "GET" }` → read-only, does NOT trigger a refresh (inferred automatically).
+- Any other action (default `POST`, `PUT`, `DELETE`, or `http: false`) → treated as mutating, triggers a refresh on success.
+- To override the inference on an unusual action (e.g. a `POST` that only reads), pass `readOnly: true` on the action definition.
+
+Agents do NOT need to call `refresh-screen` after a normal action — it's already handled. `refresh-screen` is only needed when the agent mutates data via a path the framework can't see (e.g. writing to an external system the app mirrors) or when the agent wants to pass a `scope` hint for narrower invalidation.
+
 ### Return Values
 
 Actions should return **structured data** (objects, arrays) — not `JSON.stringify()`. The framework serializes the response automatically. If you return a string, the framework tries to parse it as JSON for a clean response.

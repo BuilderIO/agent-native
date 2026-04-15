@@ -259,6 +259,7 @@ async function loadActionsIntoRegistry(
           tool: mod.tool,
           run: mod.run,
           ...(mod.http !== undefined ? { http: mod.http } : {}),
+          ...(mod.readOnly === true ? { readOnly: true } : {}),
         };
       } else if (
         mod.default &&
@@ -270,6 +271,7 @@ async function loadActionsIntoRegistry(
           tool: mod.default.tool,
           run: mod.default.run,
           ...(mod.default.http !== undefined ? { http: mod.default.http } : {}),
+          ...(mod.default.readOnly === true ? { readOnly: true } : {}),
         };
       } else if (typeof mod.default === "function") {
         registry[name] = wrapDefaultExport(name, mod.default);

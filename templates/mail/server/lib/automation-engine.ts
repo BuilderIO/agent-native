@@ -53,6 +53,22 @@ interface RuleRecord {
   updatedAt: number;
 }
 
+// ─── Per-user Anthropic key ──────────────────────────────────────────────────
+
+async function resolveAnthropicKey(
+  ownerEmail: string,
+): Promise<string | undefined> {
+  const userKey = (await getUserSetting(ownerEmail, "anthropic-api-key")) as
+    | string
+    | { key?: string }
+    | undefined;
+  if (typeof userKey === "string" && userKey.trim()) return userKey.trim();
+  if (userKey && typeof userKey === "object" && userKey.key?.trim()) {
+    return userKey.key.trim();
+  }
+  return process.env.ANTHROPIC_API_KEY || undefined;
+}
+
 // ─── Token helpers ───────────────────────────────────────────────────────────
 
 async function getAccessToken(accountEmail: string): Promise<string | null> {
@@ -416,10 +432,13 @@ export async function processAutomationsForAccount(
   const rules = await loadActiveRules(ownerEmail, "mail");
   if (rules.length === 0) return result;
 
-  // 2. Check for API key
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  // 2. Resolve API key — prefer the user's own key from settings, fall back
+  //    to the server env var only if no per-user key is configured.
+  const apiKey = await resolveAnthropicKey(ownerEmail);
   if (!apiKey) {
-    console.warn("[automation-engine] No ANTHROPIC_API_KEY set, skipping");
+    console.warn(
+      `[automation-engine] No Anthropic API key for ${ownerEmail}, skipping`,
+    );
     return result;
   }
 

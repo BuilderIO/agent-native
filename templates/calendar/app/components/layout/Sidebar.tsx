@@ -189,11 +189,10 @@ function GoogleConnectSidebarButton() {
   const authUrl = useGoogleAuthUrl(wantAuthUrl);
 
   useEffect(() => {
-    if (authUrl.data?.url) {
-      window.open(authUrl.data.url, "_blank");
-      setWantAuthUrl(false);
-    }
-  }, [authUrl.data]);
+    if (!wantAuthUrl || !authUrl.data?.url) return;
+    setWantAuthUrl(false);
+    window.open(authUrl.data.url, "_blank");
+  }, [wantAuthUrl, authUrl.data]);
 
   return (
     <div className="border-t border-border p-3">

@@ -107,29 +107,29 @@ export function GoogleConnectBanner({
     fetchStatus();
   }, [fetchStatus]);
 
-  // When auth URL is ready, open it and poll for connection
+  // When auth URL is ready, open it and poll for connection.
+  // Gate on wantAuthUrl so a cached/refetched URL doesn't open a second
+  // popup behind the first when React Query returns stale data immediately
+  // and then refetches in the background.
   useEffect(() => {
-    if (authUrl.data?.url) {
-      window.open(authUrl.data.url, "_blank");
-      setWantAuthUrl(false);
+    if (!wantAuthUrl || !authUrl.data?.url) return;
+    setWantAuthUrl(false);
+    window.open(authUrl.data.url, "_blank");
 
-      const interval = setInterval(async () => {
-        const res = await fetch("/_agent-native/google/status").catch(
-          () => null,
-        );
-        if (res?.ok) {
-          const data = await res.json();
-          if (data.connected) {
-            clearInterval(interval);
-            setDismissed(true);
-            window.location.reload();
-          }
+    const interval = setInterval(async () => {
+      const res = await fetch("/_agent-native/google/status").catch(() => null);
+      if (res?.ok) {
+        const data = await res.json();
+        if (data.connected) {
+          clearInterval(interval);
+          setDismissed(true);
+          window.location.reload();
         }
-      }, 2000);
+      }
+    }, 2000);
 
-      return () => clearInterval(interval);
-    }
-  }, [authUrl.data]);
+    return () => clearInterval(interval);
+  }, [wantAuthUrl, authUrl.data]);
 
   // When auth URL fails with missing credentials, show wizard
   useEffect(() => {
