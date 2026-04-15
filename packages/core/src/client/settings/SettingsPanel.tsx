@@ -14,10 +14,12 @@ import {
   IconTopologyRing2,
   IconLoader2,
   IconUpload,
+  IconCoin,
 } from "@tabler/icons-react";
 import { SettingsSection } from "./SettingsSection.js";
 import { useBuilderStatus } from "./useBuilderStatus.js";
 import { AgentsSection } from "./AgentsSection.js";
+import { UsageSection } from "./UsageSection.js";
 
 const IntegrationsPanel = lazy(() =>
   import("../integrations/IntegrationsPanel.js").then((m) => ({
@@ -608,6 +610,17 @@ export function SettingsPanel({
         <Suspense fallback={null}>
           <IntegrationsPanel />
         </Suspense>
+      </SettingsSection>
+
+      {/* Usage & spend */}
+      <SettingsSection
+        icon={<IconCoin size={14} />}
+        title="Usage"
+        subtitle="Track token consumption and estimated cost — broken down by chat, automations, and background jobs."
+        open={openSection === "usage"}
+        onToggle={() => toggle("usage")}
+      >
+        <UsageSection />
       </SettingsSection>
 
       {/* A2A Agents */}

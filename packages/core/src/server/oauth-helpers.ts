@@ -1,12 +1,13 @@
 import {
   hasOAuthTokens,
   listOAuthAccountsByOwner,
-  listOAuthAccounts,
 } from "../oauth-tokens/index.js";
 
 /**
  * Check if any OAuth tokens exist for a provider, scoped to the given owner.
  * Always scopes by owner email — never returns tokens across users.
+ * (`local@localhost` is treated as a wildcard inside the store layer; see
+ * `listOAuthAccountsByOwner`.)
  */
 export async function isOAuthConnected(
   provider: string,

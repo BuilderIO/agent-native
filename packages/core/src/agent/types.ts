@@ -65,6 +65,8 @@ export interface AgentChatRequest {
   references?: AgentChatReference[];
   threadId?: string;
   attachments?: AgentChatAttachment[];
+  /** Usage-tracking label for this call (e.g. "chat", "summarize"). Default: "chat". */
+  usageLabel?: string;
 }
 
 export type AgentChatEvent =

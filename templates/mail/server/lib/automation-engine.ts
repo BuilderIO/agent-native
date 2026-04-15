@@ -303,6 +303,7 @@ async function callModel(
   apiKey: string,
   prompt: string,
   model: string,
+  ownerEmail: string,
 ): Promise<string> {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -325,7 +326,35 @@ async function callModel(
 
   const data = (await res.json()) as {
     content: Array<{ type: string; text?: string }>;
+    usage?: {
+      input_tokens?: number;
+      output_tokens?: number;
+      cache_read_input_tokens?: number;
+      cache_creation_input_tokens?: number;
+    };
   };
+
+  // Attribute this call under the "automation" label so users can see
+  // how much of their spend comes from email rule evaluation vs the
+  // main chat in the Usage settings panel.
+  if (data.usage) {
+    try {
+      const { recordUsage } = await import("@agent-native/core");
+      await recordUsage({
+        ownerEmail,
+        inputTokens: data.usage.input_tokens ?? 0,
+        outputTokens: data.usage.output_tokens ?? 0,
+        cacheReadTokens: data.usage.cache_read_input_tokens ?? 0,
+        cacheWriteTokens: data.usage.cache_creation_input_tokens ?? 0,
+        model,
+        label: "automation",
+        app: "mail",
+      });
+    } catch {
+      // Recording is best-effort — never break the automation run.
+    }
+  }
+
   return data.content[0]?.type === "text" ? (data.content[0].text ?? "") : "";
 }
 
@@ -333,6 +362,7 @@ async function evaluateRules(
   emails: EmailSummary[],
   rules: RuleRecord[],
   apiKey: string,
+  ownerEmail: string,
   model: string = DEFAULT_MODEL,
 ): Promise<Map<string, string[]>> {
   // Returns: messageId → array of matched ruleIds
@@ -375,7 +405,7 @@ For each email, evaluate ALL rules. Respond with ONLY a JSON array, no other tex
 Be precise: only mark a rule as matching if the email clearly fits the condition. When a condition mentions a specific sender, check the From field. When it mentions a topic or category, use the subject and snippet.`;
 
     try {
-      const text = await callModel(apiKey, prompt, model);
+      const text = await callModel(apiKey, prompt, model, ownerEmail);
 
       // Parse JSON from response (handle markdown code blocks)
       const jsonStr = text
@@ -469,7 +499,13 @@ export async function processAutomationsForAccount(
   // 5. Evaluate rules with AI
   const autoSettings = await getUserSetting(ownerEmail, "automation-settings");
   const model = (autoSettings as any)?.model || DEFAULT_MODEL;
-  const matches = await evaluateRules(messages, rules, apiKey, model);
+  const matches = await evaluateRules(
+    messages,
+    rules,
+    apiKey,
+    ownerEmail,
+    model,
+  );
 
   // 6. Execute matched actions
   if (matches.size > 0) {

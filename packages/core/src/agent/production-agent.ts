@@ -754,7 +754,7 @@ export function createProductionAgentHandler(
                   `${profile.instructions}\n</custom-agent-profile>`;
 
                 let responseText = "";
-                await runAgentLoop({
+                const subUsage = await runAgentLoop({
                   engine,
                   model: profile.model ?? model,
                   systemPrompt: profilePrompt,
@@ -781,6 +781,24 @@ export function createProductionAgentHandler(
                   signal,
                   providerOptions: options.providerOptions,
                 });
+
+                // Attribute custom-agent sub-calls under their own label
+                // so the Usage panel separates them from the main chat.
+                try {
+                  const ownerEmail = options.resolveOwnerEmail
+                    ? await options.resolveOwnerEmail(event)
+                    : getRequestUserEmail() || "local@localhost";
+                  const { recordUsage } = await import("../usage/store.js");
+                  await recordUsage({
+                    ownerEmail,
+                    inputTokens: subUsage.inputTokens,
+                    outputTokens: subUsage.outputTokens,
+                    cacheReadTokens: subUsage.cacheReadTokens,
+                    cacheWriteTokens: subUsage.cacheWriteTokens,
+                    model: subUsage.model,
+                    label: `custom-agent:${ref.name}`,
+                  });
+                } catch {}
 
                 send({
                   type: "agent_call",
@@ -953,26 +971,34 @@ export function createProductionAgentHandler(
           providerOptions: options.providerOptions,
         });
 
-        // Record token usage for cost tracking (production hosted mode)
-        if (options.trackUsage && options.resolveOwnerEmail) {
-          try {
-            const ownerEmail = await options.resolveOwnerEmail(event);
-            if (
-              ownerEmail &&
-              ownerEmail !== "local@localhost" &&
-              (loopUsage.inputTokens > 0 || loopUsage.outputTokens > 0)
-            ) {
-              const { recordUsage } = await import("../usage/store.js");
-              await recordUsage(
-                ownerEmail,
-                loopUsage.inputTokens,
-                loopUsage.outputTokens,
-                loopUsage.model,
-              );
-            }
-          } catch {
-            // Usage recording failed — don't break the run
+        // Record token usage for cost monitoring. Always on (not gated by
+        // trackUsage) so the Usage panel in settings works in every mode,
+        // including local dev. `trackUsage` only controls the pre-request
+        // *limit check*; recording happens unconditionally.
+        try {
+          const ownerEmail = options.resolveOwnerEmail
+            ? await options.resolveOwnerEmail(event)
+            : getRequestUserEmail() || "local@localhost";
+          if (
+            ownerEmail &&
+            (loopUsage.inputTokens > 0 ||
+              loopUsage.outputTokens > 0 ||
+              loopUsage.cacheReadTokens > 0 ||
+              loopUsage.cacheWriteTokens > 0)
+          ) {
+            const { recordUsage } = await import("../usage/store.js");
+            await recordUsage({
+              ownerEmail,
+              inputTokens: loopUsage.inputTokens,
+              outputTokens: loopUsage.outputTokens,
+              cacheReadTokens: loopUsage.cacheReadTokens,
+              cacheWriteTokens: loopUsage.cacheWriteTokens,
+              model: loopUsage.model,
+              label: body.usageLabel || "chat",
+            });
           }
+        } catch {
+          // Usage recording failed — don't break the run
         }
       },
       options.onRunComplete
