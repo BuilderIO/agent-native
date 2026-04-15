@@ -60,7 +60,29 @@ Don't just dump raw data. Synthesize findings:
 - Call out surprises or actionable insights
 - Compare against benchmarks or prior periods when possible
 
-### Step 4: Format Results as Markdown
+### Step 4: Generate Charts (when useful)
+
+When the analysis benefits from a visual — trends over time, distributions, comparisons between categories — call `generate-chart` before formatting the report. The action returns a `url` you embed directly in the markdown.
+
+```
+generate-chart
+  --title "Closed-lost deals by month"
+  --type bar
+  --labels '["Jan","Feb","Mar"]'
+  --data '[18, 22, 14]'
+```
+
+Embed the returned URL in `resultMarkdown` using standard markdown image syntax:
+
+```markdown
+![Closed-lost deals by month](/api/media/closed-lost-deals-by-month-1234567890.png?v=1234567890)
+```
+
+You can include multiple charts in one analysis. Reach for a chart when it communicates the finding faster than a table — don't force visuals on every analysis.
+
+Include the re-generation step in your saved `instructions` so re-runs produce fresh charts.
+
+### Step 5: Format Results as Markdown
 
 Structure the report clearly:
 
@@ -94,7 +116,7 @@ Time range: Jan 1 – Mar 31, 2026
 Filters: S1+ pipeline, closed-lost only
 ```
 
-### Step 5: Save the Analysis
+### Step 6: Save the Analysis
 
 Call `save-analysis` with all required fields:
 
@@ -125,7 +147,7 @@ save-analysis
 - What structure the output should have
 - End with "Save results with save-analysis using id='...'"
 
-### Step 6: Navigate to the Result
+### Step 7: Navigate to the Result
 
 After saving, navigate the user to see the saved analysis:
 

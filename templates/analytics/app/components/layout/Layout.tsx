@@ -1,5 +1,6 @@
 import { Sidebar } from "./Sidebar";
 import { MobileNav } from "./MobileNav";
+import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
 import { AgentSidebar } from "@agent-native/core/client";
 import { useNavigationState } from "@/hooks/use-navigation-state";
@@ -28,6 +29,7 @@ export function Layout({ children }: LayoutProps) {
         >
           <div className="flex h-full flex-1 flex-col overflow-hidden">
             <MobileNav />
+            <Header />
             <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
               {children}
             </main>
