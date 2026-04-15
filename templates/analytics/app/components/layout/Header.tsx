@@ -1,12 +1,17 @@
-import { useAuth } from "@/components/auth/AuthProvider";
 import { useLocation } from "react-router";
 import { dashboards } from "@/pages/adhoc/registry";
 import { useHeaderActions } from "./HeaderActions";
+import { AgentToggleButton } from "@agent-native/core/client";
 
 const pageTitles: Record<string, string> = {
   "/": "Overview",
+  "/data-sources": "Data Sources",
+  "/data-dictionary": "Data Dictionary",
   "/query": "Query Explorer",
+  "/analyses": "Analyses",
+  "/team": "Team",
   "/settings": "Settings",
+  "/about": "About",
 };
 
 function resolveTitle(pathname: string): string {
@@ -19,27 +24,27 @@ function resolveTitle(pathname: string): string {
     return dash?.name || "Dashboard";
   }
 
-  return "Dashboard";
+  if (pathname.startsWith("/analyses/")) return "Analyses";
+
+  return "Analytics";
 }
 
 export function Header() {
-  const { auth } = useAuth();
   const location = useLocation();
-  const title = resolveTitle(location.pathname);
-  const { actions } = useHeaderActions();
+  const { title, actions } = useHeaderActions();
 
   return (
-    <header className="flex h-14 lg:h-[60px] items-center gap-4 border-b bg-background px-4 md:px-6">
+    <header className="hidden md:flex h-14 items-center gap-3 border-b border-border bg-background px-4 lg:h-[60px] lg:px-6 shrink-0">
       <div className="flex items-center gap-3 flex-1 min-w-0">
-        <h1 className="font-semibold text-lg truncate">{title}</h1>
-        <div className="hidden sm:flex items-center gap-2">{actions}</div>
-      </div>
-      <div className="flex items-center gap-3 shrink-0">
-        {auth && (
-          <span className="text-sm text-muted-foreground hidden sm:inline truncate max-w-[200px]">
-            {auth.email}
-          </span>
+        {title ?? (
+          <h1 className="text-lg font-semibold tracking-tight truncate">
+            {resolveTitle(location.pathname)}
+          </h1>
         )}
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        {actions}
+        <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
       </div>
     </header>
   );

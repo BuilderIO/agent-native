@@ -50,7 +50,6 @@ import {
   PopoverContent,
 } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AgentToggleButton } from "@agent-native/core/client";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { NewDashboardDialog } from "./NewDashboardDialog";
 import { useUserPref } from "@/hooks/use-user-pref";
@@ -606,11 +605,10 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 z-10"
         />
       )}
-      <div className="flex h-14 items-center justify-between border-b border-border px-4 lg:h-[60px] lg:px-6">
+      <div className="flex h-14 items-center border-b border-border px-4 lg:h-[60px] lg:px-6">
         <Link to="/" className="font-semibold">
           <span className="text-lg font-bold tracking-tight">Analytics</span>
         </Link>
-        <AgentToggleButton />
       </div>
       <div className="flex-1 overflow-auto py-2">
         <nav className="grid items-start px-2 text-sm font-medium lg:px-4 space-y-1">

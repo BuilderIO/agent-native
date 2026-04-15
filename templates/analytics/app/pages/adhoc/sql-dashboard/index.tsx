@@ -18,6 +18,10 @@ import type { SqlDashboardConfig } from "./types";
 import { useUserPref } from "@/hooks/use-user-pref";
 import { useDashboardViews } from "@/hooks/use-dashboard-views";
 import {
+  useSetPageTitle,
+  useSetHeaderActions,
+} from "@/components/layout/HeaderActions";
+import {
   DndContext,
   closestCenter,
   PointerSensor,
@@ -271,6 +275,45 @@ export default function SqlDashboardPage() {
     [saveView],
   );
 
+  useSetPageTitle(
+    dashboard ? (
+      editingName ? (
+        <Input
+          value={nameInput}
+          onChange={(e) => setNameInput(e.target.value)}
+          onBlur={handleSaveName}
+          onKeyDown={(e) => e.key === "Enter" && handleSaveName()}
+          className="h-8 w-full sm:w-64 text-lg font-semibold"
+          autoFocus
+        />
+      ) : (
+        <button
+          className="text-lg font-semibold hover:text-primary flex items-center gap-1 truncate"
+          onClick={() => {
+            setNameInput(dashboard.name);
+            setEditingName(true);
+          }}
+        >
+          <span className="truncate">{dashboard.name}</span>
+          <IconPencil className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+        </button>
+      )
+    ) : null,
+  );
+
+  useSetHeaderActions(
+    dashboard ? (
+      <Button
+        size="sm"
+        variant="ghost"
+        className="text-muted-foreground hover:text-destructive"
+        onClick={handleDelete}
+      >
+        <IconTrash className="h-4 w-4" />
+      </Button>
+    ) : null,
+  );
+
   if (!dashboardId) {
     return (
       <div className="flex items-center justify-center h-64 text-muted-foreground">
@@ -295,41 +338,6 @@ export default function SqlDashboardPage() {
 
   return (
     <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2">
-          {editingName ? (
-            <Input
-              value={nameInput}
-              onChange={(e) => setNameInput(e.target.value)}
-              onBlur={handleSaveName}
-              onKeyDown={(e) => e.key === "Enter" && handleSaveName()}
-              className="h-8 w-full sm:w-64 text-lg font-semibold"
-              autoFocus
-            />
-          ) : (
-            <button
-              className="text-lg font-semibold hover:text-primary flex items-center gap-1"
-              onClick={() => {
-                setNameInput(dashboard.name);
-                setEditingName(true);
-              }}
-            >
-              {dashboard.name}
-              <IconPencil className="h-3.5 w-3.5 text-muted-foreground" />
-            </button>
-          )}
-        </div>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="text-muted-foreground hover:text-destructive"
-          onClick={handleDelete}
-        >
-          <IconTrash className="h-4 w-4" />
-        </Button>
-      </div>
-
       {/* Filters */}
       {dashboard.filters && dashboard.filters.length > 0 && (
         <DashboardFilterBar

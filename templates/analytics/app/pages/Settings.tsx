@@ -8,8 +8,6 @@ export default function Settings() {
 
   return (
     <div className="space-y-6 max-w-2xl">
-      <h2 className="text-2xl font-bold tracking-tight">Settings</h2>
-
       <Card className="bg-card border-border/50">
         <CardHeader>
           <CardTitle className="text-base">Account</CardTitle>
