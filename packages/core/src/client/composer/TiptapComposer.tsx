@@ -55,6 +55,8 @@ interface TiptapComposerProps {
   onSubmit?: (text: string, references: Reference[]) => void;
   /** Custom action button (e.g. stop button) to render instead of the default send button. */
   actionButton?: React.ReactNode;
+  /** Extra button to render alongside the default send button (e.g. stop while running). */
+  extraActionButton?: React.ReactNode;
   /** Custom attachment button to render instead of ComposerPrimitive.AddAttachment. */
   attachButton?: React.ReactNode;
   /** Called when a slash command (e.g. /clear, /help) is executed */
@@ -152,6 +154,7 @@ export function TiptapComposer({
   focusRef,
   onSubmit,
   actionButton,
+  extraActionButton,
   attachButton,
   onSlashCommand,
   execMode,
@@ -764,6 +767,7 @@ export function TiptapComposer({
             {execMode && onExecModeChange && (
               <ModeSelector mode={execMode} onChange={onExecModeChange} />
             )}
+            {extraActionButton}
             <button
               type="button"
               onClick={submitComposer}

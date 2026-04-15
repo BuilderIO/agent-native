@@ -75,7 +75,7 @@ export function SqlChartCard({
             )}
             <button
               onClick={onRemove}
-              className="p-1 rounded text-muted-foreground hover:text-destructive"
+              className="p-1 rounded text-muted-foreground hover:text-foreground"
               title="Remove panel"
             >
               <IconTrash className="h-3.5 w-3.5" />
