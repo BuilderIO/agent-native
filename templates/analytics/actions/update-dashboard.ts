@@ -62,20 +62,43 @@ function resolveParent(
   return [node, last];
 }
 
+/** Reject out-of-bounds array indices so a bad pointer can't silently
+ *  create sparse arrays. `mode` controls whether the index may equal
+ *  length (insertion-style) or must be strictly less (access-style). */
+function checkArrayIndex(
+  parent: unknown[],
+  key: number,
+  path: string,
+  mode: "access" | "insert",
+): void {
+  const max = mode === "insert" ? parent.length : parent.length - 1;
+  if (!Number.isInteger(key) || key < 0 || key > max) {
+    throw new Error(
+      `Index ${key} out of bounds for array of length ${parent.length} at ${path}`,
+    );
+  }
+}
+
 function applyJsonOp(root: any, op: JsonOp): string {
   switch (op.op) {
     case "set":
     case "replace": {
       if (op.path === undefined) throw new Error(`${op.op} requires 'path'`);
       const [parent, key] = resolveParent(root, parsePointer(op.path));
+      if (Array.isArray(parent))
+        checkArrayIndex(parent, key as number, op.path, "access");
       parent[key as any] = op.value;
       return `${op.op} ${op.path}`;
     }
     case "remove": {
       if (op.path === undefined) throw new Error("remove requires 'path'");
       const [parent, key] = resolveParent(root, parsePointer(op.path));
-      if (Array.isArray(parent)) parent.splice(key as number, 1);
-      else delete parent[key as string];
+      if (Array.isArray(parent)) {
+        checkArrayIndex(parent, key as number, op.path, "access");
+        parent.splice(key as number, 1);
+      } else {
+        delete parent[key as string];
+      }
       return `remove ${op.path}`;
     }
     case "insert": {
@@ -83,6 +106,7 @@ function applyJsonOp(root: any, op: JsonOp): string {
       const [parent, key] = resolveParent(root, parsePointer(op.path));
       if (!Array.isArray(parent))
         throw new Error("insert target must be array");
+      checkArrayIndex(parent, key as number, op.path, "insert");
       parent.splice(key as number, 0, op.value);
       return `insert at ${op.path}`;
     }
@@ -94,24 +118,23 @@ function applyJsonOp(root: any, op: JsonOp): string {
       const [fromParent, fromKey] = resolveParent(root, parsePointer(op.from));
       let value: unknown;
       if (Array.isArray(fromParent)) {
+        checkArrayIndex(fromParent, fromKey as number, op.from, "access");
         value = fromParent[fromKey as number];
         fromParent.splice(fromKey as number, 1);
       } else {
         value = fromParent[fromKey as string];
         delete fromParent[fromKey as string];
       }
-      let [toParent, toKey] = resolveParent(root, parsePointer(op.path));
-      if (
-        Array.isArray(toParent) &&
-        Array.isArray(fromParent) &&
-        toParent === fromParent
-      ) {
-        const fromIdx = fromKey as number;
-        const toIdx = toKey as number;
-        if (toIdx > fromIdx) toKey = toIdx - 1;
+      // Destination path is resolved AFTER the source splice, so natural
+      // splice semantics place the element at the requested index in the
+      // final array. No adjustment needed for same-array moves.
+      const [toParent, toKey] = resolveParent(root, parsePointer(op.path));
+      if (Array.isArray(toParent)) {
+        checkArrayIndex(toParent, toKey as number, op.path, "insert");
+        toParent.splice(toKey as number, 0, value);
+      } else {
+        toParent[toKey as string] = value;
       }
-      if (Array.isArray(toParent)) toParent.splice(toKey as number, 0, value);
-      else toParent[toKey as string] = value;
       return `${op.op} ${op.from} → ${op.path}`;
     }
     default:
