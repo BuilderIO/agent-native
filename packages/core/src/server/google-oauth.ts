@@ -16,7 +16,7 @@ import {
   setResponseHeader,
   type H3Event,
 } from "h3";
-import { addSession, getSession } from "./auth.js";
+import { addSession, getSession, COOKIE_NAME } from "./auth.js";
 
 // ─── Platform Detection ─────────────────────────────────────────────────────
 
@@ -201,7 +201,7 @@ export async function createOAuthSession(
   if (!opts.hasProductionSession || needsDeepLink) {
     sessionToken = crypto.randomBytes(32).toString("hex");
     await addSession(sessionToken, email);
-    setCookie(event, "an_session", sessionToken, {
+    setCookie(event, COOKIE_NAME, sessionToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",

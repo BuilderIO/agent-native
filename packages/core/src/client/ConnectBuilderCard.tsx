@@ -325,10 +325,7 @@ export function ConnectBuilderCard({
                     Sending to Builder…
                   </>
                 ) : (
-                  <>
-                    Send to Builder
-                    <IconExternalLink className="h-3.5 w-3.5" />
-                  </>
+                  <>Send to Builder</>
                 )}
               </button>
             ) : showWaitlist ? (
