@@ -223,6 +223,35 @@ async function initClient(): Promise<void> {
   // fresh connection per query (max:1) to avoid the "I/O on behalf of a
   // different request" error.
   if (dialect === "postgres") {
+    const { isNeonUrl } = await import("./create-get-db.js");
+
+    // Neon over @neondatabase/serverless (WebSocket upgrade on port 443).
+    // postgres-js uses a raw TCP socket on 5432 that frequently fails on
+    // serverless runtimes (Netlify Functions, Vercel, CF Workers) when
+    // Neon's pooler is cold — every request after an idle period times out
+    // with CONNECT_TIMEOUT. The serverless Pool handles wake-up transparently
+    // and keeps the same `pg`-compatible query(...) interface we need here.
+    if (isNeonUrl(url)) {
+      const { Pool } = await import("@neondatabase/serverless");
+      const pool = new Pool({ connectionString: url });
+      _exec = {
+        async execute(sql) {
+          const rawSql = typeof sql === "string" ? sql : sql.sql;
+          const args = typeof sql === "string" ? [] : sql.args || [];
+          const pgSql = sqliteToPostgresParams(rawSql);
+          const result = await retryOnConnectionError<{
+            rows: unknown[];
+            rowCount?: number;
+          }>(() => pool.query(pgSql, args as any[]));
+          return {
+            rows: result.rows,
+            rowsAffected: result.rowCount ?? 0,
+          };
+        },
+      };
+      return;
+    }
+
     const { default: postgres } = await import("postgres");
     const isWorkers =
       "__cf_env" in globalThis ||

@@ -146,12 +146,6 @@ export async function listOAuthAccounts(provider: string): Promise<
 /**
  * List all OAuth accounts owned by a specific user.
  * In multi-account mode, a user may have connected multiple Google accounts.
- *
- * The dev-mode `local@localhost` session is treated as a wildcard that
- * sees every account in the DB. `saveOAuthTokens` refuses to store that
- * string as an owner (prevents shared ownership in prod), so in local dev
- * tokens land under the connected account's own email — without this
- * carve-out, the local user would never see their own connected accounts.
  */
 export async function listOAuthAccountsByOwner(
   provider: string,
@@ -165,16 +159,10 @@ export async function listOAuthAccountsByOwner(
 > {
   await ensureTable();
   const client = getDbExec();
-  const { rows } =
-    owner === "local@localhost"
-      ? await client.execute({
-          sql: `SELECT account_id, display_name, tokens FROM oauth_tokens WHERE provider = ?`,
-          args: [provider],
-        })
-      : await client.execute({
-          sql: `SELECT account_id, display_name, tokens FROM oauth_tokens WHERE provider = ? AND owner = ?`,
-          args: [provider, owner],
-        });
+  const { rows } = await client.execute({
+    sql: `SELECT account_id, display_name, tokens FROM oauth_tokens WHERE provider = ? AND owner = ?`,
+    args: [provider, owner],
+  });
   return rows.map((row) => ({
     accountId: row.account_id as string,
     displayName: (row.display_name as string) ?? null,

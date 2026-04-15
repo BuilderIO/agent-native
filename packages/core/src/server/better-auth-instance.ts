@@ -399,9 +399,26 @@ async function buildDatabaseConfig(
   dialect: string,
 ): Promise<BetterAuthOptions["database"]> {
   if (dialect === "postgres") {
-    // Use postgres.js — same driver as the framework
-    const { default: postgres } = await import("postgres");
     const url = getDatabaseUrl();
+    const { isNeonUrl } = await import("../db/create-get-db.js");
+
+    // Neon via @neondatabase/serverless (WebSockets over HTTPS). postgres-js
+    // opens a raw TCP connection on port 5432 which frequently times out on
+    // Netlify Functions / Vercel / CF Workers when Neon's pooler is cold.
+    if (isNeonUrl(url)) {
+      const { Pool } = await import("@neondatabase/serverless");
+      const pool = new Pool({ connectionString: url });
+      const { drizzle } = await import("drizzle-orm/neon-serverless");
+      const db = drizzle(pool, { schema: pgAuthSchema });
+      const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
+      return drizzleAdapter(db, {
+        provider: "pg",
+        schema: pgAuthSchema,
+      });
+    }
+
+    // Non-Neon Postgres (Supabase, self-hosted, etc.) → postgres-js
+    const { default: postgres } = await import("postgres");
     const sql = postgres(url, {
       onnotice: () => {},
       idle_timeout: 240,
