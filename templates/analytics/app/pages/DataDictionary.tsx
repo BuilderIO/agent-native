@@ -41,7 +41,6 @@ import {
   IconTrash,
   IconSearch,
   IconExternalLink,
-  IconSparkles,
 } from "@tabler/icons-react";
 
 interface DictionaryEntry {
@@ -185,13 +184,12 @@ export default function DataDictionary() {
                 onClick={() =>
                   send({
                     message:
-                      "Import my data dictionary entries from Notion using the import-data-dictionary-from-notion action",
-                    submit: true,
+                      "Help me populate the data dictionary. Ask me where my team's metric definitions currently live (docs, spreadsheets, dbt, Notion, Confluence, a wiki, etc.) and then save each one via the save-data-dictionary-entry action.",
+                    submit: false,
                   })
                 }
               >
-                <IconSparkles className="h-4 w-4 mr-1" />
-                Ask the agent to import from Notion
+                Ask the agent to help populate it
               </Button>
             </div>
           </CardContent>
