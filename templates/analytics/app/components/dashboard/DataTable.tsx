@@ -9,8 +9,15 @@ import {
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { IconArrowsUpDown } from "@tabler/icons-react";
+import { Button } from "@/components/ui/button";
+import {
+  IconArrowsUpDown,
+  IconChevronLeft,
+  IconChevronRight,
+} from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
+
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
 interface DataTableProps {
   title?: string;
@@ -27,10 +34,11 @@ export function DataTable({
   columns: columnsProp,
   isLoading,
   error,
-  maxRows = 100,
 }: DataTableProps) {
   const [sortCol, setSortCol] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(10);
 
   const columns = useMemo(() => {
     if (columnsProp) return columnsProp;
@@ -39,22 +47,23 @@ export function DataTable({
   }, [data, columnsProp]);
 
   const sorted = useMemo(() => {
-    if (!sortCol) return data.slice(0, maxRows);
-    return [...data]
-      .sort((a, b) => {
-        const aVal = a[sortCol];
-        const bVal = b[sortCol];
-        if (aVal == null && bVal == null) return 0;
-        if (aVal == null) return 1;
-        if (bVal == null) return -1;
-        if (typeof aVal === "number" && typeof bVal === "number") {
-          return sortDir === "asc" ? aVal - bVal : bVal - aVal;
-        }
-        const cmp = String(aVal).localeCompare(String(bVal));
-        return sortDir === "asc" ? cmp : -cmp;
-      })
-      .slice(0, maxRows);
-  }, [data, sortCol, sortDir, maxRows]);
+    if (!sortCol) return data;
+    return [...data].sort((a, b) => {
+      const aVal = a[sortCol];
+      const bVal = b[sortCol];
+      if (aVal == null && bVal == null) return 0;
+      if (aVal == null) return 1;
+      if (bVal == null) return -1;
+      if (typeof aVal === "number" && typeof bVal === "number") {
+        return sortDir === "asc" ? aVal - bVal : bVal - aVal;
+      }
+      const cmp = String(aVal).localeCompare(String(bVal));
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+  }, [data, sortCol, sortDir]);
+
+  const pageCount = Math.ceil(sorted.length / pageSize);
+  const paged = sorted.slice(page * pageSize, (page + 1) * pageSize);
 
   const handleSort = (col: string) => {
     if (sortCol === col) {
@@ -63,6 +72,7 @@ export function DataTable({
       setSortCol(col);
       setSortDir("desc");
     }
+    setPage(0);
   };
 
   const formatValue = (val: unknown): string => {
@@ -90,7 +100,7 @@ export function DataTable({
           No data
         </p>
       ) : (
-        <div className="overflow-auto max-h-[500px]">
+        <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -116,7 +126,7 @@ export function DataTable({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {sorted.map((row, i) => (
+              {paged.map((row, i) => (
                 <TableRow key={i}>
                   {columns.map((col) => (
                     <TableCell
@@ -130,10 +140,51 @@ export function DataTable({
               ))}
             </TableBody>
           </Table>
-          {data.length > maxRows && (
-            <p className="text-xs text-muted-foreground text-center py-2">
-              Showing {maxRows} of {data.length} rows
-            </p>
+          {sorted.length > PAGE_SIZE_OPTIONS[0] && (
+            <div className="flex items-center justify-between px-2 py-2 border-t border-border text-xs text-muted-foreground">
+              <div className="flex items-center gap-2">
+                <span>Rows per page:</span>
+                <select
+                  className="bg-background border border-border rounded px-1 py-0.5 text-xs"
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setPage(0);
+                  }}
+                >
+                  {PAGE_SIZE_OPTIONS.map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <span>
+                  {page * pageSize + 1}–
+                  {Math.min((page + 1) * pageSize, sorted.length)} of{" "}
+                  {sorted.length}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={() => setPage((p) => p - 1)}
+                  disabled={page === 0}
+                >
+                  <IconChevronLeft className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={() => setPage((p) => p + 1)}
+                  disabled={page >= pageCount - 1}
+                >
+                  <IconChevronRight className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
           )}
         </div>
       )}

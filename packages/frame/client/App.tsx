@@ -40,7 +40,17 @@ const SIDEBAR_OPEN_KEY = "frame-sidebar-open";
 
 function getAppId(): string {
   const params = new URLSearchParams(window.location.search);
-  return params.get("app") || "mail";
+  const appId = params.get("app") || "mail";
+  // Set the routing cookie synchronously so the frame proxy routes
+  // `/_agent-native/**` to the correct app backend on the very first
+  // request — including fetches kicked off by child effects (which run
+  // before parent effects in React, so a useEffect here would be too late).
+  // Max-Age ensures a fresh partition or reload doesn't see a stale value
+  // from a different app.
+  if (typeof document !== "undefined") {
+    document.cookie = `frame_active_app=${appId}; path=/; SameSite=Lax; Max-Age=31536000`;
+  }
+  return appId;
 }
 
 function getAppDevUrl(appId: string): string {
@@ -78,11 +88,8 @@ export function App() {
   const appUrl = getAppDevUrl(appId);
   const app = DEFAULT_APPS.find((a) => a.id === appId);
 
-  // Track active app in a cookie so Frame server routes all /_agent-native/
-  // requests to the correct app without needing ?_app= on every URL.
-  useEffect(() => {
-    document.cookie = `frame_active_app=${appId}; path=/; SameSite=Lax`;
-  }, [appId]);
+  // (The `frame_active_app` cookie is set synchronously by getAppId() on
+  // first render, before any child effect can fetch /_agent-native/**.)
 
   // Persist state
   useEffect(() => {

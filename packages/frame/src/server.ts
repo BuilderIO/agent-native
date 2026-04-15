@@ -15,16 +15,45 @@ import {
   createRouter,
   defineEventHandler,
   getCookie,
+  getHeader,
   getQuery,
   proxyRequest,
   setResponseHeader,
   toNodeListener,
+  type H3Event,
 } from "h3";
 import { listen } from "listhen";
 import { DEFAULT_APPS } from "@agent-native/shared-app-config";
 import { extractAppFromState } from "./oauth-state.js";
 
 const PORT = parseInt(process.env.FRAME_SERVER_PORT || "3335", 10);
+
+/**
+ * Resolve which app backend this request should proxy to. Checked in order:
+ * 1. Explicit `_app` query param.
+ * 2. OAuth `state` param (system-browser callbacks have no cookie/Referer).
+ * 3. Referer header — the frame page URL includes `?app=<id>`, so in-page
+ *    fetches carry it. This is the dev-mode Vite plugin's primary signal
+ *    and is kept here for parity so production frame routing doesn't silently
+ *    diverge from dev.
+ * 4. `frame_active_app` cookie — set synchronously by the Frame client on
+ *    first render.
+ * 5. Fallback to "mail".
+ */
+function resolveAppId(event: H3Event): string {
+  const query = getQuery(event);
+  if (typeof query._app === "string" && query._app) return query._app;
+  const fromState = extractAppFromState(query.state as string | undefined);
+  if (fromState) return fromState;
+  const referer = getHeader(event, "referer");
+  if (referer) {
+    const m = referer.match(/[?&]app=([^&]+)/);
+    if (m && DEFAULT_APPS.some((a) => a.id === m[1])) return m[1];
+  }
+  const cookie = getCookie(event, "frame_active_app");
+  if (cookie) return cookie;
+  return "mail";
+}
 
 const app = createApp();
 const router = createRouter();
@@ -72,29 +101,19 @@ router.get(
 router.all(
   "/api/google/**",
   defineEventHandler(async (event) => {
-    const appId =
-      (getQuery(event)._app as string) ||
-      getCookie(event, "frame_active_app") ||
-      "mail";
+    const appId = resolveAppId(event);
     const app = DEFAULT_APPS.find((a) => a.id === appId);
     const targetPort = app?.devPort || 8085;
     return proxyRequest(event, `http://localhost:${targetPort}${event.path}`);
   }),
 );
 
-// Proxy /_agent-native routes to the active app's dev server.
-// App is resolved from ?_app= query param, then OAuth state (for callbacks
-// from the system browser that lack the frame_active_app cookie), then the
-// frame_active_app cookie, then "mail" as default.
+// Proxy /_agent-native routes to the active app's dev server. See
+// resolveAppId() for the signal priority.
 router.all(
   "/_agent-native/**",
   defineEventHandler(async (event) => {
-    const query = getQuery(event);
-    const appId =
-      (query._app as string) ||
-      extractAppFromState(query.state as string | undefined) ||
-      getCookie(event, "frame_active_app") ||
-      "mail";
+    const appId = resolveAppId(event);
     const app = DEFAULT_APPS.find((a) => a.id === appId);
     const targetPort = app?.devPort || 8085;
     return proxyRequest(event, `http://localhost:${targetPort}${event.path}`);

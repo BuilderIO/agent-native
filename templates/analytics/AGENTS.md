@@ -74,7 +74,7 @@ Ephemeral UI state is stored in the SQL `application_state` table. The UI syncs 
 }
 ```
 
-Views: `overview`, `adhoc` (with `dashboardId`), `analyses` (with optional `analysisId`), `query`, `data-sources`, `settings`.
+Views: `overview`, `adhoc` (with `dashboardId`), `analyses` (with optional `analysisId`), `data-dictionary`, `query`, `data-sources`, `settings`.
 
 **Do NOT write to `navigation`** — it is overwritten by the UI. Use `navigate` to control the UI.
 
@@ -241,6 +241,9 @@ pnpm action hubspot-deals --grep="enterprise" --fields=dealname,amount,stageLabe
 | "Analyze our closed-lost deals"     | Read `adhoc-analysis` skill, gather data, save with `save-analysis`  |
 | "Re-run this analysis"              | Read saved instructions, re-gather data, update with `save-analysis` |
 | "Show me my analyses"               | `navigate --view=analyses`                                           |
+| "Build me a dashboard for X"        | `list-data-dictionary --search=X` FIRST, then compose from entries   |
+| "Document this metric"              | `save-data-dictionary-entry --metric="…" --definition="…" …`         |
+| "Import from Notion"                | `import-data-dictionary-from-notion` (needs NOTION_API_KEY)          |
 
 **Key principle**: When asked a question, don't say "check the dashboard" — actually query the data, get results, and present the answer directly in chat with tables and/or charts.
 

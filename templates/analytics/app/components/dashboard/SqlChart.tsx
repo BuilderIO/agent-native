@@ -18,12 +18,17 @@ import {
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import {
   IconExternalLink,
   IconArrowsSort,
   IconSortAscending,
   IconSortDescending,
+  IconChevronLeft,
+  IconChevronRight,
 } from "@tabler/icons-react";
+
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 import { useSqlQuery } from "@/lib/sql-query";
 import type {
   SqlPanel,
@@ -274,7 +279,6 @@ function TableRenderer({
 }) {
   const config = panel.config;
   const sortable = config?.sortable !== false; // default on
-  const limit = config?.limit;
 
   // Resolve column list: explicit config wins, otherwise infer from first row
   const columns = useMemo<TableColumnConfig[]>(() => {
@@ -286,6 +290,8 @@ function TableRenderer({
 
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(10);
 
   const sortedRows = useMemo(() => {
     if (!sortable || !sortKey) return rows;
@@ -304,7 +310,8 @@ function TableRenderer({
     return sorted;
   }, [rows, sortKey, sortDir, sortable]);
 
-  const displayRows = limit ? sortedRows.slice(0, limit) : sortedRows;
+  const pageCount = Math.ceil(sortedRows.length / pageSize);
+  const displayRows = sortedRows.slice(page * pageSize, (page + 1) * pageSize);
 
   const handleHeaderClick = (key: string) => {
     if (!sortable) return;
@@ -314,13 +321,14 @@ function TableRenderer({
       setSortKey(key);
       setSortDir("desc");
     }
+    setPage(0);
   };
 
   return (
     <div className="space-y-1">
-      <div className="overflow-auto max-h-[400px]">
+      <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="sticky top-0 bg-card">
+          <thead>
             <tr className="border-b border-border">
               {columns.map((col) => {
                 const label = col.label ?? col.key;
@@ -399,10 +407,51 @@ function TableRenderer({
           </tbody>
         </table>
       </div>
-      {limit && sortedRows.length > limit && (
-        <p className="text-[10px] text-muted-foreground text-right pr-1">
-          Showing {limit} of {sortedRows.length} rows
-        </p>
+      {sortedRows.length > PAGE_SIZE_OPTIONS[0] && (
+        <div className="flex items-center justify-between px-1 pt-1 border-t border-border text-xs text-muted-foreground">
+          <div className="flex items-center gap-2">
+            <span>Rows per page:</span>
+            <select
+              className="bg-background border border-border rounded px-1 py-0.5 text-xs"
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value));
+                setPage(0);
+              }}
+            >
+              {PAGE_SIZE_OPTIONS.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-center gap-1">
+            <span>
+              {page * pageSize + 1}–
+              {Math.min((page + 1) * pageSize, sortedRows.length)} of{" "}
+              {sortedRows.length}
+            </span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              onClick={() => setPage((p) => p - 1)}
+              disabled={page === 0}
+            >
+              <IconChevronLeft className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              onClick={() => setPage((p) => p + 1)}
+              disabled={page >= pageCount - 1}
+            >
+              <IconChevronRight className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
       )}
     </div>
   );
