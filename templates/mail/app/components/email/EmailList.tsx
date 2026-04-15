@@ -158,7 +158,7 @@ export function EmailList({
     hasNextPage,
     fetchNextPage,
     isFetchingNextPage,
-  } = useEmails(view, searchQuery);
+  } = useEmails(view, searchQuery, labelParam ?? undefined);
 
   const emails = emailsProp ?? fetchedEmails;
   const markRead = useMarkRead();

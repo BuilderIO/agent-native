@@ -9,6 +9,7 @@ import { defineEventHandler, setResponseStatus, getMethod, getQuery } from "h3";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { readBody } from "../server/h3-helpers.js";
 import { runWithRequestContext } from "./request-context.js";
+import { recordChange } from "./poll.js";
 
 const ROUTE_PREFIX = "/_agent-native/actions";
 
@@ -101,6 +102,25 @@ export function mountActionRoutes(
           // Run the action
           try {
             const result = await entry.run(params);
+
+            // Auto-refresh the UI after a successful mutating action. GET
+            // actions and actions explicitly flagged readOnly are skipped.
+            // Other tabs' useDbSync will see source:"action" and invalidate
+            // their action queries. The calling tab already refetches via
+            // useActionMutation's onSuccess, so this is mainly cross-tab
+            // sync (and parity with the agent's tool-call path).
+            const isReadOnly = entry.readOnly === true || method === "GET";
+            if (!isReadOnly) {
+              try {
+                recordChange({
+                  source: "action",
+                  type: "change",
+                  key: name,
+                });
+              } catch {
+                // ignore
+              }
+            }
 
             // If the action returned a string, try to parse as JSON for a clean response
             if (typeof result === "string") {

@@ -307,9 +307,14 @@ function recomputeUnreadCounts(
 
 export const listEmails = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
-  const { view = "inbox", q } = getQuery(event) as {
+  const {
+    view = "inbox",
+    q,
+    label,
+  } = getQuery(event) as {
     view?: string;
     q?: string;
+    label?: string;
   };
 
   if (view === "snoozed" || view === "scheduled") {
@@ -363,6 +368,15 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
         searchQuery = `{from:(${q}) to:(${q}) cc:(${q}) ${q}}`;
       } else {
         searchQuery = gmailQuery[view] ?? `label:${view}`;
+      }
+      // If a specific label filter is active (e.g. a pinned label tab), scope
+      // the Gmail query server-side. Gmail's `label:` operator wants the label
+      // name with spaces replaced by hyphens; nested labels use `/`.
+      if (label) {
+        const gmailLabel = label.replace(/\s+/g, "-");
+        searchQuery = searchQuery
+          ? `${searchQuery} label:${gmailLabel}`
+          : `label:${gmailLabel}`;
       }
 
       // Fetch label name mapping from all accounts (cached)
