@@ -118,44 +118,39 @@ export function GoogleConnectBanner({
     fetchStatus();
   }, [fetchStatus]);
 
-  // When auth URL is ready, open it and poll for connection
+  // When auth URL is ready, open it and poll for connection.
+  // Gate on wantAuthUrl so a cached/refetched URL doesn't open a second
+  // popup behind the first when React Query returns stale data immediately
+  // and then refetches in the background.
   useEffect(() => {
-    if (authUrl.data?.url) {
-      const url = authUrl.data.url;
-      // In a React Native WebView, window.open() is silently blocked (WKWebView
-      // doesn't support it without onOpenWindow). Use postMessage to ask the
-      // native wrapper to open the URL in the system browser (Safari), falling
-      // back to window.location.href which triggers onShouldStartLoadWithRequest.
-      const rnWebView = (window as any).ReactNativeWebView;
-      const isNativeWebView = typeof rnWebView !== "undefined";
-      if (isNativeWebView) {
-        // postMessage is the most reliable bridge to the native layer
-        rnWebView.postMessage(JSON.stringify({ type: "openUrl", url }));
-      } else {
-        window.open(url, "_blank");
-      }
-      setWantAuthUrl(false);
-
-      // Poll for connection status while user completes OAuth in other tab.
-      // On mobile the native app reloads the WebView on return, so skip polling.
-      if (!isNativeWebView) {
-        const interval = setInterval(async () => {
-          const res = await fetch("/_agent-native/google/status").catch(
-            () => null,
-          );
-          if (res?.ok) {
-            const data = await res.json();
-            if (data.connected) {
-              clearInterval(interval);
-              window.location.reload();
-            }
-          }
-        }, 2000);
-
-        return () => clearInterval(interval);
-      }
+    if (!wantAuthUrl || !authUrl.data?.url) return;
+    const url = authUrl.data.url;
+    setWantAuthUrl(false);
+    // In a React Native WebView, window.open() is silently blocked (WKWebView
+    // doesn't support it without onOpenWindow). Use postMessage to ask the
+    // native wrapper to open the URL in the system browser (Safari).
+    const rnWebView = (window as any).ReactNativeWebView;
+    const isNativeWebView = typeof rnWebView !== "undefined";
+    if (isNativeWebView) {
+      rnWebView.postMessage(JSON.stringify({ type: "openUrl", url }));
+      return;
     }
-  }, [authUrl.data]);
+    window.open(url, "_blank");
+
+    // Poll for connection status while user completes OAuth in other tab.
+    const interval = setInterval(async () => {
+      const res = await fetch("/_agent-native/google/status").catch(() => null);
+      if (res?.ok) {
+        const data = await res.json();
+        if (data.connected) {
+          clearInterval(interval);
+          window.location.reload();
+        }
+      }
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [wantAuthUrl, authUrl.data]);
 
   // When auth URL fails, show wizard (for missing credentials) or an error message
   useEffect(() => {
