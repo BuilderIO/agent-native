@@ -420,6 +420,34 @@ export function createCoreRoutesPlugin(
       );
     }
 
+    // ─── Usage & cost summary ────────────────────────────────────────
+    // GET /_agent-native/usage?sinceDays=30
+    // Returns spend broken down by label, model, app, and day for the
+    // current user. Powers the Usage section in the agent settings panel.
+    getH3App(nitroApp).use(
+      `${P}/usage`,
+      defineEventHandler(async (event: H3Event) => {
+        const session = await getSession(event).catch(() => null);
+        if (!session?.email) {
+          setResponseStatus(event, 401);
+          return { error: "unauthorized" };
+        }
+        const sinceDaysParam = new URL(
+          `${event.url?.pathname || "/"}${event.url?.search || ""}`,
+          "http://x",
+        ).searchParams.get("sinceDays");
+        const sinceDays = Math.max(
+          1,
+          Math.min(365, Number(sinceDaysParam) || 30),
+        );
+        const { getUsageSummary } = await import("../usage/store.js");
+        return getUsageSummary({
+          ownerEmail: session.email,
+          sinceMs: Date.now() - sinceDays * 86_400_000,
+        });
+      }),
+    );
+
     // ─── File upload primitive ──────────────────────────────────────
     // GET  /_agent-native/file-upload/status — report active provider
     // POST /_agent-native/file-upload        — upload a file, return { url }

@@ -74,7 +74,7 @@ Ephemeral UI state is stored in the SQL `application_state` table. The UI syncs 
 }
 ```
 
-Views: `overview`, `adhoc` (with `dashboardId`), `analyses` (with optional `analysisId`), `query`, `data-sources`, `settings`.
+Views: `overview`, `adhoc` (with `dashboardId`), `analyses` (with optional `analysisId`), `data-dictionary`, `query`, `data-sources`, `settings`.
 
 **Do NOT write to `navigation`** — it is overwritten by the UI. Use `navigate` to control the UI.
 
@@ -162,6 +162,25 @@ cd templates/analytics && pnpm action <name> [args]
 | `view-screen` |                                                          | See what the user sees now |
 | `navigate`    | `--view <name> [--dashboardId <id>] [--analysisId <id>]` | Navigate the UI            |
 
+### Data Dictionary
+
+The data dictionary is the canonical catalog of the metrics, tables, columns, and business definitions this organization uses. **Consult it FIRST whenever the user asks you to build a dashboard, compute a metric, or interpret a number** — it saves you from guessing at table names, picking the wrong join, or double-counting. Entries explain the SQL recipe, standard dimensions, data lag, known gotchas, and who owns each metric.
+
+| Action                         | Args                                                                                                                  | Purpose                                     |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| `list-data-dictionary`         | `[--search <q>] [--department <name>]`                                                                                | List all entries. **Call this before SQL.** |
+| `save-data-dictionary-entry`   | `--metric <name> --definition <text> [--table --columnsUsed --queryTemplate --knownGotchas --department --owner ...]` | Create or update an entry (upserts by `id`) |
+| `delete-data-dictionary-entry` | `--id <id>`                                                                                                           | Remove an entry                             |
+
+**Workflow for "build me a dashboard":**
+
+1. `list-data-dictionary --search <topic>` — find existing definitions that match the user's intent.
+2. If relevant entries exist, use their `queryTemplate`, `table`, and `cuts` verbatim — don't reinvent.
+3. If the user mentions a metric that isn't in the dictionary, either ask them to define it or propose an entry via `save-data-dictionary-entry` (set `aiGenerated: true`, `approved: false` for human review).
+4. Obey `knownGotchas` from any entry you use — note them to the user if the data has limitations.
+
+**Populating the dictionary:** When the user has existing metric definitions elsewhere (team docs, Confluence, Notion, dbt descriptions, a Google Sheet, a wiki), fetch them with whatever tools you have — generic `WebFetch`, an MCP server the user has configured, a CSV import, or asking the user to paste — then upsert each via `save-data-dictionary-entry`. The dictionary itself is source-agnostic.
+
 ### Ad-Hoc Analysis
 
 | Action            | Args                                                                                  | Purpose                            |
@@ -208,21 +227,24 @@ pnpm action hubspot-deals --grep="enterprise" --fields=dealname,amount,stageLabe
 
 ## Common Tasks
 
-| User request                        | What to do                                                           |
-| ----------------------------------- | -------------------------------------------------------------------- |
-| "What am I looking at?"             | `view-screen`                                                        |
-| "Show weekly signup trends"         | Query BigQuery, generate chart, present in chat                      |
-| "Create a dashboard for X"          | Write config to `dashboard-{id}`, navigate to it                     |
-| "How many open bugs?"               | `jira-search --jql="issuetype = Bug AND resolution = Unresolved"`    |
-| "Find deals over $50k"              | `hubspot-deals --grep="50000" --fields=dealname,amount,stageLabel`   |
-| "Check error rates"                 | Query Sentry via server lib                                          |
-| "Show me PRs from this week"        | `github-prs --org=YourOrg --query="is:open created:>2026-03-27"`     |
-| "Top keywords for our blog"         | `seo-top-keywords --fields=keyword,rank_absolute,etv`                |
-| "Go to the overview"                | `navigate --view=overview`                                           |
-| "Open the weekly metrics dashboard" | `navigate --view=adhoc --dashboardId=weekly-metrics`                 |
-| "Analyze our closed-lost deals"     | Read `adhoc-analysis` skill, gather data, save with `save-analysis`  |
-| "Re-run this analysis"              | Read saved instructions, re-gather data, update with `save-analysis` |
-| "Show me my analyses"               | `navigate --view=analyses`                                           |
+| User request                        | What to do                                                                     |
+| ----------------------------------- | ------------------------------------------------------------------------------ |
+| "What am I looking at?"             | `view-screen`                                                                  |
+| "Show weekly signup trends"         | Query BigQuery, generate chart, present in chat                                |
+| "Create a dashboard for X"          | Write config to `dashboard-{id}`, navigate to it                               |
+| "How many open bugs?"               | `jira-search --jql="issuetype = Bug AND resolution = Unresolved"`              |
+| "Find deals over $50k"              | `hubspot-deals --grep="50000" --fields=dealname,amount,stageLabel`             |
+| "Check error rates"                 | Query Sentry via server lib                                                    |
+| "Show me PRs from this week"        | `github-prs --org=YourOrg --query="is:open created:>2026-03-27"`               |
+| "Top keywords for our blog"         | `seo-top-keywords --fields=keyword,rank_absolute,etv`                          |
+| "Go to the overview"                | `navigate --view=overview`                                                     |
+| "Open the weekly metrics dashboard" | `navigate --view=adhoc --dashboardId=weekly-metrics`                           |
+| "Analyze our closed-lost deals"     | Read `adhoc-analysis` skill, gather data, save with `save-analysis`            |
+| "Re-run this analysis"              | Read saved instructions, re-gather data, update with `save-analysis`           |
+| "Show me my analyses"               | `navigate --view=analyses`                                                     |
+| "Build me a dashboard for X"        | `list-data-dictionary --search=X` FIRST, then compose from entries             |
+| "Document this metric"              | `save-data-dictionary-entry --metric="…" --definition="…" …`                   |
+| "Populate the data dictionary"      | Ask where definitions live, fetch them, loop over `save-data-dictionary-entry` |
 
 **Key principle**: When asked a question, don't say "check the dashboard" — actually query the data, get results, and present the answer directly in chat with tables and/or charts.
 

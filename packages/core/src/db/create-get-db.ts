@@ -41,7 +41,7 @@ function getNeonServerlessDrizzle() {
  * transparently, supports transactions, and works in every serverless
  * runtime we deploy to, so we prefer it whenever the URL points at Neon.
  */
-function isNeonUrl(url: string): boolean {
+export function isNeonUrl(url: string): boolean {
   // Must match neon.tech followed by port/path/query/end — include `?` so
   // URLs like `postgres://…@ep.neon.tech?sslmode=require` (no explicit port
   // or path) still route through the serverless driver.

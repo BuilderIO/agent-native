@@ -64,6 +64,20 @@ export {
   type AgentChatResponse,
 } from "./shared/index.js";
 
+// Token usage tracking
+export {
+  recordUsage,
+  getUsageSummary,
+  getUserUsageCents,
+  checkUsageLimit,
+  calculateCost,
+  type UsageRecord,
+  type UsageSummary,
+  type UsageBucket,
+  type DailyBucket,
+  type UsageRecentEntry,
+} from "./usage/store.js";
+
 // Scripts
 export {
   runScript,

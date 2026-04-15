@@ -15,6 +15,7 @@ import {
   IconStar,
   IconSettings,
   IconGripVertical,
+  IconBook2,
   IconDatabase,
   IconUsers,
   IconReportAnalytics,
@@ -562,6 +563,20 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           >
             <IconReportAnalytics className="h-4 w-4" />
             Analyses
+          </Link>
+
+          {/* Data Dictionary link */}
+          <Link
+            to="/data-dictionary"
+            className={cn(
+              "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
+              location.pathname.startsWith("/data-dictionary")
+                ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                : "text-muted-foreground hover:bg-sidebar-accent/50",
+            )}
+          >
+            <IconBook2 className="h-4 w-4" />
+            Data Dictionary
           </Link>
 
           {/* Dashboards section */}

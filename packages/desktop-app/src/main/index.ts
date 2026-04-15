@@ -471,9 +471,15 @@ ipcMain.on(IPC.INTER_APP_SEND, (event: IpcMainEvent, msg: InterAppMessage) => {
 
 const OAUTH_HOSTS = ["accounts.google.com"];
 
-function openOAuthWindow(url: string) {
+function openOAuthWindow(url: string, sourceSession?: Electron.Session) {
   const mainWin = BrowserWindow.getAllWindows()[0];
 
+  // Critical: the popup MUST share the source webview's session so the
+  // OAuth callback hits the server with the user's auth cookies. Without
+  // this, the callback runs in Electron's default session (no cookies),
+  // sees `local@localhost`, and saves tokens under the connected Google
+  // email instead of the actual signed-in user — turning the "connect"
+  // flow into an infinite redirect loop in dev mode.
   const oauthWin = new BrowserWindow({
     width: 500,
     height: 700,
@@ -483,6 +489,7 @@ function openOAuthWindow(url: string) {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      ...(sourceSession ? { session: sourceSession } : {}),
     },
   });
 
@@ -548,7 +555,9 @@ app.on("web-contents-created", (_event, contents) => {
         return { action: "deny" };
       }
       if (OAUTH_HOSTS.includes(parsed.hostname)) {
-        openOAuthWindow(url);
+        // Pass the source webview's session so the popup carries its
+        // auth cookies into the OAuth callback (see openOAuthWindow).
+        openOAuthWindow(url, contents.session);
       } else {
         shell.openExternal(url);
       }

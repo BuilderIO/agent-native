@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   ResponsiveContainer,
   LineChart,
@@ -13,8 +13,12 @@ import {
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
 import type { ExplorerConfig } from "../types";
 import type { QueryMetricsResult } from "@/lib/query-metrics";
+
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
 const COLORS = [
   "#6366f1",
@@ -129,15 +133,21 @@ function MetricView({
 }
 
 function TableView({ rows }: { rows: Record<string, unknown>[] }) {
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(10);
+
   if (rows.length === 0) return null;
   const columns = Object.keys(rows[0]);
+
+  const pageCount = Math.ceil(rows.length / pageSize);
+  const paged = rows.slice(page * pageSize, (page + 1) * pageSize);
 
   return (
     <Card>
       <CardContent className="p-0">
-        <div className="overflow-auto max-h-[500px]">
+        <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-muted">
+            <thead className="bg-muted">
               <tr>
                 {columns.map((col) => (
                   <th
@@ -150,7 +160,7 @@ function TableView({ rows }: { rows: Record<string, unknown>[] }) {
               </tr>
             </thead>
             <tbody>
-              {rows.slice(0, 100).map((row, i) => (
+              {paged.map((row, i) => (
                 <tr key={i} className="border-t border-border">
                   {columns.map((col) => (
                     <td key={col} className="px-3 py-1.5 whitespace-nowrap">
@@ -162,6 +172,51 @@ function TableView({ rows }: { rows: Record<string, unknown>[] }) {
             </tbody>
           </table>
         </div>
+        {rows.length > PAGE_SIZE_OPTIONS[0] && (
+          <div className="flex items-center justify-between px-3 py-2 border-t border-border text-xs text-muted-foreground">
+            <div className="flex items-center gap-2">
+              <span>Rows per page:</span>
+              <select
+                className="bg-background border border-border rounded px-1 py-0.5 text-xs"
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setPage(0);
+                }}
+              >
+                {PAGE_SIZE_OPTIONS.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center gap-1">
+              <span>
+                {page * pageSize + 1}–
+                {Math.min((page + 1) * pageSize, rows.length)} of {rows.length}
+              </span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={() => setPage((p) => p - 1)}
+                disabled={page === 0}
+              >
+                <IconChevronLeft className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={() => setPage((p) => p + 1)}
+                disabled={page >= pageCount - 1}
+              >
+                <IconChevronRight className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
