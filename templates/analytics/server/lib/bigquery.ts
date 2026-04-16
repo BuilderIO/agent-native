@@ -227,6 +227,53 @@ function rowsToObjects(
   });
 }
 
+/**
+ * Validate a BigQuery SQL statement without executing it. Uses BigQuery's
+ * `dryRun` flag, which is free (no bytes billed) and returns query-compilation
+ * errors — unknown columns, type mismatches, missing tables — in the same
+ * format as a real run. Use this before persisting agent-generated SQL so
+ * the agent gets immediate feedback instead of saving a broken dashboard.
+ *
+ * Returns `null` when the query is valid; otherwise returns a short error
+ * string suitable for bubbling back to the agent.
+ */
+export async function dryRunQuery(sql: string): Promise<string | null> {
+  let resolvedSql = await resolveTablePlaceholder(sql);
+  resolvedSql = filterDevSchema(resolvedSql);
+
+  const projectId = await getProjectId();
+  const token = await getAccessToken();
+  const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      configuration: {
+        dryRun: true,
+        query: { query: resolvedSql, useLegacySql: false },
+      },
+    }),
+  });
+
+  if (res.ok) return null;
+
+  const text = await res.text();
+  try {
+    const parsed = JSON.parse(text) as {
+      error?: { message?: string };
+    };
+    const msg = parsed.error?.message?.trim();
+    if (msg) return msg;
+  } catch {
+    // Fall through
+  }
+  return `BigQuery validation failed (${res.status})`;
+}
+
 export async function runQuery(sql: string): Promise<QueryResult> {
   let resolvedSql = await resolveTablePlaceholder(sql);
   resolvedSql = filterDevSchema(resolvedSql);

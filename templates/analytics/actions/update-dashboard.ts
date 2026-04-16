@@ -8,6 +8,7 @@ import {
   putSetting,
   putUserSetting,
 } from "@agent-native/core/settings";
+import { dryRunQuery } from "../server/lib/bigquery";
 
 const KEY_PREFIX = "sql-dashboard-";
 const LOCAL_EMAIL = "local@localhost";
@@ -142,6 +143,79 @@ function applyJsonOp(root: any, op: JsonOp): string {
   }
 }
 
+/**
+ * Reject configs missing the fields the UI assumes are always present.
+ * Returns a human-readable error string, or `null` when the config passes.
+ * Mirrors the shape required by `app/pages/adhoc/sql-dashboard/types.ts`.
+ */
+function validateDashboardConfig(
+  config: Record<string, unknown>,
+): string | null {
+  if (!config || typeof config !== "object") {
+    return "config must be an object";
+  }
+  if (typeof config.name !== "string" || config.name.trim().length === 0) {
+    return "config.name is required (non-empty string) — without it the dashboard renders as a blank row in the sidebar";
+  }
+  const panels = config.panels;
+  if (!Array.isArray(panels)) {
+    return "config.panels must be an array (use [] for an empty dashboard)";
+  }
+  for (let i = 0; i < panels.length; i++) {
+    const p = panels[i] as Record<string, unknown> | null;
+    if (!p || typeof p !== "object") {
+      return `panel[${i}] must be an object`;
+    }
+    const required = [
+      "id",
+      "title",
+      "sql",
+      "source",
+      "chartType",
+      "width",
+    ] as const;
+    for (const field of required) {
+      const v = p[field];
+      if (field === "width") {
+        if (v !== 1 && v !== 2) return `panel[${i}].width must be 1 or 2`;
+        continue;
+      }
+      if (typeof v !== "string" || v.trim().length === 0) {
+        return `panel[${i}].${field} is required (non-empty string)`;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Dry-run each BigQuery panel's SQL so bad column names or type
+ * mismatches fail here, with the full BigQuery error text, rather than
+ * silently saving a broken dashboard that crashes on render.
+ */
+async function validatePanelSql(
+  config: Record<string, unknown>,
+): Promise<string | null> {
+  const panels = config.panels;
+  if (!Array.isArray(panels)) return null;
+  for (let i = 0; i < panels.length; i++) {
+    const p = panels[i] as Record<string, unknown>;
+    if (p.source !== "bigquery") continue;
+    const sql = typeof p.sql === "string" ? p.sql : "";
+    if (!sql.trim()) continue;
+    let err: string | null;
+    try {
+      err = await dryRunQuery(sql);
+    } catch (e: any) {
+      err = e?.message ?? String(e);
+    }
+    if (err) {
+      return `panel[${i}] "${p.title || p.id}" SQL is invalid: ${err}`;
+    }
+  }
+  return null;
+}
+
 function resolveScope() {
   const orgId = process.env.AGENT_ORG_ID || null;
   const email = process.env.AGENT_USER_EMAIL || LOCAL_EMAIL;
@@ -242,6 +316,10 @@ export default defineAction({
     const key = `${KEY_PREFIX}${args.dashboardId}`;
 
     if (args.config) {
+      const validation = validateDashboardConfig(args.config);
+      if (validation) return `Error: ${validation}`;
+      const sqlError = await validatePanelSql(args.config);
+      if (sqlError) return `Error: ${sqlError}`;
       const existing = await readScoped(scope, key);
       const resolvedScope = existing?.scope ?? (scope.orgId ? "org" : "user");
       await writeScoped(scope, key, args.config, resolvedScope as any);
@@ -262,6 +340,9 @@ export default defineAction({
         return `Error applying op ${JSON.stringify(op)}: ${err.message}`;
       }
     }
+
+    const sqlError = await validatePanelSql(root);
+    if (sqlError) return `Error: ${sqlError}`;
 
     await writeScoped(scope, key, root, existing.scope);
 

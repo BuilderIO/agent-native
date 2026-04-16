@@ -1135,6 +1135,21 @@ export interface AgentChatPluginOptions {
    * need custom org resolution logic (e.g., Atlassian org mapping).
    */
   resolveOrgId?: (event: any) => string | null | Promise<string | null>;
+  /**
+   * Optional callback to append template-specific context to the system
+   * prompt on each request. Runs after AGENTS.md / skills / memory are
+   * loaded and before the schema block — use it to inject dynamic SQL
+   * context like a data dictionary, active feature flags, or whatever
+   * the agent should know about *right now* for this user/org.
+   *
+   * Return `null` or an empty string to skip. The string you return is
+   * appended verbatim, so wrap it in your own XML tags (e.g.
+   * `<data-dictionary>…</data-dictionary>`) to keep the prompt scannable.
+   */
+  extraContext?: (
+    event: any,
+    owner: string,
+  ) => string | null | Promise<string | null>;
 }
 
 /**
@@ -2269,6 +2284,7 @@ export function createAgentChatPlugin(
       (event: import("../agent/types.js").AgentChatEvent) => void
     >();
     let _currentRunOwner = "local@localhost";
+    let _currentRunUserApiKey: string | undefined;
     let _currentRunThreadId = "";
     let _currentRunSystemPrompt = basePrompt;
     // Default to Haiku in production mode to manage costs for hosted apps
@@ -2300,7 +2316,13 @@ export function createAgentChatPlugin(
             },
       getEngine: () =>
         createAnthropicEngine({
-          apiKey: options?.apiKey ?? process.env.ANTHROPIC_API_KEY,
+          // Sub-agents must inherit the parent run's resolved key so a
+          // BYO-key user can't bypass the free-tier check on the parent
+          // run and then have spawn-task delegations bill the platform key.
+          apiKey:
+            _currentRunUserApiKey ??
+            options?.apiKey ??
+            process.env.ANTHROPIC_API_KEY,
         }),
       getModel: () => resolvedModel,
       getParentThreadId: () => _currentRunThreadId,
@@ -2337,15 +2359,36 @@ export function createAgentChatPlugin(
     // Always build the production handler (includes resource tools + call-agent + team tools)
     // In production mode (!canToggle), enable usage tracking and limits
     const isHostedProd = !canToggle;
+    const resolveExtraContext = async (
+      event: any,
+      owner: string,
+    ): Promise<string> => {
+      if (!options?.extraContext) return "";
+      try {
+        const extra = await options.extraContext(event, owner);
+        return extra ? `\n\n${extra}` : "";
+      } catch (err) {
+        console.warn(
+          "[agent-chat] extraContext threw:",
+          err instanceof Error ? err.message : err,
+        );
+        return "";
+      }
+    };
+
     const prodHandler = createProductionAgentHandler({
       actions: prodActions,
       systemPrompt: async (event: any) => {
         _currentRequestOrigin = getOrigin(event);
         const owner = await getOwnerFromEvent(event);
         _currentRunOwner = owner;
+        const { getOwnerAnthropicApiKey } =
+          await import("../agent/production-agent.js");
+        _currentRunUserApiKey = await getOwnerAnthropicApiKey(owner);
         const resources = await loadResourcesForPrompt(owner);
         const schemaBlock = await buildSchemaBlock(owner, false);
-        _currentRunSystemPrompt = basePrompt + resources + schemaBlock;
+        const extra = await resolveExtraContext(event, owner);
+        _currentRunSystemPrompt = basePrompt + resources + schemaBlock + extra;
         return _currentRunSystemPrompt;
       },
       model:
@@ -2397,9 +2440,13 @@ export function createAgentChatPlugin(
           _currentRequestOrigin = getOrigin(event);
           const owner = await getOwnerFromEvent(event);
           _currentRunOwner = owner;
+          const { getOwnerAnthropicApiKey } =
+            await import("../agent/production-agent.js");
+          _currentRunUserApiKey = await getOwnerAnthropicApiKey(owner);
           const resources = await loadResourcesForPrompt(owner);
           const schemaBlock = await buildSchemaBlock(owner, true);
-          _currentRunSystemPrompt = devPrompt + resources + schemaBlock;
+          const extra = await resolveExtraContext(event, owner);
+          _currentRunSystemPrompt = devPrompt + resources + schemaBlock + extra;
           return _currentRunSystemPrompt;
         },
         model: options?.model,
@@ -2461,8 +2508,11 @@ export function createAgentChatPlugin(
       }),
     );
 
-    // Mount save-key BEFORE the prefix handler so it isn't shadowed
-    // Only functional in Node.js environments (writes to .env file)
+    // Mount save-key BEFORE the prefix handler so it isn't shadowed.
+    // Persists the user's key per-owner in the SQL settings table so it
+    // survives across serverless invocations (where mutating process.env
+    // and writing .env are both no-ops). Also updates process.env and
+    // .env when running locally for fast pickup by other handlers.
     getH3App(nitroApp).use(
       `${routePath}/save-key`,
       defineEventHandler(async (event) => {
@@ -2481,19 +2531,47 @@ export function createAgentChatPlugin(
 
         const trimmedKey = key.trim();
 
+        // Persist per-owner so the key survives cold starts in serverless
+        // and so the user's key isn't shared across users on multi-tenant
+        // hosted deployments. We require a real authenticated owner here —
+        // `local@localhost` is the unauthenticated fallback and must never
+        // become the shared key bucket on hosted deployments.
+        const ownerEmail = await getOwnerFromEvent(event);
+        if (isHostedProd && (!ownerEmail || ownerEmail === "local@localhost")) {
+          setResponseStatus(event, 401);
+          return { error: "Authentication required" };
+        }
         try {
-          const path = await import("path");
-          const { upsertEnvFile } = await import("./create-server.js");
-          const envPath = path.join(process.cwd(), ".env");
-          await upsertEnvFile(envPath, [
-            { key: "ANTHROPIC_API_KEY", value: trimmedKey },
-          ]);
+          if (ownerEmail && ownerEmail !== "local@localhost") {
+            await putSetting(`user-anthropic-api-key:${ownerEmail}`, {
+              key: trimmedKey,
+            });
+          }
         } catch {
-          // Edge runtime — can't write .env, but can still update process.env
+          // Settings store unavailable — fall back to env-only behavior
         }
 
-        // Update process.env so the agent works immediately
-        process.env.ANTHROPIC_API_KEY = trimmedKey;
+        // In hosted/multi-tenant mode we deliberately do NOT touch
+        // process.env or .env: the per-owner SQL lookup above is the
+        // single source of truth, and overwriting the shared env key
+        // would leak one tenant's credentials into every subsequent
+        // request that hit the same warm instance without its own key.
+        if (!isHostedProd) {
+          try {
+            const path = await import("path");
+            const { upsertEnvFile } = await import("./create-server.js");
+            const envPath = path.join(process.cwd(), ".env");
+            await upsertEnvFile(envPath, [
+              { key: "ANTHROPIC_API_KEY", value: trimmedKey },
+            ]);
+          } catch {
+            // Edge runtime — can't write .env, but can still update process.env
+          }
+          // Update process.env so the agent works immediately in the
+          // current local-dev invocation; the SQL persist above covers
+          // future invocations.
+          process.env.ANTHROPIC_API_KEY = trimmedKey;
+        }
 
         return { ok: true };
       }),
@@ -2913,7 +2991,7 @@ export function createAgentChatPlugin(
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
-        await getOwnerFromEvent(event);
+        const ownerEmail = await getOwnerFromEvent(event);
         const body = await readBody(event);
         const message = body?.message;
         if (!message || typeof message !== "string") {
@@ -2922,7 +3000,12 @@ export function createAgentChatPlugin(
         }
         // Strip mention markup: @[Name|type] → @Name
         const cleanMessage = message.replace(/@\[([^\]|]+)\|[^\]]*\]/g, "@$1");
-        const apiKey = process.env.ANTHROPIC_API_KEY;
+        // Mirror the chat-run resolution so BYO-key users have title
+        // generation billed to their own key instead of the platform key.
+        const { getOwnerAnthropicApiKey } =
+          await import("../agent/production-agent.js");
+        const userApiKey = await getOwnerAnthropicApiKey(ownerEmail);
+        const apiKey = userApiKey ?? process.env.ANTHROPIC_API_KEY;
         if (!apiKey) {
           // Fallback: truncate the message
           return { title: cleanMessage.trim().slice(0, 60) };

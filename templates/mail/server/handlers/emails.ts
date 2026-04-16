@@ -1823,10 +1823,17 @@ export const listContacts = defineEventHandler(async (event: H3Event) => {
         }
       }
 
-      // If People API returned nothing (e.g. missing scopes), extract from Gmail
-      if (contactMap.size === 0) {
+      // Always merge in addresses from Gmail headers. People API's
+      // otherContacts only surfaces senders, so people the user has emailed
+      // (but who haven't replied) won't appear unless we scan sent messages.
+      // We query sent first to ensure outgoing recipients are captured, then
+      // fall back to a general scan when People API returned nothing (e.g.
+      // missing scopes).
+      const gmailQueries =
+        contactMap.size === 0 ? ["in:sent", ""] : ["in:sent"];
+      for (const query of gmailQueries) {
         try {
-          const { messages } = await listGmailMessages("", 100, email);
+          const { messages } = await listGmailMessages(query, 100, email);
           for (const msg of messages) {
             const headers = msg.payload?.headers || [];
             for (const field of ["From", "To", "Cc", "Bcc"]) {
@@ -1866,7 +1873,10 @@ export const listContacts = defineEventHandler(async (event: H3Event) => {
             }
           }
         } catch (err: any) {
-          console.error("[listContacts] Gmail fallback error:", err.message);
+          console.error(
+            `[listContacts] Gmail header scan error (query="${query}"):`,
+            err.message,
+          );
         }
       }
 

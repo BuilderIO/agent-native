@@ -35,7 +35,9 @@ export function createAgentChatAdapter(options?: {
           .map((p) => p.text)
           .join("\n") ?? "";
 
-      // Extract attachments (images as base64, text as content)
+      // Extract attachments (images as base64, text as content).
+      // assistant-ui puts user attachments on msg.attachments (not on content);
+      // each attachment carries its own content parts from the adapter.
       const attachments: {
         type: string;
         name: string;
@@ -43,24 +45,44 @@ export function createAgentChatAdapter(options?: {
         data?: string;
         text?: string;
       }[] = [];
-      if (lastUserMsg) {
-        for (const part of lastUserMsg.content) {
-          if (part.type === "image" && "image" in part) {
-            const img = part as { type: "image"; image: string };
-            attachments.push({ type: "image", name: "image", data: img.image });
-          } else if (part.type === "file" && "data" in part) {
-            const f = part as {
-              type: "file";
-              data: string;
-              mimeType?: string;
-              name?: string;
-            };
-            attachments.push({
-              type: "file",
-              name: f.name ?? "file",
-              contentType: f.mimeType,
-              text: f.data,
-            });
+      if (lastUserMsg && "attachments" in lastUserMsg) {
+        const msgAttachments = (
+          lastUserMsg as {
+            attachments?: readonly {
+              name: string;
+              contentType?: string;
+              content: readonly Record<string, unknown>[];
+            }[];
+          }
+        ).attachments;
+        for (const att of msgAttachments ?? []) {
+          for (const part of att.content) {
+            if (part.type === "image" && typeof part.image === "string") {
+              attachments.push({
+                type: "image",
+                name: att.name,
+                contentType: att.contentType,
+                data: part.image,
+              });
+            } else if (part.type === "file" && typeof part.data === "string") {
+              attachments.push({
+                type: "file",
+                name: att.name,
+                contentType:
+                  att.contentType ??
+                  (typeof part.mimeType === "string"
+                    ? part.mimeType
+                    : undefined),
+                text: part.data,
+              });
+            } else if (part.type === "text" && typeof part.text === "string") {
+              attachments.push({
+                type: "file",
+                name: att.name,
+                contentType: att.contentType,
+                text: part.text,
+              });
+            }
           }
         }
       }

@@ -9,6 +9,7 @@ import {
 import {
   runAgentLoop,
   actionsToEngineTools,
+  getOwnerAnthropicApiKey,
   type ActionEntry,
 } from "../agent/production-agent.js";
 import { createAnthropicEngine } from "../agent/engine/index.js";
@@ -224,8 +225,13 @@ async function executeJob(
         const systemPrompt = await deps.getSystemPrompt(resource.owner);
         const tools = actionsToEngineTools(actions);
 
+        // Prefer the job runner's saved Anthropic key so recurring jobs
+        // don't silently bill the shared platform key once a user has
+        // brought their own. Falls back to the platform key when absent.
+        const userApiKey = await getOwnerAnthropicApiKey(jobUserEmail);
         const engine =
-          deps.engine ?? createAnthropicEngine({ apiKey: deps.apiKey });
+          deps.engine ??
+          createAnthropicEngine({ apiKey: userApiKey ?? deps.apiKey });
 
         // Create a chat thread for this run
         const threadTitle = `Job: ${jobName} — ${now.toLocaleDateString()}`;

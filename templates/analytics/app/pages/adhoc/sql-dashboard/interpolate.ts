@@ -15,9 +15,14 @@ function escapeSqlValue(value: string): string {
 }
 
 export function interpolate(
-  sql: string,
+  sql: string | undefined | null,
   vars: Record<string, string> = {},
 ): string {
+  // Defensive: a malformed dashboard config (e.g. agent wrote a panel without
+  // a `sql` field) should not crash the page. Treat missing/non-string SQL
+  // as empty so the panel renders an empty result instead of throwing.
+  if (typeof sql !== "string") return "";
+
   // Strip conditional blocks first so the inner {{name}} tokens are also processed
   // (or removed) in a single pass.
   const conditionalRe = /\{\{\?(\w+)\}\}([\s\S]*?)\{\{\/\1\}\}/g;

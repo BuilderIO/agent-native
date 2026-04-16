@@ -3,9 +3,16 @@
  * Enables cross-isolate access on Cloudflare Workers and
  * reliable reconnection after page refreshes.
  */
-import { getDbExec, intType } from "../db/client.js";
+import { getDbExec, intType, isPostgres } from "../db/client.js";
 
 let _initPromise: Promise<void> | undefined;
+
+/**
+ * Max time without a heartbeat before a "running" run is considered dead.
+ * The run-manager heartbeats every 5s, so 90s tolerates several missed
+ * writes from DB slowness before we assume the producer died.
+ */
+export const RUN_STALE_MS = 90_000;
 
 async function ensureRunTables(): Promise<void> {
   if (!_initPromise) {
@@ -17,9 +24,24 @@ async function ensureRunTables(): Promise<void> {
           thread_id TEXT NOT NULL,
           status TEXT NOT NULL DEFAULT 'running',
           started_at ${intType()} NOT NULL,
-          completed_at ${intType()}
+          completed_at ${intType()},
+          heartbeat_at ${intType()}
         )
       `);
+      // Backfill heartbeat_at on older deployments.
+      try {
+        if (isPostgres()) {
+          await client.execute(
+            `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS heartbeat_at ${intType()}`,
+          );
+        } else {
+          await client.execute(
+            `ALTER TABLE agent_runs ADD COLUMN heartbeat_at ${intType()}`,
+          );
+        }
+      } catch {
+        // Column already exists — ignore
+      }
       await client.execute(`
         CREATE TABLE IF NOT EXISTS agent_run_events (
           run_id TEXT NOT NULL,
@@ -36,10 +58,44 @@ async function ensureRunTables(): Promise<void> {
 export async function insertRun(id: string, threadId: string): Promise<void> {
   await ensureRunTables();
   const client = getDbExec();
+  const now = Date.now();
   await client.execute({
-    sql: `INSERT INTO agent_runs (id, thread_id, status, started_at) VALUES (?, ?, 'running', ?)`,
-    args: [id, threadId, Date.now()],
+    sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at) VALUES (?, ?, 'running', ?, ?)`,
+    args: [id, threadId, now, now],
   });
+}
+
+/** Update the run's liveness heartbeat. Called periodically by run-manager. */
+export async function updateRunHeartbeat(runId: string): Promise<void> {
+  await ensureRunTables();
+  const client = getDbExec();
+  await client.execute({
+    sql: `UPDATE agent_runs SET heartbeat_at = ? WHERE id = ?`,
+    args: [Date.now(), runId],
+  });
+}
+
+/**
+ * If the given run is marked "running" in SQL but its heartbeat is stale
+ * (producer likely crashed), flip it to "errored" so watchers stop waiting.
+ * Returns true if the row was reaped.
+ */
+export async function reapIfStale(
+  runId: string,
+  maxStaleMs: number = RUN_STALE_MS,
+): Promise<boolean> {
+  await ensureRunTables();
+  const client = getDbExec();
+  const cutoff = Date.now() - maxStaleMs;
+  const { rowsAffected } = await client.execute({
+    sql: `UPDATE agent_runs
+          SET status = 'errored', completed_at = ?
+          WHERE id = ?
+            AND status = 'running'
+            AND COALESCE(heartbeat_at, started_at) < ?`,
+    args: [Date.now(), runId, cutoff],
+  });
+  return (rowsAffected ?? 0) > 0;
 }
 
 export async function updateRunStatus(
@@ -165,11 +221,20 @@ export async function cleanupOldRuns(olderThanMs: number): Promise<void> {
   await ensureRunTables();
   const client = getDbExec();
   const cutoff = Date.now() - olderThanMs;
-  // Expire stale running rows — if started more than threshold ago,
-  // the worker likely crashed. Mark as errored so clients stop waiting.
+  // Expire stale running rows on the absolute-age threshold — safety net
+  // for runs that never received a heartbeat (very old deployments).
   await client.execute({
     sql: `UPDATE agent_runs SET status = 'errored', completed_at = ? WHERE status = 'running' AND started_at < ?`,
     args: [Date.now(), cutoff],
+  });
+  // Also expire runs whose heartbeat is stale — producer has died.
+  const heartbeatCutoff = Date.now() - RUN_STALE_MS;
+  await client.execute({
+    sql: `UPDATE agent_runs
+          SET status = 'errored', completed_at = ?
+          WHERE status = 'running'
+            AND COALESCE(heartbeat_at, started_at) < ?`,
+    args: [Date.now(), heartbeatCutoff],
   });
   // Delete events for old non-running runs
   await client.execute({
