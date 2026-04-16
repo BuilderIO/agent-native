@@ -33,7 +33,6 @@ import { type ContentPart, readSSEStreamRaw } from "./sse-event-processor.js";
 import { cn } from "./utils.js";
 import { AgentTaskCard } from "./AgentTaskCard.js";
 import { ConnectBuilderCard } from "./ConnectBuilderCard.js";
-import { useBuilderStatus } from "./settings/useBuilderStatus.js";
 import {
   TiptapComposer,
   type TiptapComposerHandle,
@@ -48,7 +47,6 @@ import {
   IconCopy,
   IconTerminal,
   IconLoader2,
-  IconExternalLink,
   IconCircleX,
   IconSquareFilled,
   IconClock,
@@ -768,10 +766,6 @@ function ApiKeySetupCard({ apiUrl }: { apiUrl: string }) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { status: builder } = useBuilderStatus();
-  const builderEnabled = builder?.builderEnabled ?? false;
-  const builderConnectUrl = builder?.connectUrl;
-
   const handleSave = async () => {
     if (!apiKey.trim()) return;
     setSaving(true);
@@ -834,21 +828,9 @@ function ApiKeySetupCard({ apiUrl }: { apiUrl: string }) {
                 Use Builder's managed Anthropic proxy — no API key needed
               </p>
             </div>
-            {builderEnabled && builderConnectUrl ? (
-              <a
-                href={builderConnectUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex shrink-0 items-center gap-1 rounded bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground hover:opacity-90"
-              >
-                Connect
-                <IconExternalLink className="h-3 w-3" />
-              </a>
-            ) : (
-              <span className="shrink-0 rounded border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                Coming soon
-              </span>
-            )}
+            <span className="shrink-0 rounded border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+              Coming soon
+            </span>
           </div>
         </div>
 
@@ -922,10 +904,6 @@ export function BuilderCtaCard({
       ? window.location.hostname.split(".")[0]
       : "app";
   const cloneCommand = `npx agent-native create ${appName}`;
-
-  const { status: builder } = useBuilderStatus();
-  const builderEnabled = builder?.builderEnabled ?? false;
-  const builderConnectUrl = builder?.connectUrl;
 
   const [apiKey, setApiKey] = useState("");
   const [saving, setSaving] = useState(false);
@@ -1065,21 +1043,9 @@ export function BuilderCtaCard({
                 Builder's managed Anthropic proxy — no API key needed
               </p>
             </div>
-            {builderEnabled && builderConnectUrl ? (
-              <a
-                href={builderConnectUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex shrink-0 items-center gap-1 rounded bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground hover:opacity-90"
-              >
-                Connect
-                <IconExternalLink className="h-3 w-3" />
-              </a>
-            ) : (
-              <span className="shrink-0 rounded border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                Coming soon
-              </span>
-            )}
+            <span className="shrink-0 rounded border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+              Coming soon
+            </span>
           </div>
         </div>
       </div>
@@ -1211,7 +1177,12 @@ const AssistantChatInner = forwardRef<
     limitCents: number;
   } | null>(null);
   const [queuedMessages, setQueuedMessages] = useState<
-    Array<{ text: string; images?: string[]; references?: Reference[] }>
+    Array<{
+      id: string;
+      text: string;
+      images?: string[];
+      references?: Reference[];
+    }>
   >([]);
   const [showContinue, setShowContinue] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
@@ -1671,7 +1642,18 @@ const AssistantChatInner = forwardRef<
     (text: string, images?: string[], references?: Reference[]) => {
       setShowContinue(false);
       if (isRunning) {
-        setQueuedMessages((prev) => [...prev, { text, images, references }]);
+        setQueuedMessages((prev) => [
+          ...prev,
+          {
+            id:
+              typeof crypto !== "undefined" && crypto.randomUUID
+                ? crypto.randomUUID()
+                : `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            text,
+            images,
+            references,
+          },
+        ]);
       } else {
         const content: Array<
           { type: "text"; text: string } | { type: "image"; image: string }
@@ -1937,29 +1919,46 @@ const AssistantChatInner = forwardRef<
                 already-streamed reconnect content so the user sees both
                 "what it did so far" and "it's still working". */}
             {showRunningInUI && <ThinkingIndicator />}
-            {queuedMessages.map((msg, i) => (
-              <div key={`queued-${i}`} className="flex justify-end">
-                <div className="max-w-[85%] rounded-lg bg-accent/50 text-foreground/60 px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words">
-                  <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground mb-1 font-medium uppercase tracking-wide">
-                    <IconClock className="h-3 w-3" />
-                    Queued
-                  </div>
-                  {msg.text}
-                  {msg.images && msg.images.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mt-1.5">
-                      {msg.images.map((img, j) => (
-                        <img
-                          key={j}
-                          src={img}
-                          alt=""
-                          className="h-12 w-12 rounded object-cover border border-border/50"
-                        />
-                      ))}
+            {queuedMessages.map((msg) => {
+              const displayText = msg.text
+                .replace(/<context>[\s\S]*?<\/context>\n?/g, "")
+                .trim();
+              return (
+                <div key={msg.id} className="flex justify-end group">
+                  <div className="relative max-w-[85%] rounded-lg bg-accent/50 text-foreground/60 px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words">
+                    <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground mb-1 font-medium uppercase tracking-wide">
+                      <IconClock className="h-3 w-3" />
+                      Queued
                     </div>
-                  )}
+                    {displayText}
+                    {msg.images && msg.images.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mt-1.5">
+                        {msg.images.map((img, j) => (
+                          <img
+                            key={j}
+                            src={img}
+                            alt=""
+                            className="h-12 w-12 rounded object-cover border border-border/50"
+                          />
+                        ))}
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setQueuedMessages((prev) =>
+                          prev.filter((m) => m.id !== msg.id),
+                        )
+                      }
+                      aria-label="Remove from queue"
+                      className="absolute -top-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-foreground hover:bg-accent shadow-sm"
+                    >
+                      <IconX className="h-3 w-3" />
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

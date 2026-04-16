@@ -445,6 +445,51 @@ function portExposer(): Plugin {
 }
 
 /**
+ * Silence benign `read ECONNRESET` noise from Vite's dev middleware.
+ * Fires when a browser closes/reloads/navigates mid-request — the peer has
+ * already gone away, there's nothing to fix, and Vite's error middleware
+ * spams the terminal with "Internal server error: read ECONNRESET". Our H3
+ * server layer already swallows this (create-server.ts onError); this plugin
+ * does the same for Vite's own connect pipeline.
+ */
+function silenceConnectionResets(): Plugin {
+  const isBenign = (err: unknown) => {
+    const e = err as NodeJS.ErrnoException | undefined;
+    const code = e?.code || (e?.cause as NodeJS.ErrnoException)?.code;
+    return (
+      code === "ECONNRESET" ||
+      code === "ECONNABORTED" ||
+      code === "EPIPE" ||
+      e?.message === "aborted"
+    );
+  };
+  return {
+    name: "agent-native-silence-connection-resets",
+    apply: "serve",
+    configureServer(server) {
+      // Swallow socket-level resets so Node doesn't surface them as uncaught.
+      server.httpServer?.on("connection", (socket) => {
+        socket.on("error", (err) => {
+          if (!isBenign(err)) throw err;
+        });
+      });
+      // Drop Vite's "Internal server error: read ECONNRESET" log lines.
+      const origError = server.config.logger.error.bind(server.config.logger);
+      server.config.logger.error = (msg, opts) => {
+        const text = typeof msg === "string" ? msg : String(msg ?? "");
+        if (
+          (opts?.error && isBenign(opts.error)) ||
+          /Internal server error:\s*(read ECONNRESET|aborted|EPIPE)/i.test(text)
+        ) {
+          return;
+        }
+        origError(msg, opts);
+      };
+    },
+  };
+}
+
+/**
  * Create the client Vite config with sensible agent-native defaults.
  * Supports two modes:
  * - Legacy SPA mode (default): React SWC plugin, client-only routing
@@ -543,6 +588,7 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
       autoReloadOnOptimizeDep(),
       baseRedirectGuard(),
       portExposer(),
+      silenceConnectionResets(),
       rolldownInputFix(),
       // Nitro Vite plugin for dev-mode API route serving and HMR.
       // Disabled during build — React Router's build handles production.
