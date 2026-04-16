@@ -54,7 +54,8 @@ function EventCard({ event }: { event: CalendarEvent }) {
             <div>
               {event.allDay ? (
                 <span>
-                  All day &middot; {format(parseISO(event.start), "MMMM d, yyyy")}
+                  All day &middot;{" "}
+                  {format(parseISO(event.start), "MMMM d, yyyy")}
                 </span>
               ) : (
                 <>
@@ -164,7 +165,9 @@ export default function EventPreviewRoute() {
   );
 
   if (!id) {
-    return <ErrorCard message="No event id provided. Add ?id=<eventId> to the URL." />;
+    return (
+      <ErrorCard message="No event id provided. Add ?id=<eventId> to the URL." />
+    );
   }
 
   if (isLoading) {

@@ -1,4 +1,11 @@
-import { Links, Meta, Outlet, Scripts, ScrollRestoration, useLocation } from "react-router";
+import {
+  Links,
+  Meta,
+  Outlet,
+  Scripts,
+  ScrollRestoration,
+  useLocation,
+} from "react-router";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";

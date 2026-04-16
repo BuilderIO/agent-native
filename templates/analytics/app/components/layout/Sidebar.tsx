@@ -398,6 +398,108 @@ function SortableDashboardItem({
   );
 }
 
+/**
+ * Sidebar row for an analysis. Matches the visual shape of
+ * SortableDashboardItem (hover-reveal favorite star + delete popover),
+ * minus the drag handle and sub-views. Keeps the two lists visually
+ * consistent so the user learns one interaction pattern.
+ */
+function AnalysisItem({
+  a,
+  isActive,
+  favoriteIds,
+  deletingId,
+  onToggleFavorite,
+  setDeletingId,
+  onDelete,
+}: {
+  a: { id: string; name: string };
+  isActive: boolean;
+  favoriteIds: Set<string>;
+  deletingId: string | null;
+  onToggleFavorite: (key: string) => void;
+  setDeletingId: (id: string | null) => void;
+  onDelete: (a: { id: string; name: string }) => Promise<void>;
+}) {
+  const favKey = `analysis:${a.id}`;
+  const deleteKey = `analysis:${a.id}`;
+  const href = `/analyses/${a.id}`;
+  return (
+    <div className="group/item relative min-w-0">
+      <div className="flex items-center min-w-0">
+        <Link
+          to={href}
+          className={cn(
+            "flex-1 min-w-0 flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-all hover:text-primary",
+            isActive
+              ? "bg-sidebar-accent text-sidebar-accent-foreground"
+              : "text-muted-foreground hover:bg-sidebar-accent/50",
+          )}
+        >
+          <span className="truncate">{a.name}</span>
+        </Link>
+        <button
+          onClick={() => onToggleFavorite(favKey)}
+          className={cn(
+            "p-1 rounded transition-all shrink-0",
+            favoriteIds.has(favKey)
+              ? "text-yellow-500 opacity-100"
+              : "opacity-0 group-hover/item:opacity-100 text-muted-foreground/50 hover:text-yellow-500",
+          )}
+          title={favoriteIds.has(favKey) ? "Unfavorite" : "Favorite"}
+        >
+          <IconStar
+            className={cn("h-3 w-3", favoriteIds.has(favKey) && "fill-current")}
+          />
+        </button>
+        <Popover
+          open={deletingId === deleteKey}
+          onOpenChange={(open) => setDeletingId(open ? deleteKey : null)}
+        >
+          <PopoverTrigger asChild>
+            <button
+              className="opacity-0 group-hover/item:opacity-100 p-1 rounded text-muted-foreground/50 hover:text-foreground transition-all shrink-0 mr-1"
+              title={`Remove ${a.name}`}
+            >
+              <IconTrash className="h-3 w-3" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="w-52 p-3" side="right" align="start">
+            <p className="text-sm mb-3">
+              Remove <strong>{a.name}</strong>?
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={async () => {
+                  try {
+                    await onDelete(a);
+                    setDeletingId(null);
+                  } catch (e) {
+                    toast.error(
+                      e instanceof Error
+                        ? `Couldn't remove ${a.name}: ${e.message}`
+                        : `Couldn't remove ${a.name}`,
+                    );
+                  }
+                }}
+                className="flex-1 rounded-md bg-destructive px-3 py-1.5 text-xs font-medium text-destructive-foreground hover:bg-destructive/90 transition-colors"
+              >
+                Remove
+              </button>
+              <button
+                onClick={() => setDeletingId(null)}
+                className="flex-1 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-sidebar-accent/50 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </PopoverContent>
+        </Popover>
+      </div>
+    </div>
+  );
+}
+
 async function fetchSqlDashboards(): Promise<{ id: string; name: string }[]> {
   const token = await getIdToken();
   const res = await fetch("/api/sql-dashboards", {
@@ -515,12 +617,15 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
 
   const sortedAnalyses = useMemo(() => {
     return [...analysesList].sort((a, b) => {
+      const aFav = favoriteIds.has(`analysis:${a.id}`) ? 0 : 1;
+      const bFav = favoriteIds.has(`analysis:${b.id}`) ? 0 : 1;
+      if (aFav !== bFav) return aFav - bFav;
       const aPop = popularityOf(popularity, "analysis", a.id);
       const bPop = popularityOf(popularity, "analysis", b.id);
       if (aPop !== bPop) return bPop - aPop;
       return a.name.localeCompare(b.name);
     });
-  }, [analysesList, popularity]);
+  }, [analysesList, favoriteIds, popularity]);
 
   const displayedAnalyses = useMemo(
     () =>
@@ -606,6 +711,34 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           throw new Error(`Delete failed: ${res.status}`);
         }
         queryClient.invalidateQueries({ queryKey });
+      } catch (err) {
+        if (prev) queryClient.setQueryData(queryKey, prev);
+        throw err;
+      }
+    },
+    [queryClient],
+  );
+
+  const handleAnalysisDelete = useCallback(
+    async (a: { id: string; name: string }) => {
+      const queryKey = ["analyses-sidebar"] as const;
+      const prev =
+        queryClient.getQueryData<{ id: string; name: string }[]>(queryKey);
+      queryClient.setQueryData<{ id: string; name: string }[]>(
+        queryKey,
+        (old) => (old ?? []).filter((item) => item.id !== a.id),
+      );
+      try {
+        const token = await getIdToken();
+        const res = await fetch(`/api/analyses/${a.id}`, {
+          method: "DELETE",
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!res.ok) {
+          throw new Error(`Delete failed: ${res.status}`);
+        }
+        queryClient.invalidateQueries({ queryKey });
+        queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
       } catch (err) {
         if (prev) queryClient.setQueryData(queryKey, prev);
         throw err;
@@ -819,24 +952,18 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
 
           {analysesOpen && (
             <div className="ml-4 min-w-0 space-y-0.5">
-              {displayedAnalyses.map((a) => {
-                const href = `/analyses/${a.id}`;
-                const isActive = location.pathname === href;
-                return (
-                  <Link
-                    key={a.id}
-                    to={href}
-                    className={cn(
-                      "flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-all hover:text-primary",
-                      isActive
-                        ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                        : "text-muted-foreground hover:bg-sidebar-accent/50",
-                    )}
-                  >
-                    <span className="flex-1 min-w-0 truncate">{a.name}</span>
-                  </Link>
-                );
-              })}
+              {displayedAnalyses.map((a) => (
+                <AnalysisItem
+                  key={a.id}
+                  a={a}
+                  isActive={location.pathname === `/analyses/${a.id}`}
+                  favoriteIds={favoriteIds}
+                  deletingId={deletingId}
+                  onToggleFavorite={toggleFavorite}
+                  setDeletingId={setDeletingId}
+                  onDelete={handleAnalysisDelete}
+                />
+              ))}
               {sortedAnalyses.length > SIDEBAR_PREVIEW_COUNT && (
                 <button
                   onClick={() => setAnalysesShowAll(!analysesShowAll)}

@@ -61,7 +61,11 @@ export default function FormPreviewRoute() {
           <IconAlertCircle className="h-8 w-8 text-muted-foreground" />
           <p className="text-sm font-medium">Missing form id</p>
           <p className="text-xs text-muted-foreground">
-            Add <code className="font-mono bg-muted px-1 rounded">?id=&lt;form-id&gt;</code> to the URL.
+            Add{" "}
+            <code className="font-mono bg-muted px-1 rounded">
+              ?id=&lt;form-id&gt;
+            </code>{" "}
+            to the URL.
           </p>
         </div>
       </div>
@@ -93,7 +97,9 @@ export default function FormPreviewRoute() {
           <IconAlertCircle className="h-8 w-8 text-destructive" />
           <p className="text-sm font-medium">Form not found</p>
           <p className="text-xs text-muted-foreground">
-            The form with id <code className="font-mono bg-muted px-1 rounded">{id}</code> does not exist or you don&apos;t have access.
+            The form with id{" "}
+            <code className="font-mono bg-muted px-1 rounded">{id}</code> does
+            not exist or you don&apos;t have access.
           </p>
         </div>
       </div>
@@ -109,7 +115,9 @@ export default function FormPreviewRoute() {
         {/* Header */}
         <div className="space-y-1.5">
           <div className="flex items-start justify-between gap-3">
-            <h1 className="text-base font-semibold leading-snug">{form.title}</h1>
+            <h1 className="text-base font-semibold leading-snug">
+              {form.title}
+            </h1>
             <div className="flex items-center gap-2 shrink-0">
               <Badge
                 variant={
