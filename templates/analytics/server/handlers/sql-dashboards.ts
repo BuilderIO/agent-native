@@ -86,14 +86,18 @@ function validateDashboardConfig(
     return "panels must be an array";
   }
   if (Array.isArray(panels)) {
+    const requiredStrings = ["id", "title", "sql", "source", "chartType"];
     for (let i = 0; i < panels.length; i++) {
       const p = panels[i] as Record<string, unknown> | null;
       if (!p || typeof p !== "object") return `panel[${i}] must be an object`;
-      if (typeof p.id !== "string" || p.id.length === 0) {
-        return `panel[${i}].id is required`;
+      for (const field of requiredStrings) {
+        const v = p[field];
+        if (typeof v !== "string" || v.trim().length === 0) {
+          return `panel[${i}].${field} is required`;
+        }
       }
-      if (typeof p.sql !== "string" || p.sql.length === 0) {
-        return `panel[${i}].sql is required`;
+      if (p.width !== 1 && p.width !== 2) {
+        return `panel[${i}].width must be 1 or 2`;
       }
     }
   }

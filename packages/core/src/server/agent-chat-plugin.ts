@@ -2269,6 +2269,7 @@ export function createAgentChatPlugin(
       (event: import("../agent/types.js").AgentChatEvent) => void
     >();
     let _currentRunOwner = "local@localhost";
+    let _currentRunUserApiKey: string | undefined;
     let _currentRunThreadId = "";
     let _currentRunSystemPrompt = basePrompt;
     // Default to Haiku in production mode to manage costs for hosted apps
@@ -2300,7 +2301,13 @@ export function createAgentChatPlugin(
             },
       getEngine: () =>
         createAnthropicEngine({
-          apiKey: options?.apiKey ?? process.env.ANTHROPIC_API_KEY,
+          // Sub-agents must inherit the parent run's resolved key so a
+          // BYO-key user can't bypass the free-tier check on the parent
+          // run and then have spawn-task delegations bill the platform key.
+          apiKey:
+            _currentRunUserApiKey ??
+            options?.apiKey ??
+            process.env.ANTHROPIC_API_KEY,
         }),
       getModel: () => resolvedModel,
       getParentThreadId: () => _currentRunThreadId,
@@ -2343,6 +2350,9 @@ export function createAgentChatPlugin(
         _currentRequestOrigin = getOrigin(event);
         const owner = await getOwnerFromEvent(event);
         _currentRunOwner = owner;
+        const { getOwnerAnthropicApiKey } =
+          await import("../agent/production-agent.js");
+        _currentRunUserApiKey = await getOwnerAnthropicApiKey(owner);
         const resources = await loadResourcesForPrompt(owner);
         const schemaBlock = await buildSchemaBlock(owner, false);
         _currentRunSystemPrompt = basePrompt + resources + schemaBlock;
@@ -2397,6 +2407,9 @@ export function createAgentChatPlugin(
           _currentRequestOrigin = getOrigin(event);
           const owner = await getOwnerFromEvent(event);
           _currentRunOwner = owner;
+          const { getOwnerAnthropicApiKey } =
+            await import("../agent/production-agent.js");
+          _currentRunUserApiKey = await getOwnerAnthropicApiKey(owner);
           const resources = await loadResourcesForPrompt(owner);
           const schemaBlock = await buildSchemaBlock(owner, true);
           _currentRunSystemPrompt = devPrompt + resources + schemaBlock;
