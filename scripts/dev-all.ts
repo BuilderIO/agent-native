@@ -88,14 +88,23 @@ execSync("pnpm --filter @agent-native/core build", { stdio: "inherit" });
 const names: string[] = [];
 const commands: string[] = [];
 
-templatePorts.forEach(({ name, port }) => {
+// Tiny stagger keeps cold-boot requests from racing Nitro's ViteEnvRunner
+// 3-second init (which returns 503 "Vite environment unavailable"). With
+// core prebuilt, 250ms is enough to avoid the race without noticeably
+// slowing startup.
+const STAGGER_DELAY_S = 0.25;
+
+templatePorts.forEach(({ name, port }, i) => {
   console.log(`\x1b[36m[dev-all]\x1b[0m ${name}: http://localhost:${port}`);
+
+  const delay = i * STAGGER_DELAY_S;
+  const prefix = delay > 0 ? `sleep ${delay} && ` : "";
 
   names.push(name);
   // Pass APP_NAME so each app can resolve its own DATABASE_URL
   // (e.g. MAIL_DATABASE_URL when APP_NAME=mail)
   commands.push(
-    `APP_NAME=${name} pnpm --dir templates/${name} exec vite --port ${port}`,
+    `${prefix}APP_NAME=${name} pnpm --dir templates/${name} exec vite --port ${port}`,
   );
 });
 
