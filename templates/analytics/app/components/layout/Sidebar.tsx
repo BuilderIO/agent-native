@@ -157,7 +157,7 @@ function SortableRow({
     <div ref={setNodeRef} style={style} className="group/item relative min-w-0">
       <div className="flex items-center min-w-0">
         <button
-          className="p-1 cursor-grab active:cursor-grabbing text-muted-foreground/30 hover:text-muted-foreground/60 transition-colors shrink-0 opacity-0 group-hover/item:opacity-100"
+          className="-ml-5 p-1 cursor-grab active:cursor-grabbing text-muted-foreground/30 hover:text-muted-foreground/60 transition-colors shrink-0 opacity-0 group-hover/item:opacity-100"
           {...attributes}
           {...listeners}
         >
