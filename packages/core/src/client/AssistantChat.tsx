@@ -566,35 +566,48 @@ function UserMessageText({ text }: { text: string }) {
 function UserMessageAttachments() {
   const messageRuntime = useMessageRuntime();
   const msg = messageRuntime.getState();
-  // Content parts may include image/file types from attachments
-  const parts = msg.content as unknown as Array<Record<string, any>>;
-  const images = parts.filter((p) => p.type === "image" && p.image);
-  const files = parts.filter((p) => p.type === "file");
-  if (images.length === 0 && files.length === 0) return null;
+  // assistant-ui stores user attachments on msg.attachments (separate from content).
+  // Each attachment has: { id, type, name, contentType?, content: MessagePart[] }.
+  // Image adapters put a {type:"image", image:"data:..."} part in content; text
+  // adapters put a {type:"text", text:"<attachment>..."} part. Fall back to a
+  // file chip when there's no inline image.
+  const attachments = (msg as { attachments?: readonly Attachment[] })
+    .attachments;
+  if (!attachments || attachments.length === 0) return null;
 
   return (
     <div className="flex flex-wrap justify-end gap-1.5 mb-1.5">
-      {images.map((img, i) => (
-        <div
-          key={i}
-          className="h-16 w-16 overflow-hidden rounded-lg border border-border/70 bg-muted/50"
-        >
-          <img
-            src={img.image}
-            alt="attachment"
-            className="h-full w-full object-cover"
-          />
-        </div>
-      ))}
-      {files.map((file, i) => (
-        <div
-          key={`f-${i}`}
-          className="flex items-center gap-1.5 rounded-lg border border-border/70 bg-muted/50 px-2 py-1.5 text-xs text-muted-foreground"
-        >
-          <IconFile className="h-3.5 w-3.5 shrink-0" />
-          <span className="truncate max-w-[120px]">{file.name || "file"}</span>
-        </div>
-      ))}
+      {attachments.map((att) => {
+        const imagePart = att.content?.find(
+          (p): p is { type: "image"; image: string } =>
+            p.type === "image" && "image" in p && !!p.image,
+        );
+        if (imagePart) {
+          return (
+            <div
+              key={att.id}
+              className="h-16 w-16 overflow-hidden rounded-lg border border-border/70 bg-muted/50"
+              title={att.name}
+            >
+              <img
+                src={imagePart.image}
+                alt={att.name}
+                className="h-full w-full object-cover"
+              />
+            </div>
+          );
+        }
+        return (
+          <div
+            key={att.id}
+            className="flex items-center gap-1.5 rounded-lg border border-border/70 bg-muted/50 px-2 py-1.5 text-xs text-muted-foreground"
+            title={att.name}
+          >
+            <IconFile className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate max-w-[120px]">{att.name || "file"}</span>
+          </div>
+        );
+      })}
     </div>
   );
 }
