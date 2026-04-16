@@ -103,9 +103,10 @@ export default defineEventHandler(async (event) => {
       }
 
       case "jira": {
-        const email = await resolveCredential("JIRA_EMAIL");
-        const token = await resolveCredential("JIRA_TOKEN");
-        if (!email || !token)
+        const baseUrl = await resolveCredential("JIRA_BASE_URL");
+        const email = await resolveCredential("JIRA_USER_EMAIL");
+        const token = await resolveCredential("JIRA_API_TOKEN");
+        if (!baseUrl || !email || !token)
           return { ok: false, error: "Missing credentials" };
         return { ok: true };
       }
@@ -122,7 +123,7 @@ export default defineEventHandler(async (event) => {
 
       case "grafana": {
         const url = await resolveCredential("GRAFANA_URL");
-        const token = await resolveCredential("GRAFANA_TOKEN");
+        const token = await resolveCredential("GRAFANA_API_TOKEN");
         if (!url || !token) return { ok: false, error: "Missing credentials" };
         const res = await fetch(`${url}/api/org`, {
           headers: { Authorization: `Bearer ${token}` },
@@ -140,7 +141,7 @@ export default defineEventHandler(async (event) => {
       }
 
       case "slack": {
-        const token = await resolveCredential("SLACK_TOKEN");
+        const token = await resolveCredential("SLACK_BOT_TOKEN");
         if (!token) return { ok: false, error: "Missing token" };
         const res = await fetch("https://slack.com/api/auth.test", {
           headers: { Authorization: `Bearer ${token}` },
@@ -177,7 +178,7 @@ export default defineEventHandler(async (event) => {
       }
 
       case "commonroom": {
-        const key = await resolveCredential("COMMONROOM_API_KEY");
+        const key = await resolveCredential("COMMONROOM_API_TOKEN");
         if (!key) return { ok: false, error: "Missing API key" };
         return { ok: true };
       }
