@@ -1344,6 +1344,18 @@ const AssistantChatInner = forwardRef<
                   }
                 }, 3000);
 
+                // Hard cap: no single reconnect should wedge the UI for
+                // more than 2 minutes. Even if the watchdog is fooled and
+                // the SSE stream never closes, this guarantees "Thinking..."
+                // eventually clears.
+                const maxReconnectTimer = setTimeout(
+                  () => {
+                    abortCtrl.abort();
+                    clearInterval(watchdog);
+                  },
+                  2 * 60 * 1000,
+                );
+
                 const streamReconnect = async () => {
                   try {
                     const sseRes = await fetch(
@@ -1383,6 +1395,7 @@ const AssistantChatInner = forwardRef<
                     // Stream error or abort — fall through to re-fetch
                   } finally {
                     clearInterval(watchdog);
+                    clearTimeout(maxReconnectTimer);
                   }
 
                   // Poll for thread data — server's updateThreadData may not have
@@ -1894,7 +1907,7 @@ const AssistantChatInner = forwardRef<
             )}
           </div>
         ) : (
-          <div className="flex flex-col gap-4 px-4 py-4">
+          <div className="agent-thread-content flex flex-col gap-4 px-4 py-4">
             <ThreadPrimitive.Messages
               components={{
                 UserMessage,
@@ -1967,7 +1980,7 @@ const AssistantChatInner = forwardRef<
 
       {composerSlot}
       {/* Input area */}
-      <div className="shrink-0 px-3 py-2">
+      <div className="agent-composer-area shrink-0 px-3 py-2">
         <ComposerPrimitive.Root className="flex flex-col rounded-lg border border-input bg-background focus-within:ring-1 focus-within:ring-ring">
           <ComposerAttachmentPreviewStrip />
           <TiptapComposer
