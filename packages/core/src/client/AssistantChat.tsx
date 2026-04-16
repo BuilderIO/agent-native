@@ -119,7 +119,9 @@ const markdownComponents = {
       if (/\blanguage-embed\b/.test(className)) {
         const body = extractCodeText(childProps.children);
         const parsed = parseEmbedBody(body);
-        return <IframeEmbed {...(parsed as Parameters<typeof IframeEmbed>[0])} />;
+        return (
+          <IframeEmbed {...(parsed as Parameters<typeof IframeEmbed>[0])} />
+        );
       }
     }
     return <pre {...rest}>{children}</pre>;

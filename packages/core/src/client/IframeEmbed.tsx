@@ -9,14 +9,7 @@ export interface IframeEmbedProps {
   height?: number;
 }
 
-const ALLOWED_ASPECTS = new Set([
-  "16/9",
-  "4/3",
-  "1/1",
-  "21/9",
-  "3/2",
-  "2/1",
-]);
+const ALLOWED_ASPECTS = new Set(["16/9", "4/3", "1/1", "21/9", "3/2", "2/1"]);
 
 function isSameOriginSrc(src: string): boolean {
   if (typeof window === "undefined") return false;

@@ -33,7 +33,10 @@ function decodePanel(raw: string): SqlPanel | { error: string } {
     if (typeof p.source !== "string" || !VALID_SOURCES.has(p.source)) {
       return { error: "Panel source must be bigquery, app-db, or ga4" };
     }
-    if (typeof p.chartType !== "string" || !VALID_CHART_TYPES.has(p.chartType)) {
+    if (
+      typeof p.chartType !== "string" ||
+      !VALID_CHART_TYPES.has(p.chartType)
+    ) {
       return { error: "Panel chartType is not recognized" };
     }
     return {
@@ -42,7 +45,9 @@ function decodePanel(raw: string): SqlPanel | { error: string } {
       sql: p.sql,
       source: p.source as SqlPanel["source"],
       chartType: p.chartType as SqlPanel["chartType"],
-      width: (p.width === 1 || p.width === 2 ? p.width : 2) as SqlPanel["width"],
+      width: (p.width === 1 || p.width === 2
+        ? p.width
+        : 2) as SqlPanel["width"],
       config: (p.config && typeof p.config === "object"
         ? p.config
         : undefined) as SqlPanel["config"],
