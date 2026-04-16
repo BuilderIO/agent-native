@@ -1,5 +1,6 @@
 import {
   defineEventHandler,
+  getRequestURL,
   getRouterParam,
   setResponseStatus,
   type H3Event,
@@ -43,9 +44,9 @@ function setCachedPublicForm(slug: string, data: unknown): void {
 
 export const getPublicForm = defineEventHandler(async (event: H3Event) => {
   // URL: /api/forms/public/{slug} — extract full slug (may contain slashes)
-  const url = event.node.req.url ?? "";
+  const url = getRequestURL(event).pathname;
   const afterPublic = url.split("/api/forms/public/")[1] || "";
-  const slug = decodeURIComponent(afterPublic.split("?")[0]);
+  const slug = decodeURIComponent(afterPublic);
 
   if (!slug) {
     setResponseStatus(event, 404);
