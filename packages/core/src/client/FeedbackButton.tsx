@@ -1,7 +1,7 @@
-import { useState, type CSSProperties } from "react";
+import { useState, useEffect, type CSSProperties } from "react";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
-import { IconMessage2, IconX } from "@tabler/icons-react";
+import { IconMessage2 } from "@tabler/icons-react";
 import { cn } from "./utils.js";
 
 const DEFAULT_FEEDBACK_URL =
@@ -23,7 +23,7 @@ export interface FeedbackButtonProps {
 
 const iframeWrapStyle: CSSProperties = {
   width: "min(440px, calc(100vw - 32px))",
-  height: "min(620px, calc(100vh - 120px))",
+  height: "min(320px, calc(100vh - 120px))",
   background: "hsl(var(--background))",
 };
 
@@ -37,6 +37,17 @@ export function FeedbackButton({
 }: FeedbackButtonProps) {
   const [open, setOpen] = useState(false);
   const embedUrl = url.includes("?") ? `${url}&embed=1` : `${url}?embed=1`;
+
+  useEffect(() => {
+    if (!open) return;
+    function onMessage(e: MessageEvent) {
+      if (e.data && e.data.type === "agent-native-feedback-close") {
+        setOpen(false);
+      }
+    }
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [open]);
 
   const trigger =
     variant === "icon" ? (
@@ -92,19 +103,6 @@ export function FeedbackButton({
           collisionPadding={16}
           className="z-[300] overflow-hidden rounded-lg border border-border bg-popover shadow-xl outline-none"
         >
-          <div className="flex items-center justify-between border-b border-border/60 px-3 py-2">
-            <span className="text-[13px] font-medium text-foreground">
-              Send feedback
-            </span>
-            <button
-              type="button"
-              aria-label="Close"
-              onClick={() => setOpen(false)}
-              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
-            >
-              <IconX size={14} />
-            </button>
-          </div>
           <iframe
             title="Feedback form"
             src={embedUrl}

@@ -33,6 +33,7 @@ import { type ContentPart, readSSEStreamRaw } from "./sse-event-processor.js";
 import { cn } from "./utils.js";
 import { AgentTaskCard } from "./AgentTaskCard.js";
 import { ConnectBuilderCard } from "./ConnectBuilderCard.js";
+import { IframeEmbed, parseEmbedBody } from "./IframeEmbed.js";
 import {
   TiptapComposer,
   type TiptapComposerHandle,
@@ -96,6 +97,35 @@ function injectMarkdownStyles() {
   document.head.appendChild(style);
 }
 
+function extractCodeText(child: React.ReactNode): string {
+  if (typeof child === "string") return child;
+  if (Array.isArray(child)) return child.map(extractCodeText).join("");
+  if (React.isValidElement(child)) {
+    const props = child.props as { children?: React.ReactNode };
+    return extractCodeText(props.children);
+  }
+  return "";
+}
+
+const markdownComponents = {
+  pre(props: React.HTMLAttributes<HTMLPreElement>) {
+    const { children, ...rest } = props;
+    if (React.isValidElement(children)) {
+      const childProps = children.props as {
+        className?: string;
+        children?: React.ReactNode;
+      };
+      const className = childProps.className || "";
+      if (/\blanguage-embed\b/.test(className)) {
+        const body = extractCodeText(childProps.children);
+        const parsed = parseEmbedBody(body);
+        return <IframeEmbed {...(parsed as Parameters<typeof IframeEmbed>[0])} />;
+      }
+    }
+    return <pre {...rest}>{children}</pre>;
+  },
+};
+
 function MarkdownText() {
   useEffect(() => {
     injectMarkdownStyles();
@@ -105,6 +135,7 @@ function MarkdownText() {
       smooth
       className="agent-markdown break-words"
       remarkPlugins={[remarkGfm]}
+      components={markdownComponents}
     />
   );
 }
@@ -371,7 +402,10 @@ function ToolCallDisplay({
           ref={streamRef}
           className="mt-1 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground break-words max-h-48 overflow-y-auto agent-markdown prose prose-sm prose-invert max-w-none"
         >
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={markdownComponents}
+          >
             {agentStreamText}
           </ReactMarkdown>
         </div>
@@ -433,7 +467,10 @@ function ReconnectStreamMessage({ content }: { content: ContentPart[] }) {
                 key={`reconnect-text-${i}`}
                 className="agent-markdown break-words"
               >
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={markdownComponents}
+                >
                   {part.text}
                 </ReactMarkdown>
               </div>

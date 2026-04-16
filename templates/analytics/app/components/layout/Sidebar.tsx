@@ -59,6 +59,9 @@ import {
   useDeleteDashboardView,
   type DashboardView,
 } from "@/hooks/use-dashboard-views";
+import { usePopularity, popularityOf } from "@/lib/item-popularity";
+
+const SIDEBAR_PREVIEW_COUNT = 5;
 
 import {
   DndContext,
@@ -413,6 +416,25 @@ async function fetchSqlDashboards(): Promise<{ id: string; name: string }[]> {
     }));
 }
 
+async function fetchSidebarAnalyses(): Promise<{ id: string; name: string }[]> {
+  const token = await getIdToken();
+  const res = await fetch("/api/analyses", {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  const rows = Array.isArray(data) ? data : (data.analyses ?? []);
+  return rows
+    .filter((a: any) => a && typeof a.id === "string" && a.id.length > 0)
+    .map((a: any) => ({
+      id: a.id,
+      name:
+        typeof a.name === "string" && a.name.trim().length > 0
+          ? a.name
+          : "Untitled analysis",
+    }));
+}
+
 // --- Sidebar ---
 
 export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
@@ -421,6 +443,10 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const queryClient = useQueryClient();
 
   const [dashOpen, setDashOpen] = useState(true);
+  const [dashShowAll, setDashShowAll] = useState(false);
+  const [analysesOpen, setAnalysesOpen] = useState(true);
+  const [analysesShowAll, setAnalysesShowAll] = useState(false);
+  const popularity = usePopularity();
 
   const [light, setLight] = useState(() =>
     typeof document !== "undefined"
@@ -481,6 +507,29 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       staleTime: 30_000,
     });
 
+  const { data: analysesList = [], isLoading: analysesLoading } = useQuery({
+    queryKey: ["analyses-sidebar"],
+    queryFn: fetchSidebarAnalyses,
+    staleTime: 30_000,
+  });
+
+  const sortedAnalyses = useMemo(() => {
+    return [...analysesList].sort((a, b) => {
+      const aPop = popularityOf(popularity, "analysis", a.id);
+      const bPop = popularityOf(popularity, "analysis", b.id);
+      if (aPop !== bPop) return bPop - aPop;
+      return a.name.localeCompare(b.name);
+    });
+  }, [analysesList, popularity]);
+
+  const displayedAnalyses = useMemo(
+    () =>
+      analysesShowAll
+        ? sortedAnalyses
+        : sortedAnalyses.slice(0, SIDEBAR_PREVIEW_COUNT),
+    [sortedAnalyses, analysesShowAll],
+  );
+
   // Fetch views for all dashboards (for sidebar sub-items)
   const allDashboardIds = useMemo(() => {
     const ids = dashboards.map((d) => d.id);
@@ -507,16 +556,28 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       source: "sql",
     }));
     const all = [...staticItems, ...sqlItems];
-    // If no custom order yet, sort favorites to top
+    // If no custom order yet, sort favorites first, then by popularity, then alpha.
     if (dashboardOrderState.length === 0) {
       return all.sort((a, b) => {
         const aFav = favoriteIds.has(a.id) ? 0 : 1;
         const bFav = favoriteIds.has(b.id) ? 0 : 1;
-        return aFav - bFav;
+        if (aFav !== bFav) return aFav - bFav;
+        const aPop = popularityOf(popularity, "dashboard", a.id);
+        const bPop = popularityOf(popularity, "dashboard", b.id);
+        if (aPop !== bPop) return bPop - aPop;
+        return a.name.localeCompare(b.name);
       });
     }
     return applyOrder(all, dashboardOrderState);
-  }, [hiddenIds, favoriteIds, dashboardOrderState, sqlDashboards]);
+  }, [hiddenIds, favoriteIds, dashboardOrderState, sqlDashboards, popularity]);
+
+  const displayedDashboards = useMemo(
+    () =>
+      dashShowAll
+        ? visibleDashboards
+        : visibleDashboards.slice(0, SIDEBAR_PREVIEW_COUNT),
+    [visibleDashboards, dashShowAll],
+  );
 
   const handleDashboardDelete = useCallback(
     async (d: SidebarDashboard) => {
@@ -631,8 +692,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           <span className="text-lg font-bold tracking-tight">Analytics</span>
         </Link>
       </div>
-      <div className="flex-1 overflow-auto py-2">
-        <nav className="grid items-start px-2 text-sm font-medium lg:px-4 space-y-1">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden py-2">
+        <nav className="grid min-w-0 items-start px-2 text-sm font-medium lg:px-4 space-y-1">
           {/* Data Sources link */}
           <Link
             to="/data-sources"
@@ -645,20 +706,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           >
             <IconDatabase className="h-4 w-4" />
             Data Sources
-          </Link>
-
-          {/* Analyses link */}
-          <Link
-            to="/analyses"
-            className={cn(
-              "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
-              location.pathname.startsWith("/analyses")
-                ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                : "text-muted-foreground hover:bg-sidebar-accent/50",
-            )}
-          >
-            <IconReportAnalytics className="h-4 w-4" />
-            Analyses
           </Link>
 
           {/* Data Dictionary link */}
@@ -679,17 +726,17 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           <button
             onClick={() => setDashOpen(!dashOpen)}
             className={cn(
-              "flex w-full items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary text-left",
+              "flex w-full min-w-0 items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary text-left",
               isAdhocActive
                 ? "text-sidebar-accent-foreground"
                 : "text-muted-foreground hover:bg-sidebar-accent/50",
             )}
           >
-            <IconFlask className="h-4 w-4" />
-            <span className="flex-1">Dashboards</span>
+            <IconFlask className="h-4 w-4 shrink-0" />
+            <span className="flex-1 min-w-0 truncate">Dashboards</span>
             <IconChevronDown
               className={cn(
-                "h-3.5 w-3.5 transition-transform",
+                "h-3.5 w-3.5 shrink-0 transition-transform",
                 !dashOpen && "-rotate-90",
               )}
             />
@@ -702,11 +749,11 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               onDragEnd={handleDashboardDragEnd}
             >
               <SortableContext
-                items={visibleDashboards.map((d) => d.id)}
+                items={displayedDashboards.map((d) => d.id)}
                 strategy={verticalListSortingStrategy}
               >
-                <div className="ml-4 space-y-0.5">
-                  {visibleDashboards.map((d) => (
+                <div className="ml-4 min-w-0 space-y-0.5">
+                  {displayedDashboards.map((d) => (
                     <SortableDashboardItem
                       key={d.id}
                       d={d}
@@ -720,6 +767,16 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       views={allViewsMap[d.id]}
                     />
                   ))}
+                  {visibleDashboards.length > SIDEBAR_PREVIEW_COUNT && (
+                    <button
+                      onClick={() => setDashShowAll(!dashShowAll)}
+                      className="flex items-center gap-1 px-3 py-1 text-[11px] text-muted-foreground/70 hover:text-primary"
+                    >
+                      {dashShowAll
+                        ? "Show less"
+                        : `Show ${visibleDashboards.length - SIDEBAR_PREVIEW_COUNT} more`}
+                    </button>
+                  )}
                   {sqlDashboardsLoading &&
                     sqlDashboards.length === 0 &&
                     Array.from({ length: 3 }).map((_, i) => (
@@ -738,6 +795,78 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                 </div>
               </SortableContext>
             </DndContext>
+          )}
+
+          {/* Analyses section */}
+          <button
+            onClick={() => setAnalysesOpen(!analysesOpen)}
+            className={cn(
+              "flex w-full min-w-0 items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary text-left",
+              location.pathname.startsWith("/analyses")
+                ? "text-sidebar-accent-foreground"
+                : "text-muted-foreground hover:bg-sidebar-accent/50",
+            )}
+          >
+            <IconReportAnalytics className="h-4 w-4 shrink-0" />
+            <span className="flex-1 min-w-0 truncate">Analyses</span>
+            <IconChevronDown
+              className={cn(
+                "h-3.5 w-3.5 shrink-0 transition-transform",
+                !analysesOpen && "-rotate-90",
+              )}
+            />
+          </button>
+
+          {analysesOpen && (
+            <div className="ml-4 min-w-0 space-y-0.5">
+              {displayedAnalyses.map((a) => {
+                const href = `/analyses/${a.id}`;
+                const isActive = location.pathname === href;
+                return (
+                  <Link
+                    key={a.id}
+                    to={href}
+                    className={cn(
+                      "flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-all hover:text-primary",
+                      isActive
+                        ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                        : "text-muted-foreground hover:bg-sidebar-accent/50",
+                    )}
+                  >
+                    <span className="flex-1 min-w-0 truncate">{a.name}</span>
+                  </Link>
+                );
+              })}
+              {sortedAnalyses.length > SIDEBAR_PREVIEW_COUNT && (
+                <button
+                  onClick={() => setAnalysesShowAll(!analysesShowAll)}
+                  className="flex items-center gap-1 px-3 py-1 text-[11px] text-muted-foreground/70 hover:text-primary"
+                >
+                  {analysesShowAll
+                    ? "Show less"
+                    : `Show ${sortedAnalyses.length - SIDEBAR_PREVIEW_COUNT} more`}
+                </button>
+              )}
+              {analysesLoading &&
+                sortedAnalyses.length === 0 &&
+                Array.from({ length: 3 }).map((_, i) => (
+                  <div
+                    key={`analysis-skeleton-${i}`}
+                    className="flex items-center gap-2 px-3 py-1"
+                  >
+                    <Skeleton className="h-3.5 w-3.5 shrink-0 rounded-sm" />
+                    <Skeleton
+                      className="h-3 rounded"
+                      style={{ width: `${60 + ((i * 17) % 30)}%` }}
+                    />
+                  </div>
+                ))}
+              {!analysesLoading && sortedAnalyses.length === 0 && (
+                <p className="px-3 py-1 text-[11px] text-muted-foreground/60">
+                  No analyses yet
+                </p>
+              )}
+            </div>
           )}
 
           {bottomItems.map((item) => {

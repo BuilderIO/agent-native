@@ -21,6 +21,7 @@ import { ViewsMenu } from "./ViewsMenu";
 import type { SqlDashboardConfig, SqlPanel } from "./types";
 import { useUserPref } from "@/hooks/use-user-pref";
 import { useDashboardViews } from "@/hooks/use-dashboard-views";
+import { incrementItemView } from "@/lib/item-popularity";
 import {
   useSetPageTitle,
   useSetHeaderActions,
@@ -124,6 +125,7 @@ export default function SqlDashboardPage() {
     fetchDashboard(dashboardId).then((d) => {
       if (d) {
         setDashboard(d);
+        incrementItemView("dashboard", dashboardId);
       } else {
         setDashboard({ name: "Untitled Dashboard", panels: [] });
       }

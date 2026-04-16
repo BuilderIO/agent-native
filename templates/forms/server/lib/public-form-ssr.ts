@@ -249,6 +249,15 @@ ${form.description ? `<meta name="description" content="${escapeHtml(form.descri
     localStorage.setItem("theme", dark ? "dark" : "light");
   };
 
+  // When embedded in an iframe, let the parent close the popover on Escape
+  if (html.classList.contains("embedded") && window.parent !== window) {
+    document.addEventListener("keydown", function(e) {
+      if (e.key === "Escape") {
+        try { window.parent.postMessage({ type: "agent-native-feedback-close" }, "*"); } catch (_) {}
+      }
+    });
+  }
+
   // Toast
   var toastEl = document.getElementById("toast");
   var toastTimer;
@@ -556,7 +565,10 @@ html:not(.dark) .icon-moon{display:none}
 .powered-badge:hover{opacity:1}
 
 .embedded .theme-toggle,.embedded .powered-badge{display:none}
-.embedded .page{padding-top:24px}
+.embedded .page{padding:20px 16px 32px}
+.embedded .header{margin-bottom:20px}
+.embedded .header h1{font-size:1.125rem}
+.embedded .desc{font-size:0.8125rem}
 
 .toast{
   position:fixed;bottom:24px;left:50%;transform:translateX(-50%);

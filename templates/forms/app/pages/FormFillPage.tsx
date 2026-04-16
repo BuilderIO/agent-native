@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FieldRenderer } from "@/components/builder/FieldRenderer";
 import { Turnstile, PoweredByBadge } from "@agent-native/core/client";
+import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { usePublicForm, useSubmitForm } from "@/hooks/use-forms";
 import { toast } from "sonner";
@@ -197,10 +198,25 @@ export function FormFillPage() {
       )}
       <div className="w-full max-w-2xl">
         {/* Form header */}
-        <div className="mb-6 sm:mb-8">
-          <h1 className="text-2xl sm:text-3xl font-semibold">{form.title}</h1>
+        <div className={embedded ? "mb-5" : "mb-6 sm:mb-8"}>
+          <h1
+            className={
+              embedded
+                ? "text-lg font-semibold"
+                : "text-2xl sm:text-3xl font-semibold"
+            }
+          >
+            {form.title}
+          </h1>
           {form.description && (
-            <p className="mt-2 text-muted-foreground">{form.description}</p>
+            <p
+              className={cn(
+                "mt-2 text-muted-foreground",
+                embedded && "text-sm",
+              )}
+            >
+              {form.description}
+            </p>
           )}
         </div>
 
