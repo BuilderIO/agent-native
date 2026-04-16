@@ -2541,14 +2541,40 @@ export function createAgentChatPlugin(
           setResponseStatus(event, 401);
           return { error: "Authentication required" };
         }
-        try {
-          if (ownerEmail && ownerEmail !== "local@localhost") {
+        if (ownerEmail && ownerEmail !== "local@localhost") {
+          try {
             await putSetting(`user-anthropic-api-key:${ownerEmail}`, {
               key: trimmedKey,
             });
+            // Verify the write actually landed — some managed DB drivers
+            // swallow errors on degraded connections. Without this the
+            // client sees "saved", reloads, and the usage-limit card
+            // re-appears on the next message because the key isn't
+            // really persisted.
+            const check = await getSetting(
+              `user-anthropic-api-key:${ownerEmail}`,
+            );
+            if (
+              !check ||
+              typeof check.key !== "string" ||
+              check.key !== trimmedKey
+            ) {
+              throw new Error("settings write did not persist");
+            }
+          } catch (err) {
+            if (isHostedProd) {
+              console.error(
+                "[agent-chat] save-key persistence failed:",
+                err instanceof Error ? err.message : err,
+              );
+              setResponseStatus(event, 500);
+              return {
+                error:
+                  "Failed to persist API key. Please try again or contact support.",
+              };
+            }
+            // Local dev falls through to the env-file path below.
           }
-        } catch {
-          // Settings store unavailable — fall back to env-only behavior
         }
 
         // In hosted/multi-tenant mode we deliberately do NOT touch

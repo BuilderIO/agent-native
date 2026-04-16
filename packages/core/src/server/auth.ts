@@ -29,7 +29,12 @@ function toWebRequest(event: H3Event): Request {
 }
 
 type H3App = H3AppShim;
-import { getDbExec, isPostgres, intType } from "../db/client.js";
+import {
+  getDbExec,
+  isPostgres,
+  intType,
+  isLocalDatabase,
+} from "../db/client.js";
 import { getBetterAuth, getBetterAuthSync } from "./better-auth-instance.js";
 import type { BetterAuthConfig } from "./better-auth-instance.js";
 import { getOnboardingHtml, getResetPasswordHtml } from "./onboarding-html.js";
@@ -130,6 +135,8 @@ const LOCAL_MODE_MARKER_PATH = path.resolve(
 // AUTH_MODE detection
 // ---------------------------------------------------------------------------
 
+let _warnedRemoteLocalMode = false;
+
 /**
  * Check if the app is in local-only mode (no auth).
  *
@@ -141,8 +148,23 @@ const LOCAL_MODE_MARKER_PATH = path.resolve(
  * no auth is used. In development, getSession() also falls back to
  * local@localhost automatically if no other auth method succeeds, so
  * apps are always usable without configuration in dev.
+ *
+ * Refuses to enable on any non-local database (Postgres, Turso, D1): local
+ * mode uses a single shared virtual user with no per-machine scoping, so on
+ * a shared DB every developer would land on the same account and collide.
  */
 async function isLocalModeEnabled(): Promise<boolean> {
+  if (!isLocalDatabase()) {
+    if (process.env.AUTH_MODE === "local" && !_warnedRemoteLocalMode) {
+      _warnedRemoteLocalMode = true;
+      console.warn(
+        "[agent-native] AUTH_MODE=local ignored: database is not local SQLite. " +
+          "local@localhost has no per-user scoping and would collide across developers on a shared DB.",
+      );
+    }
+    return false;
+  }
+
   if (process.env.AUTH_MODE === "local") return true;
 
   try {
@@ -537,16 +559,25 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
     }
   }
 
-  // 7. Dev-mode safety net — in development, always fall back to local@localhost
-  // so the app is usable without any auth configuration. This prevents 401
-  // errors when Better Auth isn't configured, the marker file is missing, or
-  // the user simply wants to play around locally.
+  // 7. Dev-mode safety net — in development on a local SQLite database, fall
+  // back to local@localhost so the app is usable without any auth configuration.
+  // This prevents 401 errors when Better Auth isn't configured, the marker file
+  // is missing, or the user simply wants to play around locally.
+  //
+  // Gated on isLocalDatabase() because local@localhost has no per-user scoping:
+  // on a shared DB (Postgres, Turso, D1) this fallback would land every
+  // developer on the same account and expose each other's data.
   //
   // EXCEPTION: if the user has explicitly exited local mode (clicked "Upgrade
   // to real account"), they've signaled they want real auth. The upgrade
   // cookie suppresses this fallback so the onboarding/sign-in page is served
   // instead of silently re-authenticating them as local@localhost.
-  if (isDevEnvironment() && !isUpgradePending(event) && !hasSignInFlag(event)) {
+  if (
+    isDevEnvironment() &&
+    isLocalDatabase() &&
+    !isUpgradePending(event) &&
+    !hasSignInFlag(event)
+  ) {
     return LOCAL_SESSION;
   }
 

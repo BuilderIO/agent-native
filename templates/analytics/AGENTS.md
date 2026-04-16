@@ -183,6 +183,8 @@ A `<data-dictionary>` block is injected into your system prompt with the approve
 5. Obey `knownGotchas` from any entry you use — note them to the user if the data has limitations.
 6. The dashboard save endpoint now dry-runs every panel's SQL through BigQuery before persisting. If a panel fails validation you'll get a 400 with the BigQuery error text (e.g. `Unrecognized name: is_closed; Did you mean hs_is_closed?`) — fix the SQL and retry; never try to persist broken SQL.
 
+**Panel `source` is a backend, not a table.** The `source` field on every panel must be exactly `"bigquery"` or `"app-db"` — it selects _which database_ the SQL runs against. The table/dataset reference (e.g. `dbt_intermediate.uf_pageviews`) goes inside the `sql` string. Writing the table name into `source` produces `Invalid source` errors on every render.
+
 **Populating the dictionary:** When the user has existing metric definitions elsewhere (team docs, Confluence, Notion, dbt descriptions, a Google Sheet, a wiki), fetch them with whatever tools you have — generic `WebFetch`, an MCP server the user has configured, a CSV import, or asking the user to paste — then upsert each via `save-data-dictionary-entry`. The dictionary itself is source-agnostic.
 
 ### Ad-Hoc Analysis

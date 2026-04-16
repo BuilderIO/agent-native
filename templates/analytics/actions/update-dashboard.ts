@@ -161,6 +161,7 @@ function validateDashboardConfig(
   if (!Array.isArray(panels)) {
     return "config.panels must be an array (use [] for an empty dashboard)";
   }
+  const validSources = new Set(["bigquery", "app-db"]);
   for (let i = 0; i < panels.length; i++) {
     const p = panels[i] as Record<string, unknown> | null;
     if (!p || typeof p !== "object") {
@@ -183,6 +184,9 @@ function validateDashboardConfig(
       if (typeof v !== "string" || v.trim().length === 0) {
         return `panel[${i}].${field} is required (non-empty string)`;
       }
+    }
+    if (!validSources.has(p.source as string)) {
+      return `panel[${i}].source must be 'bigquery' or 'app-db' (got '${p.source}'). source selects the backend — put the table name in sql, not here.`;
     }
   }
   return null;

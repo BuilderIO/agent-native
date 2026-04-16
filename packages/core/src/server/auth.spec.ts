@@ -267,6 +267,7 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isPostgres: () => false,
+        isLocalDatabase: () => true,
         intType: () => "INTEGER",
       }));
 

@@ -124,6 +124,21 @@ export function isPostgres(): boolean {
   return getDialect() === "postgres";
 }
 
+/**
+ * Returns true when the database is a local-only SQLite file (or unset, which
+ * defaults to a local SQLite file). Returns false for Postgres, remote libsql
+ * (Turso), and D1 — any backend that could be shared across developers.
+ *
+ * Used to gate local@localhost mode: that mode uses a single shared virtual
+ * user with no per-machine scoping, so on any shared database two developers
+ * would read and write each other's settings, oauth tokens, and app state.
+ */
+export function isLocalDatabase(): boolean {
+  if (getDialect() !== "sqlite") return false;
+  const url = getDatabaseUrl();
+  return url === "" || url.startsWith("file:");
+}
+
 /** Returns BIGINT for Postgres (64-bit), INTEGER for SQLite (already 64-bit). */
 export function intType(): string {
   return isPostgres() ? "BIGINT" : "INTEGER";
