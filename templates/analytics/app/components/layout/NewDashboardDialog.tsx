@@ -23,7 +23,7 @@ export function NewDashboardDialog() {
         "The user wants to create a new analytics dashboard. " +
         "Create a SQL-driven dashboard by saving a JSON config via PUT /api/sql-dashboards/{id}. " +
         "The config shape is: { name: string, panels: [{ id, title, sql, source, chartType, width, config? }] }. " +
-        "Each panel needs: id (unique string), title, sql (the query), source ('bigquery' or 'app-db'), " +
+        "Each panel needs: id (unique string), title, sql (the query), source ('bigquery' | 'app-db' | 'ga4'), " +
         "chartType ('line' | 'area' | 'bar' | 'metric' | 'table' | 'pie'), width (1 or 2). " +
         "Optional config: { xKey, yKey, yKeys, color, colors, yFormatter ('number'|'currency'|'percent'), description }. " +
         "First check /_agent-native/env-status to see which data sources are connected. " +

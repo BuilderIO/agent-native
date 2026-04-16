@@ -9,6 +9,36 @@ import {
   putUserSetting,
 } from "@agent-native/core/settings";
 import { dryRunQuery } from "../server/lib/bigquery";
+import { interpolate } from "../app/pages/adhoc/sql-dashboard/interpolate";
+
+/**
+ * Same shape as the server-side validator in `server/handlers/sql-dashboards.ts`.
+ * Variables declared on the dashboard take priority; filter `default` values
+ * fill in anything missing so parametric SQL validates against a real value.
+ */
+function buildDryRunVars(
+  config: Record<string, unknown>,
+): Record<string, string> {
+  const vars: Record<string, string> = {};
+  const filters = Array.isArray(config.filters)
+    ? (config.filters as Array<Record<string, unknown>>)
+    : [];
+  for (const f of filters) {
+    const key =
+      typeof f.key === "string" ? f.key : typeof f.id === "string" ? f.id : "";
+    if (!key) continue;
+    const def = f.default;
+    if (typeof def === "string" && def) vars[key] = def;
+  }
+  const declared =
+    config.variables && typeof config.variables === "object"
+      ? (config.variables as Record<string, unknown>)
+      : {};
+  for (const [k, v] of Object.entries(declared)) {
+    if (typeof v === "string") vars[k] = v;
+  }
+  return vars;
+}
 
 const KEY_PREFIX = "sql-dashboard-";
 const LOCAL_EMAIL = "local@localhost";
@@ -161,7 +191,7 @@ function validateDashboardConfig(
   if (!Array.isArray(panels)) {
     return "config.panels must be an array (use [] for an empty dashboard)";
   }
-  const validSources = new Set(["bigquery", "app-db"]);
+  const validSources = new Set(["bigquery", "app-db", "ga4"]);
   for (let i = 0; i < panels.length; i++) {
     const p = panels[i] as Record<string, unknown> | null;
     if (!p || typeof p !== "object") {
@@ -186,7 +216,7 @@ function validateDashboardConfig(
       }
     }
     if (!validSources.has(p.source as string)) {
-      return `panel[${i}].source must be 'bigquery' or 'app-db' (got '${p.source}'). source selects the backend — put the table name in sql, not here.`;
+      return `panel[${i}].source must be 'bigquery', 'app-db', or 'ga4' (got '${p.source}'). source selects the backend — put the table name in sql, not here.`;
     }
   }
   return null;
@@ -202,10 +232,13 @@ async function validatePanelSql(
 ): Promise<string | null> {
   const panels = config.panels;
   if (!Array.isArray(panels)) return null;
+  const vars = buildDryRunVars(config);
   for (let i = 0; i < panels.length; i++) {
     const p = panels[i] as Record<string, unknown>;
     if (p.source !== "bigquery") continue;
-    const sql = typeof p.sql === "string" ? p.sql : "";
+    const raw = typeof p.sql === "string" ? p.sql : "";
+    if (!raw.trim()) continue;
+    const sql = interpolate(raw, vars);
     if (!sql.trim()) continue;
     let err: string | null;
     try {

@@ -73,6 +73,7 @@ export {
 } from "./useProductionAgent.js";
 export { Turnstile, type TurnstileProps } from "./Turnstile.js";
 export { PoweredByBadge, type PoweredByBadgeProps } from "./PoweredByBadge.js";
+export { FeedbackButton, type FeedbackButtonProps } from "./FeedbackButton.js";
 export { ErrorBoundary } from "./ErrorBoundary.js";
 export { ClientOnly } from "./ClientOnly.js";
 export { DefaultSpinner } from "./DefaultSpinner.js";

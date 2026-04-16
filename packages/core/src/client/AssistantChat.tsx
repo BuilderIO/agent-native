@@ -39,7 +39,7 @@ import {
 } from "./composer/TiptapComposer.js";
 import type { Reference } from "./composer/types.js";
 import {
-  IconSparkles,
+  IconMessage,
   IconX,
   IconPlayerStop,
   IconCheck,
@@ -804,7 +804,7 @@ function ApiKeySetupCard({ apiUrl }: { apiUrl: string }) {
     <div className="mx-4 my-6 rounded-lg border border-border bg-card p-5">
       <div className="flex items-center gap-3 mb-3">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted">
-          <IconSparkles className="h-4.5 w-4.5 text-muted-foreground" />
+          <IconMessage className="h-4.5 w-4.5 text-muted-foreground" />
         </div>
         <div>
           <h3 className="text-sm font-medium text-foreground">
@@ -962,7 +962,7 @@ export function BuilderCtaCard({
     <div className="mx-4 my-6 rounded-lg border border-border bg-card p-5">
       <div className="flex items-center gap-3 mb-4">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted">
-          <IconSparkles className="h-4.5 w-4.5 text-muted-foreground" />
+          <IconMessage className="h-4.5 w-4.5 text-muted-foreground" />
         </div>
         <div>
           <h3 className="text-sm font-medium text-foreground">{title}</h3>
@@ -1864,7 +1864,7 @@ const AssistantChatInner = forwardRef<
         ) : messages.length === 0 && !isReconnecting ? (
           <div className="flex flex-col items-center justify-center gap-4 py-16 px-4 h-full">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
-              <IconSparkles className="h-5 w-5 text-muted-foreground" />
+              <IconMessage className="h-5 w-5 text-muted-foreground" />
             </div>
             <p className="text-sm text-muted-foreground text-center max-w-[240px]">
               {emptyStateText ?? "How can I help you?"}

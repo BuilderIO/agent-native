@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useParams } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -19,6 +19,17 @@ export function FormFillPage() {
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [captchaToken, setCaptchaToken] = useState<string | undefined>();
   const [submitted, setSubmitted] = useState(false);
+  const [embedded, setEmbedded] = useState(false);
+
+  useEffect(() => {
+    try {
+      const inIframe = window.self !== window.top;
+      const forced = new URLSearchParams(window.location.search).has("embed");
+      setEmbedded(inIframe || forced);
+    } catch {
+      setEmbedded(true);
+    }
+  }, []);
 
   const fields: FormField[] = form?.fields || [];
   const settings: FormSettings = form?.settings || {};
@@ -154,7 +165,7 @@ export function FormFillPage() {
             Try Again
           </Button>
         </div>
-        <PoweredByBadge />
+        {!embedded && <PoweredByBadge />}
       </div>
     );
   }
@@ -172,16 +183,18 @@ export function FormFillPage() {
               "Thank you! Your response has been recorded."}
           </p>
         </div>
-        <PoweredByBadge />
+        {!embedded && <PoweredByBadge />}
       </div>
     );
   }
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-3 sm:p-4 py-8 sm:py-12 relative">
-      <div className="absolute top-4 right-4">
-        <ThemeToggle />
-      </div>
+      {!embedded && (
+        <div className="absolute top-4 right-4">
+          <ThemeToggle />
+        </div>
+      )}
       <div className="w-full max-w-2xl">
         {/* Form header */}
         <div className="mb-6 sm:mb-8">
@@ -227,7 +240,7 @@ export function FormFillPage() {
         </form>
       </div>
 
-      <PoweredByBadge />
+      {!embedded && <PoweredByBadge />}
     </div>
   );
 }

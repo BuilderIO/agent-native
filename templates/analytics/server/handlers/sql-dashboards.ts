@@ -8,8 +8,40 @@ import {
   resolveSettingsScope,
 } from "../lib/scoped-settings";
 import { dryRunQuery } from "../lib/bigquery";
+import { interpolate } from "../../app/pages/adhoc/sql-dashboard/interpolate";
 
 const KEY_PREFIX = "sql-dashboard-";
+
+/**
+ * Build the variable map used when dry-running a panel's SQL. Variables
+ * declared on the dashboard take priority, then each filter's `default`
+ * fills in anything missing — so a parametric dashboard (e.g. one with
+ * `{{dateStart}}`) validates against a real value instead of blowing up
+ * on the empty string the interpolator would otherwise produce.
+ */
+function buildDryRunVars(
+  config: Record<string, unknown>,
+): Record<string, string> {
+  const vars: Record<string, string> = {};
+  const filters = Array.isArray(config.filters)
+    ? (config.filters as Array<Record<string, unknown>>)
+    : [];
+  for (const f of filters) {
+    const key =
+      typeof f.key === "string" ? f.key : typeof f.id === "string" ? f.id : "";
+    if (!key) continue;
+    const def = f.default;
+    if (typeof def === "string" && def) vars[key] = def;
+  }
+  const declared =
+    config.variables && typeof config.variables === "object"
+      ? (config.variables as Record<string, unknown>)
+      : {};
+  for (const [k, v] of Object.entries(declared)) {
+    if (typeof v === "string") vars[k] = v;
+  }
+  return vars;
+}
 
 export const listSqlDashboards = defineEventHandler(async (event) => {
   try {
@@ -87,10 +119,13 @@ async function validatePanelSql(
 ): Promise<string | null> {
   const panels = config.panels;
   if (!Array.isArray(panels)) return null;
+  const vars = buildDryRunVars(config);
   for (let i = 0; i < panels.length; i++) {
     const p = panels[i] as Record<string, unknown>;
     if (p.source !== "bigquery") continue;
-    const sql = typeof p.sql === "string" ? p.sql : "";
+    const raw = typeof p.sql === "string" ? p.sql : "";
+    if (!raw.trim()) continue;
+    const sql = interpolate(raw, vars);
     if (!sql.trim()) continue;
     let err: string | null;
     try {
@@ -123,7 +158,7 @@ function validateDashboardConfig(
   }
   if (Array.isArray(panels)) {
     const requiredStrings = ["id", "title", "sql", "source", "chartType"];
-    const validSources = new Set(["bigquery", "app-db"]);
+    const validSources = new Set(["bigquery", "app-db", "ga4"]);
     for (let i = 0; i < panels.length; i++) {
       const p = panels[i] as Record<string, unknown> | null;
       if (!p || typeof p !== "object") return `panel[${i}] must be an object`;
@@ -134,7 +169,7 @@ function validateDashboardConfig(
         }
       }
       if (!validSources.has(p.source as string)) {
-        return `panel[${i}].source must be 'bigquery' or 'app-db' (got '${p.source}'). The table name belongs in the panel's sql, not in source — source selects the backend, not the table.`;
+        return `panel[${i}].source must be 'bigquery', 'app-db', or 'ga4' (got '${p.source}'). The table name belongs in the panel's sql, not in source — source selects the backend, not the table.`;
       }
       if (p.width !== 1 && p.width !== 2) {
         return `panel[${i}].width must be 1 or 2`;

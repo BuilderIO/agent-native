@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useSearchParams, useParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { IconPencil, IconTrash } from "@tabler/icons-react";
+import { IconPencil, IconPlus, IconTrash } from "@tabler/icons-react";
 import { getIdToken } from "@/lib/auth";
 import { SqlChartCard } from "./SqlChartCard";
 import {
@@ -14,7 +16,9 @@ import {
   resolveFilterVars,
 } from "./DashboardFilterBar";
 import { interpolate } from "./interpolate";
-import type { SqlDashboardConfig } from "./types";
+import { PanelEditorDialog } from "./PanelEditorDialog";
+import { ViewsMenu } from "./ViewsMenu";
+import type { SqlDashboardConfig, SqlPanel } from "./types";
 import { useUserPref } from "@/hooks/use-user-pref";
 import { useDashboardViews } from "@/hooks/use-dashboard-views";
 import {
@@ -62,11 +66,26 @@ async function fetchDashboard(id: string): Promise<SqlDashboardConfig | null> {
   };
 }
 
+/**
+ * Save dashboard config. Throws on non-2xx with the server's error message so
+ * callers (e.g. the panel editor dialog) can surface BigQuery validation
+ * errors inline instead of silently swallowing them.
+ */
 async function saveDashboard(id: string, data: SqlDashboardConfig) {
-  await fetchWithAuth(`/api/sql-dashboards/${id}`, {
+  const res = await fetchWithAuth(`/api/sql-dashboards/${id}`, {
     method: "POST",
     body: JSON.stringify(data),
   });
+  if (!res.ok) {
+    let message = `Save failed (${res.status})`;
+    try {
+      const body = await res.json();
+      if (body && typeof body.error === "string") message = body.error;
+    } catch {
+      // non-JSON body — fall back to generic message
+    }
+    throw new Error(message);
+  }
 }
 
 export default function SqlDashboardPage() {
@@ -78,7 +97,13 @@ export default function SqlDashboardPage() {
   const [dashboard, setDashboard] = useState<SqlDashboardConfig | null>(null);
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState("");
+  const [editingDescription, setEditingDescription] = useState(false);
+  const [descriptionInput, setDescriptionInput] = useState("");
   const [loaded, setLoaded] = useState(false);
+
+  // Panel editor dialog state
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editingPanel, setEditingPanel] = useState<SqlPanel | null>(null);
 
   // Per-user saved filter state
   const filterPrefKey = dashboardId ? `dashboard-filters:${dashboardId}` : "";
@@ -173,18 +198,47 @@ export default function SqlDashboardPage() {
     return () => clearTimeout(saveTimer.current);
   }, [searchParams, loaded, dashboard?.filters, dashboardId, saveFilterPref]);
 
+  /**
+   * Persist without throwing — background save used for drag reorder, width
+   * toggle, title/description edits, and panel delete. If the save fails
+   * (e.g. a panel's SQL becomes invalid after an earlier edit), surface a
+   * toast so the user knows and the error isn't silently swallowed.
+   */
   const persist = useCallback(
     (updated: SqlDashboardConfig) => {
       if (!dashboardId) return;
       setDashboard(updated);
-      saveDashboard(dashboardId, updated).then(() => {
-        queryClient.invalidateQueries({
-          queryKey: ["sql-dashboards-sidebar"],
+      saveDashboard(dashboardId, updated)
+        .then(() => {
+          queryClient.invalidateQueries({
+            queryKey: ["sql-dashboards-sidebar"],
+          });
+          queryClient.invalidateQueries({
+            queryKey: ["sql-dashboards-palette"],
+          });
+        })
+        .catch((err) => {
+          toast.error(
+            err instanceof Error
+              ? `Couldn't save dashboard: ${err.message}`
+              : "Couldn't save dashboard",
+          );
         });
-        queryClient.invalidateQueries({
-          queryKey: ["sql-dashboards-palette"],
-        });
-      });
+    },
+    [dashboardId, queryClient],
+  );
+
+  /**
+   * Persist that throws — used by the panel editor dialog so it can keep the
+   * dialog open and display the BigQuery validation error inline.
+   */
+  const persistThrow = useCallback(
+    async (updated: SqlDashboardConfig) => {
+      if (!dashboardId) return;
+      await saveDashboard(dashboardId, updated);
+      setDashboard(updated);
+      queryClient.invalidateQueries({ queryKey: ["sql-dashboards-sidebar"] });
+      queryClient.invalidateQueries({ queryKey: ["sql-dashboards-palette"] });
     },
     [dashboardId, queryClient],
   );
@@ -212,6 +266,29 @@ export default function SqlDashboardPage() {
     },
     [dashboard, persist],
   );
+
+  const handleSavePanel = useCallback(
+    async (panel: SqlPanel) => {
+      if (!dashboard) return;
+      const idx = dashboard.panels.findIndex((p) => p.id === panel.id);
+      const nextPanels =
+        idx >= 0
+          ? dashboard.panels.map((p, i) => (i === idx ? panel : p))
+          : [...dashboard.panels, panel];
+      await persistThrow({ ...dashboard, panels: nextPanels });
+    },
+    [dashboard, persistThrow],
+  );
+
+  const openAddPanel = useCallback(() => {
+    setEditingPanel(null);
+    setEditorOpen(true);
+  }, []);
+
+  const openEditPanel = useCallback((panel: SqlPanel) => {
+    setEditingPanel(panel);
+    setEditorOpen(true);
+  }, []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -242,6 +319,16 @@ export default function SqlDashboardPage() {
     persist({ ...dashboard, name });
     setEditingName(false);
   }, [dashboard, nameInput, persist]);
+
+  const handleSaveDescription = useCallback(() => {
+    if (!dashboard) return;
+    const description = descriptionInput.trim();
+    persist({
+      ...dashboard,
+      description: description || undefined,
+    });
+    setEditingDescription(false);
+  }, [dashboard, descriptionInput, persist]);
 
   const vars = useMemo<Record<string, string>>(() => {
     const filterValues = dashboard?.filters
@@ -277,40 +364,50 @@ export default function SqlDashboardPage() {
 
   useSetPageTitle(
     dashboard ? (
-      editingName ? (
-        <Input
-          value={nameInput}
-          onChange={(e) => setNameInput(e.target.value)}
-          onBlur={handleSaveName}
-          onKeyDown={(e) => e.key === "Enter" && handleSaveName()}
-          className="h-8 w-full sm:w-64 text-lg font-semibold"
-          autoFocus
-        />
-      ) : (
-        <button
-          className="text-lg font-semibold hover:text-primary flex items-center gap-1 truncate"
-          onClick={() => {
-            setNameInput(dashboard.name);
-            setEditingName(true);
-          }}
-        >
-          <span className="truncate">{dashboard.name}</span>
-          <IconPencil className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-        </button>
-      )
+      <div className="flex items-center gap-2 min-w-0">
+        {editingName ? (
+          <Input
+            value={nameInput}
+            onChange={(e) => setNameInput(e.target.value)}
+            onBlur={handleSaveName}
+            onKeyDown={(e) => e.key === "Enter" && handleSaveName()}
+            className="h-8 w-full sm:w-64 text-lg font-semibold"
+            autoFocus
+          />
+        ) : (
+          <button
+            className="text-lg font-semibold hover:text-primary flex items-center gap-1 truncate"
+            onClick={() => {
+              setNameInput(dashboard.name);
+              setEditingName(true);
+            }}
+          >
+            <span className="truncate">{dashboard.name}</span>
+            <IconPencil className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+          </button>
+        )}
+        {dashboardId && <ViewsMenu dashboardId={dashboardId} />}
+      </div>
     ) : null,
   );
 
   useSetHeaderActions(
     dashboard ? (
-      <Button
-        size="sm"
-        variant="ghost"
-        className="text-muted-foreground hover:text-foreground"
-        onClick={handleDelete}
-      >
-        <IconTrash className="h-4 w-4" />
-      </Button>
+      <>
+        <Button size="sm" variant="outline" onClick={openAddPanel}>
+          <IconPlus className="h-4 w-4 mr-1" />
+          Add panel
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="text-muted-foreground hover:text-foreground"
+          onClick={handleDelete}
+          title="Delete dashboard"
+        >
+          <IconTrash className="h-4 w-4" />
+        </Button>
+      </>
     ) : null,
   );
 
@@ -338,6 +435,47 @@ export default function SqlDashboardPage() {
 
   return (
     <div className="space-y-4">
+      {/* Description (click to edit) */}
+      {editingDescription ? (
+        <Textarea
+          value={descriptionInput}
+          onChange={(e) => setDescriptionInput(e.target.value)}
+          onBlur={handleSaveDescription}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              handleSaveDescription();
+            }
+            if (e.key === "Escape") setEditingDescription(false);
+          }}
+          rows={2}
+          autoFocus
+          placeholder="Add a description"
+          className="text-sm resize-y"
+        />
+      ) : dashboard.description ? (
+        <button
+          className="text-sm text-muted-foreground hover:text-foreground text-left flex items-start gap-1.5 w-full group"
+          onClick={() => {
+            setDescriptionInput(dashboard.description ?? "");
+            setEditingDescription(true);
+          }}
+        >
+          <span className="flex-1">{dashboard.description}</span>
+          <IconPencil className="h-3 w-3 mt-0.5 shrink-0 opacity-0 group-hover:opacity-60" />
+        </button>
+      ) : (
+        <button
+          className="text-xs text-muted-foreground/60 hover:text-muted-foreground flex items-center gap-1"
+          onClick={() => {
+            setDescriptionInput("");
+            setEditingDescription(true);
+          }}
+        >
+          <IconPencil className="h-3 w-3" />
+          Add description
+        </button>
+      )}
+
       {/* Filters */}
       {dashboard.filters && dashboard.filters.length > 0 && (
         <DashboardFilterBar
@@ -350,9 +488,11 @@ export default function SqlDashboardPage() {
       {dashboard.panels.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center h-64 text-muted-foreground text-sm gap-3">
-            <p>
-              This dashboard has no panels yet. Ask the agent to add SQL panels.
-            </p>
+            <p>This dashboard has no panels yet.</p>
+            <Button size="sm" variant="outline" onClick={openAddPanel}>
+              <IconPlus className="h-4 w-4 mr-1" />
+              Add your first panel
+            </Button>
           </CardContent>
         </Card>
       ) : (
@@ -373,12 +513,22 @@ export default function SqlDashboardPage() {
                   resolvedSql={interpolate(panel.sql, vars)}
                   onRemove={() => removePanel(panel.id)}
                   onToggleWidth={() => toggleWidth(panel.id)}
+                  onEdit={() => openEditPanel(panel)}
                 />
               ))}
             </div>
           </SortableContext>
         </DndContext>
       )}
+
+      <PanelEditorDialog
+        open={editorOpen}
+        onOpenChange={setEditorOpen}
+        panel={editingPanel}
+        onSave={handleSavePanel}
+        dashboardId={dashboardId ?? ""}
+        existingPanelTitles={dashboard.panels.map((p) => p.title)}
+      />
     </div>
   );
 }

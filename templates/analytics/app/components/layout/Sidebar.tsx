@@ -51,6 +51,7 @@ import {
 } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { OrgSwitcher } from "@agent-native/core/client/org";
+import { FeedbackButton } from "@agent-native/core/client";
 import { NewDashboardDialog } from "./NewDashboardDialog";
 import { useUserPref } from "@/hooks/use-user-pref";
 import {
@@ -761,6 +762,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         </nav>
       </div>
       <div className="p-4 border-t border-border space-y-2">
+        <FeedbackButton />
         <OrgSwitcher />
         <button
           onClick={() =>

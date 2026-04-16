@@ -63,15 +63,7 @@ export interface DashboardMeta {
 
 // Add new dashboards here. Each entry needs a matching file in this directory.
 // REQUIRED FIELDS: id, name, author, lastUpdated
-export const dashboards: DashboardMeta[] = [
-  {
-    id: "google-analytics",
-    name: "Google Analytics",
-    description: "GA4 website and app metrics",
-    author: "Template",
-    lastUpdated: "2026-03-29",
-  },
-];
+export const dashboards: DashboardMeta[] = [];
 
 const HIDDEN_KEY = "hidden-dashboards";
 
@@ -149,7 +141,6 @@ export const dashboardComponents: Record<
   string,
   React.LazyExoticComponent<ComponentType>
 > = {
-  "google-analytics": lazy(() => import("./google-analytics")),
   explorer: lazy(() => import("./explorer")),
   "explorer-dashboard": lazy(() => import("./explorer-dashboard")),
 };

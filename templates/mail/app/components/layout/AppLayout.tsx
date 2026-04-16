@@ -41,6 +41,7 @@ import {
   getCallbackOrigin,
   AgentSidebar,
   AgentToggleButton,
+  FeedbackButton,
 } from "@agent-native/core/client";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import type { Label } from "@shared/types";
@@ -1035,6 +1036,9 @@ export function AppLayout({ children }: AppLayoutProps) {
                         >
                           Settings
                         </Link>
+                        <div className="mt-1">
+                          <FeedbackButton />
+                        </div>
                       </div>
                     </div>
 

@@ -1,6 +1,10 @@
 import type { ReactNode } from "react";
 import { NavLink } from "react-router";
-import { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";
+import {
+  AgentSidebar,
+  AgentToggleButton,
+  FeedbackButton,
+} from "@agent-native/core/client";
 import {
   IconArrowUpRight,
   IconBellCog,
@@ -19,6 +23,7 @@ import { cn } from "@/lib/utils";
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarHeader,
   SidebarInset,
   SidebarMenu,
@@ -111,6 +116,9 @@ export function DispatchShell({
                 })}
               </SidebarMenu>
             </SidebarContent>
+            <SidebarFooter className="border-t px-2 py-2">
+              <FeedbackButton />
+            </SidebarFooter>
           </Sidebar>
 
           <SidebarInset className="bg-background">
