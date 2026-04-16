@@ -2,24 +2,6 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { GoogleAuthStatus } from "@shared/api";
 import { useEffect } from "react";
 
-/**
- * Read a Response body defensively. Many failure modes (auth proxies returning
- * HTML 401 pages, empty 502s, etc.) caused the previous `await res.json()` to
- * throw an opaque "Unexpected end of JSON input". This helper:
- *   - returns the parsed JSON when the body is valid JSON
- *   - returns `undefined` for empty bodies / non-JSON content
- *   - never throws — caller decides how to react based on status + value
- */
-async function readBody(res: Response): Promise<any> {
-  const raw = await res.text().catch(() => "");
-  if (!raw) return undefined;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return undefined;
-  }
-}
-
 function bodyError(
   body: any,
   raw: string | undefined,
