@@ -401,7 +401,15 @@ async function fetchSqlDashboards(): Promise<{ id: string; name: string }[]> {
   });
   if (!res.ok) return [];
   const data = await res.json();
-  return (data.dashboards ?? []).map((d: any) => ({ id: d.id, name: d.name }));
+  return (data.dashboards ?? [])
+    .filter((d: any) => d && typeof d.id === "string" && d.id.length > 0)
+    .map((d: any) => ({
+      id: d.id,
+      name:
+        typeof d.name === "string" && d.name.trim().length > 0
+          ? d.name
+          : "Untitled dashboard",
+    }));
 }
 
 // --- Sidebar ---

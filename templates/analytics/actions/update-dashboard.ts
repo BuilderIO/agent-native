@@ -142,6 +142,51 @@ function applyJsonOp(root: any, op: JsonOp): string {
   }
 }
 
+/**
+ * Reject configs missing the fields the UI assumes are always present.
+ * Returns a human-readable error string, or `null` when the config passes.
+ * Mirrors the shape required by `app/pages/adhoc/sql-dashboard/types.ts`.
+ */
+function validateDashboardConfig(
+  config: Record<string, unknown>,
+): string | null {
+  if (!config || typeof config !== "object") {
+    return "config must be an object";
+  }
+  if (typeof config.name !== "string" || config.name.trim().length === 0) {
+    return "config.name is required (non-empty string) — without it the dashboard renders as a blank row in the sidebar";
+  }
+  const panels = config.panels;
+  if (!Array.isArray(panels)) {
+    return "config.panels must be an array (use [] for an empty dashboard)";
+  }
+  for (let i = 0; i < panels.length; i++) {
+    const p = panels[i] as Record<string, unknown> | null;
+    if (!p || typeof p !== "object") {
+      return `panel[${i}] must be an object`;
+    }
+    const required = [
+      "id",
+      "title",
+      "sql",
+      "source",
+      "chartType",
+      "width",
+    ] as const;
+    for (const field of required) {
+      const v = p[field];
+      if (field === "width") {
+        if (v !== 1 && v !== 2) return `panel[${i}].width must be 1 or 2`;
+        continue;
+      }
+      if (typeof v !== "string" || v.trim().length === 0) {
+        return `panel[${i}].${field} is required (non-empty string)`;
+      }
+    }
+  }
+  return null;
+}
+
 function resolveScope() {
   const orgId = process.env.AGENT_ORG_ID || null;
   const email = process.env.AGENT_USER_EMAIL || LOCAL_EMAIL;
@@ -242,6 +287,8 @@ export default defineAction({
     const key = `${KEY_PREFIX}${args.dashboardId}`;
 
     if (args.config) {
+      const validation = validateDashboardConfig(args.config);
+      if (validation) return `Error: ${validation}`;
       const existing = await readScoped(scope, key);
       const resolvedScope = existing?.scope ?? (scope.orgId ? "org" : "user");
       await writeScoped(scope, key, args.config, resolvedScope as any);

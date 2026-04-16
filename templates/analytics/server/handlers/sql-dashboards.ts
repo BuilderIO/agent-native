@@ -53,16 +53,52 @@ export const saveSqlDashboard = defineEventHandler(async (event) => {
     return { error: "Missing dashboard id" };
   }
   try {
-    const body = await readBody(event);
+    const body = (await readBody(event)) as Record<string, unknown>;
+    const validation = validateDashboardConfig(body);
+    if (validation) {
+      setResponseStatus(event, 400);
+      return { error: validation };
+    }
     const scope = await resolveSettingsScope(event);
     const key = `${KEY_PREFIX}${id}`;
-    await putScopedSettingRecord(scope, key, body as Record<string, unknown>);
+    await putScopedSettingRecord(scope, key, body);
     return { id, success: true };
   } catch (err: any) {
     setResponseStatus(event, 500);
     return { error: err.message };
   }
 });
+
+/**
+ * Reject configs that would render as a blank sidebar row or crash the
+ * dashboard page. Mirrors `actions/update-dashboard.ts` so both write
+ * paths refuse the same shapes — see `app/pages/adhoc/sql-dashboard/types.ts`.
+ */
+function validateDashboardConfig(
+  config: Record<string, unknown> | null | undefined,
+): string | null {
+  if (!config || typeof config !== "object") return "config must be an object";
+  if (typeof config.name !== "string" || config.name.trim().length === 0) {
+    return "name is required";
+  }
+  const panels = config.panels;
+  if (panels !== undefined && !Array.isArray(panels)) {
+    return "panels must be an array";
+  }
+  if (Array.isArray(panels)) {
+    for (let i = 0; i < panels.length; i++) {
+      const p = panels[i] as Record<string, unknown> | null;
+      if (!p || typeof p !== "object") return `panel[${i}] must be an object`;
+      if (typeof p.id !== "string" || p.id.length === 0) {
+        return `panel[${i}].id is required`;
+      }
+      if (typeof p.sql !== "string" || p.sql.length === 0) {
+        return `panel[${i}].sql is required`;
+      }
+    }
+  }
+  return null;
+}
 
 export const deleteSqlDashboard = defineEventHandler(async (event) => {
   const id = getRouterParam(event, "id");

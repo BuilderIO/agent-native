@@ -75,10 +75,18 @@ From the agent itself, always use `db-query` / `db-exec` / `db-patch` instead of
 The typical flow when the user asks for a new dashboard:
 
 1. Determine what data to show (ask clarifying questions if needed).
-2. Write the dashboard config to settings via `db-exec` (INSERT ... ON CONFLICT DO UPDATE). See the "Reading and writing dashboards" section below for the exact command.
-3. Navigate the user to it: `pnpm action navigate --view=adhoc --dashboardId={id}`.
+2. Build a complete config object that includes **at minimum** a `name` and a `panels` array. Every panel MUST have `id`, `title`, `sql`, `source`, `chartType`, and `width` — the UI assumes these fields exist and missing values will produce a blank sidebar entry or crash the dashboard renderer.
+3. Write it via the `update-dashboard` action — never via raw `db-exec INSERT INTO settings`. The action handles org/user/global scope correctly and is the only supported entry point for writing SQL dashboards:
+
+```
+pnpm action update-dashboard --dashboardId my-new-dashboard --config '<full json>'
+```
+
+4. Navigate the user to it: `pnpm action navigate --view=adhoc --dashboardId={id}`.
 
 The UI picks up the new dashboard via SSE events on settings changes.
+
+> **Rule:** never `INSERT`/`UPDATE` the `settings` table directly for `sql-dashboard-*` keys. The save endpoint and the action both enforce shape; raw db writes can leave dashboards with no name or with panels missing `sql`, which crashes the page and produces nameless rows in the sidebar.
 
 ## Modifying a Dashboard
 
