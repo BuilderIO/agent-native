@@ -268,7 +268,7 @@ export default function ExplorerDashboardPage() {
           <Button
             size="sm"
             variant="ghost"
-            className="text-muted-foreground hover:text-destructive"
+            className="text-muted-foreground hover:text-foreground"
             onClick={async () => {
               if (!dashboardId) return;
               const token = await getIdToken();

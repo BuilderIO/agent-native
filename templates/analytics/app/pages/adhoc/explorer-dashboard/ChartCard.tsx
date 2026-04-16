@@ -115,7 +115,7 @@ export function DashboardChartCard({
             </button>
             <button
               onClick={onRemove}
-              className="p-1 rounded text-muted-foreground hover:text-destructive transition-colors"
+              className="p-1 rounded text-muted-foreground hover:text-foreground transition-colors"
               title="Remove chart"
             >
               <IconTrash className="h-3.5 w-3.5" />

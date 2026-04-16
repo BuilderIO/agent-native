@@ -228,7 +228,7 @@ function SortableDashboardItem({
         >
           <PopoverTrigger asChild>
             <button
-              className="opacity-0 group-hover/dash:opacity-100 p-1 rounded text-muted-foreground/50 hover:text-destructive transition-all shrink-0 mr-1"
+              className="opacity-0 group-hover/dash:opacity-100 p-1 rounded text-muted-foreground/50 hover:text-foreground transition-all shrink-0 mr-1"
               title={`Remove ${d.name}`}
             >
               <IconTrash className="h-3 w-3" />
@@ -332,7 +332,7 @@ function SortableDashboardItem({
                     >
                       <PopoverTrigger asChild>
                         <button
-                          className="opacity-0 group-hover/sv:opacity-100 p-0.5 rounded text-muted-foreground/50 hover:text-destructive transition-all shrink-0"
+                          className="opacity-0 group-hover/sv:opacity-100 p-0.5 rounded text-muted-foreground/50 hover:text-foreground transition-all shrink-0"
                           title={`Delete ${sv.name}`}
                         >
                           <IconTrash className="h-2.5 w-2.5" />
