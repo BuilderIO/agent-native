@@ -6,13 +6,48 @@ interface GoogleAuthStatus {
   accounts: Array<{ email: string; expiresAt?: string; photoUrl?: string }>;
 }
 
+/**
+ * Defensive JSON fetch. Auth proxies sometimes return HTML 401/404 pages,
+ * empty 502 bodies, or text errors — calling `.json()` on those throws an
+ * opaque "Unexpected end of JSON input". This helper reads the body as text
+ * first, attempts JSON.parse, and surfaces a clear error on non-2xx
+ * responses without ever exploding on malformed bodies.
+ */
+async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(input, init);
+  } catch (err) {
+    const cause = err instanceof Error ? err.message : String(err);
+    throw new Error(`Network error: ${cause}`);
+  }
+  const raw = await res.text().catch(() => "");
+  let body: any = undefined;
+  if (raw) {
+    try {
+      body = JSON.parse(raw);
+    } catch {
+      // not JSON — leave body undefined and use the raw text in errors
+    }
+  }
+  if (!res.ok) {
+    const message =
+      (body && (body.message || body.error)) ||
+      (raw && raw.slice(0, 200)) ||
+      res.statusText ||
+      `Request failed (HTTP ${res.status})`;
+    const error = new Error(message);
+    (error as any).status = res.status;
+    throw error;
+  }
+  return (body ?? (null as unknown)) as T;
+}
+
 export function useGoogleAuthStatus() {
   return useQuery<GoogleAuthStatus>({
     queryKey: ["google-status"],
     queryFn: async () => {
-      const res = await fetch("/_agent-native/google/status");
-      if (!res.ok) throw new Error("Failed to fetch Google auth status");
-      return res.json();
+      return fetchJson<GoogleAuthStatus>("/_agent-native/google/status");
     },
   });
 }
@@ -23,14 +58,9 @@ export function useGoogleAuthUrl(enabled = false) {
     queryKey: ["google-auth-url"],
     queryFn: async () => {
       const { getCallbackOrigin } = await import("@agent-native/core/client");
-      const res = await fetch(
+      return fetchJson<{ url: string }>(
         `/_agent-native/google/auth-url?redirect_uri=${encodeURIComponent(getCallbackOrigin() + "/_agent-native/google/callback")}`,
       );
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.message || body.error || "Failed to get auth URL");
-      }
-      return res.json();
     },
     enabled,
     retry: false,
@@ -54,14 +84,9 @@ export function useGoogleAddAccountUrl(enabled = false) {
       const { getCallbackOrigin } = await import("@agent-native/core/client");
       // Use the main callback URL — the server-side state param carries the
       // add-account flag so only one redirect URI needs Google Console registration.
-      const res = await fetch(
+      return fetchJson<{ url: string }>(
         `/_agent-native/google/add-account/auth-url?redirect_uri=${encodeURIComponent(getCallbackOrigin() + "/_agent-native/google/callback")}`,
       );
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.message || body.error || "Failed to get auth URL");
-      }
-      return res.json();
     },
     enabled,
     retry: false,
@@ -80,13 +105,11 @@ export function useDisconnectGoogle() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (email: string) => {
-      const res = await fetch("/_agent-native/google/disconnect", {
+      return fetchJson<unknown>("/_agent-native/google/disconnect", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
       });
-      if (!res.ok) throw new Error("Failed to disconnect Google");
-      return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["google-status"] });
