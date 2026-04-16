@@ -7,6 +7,14 @@ import { cn } from "./utils.js";
 const DEFAULT_FEEDBACK_URL =
   "https://forms.agent-native.com/f/agent-native-feedback/_16ewV";
 
+function getExpectedOrigin(url: string): string | null {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}
+
 export interface FeedbackButtonProps {
   /**
    * "sidebar" renders a full-width row with icon + label (for app left sidebars).
@@ -37,44 +45,48 @@ export function FeedbackButton({
 }: FeedbackButtonProps) {
   const [open, setOpen] = useState(false);
   const embedUrl = url.includes("?") ? `${url}&embed=1` : `${url}?embed=1`;
+  const expectedOrigin = getExpectedOrigin(embedUrl);
 
   useEffect(() => {
     if (!open) return;
     function onMessage(e: MessageEvent) {
+      if (expectedOrigin && e.origin !== expectedOrigin) return;
       if (e.data && e.data.type === "agent-native-feedback-close") {
         setOpen(false);
       }
     }
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [open]);
+  }, [open, expectedOrigin]);
 
   const trigger =
     variant === "icon" ? (
-      <TooltipPrimitive.Root delayDuration={200}>
-        <TooltipPrimitive.Trigger asChild>
-          <PopoverPrimitive.Trigger asChild>
-            <button
-              type="button"
-              aria-label={label}
-              className={cn(
-                "flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
-                className,
-              )}
+      <TooltipPrimitive.Provider delayDuration={200}>
+        <TooltipPrimitive.Root>
+          <TooltipPrimitive.Trigger asChild>
+            <PopoverPrimitive.Trigger asChild>
+              <button
+                type="button"
+                aria-label={label}
+                className={cn(
+                  "flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                  className,
+                )}
+              >
+                <IconMessage2 size={14} />
+              </button>
+            </PopoverPrimitive.Trigger>
+          </TooltipPrimitive.Trigger>
+          <TooltipPrimitive.Portal>
+            <TooltipPrimitive.Content
+              sideOffset={6}
+              className="z-[230] overflow-hidden rounded-md border border-border bg-popover px-2 py-1 text-[11px] text-foreground shadow-md"
             >
-              <IconMessage2 size={14} />
-            </button>
-          </PopoverPrimitive.Trigger>
-        </TooltipPrimitive.Trigger>
-        <TooltipPrimitive.Portal>
-          <TooltipPrimitive.Content
-            sideOffset={6}
-            className="z-[230] overflow-hidden rounded-md border border-border bg-popover px-2 py-1 text-[11px] text-foreground shadow-md"
-          >
-            {label}
-          </TooltipPrimitive.Content>
-        </TooltipPrimitive.Portal>
-      </TooltipPrimitive.Root>
+              {label}
+            </TooltipPrimitive.Content>
+          </TooltipPrimitive.Portal>
+        </TooltipPrimitive.Root>
+      </TooltipPrimitive.Provider>
     ) : (
       <PopoverPrimitive.Trigger asChild>
         <button
@@ -107,6 +119,8 @@ export function FeedbackButton({
             title="Feedback form"
             src={embedUrl}
             style={iframeWrapStyle}
+            sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
+            referrerPolicy="no-referrer"
             className="block border-0"
           />
         </PopoverPrimitive.Content>

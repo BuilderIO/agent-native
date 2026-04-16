@@ -15,7 +15,13 @@ const VALID_CHART_TYPES = new Set([
   "table",
   "pie",
 ]);
-const VALID_SOURCES = new Set(["bigquery", "app-db", "ga4"]);
+// `app-db` intentionally excluded from embed URLs — the base64 panel param
+// lets the caller control the SQL, and running arbitrary SELECTs against
+// the app DB would let an assistant-crafted chart URL read the `settings`
+// table (which stores provider credentials). Saved dashboards still run
+// app-db panels via /api/sql-query; only the URL-driven embed path is
+// restricted to external data sources.
+const VALID_SOURCES = new Set(["bigquery", "ga4"]);
 
 function decodePanel(raw: string): SqlPanel | { error: string } {
   try {
@@ -31,7 +37,10 @@ function decodePanel(raw: string): SqlPanel | { error: string } {
       return { error: "Panel is missing sql" };
     }
     if (typeof p.source !== "string" || !VALID_SOURCES.has(p.source)) {
-      return { error: "Panel source must be bigquery, app-db, or ga4" };
+      return {
+        error:
+          "Panel source must be bigquery or ga4. app-db panels cannot be rendered in embed URLs.",
+      };
     }
     if (
       typeof p.chartType !== "string" ||

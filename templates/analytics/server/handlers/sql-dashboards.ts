@@ -122,9 +122,18 @@ async function validatePanelSql(
   const vars = buildDryRunVars(config);
   for (let i = 0; i < panels.length; i++) {
     const p = panels[i] as Record<string, unknown>;
-    if (p.source !== "bigquery") continue;
     const raw = typeof p.sql === "string" ? p.sql : "";
     if (!raw.trim()) continue;
+
+    if (p.source === "ga4") {
+      const err = validateGa4PanelShape(raw);
+      if (err) {
+        return `panel[${i}] "${p.title || p.id}" GA4 descriptor is invalid: ${err}`;
+      }
+      continue;
+    }
+
+    if (p.source !== "bigquery") continue;
     const sql = interpolate(raw, vars);
     if (!sql.trim()) continue;
     let err: string | null;
@@ -136,6 +145,34 @@ async function validatePanelSql(
     if (err) {
       return `panel[${i}] "${p.title || p.id}" SQL is invalid: ${err}`;
     }
+  }
+  return null;
+}
+
+/**
+ * Match the shape runGa4Panel() will insist on at render time so malformed
+ * descriptors fail the save instead of the dashboard page. Keep this in sync
+ * with `server/handlers/sql-query.ts:runGa4Panel`.
+ */
+function validateGa4PanelShape(raw: string): string | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err: any) {
+    return `sql must be a JSON object (${err?.message ?? err})`;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return "sql must be a JSON object";
+  }
+  const obj = parsed as Record<string, unknown>;
+  const metrics = Array.isArray(obj.metrics)
+    ? obj.metrics.filter((m): m is string => typeof m === "string" && !!m)
+    : [];
+  if (metrics.length === 0) {
+    return "requires at least one metric (array of strings)";
+  }
+  if (obj.dimensions !== undefined && !Array.isArray(obj.dimensions)) {
+    return "dimensions must be an array of strings";
   }
   return null;
 }
