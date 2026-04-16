@@ -9,7 +9,7 @@ import {
   getTemplate,
   allTemplateNames,
   type TemplateMeta,
-} from "@agent-native/shared-app-config";
+} from "./templates-meta.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
