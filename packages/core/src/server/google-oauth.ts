@@ -16,7 +16,13 @@ import {
   setResponseHeader,
   type H3Event,
 } from "h3";
-import { addSession, getSession, COOKIE_NAME } from "./auth.js";
+import {
+  addSession,
+  getSession,
+  COOKIE_NAME,
+  getSessionMaxAge,
+} from "./auth.js";
+import { writeDesktopSso } from "./desktop-sso.js";
 
 // ─── Platform Detection ─────────────────────────────────────────────────────
 
@@ -196,6 +202,7 @@ export async function createOAuthSession(
 ): Promise<OAuthSessionResult> {
   const mobile = isMobile(event);
   const needsDeepLink = opts.desktop || mobile;
+  const maxAge = getSessionMaxAge();
 
   let sessionToken: string | undefined;
   if (!opts.hasProductionSession || needsDeepLink) {
@@ -206,8 +213,22 @@ export async function createOAuthSession(
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
       path: "/",
-      maxAge: 60 * 60 * 24 * 30, // 30 days
+      maxAge,
     });
+    // Desktop SSO: record this session in the home-dir broker file so
+    // sibling templates (each with its own database) can resolve the
+    // same token without a DB row of their own. Only the PRIMARY
+    // sign-in writes the broker — if a production session already
+    // exists, this is an add-account flow (connecting a secondary
+    // Google account for scraping) and must never switch the active
+    // user across sibling templates.
+    if (opts.desktop && !opts.hasProductionSession) {
+      await writeDesktopSso({
+        email,
+        token: sessionToken,
+        expiresAt: Date.now() + maxAge * 1000,
+      });
+    }
   }
 
   return { sessionToken };
