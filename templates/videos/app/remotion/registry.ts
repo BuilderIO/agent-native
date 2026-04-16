@@ -64,22 +64,7 @@ export type CompositionEntry = {
   version?: number;
 };
 
-export const compositions: CompositionEntry[] = [
-  {
-    id: "blank",
-    title: "Blank",
-    description: "Starting template — add to it by asking the agent",
-    component: BlankComposition,
-    durationInFrames: 240,
-    fps: 30,
-    width: 1920,
-    height: 1080,
-    defaultProps: {
-      showExamples: true,
-    } satisfies BlankCompositionProps,
-    tracks: createStandardTracks(240),
-  },
-];
+export const compositions: CompositionEntry[] = [];
 
 // Re-export track helpers
 export { createCameraTrack, createCursorTrack, createStandardTracks };

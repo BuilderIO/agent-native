@@ -84,7 +84,7 @@ pnpm action update-dashboard --dashboardId my-new-dashboard --config '<full json
 ```
 
 5. **The save endpoint dry-runs each BigQuery panel's SQL before persisting.** If it returns an error like `panel[2] "Foo" SQL is invalid: Unrecognized name: is_closed; Did you mean hs_is_closed?`, fix the SQL (usually by consulting the dictionary or introspecting the schema) and retry. Never work around the dry-run — a dashboard that can't dry-run cannot render.
-6. **`panel.source` is an enum, not a table ref.** It must be exactly `"bigquery"` (the warehouse) or `"app-db"` (the app's own SQLite/Postgres). Table names like `dbt_intermediate.uf_pageviews` go *inside* the `sql` string — `FROM \`dbt_intermediate.uf_pageviews\``. Writing the table name into `source` produces `Invalid source. Must be 'bigquery' or 'app-db'` on every render and the save endpoint will now reject it.
+6. **`panel.source` is an enum, not a table ref.** It must be exactly `"bigquery"` (the warehouse), `"app-db"` (the app's own Postgres/SQLite), or `"ga4"` (Google Analytics Data API). For `bigquery` / `app-db` the `sql` field is literal SQL; for `ga4` it's a JSON descriptor like `{"metrics":["activeUsers"],"dimensions":["date"],"days":30}`. Table names like `dbt_intermediate.uf_pageviews` go *inside* the SQL string — `FROM \`dbt_intermediate.uf_pageviews\``. Writing the table name into `source` produces an `Invalid source` error on every render and the save endpoint will reject it.
 7. Navigate the user to it: `pnpm action navigate --view=adhoc --dashboardId={id}`.
 
 The UI picks up the new dashboard via SSE events on settings changes.

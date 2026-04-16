@@ -19,7 +19,7 @@ import {
   IconTrash,
   IconPlus,
   IconX,
-  IconSparkles,
+  IconWand,
 } from "@tabler/icons-react";
 import { nanoid } from "nanoid";
 import type {
@@ -310,7 +310,7 @@ export function AnimationsPanel({
                   onClick={autoFill}
                   className="flex items-center gap-0.5 text-[9px] text-[#609FF8]/70 hover:text-[#609FF8]"
                 >
-                  <IconSparkles className="w-2.5 h-2.5" />
+                  <IconWand className="w-2.5 h-2.5" />
                   Auto-fill
                 </button>
               )}

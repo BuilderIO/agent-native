@@ -1,8 +1,17 @@
+import { useLocation } from "react-router";
 import { Sidebar } from "./Sidebar";
 import { AgentSidebar } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
 
+const BARE_ROUTES = new Set(["/form-preview"]);
+
 export function AppLayout({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
+
+  if (BARE_ROUTES.has(location.pathname)) {
+    return <>{children}</>;
+  }
+
   return (
     <div className="flex h-screen overflow-hidden">
       <div className="hidden md:flex h-full">

@@ -37,6 +37,7 @@ type FrameMode = "dev" | "prod";
 const SIDEBAR_WIDTH_KEY = "frame-sidebar-width";
 const FRAME_MODE_KEY = "frame-mode";
 const SIDEBAR_OPEN_KEY = "frame-sidebar-open";
+const SIDEBAR_FULLSCREEN_KEY = "frame-sidebar-fullscreen";
 
 function getAppId(): string {
   const params = new URLSearchParams(window.location.search);
@@ -84,6 +85,12 @@ export function App() {
     } catch {}
     return 380;
   });
+  const [sidebarFullscreen, setSidebarFullscreen] = useState(() => {
+    try {
+      return localStorage.getItem(SIDEBAR_FULLSCREEN_KEY) === "true";
+    } catch {}
+    return false;
+  });
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const appUrl = getAppDevUrl(appId);
   const app = DEFAULT_APPS.find((a) => a.id === appId);
@@ -102,6 +109,11 @@ export function App() {
       localStorage.setItem(SIDEBAR_OPEN_KEY, String(sidebarOpen));
     } catch {}
   }, [sidebarOpen]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_FULLSCREEN_KEY, String(sidebarFullscreen));
+    } catch {}
+  }, [sidebarFullscreen]);
 
   const [isPresentationMode, setIsPresentationMode] = useState(false);
 
@@ -275,8 +287,15 @@ export function App() {
         color: "hsl(var(--foreground))",
       }}
     >
-      {/* App iframe — takes all remaining space */}
-      <div className="flex-1 min-w-0 relative">
+      {/* App iframe — takes all remaining space. Hidden when sidebar is fullscreen. */}
+      <div
+        className="flex-1 min-w-0 relative"
+        style={
+          showFrameSidebar && sidebarFullscreen
+            ? { display: "none" }
+            : undefined
+        }
+      >
         <iframe
           ref={iframeRef}
           src={appUrl}
@@ -293,21 +312,27 @@ export function App() {
       {/* Dev mode sidebar — looks identical to the in-app agent panel */}
       {showFrameSidebar && (
         <>
-          <div
-            className="shrink-0 cursor-col-resize relative"
-            style={{ width: 1, background: "hsl(var(--border))", zIndex: 50 }}
-            onMouseDown={startResize}
-          >
-            {/* Invisible wider hit area for easier dragging */}
+          {!sidebarFullscreen && (
             <div
-              className="absolute inset-y-0 cursor-col-resize"
-              style={{ left: -4, right: -4 }}
+              className="shrink-0 cursor-col-resize relative"
+              style={{ width: 1, background: "hsl(var(--border))", zIndex: 50 }}
               onMouseDown={startResize}
-            />
-          </div>
+            >
+              {/* Invisible wider hit area for easier dragging */}
+              <div
+                className="absolute inset-y-0 cursor-col-resize"
+                style={{ left: -4, right: -4 }}
+                onMouseDown={startResize}
+              />
+            </div>
+          )}
           <div
             className="flex flex-col shrink-0 overflow-hidden"
-            style={{ width: sidebarWidth, maxHeight: "100vh" }}
+            style={{
+              width: sidebarFullscreen ? "100%" : sidebarWidth,
+              flex: sidebarFullscreen ? 1 : undefined,
+              maxHeight: "100vh",
+            }}
           >
             <Suspense
               fallback={
@@ -327,6 +352,8 @@ export function App() {
                   "Add a new feature",
                 ]}
                 onCollapse={() => setSidebarOpen(false)}
+                isFullscreen={sidebarFullscreen}
+                onToggleFullscreen={() => setSidebarFullscreen((prev) => !prev)}
                 devAppUrl={appUrl}
                 storageKey={appId}
               />

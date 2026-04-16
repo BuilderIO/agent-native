@@ -42,7 +42,7 @@ import {
   useGoogleAuthUrl,
   useGoogleAddAccountUrl,
 } from "@/hooks/use-google-auth";
-import { useSession } from "@agent-native/core/client";
+import { useSession, FeedbackButton } from "@agent-native/core/client";
 import { EVENT_CATEGORY_COLORS } from "@/lib/event-colors";
 import {
   useOverlayPeople,
@@ -711,6 +711,10 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             </button>
           </div>
         )}
+
+        <div className="px-2 pt-2">
+          <FeedbackButton />
+        </div>
 
         {/* Theme toggle */}
         <div className="flex items-center gap-1 border-t border-border px-3 py-2">

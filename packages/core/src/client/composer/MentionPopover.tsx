@@ -124,6 +124,15 @@ function LoadingSkeleton() {
   );
 }
 
+function LoadingSkeletonRow() {
+  return (
+    <div className="flex items-center gap-2 rounded px-2 py-1.5">
+      <div className="h-3.5 w-3.5 rounded bg-muted animate-pulse" />
+      <div className="h-3 w-24 rounded bg-muted animate-pulse" />
+    </div>
+  );
+}
+
 export const MentionPopover = forwardRef<
   MentionPopoverRef,
   MentionPopoverProps
@@ -268,6 +277,7 @@ export const MentionPopover = forwardRef<
           </div>
         ) : (
           <div ref={listRef} className="p-1">
+            {isLoading && <LoadingSkeletonRow />}
             {type === "@"
               ? (() => {
                   let flatIndex = 0;

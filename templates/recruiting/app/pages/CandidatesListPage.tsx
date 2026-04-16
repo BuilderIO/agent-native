@@ -12,7 +12,7 @@ import {
   IconSearch,
   IconLoader2,
   IconUsers,
-  IconSparkles,
+  IconFilter,
   IconX,
   IconCheck,
   IconMinus,
@@ -92,7 +92,7 @@ export function CandidatesListPage() {
       <div className="border-b border-border px-4 py-3 sm:px-6">
         <div className="flex items-start gap-2">
           <div className="relative flex-1">
-            <IconSparkles className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-violet-500" />
+            <IconFilter className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-violet-500" />
             <textarea
               value={filterPrompt}
               onChange={(e) => setFilterPrompt(e.target.value)}
@@ -115,7 +115,7 @@ export function CandidatesListPage() {
             {filterMutation.isPending ? (
               <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
             ) : (
-              <IconSparkles className="h-3.5 w-3.5" />
+              <IconFilter className="h-3.5 w-3.5" />
             )}
             Filter
           </button>

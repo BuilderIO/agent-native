@@ -406,7 +406,7 @@ function generateComponent(options: GeneratorOptions): void {
   fs.writeFileSync(readmePath, TEMPLATE_README(name, elements));
   console.log(`✅ Created ${readmePath}`);
 
-  console.log(`\n✨ Successfully generated composition!`);
+  console.log(`\nSuccessfully generated composition!`);
   console.log(`\n📝 Next steps:`);
   console.log(`   1. Customize element components in ${compDir}/`);
   console.log(`   2. Add to registry in app/remotion/registry.ts`);

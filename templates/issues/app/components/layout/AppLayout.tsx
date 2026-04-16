@@ -13,7 +13,11 @@ import {
   IconLayoutSidebar,
   IconUsers,
 } from "@tabler/icons-react";
-import { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";
+import {
+  AgentSidebar,
+  AgentToggleButton,
+  FeedbackButton,
+} from "@agent-native/core/client";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
 import { cn } from "@/lib/utils";
 import { useProjects } from "@/hooks/use-projects";
@@ -24,8 +28,14 @@ import { JiraConnectBanner } from "@/components/JiraConnectBanner";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { CommandPalette } from "./CommandPalette";
 
+const BARE_ROUTES = new Set(["/issue"]);
+
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
+
+  if (BARE_ROUTES.has(location.pathname)) {
+    return <>{children}</>;
+  }
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(true);
@@ -181,6 +191,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
         {/* Bottom */}
         <div className="border-t border-border p-2">
+          {!sidebarCollapsed && (
+            <div className="mb-1">
+              <FeedbackButton />
+            </div>
+          )}
           <NavItem
             to="/team"
             icon={<IconUsers className="h-4 w-4" />}

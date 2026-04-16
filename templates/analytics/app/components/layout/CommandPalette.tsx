@@ -35,7 +35,6 @@ const defaultTools = [
     name: "Customer Health",
     href: "/adhoc/customer-health",
   },
-  { id: "query-explorer", name: "Query Explorer", href: "/query" },
 ];
 
 async function fetchSavedConfigs(): Promise<SavedConfig[]> {

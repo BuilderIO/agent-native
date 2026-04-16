@@ -1,4 +1,3 @@
-import { Link } from "react-router";
 import {
   Area,
   AreaChart,
@@ -10,7 +9,6 @@ import {
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { IconExternalLink } from "@tabler/icons-react";
 
 interface TimeSeriesChartProps {
   title: string;
@@ -21,7 +19,6 @@ interface TimeSeriesChartProps {
   isLoading?: boolean;
   error?: string;
   yFormatter?: (value: number) => string;
-  sql?: string;
 }
 
 export function TimeSeriesChart({
@@ -33,7 +30,6 @@ export function TimeSeriesChart({
   isLoading,
   error,
   yFormatter,
-  sql,
 }: TimeSeriesChartProps) {
   const formatXLabel = (value: string) => {
     try {
@@ -48,17 +44,6 @@ export function TimeSeriesChart({
     <Card className="bg-card border-border/50">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-base">{title}</CardTitle>
-        <div className="flex items-center gap-1">
-          {sql && (
-            <Link
-              to={`/query?sql=${encodeURIComponent(sql)}`}
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
-            >
-              <IconExternalLink className="h-3 w-3" />
-              Query
-            </Link>
-          )}
-        </div>
       </CardHeader>
       <CardContent>
         {isLoading ? (

@@ -194,6 +194,26 @@ cd templates/forms && pnpm action <name> [args]
 - **Always use shadcn/ui components** for all standard UI patterns — Popover, Dialog, Button, DropdownMenu, Select, Tabs, Input, Textarea, Badge, Card, Switch, etc. Check `app/components/ui/` before building custom UI. Never create one-off implementations when a shadcn component exists.
 - **Always use Tabler Icons** (`@tabler/icons-react`) — never use Lucide, Heroicons, or inline SVGs.
 
+## Inline Previews in Chat
+
+The agent can render a compact form preview card directly inside the chat by emitting an embed block. Use this when the user asks to "preview a form", "show me the form", or "what does the form look like".
+
+````
+```embed
+src: /form-preview?id=<form-id>
+aspect: 3/2
+title: <form title>
+```
+````
+
+The preview shows:
+
+- Form title, description, and status badge
+- Every field with its label, type badge, and optional description
+- An "Open in app" button (visible only inside the agent embed) that navigates to the full builder at `/forms/<form-id>`
+
+The route is chromeless — no sidebar, no header — and bypasses `AppLayout` automatically.
+
 ## Development
 
 For code editing and development guidance, read `DEVELOPING.md`.

@@ -10,8 +10,8 @@ import {
   IconFileText,
   IconPlus,
   IconHistory,
+  IconPencil,
   IconRefresh,
-  IconSparkles,
 } from "@tabler/icons-react";
 import { VersionHistoryPanel } from "./VersionHistoryPanel";
 import {
@@ -330,7 +330,7 @@ export function DocumentToolbar({
         <Tooltip>
           <TooltipTrigger asChild>
             <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium mr-1">
-              <IconSparkles size={12} />
+              <IconPencil size={12} />
               <span className="hidden sm:inline">AI editing</span>
             </div>
           </TooltipTrigger>

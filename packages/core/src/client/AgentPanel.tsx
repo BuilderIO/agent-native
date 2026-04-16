@@ -50,6 +50,7 @@ import {
   IconArrowsMaximize,
   IconArrowsMinimize,
 } from "@tabler/icons-react";
+import { FeedbackButton } from "./FeedbackButton.js";
 import {
   MultiTabAssistantChat,
   type MultiTabAssistantChatHeaderProps,
@@ -489,6 +490,7 @@ export function AgentPanel({
             <SetupButton />
           </Suspense>
         )}
+        <FeedbackButton variant="icon" side="bottom" align="end" />
         {onToggleFullscreen && (
           <IconTooltip
             content={isFullscreen ? "Exit fullscreen" : "Fullscreen"}

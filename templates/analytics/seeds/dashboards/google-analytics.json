@@ -1,0 +1,114 @@
+{
+  "name": "Google Analytics",
+  "description": "GA4 website metrics",
+  "filters": [
+    {
+      "id": "days",
+      "type": "select",
+      "label": "Period",
+      "default": "30",
+      "options": [
+        { "value": "7", "label": "Last 7 days" },
+        { "value": "30", "label": "Last 30 days" },
+        { "value": "90", "label": "Last 90 days" }
+      ]
+    }
+  ],
+  "panels": [
+    {
+      "id": "active-users",
+      "title": "Active Users",
+      "chartType": "metric",
+      "source": "ga4",
+      "width": 1,
+      "sql": "{\"metrics\":[\"activeUsers\"],\"dimensions\":[],\"days\":{{days}}}",
+      "config": {
+        "yKey": "activeUsers",
+        "yFormatter": "number",
+        "description": "Last {{days}} days"
+      }
+    },
+    {
+      "id": "sessions",
+      "title": "Sessions",
+      "chartType": "metric",
+      "source": "ga4",
+      "width": 1,
+      "sql": "{\"metrics\":[\"sessions\"],\"dimensions\":[],\"days\":{{days}}}",
+      "config": {
+        "yKey": "sessions",
+        "yFormatter": "number",
+        "description": "Last {{days}} days"
+      }
+    },
+    {
+      "id": "bounce-rate",
+      "title": "Bounce Rate",
+      "chartType": "metric",
+      "source": "ga4",
+      "width": 1,
+      "sql": "{\"metrics\":[\"bounceRate\"],\"dimensions\":[],\"days\":{{days}}}",
+      "config": {
+        "yKey": "bounceRate",
+        "yFormatter": "percent",
+        "description": "Last {{days}} days"
+      }
+    },
+    {
+      "id": "sessions-over-time",
+      "title": "Sessions Over Time",
+      "chartType": "area",
+      "source": "ga4",
+      "width": 2,
+      "sql": "{\"metrics\":[\"sessions\"],\"dimensions\":[\"date\"],\"days\":{{days}}}",
+      "config": {
+        "xKey": "date",
+        "yKey": "sessions",
+        "color": "#6366f1"
+      }
+    },
+    {
+      "id": "top-pages",
+      "title": "Top Pages",
+      "chartType": "table",
+      "source": "ga4",
+      "width": 1,
+      "sql": "{\"metrics\":[\"screenPageViews\",\"activeUsers\"],\"dimensions\":[\"pagePath\"],\"days\":{{days}}}",
+      "config": {
+        "columns": [
+          { "key": "pagePath", "label": "Page" },
+          { "key": "screenPageViews", "label": "Views", "format": "number" },
+          { "key": "activeUsers", "label": "Users", "format": "number" }
+        ],
+        "sortable": true,
+        "limit": 10
+      }
+    },
+    {
+      "id": "sessions-by-source",
+      "title": "Sessions by Source",
+      "chartType": "bar",
+      "source": "ga4",
+      "width": 1,
+      "sql": "{\"metrics\":[\"sessions\"],\"dimensions\":[\"sessionSource\"],\"days\":{{days}}}",
+      "config": {
+        "xKey": "sessionSource",
+        "yKey": "sessions",
+        "color": "#6366f1"
+      }
+    },
+    {
+      "id": "users-by-country",
+      "title": "Users by Country",
+      "chartType": "bar",
+      "source": "ga4",
+      "width": 2,
+      "sql": "{\"metrics\":[\"activeUsers\"],\"dimensions\":[\"country\"],\"days\":{{days}}}",
+      "config": {
+        "xKey": "country",
+        "yKey": "activeUsers",
+        "color": "#6366f1"
+      }
+    }
+  ]
+}

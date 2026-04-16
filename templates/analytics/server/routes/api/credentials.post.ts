@@ -2,6 +2,19 @@ import { defineEventHandler, setResponseStatus } from "h3";
 import { saveCredential } from "../../lib/credentials";
 import { credentialKeys } from "../../lib/credential-keys";
 import { readBody } from "@agent-native/core/server";
+import {
+  getScopedSettingRecord,
+  putScopedSettingRecord,
+  resolveSettingsScope,
+} from "../../lib/scoped-settings";
+import { loadDashboardSeed } from "../../lib/dashboard-seeds";
+
+const GA4_CREDENTIAL_KEYS = new Set([
+  "GA4_PROPERTY_ID",
+  "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+]);
+const GA_DASHBOARD_ID = "google-analytics";
+const SQL_DASHBOARD_KEY = `sql-dashboard-${GA_DASHBOARD_ID}`;
 
 const ALLOWED_KEYS = new Set(credentialKeys.map((k) => k.key));
 
@@ -63,6 +76,31 @@ export default defineEventHandler(async (event) => {
 
   for (const { key, value } of filtered) {
     await saveCredential(key, value.trim());
+  }
+
+  // Auto-seed the Google Analytics SQL dashboard the first time a user
+  // wires up either GA4 credential. Idempotent: if the dashboard already
+  // exists (even empty) we leave it alone so a user who deleted panels
+  // doesn't get them resurrected on the next reconnect.
+  const savedKeys = new Set(filtered.map((v) => v.key));
+  const savedGaCred = [...GA4_CREDENTIAL_KEYS].some((k) => savedKeys.has(k));
+  if (savedGaCred) {
+    try {
+      const scope = await resolveSettingsScope(event);
+      const existing = await getScopedSettingRecord(scope, SQL_DASHBOARD_KEY);
+      if (!existing) {
+        const seed = loadDashboardSeed(GA_DASHBOARD_ID);
+        if (seed) {
+          await putScopedSettingRecord(scope, SQL_DASHBOARD_KEY, seed);
+        }
+      }
+    } catch (err: any) {
+      // Don't fail the credential save if seeding hiccups — log and move on.
+      console.warn(
+        "[credentials] failed to seed google-analytics dashboard:",
+        err?.message ?? err,
+      );
+    }
   }
 
   return { saved: filtered.map((v) => v.key) };

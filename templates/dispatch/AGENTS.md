@@ -112,4 +112,18 @@ Approval flow currently protects dispatch-owned durable changes for:
 
 Resource-wide approval interception is planned separately and is not complete in this version.
 
+## Inline Previews in Chat
+
+Dispatch supports an inline approval preview that can be embedded directly in the agent chat. Use this embed block to surface a single approval request for quick review without leaving the conversation:
+
+```embed
+src: /approval?id=<approval-id>
+aspect: 3/2
+title: <approval title>
+```
+
+The embedded page at `/approval` is chromeless (no sidebar or header). It shows the approval's summary, status, requester, and change details. Approve/reject buttons appear when the approval is still pending. An "Open in app" link navigates the main window to `/approvals`.
+
+When the agent lists pending approvals and wants the user to act on one, prefer emitting an embed block over plain text so the user can approve or reject inline.
+
 For code editing and development guidance, read `DEVELOPING.md`.

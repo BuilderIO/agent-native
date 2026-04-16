@@ -74,7 +74,7 @@ Ephemeral UI state is stored in the SQL `application_state` table. The UI syncs 
 }
 ```
 
-Views: `overview`, `adhoc` (with `dashboardId`), `analyses` (with optional `analysisId`), `data-dictionary`, `query`, `data-sources`, `settings`.
+Views: `overview`, `adhoc` (with `dashboardId`), `analyses` (with optional `analysisId`), `data-dictionary`, `data-sources`, `settings`.
 
 **Do NOT write to `navigation`** — it is overwritten by the UI. Use `navigate` to control the UI.
 
@@ -183,7 +183,7 @@ A `<data-dictionary>` block is injected into your system prompt with the approve
 5. Obey `knownGotchas` from any entry you use — note them to the user if the data has limitations.
 6. The dashboard save endpoint now dry-runs every panel's SQL through BigQuery before persisting. If a panel fails validation you'll get a 400 with the BigQuery error text (e.g. `Unrecognized name: is_closed; Did you mean hs_is_closed?`) — fix the SQL and retry; never try to persist broken SQL.
 
-**Panel `source` is a backend, not a table.** The `source` field on every panel must be exactly `"bigquery"` or `"app-db"` — it selects _which database_ the SQL runs against. The table/dataset reference (e.g. `dbt_intermediate.uf_pageviews`) goes inside the `sql` string. Writing the table name into `source` produces `Invalid source` errors on every render.
+**Panel `source` is a backend, not a table.** The `source` field on every panel must be exactly `"bigquery"`, `"app-db"`, or `"ga4"` — it selects _which backend_ the query runs against. For `bigquery` / `app-db` the `sql` is literal SQL; for `ga4` the `sql` is a JSON descriptor of a GA4 Data API call (e.g. `{"metrics":["activeUsers"],"dimensions":["date"],"days":30}`). Table/dataset references (e.g. `dbt_intermediate.uf_pageviews`) go inside the `sql` string. Writing the table name into `source` produces `Invalid source` errors on every render.
 
 **Populating the dictionary:** When the user has existing metric definitions elsewhere (team docs, Confluence, Notion, dbt descriptions, a Google Sheet, a wiki), fetch them with whatever tools you have — generic `WebFetch`, an MCP server the user has configured, a CSV import, or asking the user to paste — then upsert each via `save-data-dictionary-entry`. The dictionary itself is source-agnostic.
 
@@ -253,6 +253,32 @@ pnpm action hubspot-deals --grep="enterprise" --fields=dealname,amount,stageLabe
 | "Populate the data dictionary"      | Ask where definitions live, fetch them, loop over `save-data-dictionary-entry` |
 
 **Key principle**: When asked a question, don't say "check the dashboard" — actually query the data, get results, and present the answer directly in chat with tables and/or charts.
+
+## Inline Charts in Chat
+
+Two ways to show charts inline in chat:
+
+1. **Live interactive iframe (preferred for one-off questions)** — use the framework's `embed` fence with the `/chart` route. The iframe mounts a live `SqlChart` with tooltips, hover states, and data that re-queries when the underlying source changes.
+
+   Build a `SqlPanel` object, JSON-stringify, base64url-encode, and emit:
+
+   ````
+   ```embed
+   src: /chart?panel=<base64url-encoded SqlPanel JSON>
+   aspect: 16/9
+   title: Weekly signups
+   ```
+   ````
+
+   The `SqlPanel` shape is the same one used by `update-dashboard` (see `app/pages/adhoc/sql-dashboard/types.ts`). Required fields: `id`, `title`, `sql`, `source` (`"bigquery" | "app-db" | "ga4"`), `chartType` (`"line" | "area" | "bar" | "metric" | "table" | "pie"`), `width` (`1` or `2`). Optional `config` for axis keys, formatting, pivots.
+
+   Keep the JSON compact — URLs are capped around 4KB. If the SQL is long, consider persisting it as a saved dashboard panel instead and linking to that dashboard.
+
+   Use base64url (replace `+` → `-`, `/` → `_`, strip `=` padding) so the payload is URL-safe.
+
+2. **Static PNG via `generate-chart`** — use when you want a stable, share-able image (email / report / analysis artifact). The output is a markdown image; no interactivity.
+
+Prefer (1) for answering a user's in-chat question; prefer (2) when the chart is part of a saved analysis (`save-analysis`) or needs to survive outside this app.
 
 ## Learnings & Skills (MANDATORY)
 

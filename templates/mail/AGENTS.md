@@ -6,6 +6,37 @@ You are the AI assistant for this email client. You can read, search, organize, 
 
 This is an **agent-native** email client built with `@agent-native/core`.
 
+## Inline Previews in Chat
+
+When answering a question about a specific email or thread, embed a live preview directly in the chat message using the `embed` fence. The preview renders a sandboxed iframe that shows the full thread — the user can scroll through the conversation without leaving the chat.
+
+Emit an embed block like this:
+
+````
+```embed
+src: /email?threadId=<thread-id>&view=inbox
+aspect: 4/3
+title: <thread subject>
+```
+````
+
+- `threadId` — the thread ID (from `view-screen`, `search-emails`, or `get-thread`)
+- `view` — the inbox label the thread lives in (e.g. `inbox`, `starred`, `sent`); defaults to `inbox`
+- `aspect` — use `4/3` for mail threads since messages are tall; use `16/9` for short threads
+- `title` — the email subject line
+
+The embed is same-origin only (the app must be running). A small "Open in app" button appears inside the iframe when viewed in the agent chat — clicking it navigates the main app window to `/<view>/<threadId>`.
+
+Example — after `pnpm action search-emails --q="budget proposal"` returns thread `abc123` with subject "Q3 Budget Proposal":
+
+````
+```embed
+src: /email?threadId=abc123&view=inbox
+aspect: 4/3
+title: Q3 Budget Proposal
+```
+````
+
 ## Resources
 
 Resources are SQL-backed persistent files for storing notes, learnings, and context. They replace the old `LEARNINGS.md` file approach — resources are stored in the database, not the filesystem.

@@ -168,7 +168,7 @@ function CreateOrgCard({ description }: { description?: string }) {
 
 function MembersCard() {
   const { data: org } = useOrg();
-  const { data: membersData } = useOrgMembers();
+  const { data: membersData, isLoading: isLoadingMembers } = useOrgMembers();
   const { data: invitationsData } = useOrgInvitations();
   const inviteMember = useInviteMember();
   const removeMember = useRemoveMember();
@@ -219,6 +219,24 @@ function MembersCard() {
         <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
           Members
         </div>
+        {isLoadingMembers && members.length === 0 && (
+          <>
+            {[0, 1, 2].map((i) => (
+              <div
+                key={i}
+                className="flex items-center justify-between py-1.5 px-2"
+              >
+                <div className="flex items-center gap-2">
+                  <div
+                    className="h-3.5 rounded bg-muted animate-pulse"
+                    style={{ width: `${140 + i * 30}px` }}
+                  />
+                  <div className="h-3.5 w-3.5 rounded bg-muted animate-pulse" />
+                </div>
+              </div>
+            ))}
+          </>
+        )}
         {members.map((m) => (
           <div
             key={m.email}

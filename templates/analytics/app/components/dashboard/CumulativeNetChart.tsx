@@ -1,4 +1,3 @@
-import { Link } from "react-router";
 import {
   Area,
   AreaChart,
@@ -11,14 +10,12 @@ import {
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { IconExternalLink } from "@tabler/icons-react";
 
 interface CumulativeNetChartProps {
   title: string;
   data: { day: string; cumulative_net: number }[];
   isLoading?: boolean;
   error?: string;
-  sql?: string;
 }
 
 const formatDate = (value: string) => {
@@ -41,7 +38,6 @@ export function CumulativeNetChart({
   data,
   isLoading,
   error,
-  sql,
 }: CumulativeNetChartProps) {
   const lastValue = data.length > 0 ? data[data.length - 1].cumulative_net : 0;
   const isPositive = lastValue >= 0;
@@ -51,15 +47,6 @@ export function CumulativeNetChart({
     <Card className="bg-card border-border/50">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-base">{title}</CardTitle>
-        {sql && (
-          <Link
-            to={`/query?sql=${encodeURIComponent(sql)}`}
-            className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
-          >
-            <IconExternalLink className="h-3 w-3" />
-            Query
-          </Link>
-        )}
       </CardHeader>
       <CardContent>
         {isLoading ? (

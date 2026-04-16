@@ -6,7 +6,11 @@ import { OnboardingScreen } from "@/components/recruiting/OnboardingScreen";
 import { CommandPalette } from "./CommandPalette";
 import { useGreenhouseStatus } from "@/hooks/use-greenhouse";
 import { OrgSwitcher, InvitationBanner } from "@agent-native/core/client/org";
-import { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";
+import {
+  AgentSidebar,
+  AgentToggleButton,
+  FeedbackButton,
+} from "@agent-native/core/client";
 import {
   IconLayoutDashboard,
   IconBriefcase,
@@ -217,6 +221,10 @@ export function AppLayout({ children }: AppLayoutProps) {
               Team
             </Link>
           </nav>
+
+          <div className="px-2">
+            <FeedbackButton />
+          </div>
 
           <OrgSwitcher />
 

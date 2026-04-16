@@ -35,8 +35,6 @@ export function useNavigationState() {
       state.view = "analyses";
       const match = path.match(/\/analyses\/(.+)/);
       if (match) state.analysisId = match[1];
-    } else if (path === "/query") {
-      state.view = "query";
     } else if (path === "/data-sources") {
       state.view = "data-sources";
     } else if (path === "/data-dictionary") {
@@ -95,8 +93,6 @@ export function useNavigationState() {
       path = `/analyses/${cmd.analysisId}`;
     } else if (cmd.view === "analyses") {
       path = "/analyses";
-    } else if (cmd.view === "query") {
-      path = "/query";
     } else if (cmd.view === "data-sources") {
       path = "/data-sources";
     } else if (cmd.view === "data-dictionary") {

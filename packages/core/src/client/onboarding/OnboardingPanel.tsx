@@ -9,12 +9,12 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   IconCheck,
+  IconChecklist,
   IconChevronDown,
   IconChevronRight,
   IconChevronUp,
   IconExternalLink,
   IconLoader2,
-  IconSparkles,
 } from "@tabler/icons-react";
 import { useOnboarding } from "./use-onboarding.js";
 import { sendToAgentChat } from "../agent-chat.js";
@@ -106,7 +106,7 @@ export function OnboardingPanel({
               <IconCheck size={12} strokeWidth={3} />
             </span>
           ) : (
-            <IconSparkles size={14} style={styles.headerIcon} aria-hidden />
+            <IconChecklist size={14} style={styles.headerIcon} aria-hidden />
           )}
           <span style={styles.headerTitle}>{title}</span>
           <span style={styles.headerCounter}>

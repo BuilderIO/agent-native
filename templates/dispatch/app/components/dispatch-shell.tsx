@@ -1,6 +1,10 @@
 import type { ReactNode } from "react";
-import { NavLink } from "react-router";
-import { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";
+import { NavLink, useLocation } from "react-router";
+import {
+  AgentSidebar,
+  AgentToggleButton,
+  FeedbackButton,
+} from "@agent-native/core/client";
 import {
   IconArrowUpRight,
   IconBellCog,
@@ -19,6 +23,7 @@ import { cn } from "@/lib/utils";
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarHeader,
   SidebarInset,
   SidebarMenu,
@@ -49,6 +54,8 @@ const SIDEBAR_SUGGESTIONS = [
   "List the connected A2A agents in this workspace",
 ];
 
+const CHROMELESS_PATHS = ["/approval"];
+
 export function DispatchShell({
   title,
   description,
@@ -58,6 +65,11 @@ export function DispatchShell({
   description: string;
   children: ReactNode;
 }) {
+  const location = useLocation();
+  if (CHROMELESS_PATHS.some((path) => location.pathname === path)) {
+    return <>{children}</>;
+  }
+
   return (
     <SidebarProvider defaultOpen>
       <AgentSidebar
@@ -111,6 +123,9 @@ export function DispatchShell({
                 })}
               </SidebarMenu>
             </SidebarContent>
+            <SidebarFooter className="border-t px-2 py-2">
+              <FeedbackButton />
+            </SidebarFooter>
           </Sidebar>
 
           <SidebarInset className="bg-background">

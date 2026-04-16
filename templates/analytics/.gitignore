@@ -42,3 +42,6 @@ learnings.md
 build
 
 .generated/
+
+# Migration scratchpad (not for commit)
+.migration/

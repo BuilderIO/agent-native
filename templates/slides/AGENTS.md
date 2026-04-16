@@ -468,6 +468,37 @@ shell(command="ls .agents/skills/actions/")
 
 In production mode (no shell): critical content should be inlined in this AGENTS.md. For this template, all slide HTML templates are already inlined above — skills are only needed for code modification, which happens in dev.
 
+## Inline Previews in Chat
+
+The agent can embed a single slide directly inside a chat message using the framework's `embed` fence. This renders a chromeless iframe at `/slide` that shows one slide from a deck.
+
+**How to emit an inline slide preview:**
+
+````
+```embed
+src: /slide?deckId=<id>&slideIndex=<n>
+aspect: 16/9
+title: <slide title or description>
+```
+````
+
+- `deckId` — the deck's `id` field (required).
+- `slideIndex` — zero-based index of the slide to show (default: `0`).
+- `aspect: 16/9` — always use 16/9 for slides.
+- `title` — a short human-readable label shown above the iframe in chat.
+
+The preview route (`app/routes/slide.tsx`) fetches the deck via `/api/decks/:id`, renders the slide using the same `SlideRenderer` used in the editor, and shows an "Open in app" button (visible only when running inside the embed) that navigates the main app to the deck's presentation view at the correct slide.
+
+**Example — show slide 2 of deck `abc123`:**
+
+````
+```embed
+src: /slide?deckId=abc123&slideIndex=1
+aspect: 16/9
+title: Slide 2 — Key Metrics
+```
+````
+
 ## API Routes
 
 | Method | Route            | Description       |

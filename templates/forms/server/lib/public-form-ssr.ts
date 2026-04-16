@@ -1,4 +1,4 @@
-import type { H3Event } from "h3";
+import { getRequestURL, type H3Event } from "h3";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../db/index.js";
 import type { FormField, FormSettings } from "../../shared/types.js";
@@ -144,11 +144,13 @@ export async function renderPublicFormHtml(
 // ---------------------------------------------------------------------------
 
 export async function renderPublicForm(event: H3Event) {
-  const url = event.node.req.url ?? "";
+  const reqUrl = getRequestURL(event);
+  const url = reqUrl.pathname + reqUrl.search;
   const { html, status } = await renderPublicFormHtml(url);
 
   const headers: Record<string, string> = {
     "Content-Type": "text/html; charset=utf-8",
+    "Content-Security-Policy": "frame-ancestors *",
   };
   if (status === 200) {
     headers["Cache-Control"] =
@@ -186,6 +188,12 @@ ${form.description ? `<meta name="description" content="${escapeHtml(form.descri
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>${CSS()}</style>
+<script>
+  try {
+    var embedded = window.self !== window.top || new URLSearchParams(location.search).has("embed");
+    if (embedded) document.documentElement.classList.add("embedded");
+  } catch (e) { document.documentElement.classList.add("embedded"); }
+</script>
 </head>
 <body>
 <div class="page">
@@ -240,6 +248,15 @@ ${form.description ? `<meta name="description" content="${escapeHtml(form.descri
     var dark = html.classList.toggle("dark");
     localStorage.setItem("theme", dark ? "dark" : "light");
   };
+
+  // When embedded in an iframe, let the parent close the popover on Escape
+  if (html.classList.contains("embedded") && window.parent !== window) {
+    document.addEventListener("keydown", function(e) {
+      if (e.key === "Escape") {
+        try { window.parent.postMessage({ type: "agent-native-feedback-close" }, "*"); } catch (_) {}
+      }
+    });
+  }
 
   // Toast
   var toastEl = document.getElementById("toast");
@@ -546,6 +563,12 @@ html:not(.dark) .icon-moon{display:none}
 }
 .dark .powered-badge{background:rgba(255,255,255,0.06);border-color:rgba(255,255,255,0.08);color:rgba(180,180,180,0.9)}
 .powered-badge:hover{opacity:1}
+
+.embedded .theme-toggle,.embedded .powered-badge{display:none}
+.embedded .page{padding:20px 16px 32px}
+.embedded .header{margin-bottom:20px}
+.embedded .header h1{font-size:1.125rem}
+.embedded .desc{font-size:0.8125rem}
 
 .toast{
   position:fixed;bottom:24px;left:50%;transform:translateX(-50%);

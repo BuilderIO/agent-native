@@ -51,13 +51,18 @@ import {
 } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { OrgSwitcher } from "@agent-native/core/client/org";
+import { FeedbackButton } from "@agent-native/core/client";
 import { NewDashboardDialog } from "./NewDashboardDialog";
+import { NewAnalysisDialog } from "./NewAnalysisDialog";
 import { useUserPref } from "@/hooks/use-user-pref";
 import {
   useAllDashboardViews,
   useDeleteDashboardView,
   type DashboardView,
 } from "@/hooks/use-dashboard-views";
+import { usePopularity, popularityOf } from "@/lib/item-popularity";
+
+const SIDEBAR_PREVIEW_COUNT = 5;
 
 import {
   DndContext,
@@ -104,7 +109,133 @@ function applyOrder<T extends { id: string }>(
   return ordered;
 }
 
-// --- Sortable Dashboard Item ---
+// --- Shared sortable row (used by both dashboards and analyses) ---
+
+function SortableRow({
+  id,
+  favoriteKey,
+  deleteKey,
+  name,
+  href,
+  isActive,
+  favoriteIds,
+  onToggleFavorite,
+  deletingId,
+  setDeletingId,
+  onDelete,
+  children,
+}: {
+  id: string;
+  favoriteKey: string;
+  deleteKey: string;
+  name: string;
+  href: string;
+  isActive: boolean;
+  favoriteIds: Set<string>;
+  onToggleFavorite: (key: string) => void;
+  deletingId: string | null;
+  setDeletingId: (id: string | null) => void;
+  onDelete: () => Promise<void> | void;
+  children?: React.ReactNode;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 50 : undefined,
+    opacity: isDragging ? 0.5 : 1,
+  };
+  const isFav = favoriteIds.has(favoriteKey);
+  return (
+    <div ref={setNodeRef} style={style} className="group/item relative min-w-0">
+      <div className="flex items-center min-w-0">
+        <button
+          className="p-1 cursor-grab active:cursor-grabbing text-muted-foreground/30 hover:text-muted-foreground/60 transition-colors shrink-0 opacity-0 group-hover/item:opacity-100"
+          {...attributes}
+          {...listeners}
+        >
+          <IconGripVertical className="h-3 w-3" />
+        </button>
+        <Link
+          to={href}
+          className={cn(
+            "flex-1 min-w-0 flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-all hover:text-primary",
+            isActive
+              ? "bg-sidebar-accent text-sidebar-accent-foreground"
+              : "text-muted-foreground hover:bg-sidebar-accent/50",
+          )}
+        >
+          <span className="truncate">{name}</span>
+        </Link>
+        <button
+          onClick={() => onToggleFavorite(favoriteKey)}
+          className={cn(
+            "p-1 rounded transition-all shrink-0",
+            isFav
+              ? "text-yellow-500 opacity-100"
+              : "opacity-0 group-hover/item:opacity-100 text-muted-foreground/50 hover:text-yellow-500",
+          )}
+          title={isFav ? "Unfavorite" : "Favorite"}
+        >
+          <IconStar className={cn("h-3 w-3", isFav && "fill-current")} />
+        </button>
+        <Popover
+          open={deletingId === deleteKey}
+          onOpenChange={(open) => setDeletingId(open ? deleteKey : null)}
+        >
+          <PopoverTrigger asChild>
+            <button
+              className="opacity-0 group-hover/item:opacity-100 p-1 rounded text-muted-foreground/50 hover:text-foreground transition-all shrink-0 mr-1"
+              title={`Remove ${name}`}
+            >
+              <IconTrash className="h-3 w-3" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="w-52 p-3" side="right" align="start">
+            <p className="text-sm mb-3">
+              Remove <strong>{name}</strong>?
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={async () => {
+                  try {
+                    await onDelete();
+                    setDeletingId(null);
+                  } catch (e) {
+                    toast.error(
+                      e instanceof Error
+                        ? `Couldn't remove ${name}: ${e.message}`
+                        : `Couldn't remove ${name}`,
+                    );
+                  }
+                }}
+                className="flex-1 rounded-md bg-destructive px-3 py-1.5 text-xs font-medium text-destructive-foreground hover:bg-destructive/90 transition-colors"
+              >
+                Remove
+              </button>
+              <button
+                onClick={() => setDeletingId(null)}
+                className="flex-1 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-sidebar-accent/50 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </PopoverContent>
+        </Popover>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// --- Dashboard item: wraps SortableRow + renders dashboard-specific subviews ---
 
 function SortableDashboardItem({
   d,
@@ -124,31 +255,13 @@ function SortableDashboardItem({
   deletingId: string | null;
   onToggleFavorite: (id: string) => void;
   setDeletingId: (id: string | null) => void;
-  onDelete: (d: SidebarDashboard) => void;
+  onDelete: (d: SidebarDashboard) => Promise<void>;
   views?: DashboardView[];
 }) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: d.id });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    zIndex: isDragging ? 50 : undefined,
-    opacity: isDragging ? 0.5 : 1,
-  };
-
   const href = `/adhoc/${d.id}`;
-
   const { mutateAsync: deleteView } = useDeleteDashboardView();
   const [deletingViewId, setDeletingViewId] = useState<string | null>(null);
 
-  // Merge static subviews with dynamic views
   const allSubviews = useMemo(() => {
     const items: Array<{
       id: string;
@@ -156,8 +269,6 @@ function SortableDashboardItem({
       href: string;
       isDynamic: boolean;
     }> = [];
-
-    // Static subviews from registry
     if (d.subviews) {
       for (const sv of d.subviews) {
         const svSearch = new URLSearchParams(sv.params).toString();
@@ -169,8 +280,6 @@ function SortableDashboardItem({
         });
       }
     }
-
-    // Dynamic views from server
     if (views) {
       for (const v of views) {
         const params = new URLSearchParams(v.filters);
@@ -183,90 +292,23 @@ function SortableDashboardItem({
         });
       }
     }
-
     return items;
   }, [d.subviews, views, href]);
 
   return (
-    <div ref={setNodeRef} style={style} className="group/dash relative min-w-0">
-      <div className="flex items-center min-w-0">
-        <button
-          className="p-1 cursor-grab active:cursor-grabbing text-muted-foreground/30 hover:text-muted-foreground/60 transition-colors shrink-0 opacity-0 group-hover/dash:opacity-100"
-          {...attributes}
-          {...listeners}
-        >
-          <IconGripVertical className="h-3 w-3" />
-        </button>
-        <Link
-          to={href}
-          className={cn(
-            "flex-1 min-w-0 flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-all hover:text-primary",
-            isActive
-              ? "bg-sidebar-accent text-sidebar-accent-foreground"
-              : "text-muted-foreground hover:bg-sidebar-accent/50",
-          )}
-        >
-          <span className="truncate">{d.name}</span>
-        </Link>
-        <button
-          onClick={() => onToggleFavorite(d.id)}
-          className={cn(
-            "p-1 rounded transition-all shrink-0",
-            favoriteIds.has(d.id)
-              ? "text-yellow-500 opacity-100"
-              : "opacity-0 group-hover/dash:opacity-100 text-muted-foreground/50 hover:text-yellow-500",
-          )}
-          title={favoriteIds.has(d.id) ? "Unfavorite" : "Favorite"}
-        >
-          <IconStar
-            className={cn("h-3 w-3", favoriteIds.has(d.id) && "fill-current")}
-          />
-        </button>
-        <Popover
-          open={deletingId === d.id}
-          onOpenChange={(open) => setDeletingId(open ? d.id : null)}
-        >
-          <PopoverTrigger asChild>
-            <button
-              className="opacity-0 group-hover/dash:opacity-100 p-1 rounded text-muted-foreground/50 hover:text-foreground transition-all shrink-0 mr-1"
-              title={`Remove ${d.name}`}
-            >
-              <IconTrash className="h-3 w-3" />
-            </button>
-          </PopoverTrigger>
-          <PopoverContent className="w-52 p-3" side="right" align="start">
-            <p className="text-sm mb-3">
-              Remove <strong>{d.name}</strong>?
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={async () => {
-                  try {
-                    await onDelete(d);
-                    setDeletingId(null);
-                  } catch (e) {
-                    // Keep the dialog open so the user can retry or cancel.
-                    toast.error(
-                      e instanceof Error
-                        ? `Couldn't remove ${d.name}: ${e.message}`
-                        : `Couldn't remove ${d.name}`,
-                    );
-                  }
-                }}
-                className="flex-1 rounded-md bg-destructive px-3 py-1.5 text-xs font-medium text-destructive-foreground hover:bg-destructive/90 transition-colors"
-              >
-                Remove
-              </button>
-              <button
-                onClick={() => setDeletingId(null)}
-                className="flex-1 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-sidebar-accent/50 transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-          </PopoverContent>
-        </Popover>
-      </div>
+    <SortableRow
+      id={d.id}
+      favoriteKey={d.id}
+      deleteKey={d.id}
+      name={d.name}
+      href={href}
+      isActive={isActive}
+      favoriteIds={favoriteIds}
+      onToggleFavorite={onToggleFavorite}
+      deletingId={deletingId}
+      setDeletingId={setDeletingId}
+      onDelete={() => onDelete(d)}
+    >
       {isActive && allSubviews.length > 0 && (
         <div className="ml-6 mt-0.5 space-y-0.5">
           {allSubviews.map((sv) => {
@@ -390,8 +432,35 @@ function SortableDashboardItem({
           })}
         </div>
       )}
-    </div>
+    </SortableRow>
   );
+}
+
+// Analyses reuse SortableRow directly — no wrapper component needed.
+
+const ANALYSIS_ORDER_KEY = "analysis-order";
+
+function getAnalysisOrder(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(ANALYSIS_ORDER_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter((x) => typeof x === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function setAnalysisOrder(order: string[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(ANALYSIS_ORDER_KEY, JSON.stringify(order));
+  } catch {
+    // localStorage unavailable / quota — ignore, order is best-effort
+  }
 }
 
 async function fetchSqlDashboards(): Promise<{ id: string; name: string }[]> {
@@ -412,6 +481,25 @@ async function fetchSqlDashboards(): Promise<{ id: string; name: string }[]> {
     }));
 }
 
+async function fetchSidebarAnalyses(): Promise<{ id: string; name: string }[]> {
+  const token = await getIdToken();
+  const res = await fetch("/api/analyses", {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  const rows = Array.isArray(data) ? data : (data.analyses ?? []);
+  return rows
+    .filter((a: any) => a && typeof a.id === "string" && a.id.length > 0)
+    .map((a: any) => ({
+      id: a.id,
+      name:
+        typeof a.name === "string" && a.name.trim().length > 0
+          ? a.name
+          : "Untitled analysis",
+    }));
+}
+
 // --- Sidebar ---
 
 export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
@@ -420,6 +508,10 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const queryClient = useQueryClient();
 
   const [dashOpen, setDashOpen] = useState(true);
+  const [dashShowAll, setDashShowAll] = useState(false);
+  const [analysesOpen, setAnalysesOpen] = useState(true);
+  const [analysesShowAll, setAnalysesShowAll] = useState(false);
+  const popularity = usePopularity();
 
   const [light, setLight] = useState(() =>
     typeof document !== "undefined"
@@ -451,6 +543,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const [dashboardOrderState, setDashboardOrderState] = useState(() =>
     typeof window === "undefined" ? [] : getDashboardOrder(),
   );
+  const [analysisOrderState, setAnalysisOrderState] = useState(() =>
+    typeof window === "undefined" ? [] : getAnalysisOrder(),
+  );
 
   // Server-backed favorites
   const { data: favoritesData, save: saveFavorites } = useUserPref<{
@@ -480,6 +575,35 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       staleTime: 30_000,
     });
 
+  const { data: analysesList = [], isLoading: analysesLoading } = useQuery({
+    queryKey: ["analyses-sidebar"],
+    queryFn: fetchSidebarAnalyses,
+    staleTime: 30_000,
+  });
+
+  const sortedAnalyses = useMemo(() => {
+    if (analysisOrderState.length === 0) {
+      return [...analysesList].sort((a, b) => {
+        const aFav = favoriteIds.has(`analysis:${a.id}`) ? 0 : 1;
+        const bFav = favoriteIds.has(`analysis:${b.id}`) ? 0 : 1;
+        if (aFav !== bFav) return aFav - bFav;
+        const aPop = popularityOf(popularity, "analysis", a.id);
+        const bPop = popularityOf(popularity, "analysis", b.id);
+        if (aPop !== bPop) return bPop - aPop;
+        return a.name.localeCompare(b.name);
+      });
+    }
+    return applyOrder(analysesList, analysisOrderState);
+  }, [analysesList, favoriteIds, popularity, analysisOrderState]);
+
+  const displayedAnalyses = useMemo(
+    () =>
+      analysesShowAll
+        ? sortedAnalyses
+        : sortedAnalyses.slice(0, SIDEBAR_PREVIEW_COUNT),
+    [sortedAnalyses, analysesShowAll],
+  );
+
   // Fetch views for all dashboards (for sidebar sub-items)
   const allDashboardIds = useMemo(() => {
     const ids = dashboards.map((d) => d.id);
@@ -506,16 +630,28 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       source: "sql",
     }));
     const all = [...staticItems, ...sqlItems];
-    // If no custom order yet, sort favorites to top
+    // If no custom order yet, sort favorites first, then by popularity, then alpha.
     if (dashboardOrderState.length === 0) {
       return all.sort((a, b) => {
         const aFav = favoriteIds.has(a.id) ? 0 : 1;
         const bFav = favoriteIds.has(b.id) ? 0 : 1;
-        return aFav - bFav;
+        if (aFav !== bFav) return aFav - bFav;
+        const aPop = popularityOf(popularity, "dashboard", a.id);
+        const bPop = popularityOf(popularity, "dashboard", b.id);
+        if (aPop !== bPop) return bPop - aPop;
+        return a.name.localeCompare(b.name);
       });
     }
     return applyOrder(all, dashboardOrderState);
-  }, [hiddenIds, favoriteIds, dashboardOrderState, sqlDashboards]);
+  }, [hiddenIds, favoriteIds, dashboardOrderState, sqlDashboards, popularity]);
+
+  const displayedDashboards = useMemo(
+    () =>
+      dashShowAll
+        ? visibleDashboards
+        : visibleDashboards.slice(0, SIDEBAR_PREVIEW_COUNT),
+    [visibleDashboards, dashShowAll],
+  );
 
   const handleDashboardDelete = useCallback(
     async (d: SidebarDashboard) => {
@@ -552,6 +688,34 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     [queryClient],
   );
 
+  const handleAnalysisDelete = useCallback(
+    async (a: { id: string; name: string }) => {
+      const queryKey = ["analyses-sidebar"] as const;
+      const prev =
+        queryClient.getQueryData<{ id: string; name: string }[]>(queryKey);
+      queryClient.setQueryData<{ id: string; name: string }[]>(
+        queryKey,
+        (old) => (old ?? []).filter((item) => item.id !== a.id),
+      );
+      try {
+        const token = await getIdToken();
+        const res = await fetch(`/api/analyses/${a.id}`, {
+          method: "DELETE",
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!res.ok) {
+          throw new Error(`Delete failed: ${res.status}`);
+        }
+        queryClient.invalidateQueries({ queryKey });
+        queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
+      } catch (err) {
+        if (prev) queryClient.setQueryData(queryKey, prev);
+        throw err;
+      }
+    },
+    [queryClient],
+  );
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, {
@@ -574,6 +738,23 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       });
     },
     [visibleDashboards],
+  );
+
+  const handleAnalysisDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
+      setAnalysisOrderState((prev) => {
+        const ids = prev.length > 0 ? prev : sortedAnalyses.map((a) => a.id);
+        const oldIndex = ids.indexOf(active.id as string);
+        const newIndex = ids.indexOf(over.id as string);
+        if (oldIndex === -1 || newIndex === -1) return prev;
+        const newOrder = arrayMove(ids, oldIndex, newIndex);
+        setAnalysisOrder(newOrder);
+        return newOrder;
+      });
+    },
+    [sortedAnalyses],
   );
 
   const handleResizeStart = useCallback(
@@ -630,8 +811,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           <span className="text-lg font-bold tracking-tight">Analytics</span>
         </Link>
       </div>
-      <div className="flex-1 overflow-auto py-2">
-        <nav className="grid items-start px-2 text-sm font-medium lg:px-4 space-y-1">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden py-2">
+        <nav className="grid min-w-0 items-start px-2 text-sm font-medium lg:px-4 space-y-1">
           {/* Data Sources link */}
           <Link
             to="/data-sources"
@@ -644,20 +825,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           >
             <IconDatabase className="h-4 w-4" />
             Data Sources
-          </Link>
-
-          {/* Analyses link */}
-          <Link
-            to="/analyses"
-            className={cn(
-              "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
-              location.pathname.startsWith("/analyses")
-                ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                : "text-muted-foreground hover:bg-sidebar-accent/50",
-            )}
-          >
-            <IconReportAnalytics className="h-4 w-4" />
-            Analyses
           </Link>
 
           {/* Data Dictionary link */}
@@ -678,17 +845,17 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           <button
             onClick={() => setDashOpen(!dashOpen)}
             className={cn(
-              "flex w-full items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary text-left",
+              "flex w-full min-w-0 items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary text-left",
               isAdhocActive
                 ? "text-sidebar-accent-foreground"
                 : "text-muted-foreground hover:bg-sidebar-accent/50",
             )}
           >
-            <IconFlask className="h-4 w-4" />
-            <span className="flex-1">Dashboards</span>
+            <IconFlask className="h-4 w-4 shrink-0" />
+            <span className="flex-1 min-w-0 truncate">Dashboards</span>
             <IconChevronDown
               className={cn(
-                "h-3.5 w-3.5 transition-transform",
+                "h-3.5 w-3.5 shrink-0 transition-transform",
                 !dashOpen && "-rotate-90",
               )}
             />
@@ -701,11 +868,11 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               onDragEnd={handleDashboardDragEnd}
             >
               <SortableContext
-                items={visibleDashboards.map((d) => d.id)}
+                items={displayedDashboards.map((d) => d.id)}
                 strategy={verticalListSortingStrategy}
               >
-                <div className="ml-4 space-y-0.5">
-                  {visibleDashboards.map((d) => (
+                <div className="ml-4 min-w-0 space-y-0.5">
+                  {displayedDashboards.map((d) => (
                     <SortableDashboardItem
                       key={d.id}
                       d={d}
@@ -719,6 +886,16 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       views={allViewsMap[d.id]}
                     />
                   ))}
+                  {visibleDashboards.length > SIDEBAR_PREVIEW_COUNT && (
+                    <button
+                      onClick={() => setDashShowAll(!dashShowAll)}
+                      className="flex items-center gap-1 px-3 py-1 text-[11px] text-muted-foreground/70 hover:text-primary"
+                    >
+                      {dashShowAll
+                        ? "Show less"
+                        : `Show ${visibleDashboards.length - SIDEBAR_PREVIEW_COUNT} more`}
+                    </button>
+                  )}
                   {sqlDashboardsLoading &&
                     sqlDashboards.length === 0 &&
                     Array.from({ length: 3 }).map((_, i) => (
@@ -734,6 +911,88 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       </div>
                     ))}
                   <NewDashboardDialog />
+                </div>
+              </SortableContext>
+            </DndContext>
+          )}
+
+          {/* Analyses section */}
+          <button
+            onClick={() => setAnalysesOpen(!analysesOpen)}
+            className={cn(
+              "flex w-full min-w-0 items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary text-left",
+              location.pathname.startsWith("/analyses")
+                ? "text-sidebar-accent-foreground"
+                : "text-muted-foreground hover:bg-sidebar-accent/50",
+            )}
+          >
+            <IconReportAnalytics className="h-4 w-4 shrink-0" />
+            <span className="flex-1 min-w-0 truncate">Analyses</span>
+            <IconChevronDown
+              className={cn(
+                "h-3.5 w-3.5 shrink-0 transition-transform",
+                !analysesOpen && "-rotate-90",
+              )}
+            />
+          </button>
+
+          {analysesOpen && (
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleAnalysisDragEnd}
+            >
+              <SortableContext
+                items={displayedAnalyses.map((a) => a.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                <div className="ml-4 min-w-0 space-y-0.5">
+                  {displayedAnalyses.map((a) => (
+                    <SortableRow
+                      key={a.id}
+                      id={a.id}
+                      favoriteKey={`analysis:${a.id}`}
+                      deleteKey={`analysis:${a.id}`}
+                      name={a.name}
+                      href={`/analyses/${a.id}`}
+                      isActive={location.pathname === `/analyses/${a.id}`}
+                      favoriteIds={favoriteIds}
+                      onToggleFavorite={toggleFavorite}
+                      deletingId={deletingId}
+                      setDeletingId={setDeletingId}
+                      onDelete={() => handleAnalysisDelete(a)}
+                    />
+                  ))}
+                  {sortedAnalyses.length > SIDEBAR_PREVIEW_COUNT && (
+                    <button
+                      onClick={() => setAnalysesShowAll(!analysesShowAll)}
+                      className="flex items-center gap-1 px-3 py-1 text-[11px] text-muted-foreground/70 hover:text-primary"
+                    >
+                      {analysesShowAll
+                        ? "Show less"
+                        : `Show ${sortedAnalyses.length - SIDEBAR_PREVIEW_COUNT} more`}
+                    </button>
+                  )}
+                  {analysesLoading &&
+                    sortedAnalyses.length === 0 &&
+                    Array.from({ length: 3 }).map((_, i) => (
+                      <div
+                        key={`analysis-skeleton-${i}`}
+                        className="flex items-center gap-2 px-3 py-1"
+                      >
+                        <Skeleton className="h-3.5 w-3.5 shrink-0 rounded-sm" />
+                        <Skeleton
+                          className="h-3 rounded"
+                          style={{ width: `${60 + ((i * 17) % 30)}%` }}
+                        />
+                      </div>
+                    ))}
+                  {!analysesLoading && sortedAnalyses.length === 0 && (
+                    <p className="px-3 py-1 text-[11px] text-muted-foreground/60">
+                      No analyses yet
+                    </p>
+                  )}
+                  <NewAnalysisDialog />
                 </div>
               </SortableContext>
             </DndContext>
@@ -761,6 +1020,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         </nav>
       </div>
       <div className="p-4 border-t border-border space-y-2">
+        <FeedbackButton />
         <OrgSwitcher />
         <button
           onClick={() =>

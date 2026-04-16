@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react";
-import { Link } from "react-router";
 import {
   Area,
   AreaChart,
@@ -20,7 +19,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import {
-  IconExternalLink,
   IconArrowsSort,
   IconSortAscending,
   IconSortDescending,
@@ -728,15 +726,6 @@ export function SqlChartWithCard({ panel }: { panel: SqlPanel }) {
         <CardTitle className="text-sm font-medium truncate">
           {panel.title}
         </CardTitle>
-        {panel.sql && (
-          <Link
-            to={`/query?sql=${encodeURIComponent(panel.sql)}`}
-            className="text-muted-foreground/50 hover:text-foreground p-1 shrink-0"
-            title="Open in Query Explorer"
-          >
-            <IconExternalLink className="h-3.5 w-3.5" />
-          </Link>
-        )}
       </CardHeader>
       <CardContent className="pt-0">
         <SqlChart panel={panel} />
