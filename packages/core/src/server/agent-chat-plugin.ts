@@ -2486,10 +2486,16 @@ export function createAgentChatPlugin(
 
         // Persist per-owner so the key survives cold starts in serverless
         // and so the user's key isn't shared across users on multi-tenant
-        // hosted deployments.
+        // hosted deployments. We require a real authenticated owner here —
+        // `local@localhost` is the unauthenticated fallback and must never
+        // become the shared key bucket on hosted deployments.
+        const ownerEmail = await getOwnerFromEvent(event);
+        if (isHostedProd && (!ownerEmail || ownerEmail === "local@localhost")) {
+          setResponseStatus(event, 401);
+          return { error: "Authentication required" };
+        }
         try {
-          const ownerEmail = await getOwnerFromEvent(event);
-          if (ownerEmail) {
+          if (ownerEmail && ownerEmail !== "local@localhost") {
             await putSetting(`user-anthropic-api-key:${ownerEmail}`, {
               key: trimmedKey,
             });
@@ -2498,20 +2504,27 @@ export function createAgentChatPlugin(
           // Settings store unavailable — fall back to env-only behavior
         }
 
-        try {
-          const path = await import("path");
-          const { upsertEnvFile } = await import("./create-server.js");
-          const envPath = path.join(process.cwd(), ".env");
-          await upsertEnvFile(envPath, [
-            { key: "ANTHROPIC_API_KEY", value: trimmedKey },
-          ]);
-        } catch {
-          // Edge runtime — can't write .env, but can still update process.env
+        // In hosted/multi-tenant mode we deliberately do NOT touch
+        // process.env or .env: the per-owner SQL lookup above is the
+        // single source of truth, and overwriting the shared env key
+        // would leak one tenant's credentials into every subsequent
+        // request that hit the same warm instance without its own key.
+        if (!isHostedProd) {
+          try {
+            const path = await import("path");
+            const { upsertEnvFile } = await import("./create-server.js");
+            const envPath = path.join(process.cwd(), ".env");
+            await upsertEnvFile(envPath, [
+              { key: "ANTHROPIC_API_KEY", value: trimmedKey },
+            ]);
+          } catch {
+            // Edge runtime — can't write .env, but can still update process.env
+          }
+          // Update process.env so the agent works immediately in the
+          // current local-dev invocation; the SQL persist above covers
+          // future invocations.
+          process.env.ANTHROPIC_API_KEY = trimmedKey;
         }
-
-        // Update process.env so the agent works immediately in the current
-        // invocation; the SQL persist above covers future invocations.
-        process.env.ANTHROPIC_API_KEY = trimmedKey;
 
         return { ok: true };
       }),
@@ -2931,7 +2944,7 @@ export function createAgentChatPlugin(
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
-        await getOwnerFromEvent(event);
+        const ownerEmail = await getOwnerFromEvent(event);
         const body = await readBody(event);
         const message = body?.message;
         if (!message || typeof message !== "string") {
@@ -2940,7 +2953,12 @@ export function createAgentChatPlugin(
         }
         // Strip mention markup: @[Name|type] → @Name
         const cleanMessage = message.replace(/@\[([^\]|]+)\|[^\]]*\]/g, "@$1");
-        const apiKey = process.env.ANTHROPIC_API_KEY;
+        // Mirror the chat-run resolution so BYO-key users have title
+        // generation billed to their own key instead of the platform key.
+        const { getOwnerAnthropicApiKey } =
+          await import("../agent/production-agent.js");
+        const userApiKey = await getOwnerAnthropicApiKey(ownerEmail);
+        const apiKey = userApiKey ?? process.env.ANTHROPIC_API_KEY;
         if (!apiKey) {
           // Fallback: truncate the message
           return { title: cleanMessage.trim().slice(0, 60) };

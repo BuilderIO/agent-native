@@ -35,6 +35,26 @@ import { getRequestUserEmail } from "../server/request-context.js";
 // Register built-in engines on first import
 registerBuiltinEngines();
 
+/**
+ * Look up a user's persisted Anthropic API key by owner email. Returns
+ * `undefined` for unauthenticated/local callers so the shared platform key
+ * is never keyed off `local@localhost` in multi-tenant deployments.
+ */
+export async function getOwnerAnthropicApiKey(
+  ownerEmail: string | null | undefined,
+): Promise<string | undefined> {
+  if (!ownerEmail || ownerEmail === "local@localhost") return undefined;
+  try {
+    const { getSetting } = await import("../settings/store.js");
+    const stored = await getSetting(`user-anthropic-api-key:${ownerEmail}`);
+    const key =
+      stored && typeof stored.key === "string" ? stored.key.trim() : "";
+    return key || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Context passed to action run() for emitting intermediate events */
 export interface ActionRunContext {
   /** Emit an SSE event to the client (e.g., agent_call_text for streaming) */
@@ -464,18 +484,7 @@ export function createProductionAgentHandler(
       }
     }
 
-    let userApiKey: string | undefined;
-    if (ownerEmail && ownerEmail !== "local@localhost") {
-      try {
-        const { getSetting } = await import("../settings/store.js");
-        const stored = await getSetting(`user-anthropic-api-key:${ownerEmail}`);
-        const key =
-          stored && typeof stored.key === "string" ? stored.key.trim() : "";
-        if (key) userApiKey = key;
-      } catch {
-        // Settings store unavailable — fall through to env-based key
-      }
-    }
+    const userApiKey = await getOwnerAnthropicApiKey(ownerEmail);
 
     const effectiveApiKey =
       userApiKey ?? options.apiKey ?? process.env.ANTHROPIC_API_KEY;
