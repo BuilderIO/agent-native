@@ -47,13 +47,9 @@ export async function readDesktopSso(): Promise<DesktopSsoRecord | null> {
     if (
       !rec ||
       typeof rec.email !== "string" ||
-      typeof rec.token !== "string"
-    ) {
-      return null;
-    }
-    if (
-      typeof rec.expiresAt === "number" &&
-      rec.expiresAt > 0 &&
+      typeof rec.token !== "string" ||
+      typeof rec.expiresAt !== "number" ||
+      rec.expiresAt <= 0 ||
       rec.expiresAt < Date.now()
     ) {
       return null;
@@ -68,7 +64,7 @@ export async function writeDesktopSso(rec: DesktopSsoRecord): Promise<void> {
   try {
     const fs = await getFs();
     const p = getSsoPath();
-    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.mkdirSync(path.dirname(p), { recursive: true, mode: 0o700 });
     const tmp = `${p}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(rec), { mode: 0o600 });
     fs.renameSync(tmp, p);

@@ -40,26 +40,14 @@ import {
   writeDesktopSso,
   clearDesktopSso,
 } from "./desktop-sso.js";
+import { isElectron as isElectronRequest } from "./google-oauth.js";
 
 /**
- * True for requests coming from the Electron desktop app's webview.
- * Used to gate the desktop SSO broker — we only read/write the shared
- * on-disk session record when the request originates from the desktop,
- * so web deployments stay strictly DB-backed.
+ * Get the configured session max age. Desktop SSO broker writes from
+ * OAuth flows read this so expiration stays consistent with the cookie.
  */
-function isElectronRequest(event: H3Event): boolean {
-  try {
-    const req: any = (event as any).req ?? event.node?.req;
-    const headers: any = req?.headers;
-    const ua =
-      typeof headers?.get === "function"
-        ? headers.get("user-agent")
-        : headers?.["user-agent"];
-    const s = Array.isArray(ua) ? ua[0] : ua;
-    return typeof s === "string" && /Electron/i.test(s);
-  } catch {
-    return false;
-  }
+export function getSessionMaxAge(): number {
+  return sessionMaxAge;
 }
 
 // ---------------------------------------------------------------------------
@@ -480,6 +468,13 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
   if (customGetSession) {
     const session = await customGetSession(event);
     if (session) return session;
+    // Desktop SSO broker: even with BYOA auth, fall back to the broker
+    // for Electron requests so cross-template SSO works for custom-auth
+    // templates too.
+    if (isElectronRequest(event)) {
+      const sso = await readDesktopSso();
+      if (sso?.email) return { email: sso.email, token: sso.token };
+    }
     // Fall through to mobile _session check
   } else {
     // 4. Better Auth session (cookie or Bearer token)
