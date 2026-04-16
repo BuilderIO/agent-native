@@ -1,5 +1,7 @@
+import { useEffect } from "react";
 import { useParams } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { incrementItemView } from "@/lib/item-popularity";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -83,6 +85,10 @@ export default function AnalysisDetail() {
     enabled: !!id,
     staleTime: 10_000,
   });
+
+  useEffect(() => {
+    if (analysis?.id) incrementItemView("analysis", analysis.id);
+  }, [analysis?.id]);
 
   const handleRerun = () => {
     if (!analysis) return;

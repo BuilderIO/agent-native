@@ -6,7 +6,7 @@
  */
 
 import React from "react";
-import { IconSparkles } from "@tabler/icons-react";
+import { IconChecklist } from "@tabler/icons-react";
 import { useOnboarding } from "./use-onboarding.js";
 import { useDevMode } from "../use-dev-mode.js";
 
@@ -48,7 +48,7 @@ export function SetupButton({ className }: { className?: string }) {
         cursor: "pointer",
       }}
     >
-      <IconSparkles size={12} />
+      <IconChecklist size={12} />
       Setup
     </button>
   );

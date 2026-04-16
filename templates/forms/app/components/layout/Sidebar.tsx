@@ -13,7 +13,7 @@ import {
   PopoverContent,
 } from "@/components/ui/popover";
 import { useForms, useCreateForm } from "@/hooks/use-forms";
-import { useSendToAgentChat } from "@agent-native/core/client";
+import { useSendToAgentChat, FeedbackButton } from "@agent-native/core/client";
 import { Textarea } from "@/components/ui/textarea";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
@@ -220,6 +220,7 @@ export function Sidebar() {
 
       {/* Footer */}
       <div className="border-t border-border px-3 py-2 space-y-2 mt-2">
+        <FeedbackButton />
         <OrgSwitcher />
         <div className="flex items-center justify-end">
           <ThemeToggle />

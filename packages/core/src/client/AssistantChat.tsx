@@ -33,13 +33,14 @@ import { type ContentPart, readSSEStreamRaw } from "./sse-event-processor.js";
 import { cn } from "./utils.js";
 import { AgentTaskCard } from "./AgentTaskCard.js";
 import { ConnectBuilderCard } from "./ConnectBuilderCard.js";
+import { IframeEmbed, parseEmbedBody } from "./IframeEmbed.js";
 import {
   TiptapComposer,
   type TiptapComposerHandle,
 } from "./composer/TiptapComposer.js";
 import type { Reference } from "./composer/types.js";
 import {
-  IconSparkles,
+  IconMessage,
   IconX,
   IconPlayerStop,
   IconCheck,
@@ -96,6 +97,37 @@ function injectMarkdownStyles() {
   document.head.appendChild(style);
 }
 
+function extractCodeText(child: React.ReactNode): string {
+  if (typeof child === "string") return child;
+  if (Array.isArray(child)) return child.map(extractCodeText).join("");
+  if (React.isValidElement(child)) {
+    const props = child.props as { children?: React.ReactNode };
+    return extractCodeText(props.children);
+  }
+  return "";
+}
+
+const markdownComponents = {
+  pre(props: React.HTMLAttributes<HTMLPreElement>) {
+    const { children, ...rest } = props;
+    if (React.isValidElement(children)) {
+      const childProps = children.props as {
+        className?: string;
+        children?: React.ReactNode;
+      };
+      const className = childProps.className || "";
+      if (/\blanguage-embed\b/.test(className)) {
+        const body = extractCodeText(childProps.children);
+        const parsed = parseEmbedBody(body);
+        return (
+          <IframeEmbed {...(parsed as Parameters<typeof IframeEmbed>[0])} />
+        );
+      }
+    }
+    return <pre {...rest}>{children}</pre>;
+  },
+};
+
 function MarkdownText() {
   useEffect(() => {
     injectMarkdownStyles();
@@ -105,6 +137,7 @@ function MarkdownText() {
       smooth
       className="agent-markdown break-words"
       remarkPlugins={[remarkGfm]}
+      components={markdownComponents}
     />
   );
 }
@@ -371,7 +404,10 @@ function ToolCallDisplay({
           ref={streamRef}
           className="mt-1 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground break-words max-h-48 overflow-y-auto agent-markdown prose prose-sm prose-invert max-w-none"
         >
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={markdownComponents}
+          >
             {agentStreamText}
           </ReactMarkdown>
         </div>
@@ -433,7 +469,10 @@ function ReconnectStreamMessage({ content }: { content: ContentPart[] }) {
                 key={`reconnect-text-${i}`}
                 className="agent-markdown break-words"
               >
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={markdownComponents}
+                >
                   {part.text}
                 </ReactMarkdown>
               </div>
@@ -804,7 +843,7 @@ function ApiKeySetupCard({ apiUrl }: { apiUrl: string }) {
     <div className="mx-4 my-6 rounded-lg border border-border bg-card p-5">
       <div className="flex items-center gap-3 mb-3">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted">
-          <IconSparkles className="h-4.5 w-4.5 text-muted-foreground" />
+          <IconMessage className="h-4.5 w-4.5 text-muted-foreground" />
         </div>
         <div>
           <h3 className="text-sm font-medium text-foreground">
@@ -962,7 +1001,7 @@ export function BuilderCtaCard({
     <div className="mx-4 my-6 rounded-lg border border-border bg-card p-5">
       <div className="flex items-center gap-3 mb-4">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted">
-          <IconSparkles className="h-4.5 w-4.5 text-muted-foreground" />
+          <IconMessage className="h-4.5 w-4.5 text-muted-foreground" />
         </div>
         <div>
           <h3 className="text-sm font-medium text-foreground">{title}</h3>
@@ -1864,7 +1903,7 @@ const AssistantChatInner = forwardRef<
         ) : messages.length === 0 && !isReconnecting ? (
           <div className="flex flex-col items-center justify-center gap-4 py-16 px-4 h-full">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
-              <IconSparkles className="h-5 w-5 text-muted-foreground" />
+              <IconMessage className="h-5 w-5 text-muted-foreground" />
             </div>
             <p className="text-sm text-muted-foreground text-center max-w-[240px]">
               {emptyStateText ?? "How can I help you?"}

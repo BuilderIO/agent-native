@@ -1,14 +1,32 @@
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   IconGripVertical,
-  IconTrash,
   IconArrowsMaximize,
   IconArrowsMinimize,
-  IconExternalLink,
+  IconDotsVertical,
+  IconPencil,
+  IconTrash,
 } from "@tabler/icons-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Link } from "react-router";
 import { SqlChart } from "@/components/dashboard/SqlChart";
 import type { SqlPanel } from "./types";
 
@@ -17,6 +35,7 @@ interface SqlChartCardProps {
   resolvedSql?: string;
   onRemove: () => void;
   onToggleWidth: () => void;
+  onEdit?: () => void;
 }
 
 export function SqlChartCard({
@@ -24,6 +43,7 @@ export function SqlChartCard({
   resolvedSql,
   onRemove,
   onToggleWidth,
+  onEdit,
 }: SqlChartCardProps) {
   const {
     attributes,
@@ -33,6 +53,8 @@ export function SqlChartCard({
     transition,
     isDragging,
   } = useSortable({ id: panel.id });
+
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -64,22 +86,34 @@ export function SqlChartCard({
                 <IconArrowsMaximize className="h-3.5 w-3.5" />
               )}
             </button>
-            {panel.sql && (
-              <Link
-                to={`/query?sql=${encodeURIComponent(resolvedSql ?? panel.sql)}`}
-                className="p-1 rounded text-muted-foreground hover:text-foreground"
-                title="Open in Query Explorer"
-              >
-                <IconExternalLink className="h-3.5 w-3.5" />
-              </Link>
-            )}
-            <button
-              onClick={onRemove}
-              className="p-1 rounded text-muted-foreground hover:text-foreground"
-              title="Remove panel"
-            >
-              <IconTrash className="h-3.5 w-3.5" />
-            </button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className="p-1 rounded text-muted-foreground hover:text-foreground"
+                  title="Panel options"
+                >
+                  <IconDotsVertical className="h-3.5 w-3.5" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-40">
+                {onEdit && (
+                  <DropdownMenuItem onSelect={() => onEdit()}>
+                    <IconPencil className="h-4 w-4 mr-2" />
+                    Edit
+                  </DropdownMenuItem>
+                )}
+                {onEdit && <DropdownMenuSeparator />}
+                <DropdownMenuItem
+                  onSelect={(e) => {
+                    e.preventDefault();
+                    setConfirmOpen(true);
+                  }}
+                >
+                  <IconTrash className="h-4 w-4 mr-2" />
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <button
               className="p-1 rounded cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground"
               title="Drag to reorder"
@@ -94,6 +128,28 @@ export function SqlChartCard({
           <SqlChart panel={panel} resolvedSql={resolvedSql} />
         </CardContent>
       </Card>
+
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete panel?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Delete "{panel.title}"? This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setConfirmOpen(false);
+                onRemove();
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
