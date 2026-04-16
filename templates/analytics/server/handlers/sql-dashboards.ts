@@ -7,6 +7,7 @@ import {
   putScopedSettingRecord,
   resolveSettingsScope,
 } from "../lib/scoped-settings";
+import { dryRunQuery } from "../lib/bigquery";
 
 const KEY_PREFIX = "sql-dashboard-";
 
@@ -59,6 +60,11 @@ export const saveSqlDashboard = defineEventHandler(async (event) => {
       setResponseStatus(event, 400);
       return { error: validation };
     }
+    const sqlError = await validatePanelSql(body);
+    if (sqlError) {
+      setResponseStatus(event, 400);
+      return { error: sqlError };
+    }
     const scope = await resolveSettingsScope(event);
     const key = `${KEY_PREFIX}${id}`;
     await putScopedSettingRecord(scope, key, body);
@@ -68,6 +74,36 @@ export const saveSqlDashboard = defineEventHandler(async (event) => {
     return { error: err.message };
   }
 });
+
+/**
+ * Dry-run every BigQuery panel's SQL so compilation errors (unknown
+ * columns, type mismatches, bad joins) surface as a 400 here instead of
+ * being persisted and blowing up every render. Free via BigQuery's
+ * `dryRun` flag (no bytes billed). Returns the first error found — one
+ * broken panel is enough to tell the agent to fix its SQL before saving.
+ */
+async function validatePanelSql(
+  config: Record<string, unknown>,
+): Promise<string | null> {
+  const panels = config.panels;
+  if (!Array.isArray(panels)) return null;
+  for (let i = 0; i < panels.length; i++) {
+    const p = panels[i] as Record<string, unknown>;
+    if (p.source !== "bigquery") continue;
+    const sql = typeof p.sql === "string" ? p.sql : "";
+    if (!sql.trim()) continue;
+    let err: string | null;
+    try {
+      err = await dryRunQuery(sql);
+    } catch (e: any) {
+      err = e?.message ?? String(e);
+    }
+    if (err) {
+      return `panel[${i}] "${p.title || p.id}" SQL is invalid: ${err}`;
+    }
+  }
+  return null;
+}
 
 /**
  * Reject configs that would render as a blank sidebar row or crash the

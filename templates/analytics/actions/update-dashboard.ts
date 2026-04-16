@@ -8,6 +8,7 @@ import {
   putSetting,
   putUserSetting,
 } from "@agent-native/core/settings";
+import { dryRunQuery } from "../server/lib/bigquery";
 
 const KEY_PREFIX = "sql-dashboard-";
 const LOCAL_EMAIL = "local@localhost";
@@ -187,6 +188,34 @@ function validateDashboardConfig(
   return null;
 }
 
+/**
+ * Dry-run each BigQuery panel's SQL so bad column names or type
+ * mismatches fail here, with the full BigQuery error text, rather than
+ * silently saving a broken dashboard that crashes on render.
+ */
+async function validatePanelSql(
+  config: Record<string, unknown>,
+): Promise<string | null> {
+  const panels = config.panels;
+  if (!Array.isArray(panels)) return null;
+  for (let i = 0; i < panels.length; i++) {
+    const p = panels[i] as Record<string, unknown>;
+    if (p.source !== "bigquery") continue;
+    const sql = typeof p.sql === "string" ? p.sql : "";
+    if (!sql.trim()) continue;
+    let err: string | null;
+    try {
+      err = await dryRunQuery(sql);
+    } catch (e: any) {
+      err = e?.message ?? String(e);
+    }
+    if (err) {
+      return `panel[${i}] "${p.title || p.id}" SQL is invalid: ${err}`;
+    }
+  }
+  return null;
+}
+
 function resolveScope() {
   const orgId = process.env.AGENT_ORG_ID || null;
   const email = process.env.AGENT_USER_EMAIL || LOCAL_EMAIL;
@@ -289,6 +318,8 @@ export default defineAction({
     if (args.config) {
       const validation = validateDashboardConfig(args.config);
       if (validation) return `Error: ${validation}`;
+      const sqlError = await validatePanelSql(args.config);
+      if (sqlError) return `Error: ${sqlError}`;
       const existing = await readScoped(scope, key);
       const resolvedScope = existing?.scope ?? (scope.orgId ? "org" : "user");
       await writeScoped(scope, key, args.config, resolvedScope as any);
@@ -309,6 +340,9 @@ export default defineAction({
         return `Error applying op ${JSON.stringify(op)}: ${err.message}`;
       }
     }
+
+    const sqlError = await validatePanelSql(root);
+    if (sqlError) return `Error: ${sqlError}`;
 
     await writeScoped(scope, key, root, existing.scope);
 

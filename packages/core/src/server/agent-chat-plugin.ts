@@ -1135,6 +1135,21 @@ export interface AgentChatPluginOptions {
    * need custom org resolution logic (e.g., Atlassian org mapping).
    */
   resolveOrgId?: (event: any) => string | null | Promise<string | null>;
+  /**
+   * Optional callback to append template-specific context to the system
+   * prompt on each request. Runs after AGENTS.md / skills / memory are
+   * loaded and before the schema block — use it to inject dynamic SQL
+   * context like a data dictionary, active feature flags, or whatever
+   * the agent should know about *right now* for this user/org.
+   *
+   * Return `null` or an empty string to skip. The string you return is
+   * appended verbatim, so wrap it in your own XML tags (e.g.
+   * `<data-dictionary>…</data-dictionary>`) to keep the prompt scannable.
+   */
+  extraContext?: (
+    event: any,
+    owner: string,
+  ) => string | null | Promise<string | null>;
 }
 
 /**
@@ -2344,6 +2359,23 @@ export function createAgentChatPlugin(
     // Always build the production handler (includes resource tools + call-agent + team tools)
     // In production mode (!canToggle), enable usage tracking and limits
     const isHostedProd = !canToggle;
+    const resolveExtraContext = async (
+      event: any,
+      owner: string,
+    ): Promise<string> => {
+      if (!options?.extraContext) return "";
+      try {
+        const extra = await options.extraContext(event, owner);
+        return extra ? `\n\n${extra}` : "";
+      } catch (err) {
+        console.warn(
+          "[agent-chat] extraContext threw:",
+          err instanceof Error ? err.message : err,
+        );
+        return "";
+      }
+    };
+
     const prodHandler = createProductionAgentHandler({
       actions: prodActions,
       systemPrompt: async (event: any) => {
@@ -2355,7 +2387,8 @@ export function createAgentChatPlugin(
         _currentRunUserApiKey = await getOwnerAnthropicApiKey(owner);
         const resources = await loadResourcesForPrompt(owner);
         const schemaBlock = await buildSchemaBlock(owner, false);
-        _currentRunSystemPrompt = basePrompt + resources + schemaBlock;
+        const extra = await resolveExtraContext(event, owner);
+        _currentRunSystemPrompt = basePrompt + resources + schemaBlock + extra;
         return _currentRunSystemPrompt;
       },
       model:
@@ -2412,7 +2445,8 @@ export function createAgentChatPlugin(
           _currentRunUserApiKey = await getOwnerAnthropicApiKey(owner);
           const resources = await loadResourcesForPrompt(owner);
           const schemaBlock = await buildSchemaBlock(owner, true);
-          _currentRunSystemPrompt = devPrompt + resources + schemaBlock;
+          const extra = await resolveExtraContext(event, owner);
+          _currentRunSystemPrompt = devPrompt + resources + schemaBlock + extra;
           return _currentRunSystemPrompt;
         },
         model: options?.model,
