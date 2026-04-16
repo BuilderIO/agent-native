@@ -174,10 +174,14 @@ The data dictionary is the canonical catalog of the metrics, tables, columns, an
 
 **Workflow for "build me a dashboard":**
 
-1. `list-data-dictionary --search <topic>` — find existing definitions that match the user's intent.
-2. If relevant entries exist, use their `queryTemplate`, `table`, and `cuts` verbatim — don't reinvent.
-3. If the user mentions a metric that isn't in the dictionary, either ask them to define it or propose an entry via `save-data-dictionary-entry` (set `aiGenerated: true`, `approved: false` for human review).
-4. Obey `knownGotchas` from any entry you use — note them to the user if the data has limitations.
+A `<data-dictionary>` block is injected into your system prompt with the approved entries for this workspace. Read it before you write any SQL. If the entry you need is there, you MUST use its `table` and `columns` values verbatim — column names in the underlying warehouse use prefixes (`hs_`, `m_`, `sfdc_`, etc.) that you cannot guess. Making them up produces `Unrecognized name` errors and a broken dashboard.
+
+1. **Check the `<data-dictionary>` block** in your system prompt for entries that match the user's request.
+2. If something looks relevant but you need the full entry (example output, join pattern, etc.), call `list-data-dictionary --search <topic>`.
+3. If relevant entries exist, use their `queryTemplate`, `table`, `columns`, and `cuts` **verbatim** — never rename or guess column names.
+4. If the user mentions a metric that isn't in the dictionary, do NOT invent column names. Instead: (a) ask the user for the table/columns, OR (b) run an exploratory BigQuery query against `INFORMATION_SCHEMA.COLUMNS` to discover the real column names before writing the panel SQL, then propose an entry via `save-data-dictionary-entry` (set `aiGenerated: true`, `approved: false` for human review).
+5. Obey `knownGotchas` from any entry you use — note them to the user if the data has limitations.
+6. The dashboard save endpoint now dry-runs every panel's SQL through BigQuery before persisting. If a panel fails validation you'll get a 400 with the BigQuery error text (e.g. `Unrecognized name: is_closed; Did you mean hs_is_closed?`) — fix the SQL and retry; never try to persist broken SQL.
 
 **Populating the dictionary:** When the user has existing metric definitions elsewhere (team docs, Confluence, Notion, dbt descriptions, a Google Sheet, a wiki), fetch them with whatever tools you have — generic `WebFetch`, an MCP server the user has configured, a CSV import, or asking the user to paste — then upsert each via `save-data-dictionary-entry`. The dictionary itself is source-agnostic.
 

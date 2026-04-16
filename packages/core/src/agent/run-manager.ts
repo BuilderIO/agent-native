@@ -9,6 +9,8 @@ import {
   getRunById,
   getRunByThread,
   cleanupOldRuns,
+  updateRunHeartbeat,
+  reapIfStale,
 } from "./run-store.js";
 
 export interface ActiveRun {
@@ -66,6 +68,14 @@ export function startRun(
   // Persist run to SQL (fire-and-forget — don't block the response)
   insertRun(runId, threadId).catch(() => {});
 
+  // Heartbeat: bump heartbeat_at every 5s so watchers can detect a dead
+  // producer (process crash, HMR restart, isolate eviction) and reap the
+  // row. Without this, the run's SQL status stays "running" forever and
+  // reconnect clients spin on "Thinking..." indefinitely.
+  const heartbeatTimer: ReturnType<typeof setInterval> = setInterval(() => {
+    updateRunHeartbeat(runId).catch(() => {});
+  }, 5000);
+
   // Periodic SQL abort check interval (for cross-isolate abort on Workers)
   let lastAbortCheck = Date.now();
 
@@ -112,6 +122,8 @@ export function startRun(
       send({ type: "error", error: err?.message ?? "Unknown error" });
     })
     .finally(() => {
+      // Stop the heartbeat — the run is done, no more liveness writes.
+      clearInterval(heartbeatTimer);
       // Send a terminal event so every subscriber's ReadableStream controller
       // gets closed.  Without this, SSE connections hang open forever when
       // the agent errors out in a way that bypasses the normal `send()` path.
@@ -329,6 +341,10 @@ function subscribeFromSQL(
 
           // Check if run completed (no terminal event but status changed)
           if (events.length === 0) {
+            // Opportunistically reap a stale producer before trusting SQL's
+            // "running" status — otherwise a crashed server leaves us polling
+            // forever.
+            await reapIfStale(runId).catch(() => {});
             const run = await getRunById(runId);
             if (!run || run.status !== "running") {
               // Run ended — do one final event read, then close
@@ -421,6 +437,11 @@ export async function getActiveRunForThreadAsync(
   try {
     const sqlRun = await getRunByThread(threadId);
     if (sqlRun && sqlRun.status === "running") {
+      // If the producer is dead (no recent heartbeat), reap before the
+      // client can see a stale "running" status and enter a reconnect
+      // loop it can never exit.
+      const reaped = await reapIfStale(sqlRun.id).catch(() => false);
+      if (reaped) return null;
       return {
         runId: sqlRun.id,
         threadId: sqlRun.threadId,

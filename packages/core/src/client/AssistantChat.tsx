@@ -566,35 +566,48 @@ function UserMessageText({ text }: { text: string }) {
 function UserMessageAttachments() {
   const messageRuntime = useMessageRuntime();
   const msg = messageRuntime.getState();
-  // Content parts may include image/file types from attachments
-  const parts = msg.content as unknown as Array<Record<string, any>>;
-  const images = parts.filter((p) => p.type === "image" && p.image);
-  const files = parts.filter((p) => p.type === "file");
-  if (images.length === 0 && files.length === 0) return null;
+  // assistant-ui stores user attachments on msg.attachments (separate from content).
+  // Each attachment has: { id, type, name, contentType?, content: MessagePart[] }.
+  // Image adapters put a {type:"image", image:"data:..."} part in content; text
+  // adapters put a {type:"text", text:"<attachment>..."} part. Fall back to a
+  // file chip when there's no inline image.
+  const attachments = (msg as { attachments?: readonly Attachment[] })
+    .attachments;
+  if (!attachments || attachments.length === 0) return null;
 
   return (
     <div className="flex flex-wrap justify-end gap-1.5 mb-1.5">
-      {images.map((img, i) => (
-        <div
-          key={i}
-          className="h-16 w-16 overflow-hidden rounded-lg border border-border/70 bg-muted/50"
-        >
-          <img
-            src={img.image}
-            alt="attachment"
-            className="h-full w-full object-cover"
-          />
-        </div>
-      ))}
-      {files.map((file, i) => (
-        <div
-          key={`f-${i}`}
-          className="flex items-center gap-1.5 rounded-lg border border-border/70 bg-muted/50 px-2 py-1.5 text-xs text-muted-foreground"
-        >
-          <IconFile className="h-3.5 w-3.5 shrink-0" />
-          <span className="truncate max-w-[120px]">{file.name || "file"}</span>
-        </div>
-      ))}
+      {attachments.map((att) => {
+        const imagePart = att.content?.find(
+          (p): p is { type: "image"; image: string } =>
+            p.type === "image" && "image" in p && !!p.image,
+        );
+        if (imagePart) {
+          return (
+            <div
+              key={att.id}
+              className="h-16 w-16 overflow-hidden rounded-lg border border-border/70 bg-muted/50"
+              title={att.name}
+            >
+              <img
+                src={imagePart.image}
+                alt={att.name}
+                className="h-full w-full object-cover"
+              />
+            </div>
+          );
+        }
+        return (
+          <div
+            key={att.id}
+            className="flex items-center gap-1.5 rounded-lg border border-border/70 bg-muted/50 px-2 py-1.5 text-xs text-muted-foreground"
+            title={att.name}
+          >
+            <IconFile className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate max-w-[120px]">{att.name || "file"}</span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -951,7 +964,7 @@ export function BuilderCtaCard({
 
   const description =
     reason === "usage_limit"
-      ? `You've used $${((usageCents ?? 0) / 100).toFixed(2)} of your $${((limitCents ?? 100) / 100).toFixed(2)} free tier. Add your own Anthropic API key for unlimited usage — the free tier doesn't apply when you bring your own key. Or clone this app to run it locally.`
+      ? null
       : reason === "code_changes"
         ? "This app is running in hosted mode. To make code changes, add your own Anthropic API key or clone and run locally."
         : "This hosted app has limited AI features. Add your own Anthropic API key for the full experience, or clone and run locally.";
@@ -975,7 +988,11 @@ export function BuilderCtaCard({
         </div>
         <div>
           <h3 className="text-sm font-medium text-foreground">{title}</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
+          {description && (
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {description}
+            </p>
+          )}
         </div>
       </div>
 
@@ -1327,6 +1344,18 @@ const AssistantChatInner = forwardRef<
                   }
                 }, 3000);
 
+                // Hard cap: no single reconnect should wedge the UI for
+                // more than 2 minutes. Even if the watchdog is fooled and
+                // the SSE stream never closes, this guarantees "Thinking..."
+                // eventually clears.
+                const maxReconnectTimer = setTimeout(
+                  () => {
+                    abortCtrl.abort();
+                    clearInterval(watchdog);
+                  },
+                  2 * 60 * 1000,
+                );
+
                 const streamReconnect = async () => {
                   try {
                     const sseRes = await fetch(
@@ -1366,6 +1395,7 @@ const AssistantChatInner = forwardRef<
                     // Stream error or abort — fall through to re-fetch
                   } finally {
                     clearInterval(watchdog);
+                    clearTimeout(maxReconnectTimer);
                   }
 
                   // Poll for thread data — server's updateThreadData may not have
@@ -1877,7 +1907,7 @@ const AssistantChatInner = forwardRef<
             )}
           </div>
         ) : (
-          <div className="flex flex-col gap-4 px-4 py-4">
+          <div className="agent-thread-content flex flex-col gap-4 px-4 py-4">
             <ThreadPrimitive.Messages
               components={{
                 UserMessage,
@@ -1950,7 +1980,7 @@ const AssistantChatInner = forwardRef<
 
       {composerSlot}
       {/* Input area */}
-      <div className="shrink-0 px-3 py-2">
+      <div className="agent-composer-area shrink-0 px-3 py-2">
         <ComposerPrimitive.Root className="flex flex-col rounded-lg border border-input bg-background focus-within:ring-1 focus-within:ring-ring">
           <ComposerAttachmentPreviewStrip />
           <TiptapComposer

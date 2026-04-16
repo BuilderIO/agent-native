@@ -401,7 +401,15 @@ async function fetchSqlDashboards(): Promise<{ id: string; name: string }[]> {
   });
   if (!res.ok) return [];
   const data = await res.json();
-  return (data.dashboards ?? []).map((d: any) => ({ id: d.id, name: d.name }));
+  return (data.dashboards ?? [])
+    .filter((d: any) => d && typeof d.id === "string" && d.id.length > 0)
+    .map((d: any) => ({
+      id: d.id,
+      name:
+        typeof d.name === "string" && d.name.trim().length > 0
+          ? d.name
+          : "Untitled dashboard",
+    }));
 }
 
 // --- Sidebar ---
@@ -516,18 +524,30 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         setHiddenIds(getHiddenDashboards());
         return;
       }
-      const token = await getIdToken();
-      const res = await fetch(`/api/sql-dashboards/${d.id}`, {
-        method: "DELETE",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (!res.ok) {
-        // Surface failures instead of silently "succeeding" — otherwise the
-        // sidebar refreshes and the deleted-looking row reappears, leaving
-        // the user confused about what happened.
-        throw new Error(`Delete failed: ${res.status}`);
+      // Optimistic: remove from the sidebar query cache immediately so the
+      // row disappears without waiting for the DELETE round-trip. Snapshot
+      // the prior value so we can roll back on failure.
+      const queryKey = ["sql-dashboards-sidebar"] as const;
+      const prev =
+        queryClient.getQueryData<{ id: string; name: string }[]>(queryKey);
+      queryClient.setQueryData<{ id: string; name: string }[]>(
+        queryKey,
+        (old) => (old ?? []).filter((item) => item.id !== d.id),
+      );
+      try {
+        const token = await getIdToken();
+        const res = await fetch(`/api/sql-dashboards/${d.id}`, {
+          method: "DELETE",
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!res.ok) {
+          throw new Error(`Delete failed: ${res.status}`);
+        }
+        queryClient.invalidateQueries({ queryKey });
+      } catch (err) {
+        if (prev) queryClient.setQueryData(queryKey, prev);
+        throw err;
       }
-      queryClient.invalidateQueries({ queryKey: ["sql-dashboards-sidebar"] });
     },
     [queryClient],
   );

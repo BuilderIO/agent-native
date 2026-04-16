@@ -47,6 +47,8 @@ import {
   IconDotsVertical,
   IconHistory,
   IconTrash,
+  IconArrowsMaximize,
+  IconArrowsMinimize,
 } from "@tabler/icons-react";
 import {
   MultiTabAssistantChat,
@@ -198,6 +200,10 @@ export interface AgentPanelProps extends Omit<
   className?: string;
   /** Called when the user clicks the collapse button. If provided, a collapse button appears in the header. */
   onCollapse?: () => void;
+  /** Whether the panel is currently in fullscreen (Claude-style centered) mode. */
+  isFullscreen?: boolean;
+  /** Called when the user clicks the maximize/minimize button. If provided, the button appears next to the collapse button. */
+  onToggleFullscreen?: () => void;
   /** URL of the app being developed (shown as "Open app in new tab" in settings). Set by frame. */
   devAppUrl?: string;
   /** Namespace for localStorage keys — used to isolate chat state per app in the frame. */
@@ -218,6 +224,8 @@ export function AgentPanel({
   suggestions,
   showHeader = true,
   onCollapse,
+  isFullscreen,
+  onToggleFullscreen,
   devAppUrl,
   storageKey,
 }: AgentPanelProps) {
@@ -481,6 +489,22 @@ export function AgentPanel({
             <SetupButton />
           </Suspense>
         )}
+        {onToggleFullscreen && (
+          <IconTooltip
+            content={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+          >
+            <button
+              onClick={onToggleFullscreen}
+              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
+            >
+              {isFullscreen ? (
+                <IconArrowsMinimize size={14} />
+              ) : (
+                <IconArrowsMaximize size={14} />
+              )}
+            </button>
+          </IconTooltip>
+        )}
         {onCollapse && (
           <IconTooltip content="Collapse sidebar">
             <button
@@ -493,7 +517,7 @@ export function AgentPanel({
         )}
       </div>
     ),
-    [onCollapse, isDevMode],
+    [onCollapse, isDevMode, onToggleFullscreen, isFullscreen],
   );
 
   const [tabMenuOpen, setTabMenuOpen] = useState<string | null>(null);
@@ -985,12 +1009,20 @@ export function AgentPanel({
         className,
       )}
       style={AGENT_PANEL_ROOT_STYLE}
+      data-agent-fullscreen={isFullscreen ? "true" : undefined}
     >
-      {/* Tailwind group-hover/tab doesn't work in core package — inject directly */}
+      {/* Tailwind group-hover/tab doesn't work in core package — inject directly.
+          Fullscreen rules center the message stream and composer to a Claude-style
+          column while leaving the header bar at full width so the action buttons
+          stay pinned to the top corners. */}
       <style
         dangerouslySetInnerHTML={{
           __html:
-            ".agent-tab-close{opacity:0}.agent-tab:hover .agent-tab-close{opacity:1}",
+            ".agent-tab-close{opacity:0}.agent-tab:hover .agent-tab-close{opacity:1}" +
+            `[data-agent-fullscreen='true'] .agent-thread-content,` +
+            `[data-agent-fullscreen='true'] .agent-composer-area{` +
+            `max-width:${FULLSCREEN_CONTENT_MAX_PX}px;` +
+            `margin-left:auto;margin-right:auto;width:100%;}`,
         }}
       />
       {/* Framework onboarding — appears above the chat/cli/settings tabs
@@ -1134,8 +1166,11 @@ export function AgentPanel({
 
 const SIDEBAR_STORAGE_KEY = "agent-native-sidebar-width";
 const SIDEBAR_OPEN_KEY = "agent-native-sidebar-open";
+const SIDEBAR_FULLSCREEN_KEY = "agent-native-sidebar-fullscreen";
 const SIDEBAR_MIN = 280;
 const SIDEBAR_MAX = 700;
+/** Max width of the centered chat column in fullscreen mode (Claude-style). */
+const FULLSCREEN_CONTENT_MAX_PX = 760;
 
 function ResizeHandle({
   position,
@@ -1422,6 +1457,21 @@ export function AgentSidebar({
   });
   const [presentationMode, setPresentationMode] = useState(false);
   const [width, setWidth] = useState(sidebarWidth);
+  const [fullscreen, setFullscreen] = useState(() => {
+    // Force-disable on mobile: a Claude-style centered column makes no sense
+    // when the sidebar already covers most of the viewport.
+    if (
+      typeof window !== "undefined" &&
+      window.matchMedia("(max-width: 767px)").matches
+    ) {
+      return false;
+    }
+    try {
+      return localStorage.getItem(SIDEBAR_FULLSCREEN_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
 
   // Track mobile viewport so we can switch to overlay mode.
   const [isMobile, setIsMobile] = useState(
@@ -1457,6 +1507,16 @@ export function AgentSidebar({
     },
     [],
   );
+
+  const toggleFullscreen = useCallback(() => {
+    setFullscreen((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(SIDEBAR_FULLSCREEN_KEY, String(next));
+      } catch {}
+      return next;
+    });
+  }, []);
 
   // Track whether the frame is controlling the sidebar (code mode = frame active).
   // Default to true when inside an iframe — assume the frame sidebar is active
@@ -1574,22 +1634,54 @@ export function AgentSidebar({
   }, []);
 
   const isLeft = position === "left";
+  // Fullscreen only applies on desktop — on mobile the existing overlay is
+  // already viewport-covering, so the maximize button is hidden and the
+  // mounted state ignores any persisted value.
+  const effectiveFullscreen = fullscreen && !isMobile;
 
   // On mobile the sidebar floats as a fixed overlay so the content below isn't
-  // squashed. On desktop it participates in the flex layout as before.
-  const mobileSidebarStyle: React.CSSProperties = isMobile
-    ? {
-        position: "fixed",
-        top: 0,
-        [isLeft ? "left" : "right"]: 0,
-        height: "100%",
-        maxWidth: "85vw",
-        zIndex: 50,
-        background: "hsl(var(--background))",
-        borderLeft: isLeft ? "none" : "1px solid hsl(var(--border))",
-        borderRight: isLeft ? "1px solid hsl(var(--border))" : "none",
-      }
-    : {};
+  // squashed. On desktop it participates in the flex layout as before, except
+  // in fullscreen mode where it overlays the entire viewport (Claude-style).
+  let panelStyle: React.CSSProperties;
+  if (isMobile) {
+    panelStyle = {
+      ...AGENT_PANEL_ROOT_STYLE,
+      position: "fixed",
+      top: 0,
+      [isLeft ? "left" : "right"]: 0,
+      height: "100%",
+      width,
+      maxWidth: "85vw",
+      maxHeight: "100vh",
+      zIndex: 50,
+      background: "hsl(var(--background))",
+      borderLeft: isLeft ? "none" : "1px solid hsl(var(--border))",
+      borderRight: isLeft ? "1px solid hsl(var(--border))" : "none",
+      display: open ? "flex" : "none",
+    };
+  } else if (effectiveFullscreen) {
+    panelStyle = {
+      ...AGENT_PANEL_ROOT_STYLE,
+      position: "fixed",
+      inset: 0,
+      width: "100%",
+      maxHeight: "100vh",
+      zIndex: 40,
+      background: "hsl(var(--background))",
+      display: open ? "flex" : "none",
+    };
+  } else {
+    panelStyle = {
+      ...AGENT_PANEL_ROOT_STYLE,
+      width,
+      maxHeight: "100vh",
+      display: open ? "flex" : "none",
+    };
+  }
+
+  // Hide the resize handle when not draggable: mobile (overlay) or fullscreen
+  // (no width to drag — the panel covers the viewport).
+  const showResizeHandle = !isMobile && !effectiveFullscreen && open;
 
   // Always render the sidebar panel (even when closed) so MultiTabAssistantChat
   // stays mounted and can receive messages (e.g. from voice dictation) while
@@ -1597,32 +1689,24 @@ export function AgentSidebar({
   // any in-progress or completed conversations.
   const sidebar = (
     <>
-      {!isMobile &&
-        (isLeft ? null : open ? (
-          <ResizeHandle position={position} onDrag={handleDrag} />
-        ) : null)}
+      {showResizeHandle && !isLeft && (
+        <ResizeHandle position={position} onDrag={handleDrag} />
+      )}
       <div
         className="agent-sidebar-panel flex shrink-0 flex-col overflow-hidden text-[13px] leading-[1.2] antialiased"
-        style={{
-          ...AGENT_PANEL_ROOT_STYLE,
-          ...mobileSidebarStyle,
-          width,
-          maxHeight: "100vh",
-          display: open ? "flex" : "none",
-        }}
+        style={panelStyle}
       >
         <AgentPanel
           emptyStateText={emptyStateText}
           suggestions={suggestions}
           onCollapse={() => setOpenPersisted(false)}
+          isFullscreen={effectiveFullscreen}
+          onToggleFullscreen={isMobile ? undefined : toggleFullscreen}
         />
       </div>
-      {!isMobile &&
-        (isLeft ? (
-          open ? (
-            <ResizeHandle position={position} onDrag={handleDrag} />
-          ) : null
-        ) : null)}
+      {showResizeHandle && isLeft && (
+        <ResizeHandle position={position} onDrag={handleDrag} />
+      )}
     </>
   );
 

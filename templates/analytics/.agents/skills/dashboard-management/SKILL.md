@@ -74,11 +74,21 @@ From the agent itself, always use `db-query` / `db-exec` / `db-patch` instead of
 
 The typical flow when the user asks for a new dashboard:
 
-1. Determine what data to show (ask clarifying questions if needed).
-2. Write the dashboard config to settings via `db-exec` (INSERT ... ON CONFLICT DO UPDATE). See the "Reading and writing dashboards" section below for the exact command.
-3. Navigate the user to it: `pnpm action navigate --view=adhoc --dashboardId={id}`.
+1. **Consult the `<data-dictionary>` block** injected into your system prompt. If the metrics the user wants are already documented there, use those `table` / `columns` / `queryTemplate` values verbatim — column names in the underlying warehouse use prefixes (`hs_`, `m_`, `sfdc_`, etc.) that **cannot be guessed**. Guessing produces `Unrecognized name: is_closed; Did you mean hs_is_closed?` errors and a broken dashboard.
+2. If the metric isn't documented, do NOT invent column names. Either ask the user, or introspect the schema: `db-query --sql "SELECT column_name, data_type FROM \`project.dataset.INFORMATION_SCHEMA.COLUMNS\` WHERE table_name = '<table>'"`. Once you've learned the real columns, propose a dictionary entry via `save-data-dictionary-entry` so the next dashboard doesn't pay the same cost.
+3. Build a complete config object that includes **at minimum** a `name` and a `panels` array. Every panel MUST have `id`, `title`, `sql`, `source`, `chartType`, and `width` — the UI assumes these fields exist and missing values will produce a blank sidebar entry or crash the dashboard renderer.
+4. Write it via the `update-dashboard` action — never via raw `db-exec INSERT INTO settings`. The action handles org/user/global scope correctly and is the only supported entry point for writing SQL dashboards:
+
+```
+pnpm action update-dashboard --dashboardId my-new-dashboard --config '<full json>'
+```
+
+5. **The save endpoint dry-runs each BigQuery panel's SQL before persisting.** If it returns an error like `panel[2] "Foo" SQL is invalid: Unrecognized name: is_closed; Did you mean hs_is_closed?`, fix the SQL (usually by consulting the dictionary or introspecting the schema) and retry. Never work around the dry-run — a dashboard that can't dry-run cannot render.
+6. Navigate the user to it: `pnpm action navigate --view=adhoc --dashboardId={id}`.
 
 The UI picks up the new dashboard via SSE events on settings changes.
+
+> **Rule:** never `INSERT`/`UPDATE` the `settings` table directly for `sql-dashboard-*` keys. The save endpoint and the action both enforce shape; raw db writes can leave dashboards with no name or with panels missing `sql`, which crashes the page and produces nameless rows in the sidebar.
 
 ## Modifying a Dashboard
 

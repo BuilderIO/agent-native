@@ -23,6 +23,7 @@ import { createAnthropicEngine } from "../agent/engine/anthropic-engine.js";
 import { createThread } from "../chat-threads/store.js";
 import { startRun, subscribeToRun } from "../agent/run-manager.js";
 import { runAgentLoop } from "../agent/production-agent.js";
+import { buildAssistantMessage } from "../agent/thread-data-builder.js";
 import {
   readAppState,
   writeAppState,
@@ -275,72 +276,35 @@ You are a focused sub-agent with a specific task. You have been given a curated 
 
       // Persist the full conversation to threadData so the sub-agent tab
       // can restore it later (after the in-memory run is cleaned up).
-      // Convert EngineMessage[] to the assistant-ui repository format.
+      // Rebuild from run.events via buildAssistantMessage so partial text
+      // streamed in an interrupted final iteration is preserved — the
+      // EngineMessage[] array only picks up a turn after runAgentLoop
+      // finishes pushing, so an aborted mid-stream would otherwise be lost.
       try {
         const { updateThreadData } = await import("../chat-threads/store.js");
-        const repoMessages = messages.map((msg: EngineMessage, i: number) => {
-          const parts: any[] = [];
-          for (const part of msg.content) {
-            if (part.type === "text") {
-              parts.push({ type: "text", text: part.text });
-            } else if (part.type === "tool-call") {
-              parts.push({
-                type: "tool-call",
-                toolCallId: part.id,
-                toolName: part.name,
-                args: part.input,
-              });
-            } else if (part.type === "tool-result") {
-              // Tool results in the user message — will be matched to tool-call below
-            }
-          }
-          const repoMsg: any = {
-            id: `msg-${taskId}-${i}`,
-            role: msg.role,
-            content: parts.length > 0 ? parts : [{ type: "text", text: "" }],
-            metadata: {},
-          };
-          if (msg.role === "assistant") {
-            repoMsg.status = { type: "complete", reason: "stop" };
-          }
-          return repoMsg;
-        });
+        const userMsg = {
+          id: `msg-${taskId}-user`,
+          role: "user" as const,
+          content: [{ type: "text", text: opts.description }],
+          metadata: {},
+        };
+        const repo: {
+          messages: Array<{ message: Record<string, unknown> }>;
+        } = { messages: [{ message: userMsg }] };
 
-        // Attach tool results to their corresponding tool-call parts
-        for (const msg of messages) {
-          if (msg.role !== "user") continue;
-          for (const part of msg.content) {
-            if (part.type !== "tool-result") continue;
-            // Find the assistant message with the matching tool-call
-            for (const repoMsg of repoMessages) {
-              if (repoMsg.role !== "assistant") continue;
-              const tc = repoMsg.content?.find(
-                (p: any) =>
-                  p.type === "tool-call" && p.toolCallId === part.toolCallId,
-              );
-              if (tc) {
-                tc.result = part.content;
-                break;
-              }
-            }
-          }
+        const assistantMsg = buildAssistantMessage(
+          run.events ?? [],
+          `task-${taskId}`,
+        );
+        if (assistantMsg) {
+          repo.messages.push({
+            message: {
+              ...assistantMsg,
+              status: { type: "complete", reason: "stop" },
+            },
+          });
         }
 
-        // Filter out user messages that only contain tool_result blocks (empty content)
-        const filteredMessages = repoMessages.filter(
-          (m: any) =>
-            m.content.length > 0 &&
-            !(
-              m.content.length === 1 &&
-              m.content[0].type === "text" &&
-              m.content[0].text === ""
-            ),
-        );
-
-        // Wrap in assistant-ui's { message: ... } format
-        const repo = {
-          messages: filteredMessages.map((m: any) => ({ message: m })),
-        };
         const title = opts.description.slice(0, 100);
         const preview = accumulatedText.slice(0, 200);
         await updateThreadData(
@@ -348,7 +312,7 @@ You are a focused sub-agent with a specific task. You have been given a curated 
           JSON.stringify(repo),
           title,
           preview,
-          filteredMessages.length,
+          repo.messages.length,
         );
       } catch {
         // Best effort — the in-memory replay path still works
