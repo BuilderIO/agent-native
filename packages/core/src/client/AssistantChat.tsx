@@ -1177,7 +1177,12 @@ const AssistantChatInner = forwardRef<
     limitCents: number;
   } | null>(null);
   const [queuedMessages, setQueuedMessages] = useState<
-    Array<{ text: string; images?: string[]; references?: Reference[] }>
+    Array<{
+      id: string;
+      text: string;
+      images?: string[];
+      references?: Reference[];
+    }>
   >([]);
   const [showContinue, setShowContinue] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
@@ -1637,7 +1642,18 @@ const AssistantChatInner = forwardRef<
     (text: string, images?: string[], references?: Reference[]) => {
       setShowContinue(false);
       if (isRunning) {
-        setQueuedMessages((prev) => [...prev, { text, images, references }]);
+        setQueuedMessages((prev) => [
+          ...prev,
+          {
+            id:
+              typeof crypto !== "undefined" && crypto.randomUUID
+                ? crypto.randomUUID()
+                : `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            text,
+            images,
+            references,
+          },
+        ]);
       } else {
         const content: Array<
           { type: "text"; text: string } | { type: "image"; image: string }
@@ -1903,12 +1919,12 @@ const AssistantChatInner = forwardRef<
                 already-streamed reconnect content so the user sees both
                 "what it did so far" and "it's still working". */}
             {showRunningInUI && <ThinkingIndicator />}
-            {queuedMessages.map((msg, i) => {
+            {queuedMessages.map((msg) => {
               const displayText = msg.text
                 .replace(/<context>[\s\S]*?<\/context>\n?/g, "")
                 .trim();
               return (
-                <div key={`queued-${i}`} className="flex justify-end group">
+                <div key={msg.id} className="flex justify-end group">
                   <div className="relative max-w-[85%] rounded-lg bg-accent/50 text-foreground/60 px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words">
                     <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground mb-1 font-medium uppercase tracking-wide">
                       <IconClock className="h-3 w-3" />
@@ -1931,11 +1947,11 @@ const AssistantChatInner = forwardRef<
                       type="button"
                       onClick={() =>
                         setQueuedMessages((prev) =>
-                          prev.filter((_, idx) => idx !== i),
+                          prev.filter((m) => m.id !== msg.id),
                         )
                       }
                       aria-label="Remove from queue"
-                      className="absolute -top-2 -right-2 hidden group-hover:flex h-5 w-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground hover:text-foreground hover:bg-accent shadow-sm"
+                      className="absolute -top-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-foreground hover:bg-accent shadow-sm"
                     >
                       <IconX className="h-3 w-3" />
                     </button>
