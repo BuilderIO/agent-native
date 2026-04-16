@@ -35,6 +35,20 @@ import type { BetterAuthConfig } from "./better-auth-instance.js";
 import { getOnboardingHtml, getResetPasswordHtml } from "./onboarding-html.js";
 import { migrateLocalUserData } from "./local-migration.js";
 import { readBody } from "../server/h3-helpers.js";
+import {
+  readDesktopSso,
+  writeDesktopSso,
+  clearDesktopSso,
+} from "./desktop-sso.js";
+import { isElectron as isElectronRequest } from "./google-oauth.js";
+
+/**
+ * Get the configured session max age. Desktop SSO broker writes from
+ * OAuth flows read this so expiration stays consistent with the cookie.
+ */
+export function getSessionMaxAge(): number {
+  return sessionMaxAge;
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -454,6 +468,13 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
   if (customGetSession) {
     const session = await customGetSession(event);
     if (session) return session;
+    // Desktop SSO broker: even with BYOA auth, fall back to the broker
+    // for Electron requests so cross-template SSO works for custom-auth
+    // templates too.
+    if (isElectronRequest(event)) {
+      const sso = await readDesktopSso();
+      if (sso?.email) return { email: sso.email, token: sso.token };
+    }
     // Fall through to mobile _session check
   } else {
     // 4. Better Auth session (cookie or Bearer token)
@@ -481,6 +502,21 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
       if (email) {
         clearUpgradePendingCookie(event);
         return { email, token: cookie };
+      }
+    }
+
+    // 5b. Desktop SSO broker fallback.
+    // Each template in the Electron desktop app has its own database, so
+    // a session token created by one template doesn't resolve in another.
+    // When an Electron request has no resolvable session, trust the
+    // home-dir SSO record written by whichever template the user signed
+    // into. Gated on Electron user-agent so no non-desktop code path
+    // consults the file.
+    if (isElectronRequest(event)) {
+      const sso = await readDesktopSso();
+      if (sso?.email) {
+        clearUpgradePendingCookie(event);
+        return { email: sso.email, token: sso.token };
       }
     }
   }
@@ -904,6 +940,13 @@ async function mountBetterAuthRoutes(
             maxAge: sessionMaxAge,
           });
           await addSession(result.token, email);
+          if (isElectronRequest(event)) {
+            await writeDesktopSso({
+              email,
+              token: result.token,
+              expiresAt: Date.now() + sessionMaxAge * 1000,
+            });
+          }
         }
         return { ok: true };
       } catch (e: any) {
@@ -960,6 +1003,8 @@ async function mountBetterAuthRoutes(
       } catch {
         // Ignore if no Better Auth session
       }
+
+      if (isElectronRequest(event)) await clearDesktopSso();
 
       return { ok: true };
     }),
@@ -1053,6 +1098,7 @@ function mountTokenOnlyRoutes(
       const cookie = getCookie(event, COOKIE_NAME);
       if (cookie) await removeSession(cookie);
       deleteCookie(event, COOKIE_NAME, { path: "/" });
+      if (isElectronRequest(event)) await clearDesktopSso();
       return { ok: true };
     }),
   );
@@ -1158,6 +1204,13 @@ function mountAuthFallbackRoutes(app: H3App): void {
             maxAge: sessionMaxAge,
           });
           await addSession(result.token, email);
+          if (isElectronRequest(event)) {
+            await writeDesktopSso({
+              email,
+              token: result.token,
+              expiresAt: Date.now() + sessionMaxAge * 1000,
+            });
+          }
         }
         return { ok: true };
       } catch (e: any) {
@@ -1214,6 +1267,8 @@ function mountAuthFallbackRoutes(app: H3App): void {
       } catch {
         // Ignore if Better Auth is still unavailable
       }
+
+      if (isElectronRequest(event)) await clearDesktopSso();
 
       return { ok: true };
     }),
@@ -1395,6 +1450,7 @@ export async function autoMountAuth(
         const cookie = getCookie(event, COOKIE_NAME);
         if (cookie) await removeSession(cookie);
         deleteCookie(event, COOKIE_NAME, { path: "/" });
+        if (isElectronRequest(event)) await clearDesktopSso();
         return { ok: true };
       }),
     );
