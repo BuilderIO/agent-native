@@ -58,9 +58,7 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
   if (readFailed) {
     const cause =
       readError instanceof Error ? readError.message : String(readError);
-    const error = new Error(
-      `Unreadable ${res.status} response: ${cause}`,
-    );
+    const error = new Error(`Unreadable ${res.status} response: ${cause}`);
     (error as any).status = res.status;
     throw error;
   }
