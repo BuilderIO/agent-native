@@ -16,7 +16,12 @@ import {
 } from "@agent-native/core/client";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import "./global.css";
+import type { LinksFunction } from "react-router";
+import stylesheet from "./global.css?url";
+
+export const links: LinksFunction = () => [
+  { rel: "stylesheet", href: stylesheet },
+];
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (

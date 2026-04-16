@@ -12,7 +12,12 @@ import {
 import { AuthProvider } from "@/components/auth/AuthProvider";
 import { CommandPalette } from "./components/layout/CommandPalette";
 import { Layout as AppLayout } from "./components/layout/Layout";
-import "./global.css";
+import type { LinksFunction } from "react-router";
+import stylesheet from "./global.css?url";
+
+export const links: LinksFunction = () => [
+  { rel: "stylesheet", href: stylesheet },
+];
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (

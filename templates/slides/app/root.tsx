@@ -14,7 +14,12 @@ import {
   exitSelectionMode as coreExitSelectionMode,
   useCommandMenuShortcut,
 } from "@agent-native/core/client";
-import "./global.css";
+import type { LinksFunction } from "react-router";
+import stylesheet from "./global.css?url";
+
+export const links: LinksFunction = () => [
+  { rel: "stylesheet", href: stylesheet },
+];
 
 // Key forces DeckProvider remount when code changes (HMR)
 const DECK_KEY = 3;

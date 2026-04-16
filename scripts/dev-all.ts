@@ -77,25 +77,25 @@ console.log(
 );
 console.log(`\x1b[36m[dev-all]\x1b[0m Docs: http://localhost:${DOCS_PORT}`);
 
+// Prebuild core once before templates boot. Templates import from
+// @agent-native/core/server; if tsc --watch is mid-rewrite of dist/ when a
+// template SSR-imports it, named exports come back undefined (e.g.
+// "createAgentChatPlugin is not a function"). Building first guarantees a
+// complete dist; tsc --watch then takes over for incremental rebuilds.
+console.log(`\x1b[36m[dev-all]\x1b[0m Prebuilding @agent-native/core...`);
+execSync("pnpm --filter @agent-native/core build", { stdio: "inherit" });
+
 const names: string[] = [];
 const commands: string[] = [];
 
-// Stagger template starts by 1.5s each to prevent CPU saturation.
-// When all 11+ apps start simultaneously, Nitro's ViteEnvRunner hits its
-// 3-second initialization timeout, producing "Vite environment unavailable" 503s.
-const STAGGER_DELAY_S = 1.5;
-
-templatePorts.forEach(({ name, port }, i) => {
+templatePorts.forEach(({ name, port }) => {
   console.log(`\x1b[36m[dev-all]\x1b[0m ${name}: http://localhost:${port}`);
-
-  const delay = i * STAGGER_DELAY_S;
-  const prefix = delay > 0 ? `sleep ${delay} && ` : "";
 
   names.push(name);
   // Pass APP_NAME so each app can resolve its own DATABASE_URL
   // (e.g. MAIL_DATABASE_URL when APP_NAME=mail)
   commands.push(
-    `${prefix}APP_NAME=${name} pnpm --dir templates/${name} exec vite --port ${port}`,
+    `APP_NAME=${name} pnpm --dir templates/${name} exec vite --port ${port}`,
   );
 });
 

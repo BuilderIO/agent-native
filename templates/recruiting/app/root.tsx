@@ -12,7 +12,12 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { useDbSync } from "@agent-native/core";
 import { ClientOnly, DefaultSpinner } from "@agent-native/core/client";
 import { TAB_ID } from "@/lib/tab-id";
-import "./global.css";
+import type { LinksFunction } from "react-router";
+import stylesheet from "./global.css?url";
+
+export const links: LinksFunction = () => [
+  { rel: "stylesheet", href: stylesheet },
+];
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (

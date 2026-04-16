@@ -24,7 +24,7 @@ export function GroupByPicker({ groupBy, onChange }: GroupByPickerProps) {
           <span className="text-muted-foreground">&#9655;</span>
           {g}
           <button
-            className="hover:text-destructive"
+            className="hover:text-foreground"
             onClick={() => onChange(groupBy.filter((_, j) => j !== i))}
           >
             <IconX className="h-3 w-3" />
