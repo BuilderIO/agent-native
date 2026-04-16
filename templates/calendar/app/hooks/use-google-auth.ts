@@ -46,15 +46,24 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
   }
   const raw = await res.text().catch(() => "");
   let body: any = undefined;
+  let parseFailed = false;
   if (raw) {
     try {
       body = JSON.parse(raw);
     } catch {
       // not JSON — leave body undefined
+      parseFailed = true;
     }
   }
   if (!res.ok) {
     throw bodyError(body, raw, res, "Request failed");
+  }
+  // 2xx with a non-empty, non-JSON body — almost always a misconfigured proxy
+  // or server returning an HTML page with status 200. Throw so callers (status
+  // checks, auth URL hooks) surface the failure instead of silently treating
+  // the response as "no data" / disconnected.
+  if (parseFailed) {
+    throw bodyError(body, raw, res, "Unexpected non-JSON response");
   }
   return (body ?? (null as unknown)) as T;
 }

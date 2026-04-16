@@ -23,11 +23,13 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
   }
   const raw = await res.text().catch(() => "");
   let body: any = undefined;
+  let parseFailed = false;
   if (raw) {
     try {
       body = JSON.parse(raw);
     } catch {
       // not JSON — leave body undefined and use the raw text in errors
+      parseFailed = true;
     }
   }
   if (!res.ok) {
@@ -37,6 +39,17 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
       res.statusText ||
       `Request failed (HTTP ${res.status})`;
     const error = new Error(message);
+    (error as any).status = res.status;
+    throw error;
+  }
+  // 2xx with a non-empty, non-JSON body — this is almost always a bug in the
+  // auth proxy or server (e.g. HTML status page returned with status 200).
+  // Throw so callers like useGoogleAuthUrl don't silently treat the user as
+  // "not connected" or kick off a navigation to `undefined`.
+  if (parseFailed) {
+    const error = new Error(
+      `Unexpected non-JSON response (HTTP ${res.status}): ${raw.slice(0, 200)}`,
+    );
     (error as any).status = res.status;
     throw error;
   }

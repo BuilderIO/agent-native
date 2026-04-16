@@ -102,11 +102,13 @@ async function actionFetch<T>(
   const raw = await res.text().catch(() => "");
 
   let data: any = undefined;
+  let parseFailed = false;
   if (raw.length > 0) {
     try {
       data = JSON.parse(raw);
     } catch {
       // Body wasn't JSON — keep `data` undefined and use the raw text below.
+      parseFailed = true;
     }
   }
 
@@ -119,6 +121,19 @@ async function actionFetch<T>(
       res.statusText ||
       `HTTP ${res.status}`;
     const error = new Error(`Action ${name} failed: ${message}`);
+    (error as any).status = res.status;
+    throw error;
+  }
+
+  // 2xx with a non-empty, non-JSON body. Action callers expect typed data, so
+  // returning `null` here would silently mask a real server bug (e.g. a proxy
+  // returning HTML 200 instead of JSON). Throw instead — empty bodies (handled
+  // above by the `raw.length > 0` guard and the 204 short-circuit) still
+  // correctly resolve to `null`.
+  if (parseFailed) {
+    const error = new Error(
+      `Action ${name} returned a non-JSON ${res.status} response: ${raw.slice(0, 200)}`,
+    );
     (error as any).status = res.status;
     throw error;
   }
