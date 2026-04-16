@@ -539,7 +539,7 @@ function DataSourceCard({
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between gap-6">
             <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
                 <Icon className="h-5 w-5" />
               </div>
               <div>
@@ -827,7 +827,7 @@ export default function DataSources() {
       {/* Filtered results */}
       {filteredSources !== null ? (
         filteredSources.length > 0 ? (
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 lg:grid-cols-2">
             {filteredSources.map((source) => (
               <DataSourceCard
                 key={source.id}
@@ -853,7 +853,7 @@ export default function DataSources() {
               <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
                 {categoryLabels[category]}
               </h3>
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-3 lg:grid-cols-2">
                 {sources.map((source) => (
                   <DataSourceCard
                     key={source.id}
