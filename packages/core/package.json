@@ -66,7 +66,6 @@
     "release": "npm version patch && npm publish --access public"
   },
   "dependencies": {
-    "@agent-native/shared-app-config": "workspace:*",
     "@anthropic-ai/sdk": "^0.80.0",
     "@clack/prompts": "^1.2.0",
     "@libsql/client": "^0.15.0",
@@ -137,7 +136,7 @@
     "tailwindcss": ">=3",
     "tailwindcss-animate": ">=1",
     "typescript": ">=5",
-    "vite": ">=8",
+    "vite": ">=5",
     "ws": ">=8"
   },
   "peerDependenciesMeta": {

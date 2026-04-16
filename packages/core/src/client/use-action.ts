@@ -82,14 +82,86 @@ async function actionFetch<T>(
     init.body = JSON.stringify(params);
   }
 
-  const res = await fetch(url, init);
+  let res: Response;
+  try {
+    res = await fetch(url, init);
+  } catch (err) {
+    // Network failures, CORS, server unreachable, etc. — give the caller a
+    // useful message instead of the opaque "Failed to fetch".
+    const cause = err instanceof Error ? err.message : String(err);
+    throw new Error(`Action ${name} failed: ${cause}`);
+  }
+
+  // 204 No Content — nothing to parse.
   if (res.status === 204) return null as T;
 
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data?.error || `Action ${name} failed: HTTP ${res.status}`);
+  // Read the body as text first so we can:
+  //   - tolerate empty bodies (avoids "Unexpected end of JSON input")
+  //   - surface non-JSON error responses (HTML 401/404 pages, plain text, etc.)
+  //   - preserve the original HTTP status in the thrown error
+  // Track read failures separately from "no body" — a stream interruption /
+  // decode failure on a 2xx response should error rather than silently
+  // succeed with `null`.
+  let raw = "";
+  let readFailed = false;
+  let readError: unknown;
+  try {
+    raw = await res.text();
+  } catch (err) {
+    readFailed = true;
+    readError = err;
   }
-  return data;
+
+  let data: any = undefined;
+  let parseFailed = false;
+  if (raw.length > 0) {
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      // Body wasn't JSON — keep `data` undefined and use the raw text below.
+      parseFailed = true;
+    }
+  }
+
+  if (!res.ok) {
+    const message =
+      (data && (data.error || data.message)) ||
+      // Truncate non-JSON bodies so we don't dump entire HTML pages into the
+      // console, but still give the developer a hint as to what came back.
+      (raw && raw.slice(0, 200)) ||
+      res.statusText ||
+      `HTTP ${res.status}`;
+    const error = new Error(`Action ${name} failed: ${message}`);
+    (error as any).status = res.status;
+    throw error;
+  }
+
+  // 2xx but the body couldn't even be read (mid-stream abort, decode failure,
+  // etc.). Don't silently treat that as a `null` success.
+  if (readFailed) {
+    const cause =
+      readError instanceof Error ? readError.message : String(readError);
+    const error = new Error(
+      `Action ${name} returned ${res.status} but the body could not be read: ${cause}`,
+    );
+    (error as any).status = res.status;
+    throw error;
+  }
+
+  // 2xx with a non-empty, non-JSON body. Action callers expect typed data, so
+  // returning `null` here would silently mask a real server bug (e.g. a proxy
+  // returning HTML 200 instead of JSON). Throw instead — empty bodies (handled
+  // above by the `raw.length > 0` guard and the 204 short-circuit) still
+  // correctly resolve to `null`.
+  if (parseFailed) {
+    const error = new Error(
+      `Action ${name} returned a non-JSON ${res.status} response: ${raw.slice(0, 200)}`,
+    );
+    (error as any).status = res.status;
+    throw error;
+  }
+
+  return (data ?? (null as unknown)) as T;
 }
 
 // ---------------------------------------------------------------------------

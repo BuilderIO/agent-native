@@ -5,6 +5,18 @@ export function meta() {
   return [{ title: "Mail" }];
 }
 
+/**
+ * Run the redirect on both the server and the client. Doing it client-only
+ * via `clientLoader` previously caused React Router to occasionally log
+ * `No routes matched location "/inbox"` because the navigation fired during
+ * hydration, before the route tree was fully attached. A `loader` runs as
+ * part of the server response and the navigation completes before the app
+ * hydrates.
+ */
+export function loader() {
+  throw redirect("/inbox");
+}
+
 export function clientLoader() {
   throw redirect("/inbox");
 }
@@ -18,6 +30,6 @@ export function HydrateFallback() {
 }
 
 export default function IndexRoute() {
-  // This should never render — clientLoader redirects to /inbox
+  // Should never render — both loader and clientLoader redirect to /inbox.
   return null;
 }
