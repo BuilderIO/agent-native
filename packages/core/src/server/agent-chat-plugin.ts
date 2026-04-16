@@ -2461,8 +2461,11 @@ export function createAgentChatPlugin(
       }),
     );
 
-    // Mount save-key BEFORE the prefix handler so it isn't shadowed
-    // Only functional in Node.js environments (writes to .env file)
+    // Mount save-key BEFORE the prefix handler so it isn't shadowed.
+    // Persists the user's key per-owner in the SQL settings table so it
+    // survives across serverless invocations (where mutating process.env
+    // and writing .env are both no-ops). Also updates process.env and
+    // .env when running locally for fast pickup by other handlers.
     getH3App(nitroApp).use(
       `${routePath}/save-key`,
       defineEventHandler(async (event) => {
@@ -2481,6 +2484,20 @@ export function createAgentChatPlugin(
 
         const trimmedKey = key.trim();
 
+        // Persist per-owner so the key survives cold starts in serverless
+        // and so the user's key isn't shared across users on multi-tenant
+        // hosted deployments.
+        try {
+          const ownerEmail = await getOwnerFromEvent(event);
+          if (ownerEmail) {
+            await putSetting(`user-anthropic-api-key:${ownerEmail}`, {
+              key: trimmedKey,
+            });
+          }
+        } catch {
+          // Settings store unavailable — fall back to env-only behavior
+        }
+
         try {
           const path = await import("path");
           const { upsertEnvFile } = await import("./create-server.js");
@@ -2492,7 +2509,8 @@ export function createAgentChatPlugin(
           // Edge runtime — can't write .env, but can still update process.env
         }
 
-        // Update process.env so the agent works immediately
+        // Update process.env so the agent works immediately in the current
+        // invocation; the SQL persist above covers future invocations.
         process.env.ANTHROPIC_API_KEY = trimmedKey;
 
         return { ok: true };

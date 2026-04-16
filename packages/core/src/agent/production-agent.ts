@@ -451,23 +451,51 @@ export function createProductionAgentHandler(
       return { error: "message is required" };
     }
 
+    // Resolve owner first so we can look up a per-owner API key. Users
+    // who bring their own key bypass the platform's free-tier usage limit
+    // and use their key for this request (which is also durable across
+    // serverless cold starts via the settings table).
+    let ownerEmail: string | null = null;
+    if (options.resolveOwnerEmail) {
+      try {
+        ownerEmail = await options.resolveOwnerEmail(event);
+      } catch {
+        ownerEmail = null;
+      }
+    }
+
+    let userApiKey: string | undefined;
+    if (ownerEmail && ownerEmail !== "local@localhost") {
+      try {
+        const { getSetting } = await import("../settings/store.js");
+        const stored = await getSetting(`user-anthropic-api-key:${ownerEmail}`);
+        const key =
+          stored && typeof stored.key === "string" ? stored.key.trim() : "";
+        if (key) userApiKey = key;
+      } catch {
+        // Settings store unavailable — fall through to env-based key
+      }
+    }
+
+    const effectiveApiKey =
+      userApiKey ?? options.apiKey ?? process.env.ANTHROPIC_API_KEY;
+
     // Resolve engine (async — reads settings if needed)
     let engine: AgentEngine;
     try {
       engine = await resolveEngine({
         engineOption: options.engine,
-        apiKey: options.apiKey ?? process.env.ANTHROPIC_API_KEY,
+        apiKey: effectiveApiKey,
         model,
       });
     } catch {
       engine = await resolveEngine({
-        apiKey: options.apiKey ?? process.env.ANTHROPIC_API_KEY,
+        apiKey: effectiveApiKey,
       });
     }
 
     // Check for API key before starting a run (only for anthropic engine)
-    const apiKey = options.apiKey ?? process.env.ANTHROPIC_API_KEY;
-    if (engine.name === "anthropic" && !apiKey) {
+    if (engine.name === "anthropic" && !effectiveApiKey) {
       setResponseHeader(event, "Content-Type", "text/event-stream");
       setResponseHeader(event, "Cache-Control", "no-cache");
       setResponseHeader(event, "Connection", "keep-alive");
@@ -484,32 +512,37 @@ export function createProductionAgentHandler(
       });
     }
 
-    // Check usage limit before starting a run (production hosted mode)
-    if (options.trackUsage && options.resolveOwnerEmail) {
+    // Check usage limit before starting a run (production hosted mode).
+    // Skip when the user has provided their own key — they're paying
+    // Anthropic directly, so the platform's free tier doesn't apply.
+    if (
+      !userApiKey &&
+      options.trackUsage &&
+      options.resolveOwnerEmail &&
+      ownerEmail &&
+      ownerEmail !== "local@localhost"
+    ) {
       try {
-        const ownerEmail = await options.resolveOwnerEmail(event);
-        if (ownerEmail && ownerEmail !== "local@localhost") {
-          const { checkUsageLimit } = await import("../usage/store.js");
-          const result = await checkUsageLimit(
-            ownerEmail,
-            options.usageLimitCents,
-          );
-          if (!result.allowed) {
-            setResponseHeader(event, "Content-Type", "text/event-stream");
-            setResponseHeader(event, "Cache-Control", "no-cache");
-            setResponseHeader(event, "Connection", "keep-alive");
-            const encoder = new TextEncoder();
-            return new ReadableStream({
-              start(controller) {
-                controller.enqueue(
-                  encoder.encode(
-                    `data: ${JSON.stringify({ type: "usage_limit_reached", usageCents: result.usageCents, limitCents: result.limitCents })}\n\n`,
-                  ),
-                );
-                controller.close();
-              },
-            });
-          }
+        const { checkUsageLimit } = await import("../usage/store.js");
+        const result = await checkUsageLimit(
+          ownerEmail,
+          options.usageLimitCents,
+        );
+        if (!result.allowed) {
+          setResponseHeader(event, "Content-Type", "text/event-stream");
+          setResponseHeader(event, "Cache-Control", "no-cache");
+          setResponseHeader(event, "Connection", "keep-alive");
+          const encoder = new TextEncoder();
+          return new ReadableStream({
+            start(controller) {
+              controller.enqueue(
+                encoder.encode(
+                  `data: ${JSON.stringify({ type: "usage_limit_reached", usageCents: result.usageCents, limitCents: result.limitCents })}\n\n`,
+                ),
+              );
+              controller.close();
+            },
+          });
         }
       } catch {
         // Usage check failed — allow the request to proceed

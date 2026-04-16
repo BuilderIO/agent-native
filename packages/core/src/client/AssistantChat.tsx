@@ -951,7 +951,7 @@ export function BuilderCtaCard({
 
   const description =
     reason === "usage_limit"
-      ? `You've used $${((usageCents ?? 0) / 100).toFixed(2)} of your $${((limitCents ?? 100) / 100).toFixed(2)} free tier. Add your own Anthropic API key for unlimited usage — the free tier doesn't apply when you bring your own key. Or clone this app to run it locally.`
+      ? null
       : reason === "code_changes"
         ? "This app is running in hosted mode. To make code changes, add your own Anthropic API key or clone and run locally."
         : "This hosted app has limited AI features. Add your own Anthropic API key for the full experience, or clone and run locally.";
@@ -975,7 +975,11 @@ export function BuilderCtaCard({
         </div>
         <div>
           <h3 className="text-sm font-medium text-foreground">{title}</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
+          {description && (
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {description}
+            </p>
+          )}
         </div>
       </div>
 
