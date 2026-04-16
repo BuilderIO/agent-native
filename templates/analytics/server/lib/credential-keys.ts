@@ -50,21 +50,29 @@ export const credentialKeys: CredentialKeyConfig[] = [
   // HubSpot
   { key: "HUBSPOT_ACCESS_TOKEN", label: "HubSpot", required: false },
   // Gong
-  { key: "GONG_API_KEY", label: "Gong", required: false },
+  { key: "GONG_ACCESS_KEY", label: "Gong Access Key", required: false },
+  { key: "GONG_ACCESS_SECRET", label: "Gong Access Secret", required: false },
   // Apollo
   { key: "APOLLO_API_KEY", label: "Apollo", required: false },
   // GitHub
   { key: "GITHUB_TOKEN", label: "GitHub", required: false },
   // Jira
-  { key: "JIRA_EMAIL", label: "Jira Email", required: false },
-  { key: "JIRA_TOKEN", label: "Jira Token", required: false },
+  { key: "JIRA_BASE_URL", label: "Jira Base URL", required: false },
+  { key: "JIRA_USER_EMAIL", label: "Jira Email", required: false },
+  { key: "JIRA_API_TOKEN", label: "Jira API Token", required: false },
   // Sentry
+  { key: "SENTRY_SERVER_TOKEN", label: "Sentry Server Token", required: false },
   { key: "SENTRY_AUTH_TOKEN", label: "Sentry", required: false },
   // Grafana
   { key: "GRAFANA_URL", label: "Grafana URL", required: false },
-  { key: "GRAFANA_TOKEN", label: "Grafana Token", required: false },
+  { key: "GRAFANA_API_TOKEN", label: "Grafana API Token", required: false },
   // Slack
-  { key: "SLACK_TOKEN", label: "Slack", required: false },
+  { key: "SLACK_BOT_TOKEN", label: "Slack Bot Token", required: false },
+  {
+    key: "SLACK_BOT_TOKEN_2",
+    label: "Slack Bot Token (secondary)",
+    required: false,
+  },
   // Notion
   { key: "NOTION_API_KEY", label: "Notion", required: false },
   // Twitter/X
@@ -72,7 +80,7 @@ export const credentialKeys: CredentialKeyConfig[] = [
   // Pylon
   { key: "PYLON_API_KEY", label: "Pylon", required: false },
   // Common Room
-  { key: "COMMONROOM_API_KEY", label: "Common Room", required: false },
+  { key: "COMMONROOM_API_TOKEN", label: "Common Room", required: false },
   // DataForSEO
   { key: "DATAFORSEO_LOGIN", label: "DataForSEO", required: false },
   {

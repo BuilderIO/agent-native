@@ -492,8 +492,7 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
     if (email) {
       setCookie(event, COOKIE_NAME, qToken, {
         httpOnly: true,
-        secure: !isDevEnvironment(),
-        sameSite: "lax",
+        ...crossSiteCookieAttrs(event),
         path: "/",
         maxAge: sessionMaxAge,
       });
@@ -511,7 +510,7 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
   // to real account"), they've signaled they want real auth. The upgrade
   // cookie suppresses this fallback so the onboarding/sign-in page is served
   // instead of silently re-authenticating them as local@localhost.
-  if (isDevEnvironment() && !isUpgradePending(event)) {
+  if (isDevEnvironment() && !isUpgradePending(event) && !hasSignInFlag(event)) {
     return LOCAL_SESSION;
   }
 
@@ -538,11 +537,65 @@ function isUpgradePending(event: H3Event): boolean {
 function setUpgradePendingCookie(event: H3Event): void {
   setCookie(event, UPGRADE_COOKIE, "1", {
     httpOnly: true,
-    secure: !isDevEnvironment(),
-    sameSite: "lax",
+    ...crossSiteCookieAttrs(event),
     path: "/",
     maxAge: 60 * 60, // 1 hour — enough to complete sign-in
   });
+}
+
+/**
+ * URL-flag fallback for third-party iframe contexts (e.g. the Builder.io
+ * editor) where SameSite=Lax cookies from an exit-local-mode POST are not
+ * delivered on the subsequent reload. TeamPage reloads with ?signin=1 so
+ * we can reliably suppress the dev-mode local fallback without a cookie.
+ */
+function hasSignInFlag(event: H3Event): boolean {
+  try {
+    return getQuery(event)?.signin === "1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Cookie attributes that work in both same-site and third-party iframe
+ * contexts. Over HTTPS we emit `SameSite=None; Secure` (required by browsers
+ * to ship the cookie back inside a cross-origin iframe); for plain HTTP dev
+ * we keep `SameSite=Lax` since `None` requires Secure.
+ */
+function crossSiteCookieAttrs(event: H3Event): {
+  sameSite: "lax" | "none";
+  secure: boolean;
+} {
+  return isHttpsRequest(event)
+    ? { sameSite: "none", secure: true }
+    : { sameSite: "lax", secure: false };
+}
+
+function isHttpsRequest(event: H3Event): boolean {
+  try {
+    const req: any = (event as any).req ?? event.node?.req;
+    const headers: any = req?.headers;
+    const get = (k: string): string | undefined => {
+      if (!headers) return undefined;
+      if (typeof headers.get === "function") {
+        return headers.get(k) ?? undefined;
+      }
+      const v = headers[k];
+      return Array.isArray(v) ? v[0] : v;
+    };
+    const xfProto = get("x-forwarded-proto");
+    if (xfProto && String(xfProto).split(",")[0].trim() === "https") {
+      return true;
+    }
+    const url: string | undefined = req?.url;
+    if (typeof url === "string" && url.startsWith("https://")) return true;
+    const appUrl = process.env.APP_URL || process.env.BETTER_AUTH_URL || "";
+    if (appUrl.startsWith("https://")) return true;
+  } catch {
+    // ignore
+  }
+  return false;
 }
 
 function clearUpgradePendingCookie(event: H3Event): void {
@@ -823,8 +876,7 @@ async function mountBetterAuthRoutes(
         await addSession(sessionToken, "user");
         setCookie(event, COOKIE_NAME, sessionToken, {
           httpOnly: true,
-          secure: !isDevEnvironment(),
-          sameSite: "lax",
+          ...crossSiteCookieAttrs(event),
           path: "/",
           maxAge: sessionMaxAge,
         });
@@ -847,8 +899,7 @@ async function mountBetterAuthRoutes(
         if (result?.token) {
           setCookie(event, COOKIE_NAME, result.token, {
             httpOnly: true,
-            secure: !isDevEnvironment(),
-            sameSite: "lax",
+            ...crossSiteCookieAttrs(event),
             path: "/",
             maxAge: sessionMaxAge,
           });
@@ -988,8 +1039,7 @@ function mountTokenOnlyRoutes(
       await addSession(sessionToken, "user");
       setCookie(event, COOKIE_NAME, sessionToken, {
         httpOnly: true,
-        secure: !isDevEnvironment(),
-        sameSite: "lax",
+        ...crossSiteCookieAttrs(event),
         path: "/",
         maxAge: sessionMaxAge,
       });
@@ -1103,8 +1153,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
         if (result?.token) {
           setCookie(event, COOKIE_NAME, result.token, {
             httpOnly: true,
-            secure: !isDevEnvironment(),
-            sameSite: "lax",
+            ...crossSiteCookieAttrs(event),
             path: "/",
             maxAge: sessionMaxAge,
           });

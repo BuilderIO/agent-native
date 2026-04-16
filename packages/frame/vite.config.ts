@@ -22,15 +22,19 @@ logger.error = (msg, opts) => {
   _loggerError(msg, opts);
 };
 
-// Import app registry to resolve ports by app ID
-const configPath = path.resolve(__dirname, "../shared-app-config/index.ts");
-// Quick parse: extract { id, devPort } pairs from DEFAULT_APPS
+// Import app registry to resolve ports by app ID. DEFAULT_APPS is built from
+// the TEMPLATES array in templates.ts, so we parse that file directly —
+// index.ts only has `id: t.name` dynamically, not literal ids.
+const templatesPath = path.resolve(
+  __dirname,
+  "../shared-app-config/templates.ts",
+);
 import fs from "fs";
-const configSrc = fs.readFileSync(configPath, "utf8");
+const templatesSrc = fs.readFileSync(templatesPath, "utf8");
 const portMap = new Map<string, number>();
-const re = /id:\s*"([^"]+)"[\s\S]*?devPort:\s*(\d+)/g;
+const re = /name:\s*"([^"]+)"[\s\S]*?devPort:\s*(\d+)/g;
 let m: RegExpExecArray | null;
-while ((m = re.exec(configSrc)) !== null) {
+while ((m = re.exec(templatesSrc)) !== null) {
   portMap.set(m[1], Number(m[2]));
 }
 

@@ -359,11 +359,16 @@ function LocalModeSignInCard() {
         const body = await res.json().catch(() => ({}));
         throw new Error(body?.error || "Failed to exit local mode");
       }
-      // Reload → auth guard will serve the onboarding page so the user can
-      // sign in with Google or create an email/password account. The
-      // localStorage flag survives the reload so TeamPage can migrate data
-      // automatically once they're back.
-      window.location.reload();
+      // Reload with ?signin=1 → auth guard will serve the onboarding page so
+      // the user can sign in with Google or create an email/password account.
+      // The URL flag is used (rather than a cookie) because third-party iframe
+      // contexts (e.g. the Builder.io editor) block SameSite=Lax cookies, so a
+      // cookie-only signal would be lost on reload. The localStorage flag
+      // survives the reload so TeamPage can migrate data automatically once
+      // they're back.
+      const url = new URL(window.location.href);
+      url.searchParams.set("signin", "1");
+      window.location.href = url.toString();
     } catch (e: any) {
       setError(e?.message || "Failed to start sign-in");
       setIsSubmitting(false);

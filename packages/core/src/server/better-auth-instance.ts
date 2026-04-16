@@ -387,6 +387,19 @@ async function createBetterAuthInstance(
     },
     advanced: {
       cookiePrefix: "an",
+      // Emit `SameSite=None; Secure` when the app is served over HTTPS so
+      // session cookies are delivered inside third-party iframes (e.g. the
+      // Builder.io editor). Plain-HTTP dev keeps the default (Lax) because
+      // `SameSite=None` requires Secure.
+      ...(appUrl.startsWith("https://")
+        ? {
+            defaultCookieAttributes: {
+              sameSite: "none" as const,
+              secure: true,
+              partitioned: true,
+            },
+          }
+        : {}),
     },
     plugins: [
       // Organizations: many:many user:org, roles, invitations

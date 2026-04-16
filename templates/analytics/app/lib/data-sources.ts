@@ -391,7 +391,7 @@ export const dataSources: DataSource[] = [
     description: "Sales call recordings, transcripts, and analytics",
     category: "crm",
     icon: IconPhone,
-    envKeys: ["GONG_API_KEY"],
+    envKeys: ["GONG_ACCESS_KEY", "GONG_ACCESS_SECRET"],
     docsUrl: "https://gong.app.gong.io/settings/api/documentation",
     walkthroughSteps: [
       {
@@ -402,12 +402,19 @@ export const dataSources: DataSource[] = [
         linkText: "Gong API Settings",
       },
       {
-        title: "Enter your API Key",
-        description:
-          'Enter your API credentials in "accessKey:accessKeySecret" format.',
-        inputKey: "GONG_API_KEY",
-        inputLabel: "API Key (key:secret)",
-        inputPlaceholder: "accessKey:accessKeySecret",
+        title: "Enter your Access Key",
+        description: "Paste the Access Key from your Gong API settings.",
+        inputKey: "GONG_ACCESS_KEY",
+        inputLabel: "Access Key",
+        inputPlaceholder: "your-gong-access-key",
+        inputType: "password",
+      },
+      {
+        title: "Enter your Access Key Secret",
+        description: "Paste the Access Key Secret from your Gong API settings.",
+        inputKey: "GONG_ACCESS_SECRET",
+        inputLabel: "Access Key Secret",
+        inputPlaceholder: "your-gong-access-key-secret",
         inputType: "password",
       },
     ],
@@ -472,7 +479,7 @@ export const dataSources: DataSource[] = [
     description: "Tickets, sprints, and project tracking",
     category: "engineering",
     icon: IconTicket,
-    envKeys: ["JIRA_EMAIL", "JIRA_TOKEN"],
+    envKeys: ["JIRA_BASE_URL", "JIRA_USER_EMAIL", "JIRA_API_TOKEN"],
     docsUrl: "https://developer.atlassian.com/cloud/jira/platform/rest/v3/",
     walkthroughSteps: [
       {
@@ -483,10 +490,19 @@ export const dataSources: DataSource[] = [
         linkText: "Atlassian API Tokens",
       },
       {
+        title: "Enter your Jira Base URL",
+        description:
+          "The base URL of your Jira instance (e.g., https://your-org.atlassian.net).",
+        inputKey: "JIRA_BASE_URL",
+        inputLabel: "Base URL",
+        inputPlaceholder: "https://your-org.atlassian.net",
+        inputType: "text",
+      },
+      {
         title: "Enter your Jira email",
         description:
           "The email address associated with your Atlassian account.",
-        inputKey: "JIRA_EMAIL",
+        inputKey: "JIRA_USER_EMAIL",
         inputLabel: "Email",
         inputPlaceholder: "you@company.com",
         inputType: "text",
@@ -494,7 +510,7 @@ export const dataSources: DataSource[] = [
       {
         title: "Enter your API Token",
         description: "Paste the API token you just created.",
-        inputKey: "JIRA_TOKEN",
+        inputKey: "JIRA_API_TOKEN",
         inputLabel: "API Token",
         inputPlaceholder: "your-jira-api-token",
         inputType: "password",
@@ -533,7 +549,7 @@ export const dataSources: DataSource[] = [
     description: "Prometheus metrics, dashboards, and alerts",
     category: "engineering",
     icon: IconActivity,
-    envKeys: ["GRAFANA_URL", "GRAFANA_TOKEN"],
+    envKeys: ["GRAFANA_URL", "GRAFANA_API_TOKEN"],
     docsUrl: "https://grafana.com/docs/grafana/latest/developers/http_api/",
     walkthroughSteps: [
       {
@@ -559,7 +575,7 @@ export const dataSources: DataSource[] = [
       {
         title: "Enter your API Token",
         description: "Paste the service account token.",
-        inputKey: "GRAFANA_TOKEN",
+        inputKey: "GRAFANA_API_TOKEN",
         inputLabel: "API Token",
         inputPlaceholder: "glsa_...",
         inputType: "password",
@@ -602,7 +618,7 @@ export const dataSources: DataSource[] = [
     description: "Channel messages and workspace search",
     category: "communication",
     icon: IconMessage,
-    envKeys: ["SLACK_TOKEN"],
+    envKeys: ["SLACK_BOT_TOKEN"],
     docsUrl: "https://api.slack.com/methods",
     walkthroughSteps: [
       {
@@ -620,7 +636,7 @@ export const dataSources: DataSource[] = [
       {
         title: "Enter your Bot Token",
         description: 'Paste the Bot User OAuth Token (starts with "xoxb-").',
-        inputKey: "SLACK_TOKEN",
+        inputKey: "SLACK_BOT_TOKEN",
         inputLabel: "Bot Token",
         inputPlaceholder: "xoxb-...",
         inputType: "password",
@@ -721,7 +737,7 @@ export const dataSources: DataSource[] = [
     description: "Community member engagement and activity",
     category: "support",
     icon: IconUsers,
-    envKeys: ["COMMONROOM_API_KEY"],
+    envKeys: ["COMMONROOM_API_TOKEN"],
     docsUrl: "https://docs.commonroom.io/",
     walkthroughSteps: [
       {
@@ -732,7 +748,7 @@ export const dataSources: DataSource[] = [
       {
         title: "Enter your API Key",
         description: "Paste the API key.",
-        inputKey: "COMMONROOM_API_KEY",
+        inputKey: "COMMONROOM_API_TOKEN",
         inputLabel: "API Key",
         inputPlaceholder: "your-commonroom-api-key",
         inputType: "password",
