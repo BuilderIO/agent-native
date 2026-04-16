@@ -99,7 +99,18 @@ async function actionFetch<T>(
   //   - tolerate empty bodies (avoids "Unexpected end of JSON input")
   //   - surface non-JSON error responses (HTML 401/404 pages, plain text, etc.)
   //   - preserve the original HTTP status in the thrown error
-  const raw = await res.text().catch(() => "");
+  // Track read failures separately from "no body" — a stream interruption /
+  // decode failure on a 2xx response should error rather than silently
+  // succeed with `null`.
+  let raw = "";
+  let readFailed = false;
+  let readError: unknown;
+  try {
+    raw = await res.text();
+  } catch (err) {
+    readFailed = true;
+    readError = err;
+  }
 
   let data: any = undefined;
   let parseFailed = false;
@@ -121,6 +132,18 @@ async function actionFetch<T>(
       res.statusText ||
       `HTTP ${res.status}`;
     const error = new Error(`Action ${name} failed: ${message}`);
+    (error as any).status = res.status;
+    throw error;
+  }
+
+  // 2xx but the body couldn't even be read (mid-stream abort, decode failure,
+  // etc.). Don't silently treat that as a `null` success.
+  if (readFailed) {
+    const cause =
+      readError instanceof Error ? readError.message : String(readError);
+    const error = new Error(
+      `Action ${name} returned ${res.status} but the body could not be read: ${cause}`,
+    );
     (error as any).status = res.status;
     throw error;
   }

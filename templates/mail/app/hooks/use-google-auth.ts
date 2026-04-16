@@ -21,7 +21,17 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
     const cause = err instanceof Error ? err.message : String(err);
     throw new Error(`Network error: ${cause}`);
   }
-  const raw = await res.text().catch(() => "");
+  // Track read failures separately from "no body" so a transport hiccup on a
+  // 2xx response doesn't silently turn into a `null` success.
+  let raw = "";
+  let readFailed = false;
+  let readError: unknown;
+  try {
+    raw = await res.text();
+  } catch (err) {
+    readFailed = true;
+    readError = err;
+  }
   let body: any = undefined;
   let parseFailed = false;
   if (raw) {
@@ -39,6 +49,18 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
       res.statusText ||
       `Request failed (HTTP ${res.status})`;
     const error = new Error(message);
+    (error as any).status = res.status;
+    throw error;
+  }
+  // 2xx but the body couldn't be read at all (stream interruption, decode
+  // failure, etc.). Surface the failure rather than treating it as
+  // "no data == not connected".
+  if (readFailed) {
+    const cause =
+      readError instanceof Error ? readError.message : String(readError);
+    const error = new Error(
+      `Unreadable ${res.status} response: ${cause}`,
+    );
     (error as any).status = res.status;
     throw error;
   }
