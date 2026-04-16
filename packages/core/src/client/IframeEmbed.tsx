@@ -1,6 +1,7 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { IconAlertTriangle } from "@tabler/icons-react";
 import { cn } from "./utils.js";
+import { AGENT_NAVIGATE_MESSAGE_TYPE } from "./embed.js";
 
 export interface IframeEmbedProps {
   src?: string;
@@ -80,12 +81,29 @@ function BlockedEmbed({ reason, src }: { reason: string; src?: string }) {
  */
 export function IframeEmbed({ src, aspect, title, height }: IframeEmbedProps) {
   const [loaded, setLoaded] = useState(false);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
   const resolvedAspect =
     aspect && ALLOWED_ASPECTS.has(aspect) ? aspect : "16/9";
   const paddingBottom = useMemo(
     () => aspectToPaddingBottom(resolvedAspect),
     [resolvedAspect],
   );
+
+  useEffect(() => {
+    function onMessage(e: MessageEvent) {
+      if (e.origin !== window.location.origin) return;
+      const iframe = iframeRef.current;
+      if (!iframe || e.source !== iframe.contentWindow) return;
+      const data = e.data as { type?: unknown; path?: unknown } | null;
+      if (!data || data.type !== AGENT_NAVIGATE_MESSAGE_TYPE) return;
+      if (typeof data.path !== "string" || !data.path.startsWith("/")) return;
+      if (data.path.startsWith("//")) return;
+      window.history.pushState({}, "", data.path);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    }
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
 
   if (!src) {
     return <BlockedEmbed reason="Missing src" />;
@@ -109,6 +127,7 @@ export function IframeEmbed({ src, aspect, title, height }: IframeEmbedProps) {
         <div className="absolute inset-0 animate-pulse bg-muted/40" />
       )}
       <iframe
+        ref={iframeRef}
         src={src}
         title={title || "Embedded content"}
         sandbox="allow-scripts allow-same-origin allow-forms allow-popups"

@@ -254,6 +254,32 @@ pnpm action hubspot-deals --grep="enterprise" --fields=dealname,amount,stageLabe
 
 **Key principle**: When asked a question, don't say "check the dashboard" — actually query the data, get results, and present the answer directly in chat with tables and/or charts.
 
+## Inline Charts in Chat
+
+Two ways to show charts inline in chat:
+
+1. **Live interactive iframe (preferred for one-off questions)** — use the framework's `embed` fence with the `/chart` route. The iframe mounts a live `SqlChart` with tooltips, hover states, and data that re-queries when the underlying source changes.
+
+   Build a `SqlPanel` object, JSON-stringify, base64url-encode, and emit:
+
+   ````
+   ```embed
+   src: /chart?panel=<base64url-encoded SqlPanel JSON>
+   aspect: 16/9
+   title: Weekly signups
+   ```
+   ````
+
+   The `SqlPanel` shape is the same one used by `update-dashboard` (see `app/pages/adhoc/sql-dashboard/types.ts`). Required fields: `id`, `title`, `sql`, `source` (`"bigquery" | "app-db" | "ga4"`), `chartType` (`"line" | "area" | "bar" | "metric" | "table" | "pie"`), `width` (`1` or `2`). Optional `config` for axis keys, formatting, pivots.
+
+   Keep the JSON compact — URLs are capped around 4KB. If the SQL is long, consider persisting it as a saved dashboard panel instead and linking to that dashboard.
+
+   Use base64url (replace `+` → `-`, `/` → `_`, strip `=` padding) so the payload is URL-safe.
+
+2. **Static PNG via `generate-chart`** — use when you want a stable, share-able image (email / report / analysis artifact). The output is a markdown image; no interactivity.
+
+Prefer (1) for answering a user's in-chat question; prefer (2) when the chart is part of a saved analysis (`save-analysis`) or needs to survive outside this app.
+
 ## Learnings & Skills (MANDATORY)
 
 1. **ALWAYS read `AGENTS.md` and `LEARNINGS.md` resources first (both scopes).** Non-negotiable.

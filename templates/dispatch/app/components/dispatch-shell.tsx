@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { NavLink } from "react-router";
+import { NavLink, useLocation } from "react-router";
 import {
   AgentSidebar,
   AgentToggleButton,
@@ -54,6 +54,8 @@ const SIDEBAR_SUGGESTIONS = [
   "List the connected A2A agents in this workspace",
 ];
 
+const CHROMELESS_PATHS = ["/approval"];
+
 export function DispatchShell({
   title,
   description,
@@ -63,6 +65,11 @@ export function DispatchShell({
   description: string;
   children: ReactNode;
 }) {
+  const location = useLocation();
+  if (CHROMELESS_PATHS.some((path) => location.pathname === path)) {
+    return <>{children}</>;
+  }
+
   return (
     <SidebarProvider defaultOpen>
       <AgentSidebar

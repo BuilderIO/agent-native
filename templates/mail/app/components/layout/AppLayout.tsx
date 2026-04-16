@@ -50,6 +50,8 @@ import { toast } from "sonner";
 import { AccountFilterContext } from "@/hooks/use-account-filter";
 import { useIsMobile } from "@/hooks/use-mobile";
 
+const BARE_ROUTES = new Set(["/email"]);
+
 /** Extract the trailing segment of a nested label name, e.g. "[Superhuman]/AI/Pitch" → "Pitch" */
 function shortLabelName(name: string): string {
   const lastSlash = name.lastIndexOf("/");
@@ -71,6 +73,15 @@ const collapsibleViews = [
 ];
 
 export function AppLayout({ children }: AppLayoutProps) {
+  const location = useLocation();
+  if (BARE_ROUTES.has(location.pathname)) {
+    return <>{children}</>;
+  }
+
+  return <AppLayoutInner>{children}</AppLayoutInner>;
+}
+
+function AppLayoutInner({ children }: AppLayoutProps) {
   const isMobile = useIsMobile();
   const compose = useComposeState();
   const [paletteOpen, setPaletteOpen] = useState(false);

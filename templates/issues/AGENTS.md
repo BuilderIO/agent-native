@@ -186,6 +186,25 @@ After any write operation, run `pnpm action refresh-list`.
 
 **Never use browser dialogs** (`window.confirm`, `window.alert`, `window.prompt`) — use shadcn AlertDialog instead.
 
+## Inline Previews in Chat
+
+The agent can render a live issue preview directly inside the chat panel using an embed fence. The route `/issue` is a chromeless, shell-free page that accepts `issueKey` and `projectKey` as query parameters.
+
+To show a preview, emit an embed fence in your response:
+
+```embed
+src: /issue?issueKey=PROJ-123&projectKey=PROJ
+aspect: 3/2
+title: <issue summary>
+```
+
+- `issueKey` is required (e.g. `PROJ-123`).
+- `projectKey` is optional but recommended — it controls where the "Open in app" button navigates.
+- The "Open in app" button is shown automatically when the page is rendered inside the agent embed frame (`isInAgentEmbed()` returns `true`). Clicking it calls `postNavigate()` to open the full detail view in the main app.
+- If `projectKey` is omitted, the button navigates to `/my-issues/<issueKey>`.
+
+Use this pattern whenever the user asks to see an issue, to give them a rich preview without leaving the chat.
+
 ## Development
 
 For code editing and development guidance, read `DEVELOPING.md`.

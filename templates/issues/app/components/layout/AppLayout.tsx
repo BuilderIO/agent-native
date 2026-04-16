@@ -28,8 +28,14 @@ import { JiraConnectBanner } from "@/components/JiraConnectBanner";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { CommandPalette } from "./CommandPalette";
 
+const BARE_ROUTES = new Set(["/issue"]);
+
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
+
+  if (BARE_ROUTES.has(location.pathname)) {
+    return <>{children}</>;
+  }
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(true);

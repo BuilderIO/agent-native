@@ -128,6 +128,13 @@ export {
   type ActionRegistry,
 } from "./use-action.js";
 export {
+  postNavigate,
+  isInAgentEmbed,
+  AGENT_NAVIGATE_MESSAGE_TYPE,
+  type AgentNavigateMessage,
+} from "./embed.js";
+export { IframeEmbed, parseEmbedBody } from "./IframeEmbed.js";
+export {
   useAvatarUrl,
   uploadAvatar,
   invalidateAvatarCache,

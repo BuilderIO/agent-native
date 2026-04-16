@@ -1,4 +1,4 @@
-import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
+import { Links, Meta, Outlet, Scripts, ScrollRestoration, useLocation } from "react-router";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -16,6 +16,9 @@ import {
 } from "@agent-native/core/client";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
+
+/** Routes that render without the AgentSidebar / app shell */
+const BARE_ROUTES = new Set(["/slide"]);
 
 export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },
@@ -104,6 +107,12 @@ function AppContent() {
   useNavigationState();
   const [cmdkOpen, setCmdkOpen] = useState(false);
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
+  const location = useLocation();
+  const isBare = BARE_ROUTES.has(location.pathname);
+
+  if (isBare) {
+    return <Outlet />;
+  }
 
   return (
     <>
