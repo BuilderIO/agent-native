@@ -195,7 +195,7 @@ export function DashboardFilterBar({
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-6 px-2 text-xs text-muted-foreground hover:text-destructive"
+                className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
                 onClick={clearAllFilters}
               >
                 <IconFilterOff className="h-3 w-3 mr-1" />

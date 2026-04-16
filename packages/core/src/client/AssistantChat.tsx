@@ -897,16 +897,50 @@ export function BuilderCtaCard({
   reason,
   usageCents,
   limitCents,
+  apiUrl = "/_agent-native/agent-chat",
 }: {
   reason: "usage_limit" | "code_changes" | "cli_tab";
   usageCents?: number;
   limitCents?: number;
+  apiUrl?: string;
 }) {
   const appName =
     typeof window !== "undefined"
       ? window.location.hostname.split(".")[0]
       : "app";
   const cloneCommand = `npx agent-native create ${appName}`;
+
+  const { status: builder } = useBuilderStatus();
+  const builderEnabled = builder?.builderEnabled ?? false;
+  const builderConnectUrl = builder?.connectUrl;
+
+  const [apiKey, setApiKey] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSave = async () => {
+    if (!apiKey.trim()) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(`${apiUrl}/save-key`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: apiKey.trim() }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to save");
+      }
+      setSaved(true);
+      setTimeout(() => window.location.reload(), 1000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const title =
     reason === "usage_limit"
@@ -917,14 +951,25 @@ export function BuilderCtaCard({
 
   const description =
     reason === "usage_limit"
-      ? `You've used $${((usageCents ?? 0) / 100).toFixed(2)} of your $${((limitCents ?? 100) / 100).toFixed(2)} free tier. Connect to Builder.io for unlimited usage, or clone this app to run it locally with your own API key.`
+      ? `You've used $${((usageCents ?? 0) / 100).toFixed(2)} of your $${((limitCents ?? 100) / 100).toFixed(2)} free tier. Add your own Anthropic API key for unlimited usage — the free tier doesn't apply when you bring your own key. Or clone this app to run it locally.`
       : reason === "code_changes"
-        ? "This app is running in hosted mode. To make code changes, connect to Builder.io or clone and run locally."
-        : "This hosted app has limited AI features. Connect to Builder.io for the full experience, or clone and run locally with your own API key.";
+        ? "This app is running in hosted mode. To make code changes, add your own Anthropic API key or clone and run locally."
+        : "This hosted app has limited AI features. Add your own Anthropic API key for the full experience, or clone and run locally.";
+
+  if (saved) {
+    return (
+      <div className="mx-4 my-6 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4">
+        <div className="flex items-center gap-2 text-sm text-emerald-400">
+          <IconCheck className="h-4 w-4" />
+          API key saved. Reloading...
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-4 my-6 rounded-lg border border-border bg-card p-5">
-      <div className="flex items-center gap-3 mb-3">
+      <div className="flex items-center gap-3 mb-4">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted">
           <IconSparkles className="h-4.5 w-4.5 text-muted-foreground" />
         </div>
@@ -934,15 +979,46 @@ export function BuilderCtaCard({
         </div>
       </div>
 
-      <div className="space-y-2.5">
-        <a
-          href="https://www.builder.io/m/agent-native"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex w-full items-center justify-center rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
+      <div className="space-y-3">
+        <div className="rounded-md bg-muted/50 px-3 py-2.5 text-xs text-muted-foreground leading-relaxed">
+          <p>
+            Paste an Anthropic API key (
+            <a
+              href="https://console.anthropic.com/settings/keys"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline text-foreground/80 hover:text-foreground"
+            >
+              console.anthropic.com/settings/keys
+            </a>
+            ) to skip the free-tier limit.
+          </p>
+        </div>
+
+        <input
+          type="password"
+          value={apiKey}
+          onChange={(e) => {
+            setApiKey(e.target.value);
+            setError(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleSave();
+          }}
+          placeholder="sk-ant-..."
+          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 outline-none focus:ring-1 focus:ring-ring"
+          autoComplete="off"
+        />
+
+        {error && <p className="text-xs text-destructive">{error}</p>}
+
+        <button
+          onClick={handleSave}
+          disabled={saving || !apiKey.trim()}
+          className="w-full rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          Connect to Builder.io
-        </a>
+          {saving ? "Saving..." : "Save API key"}
+        </button>
 
         <div className="relative">
           <div className="absolute inset-0 flex items-center">
@@ -960,6 +1036,34 @@ export function BuilderCtaCard({
           <code className="block text-xs text-foreground/80 font-mono break-all select-all">
             {cloneCommand}
           </code>
+        </div>
+
+        <div className="rounded-md border border-border px-3 py-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <div className="text-xs font-medium text-foreground">
+                Connect Builder.io
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Builder's managed Anthropic proxy — no API key needed
+              </p>
+            </div>
+            {builderEnabled && builderConnectUrl ? (
+              <a
+                href={builderConnectUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex shrink-0 items-center gap-1 rounded bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground hover:opacity-90"
+              >
+                Connect
+                <IconExternalLink className="h-3 w-3" />
+              </a>
+            ) : (
+              <span className="shrink-0 rounded border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                Coming soon
+              </span>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -1731,6 +1835,7 @@ const AssistantChatInner = forwardRef<
               reason="usage_limit"
               usageCents={usageLimitReached.usageCents}
               limitCents={usageLimitReached.limitCents}
+              apiUrl={apiUrl}
             />
           </div>
         ) : isRestoring ? (

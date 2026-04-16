@@ -666,6 +666,26 @@ export function MultiTabAssistantChat({
     }
   }, [createThread, switchThread]);
 
+  // Keyboard shortcuts dispatched from AgentPanel based on the active mode
+  useEffect(() => {
+    const handleCloseCurrent = () => {
+      const id = activeThreadIdRef.current;
+      if (id) closeTab(id);
+    };
+    const handleCloseAll = () => {
+      void closeAllTabs();
+    };
+    window.addEventListener("agent-chat:close-current-tab", handleCloseCurrent);
+    window.addEventListener("agent-chat:close-all-tabs", handleCloseAll);
+    return () => {
+      window.removeEventListener(
+        "agent-chat:close-current-tab",
+        handleCloseCurrent,
+      );
+      window.removeEventListener("agent-chat:close-all-tabs", handleCloseAll);
+    };
+  }, [closeTab, closeAllTabs]);
+
   const clearActiveTab = useCallback(() => {
     addTab();
   }, [addTab]);

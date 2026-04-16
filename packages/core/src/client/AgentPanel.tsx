@@ -27,6 +27,7 @@ import React, {
   useEffect,
   useRef,
   useCallback,
+  useMemo,
   lazy,
   Suspense,
   startTransition,
@@ -224,6 +225,14 @@ export function AgentPanel({
   const keyPrefix = storageKey ? `:${storageKey}` : "";
   const execModeKey = `${EXEC_MODE_KEY}${keyPrefix}`;
   const panelModeKey = `agent-native-panel-mode${keyPrefix}`;
+  const isMac = useMemo(
+    () =>
+      typeof navigator !== "undefined" &&
+      /Mac|iPhone|iPad/.test(navigator.userAgent),
+    [],
+  );
+  const closeTabHint = isMac ? "\u2303W" : "Alt+W";
+  const closeAllTabsHint = isMac ? "\u2303\u2325W" : "Ctrl+Alt+W";
 
   const [execMode, setExecMode] = useState<ExecMode>(() => {
     try {
@@ -334,6 +343,35 @@ export function AgentPanel({
     setCliTabs([id]);
     setActiveCliTab(id);
   }, []);
+
+  // Tab close shortcuts. Avoid Cmd+W (browser/OS) and (on Windows) Ctrl+W.
+  //   Mac:           Ctrl+W → close tab,  Ctrl+Alt+W → close all
+  //   Windows/Linux: Alt+W  → close tab,  Ctrl+Alt+W → close all
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() !== "w" || e.metaKey || e.shiftKey) return;
+      const isCloseAll = e.ctrlKey && e.altKey;
+      const isCloseOne = isMac
+        ? e.ctrlKey && !e.altKey
+        : e.altKey && !e.ctrlKey;
+      if (!isCloseAll && !isCloseOne) return;
+      e.preventDefault();
+      if (mode === "chat") {
+        window.dispatchEvent(
+          new CustomEvent(
+            isCloseAll
+              ? "agent-chat:close-all-tabs"
+              : "agent-chat:close-current-tab",
+          ),
+        );
+      } else if (mode === "cli") {
+        if (isCloseAll) closeAllCliTabs();
+        else if (activeCliTab) closeCliTab(activeCliTab);
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [mode, activeCliTab, closeCliTab, closeAllCliTabs, isMac]);
 
   const availableClis = useAvailableClis();
   const [selectedCli, selectCli] = useCliSelection(keyPrefix);
@@ -672,7 +710,7 @@ export function AgentPanel({
                                 >
                                   Close Tab
                                   <kbd className="text-[10px] text-muted-foreground">
-                                    {"\u2318"}W
+                                    {closeTabHint}
                                   </kbd>
                                 </button>
                                 <button
@@ -685,13 +723,16 @@ export function AgentPanel({
                                   Close Other Tabs
                                 </button>
                                 <button
-                                  className="flex w-full items-center px-3 py-1.5 text-xs text-foreground hover:bg-accent"
+                                  className="flex w-full items-center justify-between px-3 py-1.5 text-xs text-foreground hover:bg-accent"
                                   onClick={() => {
                                     closeAllTabs();
                                     setTabMenuOpen(null);
                                   }}
                                 >
                                   Close All Tabs
+                                  <kbd className="text-[10px] text-muted-foreground">
+                                    {closeAllTabsHint}
+                                  </kbd>
                                 </button>
                               </div>
                             </>
@@ -814,7 +855,7 @@ export function AgentPanel({
                                 >
                                   Close Tab
                                   <kbd className="text-[10px] text-muted-foreground">
-                                    {"\u2318"}W
+                                    {closeTabHint}
                                   </kbd>
                                 </button>
                                 <button
@@ -827,13 +868,16 @@ export function AgentPanel({
                                   Close Other Tabs
                                 </button>
                                 <button
-                                  className="flex w-full items-center px-3 py-1.5 text-xs text-foreground hover:bg-accent"
+                                  className="flex w-full items-center justify-between px-3 py-1.5 text-xs text-foreground hover:bg-accent"
                                   onClick={() => {
                                     closeAllCliTabs();
                                     setTabMenuOpen(null);
                                   }}
                                 >
                                   Close All Tabs
+                                  <kbd className="text-[10px] text-muted-foreground">
+                                    {closeAllTabsHint}
+                                  </kbd>
                                 </button>
                               </div>
                             </>
@@ -929,6 +973,8 @@ export function AgentPanel({
       selectedLabel,
       selectCli,
       cliPickerOpen,
+      closeTabHint,
+      closeAllTabsHint,
     ],
   );
 

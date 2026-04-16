@@ -306,7 +306,7 @@ export default function SqlDashboardPage() {
       <Button
         size="sm"
         variant="ghost"
-        className="text-muted-foreground hover:text-destructive"
+        className="text-muted-foreground hover:text-foreground"
         onClick={handleDelete}
       >
         <IconTrash className="h-4 w-4" />

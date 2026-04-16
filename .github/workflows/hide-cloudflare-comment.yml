@@ -1,0 +1,27 @@
+name: Hide Cloudflare Pages bot comment
+
+on:
+  issue_comment:
+    types: [created, edited]
+
+permissions:
+  pull-requests: write
+  issues: write
+
+jobs:
+  minimize:
+    if: github.event.issue.pull_request && github.event.comment.user.login == 'cloudflare-workers-and-pages[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Minimize comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const nodeId = context.payload.comment.node_id;
+            await github.graphql(`
+              mutation($id: ID!) {
+                minimizeComment(input: { subjectId: $id, classifier: OUTDATED }) {
+                  minimizedComment { isMinimized }
+                }
+              }
+            `, { id: nodeId });
