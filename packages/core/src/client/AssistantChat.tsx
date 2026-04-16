@@ -33,7 +33,6 @@ import { type ContentPart, readSSEStreamRaw } from "./sse-event-processor.js";
 import { cn } from "./utils.js";
 import { AgentTaskCard } from "./AgentTaskCard.js";
 import { ConnectBuilderCard } from "./ConnectBuilderCard.js";
-import { useBuilderStatus } from "./settings/useBuilderStatus.js";
 import {
   TiptapComposer,
   type TiptapComposerHandle,
@@ -48,7 +47,6 @@ import {
   IconCopy,
   IconTerminal,
   IconLoader2,
-  IconExternalLink,
   IconCircleX,
   IconSquareFilled,
   IconClock,
@@ -768,10 +766,6 @@ function ApiKeySetupCard({ apiUrl }: { apiUrl: string }) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { status: builder } = useBuilderStatus();
-  const builderEnabled = builder?.builderEnabled ?? false;
-  const builderConnectUrl = builder?.connectUrl;
-
   const handleSave = async () => {
     if (!apiKey.trim()) return;
     setSaving(true);
@@ -834,21 +828,9 @@ function ApiKeySetupCard({ apiUrl }: { apiUrl: string }) {
                 Use Builder's managed Anthropic proxy — no API key needed
               </p>
             </div>
-            {builderEnabled && builderConnectUrl ? (
-              <a
-                href={builderConnectUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex shrink-0 items-center gap-1 rounded bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground hover:opacity-90"
-              >
-                Connect
-                <IconExternalLink className="h-3 w-3" />
-              </a>
-            ) : (
-              <span className="shrink-0 rounded border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                Coming soon
-              </span>
-            )}
+            <span className="shrink-0 rounded border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+              Coming soon
+            </span>
           </div>
         </div>
 
@@ -922,10 +904,6 @@ export function BuilderCtaCard({
       ? window.location.hostname.split(".")[0]
       : "app";
   const cloneCommand = `npx agent-native create ${appName}`;
-
-  const { status: builder } = useBuilderStatus();
-  const builderEnabled = builder?.builderEnabled ?? false;
-  const builderConnectUrl = builder?.connectUrl;
 
   const [apiKey, setApiKey] = useState("");
   const [saving, setSaving] = useState(false);
@@ -1065,21 +1043,9 @@ export function BuilderCtaCard({
                 Builder's managed Anthropic proxy — no API key needed
               </p>
             </div>
-            {builderEnabled && builderConnectUrl ? (
-              <a
-                href={builderConnectUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex shrink-0 items-center gap-1 rounded bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground hover:opacity-90"
-              >
-                Connect
-                <IconExternalLink className="h-3 w-3" />
-              </a>
-            ) : (
-              <span className="shrink-0 rounded border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                Coming soon
-              </span>
-            )}
+            <span className="shrink-0 rounded border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+              Coming soon
+            </span>
           </div>
         </div>
       </div>
