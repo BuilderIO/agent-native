@@ -83,9 +83,6 @@ importers:
 
   packages/core:
     dependencies:
-      '@agent-native/shared-app-config':
-        specifier: workspace:*
-        version: link:../shared-app-config
       '@ai-sdk/cohere':
         specifier: '>=1'
         version: 3.0.30(zod@4.3.6)
