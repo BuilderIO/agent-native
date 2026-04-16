@@ -1937,29 +1937,46 @@ const AssistantChatInner = forwardRef<
                 already-streamed reconnect content so the user sees both
                 "what it did so far" and "it's still working". */}
             {showRunningInUI && <ThinkingIndicator />}
-            {queuedMessages.map((msg, i) => (
-              <div key={`queued-${i}`} className="flex justify-end">
-                <div className="max-w-[85%] rounded-lg bg-accent/50 text-foreground/60 px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words">
-                  <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground mb-1 font-medium uppercase tracking-wide">
-                    <IconClock className="h-3 w-3" />
-                    Queued
-                  </div>
-                  {msg.text}
-                  {msg.images && msg.images.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mt-1.5">
-                      {msg.images.map((img, j) => (
-                        <img
-                          key={j}
-                          src={img}
-                          alt=""
-                          className="h-12 w-12 rounded object-cover border border-border/50"
-                        />
-                      ))}
+            {queuedMessages.map((msg, i) => {
+              const displayText = msg.text
+                .replace(/<context>[\s\S]*?<\/context>\n?/g, "")
+                .trim();
+              return (
+                <div key={`queued-${i}`} className="flex justify-end group">
+                  <div className="relative max-w-[85%] rounded-lg bg-accent/50 text-foreground/60 px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words">
+                    <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground mb-1 font-medium uppercase tracking-wide">
+                      <IconClock className="h-3 w-3" />
+                      Queued
                     </div>
-                  )}
+                    {displayText}
+                    {msg.images && msg.images.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mt-1.5">
+                        {msg.images.map((img, j) => (
+                          <img
+                            key={j}
+                            src={img}
+                            alt=""
+                            className="h-12 w-12 rounded object-cover border border-border/50"
+                          />
+                        ))}
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setQueuedMessages((prev) =>
+                          prev.filter((_, idx) => idx !== i),
+                        )
+                      }
+                      aria-label="Remove from queue"
+                      className="absolute -top-2 -right-2 hidden group-hover:flex h-5 w-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground hover:text-foreground hover:bg-accent shadow-sm"
+                    >
+                      <IconX className="h-3 w-3" />
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

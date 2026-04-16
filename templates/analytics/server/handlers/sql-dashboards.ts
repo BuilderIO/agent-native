@@ -123,6 +123,7 @@ function validateDashboardConfig(
   }
   if (Array.isArray(panels)) {
     const requiredStrings = ["id", "title", "sql", "source", "chartType"];
+    const validSources = new Set(["bigquery", "app-db"]);
     for (let i = 0; i < panels.length; i++) {
       const p = panels[i] as Record<string, unknown> | null;
       if (!p || typeof p !== "object") return `panel[${i}] must be an object`;
@@ -131,6 +132,9 @@ function validateDashboardConfig(
         if (typeof v !== "string" || v.trim().length === 0) {
           return `panel[${i}].${field} is required`;
         }
+      }
+      if (!validSources.has(p.source as string)) {
+        return `panel[${i}].source must be 'bigquery' or 'app-db' (got '${p.source}'). The table name belongs in the panel's sql, not in source — source selects the backend, not the table.`;
       }
       if (p.width !== 1 && p.width !== 2) {
         return `panel[${i}].width must be 1 or 2`;
