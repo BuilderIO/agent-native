@@ -411,6 +411,9 @@ ${form.description ? `<meta name="description" content="${escapeHtml(form.descri
       if (REDIRECT) { window.location.href = REDIRECT; return; }
       document.querySelector(".container").style.display = "none";
       document.getElementById("successView").style.display = "flex";
+      if (html.classList.contains("embedded") && window.parent !== window) {
+        try { window.parent.postMessage({ type: "agent-native-feedback-submitted" }, "*"); } catch (_) {}
+      }
     })
     .catch(function(err) {
       showToast(err.message || "Failed to submit form");
@@ -569,6 +572,8 @@ html:not(.dark) .icon-moon{display:none}
 .embedded .header{margin-bottom:20px}
 .embedded .header h1{font-size:1.125rem}
 .embedded .desc{font-size:0.8125rem}
+.embedded .success-view{margin-top:32px}
+.embedded .success-view h1{font-size:1.125rem}
 
 .toast{
   position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
