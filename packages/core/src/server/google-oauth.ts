@@ -17,6 +17,7 @@ import {
   type H3Event,
 } from "h3";
 import { addSession, getSession, COOKIE_NAME } from "./auth.js";
+import { writeDesktopSso } from "./desktop-sso.js";
 
 // ─── Platform Detection ─────────────────────────────────────────────────────
 
@@ -208,6 +209,16 @@ export async function createOAuthSession(
       path: "/",
       maxAge: 60 * 60 * 24 * 30, // 30 days
     });
+    // Desktop SSO: record this session in the home-dir broker file so
+    // sibling templates (each with its own database) can resolve the
+    // same token without a DB row of their own.
+    if (opts.desktop) {
+      await writeDesktopSso({
+        email,
+        token: sessionToken,
+        expiresAt: Date.now() + 60 * 60 * 24 * 30 * 1000,
+      });
+    }
   }
 
   return { sessionToken };

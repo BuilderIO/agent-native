@@ -191,6 +191,14 @@ export default defineEventHandler(async (event) => {
         return { ok: true };
       }
 
+      case "gong": {
+        const accessKey = await resolveCredential("GONG_ACCESS_KEY");
+        const secret = await resolveCredential("GONG_ACCESS_SECRET");
+        if (!accessKey || !secret)
+          return { ok: false, error: "Missing credentials" };
+        return { ok: true };
+      }
+
       default:
         return { ok: false, error: `Unknown source: ${source}` };
     }
