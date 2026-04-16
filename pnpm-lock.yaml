@@ -71,6 +71,9 @@ importers:
       '@cloudflare/vite-plugin':
         specifier: ^1.31.0
         version: 1.31.1(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0))(workerd@1.20260405.1)(wrangler@4.81.0)
+      '@libsql/linux-x64-gnu':
+        specifier: ^0.5.29
+        version: 0.5.29
       concurrently:
         specifier: ^9.1.0
         version: 9.2.1
@@ -17390,8 +17393,7 @@ snapshots:
   '@libsql/linux-arm64-musl@0.5.29':
     optional: true
 
-  '@libsql/linux-x64-gnu@0.5.29':
-    optional: true
+  '@libsql/linux-x64-gnu@0.5.29': {}
 
   '@libsql/linux-x64-musl@0.5.29':
     optional: true

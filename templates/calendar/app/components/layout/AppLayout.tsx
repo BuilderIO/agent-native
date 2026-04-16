@@ -14,6 +14,9 @@ import type { CalendarEvent } from "@shared/api";
 
 const EVENT_DETAIL_MODE_KEY = "calendar-event-detail-mode";
 
+/** Routes that render without the full AppLayout chrome (sidebar, agent panel). */
+const BARE_ROUTES = new Set(["/event"]);
+
 export type ViewMode = "month" | "week" | "day";
 
 interface CalendarContextValue {
@@ -106,6 +109,11 @@ export function AppLayout({ children }: AppLayoutProps) {
       if (saved === "sidebar") setEventDetailSidebarState(true);
     } catch {}
   }, []);
+
+  // Render chromeless for embed/preview routes — all hooks must be called above
+  if (BARE_ROUTES.has(location.pathname)) {
+    return <>{children}</>;
+  }
 
   const setEventDetailSidebar = (sidebar: boolean) => {
     setEventDetailSidebarState(sidebar);

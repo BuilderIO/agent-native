@@ -1,4 +1,3 @@
-import { Link } from "react-router";
 import {
   Bar,
   CartesianGrid,
@@ -13,7 +12,6 @@ import {
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { IconExternalLink } from "@tabler/icons-react";
 
 interface RevenueComparisonChartProps {
   title: string;
@@ -25,7 +23,6 @@ interface RevenueComparisonChartProps {
   }[];
   isLoading?: boolean;
   error?: string;
-  sql?: string;
 }
 
 const formatCurrency = (value: number) =>
@@ -67,7 +64,6 @@ export function RevenueComparisonChart({
   data,
   isLoading,
   error,
-  sql,
 }: RevenueComparisonChartProps) {
   // Flip churn_out to negative for display
   const chartData = data.map((d) => ({
@@ -79,15 +75,6 @@ export function RevenueComparisonChart({
     <Card className="bg-card border-border/50">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-base">{title}</CardTitle>
-        {sql && (
-          <Link
-            to={`/query?sql=${encodeURIComponent(sql)}`}
-            className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
-          >
-            <IconExternalLink className="h-3 w-3" />
-            Query
-          </Link>
-        )}
       </CardHeader>
       <CardContent>
         {isLoading ? (

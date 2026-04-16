@@ -41,6 +41,7 @@ import {
   getCallbackOrigin,
   AgentSidebar,
   AgentToggleButton,
+  FeedbackButton,
 } from "@agent-native/core/client";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import type { Label } from "@shared/types";
@@ -48,6 +49,8 @@ import { toast } from "sonner";
 
 import { AccountFilterContext } from "@/hooks/use-account-filter";
 import { useIsMobile } from "@/hooks/use-mobile";
+
+const BARE_ROUTES = new Set(["/email"]);
 
 /** Extract the trailing segment of a nested label name, e.g. "[Superhuman]/AI/Pitch" → "Pitch" */
 function shortLabelName(name: string): string {
@@ -70,6 +73,15 @@ const collapsibleViews = [
 ];
 
 export function AppLayout({ children }: AppLayoutProps) {
+  const location = useLocation();
+  if (BARE_ROUTES.has(location.pathname)) {
+    return <>{children}</>;
+  }
+
+  return <AppLayoutInner>{children}</AppLayoutInner>;
+}
+
+function AppLayoutInner({ children }: AppLayoutProps) {
   const isMobile = useIsMobile();
   const compose = useComposeState();
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -1035,6 +1047,9 @@ export function AppLayout({ children }: AppLayoutProps) {
                         >
                           Settings
                         </Link>
+                        <div className="mt-1">
+                          <FeedbackButton />
+                        </div>
                       </div>
                     </div>
 

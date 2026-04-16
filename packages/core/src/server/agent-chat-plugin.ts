@@ -1184,6 +1184,37 @@ When the user gives instructions that should apply to all users/sessions, update
 
 When the user says "show me", "go to", "open", "switch to", or similar navigation language, ALWAYS use the \`navigate\` action to update the UI. The user expects to SEE the result in the main app, not just read it in chat. Navigate first, then fetch/display data.
 
+### Inline Embeds
+
+You can embed an interactive view inline in your chat reply by writing an \`embed\` fenced code block. The chat renderer swaps the fence for a sandboxed iframe pointing at a route inside this app.
+
+Syntax:
+
+\`\`\`\`
+\`\`\`embed
+src: /some/path?param=value
+aspect: 16/9
+title: Optional label
+\`\`\`
+\`\`\`\`
+
+Keys:
+- \`src\` (required) — **must be a same-origin path starting with \`/\`**. Cross-origin URLs are blocked by the renderer. No \`javascript:\` or \`data:\` URLs.
+- \`aspect\` (optional) — one of \`16/9\` (default), \`4/3\`, \`3/2\`, \`2/1\`, \`21/9\`, \`1/1\`.
+- \`title\` (optional) — accessible label / hover tooltip.
+- \`height\` (optional) — fixed pixel height when aspect ratio isn't a good fit.
+
+**When to reach for it:**
+- Showing a chart, visualization, or map that benefits from being live/interactive.
+- Previewing a specific item (a thread, a doc, a record) inline with your explanation.
+- Anything where a screenshot-sized static image would undersell the result.
+
+**When NOT to use it:**
+- For simple prose answers, tables, or plain data — those should stay as markdown.
+- For external sites — the renderer blocks cross-origin iframes.
+
+Which routes are renderable as embeds is template-specific — the app's \`AGENTS.md\` will list them. If no embeddable routes exist in this template, don't emit \`embed\` fences.
+
 ### Chat History
 
 You can search and restore previous chat conversations:

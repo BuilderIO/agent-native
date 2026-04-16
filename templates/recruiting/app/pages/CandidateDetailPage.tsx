@@ -16,7 +16,7 @@ import {
   IconBuildingSkyscraper,
   IconMapPin,
   IconBrandLinkedin,
-  IconSparkles,
+  IconFileSearch,
   IconTrash,
   IconFileDescription,
   IconUsers,
@@ -241,7 +241,7 @@ export function CandidateDetailPage() {
                     }
                     className="flex w-full items-center gap-2 rounded-md border border-border px-3 py-2 text-xs font-medium text-foreground hover:bg-accent/50"
                   >
-                    <IconSparkles className="h-3.5 w-3.5 text-amber-500" />
+                    <IconFileSearch className="h-3.5 w-3.5 text-amber-500" />
                     Analyze Resume
                   </button>
                   <button

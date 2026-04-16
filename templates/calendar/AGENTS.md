@@ -120,6 +120,7 @@ cd templates/calendar && pnpm action <name> [args]
 | ---------------------- | ------------------------------------------------------------ | ------------------------------- |
 | `list-events`          | `--from`, `--to`, `--query`, `--json`                        | Query Google Calendar events    |
 | `search-events`        | `--query` (required), `--from`, `--to`                       | Search events by title          |
+| `get-event`            | `--id` (required), `--calendarId` (default: primary)         | Fetch a single event by id      |
 | `create-event`         | `--title`, `--start`, `--end`, `--description`, `--location` | Create event on Google Calendar |
 | `sync-google-calendar` | `--from`, `--to`                                             | Pull Google Calendar events     |
 
@@ -162,6 +163,26 @@ The `--to` bound is exclusive, so use tomorrow's date for today's events.
 3. Google redirects back to `/_agent-native/google/callback` with auth code
 4. Server exchanges code for tokens, saves to the `oauth_tokens` SQL table
 5. User can now sync events and create events on Google Calendar
+
+## Inline Previews in Chat
+
+The `/event` route renders a compact, chromeless event card for embedding in the agent chat. Use this to surface event details inline when the user asks about a specific event.
+
+**Embed syntax:**
+
+````
+```embed
+src: /event?id=<event-id>&calendarId=primary
+aspect: 3/2
+title: <event title>
+```
+````
+
+- `id` — the Google Calendar event id (raw id like `abc123xyz`, or the prefixed form `google-abc123xyz`)
+- `calendarId` — calendar id, almost always `primary`
+- `aspect` — recommended `3/2` for a compact card
+
+The route fetches the event via the `get-event` action and displays title, time, location, attendees (up to 5), and a description snippet. When viewed inside an agent embed an "Open calendar" button posts a navigate message to take the user to the main calendar view (`/`).
 
 ## Key Conventions
 

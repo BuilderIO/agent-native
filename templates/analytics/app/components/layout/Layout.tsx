@@ -1,3 +1,4 @@
+import { useLocation } from "react-router";
 import { Sidebar } from "./Sidebar";
 import { MobileNav } from "./MobileNav";
 import { Header } from "./Header";
@@ -9,8 +10,14 @@ interface LayoutProps {
   children: React.ReactNode;
 }
 
+const BARE_ROUTES = new Set(["/chart"]);
+
 export function Layout({ children }: LayoutProps) {
   useNavigationState();
+  const location = useLocation();
+  if (BARE_ROUTES.has(location.pathname)) {
+    return <>{children}</>;
+  }
   return (
     <HeaderActionsProvider>
       <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">

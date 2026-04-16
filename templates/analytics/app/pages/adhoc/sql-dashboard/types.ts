@@ -1,4 +1,4 @@
-export type DataSourceType = "bigquery" | "app-db";
+export type DataSourceType = "bigquery" | "app-db" | "ga4";
 
 export type ChartType = "line" | "area" | "bar" | "metric" | "table" | "pie";
 

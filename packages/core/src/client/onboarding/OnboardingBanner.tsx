@@ -6,7 +6,7 @@
  */
 
 import React from "react";
-import { IconSparkles, IconChevronRight } from "@tabler/icons-react";
+import { IconChecklist, IconChevronRight } from "@tabler/icons-react";
 import { useOnboarding } from "./use-onboarding.js";
 
 interface OnboardingBannerProps {
@@ -30,7 +30,7 @@ export function OnboardingBanner({
       style={styles.root}
     >
       <span style={styles.left}>
-        <IconSparkles size={14} style={{ color: "#60a5fa" }} />
+        <IconChecklist size={14} style={{ color: "#60a5fa" }} />
         <span style={styles.title}>Setup</span>
         <span style={styles.counter}>
           {completeCount} of {totalCount} complete

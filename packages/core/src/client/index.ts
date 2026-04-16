@@ -73,6 +73,7 @@ export {
 } from "./useProductionAgent.js";
 export { Turnstile, type TurnstileProps } from "./Turnstile.js";
 export { PoweredByBadge, type PoweredByBadgeProps } from "./PoweredByBadge.js";
+export { FeedbackButton, type FeedbackButtonProps } from "./FeedbackButton.js";
 export { ErrorBoundary } from "./ErrorBoundary.js";
 export { ClientOnly } from "./ClientOnly.js";
 export { DefaultSpinner } from "./DefaultSpinner.js";
@@ -126,6 +127,13 @@ export {
   useActionMutation,
   type ActionRegistry,
 } from "./use-action.js";
+export {
+  postNavigate,
+  isInAgentEmbed,
+  AGENT_NAVIGATE_MESSAGE_TYPE,
+  type AgentNavigateMessage,
+} from "./embed.js";
+export { IframeEmbed, parseEmbedBody } from "./IframeEmbed.js";
 export {
   useAvatarUrl,
   uploadAvatar,
