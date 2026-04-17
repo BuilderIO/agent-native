@@ -388,7 +388,9 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
           "forums",
         ]);
         if (categoryIds.has(id)) {
-          labelClause = `category:${id}`;
+          // Gmail normalizes CATEGORY_PERSONAL → "personal" on the client, but
+          // its search operator for the Primary tab is `category:primary`.
+          labelClause = `category:${id === "personal" ? "primary" : id}`;
         } else if (id === "important") {
           labelClause = "is:important";
         } else if (id === "note-to-self") {

@@ -104,6 +104,13 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const [searchParams] = useSearchParams();
   const activeSearchQuery = searchParams.get("q");
   const activeLabel = searchParams.get("label");
+  // Remember which view the user was in before searching — SearchBar always
+  // routes searches through /inbox?q=..., so on clear we'd otherwise drop a
+  // user searching from Starred/Sent/Archive back into Inbox.
+  const preSearchViewRef = useRef(view);
+  useEffect(() => {
+    if (!activeSearchQuery) preSearchViewRef.current = view;
+  }, [view, activeSearchQuery]);
   const { data: labels = [], isLoading: labelsLoading } = useLabels();
   const { data: settings, isLoading: settingsLoading } = useSettings();
   useContacts(); // Prefetch contacts so composer autocomplete is instant
@@ -613,7 +620,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         setSearchFocused(false);
         (document.getElementById("mail-search") as HTMLInputElement)?.blur();
         if (activeSearchQuery) {
-          navigate(`/${view}`);
+          navigate(`/${preSearchViewRef.current}`);
         }
       },
     },
@@ -819,7 +826,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     setSearchFocused(false);
                     setSearchQuery("");
                     if (activeSearchQuery) {
-                      navigate(`/${view}`);
+                      navigate(`/${preSearchViewRef.current}`);
                     }
                   }}
                 />

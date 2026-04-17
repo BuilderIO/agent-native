@@ -121,6 +121,7 @@ export function SearchBar({
         inputRef.current?.blur();
       }
     } else if (e.key === "Escape") {
+      e.preventDefault();
       setQuery("");
       onClose();
     }
