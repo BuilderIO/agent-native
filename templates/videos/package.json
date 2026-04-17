@@ -1,5 +1,6 @@
 {
   "name": "videos",
+  "displayName": "Agent-Native Videos",
   "private": true,
   "type": "module",
   "pkg": {

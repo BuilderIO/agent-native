@@ -39,6 +39,7 @@ import { getSession } from "../server/auth.js";
 import { putUserSetting } from "../settings/user-settings.js";
 import { getDbExec } from "../db/client.js";
 import { sendEmail, isEmailConfigured } from "../server/email.js";
+import { getAppName } from "../server/app-name.js";
 import { getOrgContext } from "./context.js";
 import type { OrgRole } from "./types.js";
 
@@ -237,18 +238,20 @@ export const createInvitationHandler = defineEventHandler(
       const orgName = ctx.orgName || "your team";
       const inviter = ctx.email;
       const appUrl = getInviteAppUrl(event);
+      const appName = getAppName();
+      const onApp = appName ? ` on ${appName}` : "";
       try {
         await sendEmail({
           to: email,
-          subject: `${inviter} invited you to join ${orgName}`,
+          subject: `${inviter} invited you to join ${orgName}${onApp}`,
           html:
             `<p>Hi,</p>` +
-            `<p><strong>${escapeHtml(inviter)}</strong> invited you to join <strong>${escapeHtml(orgName)}</strong>.</p>` +
-            `<p><a href="${appUrl}">Open ${escapeHtml(orgName)}</a> and sign in with this email address (${escapeHtml(email)}) to accept the invitation.</p>` +
+            `<p><strong>${escapeHtml(inviter)}</strong> invited you to join <strong>${escapeHtml(orgName)}</strong>${appName ? ` on <strong>${escapeHtml(appName)}</strong>` : ""}.</p>` +
+            `<p>Sign in at <a href="${appUrl}">${escapeHtml(appUrl)}</a> with this email address (${escapeHtml(email)}) to accept the invitation.</p>` +
             `<p>If you weren't expecting this, you can safely ignore this email.</p>`,
           text:
-            `${inviter} invited you to join ${orgName}.\n\n` +
-            `Open ${appUrl} and sign in with ${email} to accept.\n\n` +
+            `${inviter} invited you to join ${orgName}${onApp}.\n\n` +
+            `Sign in at ${appUrl} with ${email} to accept.\n\n` +
             `If you weren't expecting this, you can ignore this email.`,
         });
         emailSent = true;

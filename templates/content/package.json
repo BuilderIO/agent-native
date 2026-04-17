@@ -1,5 +1,6 @@
 {
   "name": "content",
+  "displayName": "Agent-Native Content",
   "private": true,
   "type": "module",
   "pkg": {
