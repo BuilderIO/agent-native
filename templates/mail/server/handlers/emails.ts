@@ -372,13 +372,38 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
         searchQuery = gmailQuery[view] ?? `label:${view}`;
       }
       // If a specific label filter is active (e.g. a pinned label tab), scope
-      // the Gmail query server-side. Gmail's `label:` operator wants the label
-      // name with spaces replaced by hyphens; nested labels use `/`.
+      // the Gmail query server-side. gmailToEmailMessage normalizes Gmail's
+      // CATEGORY_* labels into friendly IDs like "updates"/"promotions" and
+      // synthesizes virtual IDs like "note-to-self" (self-sent mail). Translate
+      // those back into the right Gmail search operator — plain `label:updates`
+      // doesn't match the Updates category.
       if (label) {
-        const gmailLabel = label.replace(/\s+/g, "-");
+        let labelClause = "";
+        const id = label.toLowerCase();
+        const categoryIds = new Set([
+          "personal",
+          "social",
+          "updates",
+          "promotions",
+          "forums",
+        ]);
+        if (categoryIds.has(id)) {
+          labelClause = `category:${id}`;
+        } else if (id === "important") {
+          labelClause = "is:important";
+        } else if (id === "note-to-self") {
+          // "Note to self" is synthesized client-side for self-sent mail that
+          // still landed in the inbox. Gmail has no such label — match by
+          // sender (each account's `from:me` resolves per-account).
+          labelClause = "from:me";
+        } else {
+          // User-created label: Gmail's `label:` operator wants the display
+          // name with spaces replaced by hyphens; nested labels use `/`.
+          labelClause = `label:${label.replace(/\s+/g, "-")}`;
+        }
         searchQuery = searchQuery
-          ? `${searchQuery} label:${gmailLabel}`
-          : `label:${gmailLabel}`;
+          ? `${searchQuery} ${labelClause}`
+          : labelClause;
       }
 
       // Fetch label name mapping from all accounts (cached)
