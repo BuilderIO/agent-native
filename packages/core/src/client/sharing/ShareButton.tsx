@@ -203,6 +203,20 @@ function SharePanel(
   const [pendingAdds, setPendingAdds] = useState<Share[]>([]);
   const [pendingRemoves, setPendingRemoves] = useState<Set<string>>(new Set());
   const [roleOverrides, setRoleOverrides] = useState<Record<string, Role>>({});
+  // Principals with an in-flight share/unshare mutation. We disable the
+  // role dropdown and the trash button for any share in this set so a
+  // user can't race a role-change against a remove (which would otherwise
+  // let the upsert silently re-grant access after the delete landed), and
+  // can't rapid-fire two creates for the same pending add.
+  const [inFlight, setInFlight] = useState<Set<string>>(new Set());
+  const addInFlight = (k: string) =>
+    setInFlight((prev) => new Set(prev).add(k));
+  const clearInFlight = (k: string) =>
+    setInFlight((prev) => {
+      const next = new Set(prev);
+      next.delete(k);
+      return next;
+    });
 
   useEffect(() => {
     sharesQuery.refetch();
@@ -247,8 +261,12 @@ function SharePanel(
       principalId: trimmed,
       role,
     };
+    const k = keyOf(optimistic);
+    // Ignore duplicate submits while an add for the same principal is in flight.
+    if (inFlight.has(k)) return;
     setPendingAdds((p) => [...p, optimistic]);
     setEmail("");
+    addInFlight(k);
     share.mutate(
       {
         resourceType,
@@ -261,10 +279,12 @@ function SharePanel(
         onSuccess: () => {
           sharesQuery.refetch().then(() => {
             setPendingAdds((p) => p.filter((s) => s.id !== optimistic.id));
+            clearInFlight(k);
           });
         },
         onError: () => {
           setPendingAdds((p) => p.filter((s) => s.id !== optimistic.id));
+          clearInFlight(k);
         },
       },
     );
@@ -273,7 +293,13 @@ function SharePanel(
   const handleChangeRole = (s: Share, next: Role) => {
     if (s.role === next) return;
     const k = keyOf(s);
+    // Don't stack a role change on top of an in-flight add/remove/role
+    // change for the same principal — it can race with unshare and end up
+    // re-granting access after a delete. UI already disables the control,
+    // but belt-and-suspenders here too.
+    if (inFlight.has(k)) return;
     setRoleOverrides((prev) => ({ ...prev, [k]: next }));
+    addInFlight(k);
     // share-resource is upsert: calling with same principal + new role
     // updates the existing share row. See sharing/actions/share-resource.ts.
     share.mutate(
@@ -291,6 +317,7 @@ function SharePanel(
               const { [k]: _, ...rest } = prev;
               return rest;
             });
+            clearInFlight(k);
           });
         },
         onError: () => {
@@ -298,6 +325,7 @@ function SharePanel(
             const { [k]: _, ...rest } = prev;
             return rest;
           });
+          clearInFlight(k);
         },
       },
     );
@@ -305,7 +333,12 @@ function SharePanel(
 
   const handleRemove = (s: Share) => {
     const k = keyOf(s);
+    // If any other mutation is in flight for this principal, don't start a
+    // remove — it can interleave with an upsert and leave the row in place.
+    // The UI already disables the trash button when inFlight.has(k).
+    if (inFlight.has(k)) return;
     setPendingRemoves((prev) => new Set(prev).add(k));
+    addInFlight(k);
     unshare.mutate(
       {
         resourceType,
@@ -321,6 +354,7 @@ function SharePanel(
               next.delete(k);
               return next;
             });
+            clearInFlight(k);
           });
         },
         onError: () => {
@@ -329,6 +363,7 @@ function SharePanel(
             next.delete(k);
             return next;
           });
+          clearInFlight(k);
         },
       },
     );
@@ -394,7 +429,10 @@ function SharePanel(
         {shares.map((s) => (
           <li
             key={keyOf(s)}
-            className="flex items-center gap-3 px-1 py-1.5 text-sm"
+            className={cn(
+              "flex items-center gap-3 px-1 py-1.5 text-sm",
+              inFlight.has(keyOf(s)) && "opacity-60",
+            )}
           >
             <Avatar label={s.principalId} org={s.principalType === "org"} />
             <span className="flex-1 min-w-0 truncate">{s.principalId}</span>
@@ -402,6 +440,7 @@ function SharePanel(
               <RoleSelect
                 value={s.role}
                 onChange={(r) => handleChangeRole(s, r)}
+                disabled={inFlight.has(keyOf(s))}
                 plain
               />
             ) : (
@@ -414,6 +453,7 @@ function SharePanel(
                 type="button"
                 aria-label="Remove"
                 onClick={() => handleRemove(s)}
+                disabled={inFlight.has(keyOf(s))}
                 className={BUTTON_GHOST_ICON}
               >
                 <IconTrash size={14} />
@@ -503,6 +543,7 @@ function SelectItems({ items }: { items: ShadSelectItemProps[] }) {
 function RoleSelect(props: {
   value: Role;
   onChange: (v: Role) => void;
+  disabled?: boolean;
   /** When true, render as inline text + chevron (no border / bg) — matches
    *  the per-person role picker in Google Docs. */
   plain?: boolean;
@@ -513,6 +554,7 @@ function RoleSelect(props: {
     <Select.Root
       value={props.value}
       onValueChange={(v) => props.onChange(v as Role)}
+      disabled={props.disabled}
     >
       <Select.Trigger
         className={
