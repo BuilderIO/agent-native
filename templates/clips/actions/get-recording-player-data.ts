@@ -87,6 +87,35 @@ export default defineAction({
       } catch {}
     }
 
+    // Normalize the dev-fallback videoUrl:
+    //   1. Rewrite legacy `/api/uploads/:id/blob` to `/api/video/:id` so old
+    //      rows keep playing after the route move.
+    //   2. Non-owner viewers hitting a password-protected recording get the
+    //      password appended so `<video>` can fetch through the blob route's
+    //      password gate. Owners skip — the blob route bypasses the gate
+    //      for them. Real provider URLs (R2/S3/Builder) are left untouched.
+    let resolvedVideoUrl = rec.videoUrl ?? null;
+    if (resolvedVideoUrl) {
+      const legacyMatch = resolvedVideoUrl.match(
+        /^\/api\/uploads\/([^/]+)\/blob$/,
+      );
+      if (legacyMatch) {
+        resolvedVideoUrl = `/api/video/${legacyMatch[1]}`;
+      }
+      if (
+        rec.password &&
+        access.role !== "owner" &&
+        resolvedVideoUrl.startsWith("/api/video/")
+      ) {
+        const sep = resolvedVideoUrl.includes("?") ? "&" : "?";
+        resolvedVideoUrl =
+          resolvedVideoUrl +
+          sep +
+          "password=" +
+          encodeURIComponent(rec.password);
+      }
+    }
+
     return {
       role: access.role,
       recording: {
@@ -97,7 +126,7 @@ export default defineAction({
         thumbnailUrl: rec.thumbnailUrl,
         animatedThumbnailUrl: rec.animatedThumbnailUrl,
         durationMs: rec.durationMs,
-        videoUrl: rec.videoUrl,
+        videoUrl: resolvedVideoUrl,
         videoFormat: rec.videoFormat,
         width: rec.width,
         height: rec.height,
