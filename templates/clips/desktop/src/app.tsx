@@ -150,11 +150,15 @@ export function App() {
   }, [checkAuth]);
 
   async function signIn() {
+    // The framework's auth guard serves the login HTML at any protected
+    // path — there is no dedicated `/login` route in the template router.
+    // Opening `/` means: (a) if already signed in, land on the library;
+    // (b) if anon, the guard intercepts and serves the login form. After
+    // a successful sign-in, the cookie is set even if the post-login
+    // redirect target 404s (as it currently does in this dev build).
     await invoke("show_signin", {
-      url: `${serverUrl.replace(/\/+$/, "")}/login`,
+      url: `${serverUrl.replace(/\/+$/, "")}/`,
     }).catch(() => {});
-    // Poll for auth — close the signin window automatically when the
-    // session lands (usually right after the login redirect).
     const start = Date.now();
     const interval = setInterval(async () => {
       const ok = await checkAuth();
