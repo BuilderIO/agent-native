@@ -395,7 +395,7 @@ export async function autoDiscoverActions(
   return registry;
 }
 
-async function mergeCoreSharingActions(
+export async function mergeCoreSharingActions(
   registry: Record<string, ActionEntry>,
 ): Promise<void> {
   const entries: Array<[string, () => Promise<any>]> = [

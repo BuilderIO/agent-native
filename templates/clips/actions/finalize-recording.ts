@@ -1,0 +1,266 @@
+/**
+ * Finalize a recording — assemble chunks, upload the final blob,
+ * update the recording row, flip status to 'processing' → 'ready',
+ * and trigger a background agent chat to produce title/summary/chapters.
+ *
+ * Usage:
+ *   pnpm action finalize-recording --id=<recordingId>
+ */
+
+import { defineAction } from "@agent-native/core";
+import { z } from "zod";
+import { and, eq } from "drizzle-orm";
+import { getDb, schema } from "../server/db/index.js";
+import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
+import {
+  readAppState,
+  writeAppState,
+  deleteAppState,
+  listAppState,
+} from "@agent-native/core/application-state";
+import { uploadFile } from "@agent-native/core/file-upload";
+
+/**
+ * Decode a base64 string back into a Uint8Array.
+ * We store chunks as base64 in application_state because the SQL JSON
+ * column holds text, not raw bytes.
+ */
+function b64ToBytes(b64: string): Uint8Array {
+  if (typeof Buffer !== "undefined") {
+    const buf = Buffer.from(b64, "base64");
+    return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+  }
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function concatBytes(parts: Uint8Array[]): Uint8Array {
+  let total = 0;
+  for (const p of parts) total += p.byteLength;
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const p of parts) {
+    out.set(p, offset);
+    offset += p.byteLength;
+  }
+  return out;
+}
+
+export default defineAction({
+  description:
+    "Assemble recorded chunks into a final video blob, upload it to the configured storage provider, update the recording row (videoUrl, durationMs, width/height/hasAudio/hasCamera), flip status to 'ready', and trigger the agent to produce a title, summary, transcript, and chapters in the background.",
+  schema: z.object({
+    id: z.string().describe("Recording ID to finalize"),
+    durationMs: z
+      .number()
+      .optional()
+      .describe("Final recorded duration in milliseconds"),
+    width: z.number().optional().describe("Video width in pixels"),
+    height: z.number().optional().describe("Video height in pixels"),
+    hasAudio: z
+      .boolean()
+      .optional()
+      .describe("Whether the recording contains audio"),
+    hasCamera: z
+      .boolean()
+      .optional()
+      .describe("Whether the recording contains a camera feed"),
+    mimeType: z
+      .string()
+      .optional()
+      .describe("MIME type of the assembled blob (e.g. video/webm)"),
+  }),
+  run: async (args) => {
+    const db = getDb();
+    const ownerEmail = getCurrentOwnerEmail();
+    const id = args.id;
+
+    const [existing] = await db
+      .select()
+      .from(schema.recordings)
+      .where(
+        and(
+          eq(schema.recordings.id, id),
+          eq(schema.recordings.ownerEmail, ownerEmail),
+        ),
+      );
+
+    if (!existing) {
+      throw new Error(`Recording not found: ${id}`);
+    }
+
+    const uploadState = await readAppState(`recording-upload-${id}`);
+    const mimeType =
+      args.mimeType ||
+      (typeof uploadState?.mimeType === "string" ? uploadState.mimeType : "") ||
+      "video/webm";
+    const videoFormat: "webm" | "mp4" = mimeType.includes("mp4")
+      ? "mp4"
+      : "webm";
+
+    // Flip to 'processing' while we assemble.
+    await db
+      .update(schema.recordings)
+      .set({
+        status: "processing",
+        uploadProgress: 100,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(schema.recordings.id, id));
+
+    await writeAppState(`recording-upload-${id}`, {
+      recordingId: id,
+      status: "processing",
+      progress: 100,
+      updatedAt: new Date().toISOString(),
+    });
+
+    // Pull all chunk entries for this recording in index order.
+    const chunkEntries = await listAppState(`recording-chunks-${id}-`);
+    chunkEntries.sort((a, b) => {
+      const ai = Number(a.key.split("-").pop() || 0);
+      const bi = Number(b.key.split("-").pop() || 0);
+      return ai - bi;
+    });
+
+    if (chunkEntries.length === 0) {
+      await db
+        .update(schema.recordings)
+        .set({
+          status: "failed",
+          failureReason: "No chunks found for recording",
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(schema.recordings.id, id));
+      await writeAppState(`recording-upload-${id}`, {
+        recordingId: id,
+        status: "failed",
+        failureReason: "No chunks found for recording",
+      });
+      throw new Error(`No chunks found for recording ${id}`);
+    }
+
+    const parts: Uint8Array[] = [];
+    for (const entry of chunkEntries) {
+      const b64 =
+        typeof entry.value?.data === "string" ? entry.value.data : null;
+      if (b64) parts.push(b64ToBytes(b64));
+    }
+    const assembled = concatBytes(parts);
+
+    // Upload to the configured provider. If none is configured the helper
+    // returns null and we fall back to a tiny application_state-hosted URL.
+    let videoUrl: string;
+    const upload = await uploadFile({
+      data: assembled,
+      filename: `${id}.${videoFormat}`,
+      mimeType,
+      ownerEmail,
+    });
+
+    if (upload?.url) {
+      videoUrl = upload.url;
+    } else {
+      // Fallback: stash the assembled blob in application_state under a
+      // stable key and serve it via the existing chunk route's GET sibling
+      // (the upload provider is the production path; this is dev-only).
+      const b64 =
+        typeof Buffer !== "undefined"
+          ? Buffer.from(assembled).toString("base64")
+          : btoa(String.fromCharCode(...assembled));
+      await writeAppState(`recording-blob-${id}`, {
+        mimeType,
+        data: b64,
+      });
+      videoUrl = `/api/uploads/${id}/blob`;
+    }
+
+    // Update the recording row with final metadata and flip to 'ready'.
+    await db
+      .update(schema.recordings)
+      .set({
+        status: "ready",
+        videoUrl,
+        videoFormat,
+        videoSizeBytes: assembled.byteLength,
+        durationMs: args.durationMs ?? existing.durationMs ?? 0,
+        width: args.width ?? existing.width ?? 0,
+        height: args.height ?? existing.height ?? 0,
+        hasAudio:
+          typeof args.hasAudio === "boolean"
+            ? args.hasAudio
+            : existing.hasAudio,
+        hasCamera:
+          typeof args.hasCamera === "boolean"
+            ? args.hasCamera
+            : existing.hasCamera,
+        uploadProgress: 100,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(schema.recordings.id, id));
+
+    // Seed a pending transcript row so the agent background task has a place
+    // to write results.
+    const [existingTranscript] = await db
+      .select({ recordingId: schema.recordingTranscripts.recordingId })
+      .from(schema.recordingTranscripts)
+      .where(eq(schema.recordingTranscripts.recordingId, id));
+    if (!existingTranscript) {
+      await db.insert(schema.recordingTranscripts).values({
+        recordingId: id,
+        ownerEmail,
+        status: "pending",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+    }
+
+    // Clean up chunk scratch space.
+    for (const entry of chunkEntries) {
+      await deleteAppState(entry.key);
+    }
+
+    await writeAppState(`recording-upload-${id}`, {
+      recordingId: id,
+      status: "ready",
+      progress: 100,
+      videoUrl,
+      finishedAt: new Date().toISOString(),
+    });
+
+    await writeAppState("refresh-signal", { ts: Date.now() });
+
+    // Queue a background agent run by writing a structured message to
+    // application_state. The frontend's agent-chat-bridge picks up
+    // `agent-task-*` keys and dispatches sendToAgentChat({ background: true }).
+    await writeAppState(`agent-task-recording-${id}`, {
+      kind: "post-recording-processing",
+      recordingId: id,
+      background: true,
+      openSidebar: false,
+      message: [
+        `A new recording (${id}) just finished uploading.`,
+        "Please do the following in the background:",
+        "1. Generate a concise, descriptive title and update it via update-recording.",
+        "2. Generate a 1-2 sentence summary and store it in the description.",
+        "3. Produce a transcript (segmented, with startMs/endMs/text) and save it to the recording_transcripts table for this recording id, setting status='ready'.",
+        "4. Produce a short chapters list (chaptersJson: [{startMs, title}]) and save it on the recording row.",
+        "Do NOT prompt the user — this is a silent background task.",
+      ].join("\n"),
+      context: { recordingId: id, videoUrl, durationMs: args.durationMs ?? 0 },
+      createdAt: new Date().toISOString(),
+    });
+
+    console.log(`Finalized recording ${id} → ${videoUrl}`);
+
+    return {
+      id,
+      status: "ready" as const,
+      videoUrl,
+      videoSizeBytes: assembled.byteLength,
+      durationMs: args.durationMs ?? existing.durationMs ?? 0,
+    };
+  },
+});

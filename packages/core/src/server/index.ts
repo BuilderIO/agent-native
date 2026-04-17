@@ -106,6 +106,7 @@ export {
   autoDiscoverActions,
   autoDiscoverScripts,
   loadActionsFromStaticRegistry,
+  mergeCoreSharingActions,
 } from "./action-discovery.js";
 export {
   mountActionRoutes,

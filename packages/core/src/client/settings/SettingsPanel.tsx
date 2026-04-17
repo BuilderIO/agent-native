@@ -16,11 +16,13 @@ import {
   IconUpload,
   IconCoin,
   IconMail,
+  IconKey,
 } from "@tabler/icons-react";
 import { SettingsSection } from "./SettingsSection.js";
 import { useBuilderStatus } from "./useBuilderStatus.js";
 import { AgentsSection } from "./AgentsSection.js";
 import { UsageSection } from "./UsageSection.js";
+import { SecretsSection } from "./SecretsSection.js";
 
 const IntegrationsPanel = lazy(() =>
   import("../integrations/IntegrationsPanel.js").then((m) => ({
@@ -621,10 +623,42 @@ export function SettingsPanel({
       .catch(() => {});
   }, []);
 
+  // Detect whether the app registered any secrets — controls whether the
+  // "API Keys & Connections" section renders at all.
+  const [hasSecrets, setHasSecrets] = useState(false);
+  const [focusSecretKey, setFocusSecretKey] = useState<string | undefined>(
+    undefined,
+  );
+  useEffect(() => {
+    fetch("/_agent-native/secrets")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((list: Array<{ key: string }>) => {
+        setHasSecrets(Array.isArray(list) && list.length > 0);
+      })
+      .catch(() => setHasSecrets(false));
+  }, []);
+
   // Accordion: only one section open at a time (null = all closed)
   const [openSection, setOpenSection] = useState<string | null>("llm");
   const toggle = (id: string) =>
     setOpenSection((prev) => (prev === id ? null : id));
+
+  // Support `#secrets:<KEY>` hash fragments from the onboarding CTA — opens
+  // the section and focuses the matching input.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleHash = () => {
+      const hash = window.location.hash?.replace(/^#/, "") ?? "";
+      if (hash.startsWith("secrets:") || hash === "secrets") {
+        setOpenSection("secrets");
+        const key = hash.slice("secrets:".length);
+        setFocusSecretKey(key || undefined);
+      }
+    };
+    handleHash();
+    window.addEventListener("hashchange", handleHash);
+    return () => window.removeEventListener("hashchange", handleHash);
+  }, []);
 
   return (
     <div
@@ -671,6 +705,19 @@ export function SettingsPanel({
         open={openSection === "llm"}
         onToggle={() => toggle("llm")}
       />
+
+      {/* API Keys & Connections (only when a template has registered any) */}
+      {hasSecrets && (
+        <SettingsSection
+          icon={<IconKey size={14} />}
+          title="API Keys & Connections"
+          subtitle="Service credentials registered by this app."
+          open={openSection === "secrets"}
+          onToggle={() => toggle("secrets")}
+        >
+          <SecretsSection focusKey={focusSecretKey} />
+        </SettingsSection>
+      )}
 
       {/* Hosting */}
       <SettingsSection

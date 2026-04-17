@@ -89,3 +89,20 @@ export {
   ensureDir,
   fail,
 } from "./scripts/index.js";
+
+// Secrets registry — import from "@agent-native/core/secrets" when possible
+// (the subpath keeps the top-level entry point lean), but re-export the
+// public API here for convenience.
+export {
+  registerRequiredSecret,
+  listRequiredSecrets,
+  getRequiredSecret,
+  readAppSecret,
+  writeAppSecret,
+  deleteAppSecret,
+  type RegisteredSecret,
+  type SecretScope,
+  type SecretKind,
+  type SecretValidator,
+  type SecretRef,
+} from "./secrets/index.js";
