@@ -39,7 +39,7 @@ export default defineAction({
   run: async (args) => {
     const email = process.env.AGENT_USER_EMAIL || "local@localhost";
     const existing =
-      ((await getUserSetting(email, "external-calendars")) as
+      ((await getUserSetting(email, "external-calendars")) as unknown as
         | ExternalCalendar[]
         | null) ?? [];
 

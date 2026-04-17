@@ -311,7 +311,12 @@ export function loadActionsFromStaticRegistry(
     }
 
     const def = mod.default;
-    if (def && typeof def === "object" && def.tool && typeof def.run === "function") {
+    if (
+      def &&
+      typeof def === "object" &&
+      def.tool &&
+      typeof def.run === "function"
+    ) {
       registry[name] = {
         tool: def.tool,
         run: def.run,

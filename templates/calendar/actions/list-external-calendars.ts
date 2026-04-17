@@ -8,9 +8,10 @@ export default defineAction({
   http: { method: "GET" },
   run: async () => {
     const email = process.env.AGENT_USER_EMAIL || "local@localhost";
-    const calendars = (await getUserSetting(email, "external-calendars")) as
-      | ExternalCalendar[]
-      | null;
+    const calendars = (await getUserSetting(
+      email,
+      "external-calendars",
+    )) as unknown as ExternalCalendar[] | null;
     return calendars ?? [];
   },
 });

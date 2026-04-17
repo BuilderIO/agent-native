@@ -60,7 +60,7 @@ export default defineAction({
 
     // Fetch external ICS calendar feeds concurrently
     const externalCalendars =
-      ((await getUserSetting(email, "external-calendars")) as
+      ((await getUserSetting(email, "external-calendars")) as unknown as
         | ExternalCalendar[]
         | null) ?? [];
 
