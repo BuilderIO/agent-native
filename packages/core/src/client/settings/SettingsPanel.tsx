@@ -17,12 +17,14 @@ import {
   IconCoin,
   IconMail,
   IconKey,
+  IconMicrophone,
 } from "@tabler/icons-react";
 import { SettingsSection } from "./SettingsSection.js";
 import { useBuilderStatus } from "./useBuilderStatus.js";
 import { AgentsSection } from "./AgentsSection.js";
 import { UsageSection } from "./UsageSection.js";
 import { SecretsSection } from "./SecretsSection.js";
+import { VoiceTranscriptionSection } from "./VoiceTranscriptionSection.js";
 
 const IntegrationsPanel = lazy(() =>
   import("../integrations/IntegrationsPanel.js").then((m) => ({
@@ -705,6 +707,17 @@ export function SettingsPanel({
         open={openSection === "llm"}
         onToggle={() => toggle("llm")}
       />
+
+      {/* Voice transcription */}
+      <SettingsSection
+        icon={<IconMicrophone size={14} />}
+        title="Voice Transcription"
+        subtitle="How the composer microphone turns your voice into text."
+        open={openSection === "voice"}
+        onToggle={() => toggle("voice")}
+      >
+        <VoiceTranscriptionSection />
+      </SettingsSection>
 
       {/* API Keys & Connections (only when a template has registered any) */}
       {hasSecrets && (

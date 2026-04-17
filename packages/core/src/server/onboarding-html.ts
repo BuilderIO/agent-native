@@ -9,7 +9,12 @@
  * After first account exists, this page acts as a normal login page.
  * The "Use locally" escape hatch is hidden in production to ensure
  * real accounts are used (needed for per-user usage tracking/limits).
+ * It's also hidden when DATABASE_URL points at a non-local DB (Postgres,
+ * Turso, D1) — local@localhost has no per-user scoping, so enabling it
+ * against a shared DB would silently fail server-side.
  */
+
+import { isLocalDatabase } from "../db/client.js";
 
 function isProductionEnv(): boolean {
   const env = process.env.NODE_ENV;
@@ -45,7 +50,8 @@ export interface OnboardingHtmlOptions {
 const MIGRATE_FLAG_KEY = "an_migrate_from_local";
 
 export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
-  const showLocalMode = !isProductionEnv() && !opts.googleOnly;
+  const showLocalMode =
+    !isProductionEnv() && !opts.googleOnly && isLocalDatabase();
   const showGoogle = hasGoogleOAuth();
   const googleOnly = !!opts.googleOnly;
   const localModeBlock = showLocalMode
@@ -72,8 +78,14 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       if (res.ok) {
         window.location.reload();
       } else {
-        btn.textContent = 'Failed — try again';
-        btn.disabled = false;
+        var data = await res.json().catch(function() { return {}; });
+        var info = document.getElementById('local-info');
+        if (info && data && data.error) {
+          info.textContent = data.error;
+          info.style.color = '#f87171';
+        }
+        btn.textContent = 'Not available';
+        btn.disabled = true;
       }
     } catch(e) {
       btn.textContent = 'Failed — try again';
