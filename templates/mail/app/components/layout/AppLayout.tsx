@@ -43,7 +43,7 @@ import {
   AgentToggleButton,
   FeedbackButton,
 } from "@agent-native/core/client";
-import { OrgSwitcher } from "@agent-native/core/client/org";
+import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
 import type { Label } from "@shared/types";
 import { toast } from "sonner";
 
@@ -1106,6 +1106,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 </div>
               </>
             )}
+
+            <InvitationBanner />
 
             {/* Show full-page takeover when no accounts connected (except on settings page) */}
             {!googleStatus.isLoading &&

@@ -171,6 +171,22 @@ export {
   getBuilderAuthHeader,
 } from "./credential-provider.js";
 
+export {
+  sendEmail,
+  isEmailConfigured,
+  getEmailProvider,
+  type EmailProvider,
+  type SendEmailArgs,
+} from "./email.js";
+export {
+  renderEmail,
+  emailStrong,
+  type RenderEmailArgs,
+  type RenderedEmail,
+  type EmailCta,
+} from "./email-template.js";
+export { getAppProductionUrl, getFirstPartyProdUrl } from "./app-url.js";
+
 // SSR handler is NOT re-exported here — it uses a virtual module
 // (virtual:react-router/server-build) that only exists at Vite dev/build time.
 // Including it in this barrel would break the esbuild CF Pages bundler.
