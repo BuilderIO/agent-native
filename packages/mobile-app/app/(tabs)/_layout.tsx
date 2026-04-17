@@ -7,6 +7,7 @@ const TAB_TO_APP_ID: Record<string, string> = {
   index: "mail",
   calendar: "calendar",
   content: "content",
+  clips: "clips",
   forms: "forms",
   issues: "issues",
   recruiting: "recruiting",
@@ -69,6 +70,17 @@ export default function TabLayout() {
           href: hrefFor("content"),
           tabBarIcon: ({ color, size }) => (
             <Feather name="file-text" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="clips"
+        options={{
+          title: "Clips",
+          headerShown: false,
+          href: hrefFor("clips"),
+          tabBarIcon: ({ color, size }) => (
+            <Feather name="video" size={size} color={color} />
           ),
         }}
       />

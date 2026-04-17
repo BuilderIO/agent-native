@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import { db, schema } from "../server/db/index.js";
 import { and, gte, lte, asc, desc, eq, or, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -16,7 +17,7 @@ export default defineAction({
   run: async (args) => {
     if (!args.startDate || !args.endDate) return [];
 
-    const ownerEmail = process.env.AGENT_USER_EMAIL;
+    const ownerEmail = getRequestUserEmail();
     const data = await db()
       .select()
       .from(schema.weights)

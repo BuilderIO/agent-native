@@ -5,7 +5,7 @@ import { Timeline } from "@/components/Timeline";
 import { CameraToolbar } from "@/components/CameraToolbar";
 import { CursorPositioningOverlay } from "@/components/CursorPositioningOverlay";
 import { IconDeviceFloppy, IconTrash } from "@tabler/icons-react";
-import { useDevMode } from "@agent-native/core/client";
+import { useDevMode, ShareButton } from "@agent-native/core/client";
 import { useComposition } from "@/contexts/CompositionContext";
 import { useTimeline } from "@/contexts/TimelineContext";
 import { usePlayback } from "@/contexts/PlaybackContext";
@@ -323,13 +323,22 @@ export default function CompositionView({
     <div className="flex flex-col items-center p-2 sm:p-4 lg:p-6 min-w-0 bg-background">
       <div className="w-full max-w-5xl flex flex-col gap-0">
         {/* Composition info */}
-        <div className="mb-2">
-          <h2 className="text-sm sm:text-base font-semibold text-foreground/90">
-            {composition.title}
-          </h2>
-          <p className="text-xs sm:text-sm text-muted-foreground mt-0.5 max-w-lg leading-relaxed line-clamp-2 sm:line-clamp-none">
-            {composition.description}
-          </p>
+        <div className="mb-2 flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h2 className="text-sm sm:text-base font-semibold text-foreground/90">
+              {composition.title}
+            </h2>
+            <p className="text-xs sm:text-sm text-muted-foreground mt-0.5 max-w-lg leading-relaxed line-clamp-2 sm:line-clamp-none">
+              {composition.description}
+            </p>
+          </div>
+          <div className="flex-shrink-0">
+            <ShareButton
+              resourceType="composition"
+              resourceId={composition.id}
+              resourceTitle={composition.title}
+            />
+          </div>
         </div>
 
         {/* Camera toolbar with composition details */}

@@ -1,7 +1,8 @@
 import {
   createAgentChatPlugin,
-  autoDiscoverActions,
+  loadActionsFromStaticRegistry,
 } from "@agent-native/core/server";
+import actionsRegistry from "../../.generated/actions-registry.js";
 import { getOrgContext } from "@agent-native/core/org";
 
 export default createAgentChatPlugin({
@@ -13,7 +14,7 @@ export default createAgentChatPlugin({
     const ctx = await getOrgContext(event);
     return ctx.orgId;
   },
-  actions: () => autoDiscoverActions(import.meta.url),
+  actions: loadActionsFromStaticRegistry(actionsRegistry),
   systemPrompt: `You are the central dispatch for this workspace.
 
 Default posture:

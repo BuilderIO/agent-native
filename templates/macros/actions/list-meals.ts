@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import { db, schema } from "../server/db/index.js";
 import { eq, desc, and, or, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -18,7 +19,7 @@ export default defineAction({
       args.date ||
       `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 
-    const ownerEmail = process.env.AGENT_USER_EMAIL;
+    const ownerEmail = getRequestUserEmail();
     const meals = await db()
       .select()
       .from(schema.meals)

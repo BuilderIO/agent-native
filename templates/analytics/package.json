@@ -1,5 +1,6 @@
 {
   "name": "analytics",
+  "displayName": "Agent-Native Analytics",
   "private": true,
   "type": "module",
   "pkg": {

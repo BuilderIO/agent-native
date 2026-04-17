@@ -1,5 +1,11 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
+import { eq } from "drizzle-orm";
+import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
+import {
+  getRequestUserEmail,
+  getRequestOrgId,
+} from "@agent-native/core/server/request-context";
 import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
@@ -20,25 +26,39 @@ export default defineAction({
     const db = getDb();
     const dataStr = args.data || "{}";
 
-    await db
-      .insert(schema.compositions)
-      .values({
+    // Check if this composition already exists to decide insert vs update
+    const existing = await db
+      .select()
+      .from(schema.compositions)
+      .where(eq(schema.compositions.id, args.id))
+      .limit(1);
+
+    if (existing.length > 0) {
+      // Updating — require editor access
+      await assertAccess("composition", args.id, "editor");
+
+      await db
+        .update(schema.compositions)
+        .set({
+          title: args.title,
+          type: args.type,
+          data: dataStr,
+          updatedAt: now,
+        })
+        .where(eq(schema.compositions.id, args.id));
+    } else {
+      // Creating — set owner/org from request context
+      await db.insert(schema.compositions).values({
         id: args.id,
         title: args.title,
         type: args.type,
         data: dataStr,
         createdAt: now,
         updatedAt: now,
-      })
-      .onConflictDoUpdate({
-        target: schema.compositions.id,
-        set: {
-          title: args.title,
-          type: args.type,
-          data: dataStr,
-          updatedAt: now,
-        },
+        ownerEmail: getRequestUserEmail() ?? "local@localhost",
+        orgId: getRequestOrgId(),
       });
+    }
 
     let parsedData = {};
     try {

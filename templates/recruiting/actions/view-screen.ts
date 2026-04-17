@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { getRequestOrgId } from "@agent-native/core/server";
 import { readAppState } from "@agent-native/core/application-state";
 import * as gh from "../server/lib/greenhouse-api.js";
 import { withOrgContext } from "../server/lib/greenhouse-api.js";
@@ -138,7 +139,7 @@ export default defineAction({
     "See what the user is currently looking at on screen. Returns the current view, job/candidate details, and list data. Always call this first before taking any action.",
   http: false,
   run: async () => {
-    const orgId = process.env.AGENT_ORG_ID;
+    const orgId = getRequestOrgId();
     if (orgId) {
       return withOrgContext(orgId, fetchScreen);
     }

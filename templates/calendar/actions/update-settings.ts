@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 import { putUserSetting, putSetting } from "@agent-native/core/settings";
 import type { Settings } from "../shared/api.js";
@@ -18,7 +19,7 @@ export default defineAction({
       .describe("Default event duration in minutes"),
   }),
   run: async (args) => {
-    const email = process.env.AGENT_USER_EMAIL || "local@localhost";
+    const email = getRequestUserEmail() || "local@localhost";
     // The frontend sends the full settings object as the body
     const settings = args as unknown as Settings;
     const settingsRecord = settings as unknown as Record<string, unknown>;

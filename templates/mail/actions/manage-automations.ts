@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import { nanoid } from "nanoid";
 import { eq, and } from "drizzle-orm";
 import { z } from "zod";
@@ -39,7 +40,7 @@ export default defineAction({
     // Lazy-import DB to avoid issues when running outside server context
     const { db, schema } = await import("../server/db/index.js");
 
-    const ownerEmail = process.env.AGENT_USER_EMAIL || "local@localhost";
+    const ownerEmail = getRequestUserEmail() || "local@localhost";
 
     switch (action) {
       case "list": {

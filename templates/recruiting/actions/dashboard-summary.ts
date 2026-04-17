@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { getRequestOrgId } from "@agent-native/core/server";
 import * as gh from "../server/lib/greenhouse-api.js";
 import { withOrgContext } from "../server/lib/greenhouse-api.js";
 import type { DashboardStats } from "@shared/types";
@@ -62,7 +63,7 @@ export default defineAction({
   description: "Get a summary of dashboard statistics",
   http: { method: "GET" },
   run: async () => {
-    const orgId = process.env.AGENT_ORG_ID;
+    const orgId = getRequestOrgId();
     if (orgId) {
       return withOrgContext(orgId, getDashboard);
     }

@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { desc } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
+import { accessFilter } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 export default defineAction({
@@ -17,6 +18,7 @@ export default defineAction({
     const rows = await db
       .select()
       .from(schema.decks)
+      .where(accessFilter(schema.decks, schema.deckShares))
       .orderBy(desc(schema.decks.updatedAt));
 
     if (rows.length === 0) {
@@ -31,12 +33,14 @@ export default defineAction({
           id: row.id,
           title: row.title,
           slideCount: slides?.length ?? 0,
+          visibility: row.visibility,
         };
       }
       return {
         id: row.id,
         title: row.title,
         slideCount: slides?.length ?? 0,
+        visibility: row.visibility,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
       };

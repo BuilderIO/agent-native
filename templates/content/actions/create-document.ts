@@ -1,10 +1,11 @@
 import { defineAction } from "@agent-native/core";
 import { and, eq, sql } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
+import { parseDocumentFavorite } from "../server/lib/documents.js";
 import {
-  getCurrentOwnerEmail,
-  parseDocumentFavorite,
-} from "../server/lib/documents.js";
+  getRequestUserEmail,
+  getRequestOrgId,
+} from "@agent-native/core/server/request-context";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
 
@@ -46,7 +47,8 @@ export default defineAction({
 
     const parentId = args.parentId || null;
     const icon = args.icon || null;
-    const ownerEmail = getCurrentOwnerEmail();
+    const ownerEmail = getRequestUserEmail() ?? "local@localhost";
+    const orgId = getRequestOrgId() ?? null;
     const db = getDb();
 
     // Get max position among siblings
@@ -72,6 +74,7 @@ export default defineAction({
     await db.insert(schema.documents).values({
       id,
       ownerEmail,
+      orgId,
       parentId,
       title,
       content,
@@ -80,6 +83,7 @@ export default defineAction({
       isFavorite: 0,
       createdAt: now,
       updatedAt: now,
+      // visibility defaults to 'private' via schema default
     });
 
     const [doc] = await db
@@ -105,6 +109,7 @@ export default defineAction({
       icon: doc.icon,
       position: doc.position,
       isFavorite: parseDocumentFavorite(doc.isFavorite),
+      visibility: doc.visibility,
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
     };

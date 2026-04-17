@@ -1,8 +1,14 @@
-import { table, text, integer, now } from "@agent-native/core/db/schema";
+import {
+  table,
+  text,
+  integer,
+  now,
+  ownableColumns,
+  createSharesTable,
+} from "@agent-native/core/db/schema";
 
 export const documents = table("documents", {
   id: text("id").primaryKey(),
-  ownerEmail: text("owner_email").notNull().default("local@localhost"),
   parentId: text("parent_id"),
   title: text("title").notNull().default("Untitled"),
   content: text("content").notNull().default(""),
@@ -11,6 +17,7 @@ export const documents = table("documents", {
   isFavorite: integer("is_favorite").notNull().default(0),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
+  ...ownableColumns(),
 });
 
 export const documentVersions = table("document_versions", {
@@ -55,3 +62,5 @@ export const documentSyncLinks = table("document_sync_links", {
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
 });
+
+export const documentShares = createSharesTable("document_shares");

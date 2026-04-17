@@ -151,6 +151,22 @@ cd templates/forms && pnpm action <name> [args]
 | `navigate`     | `--view <name> [--formId <id>]` | Navigate the UI    |
 | `refresh-list` |                                 | Trigger UI refresh |
 
+### Sharing
+
+Forms are ownable. Each form has an owner (`ownerEmail`), a `visibility` (`private` / `org` / `public`), and optional per-user or per-org share grants. The framework auto-mounts four actions — call them with `--resourceType form --resourceId <form-id>`:
+
+| Action                    | Args                                                                                                              | Purpose                                   |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| `share-resource`          | `--resourceType form --resourceId <id> --principalType user\|org --principalId <id> --role viewer\|editor\|admin` | Grant a user or org access to a form.     |
+| `unshare-resource`        | `--resourceType form --resourceId <id> --principalType user\|org --principalId <id>`                              | Revoke a share.                           |
+| `list-resource-shares`    | `--resourceType form --resourceId <id>`                                                                           | Show current visibility + all share rows. |
+| `set-resource-visibility` | `--resourceType form --resourceId <id> --visibility private\|org\|public`                                         | Change the coarse visibility.             |
+
+**Sharing controls form management, NOT public response submission — these are two orthogonal axes:**
+
+- **Sharing axis** (this section) — who can read / edit / admin the form in the authenticated builder. `list-forms`, `get-form`, `update-form`, `delete-form` enforce it. A `private` form is invisible to everyone except its owner and explicitly shared principals. `update-form` requires `editor`; `delete-form` requires `admin`.
+- **Publish axis** — the form's `status` (`draft` / `published` / `closed`) and its public `slug`. Anonymous visitors submit responses at `/f/<slug>` only when `status = 'published'`. This is unchanged by sharing — a `private` form can still be `published` to collect anonymous submissions, and an `org`-visible form that stays in `draft` will still not accept submissions.
+
 ### Database
 
 | Action      | Purpose                         | Example                                            |

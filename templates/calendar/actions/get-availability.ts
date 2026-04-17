@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
 import type { AvailabilityConfig } from "../shared/api.js";
 
@@ -25,7 +26,7 @@ export default defineAction({
   parameters: {},
   http: { method: "GET" },
   run: async () => {
-    const email = process.env.AGENT_USER_EMAIL || "local@localhost";
+    const email = getRequestUserEmail() || "local@localhost";
     const config =
       (await getUserSetting(email, "calendar-availability")) ||
       DEFAULT_AVAILABILITY;

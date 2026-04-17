@@ -1,5 +1,6 @@
 {
   "name": "issues",
+  "displayName": "Agent-Native Issues",
   "private": true,
   "type": "module",
   "scripts": {

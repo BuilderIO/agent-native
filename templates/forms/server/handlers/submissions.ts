@@ -2,6 +2,7 @@ import {
   defineEventHandler,
   getRouterParam,
   getQuery,
+  getRequestHeader,
   setResponseStatus,
   getRequestIP,
   type H3Event,
@@ -38,6 +39,7 @@ const MAX_FIELD_LENGTH: Record<string, number> = {
 };
 
 const MAX_PAYLOAD_BYTES = 100 * 1024; // 100KB
+const MIN_FILL_TIME_MS = 500; // reject submits faster than this
 
 export const submitForm = defineEventHandler(async (event: H3Event) => {
   const db = getDb();
@@ -55,6 +57,20 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
     return { error: "Form not found or not accepting responses" };
   }
 
+  const settings: FormSettings = form.settings ? JSON.parse(form.settings) : {};
+
+  // Origin allowlist (per-form). Empty/unset = allow any (back-compat).
+  // Skip for same-origin requests (no Origin header set by browser on
+  // same-origin POSTs from some setups).
+  const allowedOrigins = settings.allowedOrigins ?? [];
+  if (allowedOrigins.length > 0) {
+    const origin = getRequestHeader(event, "origin");
+    if (!origin || !allowedOrigins.includes(origin)) {
+      setResponseStatus(event, 403);
+      return { error: "Origin not allowed" };
+    }
+  }
+
   const body = await readBody(event);
 
   // Check overall payload size
@@ -62,6 +78,23 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
   if (Buffer.byteLength(bodyStr, "utf8") > MAX_PAYLOAD_BYTES) {
     setResponseStatus(event, 413);
     return { error: "Payload too large" };
+  }
+
+  // Honeypot: silently accept-and-drop if filled. Bots that fire-and-forget
+  // get a 200 and never know they were caught.
+  if (typeof body._hp === "string" && body._hp.length > 0) {
+    return { success: true, id: "" };
+  }
+
+  // Min time-to-submit: client-controlled timestamp from when the form was
+  // shown. Trivially spoofable, but blocks naive scripted submitters.
+  // Negative elapsed means _t is in the future — treat as a bypass attempt.
+  if (typeof body._t === "number" && body._t > 0) {
+    const elapsed = Date.now() - body._t;
+    if (elapsed < MIN_FILL_TIME_MS) {
+      setResponseStatus(event, 429);
+      return { error: "Submitted too quickly" };
+    }
   }
 
   // Verify captcha
@@ -164,9 +197,6 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
 
   // Fire integrations (non-blocking, never fails the submission)
   try {
-    const settings: FormSettings = form.settings
-      ? JSON.parse(form.settings)
-      : {};
     const integrations: FormIntegration[] = settings.integrations ?? [];
     if (integrations.length > 0) {
       // Fire-and-forget — don't await to keep response fast

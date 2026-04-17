@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
@@ -9,6 +10,8 @@ export default defineAction({
     id: z.string().describe("Form ID to delete (required)"),
   }),
   run: async (args) => {
+    await assertAccess("form", args.id, "admin");
+
     const db = getDb();
     const [existing] = await db
       .select()

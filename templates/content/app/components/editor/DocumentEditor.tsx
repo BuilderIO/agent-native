@@ -230,6 +230,7 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
       <div className="flex-1 flex flex-col min-h-0">
         <DocumentToolbar
           documentId={documentId}
+          documentTitle={localTitle || document.title}
           activeUsers={activeUsers}
           agentActive={agentActive}
           isSaving={isSaving}

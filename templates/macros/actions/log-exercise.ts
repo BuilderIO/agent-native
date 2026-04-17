@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import { db, schema } from "../server/db/index.js";
 import { z } from "zod";
 
@@ -25,7 +26,7 @@ export default defineAction({
     const result = await db()
       .insert(schema.exercises)
       .values({
-        owner_email: process.env.AGENT_USER_EMAIL ?? null,
+        owner_email: getRequestUserEmail() ?? null,
         name: args.name,
         calories_burned: args.calories_burned || 0,
         duration_minutes: args.duration_minutes ?? null,

@@ -97,6 +97,17 @@ export const TEMPLATES: TemplateMeta[] = [
     defaultMode: "prod",
   },
   {
+    name: "clips",
+    label: "Clips",
+    hint: "Async screen recording — record, transcribe, share",
+    icon: "MonitorPlay",
+    color: "#625DF5",
+    colorRgb: "98 93 245",
+    devPort: 8094,
+    prodUrl: "https://clips.agent-native.com",
+    defaultMode: "prod",
+  },
+  {
     name: "analytics",
     label: "Analytics",
     hint: "AI-native Amplitude/Mixpanel — connect data sources, prompt for charts",

@@ -101,11 +101,68 @@ export function createOAuth2Client(
 // Authenticated fetch helper
 // ---------------------------------------------------------------------------
 
+// Per-token circuit breaker. Gmail's per-user-per-minute quota is easy to trip
+// on multi-account or multi-tab setups. When we hit a quota error, we pause
+// all calls for this token briefly so the per-minute window can refill and
+// subsequent requests don't pile on top of an already-exhausted quota.
+const QUOTA_COOLDOWN_MS = 45_000;
+const tokenCooldowns = new Map<string, number>();
+
+function cooldownKey(accessToken: string): string {
+  // Fingerprint the token so we don't keep the whole secret in memory keys.
+  // Last 12 chars are high-entropy and stable for the token's lifetime.
+  return accessToken.slice(-12);
+}
+
+function isInCooldown(accessToken: string): number {
+  const until = tokenCooldowns.get(cooldownKey(accessToken));
+  if (!until) return 0;
+  if (until <= Date.now()) {
+    tokenCooldowns.delete(cooldownKey(accessToken));
+    return 0;
+  }
+  return until - Date.now();
+}
+
+function tripCooldown(accessToken: string) {
+  tokenCooldowns.set(cooldownKey(accessToken), Date.now() + QUOTA_COOLDOWN_MS);
+}
+
+function isQuotaError(status: number, data: any): boolean {
+  if (status === 429) return true;
+  if (status !== 403) return false;
+  const errors = data?.error?.errors;
+  if (Array.isArray(errors)) {
+    for (const e of errors) {
+      const reason = e?.reason || "";
+      if (
+        reason === "rateLimitExceeded" ||
+        reason === "userRateLimitExceeded" ||
+        reason === "quotaExceeded"
+      ) {
+        return true;
+      }
+    }
+  }
+  const msg: string = data?.error?.message || "";
+  return /quota|rate limit/i.test(msg);
+}
+
 export async function googleFetch(
   url: string,
   accessToken: string,
   opts?: RequestInit,
 ): Promise<any> {
+  // Short-circuit while the token is cooling down from a recent quota hit.
+  // Surface as a quota error so callers can degrade gracefully instead of
+  // hammering Google and deepening the rate-limit state.
+  const remaining = isInCooldown(accessToken);
+  if (remaining > 0) {
+    throw new Error(
+      `Google API error (429): Rate limit cooldown — retry in ${Math.ceil(remaining / 1000)}s`,
+    );
+  }
+
   const maxRetries = 3;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -117,16 +174,26 @@ export async function googleFetch(
     // 204 No Content — return null
     if (res.status === 204) return null;
 
-    // 429 Too Many Requests or 503 — retry with exponential backoff
-    if ((res.status === 429 || res.status === 503) && attempt < maxRetries) {
+    // Parse body early when we might need it for quota-error classification.
+    // 503 has no body worth inspecting; short-circuit to the retry path.
+    if (res.status === 503 && attempt < maxRetries) {
       const delay = Math.min(1000 * 2 ** attempt, 8000);
       await new Promise((r) => setTimeout(r, delay));
       continue;
     }
 
-    const data = await res.json();
+    const data = res.status !== 503 ? await res.json().catch(() => null) : null;
+
+    // 429 or 403-with-quota-reason — retry a couple times with backoff, then
+    // trip the per-token circuit breaker so subsequent requests fast-fail.
+    if (!res.ok && isQuotaError(res.status, data) && attempt < maxRetries - 1) {
+      const delay = Math.min(1500 * 2 ** attempt, 8000);
+      await new Promise((r) => setTimeout(r, delay));
+      continue;
+    }
 
     if (!res.ok) {
+      if (isQuotaError(res.status, data)) tripCooldown(accessToken);
       const msg =
         (data as any)?.error?.message ||
         (data as any)?.error_description ||

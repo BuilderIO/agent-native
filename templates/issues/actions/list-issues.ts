@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 import { getClient } from "../server/lib/jira-auth.js";
 import { jiraSearchIssues } from "../server/lib/jira-api.js";
@@ -45,7 +46,7 @@ export default defineAction({
   http: { method: "GET" },
   run: async (args) => {
     const { view, projectKey, q, nextPageToken, maxResults } = args;
-    const client = await getClient(process.env.AGENT_USER_EMAIL);
+    const client = await getClient(getRequestUserEmail());
     if (!client) throw new Error("Jira not connected");
 
     let jql = args.jql;

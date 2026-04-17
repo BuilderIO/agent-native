@@ -6,6 +6,7 @@ export interface Document {
   icon: string | null;
   position: number;
   isFavorite: boolean;
+  visibility?: "private" | "org" | "public";
   createdAt: string;
   updatedAt: string;
 }

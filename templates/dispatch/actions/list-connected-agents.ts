@@ -4,6 +4,7 @@ import {
   discoverAgents,
   getBuiltinAgents,
 } from "@agent-native/core/server/agent-discovery";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import {
   resourceGet,
   resourceListAccessible,
@@ -21,7 +22,7 @@ export default defineAction({
     const builtinIds = new Set(
       getBuiltinAgents("dispatch").map((agent) => agent.id),
     );
-    const ownerEmail = process.env.AGENT_USER_EMAIL || "local@localhost";
+    const ownerEmail = getRequestUserEmail() || "local@localhost";
     const resources = await resourceListAccessible(ownerEmail, "agents/");
     const customById = new Map<
       string,

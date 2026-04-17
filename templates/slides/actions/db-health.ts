@@ -13,7 +13,7 @@ export default defineAction({
 
     try {
       const exec = getDbExec();
-      await exec("SELECT 1");
+      await exec.execute("SELECT 1");
       return { ok: true, local: isLocal() };
     } catch (e) {
       return {

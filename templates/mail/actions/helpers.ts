@@ -96,27 +96,24 @@ function pickFields(data: unknown, fields: string[]): unknown {
 }
 
 // ---------------------------------------------------------------------------
-// Owner email resolution (for CLI scripts without AGENT_USER_EMAIL)
+// Owner email resolution (for CLI scripts without a request context)
 // ---------------------------------------------------------------------------
 
 import { getDbExec } from "@agent-native/core/db";
-
-let _ownerEmail: string | undefined;
+import { getRequestUserEmail } from "@agent-native/core/server";
 
 /**
  * Resolve the current user's email for OAuth token lookups.
- * Checks AGENT_USER_EMAIL first, then falls back to the most recent DB session.
+ * Prefers the per-request ALS context (falls back to AGENT_USER_EMAIL for
+ * CLI invocations), then the most recent DB session for unattended scripts.
+ * Never cached at module scope — concurrent requests on a Node.js process
+ * would otherwise share one user's identity.
  */
 async function resolveOwnerEmail(): Promise<string> {
-  if (_ownerEmail) return _ownerEmail;
+  const fromRequest = getRequestUserEmail();
+  if (fromRequest) return fromRequest;
 
-  const env = process.env.AGENT_USER_EMAIL;
-  if (env) {
-    _ownerEmail = env;
-    return env;
-  }
-
-  // No env var — check DB for the most recent session
+  // No request context or env var — check DB for the most recent session
   try {
     const db = getDbExec();
     const { rows } = await db.execute({
@@ -126,7 +123,6 @@ async function resolveOwnerEmail(): Promise<string> {
     if (rows[0]) {
       const email = rows[0].email as string;
       if (email && email !== "local@localhost") {
-        _ownerEmail = email;
         return email;
       }
     }
@@ -134,7 +130,6 @@ async function resolveOwnerEmail(): Promise<string> {
     // sessions table may not exist yet
   }
 
-  _ownerEmail = "local@localhost";
   return "local@localhost";
 }
 

@@ -1,10 +1,6 @@
 import { defineAction } from "@agent-native/core";
-import { and, eq } from "drizzle-orm";
-import { getDb, schema } from "../server/db/index.js";
-import {
-  getCurrentOwnerEmail,
-  parseDocumentFavorite,
-} from "../server/lib/documents.js";
+import { parseDocumentFavorite } from "../server/lib/documents.js";
+import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 export default defineAction({
@@ -16,19 +12,9 @@ export default defineAction({
   run: async (args) => {
     if (!args.id) throw new Error("--id is required");
 
-    const ownerEmail = getCurrentOwnerEmail();
-    const db = getDb();
-    const [doc] = await db
-      .select()
-      .from(schema.documents)
-      .where(
-        and(
-          eq(schema.documents.id, args.id),
-          eq(schema.documents.ownerEmail, ownerEmail),
-        ),
-      );
-
-    if (!doc) throw new Error(`Document "${args.id}" not found`);
+    const access = await resolveAccess("document", args.id);
+    if (!access) throw new Error(`Document "${args.id}" not found`);
+    const doc = access.resource;
 
     return {
       id: doc.id,
@@ -38,6 +24,7 @@ export default defineAction({
       icon: doc.icon,
       position: doc.position,
       isFavorite: parseDocumentFavorite(doc.isFavorite),
+      visibility: doc.visibility,
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
     };

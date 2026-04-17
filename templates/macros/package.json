@@ -1,5 +1,6 @@
 {
   "name": "macros",
+  "displayName": "Agent-Native Macros",
   "private": true,
   "type": "module",
   "scripts": {

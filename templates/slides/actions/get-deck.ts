@@ -1,6 +1,5 @@
 import { defineAction } from "@agent-native/core";
-import { eq } from "drizzle-orm";
-import { getDb, schema } from "../server/db/index.js";
+import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 function stripHtml(html: string): string {
@@ -29,18 +28,12 @@ export default defineAction({
       return "Error: --id is required.";
     }
 
-    const db = getDb();
-    const rows = await db
-      .select()
-      .from(schema.decks)
-      .where(eq(schema.decks.id, args.id))
-      .limit(1);
-
-    if (rows.length === 0) {
+    const access = await resolveAccess("deck", args.id);
+    if (!access) {
       return "Error: Deck not found";
     }
 
-    const row = rows[0];
+    const row = access.resource;
     const data = JSON.parse(row.data);
     const slides = data?.slides || [];
 
@@ -48,6 +41,7 @@ export default defineAction({
       return {
         id: row.id,
         title: row.title || data?.title,
+        visibility: row.visibility,
         slideCount: slides.length,
         slides: slides.map((s: any, i: number) => ({
           index: i,
@@ -61,6 +55,7 @@ export default defineAction({
     return {
       id: row.id,
       title: row.title || data?.title,
+      visibility: row.visibility,
       slideCount: slides.length,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,

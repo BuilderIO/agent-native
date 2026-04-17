@@ -130,6 +130,21 @@ cd templates/calendar && pnpm action <name> [args]
 | -------------------- | ---------------------- | ------------------------- |
 | `check-availability` | `--date`, `--duration` | Show available time slots |
 
+### Sharing
+
+Booking links are **private by default** — only the creator can manage them. To let teammates manage a link, change the visibility or add explicit share grants. These actions are auto-mounted framework-wide:
+
+| Action                    | Args                                                                                                                                  | Purpose                                     |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| `share-resource`          | `--resourceType booking-link --resourceId <id> --principalType user\|org --principalId <email-or-orgId> --role viewer\|editor\|admin` | Grant a user or org access to manage a link |
+| `unshare-resource`        | `--resourceType booking-link --resourceId <id> --principalType user\|org --principalId <email-or-orgId>`                              | Revoke a share grant                        |
+| `list-resource-shares`    | `--resourceType booking-link --resourceId <id>`                                                                                       | Show current visibility + all grants        |
+| `set-resource-visibility` | `--resourceType booking-link --resourceId <id> --visibility private\|org\|public`                                                     | Change coarse visibility                    |
+
+Read (`list-booking-links`) admits rows the current user owns, has been shared on, or that match the link's visibility. Update requires `editor`; delete requires `admin` (owners always satisfy).
+
+**The public booking URL is a separate axis.** The slug-based URL at `/<slug>` lets unauthenticated visitors BOOK a meeting — the sharing system does not gate that. Sharing only controls who can MANAGE (edit, delete, change settings for) a booking link. An anonymous visitor can still book via the public URL of a private link as long as `isActive` is on. See the `sharing` skill for the full model.
+
 ### Querying Today's Events
 
 **Always use `list-events` to answer schedule questions — never guess or return empty results.**

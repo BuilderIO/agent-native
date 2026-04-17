@@ -83,7 +83,12 @@ export const listDecks = defineEventHandler(async (_event) => {
 
   return rows.map((row) => {
     const deck = JSON.parse(row.data);
-    return { ...deck, id: row.id, title: row.title };
+    return {
+      ...deck,
+      id: row.id,
+      title: row.title,
+      visibility: row.visibility,
+    };
   });
 });
 
@@ -104,7 +109,12 @@ export const getDeck = defineEventHandler(async (event) => {
 
   if (rows.length > 0) {
     const deck = JSON.parse(rows[0].data);
-    return { ...deck, id: rows[0].id, title: rows[0].title };
+    return {
+      ...deck,
+      id: rows[0].id,
+      title: rows[0].title,
+      visibility: rows[0].visibility,
+    };
   }
 
   setResponseStatus(event, 404);

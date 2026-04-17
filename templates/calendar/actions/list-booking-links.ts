@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { desc } from "drizzle-orm";
+import { accessFilter } from "@agent-native/core/sharing";
 import type { BookingLink } from "../shared/api.js";
 import { getDb, schema } from "../server/db/index.js";
 
@@ -35,6 +36,7 @@ function rowToBookingLink(
     conferencing,
     color: row.color ?? undefined,
     isActive: row.isActive,
+    visibility: row.visibility,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -48,6 +50,7 @@ export default defineAction({
     const rows = await getDb()
       .select()
       .from(schema.bookingLinks)
+      .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares))
       .orderBy(desc(schema.bookingLinks.updatedAt));
     return rows.map(rowToBookingLink);
   },

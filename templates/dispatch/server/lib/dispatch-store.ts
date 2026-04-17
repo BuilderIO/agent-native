@@ -1,6 +1,10 @@
 import crypto from "node:crypto";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { getOrgSetting, putOrgSetting } from "@agent-native/core/settings";
+import {
+  getRequestUserEmail,
+  getRequestOrgId,
+} from "@agent-native/core/server";
 import { getDb, schema } from "../db/index.js";
 
 export const SHARED_DISPATCH_OWNER = "dispatch@shared";
@@ -24,11 +28,11 @@ type DispatchApprovalRequest =
   typeof schema.dispatchApprovalRequests.$inferSelect;
 
 export function currentOwnerEmail(): string {
-  return process.env.AGENT_USER_EMAIL || "local@localhost";
+  return getRequestUserEmail() || "local@localhost";
 }
 
 export function currentOrgId(): string | null {
-  return process.env.AGENT_ORG_ID || null;
+  return getRequestOrgId() || null;
 }
 
 function id() {

@@ -91,6 +91,21 @@ cd templates/videos && pnpm action <name> [args]
 | "Go back to the studio"          | `pnpm action navigate --view=home`                                     |
 | "Generate an animated component" | `pnpm action generate-animated-component --name X --description "..."` |
 
+## Sharing
+
+Compositions are **private by default** — only the creator can see or edit them until they explicitly share. Visibility can be `private`, `org`, or `public`. Share grants can give other users or orgs `viewer`, `editor`, or `admin` roles.
+
+The framework auto-mounts these actions; no per-template wiring needed:
+
+| Action                    | Args                                                                                                                   | Purpose                                 |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `share-resource`          | `--resourceType composition --resourceId <id> --principalType user --principalId <email> --role viewer\|editor\|admin` | Grant access to a user or org           |
+| `unshare-resource`        | `--resourceType composition --resourceId <id> --principalType user --principalId <email>`                              | Revoke a share grant                    |
+| `list-resource-shares`    | `--resourceType composition --resourceId <id>`                                                                         | List current visibility + all grants    |
+| `set-resource-visibility` | `--resourceType composition --resourceId <id> --visibility private\|org\|public`                                       | Change a composition's visibility level |
+
+See the root `sharing` skill for the full framework primitive.
+
 ## Skills
 
 | Skill                    | When to read                                  |

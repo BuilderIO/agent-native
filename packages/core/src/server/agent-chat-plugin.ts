@@ -2221,11 +2221,22 @@ export function createAgentChatPlugin(
 
     // Auto-mount template actions as HTTP endpoints under /_agent-native/actions/
     // Include engine management scripts so the UI can call list/set/test-agent-engine.
-    const httpActions = {
+    const httpActions: Record<string, ActionEntry> = {
       ...discoveredActions,
       ...templateScripts,
       ...engineScripts,
     };
+    // Framework-level sharing actions — merged with skipExisting semantics so
+    // any template that provides a same-named action wins. When templates use
+    // `loadActionsFromStaticRegistry`, `autoDiscoverActions` never runs, so
+    // this is the single point that guarantees share-resource, unshare-resource,
+    // list-resource-shares, and set-resource-visibility are always mounted.
+    try {
+      const { mergeCoreSharingActions } = await import("./action-discovery.js");
+      await mergeCoreSharingActions(httpActions);
+    } catch {
+      // Ignore — templates without sharing still work.
+    }
     if (Object.keys(httpActions).length > 0) {
       const { mountActionRoutes } = await import("./action-routes.js");
       mountActionRoutes(nitroApp, httpActions, {

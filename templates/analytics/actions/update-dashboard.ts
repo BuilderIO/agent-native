@@ -1,4 +1,8 @@
 import { defineAction } from "@agent-native/core";
+import {
+  getRequestUserEmail,
+  getRequestOrgId,
+} from "@agent-native/core/server";
 import { z } from "zod";
 import {
   getOrgSetting,
@@ -254,8 +258,8 @@ async function validatePanelSql(
 }
 
 function resolveScope() {
-  const orgId = process.env.AGENT_ORG_ID || null;
-  const email = process.env.AGENT_USER_EMAIL || LOCAL_EMAIL;
+  const orgId = getRequestOrgId() || null;
+  const email = getRequestUserEmail() || LOCAL_EMAIL;
   return { orgId, email };
 }
 

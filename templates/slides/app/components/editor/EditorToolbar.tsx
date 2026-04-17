@@ -23,6 +23,7 @@ import type { Slide, SlideLayout } from "@/context/DeckContext";
 
 import {
   AgentToggleButton,
+  ShareButton,
   useAvatarUrl,
   uploadAvatar,
   emailToColor,
@@ -687,12 +688,22 @@ graph TD
         </button>
       )}
 
-      {/* Share button */}
+      {/* Framework share (ownership, per-user/org grants, visibility) */}
+      <div className="flex-shrink-0">
+        <ShareButton
+          resourceType="deck"
+          resourceId={deckId}
+          resourceTitle={deckTitle}
+          variant="compact"
+        />
+      </div>
+
+      {/* Public link share (anonymous share-by-URL) */}
       <button
         onClick={onShare}
         className="p-2.5 sm:p-1.5 rounded-md text-white/40 hover:text-white/70 hover:bg-white/[0.06] transition-colors flex-shrink-0"
-        title="Share presentation"
-        aria-label="Share presentation"
+        title="Share link"
+        aria-label="Share link"
       >
         <IconShare2 className="w-3.5 h-3.5" />
       </button>

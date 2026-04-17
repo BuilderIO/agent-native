@@ -1,4 +1,10 @@
-import { table, text, integer } from "@agent-native/core/db/schema";
+import {
+  table,
+  text,
+  integer,
+  ownableColumns,
+  createSharesTable,
+} from "@agent-native/core/db/schema";
 
 export const bookings = table("bookings", {
   id: text("id").primaryKey(),
@@ -37,6 +43,7 @@ export const bookingLinks = table("booking_links", {
   isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
+  ...ownableColumns(),
 });
 
 export const bookingSlugRedirects = table("booking_slug_redirects", {
@@ -44,3 +51,5 @@ export const bookingSlugRedirects = table("booking_slug_redirects", {
   newSlug: text("new_slug").notNull(),
   createdAt: text("created_at").notNull(),
 });
+
+export const bookingLinkShares = createSharesTable("booking_link_shares");

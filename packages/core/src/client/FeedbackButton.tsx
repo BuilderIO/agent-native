@@ -1,4 +1,11 @@
-import { useState, useEffect, useRef, type CSSProperties } from "react";
+import {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  type CSSProperties,
+  type FormEvent,
+} from "react";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import { IconMessage2, IconCheck } from "@tabler/icons-react";
@@ -7,12 +14,66 @@ import { cn } from "./utils.js";
 const DEFAULT_FEEDBACK_URL =
   "https://forms.agent-native.com/f/agent-native-feedback/_16ewV";
 
-function getExpectedOrigin(url: string): string | null {
+interface ParsedTarget {
+  endpoint: string;
+  slug: string;
+}
+
+interface FormSchema {
+  formId: string;
+  fieldId: string;
+  placeholder?: string;
+  submitText: string;
+  successMessage: string;
+}
+
+function parseTarget(url: string): ParsedTarget | null {
   try {
-    return new URL(url).origin;
+    const u = new URL(url);
+    const idx = u.pathname.indexOf("/f/");
+    if (idx === -1) return null;
+    const slug = u.pathname.slice(idx + 3).replace(/\/$/, "");
+    if (!slug) return null;
+    return { endpoint: u.origin, slug };
   } catch {
     return null;
   }
+}
+
+const schemaCache = new Map<string, Promise<FormSchema>>();
+
+async function loadSchema(target: ParsedTarget): Promise<FormSchema> {
+  const key = `${target.endpoint}|${target.slug}`;
+  let pending = schemaCache.get(key);
+  if (pending) return pending;
+  pending = (async () => {
+    const res = await fetch(
+      `${target.endpoint}/api/forms/public/${encodeURIComponent(target.slug)}`,
+      { headers: { Accept: "application/json" } },
+    );
+    if (!res.ok) throw new Error(`form fetch ${res.status}`);
+    const body = (await res.json()) as {
+      id: string;
+      fields: Array<{ id: string; type: string; placeholder?: string }>;
+      settings?: { submitText?: string; successMessage?: string };
+    };
+    const field =
+      body.fields.find((f) => f.type === "textarea") ??
+      body.fields.find((f) => f.type === "text") ??
+      body.fields[0];
+    if (!field) throw new Error("form has no fields");
+    return {
+      formId: body.id,
+      fieldId: field.id,
+      placeholder: field.placeholder,
+      submitText: body.settings?.submitText ?? "Send feedback",
+      successMessage:
+        body.settings?.successMessage ?? "Thanks for the feedback!",
+    };
+  })();
+  pending.catch(() => schemaCache.delete(key));
+  schemaCache.set(key, pending);
+  return pending;
 }
 
 export interface FeedbackButtonProps {
@@ -27,51 +88,22 @@ export interface FeedbackButtonProps {
   /** Which side the popover opens on. Defaults match the variant. */
   side?: "top" | "bottom" | "left" | "right";
   align?: "start" | "center" | "end";
+  /** Placeholder text for the textarea. Falls back to the form's placeholder. */
+  placeholder?: string;
 }
 
 const surfaceStyle: CSSProperties = {
-  width: "min(440px, calc(100vw - 32px))",
-  height: "min(320px, calc(100vh - 120px))",
-  background: "hsl(var(--background))",
+  width: "min(380px, calc(100vw - 32px))",
 };
 
-function FeedbackSkeleton() {
-  return (
-    <div className="flex h-full w-full flex-col gap-4 p-5" aria-hidden>
-      <div className="flex flex-col gap-2">
-        <div className="h-4 w-40 rounded bg-muted animate-pulse" />
-        <div className="h-3 w-56 rounded bg-muted/70 animate-pulse" />
-      </div>
-      <div className="flex flex-col gap-3 pt-2">
-        <div className="h-3 w-24 rounded bg-muted animate-pulse" />
-        <div className="h-9 w-full rounded-md bg-muted animate-pulse" />
-      </div>
-      <div className="flex flex-col gap-3">
-        <div className="h-3 w-28 rounded bg-muted animate-pulse" />
-        <div className="h-20 w-full rounded-md bg-muted animate-pulse" />
-      </div>
-      <div className="mt-auto flex justify-end">
-        <div className="h-9 w-24 rounded-md bg-muted animate-pulse" />
-      </div>
-    </div>
-  );
-}
-
-function FeedbackThanks() {
-  return (
-    <div className="flex h-full w-full flex-col items-center justify-center gap-3 px-6 text-center">
-      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-500">
-        <IconCheck size={22} stroke={2.5} />
-      </div>
-      <div className="text-sm font-medium text-foreground">
-        Thanks for the feedback!
-      </div>
-      <div className="text-xs text-muted-foreground">
-        We read every submission.
-      </div>
-    </div>
-  );
-}
+const honeypotStyle: CSSProperties = {
+  position: "absolute",
+  left: "-10000px",
+  top: "auto",
+  width: "1px",
+  height: "1px",
+  overflow: "hidden",
+};
 
 export function FeedbackButton({
   variant = "sidebar",
@@ -80,46 +112,89 @@ export function FeedbackButton({
   className,
   side,
   align = "end",
+  placeholder,
 }: FeedbackButtonProps) {
+  const target = parseTarget(url);
+
   const [open, setOpen] = useState(false);
-  const [loaded, setLoaded] = useState(false);
+  const [value, setValue] = useState("");
+  const [honeypot, setHoneypot] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [schema, setSchema] = useState<FormSchema | null>(null);
+  const openedAtRef = useRef<number>(0);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
-  const embedUrl = url.includes("?") ? `${url}&embed=1` : `${url}?embed=1`;
-  const expectedOrigin = getExpectedOrigin(embedUrl);
-
-  // Reset transient state each time the popover opens so the skeleton shows
-  // on the next open and a stale "submitted" view doesn't leak across sessions.
+  // Reset transient state and kick off schema load on each open.
   useEffect(() => {
-    if (open) {
-      setLoaded(false);
-      setSubmitted(false);
+    if (!open) return;
+    openedAtRef.current = Date.now();
+    setValue("");
+    setHoneypot("");
+    setSubmitting(false);
+    setSubmitted(false);
+    setError(null);
+    if (target) {
+      loadSchema(target)
+        .then((s) => setSchema(s))
+        .catch((err) => {
+          console.error("[FeedbackButton] schema load failed", err);
+          setError("Couldn't load feedback form");
+        });
+    } else {
+      setError("Invalid feedback URL");
     }
+    const t = setTimeout(() => textareaRef.current?.focus(), 30);
     return () => {
+      clearTimeout(t);
       if (closeTimerRef.current) {
         clearTimeout(closeTimerRef.current);
         closeTimerRef.current = null;
       }
     };
-  }, [open]);
+  }, [open, url]);
 
-  useEffect(() => {
-    if (!open) return;
-    function onMessage(e: MessageEvent) {
-      if (expectedOrigin && e.origin !== expectedOrigin) return;
-      const type = e.data && e.data.type;
-      if (type === "agent-native-feedback-close") {
-        setOpen(false);
-      } else if (type === "agent-native-feedback-submitted") {
-        setSubmitted(true);
-        if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
-        closeTimerRef.current = setTimeout(() => setOpen(false), 1600);
+  const submit = useCallback(
+    async (e?: FormEvent) => {
+      e?.preventDefault();
+      if (!target || !schema || submitting) return;
+      const trimmed = value.trim();
+      if (!trimmed) {
+        setError("Please write something first");
+        return;
       }
-    }
-    window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
-  }, [open, expectedOrigin]);
+      setSubmitting(true);
+      setError(null);
+      try {
+        const res = await fetch(
+          `${target.endpoint}/api/submit/${encodeURIComponent(schema.formId)}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              data: { [schema.fieldId]: trimmed },
+              _t: openedAtRef.current,
+              _hp: honeypot,
+            }),
+          },
+        );
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          throw new Error(body.error || `submit failed (${res.status})`);
+        }
+        setSubmitted(true);
+        closeTimerRef.current = setTimeout(() => setOpen(false), 1400);
+      } catch (err) {
+        setSubmitting(false);
+        setError(err instanceof Error ? err.message : "Couldn't send feedback");
+      }
+    },
+    [target, schema, value, honeypot, submitting],
+  );
 
   const trigger =
     variant === "icon" ? (
@@ -165,6 +240,8 @@ export function FeedbackButton({
     );
 
   const resolvedSide = side ?? (variant === "icon" ? "bottom" : "top");
+  const resolvedPlaceholder =
+    placeholder ?? schema?.placeholder ?? "Tell us what's on your mind…";
 
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
@@ -176,30 +253,61 @@ export function FeedbackButton({
           sideOffset={8}
           collisionPadding={16}
           className="z-[300] overflow-hidden rounded-lg border border-border bg-popover shadow-xl outline-none"
+          style={surfaceStyle}
         >
-          <div className="relative" style={surfaceStyle}>
-            <iframe
-              title="Feedback form"
-              src={embedUrl}
-              sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
-              referrerPolicy="no-referrer"
-              onLoad={() => setLoaded(true)}
-              className={cn(
-                "absolute inset-0 block h-full w-full border-0 transition-opacity duration-200",
-                loaded && !submitted ? "opacity-100" : "opacity-0",
-              )}
-            />
-            {!loaded && !submitted && (
-              <div className="absolute inset-0">
-                <FeedbackSkeleton />
+          {submitted ? (
+            <div className="flex flex-col items-center justify-center gap-3 px-6 py-10 text-center">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-500">
+                <IconCheck size={20} stroke={2.5} />
               </div>
-            )}
-            {submitted && (
-              <div className="absolute inset-0 bg-popover">
-                <FeedbackThanks />
+              <div className="text-sm font-medium text-foreground">
+                {schema?.successMessage ?? "Thanks for the feedback!"}
               </div>
-            )}
-          </div>
+            </div>
+          ) : (
+            <form onSubmit={submit} className="flex flex-col gap-3 p-3">
+              <textarea
+                ref={textareaRef}
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submit();
+                }}
+                placeholder={resolvedPlaceholder}
+                rows={5}
+                maxLength={10000}
+                className="w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+              <input
+                type="text"
+                tabIndex={-1}
+                autoComplete="off"
+                aria-hidden="true"
+                value={honeypot}
+                onChange={(e) => setHoneypot(e.target.value)}
+                style={honeypotStyle}
+              />
+              <div className="flex items-center justify-between gap-3">
+                <div
+                  className={cn(
+                    "text-[11px]",
+                    error ? "text-destructive" : "text-muted-foreground",
+                  )}
+                >
+                  {error ?? "⌘+Enter to send"}
+                </div>
+                <button
+                  type="submit"
+                  disabled={submitting || !value.trim()}
+                  className="inline-flex h-8 items-center justify-center rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                >
+                  {submitting
+                    ? "Sending…"
+                    : (schema?.submitText ?? "Send feedback")}
+                </button>
+              </div>
+            </form>
+          )}
         </PopoverPrimitive.Content>
       </PopoverPrimitive.Portal>
     </PopoverPrimitive.Root>

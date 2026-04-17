@@ -1,4 +1,8 @@
 import { defineAction } from "@agent-native/core";
+import {
+  getRequestUserEmail,
+  getRequestOrgId,
+} from "@agent-native/core/server";
 import { z } from "zod";
 import {
   getOrgSetting,
@@ -10,8 +14,8 @@ import {
 const KEY_PREFIX = "adhoc-analysis-";
 
 function resolveScope() {
-  const orgId = process.env.AGENT_ORG_ID || null;
-  const email = process.env.AGENT_USER_EMAIL || "local@localhost";
+  const orgId = getRequestOrgId() || null;
+  const email = getRequestUserEmail() || "local@localhost";
   return { orgId, email };
 }
 

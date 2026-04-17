@@ -1,5 +1,6 @@
 {
   "name": "recruiting",
+  "displayName": "Agent-Native Recruiting",
   "private": true,
   "type": "module",
   "scripts": {

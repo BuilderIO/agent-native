@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
@@ -37,9 +38,9 @@ export default defineAction({
       .describe("Hex color for events from this feed"),
   }),
   run: async (args) => {
-    const email = process.env.AGENT_USER_EMAIL || "local@localhost";
+    const email = getRequestUserEmail() || "local@localhost";
     const existing =
-      ((await getUserSetting(email, "external-calendars")) as
+      ((await getUserSetting(email, "external-calendars")) as unknown as
         | ExternalCalendar[]
         | null) ?? [];
 

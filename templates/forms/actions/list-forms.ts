@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { accessFilter } from "@agent-native/core/sharing";
 import { sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
@@ -18,6 +19,7 @@ export default defineAction({
     const rows = await db
       .select()
       .from(schema.forms)
+      .where(accessFilter(schema.forms, schema.formShares))
       .orderBy(schema.forms.updatedAt);
 
     const counts = await db
@@ -37,6 +39,8 @@ export default defineAction({
       fields: JSON.parse(r.fields) as FormField[],
       settings: JSON.parse(r.settings) as FormSettings,
       status: r.status,
+      visibility: r.visibility,
+      ownerEmail: r.ownerEmail,
       responseCount: countMap.get(r.id) ?? 0,
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,

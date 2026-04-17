@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { getRequestOrgId } from "@agent-native/core/server";
 import * as gh from "../server/lib/greenhouse-api.js";
 import { withOrgContext } from "../server/lib/greenhouse-api.js";
 import { z } from "zod";
@@ -37,7 +38,7 @@ export default defineAction({
     jobId: z.coerce.number().optional().describe("Job ID to apply for"),
   }),
   run: async (args) => {
-    const orgId = process.env.AGENT_ORG_ID;
+    const orgId = getRequestOrgId();
     if (orgId) {
       return withOrgContext(orgId, () => createCandidate(args));
     }

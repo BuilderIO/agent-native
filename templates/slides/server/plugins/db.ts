@@ -28,4 +28,30 @@ export default runMigrations([
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
   },
+  // v3-v5: sharing columns for decks.
+  {
+    version: 3,
+    sql: `ALTER TABLE decks ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost'`,
+  },
+  {
+    version: 4,
+    sql: `ALTER TABLE decks ADD COLUMN IF NOT EXISTS org_id TEXT`,
+  },
+  {
+    version: 5,
+    sql: `ALTER TABLE decks ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'private'`,
+  },
+  // v6: companion shares table for per-principal grants.
+  {
+    version: 6,
+    sql: `CREATE TABLE IF NOT EXISTS deck_shares (
+    id TEXT PRIMARY KEY,
+    resource_id TEXT NOT NULL,
+    principal_type TEXT NOT NULL,
+    principal_id TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'viewer',
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+  },
 ]);

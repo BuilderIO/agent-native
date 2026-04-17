@@ -128,6 +128,14 @@ export {
   type ActionRegistry,
 } from "./use-action.js";
 export {
+  ShareButton,
+  ShareDialog,
+  VisibilityBadge,
+  type ShareButtonProps,
+  type ShareDialogProps,
+  type VisibilityBadgeProps,
+} from "./sharing/index.js";
+export {
   postNavigate,
   isInAgentEmbed,
   AGENT_NAVIGATE_MESSAGE_TYPE,

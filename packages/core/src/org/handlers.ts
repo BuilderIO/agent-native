@@ -38,8 +38,30 @@ import { readBody } from "../server/h3-helpers.js";
 import { getSession } from "../server/auth.js";
 import { putUserSetting } from "../settings/user-settings.js";
 import { getDbExec } from "../db/client.js";
+import { sendEmail, isEmailConfigured } from "../server/email.js";
+import { getAppName } from "../server/app-name.js";
 import { getOrgContext } from "./context.js";
 import type { OrgRole } from "./types.js";
+
+function getInviteAppUrl(event: H3Event): string {
+  const fromEnv = process.env.APP_URL || process.env.BETTER_AUTH_URL;
+  if (fromEnv) return fromEnv.replace(/\/$/, "");
+  try {
+    const url = getRequestURL(event);
+    return `${url.protocol}//${url.host}`;
+  } catch {
+    return "http://localhost:3000";
+  }
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
 async function exec() {
   return getDbExec();
@@ -210,7 +232,40 @@ export const createInvitationHandler = defineEventHandler(
       args: [id, ctx.orgId, email, ctx.email, Date.now()],
     });
 
-    return { id, email, status: "pending" };
+    let emailSent = false;
+    let emailError: string | undefined;
+    if (isEmailConfigured()) {
+      // Strip CRLF from any field that flows into the Subject line — a
+      // malicious org name or inviter could otherwise inject Bcc/Reply-To
+      // headers via "Name\r\nBcc: attacker@...".
+      const stripCrlf = (s: string) => s.replace(/[\r\n]+/g, " ").trim();
+      const orgName = stripCrlf(ctx.orgName || "your team");
+      const inviter = stripCrlf(ctx.email);
+      const appUrl = getInviteAppUrl(event);
+      const appName = stripCrlf(getAppName() || "");
+      const onApp = appName ? ` on ${appName}` : "";
+      try {
+        await sendEmail({
+          to: email,
+          subject: `${inviter} invited you to join ${orgName}${onApp}`,
+          html:
+            `<p>Hi,</p>` +
+            `<p><strong>${escapeHtml(inviter)}</strong> invited you to join <strong>${escapeHtml(orgName)}</strong>${appName ? ` on <strong>${escapeHtml(appName)}</strong>` : ""}.</p>` +
+            `<p>Sign in at <a href="${appUrl}">${escapeHtml(appUrl)}</a> with this email address (${escapeHtml(email)}) to accept the invitation.</p>` +
+            `<p>If you weren't expecting this, you can safely ignore this email.</p>`,
+          text:
+            `${inviter} invited you to join ${orgName}${onApp}.\n\n` +
+            `Sign in at ${appUrl} with ${email} to accept.\n\n` +
+            `If you weren't expecting this, you can ignore this email.`,
+        });
+        emailSent = true;
+      } catch (err) {
+        emailError = err instanceof Error ? err.message : String(err);
+        console.error("[org/invitations] failed to send invite email", err);
+      }
+    }
+
+    return { id, email, status: "pending", emailSent, emailError };
   },
 );
 

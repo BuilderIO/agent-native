@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
+import { assertAccess } from "@agent-native/core/sharing";
 import { notifyClients } from "../server/handlers/decks.js";
 
 // In-process serialization per deckId. The agent fires parallel add-slide calls
@@ -61,6 +62,7 @@ export default defineAction({
   http: false,
   run: async ({ deckId, content, slideId, layout, position }) =>
     withDeckLock(deckId, async () => {
+      await assertAccess("deck", deckId, "editor");
       const db = getDb();
 
       const rows = await db

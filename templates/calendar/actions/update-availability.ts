@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 import { putUserSetting, putSetting } from "@agent-native/core/settings";
 import type { AvailabilityConfig } from "../shared/api.js";
@@ -9,7 +10,7 @@ export default defineAction({
     timezone: z.string().optional().describe("Timezone"),
   }),
   run: async (args) => {
-    const email = process.env.AGENT_USER_EMAIL || "local@localhost";
+    const email = getRequestUserEmail() || "local@localhost";
     // The frontend sends the full availability config as the body
     const config = args as unknown as AvailabilityConfig;
     const configRecord = config as unknown as Record<string, unknown>;

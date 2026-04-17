@@ -158,6 +158,11 @@ const emailStep: OnboardingStep = {
             label: "EMAIL_FROM (from address)",
             placeholder: "Agent Native <noreply@yourdomain.com>",
           },
+          {
+            key: "APP_NAME",
+            label: "APP_NAME (shown in invite emails)",
+            placeholder: "Acme Forms",
+          },
         ],
       },
     },

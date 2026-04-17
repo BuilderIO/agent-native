@@ -62,4 +62,30 @@ export default runMigrations([
     created_at TEXT NOT NULL
   )`,
   },
+  // v10-v12: sharing columns for booking_links.
+  {
+    version: 10,
+    sql: `ALTER TABLE booking_links ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost'`,
+  },
+  {
+    version: 11,
+    sql: `ALTER TABLE booking_links ADD COLUMN IF NOT EXISTS org_id TEXT`,
+  },
+  {
+    version: 12,
+    sql: `ALTER TABLE booking_links ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'private'`,
+  },
+  // v13: companion shares table for per-principal grants.
+  {
+    version: 13,
+    sql: `CREATE TABLE IF NOT EXISTS booking_link_shares (
+    id TEXT PRIMARY KEY,
+    resource_id TEXT NOT NULL,
+    principal_type TEXT NOT NULL,
+    principal_id TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'viewer',
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+  },
 ]);

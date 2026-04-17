@@ -3,6 +3,11 @@ import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { writeAppState } from "@agent-native/core/application-state";
+import { assertAccess } from "@agent-native/core/sharing";
+import {
+  getRequestUserEmail,
+  getRequestOrgId,
+} from "@agent-native/core/server/request-context";
 import { notifyClients } from "../server/handlers/decks.js";
 
 const SlideSchema = z.object({
@@ -52,7 +57,8 @@ export default defineAction({
     const now = new Date().toISOString();
 
     if (deckId) {
-      // Update existing deck
+      // Update existing deck — requires editor access.
+      await assertAccess("deck", deckId, "editor");
       const data = { title, slides, updatedAt: now };
       await db
         .update(schema.decks)
@@ -71,6 +77,8 @@ export default defineAction({
       id,
       title,
       data: JSON.stringify(data),
+      ownerEmail: getRequestUserEmail() ?? "local@localhost",
+      orgId: getRequestOrgId(),
       createdAt: now,
       updatedAt: now,
     });

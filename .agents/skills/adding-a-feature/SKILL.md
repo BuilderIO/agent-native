@@ -95,8 +95,15 @@ After completing all four areas, verify:
 4. Can the agent navigate to the feature view via the `navigate` action?
 5. Is the feature documented in AGENTS.md with action names and args?
 
+## One more area — sharing
+
+If the feature stores **user-authored resources** (documents, dashboards, forms, decks, etc.), make them ownable so they get private-by-default semantics and a share dialog for free. See the `sharing` skill.
+
+TL;DR: spread `ownableColumns()` into the resource table, pair it with `createSharesTable(...)`, call `registerShareableResource(...)`, wrap list/read queries with `accessFilter`, guard writes with `assertAccess`, and drop `<ShareButton>` in the resource header. The `share-resource`, `unshare-resource`, `list-resource-shares`, and `set-resource-visibility` actions are auto-mounted framework-wide.
+
 ## Related Skills
 
+- **sharing** — How to make a new resource ownable (private by default, share with users/orgs/public)
 - **context-awareness** — How to expose UI state to the agent (area 4 in detail)
 - **actions** — How to create actions with `defineAction` and the `http` option (area 2 in detail)
 - **create-skill** — How to create skills for new patterns (area 3 in detail)

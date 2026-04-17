@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { getDbExec, isPostgres } from "@agent-native/core/db";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 
 export default defineAction({
@@ -24,7 +25,7 @@ export default defineAction({
     const client = getDbExec();
     const id = Math.random().toString(36).slice(2, 14);
     const threadId = args.threadId ?? id;
-    const authorEmail = process.env.AGENT_USER_EMAIL ?? "agent@localhost";
+    const authorEmail = getRequestUserEmail() ?? "agent@localhost";
     const authorName = "AI Agent";
 
     const nowExpr = isPostgres() ? "NOW()::text" : "datetime('now')";

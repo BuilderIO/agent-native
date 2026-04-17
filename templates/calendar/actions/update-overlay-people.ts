@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import { putUserSetting } from "@agent-native/core/settings";
 import type { OverlayPerson } from "../shared/api.js";
 
@@ -7,7 +8,7 @@ export default defineAction({
   parameters: {},
   http: { method: "PUT" },
   run: async (args) => {
-    const email = process.env.AGENT_USER_EMAIL || "local@localhost";
+    const email = getRequestUserEmail() || "local@localhost";
     // The frontend sends the array directly as the body
     const people = args as unknown as OverlayPerson[];
     await putUserSetting(email, "calendar-overlay-people", {

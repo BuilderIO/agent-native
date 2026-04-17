@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 import {
   isConnected,
@@ -29,7 +30,7 @@ async function fetchEmailList(
   _label?: string,
 ): Promise<any[]> {
   try {
-    const ownerEmail = process.env.AGENT_USER_EMAIL || "local@localhost";
+    const ownerEmail = getRequestUserEmail() || "local@localhost";
     if (await isConnected(ownerEmail)) {
       const clients = await getClients(ownerEmail);
       const labelMap = new Map<string, string>();

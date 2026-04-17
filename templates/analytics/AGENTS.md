@@ -107,6 +107,17 @@ Dashboard configs, explorer configs, and theme settings are stored in SQL via th
 
 Solo-mode dashboards/configs are user-scoped. Org dashboards/views are org-scoped. Legacy global rows still load as a fallback, and the Team-page upgrade flow can move those legacy rows onto the signed-in user during migration from local mode.
 
+### Sharing (follow-up)
+
+The framework ships a standard sharing primitive (private-by-default resources with per-user/per-org share grants and a `<ShareButton>` UI — see the `sharing` skill). **This template does not yet opt in.** Dashboards and analyses are stored in the settings KV store (`u:<email>:dashboard-*`, `o:<orgId>:sql-dashboard-*`, `adhoc-analysis-*`), not SQL resource tables — so the `ownableColumns()` / `createSharesTable()` factories don't apply as-is.
+
+Two options for adopting sharing here:
+
+1. **Migrate dashboards & analyses to SQL resource tables** (`dashboards`, `analyses`) with `ownableColumns()`, keep the current settings keys as a compatibility read path, then wire up `ShareButton` in the dashboard/analysis toolbars.
+2. **Add a parallel share overlay to the settings store** — e.g. a `settings_shares` table that maps a `setting_key` to principals with roles — and teach the settings read path to check it.
+
+Option 1 is cleaner long-term; option 2 is less invasive. Tracked — ping before starting either.
+
 ## Organizations & Team
 
 This template supports multi-org deployments using the framework-provided org module. The schema (`organizations`, `org_members`, `org_invitations`) lives in `@agent-native/core/org` — there is no template-side schema file. Users sign in with Google, create or get invited to an org, and all SQL dashboards are scoped to whichever org is currently active.
