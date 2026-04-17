@@ -12,6 +12,7 @@ async function getFs(): Promise<typeof import("fs")> {
 }
 import {
   defineEventHandler,
+  getHeader,
   getMethod,
   getQuery,
   setResponseHeader,
@@ -363,6 +364,41 @@ const LOCAL_SESSION: AuthSession = { email: "local@localhost" };
  * so that a custom plugin can update them after the default has already
  * installed this middleware (the production race condition fix).
  */
+function applyCorsHeaders(event: H3Event): void {
+  // Framework-level CORS. The auth guard runs before any of the app's own
+  // route handlers, so we need to set CORS here too — otherwise a 401
+  // response would be missing the Allow-Origin header and the browser
+  // blocks the response body (making it look like a network error
+  // rather than "unauthenticated").
+  const origin = getHeader(event, "origin");
+  if (!origin) return;
+  // Dev convenience: always allow localhost origins across ports (Tauri
+  // tray apps, the frame, docs). In prod, the CORS_ALLOWED_ORIGINS env
+  // var is the safe-list.
+  const allowlist = (process.env.CORS_ALLOWED_ORIGINS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const allowed =
+    allowlist.length === 0
+      ? /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
+      : allowlist.includes(origin);
+  if (!allowed) return;
+  setResponseHeader(event, "Access-Control-Allow-Origin", origin);
+  setResponseHeader(event, "Vary", "Origin");
+  setResponseHeader(event, "Access-Control-Allow-Credentials", "true");
+  setResponseHeader(
+    event,
+    "Access-Control-Allow-Methods",
+    "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+  );
+  setResponseHeader(
+    event,
+    "Access-Control-Allow-Headers",
+    "Content-Type,Authorization,X-Requested-With",
+  );
+}
+
 function createAuthGuardFn(): (
   event: H3Event,
 ) => Promise<Response | object | string | void> {
@@ -373,6 +409,16 @@ function createAuthGuardFn(): (
 
     const url = event.node?.req?.url ?? event.path ?? "/";
     const p = url.split("?")[0];
+
+    // Emit CORS headers on every request the guard sees so that even
+    // error responses (401) reach the browser.
+    applyCorsHeaders(event);
+    // Preflight short-circuit: the browser sends OPTIONS before the real
+    // credentialed request. Must return success without invoking auth.
+    if (getMethod(event) === "OPTIONS") {
+      setResponseStatus(event, 204);
+      return "";
+    }
 
     // Skip auth routes and specific Google OAuth endpoints that must be public
     // (callback and auth-url). Other Google endpoints like /status require auth.
