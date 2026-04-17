@@ -154,7 +154,8 @@ Options:
   ];
 
   // Dynamically import the server generation function
-  const { generateWithGemini } = await import("../server/routes/image-gen.js");
+  const { generateWithGemini } =
+    await import("../server/handlers/image-gen.js");
 
   // Load reference images from URLs
   const refImages: Array<{ data: string; mimeType: string }> = [];

@@ -6,6 +6,7 @@ export default defineAction({
   description: "Pull content from a linked Notion page into a local document.",
   schema: z.object({
     documentId: z.string().optional().describe("Document ID (required)"),
+    id: z.string().optional().describe("Alias for --documentId"),
   }),
   http: false,
   run: async (args) => {

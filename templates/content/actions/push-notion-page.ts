@@ -6,6 +6,7 @@ export default defineAction({
   description: "Push local document content to a linked Notion page.",
   schema: z.object({
     documentId: z.string().optional().describe("Document ID (required)"),
+    id: z.string().optional().describe("Alias for --documentId"),
   }),
   http: false,
   run: async (args) => {

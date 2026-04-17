@@ -5,7 +5,6 @@ import {
   ownableColumns,
   createSharesTable,
 } from "@agent-native/core/db/schema";
-import { registerShareableResource } from "@agent-native/core/sharing";
 
 export const forms = table("forms", {
   id: text("id").primaryKey(),
@@ -33,11 +32,3 @@ export const responses = table("responses", {
 });
 
 export const formShares = createSharesTable("form_shares");
-
-registerShareableResource({
-  type: "form",
-  resourceTable: forms,
-  sharesTable: formShares,
-  displayName: "Form",
-  titleColumn: "title",
-});

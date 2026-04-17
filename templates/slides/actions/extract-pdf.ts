@@ -11,7 +11,6 @@ export default async function (args: string[]) {
 
   const buf = fs.readFileSync(pdfPath);
   const pdf = new PDFParse(new Uint8Array(buf));
-  await pdf.load();
   const result = await pdf.getText();
   const pages = result.pages || [];
   console.log("Total pages:", pages.length);
