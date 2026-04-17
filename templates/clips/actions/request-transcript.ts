@@ -130,9 +130,13 @@ export default defineAction({
     //     (Builder.io / R2 / S3). Fetch it normally.
     let videoBlob: Blob;
     try {
+      // Dev fallback path set by finalize-recording when no provider is
+      // configured. Current shape: `/api/video/:id`. Legacy shape
+      // `/api/uploads/:id/blob` is still accepted for old rows.
       const isLocalBlob =
-        rec.videoUrl.startsWith("/api/uploads/") &&
-        rec.videoUrl.endsWith("/blob");
+        rec.videoUrl.startsWith("/api/video/") ||
+        (rec.videoUrl.startsWith("/api/uploads/") &&
+          rec.videoUrl.endsWith("/blob"));
       if (isLocalBlob) {
         const stash = await readAppState(`recording-blob-${args.recordingId}`);
         const b64 = typeof stash?.data === "string" ? stash.data : null;
