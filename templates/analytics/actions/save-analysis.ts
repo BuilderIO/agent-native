@@ -4,14 +4,7 @@ import {
   getRequestOrgId,
 } from "@agent-native/core/server";
 import { z } from "zod";
-import {
-  getOrgSetting,
-  getUserSetting,
-  putOrgSetting,
-  putUserSetting,
-} from "@agent-native/core/settings";
-
-const KEY_PREFIX = "adhoc-analysis-";
+import { upsertAnalysis } from "../server/lib/dashboards-store";
 
 function resolveScope() {
   const orgId = getRequestOrgId() || null;
@@ -70,44 +63,19 @@ export default defineAction({
   http: false,
   run: async (args) => {
     const { orgId, email } = resolveScope();
-    const key = `${KEY_PREFIX}${args.id}`;
-    const now = new Date().toISOString();
-
-    // Check if this analysis already exists (to preserve createdAt). Always
-    // look in a scoped key (org or user) — never in the global settings
-    // table, so one user's analyses can't bleed across tenants.
-    let existing: Record<string, unknown> | null = null;
-    try {
-      existing = orgId
-        ? await getOrgSetting(orgId, key)
-        : await getUserSetting(email, key);
-    } catch {
-      // Not found
-    }
-
-    const analysis = {
-      id: args.id,
-      name: args.name,
-      description: args.description,
-      question: args.question,
-      instructions: args.instructions,
-      dataSources: args.dataSources,
-      resultMarkdown: args.resultMarkdown,
-      resultData: args.resultData ?? null,
-      createdAt: (existing as any)?.createdAt ?? now,
-      updatedAt: now,
-      author: email,
-    };
-
-    // Always write to a scoped key (org or user). Local-mode analyses go
-    // under `u:local@localhost:adhoc-analysis-*` so the existing
-    // migrateLocalUserData flow renames them to the real account on sign-in.
-    if (orgId) {
-      await putOrgSetting(orgId, key, analysis);
-    } else {
-      await putUserSetting(email, key, analysis);
-    }
-
+    await upsertAnalysis(
+      args.id,
+      {
+        name: args.name,
+        description: args.description,
+        question: args.question,
+        instructions: args.instructions,
+        dataSources: args.dataSources,
+        resultMarkdown: args.resultMarkdown,
+        resultData: args.resultData ?? null,
+      },
+      { email, orgId },
+    );
     return `Analysis "${args.name}" saved as ${args.id}. Users can view it at /analyses/${args.id} and re-run it anytime for fresh results.`;
   },
 });

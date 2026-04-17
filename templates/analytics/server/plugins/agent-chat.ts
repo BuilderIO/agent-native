@@ -79,22 +79,14 @@ export default createAgentChatPlugin({
       search: async (query: string, event?: any) => {
         if (!event) return [];
         try {
-          const scope = await resolveSettingsScope(event);
-          const all = await listScopedSettingRecords(
-            scope,
-            SQL_DASHBOARD_PREFIX,
+          const { getOrgContext } = await import("@agent-native/core/org");
+          const { listDashboards } = await import("../lib/dashboards-store.js");
+          const ctx = await getOrgContext(event);
+          const rows = await listDashboards(
+            { email: ctx.email, orgId: ctx.orgId ?? null },
+            { kind: "sql" },
           );
-          const items = Object.entries(all)
-            .map(([key, data]) => {
-              const id = key.slice(SQL_DASHBOARD_PREFIX.length);
-              const rawName = (data as { name?: unknown })?.name;
-              const name =
-                typeof rawName === "string" && rawName.trim().length > 0
-                  ? rawName.trim()
-                  : undefined;
-              return { id, name };
-            })
-            .filter((d) => d.id.length > 0);
+          const items = rows.map((d) => ({ id: d.id, name: d.title }));
 
           const q = (query || "").toLowerCase().trim();
           const filtered = q

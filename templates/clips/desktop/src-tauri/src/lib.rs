@@ -4,11 +4,18 @@
 //! toggles it. Pressing Cmd/Ctrl+Shift+L also toggles it. The popover itself
 //! is served by the Vite-built React UI (see `../dist`).
 
+use std::sync::Mutex;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewWindow,
+    AppHandle, Manager, PhysicalPosition, PhysicalSize, Rect, WebviewWindow,
 };
+
+/// Last-known tray icon rect, updated on every tray event. Used to anchor the
+/// popover directly under the icon (Loom-style) instead of floating in the
+/// top-right corner of the screen.
+#[derive(Default)]
+struct TrayAnchor(Mutex<Option<Rect>>);
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 fn toggle_popover(app: &AppHandle) {
@@ -18,30 +25,75 @@ fn toggle_popover(app: &AppHandle) {
     if window.is_visible().unwrap_or(false) {
         let _ = window.hide();
     } else {
-        position_popover(&window);
+        position_popover(app, &window);
         let _ = window.show();
         let _ = window.set_focus();
     }
 }
 
-fn position_popover(window: &WebviewWindow) {
-    // Place the popover near the top-right corner of the active monitor so it
-    // feels like it's hanging off the menu bar. We can't read the exact tray
-    // icon position in Tauri v2 yet, so top-right is a reasonable default that
-    // Raycast-style tray apps also use this pattern.
-    if let Ok(Some(monitor)) = window.current_monitor() {
-        let size = monitor.size();
-        let scale = monitor.scale_factor();
-        let win_size: PhysicalSize<u32> =
-            window.outer_size().unwrap_or(PhysicalSize::new(360, 440));
+fn position_popover(app: &AppHandle, window: &WebviewWindow) {
+    // If we have a recent tray icon rect, anchor the popover's top edge just
+    // below the icon and center it horizontally on the icon — same feel as
+    // Loom / Raycast / 1Password.
+    let anchor = app.state::<TrayAnchor>();
+    let tray_rect = anchor.0.lock().ok().and_then(|g| *g);
 
-        // 12px margin from the right, 36px from the top (below the menu bar).
-        let margin_right = (12.0 * scale) as i32;
-        let margin_top = (36.0 * scale) as i32;
-        let x = size.width as i32 - win_size.width as i32 - margin_right;
-        let y = margin_top;
+    let win_size: PhysicalSize<u32> =
+        window.outer_size().unwrap_or(PhysicalSize::new(360, 440));
+    let Ok(Some(monitor)) = window.current_monitor() else {
+        return;
+    };
+    let mon_size = monitor.size();
+    let mon_pos = monitor.position();
+
+    if let Some(rect) = tray_rect {
+        // `Rect { position, size }` on macOS is in physical pixels with the
+        // origin at the active monitor's top-left (matching macOS's coord
+        // system, y grows downward in Tauri v2).
+        let icon_x = match rect.position {
+            tauri::Position::Physical(p) => p.x,
+            tauri::Position::Logical(p) => p.x as i32,
+        };
+        let icon_y = match rect.position {
+            tauri::Position::Physical(p) => p.y,
+            tauri::Position::Logical(p) => p.y as i32,
+        };
+        let icon_w = match rect.size {
+            tauri::Size::Physical(s) => s.width as i32,
+            tauri::Size::Logical(s) => s.width as i32,
+        };
+        let icon_h = match rect.size {
+            tauri::Size::Physical(s) => s.height as i32,
+            tauri::Size::Logical(s) => s.height as i32,
+        };
+
+        // Center the popover horizontally on the icon.
+        let mut x = icon_x + icon_w / 2 - (win_size.width as i32) / 2;
+        // Drop below the icon with a tiny gap.
+        let gap = 6_i32;
+        let y = icon_y + icon_h + gap;
+
+        // Clamp horizontally so we don't run off the edge of the screen.
+        let min_x = mon_pos.x + 8;
+        let max_x = mon_pos.x + mon_size.width as i32 - win_size.width as i32 - 8;
+        if x < min_x {
+            x = min_x;
+        }
+        if x > max_x {
+            x = max_x;
+        }
         let _ = window.set_position(PhysicalPosition::new(x, y));
+        return;
     }
+
+    // Fallback: top-right of the active monitor (used before the tray has
+    // fired its first event).
+    let scale = monitor.scale_factor();
+    let margin_right = (12.0 * scale) as i32;
+    let margin_top = (36.0 * scale) as i32;
+    let x = mon_pos.x + mon_size.width as i32 - win_size.width as i32 - margin_right;
+    let y = mon_pos.y + margin_top;
+    let _ = window.set_position(PhysicalPosition::new(x, y));
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -64,6 +116,7 @@ pub fn run() {
                 })
                 .build(),
         )
+        .manage(TrayAnchor::default())
         .setup(|app| {
             // NOTE: we intentionally do NOT call set_activation_policy(Accessory)
             // in dev here. In unbundled dev runs, Accessory mode sometimes
@@ -104,6 +157,27 @@ pub fn run() {
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
+                    // Remember the icon's rect so the popover can anchor
+                    // directly beneath it. Every tray event carries a fresh
+                    // rect — even hover/move — so the anchor stays current
+                    // even if the user drags menu-bar items around.
+                    let rect = match &event {
+                        TrayIconEvent::Click { rect, .. }
+                        | TrayIconEvent::DoubleClick { rect, .. }
+                        | TrayIconEvent::Enter { rect, .. }
+                        | TrayIconEvent::Move { rect, .. }
+                        | TrayIconEvent::Leave { rect, .. } => Some(*rect),
+                        _ => None,
+                    };
+                    if let Some(rect) = rect {
+                        let app = tray.app_handle();
+                        if let Some(anchor) = app.try_state::<TrayAnchor>() {
+                            if let Ok(mut g) = anchor.0.lock() {
+                                *g = Some(rect);
+                            }
+                        }
+                    }
+
                     if let TrayIconEvent::Click {
                         button: MouseButton::Left,
                         button_state: MouseButtonState::Up,

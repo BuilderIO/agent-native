@@ -10,14 +10,21 @@ interface RecordingSummary {
 }
 
 const STORAGE_KEY = "clips:server-url";
-const DEFAULT_URL = "http://localhost:8080";
+// Sensible defaults so the user never has to type a URL on first launch.
+// Dev builds point at the local dev server; production builds point at the
+// hosted Clips instance. The user can still override from Settings.
+const DEFAULT_URL = import.meta.env.DEV
+  ? "http://localhost:8080"
+  : "https://clips.agent-native.com";
 
-function loadServerUrl(): string | null {
+function loadServerUrl(): string {
   try {
-    return localStorage.getItem(STORAGE_KEY);
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored && stored.trim()) return stored.replace(/\/+$/, "");
   } catch {
-    return null;
+    // ignore
   }
+  return DEFAULT_URL;
 }
 
 function saveServerUrl(url: string): void {

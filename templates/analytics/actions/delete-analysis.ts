@@ -4,12 +4,7 @@ import {
   getRequestOrgId,
 } from "@agent-native/core/server";
 import { z } from "zod";
-import {
-  deleteOrgSetting,
-  deleteUserSetting,
-} from "@agent-native/core/settings";
-
-const KEY_PREFIX = "adhoc-analysis-";
+import { removeAnalysis } from "../server/lib/dashboards-store";
 
 export default defineAction({
   description: "Delete a saved ad-hoc analysis by ID.",
@@ -20,14 +15,7 @@ export default defineAction({
   run: async (args) => {
     const orgId = getRequestOrgId() || null;
     const email = getRequestUserEmail() || "local@localhost";
-    const key = `${KEY_PREFIX}${args.id}`;
-
-    // Scoped delete only — never touch the global settings table.
-    if (orgId) {
-      await deleteOrgSetting(orgId, key);
-    } else {
-      await deleteUserSetting(email, key);
-    }
+    await removeAnalysis(args.id, { email, orgId });
     return `Analysis "${args.id}" deleted.`;
   },
 });

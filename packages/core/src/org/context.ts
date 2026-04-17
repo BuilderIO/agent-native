@@ -31,8 +31,8 @@ export async function getOrgContext(event: H3Event): Promise<OrgContext> {
       sql: `SELECT m.org_id AS "orgId", m.role AS role, o.name AS "orgName"
             FROM org_members m
             INNER JOIN organizations o ON m.org_id = o.id
-            WHERE m.email = ?`,
-      args: [email],
+            WHERE LOWER(m.email) = ?`,
+      args: [email.toLowerCase()],
     });
     memberships = rows.map((r: any) => ({
       orgId: String(r.orgId ?? r.org_id),

@@ -90,8 +90,8 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
     sql: `SELECT m.org_id AS "orgId", m.role AS role, o.name AS "orgName"
           FROM org_members m
           INNER JOIN organizations o ON m.org_id = o.id
-          WHERE m.email = ?`,
-    args: [ctx.email],
+          WHERE LOWER(m.email) = ?`,
+    args: [ctx.email.toLowerCase()],
   });
   const orgs = allOrgsRes.rows.map((r: any) => ({
     orgId: String(r.orgId ?? r.org_id),

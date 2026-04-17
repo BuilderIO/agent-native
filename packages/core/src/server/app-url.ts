@@ -53,9 +53,9 @@ export function getAppProductionUrl(event?: H3Event): string {
   const envUrl = process.env.APP_URL || process.env.BETTER_AUTH_URL;
   if (envUrl) return stripTrailingSlash(envUrl);
 
-  const firstParty = getFirstPartyProdUrl();
-  if (firstParty) return stripTrailingSlash(firstParty);
-
+  // Prefer the incoming request's origin when we have one — for local dev
+  // this is `http://localhost:3000`, which keeps Better Auth from setting
+  // `Secure` cookies on plain-HTTP dev servers.
   if (event) {
     try {
       const url = getRequestURL(event);
@@ -63,6 +63,14 @@ export function getAppProductionUrl(event?: H3Event): string {
     } catch {
       // fall through
     }
+  }
+
+  // Only fall back to a first-party template's hard-coded prod URL when we
+  // are actually running in production. In dev the hard-coded URL is always
+  // wrong (wrong host) and breaks auth via the Secure-cookie issue above.
+  if (process.env.NODE_ENV === "production") {
+    const firstParty = getFirstPartyProdUrl();
+    if (firstParty) return stripTrailingSlash(firstParty);
   }
 
   return "http://localhost:3000";

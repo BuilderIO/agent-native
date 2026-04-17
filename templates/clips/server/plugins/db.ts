@@ -1,4 +1,4 @@
-import { runMigrations } from "@agent-native/core/db";
+import { runMigrations, getDbExec, isPostgres } from "@agent-native/core/db";
 // Side-effect import — registers `recording` as a shareable resource with the
 // framework before any HTTP request runs. The framework's auto-mounted
 // share-resource / set-resource-visibility / list-resource-shares actions
@@ -6,9 +6,60 @@ import { runMigrations } from "@agent-native/core/db";
 // the registration eagerly from the always-loaded db plugin.
 import "../db/index.js";
 
-// Clips schema migrations — dialect-agnostic SQL. Drizzle schema lives in
-// server/db/schema.ts; this plugin creates the tables on first boot.
-export default runMigrations([
+/**
+ * Post-migration fixup for Postgres: retype boolean-mode columns from bigint
+ * to boolean.
+ *
+ * The early table-create migrations (v4–v14 below) used `INTEGER` because
+ * `runMigrations` needs dialect-neutral SQL; `adaptSqlForPostgres` rewrites
+ * INTEGER → BIGINT on Postgres. But the Drizzle schema declares these
+ * columns as `integer(..., { mode: "boolean" })` — which on Postgres maps
+ * to the `boolean` type. Drizzle then sends `true`/`false` at insert, which
+ * Postgres rejects against a bigint column (`invalid input syntax for type
+ * bigint: "true"`).
+ *
+ * This function runs the ALTERs needed to realign live DBs. It's a no-op on
+ * SQLite (where booleans are just 0/1 INTEGERs natively) and on Postgres
+ * installations where the columns are already BOOLEAN (idempotent check).
+ */
+async function retypeBooleanColumnsOnPostgres(): Promise<void> {
+  if (!isPostgres()) return;
+  const exec = getDbExec();
+  const alters: Array<[string, string, boolean]> = [
+    ["recordings", "has_audio", true],
+    ["recordings", "has_camera", false],
+    ["recordings", "enable_comments", true],
+    ["recordings", "enable_reactions", true],
+    ["recordings", "enable_downloads", true],
+    ["recordings", "animated_thumbnail_enabled", true],
+    ["spaces", "is_all_company", false],
+    ["recording_comments", "resolved", false],
+    ["recording_viewers", "counted_view", false],
+    ["recording_viewers", "cta_clicked", false],
+  ];
+  for (const [table, column, defaultTrue] of alters) {
+    try {
+      const probe = await exec.execute({
+        sql: `SELECT data_type FROM information_schema.columns WHERE table_name = $1 AND column_name = $2`,
+        args: [table, column],
+      });
+      const row = (probe.rows as Array<{ data_type?: string }>)[0];
+      if (!row || row.data_type === "boolean") continue;
+      const def = defaultTrue ? "TRUE" : "FALSE";
+      await exec.execute(
+        `ALTER TABLE ${table} ALTER COLUMN ${column} DROP DEFAULT, ALTER COLUMN ${column} TYPE BOOLEAN USING (${column} <> 0), ALTER COLUMN ${column} SET DEFAULT ${def}`,
+      );
+      console.log(`[db] Retyped ${table}.${column} → BOOLEAN`);
+    } catch (err) {
+      console.warn(
+        `[db] Could not retype ${table}.${column}:`,
+        (err as Error)?.message ?? err,
+      );
+    }
+  }
+}
+
+const migrations = runMigrations([
   // ---------------------------------------------------------------------------
   // Workspaces & members
   // ---------------------------------------------------------------------------
@@ -247,3 +298,8 @@ export default runMigrations([
     )`,
   },
 ]);
+
+export default async (nitroApp: any): Promise<void> => {
+  await migrations(nitroApp);
+  await retypeBooleanColumnsOnPostgres();
+};

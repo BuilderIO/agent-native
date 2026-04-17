@@ -1,16 +1,19 @@
 import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
 import { readBody } from "@agent-native/core/server";
+import { getOrgContext } from "@agent-native/core/org";
 import {
-  deleteScopedSettingRecord,
-  getScopedSettingRecord,
-  listScopedSettingRecords,
-  putScopedSettingRecord,
-  resolveSettingsScope,
-} from "../lib/scoped-settings";
+  getDashboard,
+  listDashboards,
+  upsertDashboard,
+  removeDashboard,
+} from "../lib/dashboards-store";
 import { dryRunQuery } from "../lib/bigquery";
 import { interpolate } from "../../app/pages/adhoc/sql-dashboard/interpolate";
 
-const KEY_PREFIX = "sql-dashboard-";
+async function ctxFromEvent(event: any) {
+  const ctx = await getOrgContext(event);
+  return { email: ctx.email, orgId: ctx.orgId ?? null };
+}
 
 /**
  * Build the variable map used when dry-running a panel's SQL. Variables
@@ -45,11 +48,14 @@ function buildDryRunVars(
 
 export const listSqlDashboards = defineEventHandler(async (event) => {
   try {
-    const scope = await resolveSettingsScope(event);
-    const all = await listScopedSettingRecords(scope, KEY_PREFIX);
-    const dashboards = Object.entries(all).map(([key, data]) => ({
-      id: key.slice(KEY_PREFIX.length),
-      ...data,
+    const ctx = await ctxFromEvent(event);
+    const rows = await listDashboards(ctx, { kind: "sql" });
+    const dashboards = rows.map((d) => ({
+      id: d.id,
+      ...(d.config as Record<string, unknown>),
+      ownerEmail: d.ownerEmail,
+      orgId: d.orgId,
+      visibility: d.visibility,
     }));
     return { dashboards };
   } catch (err: any) {
@@ -65,16 +71,22 @@ export const getSqlDashboard = defineEventHandler(async (event) => {
     return { error: "Missing dashboard id" };
   }
   try {
-    const key = `${KEY_PREFIX}${id}`;
-    const scope = await resolveSettingsScope(event);
-    const data = await getScopedSettingRecord(scope, key);
-    if (!data) {
+    const ctx = await ctxFromEvent(event);
+    const dash = await getDashboard(id, ctx);
+    if (!dash || dash.kind !== "sql") {
       setResponseStatus(event, 404);
       return { error: "Dashboard not found" };
     }
-    return { id, ...data };
+    return {
+      id,
+      ...(dash.config as Record<string, unknown>),
+      ownerEmail: dash.ownerEmail,
+      orgId: dash.orgId,
+      visibility: dash.visibility,
+    };
   } catch (err: any) {
-    setResponseStatus(event, 500);
+    const status = err?.statusCode ?? 500;
+    setResponseStatus(event, status);
     return { error: err.message };
   }
 });
@@ -97,12 +109,12 @@ export const saveSqlDashboard = defineEventHandler(async (event) => {
       setResponseStatus(event, 400);
       return { error: sqlError };
     }
-    const scope = await resolveSettingsScope(event);
-    const key = `${KEY_PREFIX}${id}`;
-    await putScopedSettingRecord(scope, key, body);
+    const ctx = await ctxFromEvent(event);
+    await upsertDashboard(id, "sql", body, ctx);
     return { id, success: true };
   } catch (err: any) {
-    setResponseStatus(event, 500);
+    const status = err?.statusCode ?? 500;
+    setResponseStatus(event, status);
     return { error: err.message };
   }
 });
@@ -222,8 +234,13 @@ export const deleteSqlDashboard = defineEventHandler(async (event) => {
     setResponseStatus(event, 400);
     return { error: "Missing dashboard id" };
   }
-  const scope = await resolveSettingsScope(event);
-  const key = `${KEY_PREFIX}${id}`;
-  await deleteScopedSettingRecord(scope, key);
-  return { id, success: true };
+  try {
+    const ctx = await ctxFromEvent(event);
+    await removeDashboard(id, ctx);
+    return { id, success: true };
+  } catch (err: any) {
+    const status = err?.statusCode ?? 500;
+    setResponseStatus(event, status);
+    return { error: err.message };
+  }
 });

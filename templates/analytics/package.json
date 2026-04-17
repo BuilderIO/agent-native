@@ -28,6 +28,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@libsql/client": "^0.15.8",
     "@tabler/icons-react": "^3.40.0",
+    "drizzle-orm": "^0.45.2",
     "h3": "^2.0.1-rc.20",
     "isbot": "^5",
     "zod": "^3.25.76"
