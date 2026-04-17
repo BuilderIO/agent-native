@@ -519,6 +519,7 @@ body {
 .error-commands {
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 8px;
   margin-top: 6px;
   width: min(420px, 80%);

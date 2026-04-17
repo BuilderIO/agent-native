@@ -5,6 +5,7 @@
 //! is served by the Vite-built React UI (see `../dist`).
 
 use std::sync::Mutex;
+use std::time::Instant;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -17,6 +18,12 @@ use tauri::{
 /// top-right corner of the screen.
 #[derive(Default)]
 struct TrayAnchor(Mutex<Option<Rect>>);
+
+/// Timestamp of the most-recent popover show. The blur-to-hide handler checks
+/// this — macOS briefly steals focus during the tray click itself, so without
+/// this guard the popover would be hidden the instant it's shown.
+#[derive(Default)]
+struct PopoverShownAt(Mutex<Option<Instant>>);
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 /// Native overlay windows for the recording experience. These render the same
@@ -148,10 +155,19 @@ async fn hide_overlays(app: AppHandle) -> Result<(), String> {
 async fn show_popover(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("popover") {
         position_popover(&app, &window);
+        mark_popover_shown(&app);
         let _ = window.show();
         let _ = window.set_focus();
     }
     Ok(())
+}
+
+fn mark_popover_shown(app: &AppHandle) {
+    if let Some(state) = app.try_state::<PopoverShownAt>() {
+        if let Ok(mut g) = state.0.lock() {
+            *g = Some(Instant::now());
+        }
+    }
 }
 
 fn primary_monitor_size(app: &AppHandle) -> Option<(u32, u32)> {
@@ -169,6 +185,7 @@ fn toggle_popover(app: &AppHandle) {
         let _ = window.hide();
     } else {
         position_popover(app, &window);
+        mark_popover_shown(app);
         let _ = window.show();
         let _ = window.set_focus();
     }
@@ -277,6 +294,7 @@ pub fn run() {
                 .build(),
         )
         .manage(TrayAnchor::default())
+        .manage(PopoverShownAt::default())
         .setup(|app| {
             // NOTE: we intentionally do NOT call set_activation_policy(Accessory)
             // in dev here. In unbundled dev runs, Accessory mode sometimes
@@ -368,11 +386,22 @@ pub fn run() {
             }
 
             // Hide the popover on blur so it feels like a real menu-bar popover.
+            // The 250ms guard is the important bit — during the tray-click
+            // itself macOS briefly steals focus from the popover, which would
+            // fire Focused(false) and hide the window we literally just showed.
             if let Some(window) = app.get_webview_window("popover") {
                 let handle = window.clone();
+                let app_handle = app.handle().clone();
                 window.on_window_event(move |event| {
                     if let tauri::WindowEvent::Focused(false) = event {
-                        let _ = handle.hide();
+                        let recent = app_handle
+                            .try_state::<PopoverShownAt>()
+                            .and_then(|s| s.0.lock().ok().and_then(|g| *g))
+                            .map(|t| t.elapsed().as_millis() < 250)
+                            .unwrap_or(false);
+                        if !recent {
+                            let _ = handle.hide();
+                        }
                     }
                 });
             }
