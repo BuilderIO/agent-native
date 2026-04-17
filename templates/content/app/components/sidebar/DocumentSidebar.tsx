@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { OrgSwitcher } from "@agent-native/core/client/org";
+import { FeedbackButton } from "@agent-native/core/client";
 import { NotionButton } from "./NotionButton";
 import { DocumentTreeItem } from "./DocumentTreeItem";
 import {
@@ -47,7 +48,7 @@ export function DocumentSidebar({
   collapsed,
   onToggleCollapsed,
   onNavigate,
-  width = 240,
+  width,
   onResize,
 }: DocumentSidebarProps) {
   const navigate = useNavigate();
@@ -67,7 +68,7 @@ export function DocumentSidebar({
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
-      if (!onResize) return;
+      if (!onResize || width === undefined) return;
       e.preventDefault();
       setIsResizing(true);
       const startX = e.clientX;
@@ -211,8 +212,11 @@ export function DocumentSidebar({
 
   return (
     <div
-      className="relative flex flex-col h-full border-r border-border bg-muted/30"
-      style={{ width, flexShrink: 0 }}
+      className={cn(
+        "relative flex flex-col h-full border-r border-border bg-muted/30",
+        width === undefined && "w-full",
+      )}
+      style={width === undefined ? undefined : { width, flexShrink: 0 }}
     >
       {/* Header */}
       <div className="flex items-center justify-between h-12 px-3 border-b border-border">
@@ -405,6 +409,7 @@ export function DocumentSidebar({
 
       {/* Footer */}
       <div className="border-t border-border px-3 py-2 space-y-2 mt-2">
+        <FeedbackButton />
         <OrgSwitcher />
         <div className="flex items-center justify-end gap-0.5">
           <NotionButton />

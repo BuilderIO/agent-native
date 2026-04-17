@@ -15,6 +15,7 @@ import {
   IconLoader2,
   IconUpload,
   IconCoin,
+  IconMail,
 } from "@tabler/icons-react";
 import { SettingsSection } from "./SettingsSection.js";
 import { useBuilderStatus } from "./useBuilderStatus.js";
@@ -366,6 +367,214 @@ function LLMSectionInner({
   );
 }
 
+// ─── Email Section ──────────────────────────────────────────────────────────
+
+function EmailSectionInner({
+  open,
+  onToggle,
+}: {
+  open?: boolean;
+  onToggle?: () => void;
+}) {
+  const [envKeys, setEnvKeys] = useState<
+    Array<{ key: string; configured: boolean }>
+  >([]);
+  const [resendKey, setResendKey] = useState("");
+  const [sendgridKey, setSendgridKey] = useState("");
+  const [fromAddr, setFromAddr] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [showSendgrid, setShowSendgrid] = useState(false);
+
+  useEffect(() => {
+    fetch("/_agent-native/env-status")
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setEnvKeys)
+      .catch(() => {});
+  }, [saved]);
+
+  const resendConfigured =
+    envKeys.find((k) => k.key === "RESEND_API_KEY")?.configured ?? false;
+  const sendgridConfigured =
+    envKeys.find((k) => k.key === "SENDGRID_API_KEY")?.configured ?? false;
+  const fromConfigured =
+    envKeys.find((k) => k.key === "EMAIL_FROM")?.configured ?? false;
+  const anyConfigured = resendConfigured || sendgridConfigured;
+
+  const save = async (vars: Array<{ key: string; value: string }>) => {
+    setSaving(true);
+    try {
+      const res = await fetch("/_agent-native/env-vars", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vars }),
+      });
+      if (res.ok) {
+        setSaved(true);
+        setResendKey("");
+        setSendgridKey("");
+        setFromAddr("");
+        setTimeout(() => setSaved(false), 2000);
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveResend = () => {
+    const vars: Array<{ key: string; value: string }> = [];
+    if (resendKey.trim())
+      vars.push({ key: "RESEND_API_KEY", value: resendKey.trim() });
+    if (fromAddr.trim())
+      vars.push({ key: "EMAIL_FROM", value: fromAddr.trim() });
+    if (vars.length) save(vars);
+  };
+
+  const saveSendgrid = () => {
+    const vars: Array<{ key: string; value: string }> = [];
+    if (sendgridKey.trim())
+      vars.push({ key: "SENDGRID_API_KEY", value: sendgridKey.trim() });
+    if (fromAddr.trim())
+      vars.push({ key: "EMAIL_FROM", value: fromAddr.trim() });
+    if (vars.length) save(vars);
+  };
+
+  return (
+    <SettingsSection
+      icon={<IconMail size={14} />}
+      title="Email"
+      subtitle="Send password resets and team invitations. Without a provider, emails are logged to the server console."
+      connected={anyConfigured}
+      open={open}
+      onToggle={onToggle}
+    >
+      <div className="space-y-2">
+        <ManualSetupCard
+          hint="Paste a Resend API key to start sending real emails."
+          docsUrl="https://resend.com/api-keys"
+          docsLabel="Get a Resend key"
+        >
+          {resendConfigured ? (
+            <div className="flex items-center gap-1.5 text-[10px] text-green-500 mb-1">
+              <IconCheck size={10} />
+              RESEND_API_KEY configured
+            </div>
+          ) : (
+            <div className="flex gap-1.5 mb-1">
+              <input
+                type="password"
+                value={resendKey}
+                onChange={(e) => setResendKey(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") saveResend();
+                }}
+                placeholder="re_..."
+                className="flex-1 rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+              />
+              <button
+                onClick={saveResend}
+                disabled={!resendKey.trim() || saving}
+                className="rounded bg-accent px-2 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
+              >
+                {saving ? (
+                  <IconLoader2 size={10} className="animate-spin" />
+                ) : saved ? (
+                  <IconCheck size={10} />
+                ) : (
+                  "Save"
+                )}
+              </button>
+            </div>
+          )}
+          {fromConfigured ? (
+            <div className="flex items-center gap-1.5 text-[10px] text-green-500">
+              <IconCheck size={10} />
+              EMAIL_FROM configured
+            </div>
+          ) : (
+            <div className="flex gap-1.5">
+              <input
+                type="text"
+                value={fromAddr}
+                onChange={(e) => setFromAddr(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") saveResend();
+                }}
+                placeholder="From address — e.g. Acme <hi@acme.com>"
+                className="flex-1 rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+              />
+              {!resendConfigured ? null : (
+                <button
+                  onClick={saveResend}
+                  disabled={!fromAddr.trim() || saving}
+                  className="rounded bg-accent px-2 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
+                >
+                  {saving ? (
+                    <IconLoader2 size={10} className="animate-spin" />
+                  ) : saved ? (
+                    <IconCheck size={10} />
+                  ) : (
+                    "Save"
+                  )}
+                </button>
+              )}
+            </div>
+          )}
+        </ManualSetupCard>
+
+        {!sendgridConfigured && !showSendgrid ? (
+          <button
+            type="button"
+            onClick={() => setShowSendgrid(true)}
+            className="text-[10px] text-muted-foreground hover:text-foreground"
+          >
+            Use SendGrid instead
+          </button>
+        ) : (
+          <ManualSetupCard
+            hint="SendGrid alternative — requires a verified sender address (set EMAIL_FROM above)."
+            docsUrl="https://app.sendgrid.com/settings/api_keys"
+            docsLabel="Get a SendGrid key"
+          >
+            {sendgridConfigured ? (
+              <div className="flex items-center gap-1.5 text-[10px] text-green-500">
+                <IconCheck size={10} />
+                SENDGRID_API_KEY configured
+              </div>
+            ) : (
+              <div className="flex gap-1.5">
+                <input
+                  type="password"
+                  value={sendgridKey}
+                  onChange={(e) => setSendgridKey(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") saveSendgrid();
+                  }}
+                  placeholder="SG...."
+                  className="flex-1 rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+                />
+                <button
+                  onClick={saveSendgrid}
+                  disabled={!sendgridKey.trim() || saving}
+                  className="rounded bg-accent px-2 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
+                >
+                  {saving ? (
+                    <IconLoader2 size={10} className="animate-spin" />
+                  ) : saved ? (
+                    <IconCheck size={10} />
+                  ) : (
+                    "Save"
+                  )}
+                </button>
+              </div>
+            )}
+          </ManualSetupCard>
+        )}
+      </div>
+    </SettingsSection>
+  );
+}
+
 // ─── Main SettingsPanel ─────────────────────────────────────────────────────
 
 export interface SettingsPanelProps {
@@ -562,6 +771,12 @@ export function SettingsPanel({
           />
         </div>
       </SettingsSection>
+
+      {/* Email */}
+      <EmailSectionInner
+        open={openSection === "email"}
+        onToggle={() => toggle("email")}
+      />
 
       {/* Browser Automation */}
       <SettingsSection
