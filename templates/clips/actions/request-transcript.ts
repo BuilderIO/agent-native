@@ -75,14 +75,6 @@ export default defineAction({
       if (userSecret?.value) apiKey = userSecret.value;
     }
     if (!apiKey) {
-      const globalSecret = await readAppSecret({
-        key: "OPENAI_API_KEY",
-        scope: "global",
-        scopeId: "global",
-      }).catch(() => null);
-      if (globalSecret?.value) apiKey = globalSecret.value;
-    }
-    if (!apiKey) {
       apiKey = await resolveCredential("OPENAI_API_KEY");
     }
     if (!apiKey) {
