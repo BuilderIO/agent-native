@@ -172,16 +172,29 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       };
     }, [bumpControls]);
 
+    // Keep isPip in sync with the browser's PiP state (React doesn't support
+    // PiP events as JSX handlers; wire them via addEventListener instead).
+    useEffect(() => {
+      const v = videoRef.current;
+      if (!v) return;
+      const onEnter = () => setIsPip(true);
+      const onLeave = () => setIsPip(false);
+      v.addEventListener("enterpictureinpicture", onEnter);
+      v.addEventListener("leavepictureinpicture", onLeave);
+      return () => {
+        v.removeEventListener("enterpictureinpicture", onEnter);
+        v.removeEventListener("leavepictureinpicture", onLeave);
+      };
+    }, []);
+
     async function togglePipInternal() {
       const v = videoRef.current;
       if (!v) return;
       try {
         if (document.pictureInPictureElement) {
           await document.exitPictureInPicture();
-          setIsPip(false);
         } else if (typeof (v as any).requestPictureInPicture === "function") {
           await (v as any).requestPictureInPicture();
-          setIsPip(true);
         }
       } catch (err) {
         console.warn("[clips] PiP failed", err);
@@ -274,10 +287,6 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               setVolume(e.currentTarget.volume);
               setMuted(e.currentTarget.muted);
             }}
-            {...({
-              onEnterPictureInPicture: () => setIsPip(true),
-              onLeavePictureInPicture: () => setIsPip(false),
-            } as any)}
           />
         ) : (
           <div className="flex items-center justify-center w-full h-full text-white/50 text-sm">
