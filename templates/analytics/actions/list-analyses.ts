@@ -1,4 +1,8 @@
 import { defineAction } from "@agent-native/core";
+import {
+  getRequestUserEmail,
+  getRequestOrgId,
+} from "@agent-native/core/server";
 import { getAllSettings, listOrgSettings } from "@agent-native/core/settings";
 
 const KEY_PREFIX = "adhoc-analysis-";
@@ -9,8 +13,8 @@ export default defineAction({
   parameters: {},
   http: { method: "GET" },
   run: async () => {
-    const orgId = process.env.AGENT_ORG_ID || null;
-    const email = process.env.AGENT_USER_EMAIL || "local@localhost";
+    const orgId = getRequestOrgId() || null;
+    const email = getRequestUserEmail() || "local@localhost";
 
     const analyses: Record<string, unknown>[] = [];
     const seen = new Set<string>();

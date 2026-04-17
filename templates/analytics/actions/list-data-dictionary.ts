@@ -1,4 +1,8 @@
 import { defineAction } from "@agent-native/core";
+import {
+  getRequestUserEmail,
+  getRequestOrgId,
+} from "@agent-native/core/server";
 import { z } from "zod";
 import { getAllSettings, listOrgSettings } from "@agent-native/core/settings";
 
@@ -21,8 +25,8 @@ export default defineAction({
   }),
   http: { method: "GET" },
   run: async (args) => {
-    const orgId = process.env.AGENT_ORG_ID || null;
-    const email = process.env.AGENT_USER_EMAIL || "local@localhost";
+    const orgId = getRequestOrgId() || null;
+    const email = getRequestUserEmail() || "local@localhost";
 
     const entries: Record<string, unknown>[] = [];
     const seen = new Set<string>();

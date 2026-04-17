@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 
@@ -48,7 +49,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   run: async (args) => {
-    const email = process.env.AGENT_USER_EMAIL || "local@localhost";
+    const email = getRequestUserEmail() || "local@localhost";
     const q = (args.q || "").trim();
 
     const clients = await googleCalendar.getClients(email);

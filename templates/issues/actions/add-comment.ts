@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 import { getClient } from "../server/lib/jira-auth.js";
 import { jiraAddComment } from "../server/lib/jira-api.js";
@@ -16,7 +17,7 @@ export default defineAction({
     if (!key) throw new Error("key is required");
     if (!body) throw new Error("body is required");
 
-    const client = await getClient(process.env.AGENT_USER_EMAIL);
+    const client = await getClient(getRequestUserEmail());
     if (!client) throw new Error("Jira not connected");
 
     const adfBody = markdownToAdf(body);

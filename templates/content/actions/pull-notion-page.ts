@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import { pullDocumentFromNotion } from "../server/lib/notion-sync.js";
 import { z } from "zod";
 
@@ -15,7 +16,7 @@ export default defineAction({
       throw new Error("Usage: pnpm action pull-notion-page --documentId <id>");
     }
 
-    const owner = process.env.AGENT_USER_EMAIL || "local@localhost";
+    const owner = getRequestUserEmail() || "local@localhost";
     return pullDocumentFromNotion(owner, documentId);
   },
 });

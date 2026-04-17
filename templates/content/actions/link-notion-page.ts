@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import { linkDocumentToNotionPage } from "../server/lib/notion-sync.js";
 import { z } from "zod";
 
@@ -12,7 +13,7 @@ export default defineAction({
   }),
   http: false,
   run: async (args) => {
-    const owner = process.env.AGENT_USER_EMAIL || "local@localhost";
+    const owner = getRequestUserEmail() || "local@localhost";
     const documentId = args.documentId || args.id;
     const pageIdOrUrl = args.pageId || args.url;
 

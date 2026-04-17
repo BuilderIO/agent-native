@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 import { getClient } from "../server/lib/jira-auth.js";
 import { agileListBoards, AtlassianApiError } from "../server/lib/jira-api.js";
@@ -20,7 +21,7 @@ export default defineAction({
   run: async (args) => {
     const { startAt, maxResults, projectKeyOrId } = args;
 
-    const client = await getClient(process.env.AGENT_USER_EMAIL);
+    const client = await getClient(getRequestUserEmail());
     if (!client) throw new Error("Jira not connected");
 
     try {

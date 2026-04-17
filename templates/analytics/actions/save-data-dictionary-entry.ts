@@ -1,4 +1,8 @@
 import { defineAction } from "@agent-native/core";
+import {
+  getRequestUserEmail,
+  getRequestOrgId,
+} from "@agent-native/core/server";
 import { z } from "zod";
 import {
   getOrgSetting,
@@ -105,8 +109,8 @@ export default defineAction({
       .describe("Optional link to external source of truth (e.g. Notion page)"),
   }),
   run: async (args) => {
-    const orgId = process.env.AGENT_ORG_ID || null;
-    const email = process.env.AGENT_USER_EMAIL || "local@localhost";
+    const orgId = getRequestOrgId() || null;
+    const email = getRequestUserEmail() || "local@localhost";
     const id = args.id?.trim() || slugify(args.metric);
     if (!id) {
       return "Error: could not derive an id — provide one or a non-empty `metric`.";

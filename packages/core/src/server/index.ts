@@ -112,6 +112,12 @@ export {
   mountActionRoutes,
   type MountActionRoutesOptions,
 } from "./action-routes.js";
+export {
+  runWithRequestContext,
+  getRequestUserEmail,
+  getRequestOrgId,
+  type RequestContext,
+} from "./request-context.js";
 
 export {
   createOnboardingPlugin,

@@ -1,4 +1,8 @@
 import { defineAction } from "@agent-native/core";
+import {
+  getRequestUserEmail,
+  getRequestOrgId,
+} from "@agent-native/core/server";
 import { readAppState } from "@agent-native/core/application-state";
 import {
   getOrgSetting,
@@ -41,8 +45,8 @@ export default defineAction({
     if (nav?.view === "adhoc" && nav?.dashboardId) {
       try {
         const key = `dashboard-${nav.dashboardId}`;
-        const orgId = process.env.AGENT_ORG_ID || null;
-        const email = process.env.AGENT_USER_EMAIL || "local@localhost";
+        const orgId = getRequestOrgId() || null;
+        const email = getRequestUserEmail() || "local@localhost";
         const config =
           (orgId ? await getOrgSetting(orgId, key) : null) ||
           (email !== "local@localhost"

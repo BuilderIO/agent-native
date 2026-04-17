@@ -1,4 +1,8 @@
 import { defineAction } from "@agent-native/core";
+import {
+  getRequestUserEmail,
+  getRequestOrgId,
+} from "@agent-native/core/server";
 import { z } from "zod";
 import {
   deleteOrgSetting,
@@ -13,8 +17,8 @@ export default defineAction({
     id: z.string().describe("ID of the entry to delete"),
   }),
   run: async (args) => {
-    const orgId = process.env.AGENT_ORG_ID || null;
-    const email = process.env.AGENT_USER_EMAIL || "local@localhost";
+    const orgId = getRequestOrgId() || null;
+    const email = getRequestUserEmail() || "local@localhost";
     const key = `${KEY_PREFIX}${args.id}`;
     if (orgId) {
       await deleteOrgSetting(orgId, key);

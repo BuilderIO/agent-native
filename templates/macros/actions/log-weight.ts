@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import { db, schema } from "../server/db/index.js";
 import { z } from "zod";
 
@@ -21,7 +22,7 @@ export default defineAction({
     const result = await db()
       .insert(schema.weights)
       .values({
-        owner_email: process.env.AGENT_USER_EMAIL ?? null,
+        owner_email: getRequestUserEmail() ?? null,
         weight: args.weight!,
         date: String(date).split("T")[0],
         notes: args.notes || null,

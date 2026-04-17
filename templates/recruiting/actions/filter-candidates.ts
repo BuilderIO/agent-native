@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { getRequestOrgId } from "@agent-native/core/server";
 import * as gh from "../server/lib/greenhouse-api.js";
 import { withOrgContext } from "../server/lib/greenhouse-api.js";
 import { listRecentCandidates } from "../server/lib/candidate-search.js";
@@ -95,7 +96,7 @@ export default defineAction({
   }),
   http: false,
   run: async (args) => {
-    const orgId = process.env.AGENT_ORG_ID;
+    const orgId = getRequestOrgId();
     if (orgId) {
       return withOrgContext(orgId, () => doFilter(args));
     }
