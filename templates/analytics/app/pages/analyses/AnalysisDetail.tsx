@@ -17,6 +17,11 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   IconRefresh,
   IconTrash,
   IconClock,
@@ -129,15 +134,23 @@ export default function AnalysisDetail() {
           resourceTitle={analysis.name}
           variant="compact"
         />
-        <Button
-          variant="default"
-          size="sm"
-          onClick={handleRerun}
-          disabled={isGenerating}
-        >
-          <IconRefresh className="h-4 w-4 mr-1.5" />
-          Re-run
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="default"
+              size="sm"
+              onClick={handleRerun}
+              disabled={isGenerating}
+            >
+              <IconRefresh className="h-4 w-4" />
+              Re-run
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            Re-run this analysis with the latest data and update the saved
+            results
+          </TooltipContent>
+        </Tooltip>
         <AlertDialog>
           <AlertDialogTrigger asChild>
             <Button variant="ghost" size="sm">

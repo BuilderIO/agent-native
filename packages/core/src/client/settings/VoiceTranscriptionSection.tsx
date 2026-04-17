@@ -39,6 +39,7 @@ export function VoiceTranscriptionSection() {
     null,
   );
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -76,24 +77,38 @@ export function VoiceTranscriptionSection() {
     };
   }, []);
 
-  const persist = useCallback(async (next: Provider) => {
-    setSaving(true);
-    try {
-      await fetch(PREFS_URL, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ value: { provider: next } }),
-      });
-    } finally {
-      setSaving(false);
-    }
-  }, []);
+  const persist = useCallback(
+    async (next: Provider, previous: Provider | null) => {
+      setSaving(true);
+      setSaveError(null);
+      try {
+        const res = await fetch(PREFS_URL, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ value: { provider: next } }),
+        });
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+      } catch (err) {
+        // Revert the optimistic update so the UI matches server state.
+        setProvider(previous);
+        setSaveError(
+          `Couldn't save: ${(err as Error)?.message ?? "network error"}. Try again.`,
+        );
+      } finally {
+        setSaving(false);
+      }
+    },
+    [],
+  );
 
   const choose = (next: Provider) => {
     if (next === provider) return;
     if (next === "builder") return; // placeholder — disabled
+    const previous = provider;
     setProvider(next);
-    void persist(next);
+    void persist(next, previous);
   };
 
   if (provider === null) {
@@ -163,6 +178,11 @@ export function VoiceTranscriptionSection() {
       />
 
       {saving && <p className="text-[10px] text-muted-foreground">Saving…</p>}
+      {saveError && !saving && (
+        <p className="text-[10px] text-red-500" role="alert">
+          {saveError}
+        </p>
+      )}
     </div>
   );
 }
