@@ -265,10 +265,14 @@ export function useEmails(
     },
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage: EmailsPage) => lastPage.nextPageToken,
-    staleTime: 15_000,
+    // Gmail's per-user quota is tight (250 units/sec). Each list call costs
+    // ~255 units (messages.list + 50 × messages.get). Aggressive polling
+    // easily trips quota on multi-account users — keep refetches conservative
+    // and rely on mutation invalidations for the hot edits.
+    staleTime: 2 * 60_000,
     refetchInterval: (query: { state: { status: string } }) =>
-      query.state.status === "error" ? false : 30_000,
-    refetchOnWindowFocus: "always" as const,
+      query.state.status === "error" ? false : 5 * 60_000,
+    refetchOnWindowFocus: false,
     retry: false,
   });
 

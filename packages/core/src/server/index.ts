@@ -105,6 +105,7 @@ export {
 export {
   autoDiscoverActions,
   autoDiscoverScripts,
+  loadActionsFromStaticRegistry,
 } from "./action-discovery.js";
 export {
   mountActionRoutes,
