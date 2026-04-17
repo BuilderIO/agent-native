@@ -45,6 +45,8 @@ import {
   createWriteSecretHandler,
   createTestSecretHandler,
 } from "../secrets/routes.js";
+import { registerFrameworkSecrets } from "../secrets/register-framework-secrets.js";
+import { createTranscribeVoiceHandler } from "./transcribe-voice.js";
 
 /**
  * The base path prefix for all framework-level routes.
@@ -96,6 +98,11 @@ export function createCoreRoutesPlugin(
     // No-op when called from inside the bootstrap (auto-mount path).
     // Otherwise wait so other default plugins finish mounting first.
     await awaitBootstrap(nitroApp);
+
+    // Register framework-level secrets (OPENAI_API_KEY for composer voice
+    // transcription, etc.). Each registration is guarded so templates that
+    // already registered the same key win.
+    registerFrameworkSecrets();
 
     const P = FRAMEWORK_ROUTE_PREFIX;
 
@@ -506,6 +513,13 @@ export function createCoreRoutesPlugin(
             "No file upload provider configured. Connect Builder.io in Settings → File uploads, or register a provider.",
         };
       }),
+    );
+
+    // ─── Voice transcription (Whisper) ───────────────────────────────
+    // POST /_agent-native/transcribe-voice — multipart audio → text
+    getH3App(nitroApp).use(
+      `${P}/transcribe-voice`,
+      createTranscribeVoiceHandler(),
     );
 
     // ─── Secrets registry ────────────────────────────────────────────

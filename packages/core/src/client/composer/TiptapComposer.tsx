@@ -33,6 +33,8 @@ import type {
   Reference,
   SlashCommand,
 } from "./types.js";
+import { useVoiceDictation } from "./useVoiceDictation.js";
+import { VoiceButton, VoiceRecordingOverlay } from "./VoiceButton.js";
 
 export interface TiptapComposerHandle {
   focus(): void;
@@ -65,6 +67,8 @@ interface TiptapComposerProps {
   execMode?: ExecMode;
   /** Callback to change execution mode */
   onExecModeChange?: (mode: ExecMode) => void;
+  /** Show the microphone button for voice dictation. Default true. */
+  voiceEnabled?: boolean;
 }
 
 function ModeSelector({
@@ -159,6 +163,7 @@ export function TiptapComposer({
   onSlashCommand,
   execMode,
   onExecModeChange,
+  voiceEnabled = true,
 }: TiptapComposerProps) {
   const [popover, setPopover] = useState<PopoverState>(null);
   const popoverRef = useRef<MentionPopoverRef>(null);
@@ -446,6 +451,54 @@ export function TiptapComposer({
       editor?.commands.focus("end");
     },
   }));
+
+  const insertTranscript = useCallback(
+    (text: string) => {
+      const ed = editor;
+      if (!ed || !text) return;
+      const { from } = ed.state.selection;
+      const prevChar = from > 1 ? ed.state.doc.textBetween(from - 1, from) : "";
+      const needsLead = prevChar && !/\s/.test(prevChar);
+      ed.chain()
+        .focus()
+        .insertContent((needsLead ? " " : "") + text + " ")
+        .run();
+    },
+    [editor],
+  );
+
+  const voice = useVoiceDictation({ onTranscript: insertTranscript });
+
+  // Global shortcut: Cmd/Ctrl + Shift + M toggles dictation. Escape cancels
+  // while recording. Scoped to avoid firing when focus is outside the app.
+  useEffect(() => {
+    if (!voiceEnabled || !voice.supported) return;
+    const handler = (e: KeyboardEvent) => {
+      const isToggleCombo =
+        e.key.toLowerCase() === "m" &&
+        e.shiftKey &&
+        (e.metaKey || e.ctrlKey) &&
+        !e.altKey;
+      if (isToggleCombo) {
+        e.preventDefault();
+        if (voice.state === "recording" || voice.state === "starting") {
+          voice.stop();
+        } else if (voice.state !== "transcribing") {
+          void voice.start();
+        }
+        return;
+      }
+      if (
+        e.key === "Escape" &&
+        (voice.state === "recording" || voice.state === "starting")
+      ) {
+        e.preventDefault();
+        voice.cancel();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [voiceEnabled, voice]);
 
   const extractComposerPayload = useCallback(() => {
     const ed = editor;
@@ -769,6 +822,7 @@ export function TiptapComposer({
           className="aui-composer flex-1 min-w-0 [&_.ProseMirror]:outline-none [&_.ProseMirror_p]:m-0 px-0.5"
         />
       </div>
+      {voiceEnabled && <VoiceRecordingOverlay voice={voice} />}
       <div className="flex items-center gap-1 px-2 py-1.5">
         {attachButton ?? (
           <ComposerPrimitive.AddAttachment asChild>
@@ -788,6 +842,9 @@ export function TiptapComposer({
               <ModeSelector mode={execMode} onChange={onExecModeChange} />
             )}
             {extraActionButton}
+            {voiceEnabled && (
+              <VoiceButton voice={voice} isMac={isMac} disabled={disabled} />
+            )}
             <button
               type="button"
               onClick={submitComposer}
