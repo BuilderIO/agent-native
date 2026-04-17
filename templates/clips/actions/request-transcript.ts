@@ -134,9 +134,7 @@ export default defineAction({
         rec.videoUrl.startsWith("/api/uploads/") &&
         rec.videoUrl.endsWith("/blob");
       if (isLocalBlob) {
-        const stash = await readAppState(
-          `recording-blob-${args.recordingId}`,
-        );
+        const stash = await readAppState(`recording-blob-${args.recordingId}`);
         const b64 = typeof stash?.data === "string" ? stash.data : null;
         if (!b64) throw new Error("recording-blob app-state missing");
         const bytes = Buffer.from(b64, "base64");
