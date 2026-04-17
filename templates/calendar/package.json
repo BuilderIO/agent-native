@@ -1,5 +1,6 @@
 {
   "name": "calendar",
+  "displayName": "Agent-Native Calendar",
   "private": true,
   "type": "module",
   "scripts": {

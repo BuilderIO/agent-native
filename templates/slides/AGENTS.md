@@ -160,6 +160,19 @@ If your cwd is the monorepo root instead (e.g., running from the Frame wrapper),
 | `logo-lookup`      | `--domain acme.com`                                   | Get company logo URL        |
 | `image-gen-status` |                                                       | Check Gemini API key status |
 
+### Sharing
+
+Decks are **private by default** — only the creator sees them. To grant access to others, change the visibility or add explicit share grants. These actions are auto-mounted framework-wide:
+
+| Action                    | Args                                                                                                                          | Purpose                              |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| `share-resource`          | `--resourceType deck --resourceId <id> --principalType user\|org --principalId <email-or-orgId> --role viewer\|editor\|admin` | Grant a user or org access to a deck |
+| `unshare-resource`        | `--resourceType deck --resourceId <id> --principalType user\|org --principalId <email-or-orgId>`                              | Revoke a share grant                 |
+| `list-resource-shares`    | `--resourceType deck --resourceId <id>`                                                                                       | Show current visibility + all grants |
+| `set-resource-visibility` | `--resourceType deck --resourceId <id> --visibility private\|org\|public`                                                     | Change coarse visibility             |
+
+Read (`get-deck`, `list-decks`, `view-screen`) admits rows the current user owns, has been shared on, or that match the resource's visibility. Write (`create-deck --deckId`, `add-slide`, `update-slide`) requires the `editor` role or above; owners always satisfy. The separate `share-link` dialog (anonymous public URL via `share_token`) is orthogonal to this — anyone with the link can view regardless of visibility. See the `sharing` skill for the full model.
+
 ### Common Tasks
 
 | User request                          | What to do                                                                                                                |

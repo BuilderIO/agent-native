@@ -99,4 +99,26 @@ export default runMigrations([
     version: 12,
     sql: `UPDATE document_comments SET owner_email = 'local@localhost' WHERE owner_email IS NULL OR owner_email = ''`,
   },
+  // v13-v14: add sharing columns (org_id, visibility) to documents.
+  {
+    version: 13,
+    sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS org_id TEXT`,
+  },
+  {
+    version: 14,
+    sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'private'`,
+  },
+  // v15: companion shares table for per-principal grants.
+  {
+    version: 15,
+    sql: `CREATE TABLE IF NOT EXISTS document_shares (
+      id TEXT PRIMARY KEY,
+      resource_id TEXT NOT NULL,
+      principal_type TEXT NOT NULL,
+      principal_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'viewer',
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+  },
 ]);

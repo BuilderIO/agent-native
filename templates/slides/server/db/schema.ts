@@ -1,4 +1,11 @@
-import { table, text, integer, now } from "@agent-native/core/db/schema";
+import {
+  table,
+  text,
+  integer,
+  now,
+  ownableColumns,
+  createSharesTable,
+} from "@agent-native/core/db/schema";
 
 export const decks = table("decks", {
   id: text("id").primaryKey(),
@@ -6,7 +13,10 @@ export const decks = table("decks", {
   data: text("data").notNull(), // Full deck JSON
   createdAt: text("created_at").default(now()),
   updatedAt: text("updated_at").default(now()),
+  ...ownableColumns(),
 });
+
+export const deckShares = createSharesTable("deck_shares");
 
 export const slideComments = table("slide_comments", {
   id: text("id").primaryKey(),

@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { getSetting } from "@agent-native/core/settings";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import {
   getClients,
   listGmailMessages,
@@ -84,7 +85,7 @@ export default defineAction({
     const limit = args.limit ?? 50;
     const compact = args.compact !== false;
     const accountFilter = args.account?.toLowerCase();
-    const ownerEmail = process.env.AGENT_USER_EMAIL || "local@localhost";
+    const ownerEmail = getRequestUserEmail() || "local@localhost";
 
     if (await isConnected(ownerEmail)) {
       const clients = await getClients(ownerEmail);

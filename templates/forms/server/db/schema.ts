@@ -1,4 +1,10 @@
-import { table, text, integer } from "@agent-native/core/db/schema";
+import {
+  table,
+  text,
+  integer,
+  ownableColumns,
+  createSharesTable,
+} from "@agent-native/core/db/schema";
 
 export const forms = table("forms", {
   id: text("id").primaryKey(),
@@ -12,6 +18,7 @@ export const forms = table("forms", {
     .default("draft"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
+  ...ownableColumns(),
 });
 
 export const responses = table("responses", {
@@ -23,3 +30,5 @@ export const responses = table("responses", {
   submittedAt: text("submitted_at").notNull(),
   ip: text("ip"),
 });
+
+export const formShares = createSharesTable("form_shares");

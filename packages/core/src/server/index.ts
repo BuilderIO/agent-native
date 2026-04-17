@@ -105,11 +105,19 @@ export {
 export {
   autoDiscoverActions,
   autoDiscoverScripts,
+  loadActionsFromStaticRegistry,
+  mergeCoreSharingActions,
 } from "./action-discovery.js";
 export {
   mountActionRoutes,
   type MountActionRoutesOptions,
 } from "./action-routes.js";
+export {
+  runWithRequestContext,
+  getRequestUserEmail,
+  getRequestOrgId,
+  type RequestContext,
+} from "./request-context.js";
 
 export {
   createOnboardingPlugin,

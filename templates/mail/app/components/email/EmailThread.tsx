@@ -411,13 +411,20 @@ export function EmailThread({
     [threadId, view, navigate, labelSuffix, setSelectedIds],
   );
 
-  // Warm the full list of siblings through the plain-Map cache. warmThreads
-  // dedupes cached entries and caps concurrency so mass-warming doesn't trip
-  // Gmail quota.
+  // Warm only the immediate neighbors of the currently open thread — warming
+  // the entire sibling list was tripping Gmail's per-user quota. j/k
+  // navigation still calls ensureThread on the next target, so on-demand
+  // warming covers the common case.
   useEffect(() => {
     if (emailIds.length === 0) return;
-    warmThreads(emailIds);
-  }, [emailIds]);
+    const currentIdx = emailIds.findIndex((id) => id === threadId);
+    const base = currentIdx >= 0 ? currentIdx : 0;
+    const neighbors = emailIds.slice(
+      Math.max(0, base - 1),
+      Math.min(emailIds.length, base + 3),
+    );
+    warmThreads(neighbors);
+  }, [emailIds, threadId]);
 
   const advanceOrGoBack = useCallback(() => {
     if (!threadId || emailIds.length === 0) {

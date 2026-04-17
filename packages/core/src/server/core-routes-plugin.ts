@@ -40,6 +40,11 @@ import {
   listFileUploadProviders,
 } from "../file-upload/index.js";
 import { readMultipartFormData } from "h3";
+import {
+  createListSecretsHandler,
+  createWriteSecretHandler,
+  createTestSecretHandler,
+} from "../secrets/routes.js";
 
 /**
  * The base path prefix for all framework-level routes.
@@ -500,6 +505,43 @@ export function createCoreRoutesPlugin(
           error:
             "No file upload provider configured. Connect Builder.io in Settings → File uploads, or register a provider.",
         };
+      }),
+    );
+
+    // ─── Secrets registry ────────────────────────────────────────────
+    // GET    /_agent-native/secrets              — list registered secrets + status
+    // POST   /_agent-native/secrets/:key         — write a secret value
+    // DELETE /_agent-native/secrets/:key         — remove a secret value
+    // POST   /_agent-native/secrets/:key/test    — re-run the validator
+    const listSecretsHandler = createListSecretsHandler();
+    const writeSecretHandler = createWriteSecretHandler();
+    const testSecretHandler = createTestSecretHandler();
+
+    getH3App(nitroApp).use(
+      `${P}/secrets`,
+      defineEventHandler(async (event: H3Event) => {
+        const pathname = (event.url?.pathname || "")
+          .replace(/^\/+/, "")
+          .replace(/\/+$/, "");
+        const parts = pathname ? pathname.split("/") : [];
+
+        // Collection root — list handler.
+        if (parts.length === 0) {
+          return listSecretsHandler(event);
+        }
+
+        // /:key/test — re-validate stored value.
+        if (parts.length === 2 && parts[1] === "test") {
+          return testSecretHandler(event);
+        }
+
+        // /:key — write / delete a specific secret.
+        if (parts.length === 1) {
+          return writeSecretHandler(event);
+        }
+
+        setResponseStatus(event, 404);
+        return { error: "Not found" };
       }),
     );
 

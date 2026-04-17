@@ -90,3 +90,14 @@ export function now() {
 }
 
 export { sql } from "drizzle-orm";
+
+// Ownership / sharing primitives — templates opt a resource into the framework
+// sharing system by spreading ownableColumns() into the table and pairing it
+// with createSharesTable(). See .agents/skills/sharing/SKILL.md.
+export {
+  ownableColumns,
+  createSharesTable,
+  type Visibility,
+  type ShareRole,
+  type PrincipalType,
+} from "../sharing/schema.js";

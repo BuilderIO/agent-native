@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
+import { assertAccess } from "@agent-native/core/sharing";
 import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
@@ -18,6 +19,8 @@ export default defineAction({
     if (!args.id) {
       return { error: "Composition id is required" };
     }
+
+    await assertAccess("composition", args.id, "editor");
 
     const db = getDb();
     const now = new Date().toISOString();
@@ -42,6 +45,9 @@ export default defineAction({
         data: JSON.parse(row.data),
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
+        ownerEmail: row.ownerEmail,
+        orgId: row.orgId,
+        visibility: row.visibility,
       };
     }
 

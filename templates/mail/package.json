@@ -1,5 +1,6 @@
 {
   "name": "mail",
+  "displayName": "Agent-Native Mail",
   "private": true,
   "type": "module",
   "scripts": {

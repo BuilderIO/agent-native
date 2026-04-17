@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
@@ -27,6 +28,8 @@ export default defineAction({
       .describe("New status"),
   }),
   run: async (args) => {
+    await assertAccess("form", args.id, "editor");
+
     const db = getDb();
     const [existing] = await db
       .select()
@@ -95,6 +98,8 @@ export default defineAction({
       fields: JSON.parse(row!.fields) as FormField[],
       settings: JSON.parse(row!.settings) as FormSettings,
       status: row!.status,
+      visibility: row!.visibility,
+      ownerEmail: row!.ownerEmail,
       createdAt: row!.createdAt,
       updatedAt: row!.updatedAt,
     };

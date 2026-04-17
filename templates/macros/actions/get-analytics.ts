@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import { db, schema } from "../server/db/index.js";
 import { and, gte, lte, asc, desc, eq, or, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -24,7 +25,7 @@ export default defineAction({
     const startDate = fmt(start);
     const endDate = fmt(end);
 
-    const ownerEmail = process.env.AGENT_USER_EMAIL;
+    const ownerEmail = getRequestUserEmail();
     const ownerFilter = (col: any) =>
       ownerEmail ? or(eq(col, ownerEmail), isNull(col)) : undefined;
 

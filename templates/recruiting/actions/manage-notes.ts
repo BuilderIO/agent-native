@@ -1,4 +1,8 @@
 import { defineAction } from "@agent-native/core";
+import {
+  getRequestUserEmail,
+  getRequestOrgId,
+} from "@agent-native/core/server";
 import { z } from "zod";
 import { eq, and, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
@@ -6,8 +10,8 @@ import { db, schema } from "../server/db/index.js";
 import type { AgentNote } from "@shared/types";
 
 function getContext() {
-  const email = process.env.AGENT_USER_EMAIL || "local@localhost";
-  const orgId = process.env.AGENT_ORG_ID || null;
+  const email = getRequestUserEmail() || "local@localhost";
+  const orgId = getRequestOrgId() || null;
   return { email, orgId };
 }
 

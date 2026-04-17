@@ -1,10 +1,8 @@
 import { defineAction } from "@agent-native/core";
 import { and, eq, desc } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
-import {
-  getCurrentOwnerEmail,
-  parseDocumentFavorite,
-} from "../server/lib/documents.js";
+import { parseDocumentFavorite } from "../server/lib/documents.js";
+import { assertAccess } from "@agent-native/core/sharing";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
 
@@ -36,19 +34,11 @@ export default defineAction({
     const id = args.id;
     if (!id) throw new Error("--id is required");
 
-    const ownerEmail = getCurrentOwnerEmail();
-    const db = getDb();
-    const [existing] = await db
-      .select()
-      .from(schema.documents)
-      .where(
-        and(
-          eq(schema.documents.id, id),
-          eq(schema.documents.ownerEmail, ownerEmail),
-        ),
-      );
+    const access = await assertAccess("document", id, "editor");
+    const existing = access.resource;
+    const ownerEmail = existing.ownerEmail as string;
 
-    if (!existing) throw new Error(`Document "${id}" not found`);
+    const db = getDb();
 
     // Strip leading H1 that duplicates the title
     let content = args.content;
@@ -79,7 +69,10 @@ export default defineAction({
     const anyChange =
       titleChanged || contentChanged || iconChanged || favoriteChanged;
 
-    // Snapshot the current state before applying content/title changes
+    // Snapshot the current state before applying content/title changes.
+    // Versions are scoped to the document owner, not the caller — an editor
+    // share collaborator shouldn't create a phantom version row under their
+    // own email.
     if (titleChanged || contentChanged) {
       const [latestVersion] = await db
         .select({ createdAt: schema.documentVersions.createdAt })
@@ -123,23 +116,13 @@ export default defineAction({
       await db
         .update(schema.documents)
         .set(updates)
-        .where(
-          and(
-            eq(schema.documents.id, id),
-            eq(schema.documents.ownerEmail, ownerEmail),
-          ),
-        );
+        .where(eq(schema.documents.id, id));
     }
 
     const [doc] = await db
       .select()
       .from(schema.documents)
-      .where(
-        and(
-          eq(schema.documents.id, id),
-          eq(schema.documents.ownerEmail, ownerEmail),
-        ),
-      );
+      .where(eq(schema.documents.id, id));
 
     // Trigger UI refresh
     await writeAppState("refresh-signal", { ts: Date.now() });
@@ -160,6 +143,7 @@ export default defineAction({
       icon: doc.icon,
       position: doc.position,
       isFavorite: parseDocumentFavorite(doc.isFavorite),
+      visibility: doc.visibility,
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
     };

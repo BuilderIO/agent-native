@@ -6,6 +6,7 @@
 
 import { defineAction } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import { getClient } from "../server/lib/jira-auth.js";
 import { jiraSearchIssues, jiraGetIssue } from "../server/lib/jira-api.js";
 
@@ -106,7 +107,7 @@ export default defineAction({
 
     let client: { accessToken: string; cloudId: string } | null = null;
     try {
-      client = await getClient(process.env.AGENT_USER_EMAIL);
+      client = await getClient(getRequestUserEmail());
     } catch {
       // Jira not connected
     }

@@ -1,5 +1,6 @@
 {
   "name": "slides",
+  "displayName": "Agent-Native Slides",
   "private": true,
   "type": "module",
   "pkg": {

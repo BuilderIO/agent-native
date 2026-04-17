@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { getRequestOrgId } from "@agent-native/core/server";
 import * as gh from "../server/lib/greenhouse-api.js";
 import { withOrgContext } from "../server/lib/greenhouse-api.js";
 import { getSetting } from "@agent-native/core/settings";
@@ -340,7 +341,7 @@ export default defineAction({
   }),
   http: false,
   run: async (args) => {
-    const orgId = process.env.AGENT_ORG_ID || null;
+    const orgId = getRequestOrgId() || null;
 
     const config = await getSlackConfig(orgId);
     if (!config?.webhookUrl || !config.enabled) {

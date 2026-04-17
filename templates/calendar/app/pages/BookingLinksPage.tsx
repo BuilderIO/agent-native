@@ -68,6 +68,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { ShareButton, VisibilityBadge } from "@agent-native/core/client";
 import {
   useBookingLinks,
   useCreateBookingLink,
@@ -453,9 +454,16 @@ export default function BookingLinksPage({
             Back
           </button>
           {selectedLink && (
-            <Button type="button" onClick={handleSave}>
-              Save changes
-            </Button>
+            <div className="flex items-center gap-2">
+              <ShareButton
+                resourceType="booking-link"
+                resourceId={selectedLink.id}
+                resourceTitle={selectedLink.title}
+              />
+              <Button type="button" onClick={handleSave}>
+                Save changes
+              </Button>
+            </div>
           )}
         </div>
 
@@ -774,14 +782,17 @@ export default function BookingLinksPage({
                           onClick={() => navigate(`/booking-links/${link.id}`)}
                           className="min-w-0 flex-1 text-left"
                         >
-                          <p
-                            className={cn(
-                              "text-sm font-semibold truncate",
-                              !link.isActive && "text-muted-foreground",
-                            )}
-                          >
-                            {link.title}
-                          </p>
+                          <div className="flex items-center gap-2">
+                            <p
+                              className={cn(
+                                "text-sm font-semibold truncate",
+                                !link.isActive && "text-muted-foreground",
+                              )}
+                            >
+                              {link.title}
+                            </p>
+                            <VisibilityBadge visibility={link.visibility} />
+                          </div>
                           <p className="mt-0.5 text-xs text-muted-foreground truncate">
                             {durationLabel} • One-on-One
                           </p>

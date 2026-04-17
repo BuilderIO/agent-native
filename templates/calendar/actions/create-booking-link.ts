@@ -2,6 +2,10 @@ import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { eq } from "drizzle-orm";
+import {
+  getRequestUserEmail,
+  getRequestOrgId,
+} from "@agent-native/core/server/request-context";
 import type { BookingLink } from "../shared/api.js";
 import { getDb, schema } from "../server/db/index.js";
 
@@ -37,6 +41,7 @@ function rowToBookingLink(
     conferencing,
     color: row.color ?? undefined,
     isActive: row.isActive,
+    visibility: row.visibility,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -95,6 +100,8 @@ export default defineAction({
           : null,
         color: body.color ? String(body.color).trim() : null,
         isActive: body.isActive ?? true,
+        ownerEmail: getRequestUserEmail() ?? "local@localhost",
+        orgId: getRequestOrgId(),
         createdAt: now,
         updatedAt: now,
       });

@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import { db, schema } from "../server/db/index.js";
 import { eq, and, or, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -17,7 +18,7 @@ export default defineAction({
   }),
   run: async (args) => {
     const id = args.id!;
-    const ownerEmail = process.env.AGENT_USER_EMAIL;
+    const ownerEmail = getRequestUserEmail();
     const result = await db()
       .update(schema.exercises)
       .set({

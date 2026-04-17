@@ -150,6 +150,8 @@ export interface BookingLink {
   conferencing?: ConferencingConfig;
   color?: string;
   isActive: boolean;
+  /** Sharing visibility: private (default), org, or public */
+  visibility?: "private" | "org" | "public";
   createdAt: string;
   updatedAt: string;
 }

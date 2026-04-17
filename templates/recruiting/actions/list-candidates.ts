@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { getRequestOrgId } from "@agent-native/core/server";
 import { withOrgContext } from "../server/lib/greenhouse-api.js";
 import {
   mapCandidateListItem,
@@ -65,7 +66,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   run: async (args) => {
-    const orgId = process.env.AGENT_ORG_ID;
+    const orgId = getRequestOrgId();
     if (orgId) {
       return withOrgContext(orgId, () => listCandidates(args));
     }

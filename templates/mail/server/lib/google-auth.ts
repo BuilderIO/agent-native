@@ -294,17 +294,82 @@ export async function disconnect(email?: string): Promise<void> {
   }
 }
 
+// Short-TTL cache + in-flight coalescing for multi-account list fetches.
+// A single list call is 255 quota units (1 messages.list + 50 messages.get),
+// and the client refetch cadence plus multi-tab use can easily fire three or
+// four identical requests within a second. This layer absorbs those.
+type ListResult = {
+  messages: any[];
+  errors: Array<{ email: string; error: string }>;
+  nextPageTokens?: Record<string, string>;
+  resultSizeEstimate?: number;
+};
+
+const LIST_CACHE_TTL = 20_000;
+const listCache = new Map<string, { result: ListResult; expiresAt: number }>();
+const listInflight = new Map<string, Promise<ListResult>>();
+
+function listCacheKey(
+  query: string | undefined,
+  maxResults: number,
+  forEmail: string | undefined,
+  pageTokens: Record<string, string> | undefined,
+): string {
+  const tokenPart = pageTokens
+    ? Object.keys(pageTokens)
+        .sort()
+        .map((k) => `${k}:${pageTokens[k]}`)
+        .join("|")
+    : "";
+  return `${forEmail ?? ""}::${query ?? ""}::${maxResults}::${tokenPart}`;
+}
+
 export async function listGmailMessages(
   query?: string,
   maxResults = 50,
   forEmail?: string,
   pageTokens?: Record<string, string>,
-): Promise<{
-  messages: any[];
-  errors: Array<{ email: string; error: string }>;
-  nextPageTokens?: Record<string, string>;
-  resultSizeEstimate?: number;
-}> {
+): Promise<ListResult> {
+  const key = listCacheKey(query, maxResults, forEmail, pageTokens);
+
+  const cached = listCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.result;
+  }
+
+  const inflight = listInflight.get(key);
+  if (inflight) return inflight;
+
+  const promise = (async (): Promise<ListResult> => {
+    const result = await listGmailMessagesUncached(
+      query,
+      maxResults,
+      forEmail,
+      pageTokens,
+    );
+    // Only cache successful responses. A full-failure result (empty + all
+    // accounts errored) would lock the user out of retrying during the TTL.
+    if (result.messages.length > 0 || result.errors.length === 0) {
+      listCache.set(key, {
+        result,
+        expiresAt: Date.now() + LIST_CACHE_TTL,
+      });
+    }
+    return result;
+  })().finally(() => {
+    listInflight.delete(key);
+  });
+
+  listInflight.set(key, promise);
+  return promise;
+}
+
+async function listGmailMessagesUncached(
+  query?: string,
+  maxResults = 50,
+  forEmail?: string,
+  pageTokens?: Record<string, string>,
+): Promise<ListResult> {
   const clients = await getClients(forEmail);
   if (clients.length === 0) return { messages: [], errors: [] };
 

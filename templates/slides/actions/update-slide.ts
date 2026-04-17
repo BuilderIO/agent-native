@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { getDbExec, isPostgres } from "@agent-native/core/db";
 import { hasCollabState } from "@agent-native/core/collab";
+import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 import { notifyClients } from "../server/handlers/decks.js";
 
@@ -30,6 +31,8 @@ export default defineAction({
     if (!find && !fullContent) {
       throw new Error("Either --find or --fullContent is required");
     }
+
+    await assertAccess("deck", deckId, "editor");
 
     const docId = `deck-${deckId}-slide-${slideId}`;
     const client = getDbExec();

@@ -3,6 +3,7 @@ import { IconDots, IconTrash } from "@tabler/icons-react";
 import { useState } from "react";
 import type { Deck } from "@/context/DeckContext";
 import SlideRenderer from "./SlideRenderer";
+import { VisibilityBadge } from "@agent-native/core/client";
 
 interface DeckCardProps {
   deck: Deck;
@@ -31,9 +32,12 @@ export default function DeckCard({ deck, onDelete }: DeckCardProps) {
 
         {/* Info */}
         <div className="p-4">
-          <h3 className="font-medium text-sm text-white/90 truncate">
-            {deck.title}
-          </h3>
+          <div className="flex items-center gap-2 min-w-0">
+            <h3 className="font-medium text-sm text-white/90 truncate flex-1">
+              {deck.title}
+            </h3>
+            <VisibilityBadge visibility={deck.visibility} />
+          </div>
           <div className="text-xs text-white/40 mt-1">
             {deck.slides.length} slide{deck.slides.length !== 1 ? "s" : ""}
           </div>

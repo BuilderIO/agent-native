@@ -569,13 +569,15 @@ export function EmailList({
     }
   }, [threads, focusedId, setFocusedId]);
 
-  // Warm the cache for ALL visible threads as soon as the list loads.
-  // warmThreads dedupes and caps concurrency so we don't trip Gmail quota.
+  // Warm only the first few visible threads — prefetching the entire list on
+  // every load was hammering Gmail's per-user quota (50 threads × 10 units =
+  // 500 units per list render) and tripping 403s. ensureThread runs on hover
+  // and j/k navigation, so on-demand warming covers the common cases.
   useEffect(() => {
     if (threads.length === 0) return;
-    const ids = threads.map(
-      (t) => t.latestMessage.threadId || t.latestMessage.id,
-    );
+    const ids = threads
+      .slice(0, 3)
+      .map((t) => t.latestMessage.threadId || t.latestMessage.id);
     warmThreads(ids);
   }, [threads]);
 
@@ -743,6 +745,10 @@ export function EmailList({
       );
     }
 
+    const isQuotaError = /\((429|403)\)|quota|rate limit/i.test(
+      emailsError.message ?? "",
+    );
+
     return (
       <div className="flex h-full flex-col" ref={containerRef}>
         <div className="flex flex-1 flex-col items-center justify-center px-8">
@@ -752,14 +758,18 @@ export function EmailList({
             </div>
             <div className="space-y-1">
               <p className="text-sm font-medium text-foreground">
-                Unable to load emails
+                {isQuotaError
+                  ? "Gmail rate limit hit"
+                  : "Unable to load emails"}
               </p>
               <p className="text-xs text-muted-foreground">
-                {emailsError.message}
+                {isQuotaError
+                  ? "Too many recent requests to Google. Waiting a moment before retrying."
+                  : emailsError.message}
               </p>
             </div>
             <button
-              onClick={() => window.location.reload()}
+              onClick={() => refetch()}
               className="mt-1 inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-xs font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
             >
               Try again

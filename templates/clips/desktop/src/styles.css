@@ -1,0 +1,258 @@
+:root {
+  color-scheme: light dark;
+  --brand: #625df5;
+  --brand-hover: #5049d9;
+  --bg: #ffffff;
+  --fg: #111827;
+  --muted: #6b7280;
+  --border: #e5e7eb;
+  --subtle-bg: #f7f7f9;
+  --radius: 10px;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+  font-size: 13px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1115;
+    --fg: #f3f4f6;
+    --muted: #9ca3af;
+    --border: #1f2937;
+    --subtle-bg: #151821;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+body {
+  overflow: hidden;
+}
+
+#root {
+  width: 100vw;
+  min-height: 100vh;
+}
+
+.app {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px 4px;
+}
+
+.logo {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  background: var(--brand);
+  color: white;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+}
+
+.title {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.icon-button {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+}
+.icon-button:hover {
+  background: var(--subtle-bg);
+  color: var(--fg);
+}
+
+.primary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--brand);
+  color: white;
+  border: none;
+  padding: 11px 14px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  width: 100%;
+}
+.primary:hover {
+  background: var(--brand-hover);
+}
+.primary:active {
+  transform: translateY(1px);
+}
+
+.section-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 4px 4px 2px;
+}
+
+.recent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.recent-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  width: 100%;
+}
+.recent-item:hover {
+  background: var(--subtle-bg);
+  border-color: var(--border);
+}
+
+.thumb {
+  width: 56px;
+  height: 32px;
+  background: #1f2937;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.recent-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.recent-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.recent-sub {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.empty {
+  text-align: center;
+  padding: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px -12px;
+}
+
+.links {
+  display: flex;
+  gap: 6px;
+}
+
+.link-button {
+  flex: 1;
+  background: var(--subtle-bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: center;
+}
+.link-button:hover {
+  background: var(--border);
+}
+
+.setup {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  text-align: center;
+}
+.setup h2 {
+  margin: 0;
+  font-size: 15px;
+}
+.setup p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.setup input {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: inherit;
+}
+.setup input:focus {
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
+}
+
+.footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.footer a {
+  color: var(--muted);
+  text-decoration: none;
+  cursor: pointer;
+}
+.footer a:hover {
+  color: var(--fg);
+}

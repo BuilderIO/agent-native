@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 import { putUserSetting } from "@agent-native/core/settings";
 import type { ExternalCalendar } from "../shared/api.js";
@@ -15,7 +16,7 @@ export default defineAction({
   ),
   http: { method: "PUT" },
   run: async (args) => {
-    const email = process.env.AGENT_USER_EMAIL || "local@localhost";
+    const email = getRequestUserEmail() || "local@localhost";
     const calendars = args as unknown as ExternalCalendar[];
     await putUserSetting(
       email,

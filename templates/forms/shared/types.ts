@@ -65,6 +65,12 @@ export interface FormSettings {
   redirectUrl?: string;
   showProgressBar?: boolean;
   integrations?: FormIntegration[];
+  /**
+   * Origins permitted to POST submissions cross-origin (e.g. from embedded
+   * feedback popovers). Empty/unset = allow any origin (back-compat).
+   * Each entry is a full origin like "https://app.example.com".
+   */
+  allowedOrigins?: string[];
 }
 
 // ---------------------------------------------------------------------------

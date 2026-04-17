@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import {
   listGmailMessages,
   gmailToEmailMessage,
@@ -72,7 +73,7 @@ export default defineAction({
     const limit = args.limit ?? 25;
     const compact = args.compact !== false;
     const accountFilter = args.account?.toLowerCase();
-    const ownerEmail = process.env.AGENT_USER_EMAIL || "local@localhost";
+    const ownerEmail = getRequestUserEmail() || "local@localhost";
 
     const clients = await getClients(ownerEmail);
     if (clients.length === 0) return "Error: No Google account connected.";

@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 import type { CalendarEvent } from "../shared/api.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
@@ -17,7 +18,7 @@ export default defineAction({
       .describe("Account email to create the event on"),
   }),
   run: async (args) => {
-    const email = process.env.AGENT_USER_EMAIL || "local@localhost";
+    const email = getRequestUserEmail() || "local@localhost";
 
     if (!(await googleCalendar.isConnected(email))) {
       throw new Error(

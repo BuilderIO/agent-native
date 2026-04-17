@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import type { ExternalCalendar } from "../shared/api.js";
@@ -9,9 +10,9 @@ export default defineAction({
     id: z.string().describe("The ID of the external calendar to remove"),
   }),
   run: async (args) => {
-    const email = process.env.AGENT_USER_EMAIL || "local@localhost";
+    const email = getRequestUserEmail() || "local@localhost";
     const existing =
-      ((await getUserSetting(email, "external-calendars")) as
+      ((await getUserSetting(email, "external-calendars")) as unknown as
         | ExternalCalendar[]
         | null) ?? [];
 
