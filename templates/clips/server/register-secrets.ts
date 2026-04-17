@@ -6,6 +6,13 @@ import { registerRequiredSecret } from "@agent-native/core/secrets";
 // Transcription (Whisper) is the one AI operation Clips calls directly —
 // everything else (titles, summaries, chapters, filler-word removal) is
 // delegated to the agent chat. See the `ai-video-tools` skill.
+//
+// This file lives OUTSIDE `server/plugins/` on purpose: Nitro's plugin
+// auto-discovery expects a defineNitroPlugin-shaped default export and
+// silently skips files that don't match. Keeping the registration as a
+// side-effect module that's imported at the top of `server/plugins/agent-chat.ts`
+// matches the mail template's `import "../onboarding.js"` pattern and
+// guarantees the registerRequiredSecret() call runs at boot.
 
 registerRequiredSecret({
   key: "OPENAI_API_KEY",
@@ -36,5 +43,3 @@ registerRequiredSecret({
     }
   },
 });
-
-export default function registerClipsSecrets() {}

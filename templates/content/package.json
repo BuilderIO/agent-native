@@ -45,7 +45,7 @@
     "@tiptap/react": "^3.22.2",
     "@tiptap/starter-kit": "^3.22.2",
     "@tiptap/y-tiptap": "^3.0.2",
-    "drizzle-orm": "^0.44.0",
+    "drizzle-orm": "^0.45.2",
     "h3": "^2.0.1-rc.20",
     "highlight.js": "^11.11.1",
     "isbot": "^5",

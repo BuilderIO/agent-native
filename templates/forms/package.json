@@ -33,7 +33,7 @@
     "@radix-ui/react-toggle-group": "^1.1.11",
     "@tabler/icons-react": "^3.40.0",
     "cmdk": "^1.1.1",
-    "drizzle-orm": "^0.44.2",
+    "drizzle-orm": "^0.45.2",
     "embla-carousel-react": "^8.6.0",
     "h3": "^2.0.1-rc.20",
     "input-otp": "^1.4.2",

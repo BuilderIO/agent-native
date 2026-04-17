@@ -1,10 +1,21 @@
 # Agent-Native
 
-**Agentic applications you own.**
+**Agentic apps that self improve.**
 
-Agent-native is an open source framework for building apps where an AI agent, a full application UI, and a computer work together as one. Fork a template, launch in minutes, and let AI help you customize it to your exact needs.
+Don't choose between structured user flows and autonomous agents. Every Agent-Native app is both.
 
-Other products charge you for rigid software you can't change. Agent-native gives you the code — you own it, you customize it, you evolve it with AI.
+## Agents and UIs — Fully Connected
+
+The agent and the UI are equal citizens of the same system. Every action works both ways — click it or ask for it.
+
+![Agents and UIs fully connected](https://cdn.builder.io/api/v1/file/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fadc1e9e9368e4a8cb1b4dbb5aae5aaa2)
+
+- **Everything syncs** — Agent and UI share one database and one state. Changes from either side show up instantly on the other.
+- **Context-aware** — The agent knows what you're looking at. Select text, hit Cmd+I, and tell it what to do.
+- **Agents call agents** — Tag another agent from any app. They discover each other over A2A and take action across your stack.
+- **Apps that improve themselves** — Your apps get better on their own. The agent can add features, fix bugs, and refine the UI over time.
+- **Any database, any host** — Any SQL database Drizzle supports. Any hosting target Nitro supports. No lock-in.
+- **Any AI agent** — Claude Code, Codex, Gemini CLI, OpenCode, or Builder.io. Use whichever agent you prefer.
 
 ## Templates
 
@@ -88,37 +99,66 @@ Every template is forkable, open source, and designed to be customized. Try them
 ## Quick Start
 
 ```bash
-npx @agent-native/core create my-app
-cd my-app
+npx @agent-native/core create my-platform
+cd my-platform
 pnpm install
 pnpm dev
 ```
 
-The CLI walks you through picking a template interactively. Or **[launch a template](https://agent-native.com/templates)** — no setup required.
+The CLI shows a multi-select picker so you can include as many templates as you want in one workspace. Pick Mail + Calendar + Forms and you get all three apps wired up and sharing auth in one go. Or browse the **[template gallery](https://agent-native.com/templates)** for live demos.
 
-## How It Works
+Want a single app, no monorepo? Use `--standalone`:
 
-Agent-native apps follow these rules:
+```bash
+npx @agent-native/core create my-app --standalone --template mail
+```
 
-- **Data lives in SQL** — All state lives in a SQL database (SQLite locally, cloud DB in production via `DATABASE_URL`). The agent and UI share the same database.
-- **AI through the agent** — No inline LLM calls. The UI delegates to the agent via a chat bridge. One AI, customizable with skills and instructions.
-- **Agent updates code** — The agent can modify the app itself. Your tools get better over time.
-- **Real-time sync** — SSE streams database changes to the UI. Agent writes appear instantly.
-- **Production ready** — Built-in auth, OAuth, cloud databases, and deployment presets. Same code runs locally and in production.
-- **Agent + UI + Computer** — The powerful trio. Everything the UI can do, the agent can do — and vice versa.
+## Workspaces (Monorepo)
 
-## Run Anywhere
+A workspace is the default shape of an agent-native project. Every app sits under `apps/`, and a shared `packages/core-module/` layers auth, agent-chat config, skills, and branding across every app — so cross-cutting concerns get wired up once, not per app.
 
-Every agent-native app includes an embedded agent panel with chat and optional CLI terminal.
+```
+my-platform/
+├── package.json                   # declares `agent-native.workspaceCore`
+├── pnpm-workspace.yaml
+├── .env                           # shared secrets: ANTHROPIC_API_KEY, BUILDER_PRIVATE_KEY, A2A_SECRET, ...
+├── packages/
+│   └── core-module/               # shared auth, agent-chat plugin, skills, tailwind preset
+└── apps/
+    ├── mail/
+    ├── calendar/
+    └── forms/
+```
 
-| | Local | Builder Cloud |
-|---|---|---|
-| **Run** | `pnpm dev` — agent panel embedded in app | One-click launch from templates |
-| **Database** | Local SQLite or cloud DB via `DATABASE_URL` | Managed cloud database |
-| **Auth** | Built-in (ACCESS_TOKEN) or bring your own | Managed auth + roles |
-| **Best for** | Development, self-hosted production, OSS | Teams, managed production |
+Add another app later:
 
-Your app code is identical regardless of environment. Start local, go to cloud when you need teams.
+```bash
+agent-native add-app notes --template content
+```
+
+Deploy every app behind one origin:
+
+```bash
+agent-native deploy
+# https://your-agents.com/mail/*       → mail
+# https://your-agents.com/calendar/*   → calendar
+# https://your-agents.com/forms/*      → forms
+```
+
+Same-origin deploy means a **shared login session** across every app and **zero-config cross-app A2A** — tag `@mail` from the calendar's agent chat and it just works (no JWT signing, no CORS). Full details at **[agent-native.com/docs/enterprise-workspace](https://agent-native.com/docs/enterprise-workspace)**.
+
+## The Best of Both Worlds
+
+|                   | SaaS Tools         | Raw AI Agents           | Internal Tools             | Agent-Native            |
+| ----------------- | ------------------ | ----------------------- | -------------------------- | ----------------------- |
+| **UI**            | Polished but rigid | None                    | Mixed quality              | Full UI, fork & go      |
+| **AI**            | Bolted on          | Powerful                | Shallowly connected        | Agent-first, integrated |
+| **Customization** | Can't              | Instructions and skills | Full, but high maintenance | Agent modifies the app  |
+| **Ownership**     | Rented             | Somewhat yours          | You own the code           | You own the code        |
+
+## Community
+
+Join the **[Discord](https://discord.gg/qm82StQ2NC)** to ask questions, share what you're building, and get help.
 
 ## Docs
 

@@ -1,11 +1,19 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { ChartJSNodeCanvas } from "chartjs-node-canvas";
+import type { ChartJSNodeCanvas as ChartJSNodeCanvasType } from "chartjs-node-canvas";
 import type { ChartConfiguration, ChartType } from "chart.js";
 import { writeFileSync, readFileSync, existsSync, mkdirSync } from "fs";
 import { join } from "path";
 
-const MEDIA_DIR = join(import.meta.dirname, "../media");
+function getMediaDir(): string {
+  const base = import.meta.dirname ?? process.cwd?.();
+  if (!base) {
+    throw new Error(
+      "generate-chart: cannot resolve media directory (no dirname or cwd available in this runtime)",
+    );
+  }
+  return join(base, import.meta.dirname ? "../media" : "media");
+}
 
 const THEMES = {
   dark: {
@@ -37,7 +45,7 @@ const PALETTE = [
 
 function getTheme(): "dark" | "light" {
   try {
-    const themeFile = join(MEDIA_DIR, "theme.json");
+    const themeFile = join(getMediaDir(), "theme.json");
     if (existsSync(themeFile)) {
       const data = JSON.parse(readFileSync(themeFile, "utf8"));
       if (data.theme === "light") return "light";
@@ -234,15 +242,17 @@ export default defineAction({
       ],
     };
 
-    if (!existsSync(MEDIA_DIR)) {
-      mkdirSync(MEDIA_DIR, { recursive: true });
+    const mediaDir = getMediaDir();
+    if (!existsSync(mediaDir)) {
+      mkdirSync(mediaDir, { recursive: true });
     }
 
     const filename =
       (args.filename || `${slugify(title)}-${Date.now()}`) + ".png";
-    const filepath = join(MEDIA_DIR, filename);
+    const filepath = join(mediaDir, filename);
 
-    const canvas = new ChartJSNodeCanvas({
+    const { ChartJSNodeCanvas } = await import("chartjs-node-canvas");
+    const canvas: ChartJSNodeCanvasType = new ChartJSNodeCanvas({
       width,
       height,
       backgroundColour: theme.background,

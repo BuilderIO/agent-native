@@ -67,6 +67,16 @@ function scanActionFiles(actionsDir: string): string[] {
     const name = f.replace(/\.(ts|js)$/, "");
     if (name.startsWith("_")) return false;
     if (SKIP_FILES.has(name)) return false;
+    // Only include files that actually call defineAction. CLI scripts or
+    // example templates that live in actions/ but don't export a defineAction
+    // would otherwise drag their own (often app/, browser-only, or fs-only)
+    // imports into the serverless bundle and fail to resolve.
+    try {
+      const content = fs.readFileSync(path.join(actionsDir, f), "utf-8");
+      if (!content.includes("defineAction")) return false;
+    } catch {
+      return false;
+    }
     return true;
   });
 }

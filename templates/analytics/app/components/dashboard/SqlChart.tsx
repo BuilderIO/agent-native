@@ -661,7 +661,7 @@ function TimeSeriesRenderer({
                 <stop
                   offset="5%"
                   stopColor={colors[i % colors.length]}
-                  stopOpacity={0.3}
+                  stopOpacity={yKeys.length > 1 ? 0.12 : 0.3}
                 />
                 <stop
                   offset="95%"

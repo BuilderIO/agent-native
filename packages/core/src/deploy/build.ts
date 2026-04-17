@@ -401,7 +401,10 @@ async function buildCloudflarePages() {
     "@excalidraw/excalidraw",
     "@excalidraw/mermaid-to-excalidraw",
     "pdf-parse",
+    "pdfjs-dist",
     "@google/genai",
+    "chartjs-node-canvas",
+    "@napi-rs/canvas",
   ].map((p) => `--external:${p}`);
 
   execFileSync(
@@ -936,15 +939,30 @@ export default bundle;
 `;
   };
 
+  // Path aliases used by templates (mirrors tsconfig + Vite config). Nitro
+  // bundles server/ and actions/ with its own Rolldown pipeline that doesn't
+  // see Vite's resolve.alias — so without this, action files that import
+  // `@/foo` (= `app/foo`) end up with the literal `@/foo` specifier in the
+  // serverless function output and crash at runtime with
+  // "Cannot find package '@/foo' imported from /var/task/main.mjs".
+  const appDir = path.join(cwd, "app");
+  const sharedDir = path.join(cwd, "shared");
+  const pathAliases: Record<string, string> = {};
+  if (fs.existsSync(appDir)) pathAliases["@"] = appDir;
+  if (fs.existsSync(sharedDir)) pathAliases["@shared"] = sharedDir;
+
   const nitro = await createNitro({
     rootDir: cwd,
     dev: false,
     preset,
     minify: true,
     serverDir: "./server",
-    alias: fs.existsSync(rrServerBuild)
-      ? { "virtual:react-router/server-build": rrServerBuild }
-      : {},
+    alias: {
+      ...pathAliases,
+      ...(fs.existsSync(rrServerBuild)
+        ? { "virtual:react-router/server-build": rrServerBuild }
+        : {}),
+    },
     virtual: {
       "virtual:agents-bundle": agentsBundleModuleSource,
     },

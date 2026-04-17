@@ -74,10 +74,15 @@ async function actionFetch<T>(
   };
 
   if (method === "GET" && params && Object.keys(params).length > 0) {
-    const qs = new URLSearchParams(
-      Object.entries(params).map(([k, v]) => [k, String(v)]),
+    // Skip null/undefined so optional filters don't turn into literal "null"
+    // strings in the query string (e.g. `?folderId=null`).
+    const entries = Object.entries(params).filter(
+      ([, v]) => v !== null && v !== undefined,
     );
-    url += `?${qs}`;
+    if (entries.length > 0) {
+      const qs = new URLSearchParams(entries.map(([k, v]) => [k, String(v)]));
+      url += `?${qs}`;
+    }
   } else if (method !== "GET" && params) {
     init.body = JSON.stringify(params);
   }
