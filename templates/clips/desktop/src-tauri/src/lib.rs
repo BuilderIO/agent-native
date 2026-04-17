@@ -65,8 +65,12 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
-            // Hide from the Dock on macOS so it feels like a pure menu-bar app.
-            #[cfg(target_os = "macos")]
+            // NOTE: we intentionally do NOT call set_activation_policy(Accessory)
+            // in dev here. In unbundled dev runs, Accessory mode sometimes
+            // prevents the tray icon from registering in the macOS menu bar at
+            // all. Production builds (.app bundle) ship with LSUIElement=1 in
+            // Info.plist, which is the proper way to get pure menu-bar behavior.
+            #[cfg(all(target_os = "macos", not(debug_assertions)))]
             {
                 let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             }
@@ -82,6 +86,10 @@ pub fn run() {
             // the placeholder users replace with their real icon.
             let tray_icon = tauri::image::Image::from_bytes(TRAY_PNG)?;
 
+            eprintln!(
+                "[clips-tray] building tray icon from {} bytes",
+                TRAY_PNG.len()
+            );
             let _tray = TrayIconBuilder::with_id("main")
                 .tooltip("Clips")
                 .menu(&menu)
@@ -106,6 +114,9 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+            eprintln!("[clips-tray] tray built — should be visible in menu bar");
+            // Persist the tray so it isn't dropped at the end of setup.
+            app.manage(_tray);
 
             // Register the global shortcut. On macOS we use Cmd+Shift+L;
             // on Windows/Linux we use Ctrl+Shift+L. Registering both is safe
@@ -134,8 +145,16 @@ pub fn run() {
 
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            // macOS: clicking the Dock icon ("reopen") toggles the popover.
+            // This is the most natural trigger in debug builds where the Dock
+            // icon is visible (production hides it via LSUIElement).
+            if let tauri::RunEvent::Reopen { .. } = event {
+                toggle_popover(app_handle);
+            }
+        });
 }
 
 // Embedded fallback icon — a tiny 16x16 solid purple PNG so the binary always
