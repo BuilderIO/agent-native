@@ -20,7 +20,10 @@ import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
-import { writeAppState } from "@agent-native/core/application-state";
+import {
+  readAppState,
+  writeAppState,
+} from "@agent-native/core/application-state";
 import { resolveCredential } from "@agent-native/core/credentials";
 import { readAppSecret } from "@agent-native/core/secrets";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
@@ -118,28 +121,45 @@ export default defineAction({
       throw new Error(reason);
     }
 
-    // Fetch the video bytes. The URL can be a local /api/uploads/<id>/file
-    // mount or a remote S3/R2 URL — both are fine.
-    let videoUrl = rec.videoUrl;
-    if (videoUrl.startsWith("/")) {
-      // Relative URL — resolve against our own origin. In server context
-      // we may not have window; fall back to localhost:3000 for Nitro dev.
-      const origin =
-        process.env.PUBLIC_URL ??
-        process.env.NITRO_PUBLIC_URL ??
-        "http://localhost:3000";
-      videoUrl = `${origin}${videoUrl}`;
-    }
-
+    // Resolve the video bytes. Two paths:
+    //  1. Dev fallback — finalize-recording stashed the assembled blob in
+    //     application_state under `recording-blob-:id`. Read it directly
+    //     instead of round-tripping through HTTP (avoids the localhost-port
+    //     guess and works under any port / host).
+    //  2. Production — videoUrl is an absolute URL on a real provider
+    //     (Builder.io / R2 / S3). Fetch it normally.
     let videoBlob: Blob;
     try {
-      const vidRes = await fetch(videoUrl);
-      if (!vidRes.ok) {
-        throw new Error(
-          `Failed to fetch videoUrl: HTTP ${vidRes.status} ${vidRes.statusText}`,
+      const isLocalBlob =
+        rec.videoUrl.startsWith("/api/uploads/") &&
+        rec.videoUrl.endsWith("/blob");
+      if (isLocalBlob) {
+        const stash = await readAppState(
+          `recording-blob-${args.recordingId}`,
         );
+        const b64 = typeof stash?.data === "string" ? stash.data : null;
+        if (!b64) throw new Error("recording-blob app-state missing");
+        const bytes = Buffer.from(b64, "base64");
+        const mime =
+          typeof stash?.mimeType === "string" ? stash.mimeType : "video/webm";
+        videoBlob = new Blob([bytes], { type: mime });
+      } else {
+        let videoUrl = rec.videoUrl;
+        if (videoUrl.startsWith("/")) {
+          const origin =
+            process.env.PUBLIC_URL ??
+            process.env.NITRO_PUBLIC_URL ??
+            `http://localhost:${process.env.PORT ?? 3000}`;
+          videoUrl = `${origin}${videoUrl}`;
+        }
+        const vidRes = await fetch(videoUrl);
+        if (!vidRes.ok) {
+          throw new Error(
+            `Failed to fetch videoUrl: HTTP ${vidRes.status} ${vidRes.statusText}`,
+          );
+        }
+        videoBlob = await vidRes.blob();
       }
-      videoBlob = await vidRes.blob();
     } catch (err) {
       const reason = `Failed to fetch video: ${(err as Error).message}`;
       await upsertTranscriptRow(db, {

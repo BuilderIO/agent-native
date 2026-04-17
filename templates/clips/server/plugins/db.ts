@@ -1,4 +1,10 @@
 import { runMigrations } from "@agent-native/core/db";
+// Side-effect import — registers `recording` as a shareable resource with the
+// framework before any HTTP request runs. The framework's auto-mounted
+// share-resource / set-resource-visibility / list-resource-shares actions
+// are loaded in a separate Vite SSR bundle from user actions, so we trigger
+// the registration eagerly from the always-loaded db plugin.
+import "../db/index.js";
 
 // Clips schema migrations — dialect-agnostic SQL. Drizzle schema lives in
 // server/db/schema.ts; this plugin creates the tables on first boot.
