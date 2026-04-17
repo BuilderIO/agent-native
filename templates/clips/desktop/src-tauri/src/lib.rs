@@ -242,6 +242,16 @@ fn position_popover(app: &AppHandle, window: &WebviewWindow) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            // Second launch just focuses the popover of the already-running
+            // instance. Prevents the "two tray icons" UX where clicks fight
+            // over focus and neither popover shows.
+            if let Some(window) = app.get_webview_window("popover") {
+                position_popover(app, &window);
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .invoke_handler(tauri::generate_handler![
             show_countdown,
             show_toolbar,
