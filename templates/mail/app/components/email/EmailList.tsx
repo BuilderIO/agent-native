@@ -860,6 +860,7 @@ export function EmailList({
             }}
             onSwipeArchive={() => handleSwipeArchive(thread)}
             onSwipeSnooze={() => handleSwipeSnooze(thread)}
+            highlight={searchQuery}
           />
         ))}
         {/* Sentinel for infinite scroll + loading indicator */}

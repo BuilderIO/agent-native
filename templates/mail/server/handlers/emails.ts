@@ -362,10 +362,12 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
       };
       let searchQuery: string;
       if (q) {
-        // Search across all mail — include explicit from/to/cc matching
-        // so searching "joe" finds emails from/to someone named Joe,
-        // not just emails with "joe" in the body text
-        searchQuery = `{from:(${q}) to:(${q}) cc:(${q}) ${q}}`;
+        // Gmail's plain search already matches subject, body, sender name,
+        // sender address, recipient, and Cc. A prior `{from:(q) to:(q) cc:(q) q}`
+        // wrapper silently dropped results (e.g. the user's own "SPMB Status
+        // Update 4/17" thread) — Gmail parses the braces in surprising ways
+        // when mixed with field qualifiers and bare terms.
+        searchQuery = q;
       } else {
         searchQuery = gmailQuery[view] ?? `label:${view}`;
       }
