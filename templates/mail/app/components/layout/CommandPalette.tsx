@@ -19,6 +19,7 @@ import {
   IconPhoto,
   IconEye,
   IconAlarm,
+  IconCheck,
 } from "@tabler/icons-react";
 import { CommandMenu } from "@agent-native/core/client";
 import { useTheme } from "next-themes";
@@ -184,7 +185,9 @@ export function CommandPalette({
           <IconPhoto className="h-4 w-4" />
           Images: Show all
           {imagePolicy === "show" && (
-            <CommandMenu.Shortcut>✓</CommandMenu.Shortcut>
+            <CommandMenu.Shortcut>
+              <IconCheck className="h-4 w-4" />
+            </CommandMenu.Shortcut>
           )}
         </CommandMenu.Item>
         <CommandMenu.Item
@@ -196,7 +199,9 @@ export function CommandPalette({
           <IconEye className="h-4 w-4" />
           Images: Block known trackers
           {imagePolicy === "block-trackers" && (
-            <CommandMenu.Shortcut>✓</CommandMenu.Shortcut>
+            <CommandMenu.Shortcut>
+              <IconCheck className="h-4 w-4" />
+            </CommandMenu.Shortcut>
           )}
         </CommandMenu.Item>
         <CommandMenu.Item
@@ -206,7 +211,9 @@ export function CommandPalette({
           <IconPhotoOff className="h-4 w-4" />
           Images: Block all remote images
           {imagePolicy === "block-all" && (
-            <CommandMenu.Shortcut>✓</CommandMenu.Shortcut>
+            <CommandMenu.Shortcut>
+              <IconCheck className="h-4 w-4" />
+            </CommandMenu.Shortcut>
           )}
         </CommandMenu.Item>
       </CommandMenu.Group>

@@ -1,6 +1,5 @@
 import { forwardRef, useEffect, useState, type ReactNode } from "react";
 import {
-  IconShare,
   IconLock,
   IconBuilding,
   IconWorld,
@@ -17,8 +16,8 @@ export interface ShareButtonProps {
   resourceType: string;
   resourceId: string;
   resourceTitle?: string;
-  /** "compact" reflects the current visibility in the trigger label;
-   *  "label" always says "Share". */
+  /** @deprecated No longer affects rendering — trigger always says
+   *  "Share". Kept for callsite compatibility. */
   variant?: "compact" | "label";
 }
 
@@ -102,6 +101,11 @@ export function ShareButton(props: ShareButtonProps) {
     resourceId: props.resourceId,
   });
 
+  // The trigger always says "Share" — the icon reflects the resource's
+  // current visibility (lock / building / globe), matching Google Docs.
+  // While the query is loading and we don't know the visibility yet,
+  // render a skeleton placeholder in the icon slot instead of guessing.
+  const loaded = sharesQuery.data !== undefined;
   const serverVisibility =
     (sharesQuery.data?.visibility as Visibility | null) ?? "private";
   const TriggerIcon =
@@ -109,18 +113,21 @@ export function ShareButton(props: ShareButtonProps) {
       ? IconWorld
       : serverVisibility === "org"
         ? IconBuilding
-        : props.variant === "compact"
-          ? IconLock
-          : IconShare;
-  const triggerLabel =
-    props.variant === "compact" ? VIS_META[serverVisibility].label : "Share";
+        : IconLock;
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
         <button type="button" className={BUTTON_OUTLINE_SM}>
-          <TriggerIcon size={16} strokeWidth={1.75} />
-          <span>{triggerLabel}</span>
+          {loaded ? (
+            <TriggerIcon size={16} strokeWidth={1.75} />
+          ) : (
+            <span
+              aria-hidden
+              className="inline-block h-4 w-4 rounded-sm bg-muted animate-pulse"
+            />
+          )}
+          <span>Share</span>
         </button>
       </Popover.Trigger>
       <Popover.Portal>
@@ -592,7 +599,7 @@ function Avatar({ label, org }: { label: string; org?: boolean }) {
       aria-hidden
       className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-muted-foreground"
     >
-      {org ? "🏢" : initials(label)}
+      {org ? <IconBuilding size={14} strokeWidth={1.75} /> : initials(label)}
     </span>
   );
 }
