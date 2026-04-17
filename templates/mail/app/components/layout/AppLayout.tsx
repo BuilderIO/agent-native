@@ -612,6 +612,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         setSearchQuery("");
         setSearchFocused(false);
         (document.getElementById("mail-search") as HTMLInputElement)?.blur();
+        if (activeSearchQuery) {
+          navigate(`/${view}`);
+        }
       },
     },
   ]);
