@@ -969,7 +969,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 </div>
               )}
 
-              <OrgSwitcher />
               <AgentToggleButton />
             </header>
 
@@ -1088,6 +1087,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                         </Link>
                         <div className="mt-1">
                           <FeedbackButton />
+                        </div>
+                        <div className="mt-2 px-1">
+                          <OrgSwitcher />
                         </div>
                       </div>
                     </div>

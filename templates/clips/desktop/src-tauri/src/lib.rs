@@ -172,7 +172,17 @@ fn mark_popover_shown(app: &AppHandle) {
 
 fn primary_monitor_size(app: &AppHandle) -> Option<(u32, u32)> {
     let window = app.get_webview_window("popover")?;
-    let monitor = window.current_monitor().ok().flatten()?;
+    let monitor = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.primary_monitor().ok().flatten())
+        .or_else(|| {
+            window
+                .available_monitors()
+                .ok()
+                .and_then(|m| m.into_iter().next())
+        })?;
     let size = monitor.size();
     Some((size.width, size.height))
 }
@@ -200,7 +210,21 @@ fn position_popover(app: &AppHandle, window: &WebviewWindow) {
 
     let win_size: PhysicalSize<u32> =
         window.outer_size().unwrap_or(PhysicalSize::new(360, 440));
-    let Ok(Some(monitor)) = window.current_monitor() else {
+    // IMPORTANT: `current_monitor()` returns None when the window is offscreen
+    // (we park it at 99999,99999 on boot to hide the initial flash). Fall back
+    // to the primary monitor so we can still position correctly on first show.
+    let monitor = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.primary_monitor().ok().flatten())
+        .or_else(|| {
+            window
+                .available_monitors()
+                .ok()
+                .and_then(|m| m.into_iter().next())
+        });
+    let Some(monitor) = monitor else {
         return;
     };
     let mon_size = monitor.size();
@@ -325,7 +349,9 @@ pub fn run() {
                 .tooltip("Clips")
                 .menu(&menu)
                 .icon(tray_icon)
-                .icon_as_template(true)
+                // Colored rounded-square brand icon (not a template) —
+                // stays purple in both light and dark menu bars.
+                .icon_as_template(false)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => toggle_popover(app),
