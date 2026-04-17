@@ -147,6 +147,17 @@ export function useVoiceDictation(
       audioContextRef.current.close().catch(() => {});
       audioContextRef.current = null;
     }
+    if (speechRef.current) {
+      // Stop the Web Speech session before dropping the ref so the browser
+      // releases the mic and stops dispatching onresult events into a stale
+      // closure. abort() is fire-and-forget (no final result); stop() would
+      // deliver remaining partials but we've already cleared state.
+      try {
+        speechRef.current.abort?.();
+      } catch {
+        /* ignore */
+      }
+    }
     analyserRef.current = null;
     mediaRecorderRef.current = null;
     chunksRef.current = [];
@@ -211,6 +222,14 @@ export function useVoiceDictation(
 
   const startOpenAi = useCallback(async () => {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    // User may have pressed Escape (cancel) while the permission prompt was
+    // open. If so, stop the stream and bail before we start recording.
+    if (cancelledRef.current) {
+      for (const track of stream.getTracks()) track.stop();
+      cancelledRef.current = false;
+      setState("idle");
+      return;
+    }
     mediaStreamRef.current = stream;
     const mimeType = pickMimeType();
     const recorder = new MediaRecorder(stream, { mimeType });
@@ -287,6 +306,14 @@ export function useVoiceDictation(
       startMeter(stream);
     } catch {
       /* non-fatal — recognition can still work without our analyser */
+    }
+
+    if (cancelledRef.current) {
+      if (stream) for (const track of stream.getTracks()) track.stop();
+      mediaStreamRef.current = null;
+      cancelledRef.current = false;
+      setState("idle");
+      return;
     }
 
     const recognition = new Ctor();

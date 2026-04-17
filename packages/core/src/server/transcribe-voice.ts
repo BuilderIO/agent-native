@@ -20,6 +20,7 @@
 import {
   defineEventHandler,
   getMethod,
+  getRequestHeader,
   readMultipartFormData,
   setResponseStatus,
   type H3Event,
@@ -31,11 +32,39 @@ import { getSession } from "./auth.js";
 const WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions";
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // Whisper hard limit.
 
+/**
+ * Reject cross-site POSTs. Cookies are `SameSite=None; Secure` over HTTPS so
+ * the browser would otherwise attach the session to a forged form submission
+ * from evil.com, causing us to spend OpenAI credits on the user's behalf.
+ * Same-origin browsers always send `Origin` on POST; if it's missing we fall
+ * back to `Sec-Fetch-Site` so Safari's fetch-spec behavior still works.
+ */
+function isSameOriginRequest(event: H3Event): boolean {
+  const host = getRequestHeader(event, "host");
+  const origin = getRequestHeader(event, "origin");
+  if (origin && host) {
+    try {
+      return new URL(origin).host === host;
+    } catch {
+      return false;
+    }
+  }
+  const fetchSite = getRequestHeader(event, "sec-fetch-site");
+  if (fetchSite) return fetchSite === "same-origin" || fetchSite === "none";
+  // No Origin and no Sec-Fetch-Site: likely a non-browser client (curl,
+  // server-side) — safe to allow, CSRF requires a browser with ambient cookies.
+  return true;
+}
+
 export function createTranscribeVoiceHandler() {
   return defineEventHandler(async (event: H3Event) => {
     if (getMethod(event) !== "POST") {
       setResponseStatus(event, 405);
       return { error: "Method not allowed" };
+    }
+    if (!isSameOriginRequest(event)) {
+      setResponseStatus(event, 403);
+      return { error: "Cross-origin request rejected" };
     }
 
     const parts = await readMultipartFormData(event).catch(() => null);
