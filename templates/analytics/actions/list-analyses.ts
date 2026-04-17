@@ -3,9 +3,7 @@ import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server";
-import { getAllSettings, listOrgSettings } from "@agent-native/core/settings";
-
-const KEY_PREFIX = "adhoc-analysis-";
+import { listAnalyses } from "../server/lib/dashboards-store";
 
 export default defineAction({
   description:
@@ -15,49 +13,22 @@ export default defineAction({
   run: async () => {
     const orgId = getRequestOrgId() || null;
     const email = getRequestUserEmail() || "local@localhost";
-
-    const analyses: Record<string, unknown>[] = [];
-    const seen = new Set<string>();
-
-    const collect = (raw: unknown) => {
-      const a = raw as Record<string, unknown> | null;
-      if (!a || typeof a !== "object") return;
-      const id = a.id as string | undefined;
-      if (!id || seen.has(id)) return;
-      seen.add(id);
-      analyses.push({
-        id,
+    const rows = await listAnalyses({ email, orgId });
+    return rows
+      .map((a) => ({
+        id: a.id,
         name: a.name,
         description: a.description,
         dataSources: a.dataSources,
         createdAt: a.createdAt,
         updatedAt: a.updatedAt,
         author: a.author,
-      });
-    };
-
-    // Org-scoped first (wins on id conflicts since it's collected first).
-    if (orgId) {
-      const orgAnalyses = await listOrgSettings(orgId, KEY_PREFIX);
-      for (const value of Object.values(orgAnalyses)) collect(value);
-    }
-
-    // User-scoped (namespaced by `u:<email>:` prefix). No public
-    // `listUserSettings` helper exists, so iterate the table once and
-    // filter by the exact user prefix — NOT a substring match (that was
-    // the vulnerability: it leaked every user's analyses to everyone).
-    const userPrefix = `u:${email}:${KEY_PREFIX}`;
-    const all = await getAllSettings();
-    for (const [fullKey, value] of Object.entries(all)) {
-      if (!fullKey.startsWith(userPrefix)) continue;
-      collect(value);
-    }
-
-    analyses.sort(
-      (a: any, b: any) =>
-        new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-    );
-
-    return analyses;
+        ownerEmail: a.ownerEmail,
+        visibility: a.visibility,
+      }))
+      .sort(
+        (a, b) =>
+          new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+      );
   },
 });

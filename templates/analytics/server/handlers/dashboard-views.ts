@@ -1,12 +1,16 @@
 import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
 import { readBody } from "@agent-native/core/server";
+import { getOrgContext } from "@agent-native/core/org";
 import {
-  getScopedSettingRecord,
-  putScopedSettingRecord,
-  resolveSettingsScope,
-} from "../lib/scoped-settings";
+  listDashboardViews as loadViews,
+  saveDashboardView as storeView,
+  deleteDashboardView as removeView,
+} from "../lib/dashboards-store";
 
-const KEY_PREFIX = "dashboard-views-";
+async function ctxFromEvent(event: any) {
+  const ctx = await getOrgContext(event);
+  return { email: ctx.email, orgId: ctx.orgId ?? null };
+}
 
 export interface DashboardView {
   id: string;
@@ -17,41 +21,21 @@ export interface DashboardView {
   createdAt?: string;
 }
 
-interface ViewsData {
-  views: DashboardView[];
-}
-
-async function getViewsData(
-  scope: { email: string; orgId: string | null },
-  dashboardId: string,
-): Promise<ViewsData> {
-  const key = `${KEY_PREFIX}${dashboardId}`;
-  const data = await getScopedSettingRecord(scope, key);
-  return (data as unknown as ViewsData) ?? { views: [] };
-}
-
-async function putViewsData(
-  scope: { email: string; orgId: string | null },
-  dashboardId: string,
-  data: ViewsData,
-): Promise<void> {
-  const key = `${KEY_PREFIX}${dashboardId}`;
-  await putScopedSettingRecord(
-    scope,
-    key,
-    data as unknown as Record<string, unknown>,
-  );
-}
-
 export const listDashboardViews = defineEventHandler(async (event) => {
   const dashboardId = getRouterParam(event, "dashboardId");
   if (!dashboardId) {
     setResponseStatus(event, 400);
     return { error: "Missing dashboardId" };
   }
-  const scope = await resolveSettingsScope(event);
-  const data = await getViewsData(scope, dashboardId);
-  return { views: data.views };
+  try {
+    const ctx = await ctxFromEvent(event);
+    const views = await loadViews(dashboardId, ctx);
+    return { views };
+  } catch (err: any) {
+    const status = err?.statusCode ?? 500;
+    setResponseStatus(event, status);
+    return { error: err.message };
+  }
 });
 
 export const saveDashboardView = defineEventHandler(async (event) => {
@@ -60,33 +44,25 @@ export const saveDashboardView = defineEventHandler(async (event) => {
     setResponseStatus(event, 400);
     return { error: "Missing dashboardId" };
   }
-  const scope = await resolveSettingsScope(event);
-  const body = await readBody(event);
-  const { id, name, filters } = body as DashboardView;
-  if (!id || !name) {
-    setResponseStatus(event, 400);
-    return { error: "Missing id or name" };
+  try {
+    const ctx = await ctxFromEvent(event);
+    const body = await readBody(event);
+    const { id, name, filters } = body as DashboardView;
+    if (!name) {
+      setResponseStatus(event, 400);
+      return { error: "Missing name" };
+    }
+    const view = await storeView(
+      dashboardId,
+      { id, name, filters: filters ?? {} },
+      ctx,
+    );
+    return { success: true, view };
+  } catch (err: any) {
+    const status = err?.statusCode ?? 500;
+    setResponseStatus(event, status);
+    return { error: err.message };
   }
-
-  const data = await getViewsData(scope, dashboardId);
-  const existing = data.views.findIndex((v) => v.id === id);
-  const view: DashboardView = {
-    id,
-    name,
-    filters: filters ?? {},
-    createdBy: scope.email,
-    createdAt:
-      existing >= 0 ? data.views[existing].createdAt : new Date().toISOString(),
-  };
-
-  if (existing >= 0) {
-    data.views[existing] = view;
-  } else {
-    data.views.push(view);
-  }
-
-  await putViewsData(scope, dashboardId, data);
-  return { success: true, view };
 });
 
 export const deleteDashboardView = defineEventHandler(async (event) => {
@@ -96,9 +72,13 @@ export const deleteDashboardView = defineEventHandler(async (event) => {
     setResponseStatus(event, 400);
     return { error: "Missing dashboardId or viewId" };
   }
-  const scope = await resolveSettingsScope(event);
-  const data = await getViewsData(scope, dashboardId);
-  data.views = data.views.filter((v) => v.id !== viewId);
-  await putViewsData(scope, dashboardId, data);
-  return { success: true };
+  try {
+    const ctx = await ctxFromEvent(event);
+    await removeView(dashboardId, viewId, ctx);
+    return { success: true };
+  } catch (err: any) {
+    const status = err?.statusCode ?? 500;
+    setResponseStatus(event, status);
+    return { error: err.message };
+  }
 });

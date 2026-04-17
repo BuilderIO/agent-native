@@ -4,14 +4,7 @@ import {
   getRequestOrgId,
 } from "@agent-native/core/server";
 import { z } from "zod";
-import {
-  getOrgSetting,
-  getSetting,
-  getUserSetting,
-  putOrgSetting,
-  putSetting,
-  putUserSetting,
-} from "@agent-native/core/settings";
+import { getDashboard, upsertDashboard } from "../server/lib/dashboards-store";
 import { dryRunQuery } from "../server/lib/bigquery";
 import { interpolate } from "../app/pages/adhoc/sql-dashboard/interpolate";
 
@@ -44,7 +37,6 @@ function buildDryRunVars(
   return vars;
 }
 
-const KEY_PREFIX = "sql-dashboard-";
 const LOCAL_EMAIL = "local@localhost";
 
 type JsonOp = {
@@ -263,42 +255,9 @@ function resolveScope() {
   return { orgId, email };
 }
 
-async function readScoped(
-  scope: { orgId: string | null; email: string },
-  key: string,
-): Promise<{
-  value: Record<string, unknown>;
-  scope: "org" | "user" | "global";
-} | null> {
-  if (scope.orgId) {
-    const v = await getOrgSetting(scope.orgId, key);
-    if (v) return { value: v, scope: "org" };
-  }
-  if (scope.email && scope.email !== LOCAL_EMAIL) {
-    const v = await getUserSetting(scope.email, key);
-    if (v) return { value: v, scope: "user" };
-  }
-  const v = await getSetting(key);
-  return v ? { value: v, scope: "global" } : null;
-}
-
-async function writeScoped(
-  scope: { orgId: string | null; email: string },
-  key: string,
-  value: Record<string, unknown>,
-  resolvedScope: "org" | "user" | "global",
-): Promise<void> {
-  // Write back to the SAME scope we read from so we don't create drift.
-  if (resolvedScope === "org" && scope.orgId) {
-    await putOrgSetting(scope.orgId, key, value);
-    return;
-  }
-  if (resolvedScope === "user" && scope.email && scope.email !== LOCAL_EMAIL) {
-    await putUserSetting(scope.email, key, value);
-    return;
-  }
-  await putSetting(key, value);
-}
+// Reads + writes now go through the SQL-backed dashboards store, which
+// lazy-migrates legacy settings keys on first access. See
+// `server/lib/dashboards-store.ts`.
 
 export default defineAction({
   description:
@@ -354,25 +313,23 @@ export default defineAction({
     }
 
     const scope = resolveScope();
-    const key = `${KEY_PREFIX}${args.dashboardId}`;
+    const ctx = { email: scope.email, orgId: scope.orgId };
 
     if (args.config) {
       const validation = validateDashboardConfig(args.config);
       if (validation) return `Error: ${validation}`;
       const sqlError = await validatePanelSql(args.config);
       if (sqlError) return `Error: ${sqlError}`;
-      const existing = await readScoped(scope, key);
-      const resolvedScope = existing?.scope ?? (scope.orgId ? "org" : "user");
-      await writeScoped(scope, key, args.config, resolvedScope as any);
-      return `Dashboard "${args.dashboardId}" replaced (scope: ${resolvedScope}).`;
+      await upsertDashboard(args.dashboardId, "sql", args.config, ctx);
+      return `Dashboard "${args.dashboardId}" replaced.`;
     }
 
-    const existing = await readScoped(scope, key);
+    const existing = await getDashboard(args.dashboardId, ctx);
     if (!existing) {
-      return `Error: dashboard "${args.dashboardId}" not found in org, user, or global scope.`;
+      return `Error: dashboard "${args.dashboardId}" not found (or you don't have access).`;
     }
 
-    const root = existing.value as any;
+    const root = existing.config as any;
     const details: string[] = [];
     for (const op of args.ops!) {
       try {
@@ -385,10 +342,15 @@ export default defineAction({
     const sqlError = await validatePanelSql(root);
     if (sqlError) return `Error: ${sqlError}`;
 
-    await writeScoped(scope, key, root, existing.scope);
+    await upsertDashboard(
+      args.dashboardId,
+      existing.kind,
+      root as Record<string, unknown>,
+      ctx,
+    );
 
     return (
-      `Dashboard "${args.dashboardId}" updated (scope: ${existing.scope}). ` +
+      `Dashboard "${args.dashboardId}" updated. ` +
       `Applied ${details.length} op(s): ${details.join("; ")}. ` +
       `Call refresh-screen to update the UI.`
     );
