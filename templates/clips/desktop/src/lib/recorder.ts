@@ -68,11 +68,11 @@ async function createRecording(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       // Tauri webview runs on localhost:1420 (dev) or tauri://localhost (prod);
-    // the clips server is a different origin. The framework's dev CORS is
-    // permissive for "*" but won't accept credentialed requests without
-    // Allow-Credentials — and in dev auth is bypassed anyway, so we don't
-    // need cookies.
-    credentials: "omit",
+      // the clips server is a different origin. The framework's dev CORS is
+      // permissive for "*" but won't accept credentialed requests without
+      // Allow-Credentials — and in dev auth is bypassed anyway, so we don't
+      // need cookies.
+      credentials: "omit",
       body: JSON.stringify({ hasCamera, hasAudio }),
     },
   );
@@ -327,11 +327,11 @@ export async function startNativeRecording(
         method: "POST",
         headers: { "Content-Type": "application/octet-stream" },
         // Tauri webview runs on localhost:1420 (dev) or tauri://localhost (prod);
-    // the clips server is a different origin. The framework's dev CORS is
-    // permissive for "*" but won't accept credentialed requests without
-    // Allow-Credentials — and in dev auth is bypassed anyway, so we don't
-    // need cookies.
-    credentials: "omit",
+        // the clips server is a different origin. The framework's dev CORS is
+        // permissive for "*" but won't accept credentialed requests without
+        // Allow-Credentials — and in dev auth is bypassed anyway, so we don't
+        // need cookies.
+        credentials: "omit",
         body: new Blob([], { type: mimeType || "video/webm" }),
       });
       if (!finalRes.ok) {
