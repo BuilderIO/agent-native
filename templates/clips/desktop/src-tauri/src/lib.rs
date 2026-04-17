@@ -86,7 +86,7 @@ pub fn run() {
                 .tooltip("Clips")
                 .menu(&menu)
                 .icon(tray_icon)
-                .icon_as_template(true)
+                .icon_as_template(false)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => toggle_popover(app),
