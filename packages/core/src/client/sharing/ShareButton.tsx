@@ -9,6 +9,7 @@ import {
 } from "@tabler/icons-react";
 import * as Popover from "@radix-ui/react-popover";
 import { useActionQuery, useActionMutation } from "../use-action.js";
+import { cn } from "../utils.js";
 
 export interface ShareButtonProps {
   resourceType: string;
@@ -37,6 +38,31 @@ interface SharesResponse {
   shares: Share[];
 }
 
+// Match the exact Tailwind classes emitted by shadcn's `<Button size="sm"
+// variant="outline">`. Templates vendor their own Button component, but
+// every template uses the same shadcn theme + preset, so the same class
+// string renders identically. Keeping them as literal strings here means
+// this component looks native in every template without importing from
+// the template itself (which wouldn't be possible from core).
+const BUTTON_BASE =
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0";
+const BUTTON_OUTLINE_SM = cn(
+  BUTTON_BASE,
+  "h-9 px-3 border border-input bg-background hover:bg-accent hover:text-accent-foreground",
+);
+const BUTTON_PRIMARY_SM = cn(
+  BUTTON_BASE,
+  "h-9 px-4 bg-primary text-primary-foreground hover:bg-primary/90",
+);
+const BUTTON_GHOST_ICON = cn(
+  BUTTON_BASE,
+  "h-7 w-7 p-0 text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+);
+const BUTTON_GHOST_INLINE = cn(
+  BUTTON_BASE,
+  "h-7 px-2 text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+);
+
 const VIS_META: Record<
   Visibility,
   { label: string; description: string; Icon: typeof IconLock }
@@ -60,10 +86,9 @@ const VIS_META: Record<
 
 /**
  * Framework share control. Renders a shadcn-outline-styled trigger that
- * opens a Google-Docs-style popover: a people-input at the top, a
- * "People with access" list, and a "General access" row with a single
- * visibility dropdown. All colors use CSS variables so dark mode works
- * out of the box in any shadcn template.
+ * opens a Google-Docs-style popover anchored beneath it. Uses CSS
+ * variables and Tailwind classes that every shadcn template already
+ * ships, so the same component renders natively in light and dark mode.
  */
 export function ShareButton(props: ShareButtonProps) {
   const [open, setOpen] = useState(false);
@@ -88,7 +113,7 @@ export function ShareButton(props: ShareButtonProps) {
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
-        <button type="button" style={triggerStyle}>
+        <button type="button" className={BUTTON_OUTLINE_SM}>
           <TriggerIcon size={16} strokeWidth={1.75} />
           <span>{triggerLabel}</span>
         </button>
@@ -97,7 +122,7 @@ export function ShareButton(props: ShareButtonProps) {
         <Popover.Content
           align="end"
           sideOffset={6}
-          style={panelStyle}
+          className="z-[2000] w-[min(460px,92vw)] rounded-lg border border-border bg-popover p-4 text-popover-foreground shadow-lg outline-none"
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
           <SharePanel
@@ -160,7 +185,7 @@ function SharePanel(
   const orgMembers = useOrgMembers();
   const datalistId = `share-autocomplete-${resourceType}-${resourceId}`;
 
-  // Optimistic overlays on top of server state so clicks feel instant.
+  // Optimistic overlays so clicks feel instant.
   const [visibilityOverride, setVisibilityOverride] =
     useState<Visibility | null>(null);
   const [pendingAdds, setPendingAdds] = useState<Share[]>([]);
@@ -261,14 +286,18 @@ function SharePanel(
     );
   };
 
+  const titleText = resourceTitle
+    ? `Share "${resourceTitle}"`
+    : `Share ${resourceType}`;
+
   return (
-    <div style={panelInner}>
-      <div style={titleStyle}>
-        Share {resourceTitle ? `"${resourceTitle}"` : resourceType}
+    <div>
+      <div className="mb-3 truncate text-base font-semibold" title={titleText}>
+        {titleText}
       </div>
 
       {canManage ? (
-        <div style={inviteRow}>
+        <div className="mb-4 flex items-stretch gap-2">
           <input
             type="email"
             placeholder="Add people by email"
@@ -279,7 +308,7 @@ function SharePanel(
             }}
             list={orgMembers.length > 0 ? datalistId : undefined}
             autoComplete="off"
-            style={inputStyle}
+            className="flex-1 min-w-0 h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
           />
           {orgMembers.length > 0 ? (
             <datalist id={datalistId}>
@@ -301,50 +330,41 @@ function SharePanel(
                 ))}
             </datalist>
           ) : null}
-          <div style={selectWrap}>
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value as Role)}
-              style={selectStyle}
-              aria-label="Role"
-            >
-              <option value="viewer">Viewer</option>
-              <option value="editor">Editor</option>
-              <option value="admin">Admin</option>
-            </select>
-            <IconChevronDown size={14} style={selectChevron} />
-          </div>
+          <ChevronSelect
+            value={role}
+            onChange={(v) => setRole(v as Role)}
+            options={[
+              { value: "viewer", label: "Viewer" },
+              { value: "editor", label: "Editor" },
+              { value: "admin", label: "Admin" },
+            ]}
+          />
         </div>
       ) : null}
 
-      <div style={sectionLabel}>People with access</div>
-      <ul style={listStyle}>
+      <div className="mb-2 text-sm font-semibold">People with access</div>
+      <ul className="mb-4 flex flex-col gap-1 list-none p-0 m-0">
         {data?.ownerEmail ? (
-          <li style={rowStyle}>
-            <span style={avatarStyle} aria-hidden>
-              {initials(data.ownerEmail)}
-            </span>
-            <span style={{ ...principalStyle, flex: 1, minWidth: 0 }}>
-              {data.ownerEmail}
-            </span>
-            <span style={roleStyle}>Owner</span>
+          <li className="flex items-center gap-3 px-1 py-1.5 text-sm">
+            <Avatar label={data.ownerEmail} />
+            <span className="flex-1 min-w-0 truncate">{data.ownerEmail}</span>
+            <span className="text-xs text-muted-foreground">Owner</span>
           </li>
         ) : null}
         {shares.map((s) => (
-          <li key={keyOf(s)} style={rowStyle}>
-            <span style={avatarStyle} aria-hidden>
-              {s.principalType === "org" ? "🏢" : initials(s.principalId)}
-            </span>
-            <span style={{ ...principalStyle, flex: 1, minWidth: 0 }}>
-              {s.principalId}
-            </span>
-            <span style={roleStyle}>{cap(s.role)}</span>
+          <li
+            key={keyOf(s)}
+            className="flex items-center gap-3 px-1 py-1.5 text-sm"
+          >
+            <Avatar label={s.principalId} org={s.principalType === "org"} />
+            <span className="flex-1 min-w-0 truncate">{s.principalId}</span>
+            <span className="text-xs text-muted-foreground">{cap(s.role)}</span>
             {canManage ? (
               <button
                 type="button"
                 aria-label="Remove"
                 onClick={() => handleRemove(s)}
-                style={iconBtnStyle}
+                className={BUTTON_GHOST_ICON}
               >
                 <IconTrash size={14} />
               </button>
@@ -352,41 +372,89 @@ function SharePanel(
           </li>
         ))}
         {!shares.length && !data?.ownerEmail ? (
-          <li style={{ ...rowStyle, color: "hsl(var(--muted-foreground))" }}>
+          <li className="px-1 py-1.5 text-sm text-muted-foreground">
             No one has access yet.
           </li>
         ) : null}
       </ul>
 
-      <div style={sectionLabel}>General access</div>
-      <div style={generalRow}>
-        <span style={generalIcon} aria-hidden>
+      <div className="mb-2 text-sm font-semibold">General access</div>
+      <div className="mb-4 flex items-center gap-3">
+        <span
+          aria-hidden
+          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
+        >
           <meta.Icon size={16} strokeWidth={1.75} />
         </span>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={selectWrap}>
-            <select
-              value={visibility}
-              disabled={!canManage}
-              onChange={(e) => handleVisibility(e.target.value as Visibility)}
-              style={generalSelectStyle}
-              aria-label="General access"
-            >
-              <option value="private">{VIS_META.private.label}</option>
-              <option value="org">{VIS_META.org.label}</option>
-              <option value="public">{VIS_META.public.label}</option>
-            </select>
-            <IconChevronDown size={14} style={selectChevron} />
+        <div className="min-w-0 flex-1">
+          <ChevronSelect
+            value={visibility}
+            onChange={(v) => handleVisibility(v as Visibility)}
+            disabled={!canManage}
+            plain
+            options={[
+              { value: "private", label: VIS_META.private.label },
+              { value: "org", label: VIS_META.org.label },
+              { value: "public", label: VIS_META.public.label },
+            ]}
+          />
+          <div className="mt-0.5 text-xs text-muted-foreground">
+            {meta.description}
           </div>
-          <div style={generalHint}>{meta.description}</div>
         </div>
       </div>
 
-      <div style={footerRow}>
-        <button type="button" onClick={onClose} style={doneBtnStyle}>
+      <div className="mt-2 flex justify-end">
+        <button type="button" onClick={onClose} className={BUTTON_PRIMARY_SM}>
           Done
         </button>
       </div>
+    </div>
+  );
+}
+
+function Avatar({ label, org }: { label: string; org?: boolean }) {
+  return (
+    <span
+      aria-hidden
+      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-muted-foreground"
+    >
+      {org ? "🏢" : initials(label)}
+    </span>
+  );
+}
+
+function ChevronSelect(props: {
+  value: string;
+  onChange: (v: string) => void;
+  options: Array<{ value: string; label: string }>;
+  disabled?: boolean;
+  /** When true, render as inline text (no border/background) — matches
+   *  Google Docs' "General access" presentation. */
+  plain?: boolean;
+}) {
+  return (
+    <div className="relative inline-flex items-center">
+      <select
+        value={props.value}
+        onChange={(e) => props.onChange(e.target.value)}
+        disabled={props.disabled}
+        className={
+          props.plain
+            ? "appearance-none bg-transparent border-0 pr-6 pl-0 text-sm font-medium text-foreground cursor-pointer focus:outline-none disabled:opacity-60"
+            : "appearance-none h-9 rounded-md border border-input bg-background pl-3 pr-7 text-sm text-foreground cursor-pointer focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
+        }
+      >
+        {props.options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      <IconChevronDown
+        size={14}
+        className="pointer-events-none absolute right-1.5 text-muted-foreground"
+      />
     </div>
   );
 }
@@ -401,222 +469,3 @@ function initials(s: string): string {
   const name = s.split("@")[0] ?? s;
   return (name[0] ?? "?").toUpperCase();
 }
-
-// ---------------------------------------------------------------------------
-// Theme-aware styles — use shadcn CSS variables so the same component
-// renders correctly in light and dark mode without extra plumbing.
-// ---------------------------------------------------------------------------
-
-const triggerStyle: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: 8,
-  height: 36,
-  padding: "0 12px",
-  borderRadius: 6,
-  border: "1px solid hsl(var(--border))",
-  background: "hsl(var(--background))",
-  color: "hsl(var(--foreground))",
-  fontSize: 14,
-  fontWeight: 500,
-  cursor: "pointer",
-  font: "inherit",
-  lineHeight: 1,
-  whiteSpace: "nowrap",
-};
-
-const panelStyle: React.CSSProperties = {
-  width: "min(460px, 92vw)",
-  background: "hsl(var(--popover, var(--background)))",
-  color: "hsl(var(--popover-foreground, var(--foreground)))",
-  border: "1px solid hsl(var(--border))",
-  borderRadius: 10,
-  boxShadow: "0 10px 30px rgba(0,0,0,0.25)",
-  zIndex: 2000,
-};
-
-const panelInner: React.CSSProperties = {
-  padding: 16,
-  fontFamily: "inherit",
-};
-
-const titleStyle: React.CSSProperties = {
-  fontSize: 16,
-  fontWeight: 600,
-  marginBottom: 12,
-  paddingRight: 24,
-};
-
-const inviteRow: React.CSSProperties = {
-  display: "flex",
-  gap: 8,
-  alignItems: "center",
-  marginBottom: 16,
-};
-
-const inputStyle: React.CSSProperties = {
-  flex: 1,
-  minWidth: 0,
-  height: 36,
-  padding: "0 12px",
-  border: "1px solid hsl(var(--border))",
-  borderRadius: 6,
-  fontSize: 14,
-  background: "hsl(var(--background))",
-  color: "hsl(var(--foreground))",
-  outline: "none",
-};
-
-const selectWrap: React.CSSProperties = {
-  position: "relative",
-  display: "inline-block",
-};
-
-const selectStyle: React.CSSProperties = {
-  appearance: "none" as any,
-  WebkitAppearance: "none" as any,
-  MozAppearance: "none" as any,
-  height: 36,
-  padding: "0 28px 0 12px",
-  border: "1px solid hsl(var(--border))",
-  borderRadius: 6,
-  fontSize: 14,
-  background: "hsl(var(--background))",
-  color: "hsl(var(--foreground))",
-  cursor: "pointer",
-  font: "inherit",
-  lineHeight: 1,
-};
-
-const selectChevron: React.CSSProperties = {
-  position: "absolute",
-  right: 8,
-  top: "50%",
-  transform: "translateY(-50%)",
-  pointerEvents: "none",
-  color: "hsl(var(--muted-foreground))",
-};
-
-const sectionLabel: React.CSSProperties = {
-  fontSize: 13,
-  fontWeight: 600,
-  marginBottom: 8,
-  marginTop: 4,
-};
-
-const listStyle: React.CSSProperties = {
-  listStyle: "none",
-  margin: 0,
-  padding: 0,
-  display: "flex",
-  flexDirection: "column",
-  gap: 2,
-  marginBottom: 16,
-};
-
-const rowStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 10,
-  padding: "6px 4px",
-  fontSize: 13,
-};
-
-const avatarStyle: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  height: 28,
-  width: 28,
-  borderRadius: "50%",
-  background: "hsl(var(--muted))",
-  color: "hsl(var(--muted-foreground))",
-  fontSize: 11,
-  fontWeight: 600,
-  flexShrink: 0,
-};
-
-const principalStyle: React.CSSProperties = {
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  whiteSpace: "nowrap",
-};
-
-const roleStyle: React.CSSProperties = {
-  fontSize: 12,
-  color: "hsl(var(--muted-foreground))",
-};
-
-const generalRow: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 10,
-  padding: "4px 0",
-  marginBottom: 16,
-};
-
-const generalIcon: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  height: 36,
-  width: 36,
-  borderRadius: "50%",
-  background: "hsl(var(--muted))",
-  color: "hsl(var(--muted-foreground))",
-  flexShrink: 0,
-};
-
-const generalSelectStyle: React.CSSProperties = {
-  ...selectStyle,
-  // The general-access select is inline with its description below it;
-  // hide the border so it reads as plain text with a chevron, matching
-  // Google Docs' "Builder.io ▾" presentation.
-  border: "none",
-  padding: "0 24px 0 0",
-  background: "transparent",
-  height: 22,
-  fontSize: 14,
-  fontWeight: 600,
-};
-
-const generalHint: React.CSSProperties = {
-  fontSize: 12,
-  color: "hsl(var(--muted-foreground))",
-  marginTop: 2,
-};
-
-const footerRow: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "flex-end",
-  marginTop: 8,
-};
-
-const doneBtnStyle: React.CSSProperties = {
-  height: 36,
-  padding: "0 20px",
-  borderRadius: 999,
-  border: "none",
-  background: "hsl(var(--primary, var(--foreground)))",
-  color: "hsl(var(--primary-foreground, var(--background)))",
-  fontSize: 14,
-  fontWeight: 500,
-  cursor: "pointer",
-  font: "inherit",
-  lineHeight: 1,
-};
-
-const iconBtnStyle: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  height: 24,
-  width: 24,
-  padding: 0,
-  border: "none",
-  background: "transparent",
-  color: "hsl(var(--muted-foreground))",
-  cursor: "pointer",
-  borderRadius: 4,
-};
