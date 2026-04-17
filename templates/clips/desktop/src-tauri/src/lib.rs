@@ -8,7 +8,8 @@ use std::sync::Mutex;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager, PhysicalPosition, PhysicalSize, Rect, WebviewWindow,
+    AppHandle, Manager, PhysicalPosition, PhysicalSize, Rect, WebviewUrl,
+    WebviewWindow, WebviewWindowBuilder,
 };
 
 /// Last-known tray icon rect, updated on every tray event. Used to anchor the
@@ -17,6 +18,148 @@ use tauri::{
 #[derive(Default)]
 struct TrayAnchor(Mutex<Option<Rect>>);
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+
+/// Native overlay windows for the recording experience. These render the same
+/// React bundle with a hash route that `main.tsx` uses to pick the component.
+const COUNTDOWN_LABEL: &str = "countdown";
+const TOOLBAR_LABEL: &str = "toolbar";
+const BUBBLE_LABEL: &str = "bubble";
+
+fn build_overlay_url(path: &str) -> WebviewUrl {
+    // tauri dev serves the Vite dev server; prod builds resolve relative to
+    // the bundled index.html. WebviewUrl::App handles both transparently —
+    // we pass an index + hash route.
+    WebviewUrl::App(format!("index.html#{path}").into())
+}
+
+/// Full-screen transparent overlay that runs the 3-2-1 countdown. It ignores
+/// cursor events so the user can still click into whatever they're about to
+/// record, and closes itself when the countdown finishes.
+#[tauri::command]
+async fn show_countdown(app: AppHandle) -> Result<(), String> {
+    if let Some(existing) = app.get_webview_window(COUNTDOWN_LABEL) {
+        let _ = existing.close();
+    }
+    let monitor = primary_monitor_size(&app).unwrap_or((1440, 900));
+    let win = WebviewWindowBuilder::new(
+        &app,
+        COUNTDOWN_LABEL,
+        build_overlay_url("countdown"),
+    )
+    .title("Countdown")
+    .inner_size(monitor.0 as f64, monitor.1 as f64)
+    .position(0.0, 0.0)
+    .decorations(false)
+    .transparent(true)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .shadow(false)
+    .visible(false)
+    .build()
+    .map_err(|e| e.to_string())?;
+    let _ = win.set_ignore_cursor_events(true);
+    let _ = win.show();
+    Ok(())
+}
+
+/// Floating pill with play/pause/stop + live timer. Draggable, always on top.
+#[tauri::command]
+async fn show_toolbar(app: AppHandle) -> Result<(), String> {
+    if let Some(existing) = app.get_webview_window(TOOLBAR_LABEL) {
+        let _ = existing.show();
+        let _ = existing.set_focus();
+        return Ok(());
+    }
+    let (mw, mh) = primary_monitor_size(&app).unwrap_or((1440, 900));
+    let w = 260.0_f64;
+    let h = 52.0_f64;
+    // Bottom-center: where Loom floats its toolbar.
+    let x = (mw as f64 / 2.0) - (w / 2.0);
+    let y = mh as f64 - h - 48.0;
+    let win = WebviewWindowBuilder::new(
+        &app,
+        TOOLBAR_LABEL,
+        build_overlay_url("toolbar"),
+    )
+    .title("Clips Recorder")
+    .inner_size(w, h)
+    .position(x, y)
+    .decorations(false)
+    .transparent(true)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .resizable(false)
+    .shadow(true)
+    .visible(false)
+    .build()
+    .map_err(|e| e.to_string())?;
+    let _ = win.show();
+    Ok(())
+}
+
+/// Circular, draggable webcam bubble — small always-on-top window that hosts
+/// its own getUserMedia stream and floats over everything the user captures.
+#[tauri::command]
+async fn show_bubble(app: AppHandle) -> Result<(), String> {
+    if let Some(existing) = app.get_webview_window(BUBBLE_LABEL) {
+        let _ = existing.show();
+        return Ok(());
+    }
+    let (mw, mh) = primary_monitor_size(&app).unwrap_or((1440, 900));
+    let size = 180.0_f64;
+    // Bottom-left — matches Loom and our recorder's default bubble corner.
+    let x = 24.0;
+    let y = mh as f64 - size - 96.0;
+    let win = WebviewWindowBuilder::new(
+        &app,
+        BUBBLE_LABEL,
+        build_overlay_url("bubble"),
+    )
+    .title("Clips Camera")
+    .inner_size(size, size)
+    .position(x, y)
+    .decorations(false)
+    .transparent(true)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .resizable(false)
+    .shadow(false)
+    .visible(false)
+    .build()
+    .map_err(|e| e.to_string())?;
+    let _ = win.show();
+    Ok(())
+}
+
+#[tauri::command]
+async fn hide_overlays(app: AppHandle) -> Result<(), String> {
+    for label in [COUNTDOWN_LABEL, TOOLBAR_LABEL, BUBBLE_LABEL] {
+        if let Some(w) = app.get_webview_window(label) {
+            let _ = w.close();
+        }
+    }
+    Ok(())
+}
+
+/// Show the popover window without toggling, and keep it shown even if it
+/// loses focus (popover hides on blur by default, but during post-recording
+/// review we want it sticky while the user reads the "Recording saved" copy).
+#[tauri::command]
+async fn show_popover(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("popover") {
+        position_popover(&app, &window);
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+    Ok(())
+}
+
+fn primary_monitor_size(app: &AppHandle) -> Option<(u32, u32)> {
+    let window = app.get_webview_window("popover")?;
+    let monitor = window.current_monitor().ok().flatten()?;
+    let size = monitor.size();
+    Some((size.width, size.height))
+}
 
 fn toggle_popover(app: &AppHandle) {
     let Some(window) = app.get_webview_window("popover") else {
@@ -99,6 +242,13 @@ fn position_popover(app: &AppHandle, window: &WebviewWindow) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![
+            show_countdown,
+            show_toolbar,
+            show_bubble,
+            hide_overlays,
+            show_popover,
+        ])
         .plugin(tauri_plugin_shell::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
@@ -147,7 +297,7 @@ pub fn run() {
                 .tooltip("Clips")
                 .menu(&menu)
                 .icon(tray_icon)
-                .icon_as_template(false)
+                .icon_as_template(true)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => toggle_popover(app),

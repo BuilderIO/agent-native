@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { startNativeRecording, type RecorderHandle } from "./lib/recorder";
 
 interface RecordingSummary {
   id: string;
@@ -96,6 +100,10 @@ export function App() {
   const [recordings, setRecordings] = useState<RecordingSummary[]>([]);
   const [showRecent, setShowRecent] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [recorder, setRecorder] = useState<RecorderHandle | null>(null);
+  const [recError, setRecError] = useState<string | null>(null);
+  const [lastRecordingId, setLastRecordingId] = useState<string | null>(null);
+  const isRecording = recorder !== null;
 
   // ---- device enumeration -------------------------------------------------
 
@@ -161,18 +169,71 @@ export function App() {
     });
   }
 
-  function startRecording() {
-    const params = new URLSearchParams({
-      auto: "1",
-      mode,
-      source,
-      cam: cameraOn ? "on" : "off",
-      mic: micOn ? "on" : "off",
-    });
-    if (cameraId) params.set("camId", cameraId);
-    if (micId) params.set("micId", micId);
-    openInBrowser(`/record?${params.toString()}`);
+  async function startRecording() {
+    if (recorder) return;
+    setRecError(null);
+    try {
+      const handle = await startNativeRecording({
+        serverUrl,
+        mode,
+        cameraId,
+        micId,
+        cameraOn,
+        micOn,
+      });
+      setRecorder(handle);
+      // Quietly hide the popover — the toolbar + bubble + countdown
+      // overlays are the user-facing surface from this point on.
+      getCurrentWindow()
+        .hide()
+        .catch(() => {});
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      // getDisplayMedia throws `NotAllowedError` when the user cancels the
+      // system picker. That's expected, not an error to show.
+      if (!/NotAllowed|dismissed/i.test(message)) setRecError(message);
+    }
   }
+
+  // When the toolbar or countdown triggers stop/cancel the popover auto-
+  // rehydrates into a "last recording" state so the user has a single-click
+  // path to the playback page + knows the upload landed.
+  useEffect(() => {
+    if (!recorder) return;
+    let cancelled = false;
+    const unlisteners: Array<Promise<() => void>> = [
+      listen("clips:recorder-stop", async () => {
+        try {
+          const { recordingId } = await recorder.stop();
+          if (cancelled) return;
+          setLastRecordingId(recordingId);
+        } catch (err) {
+          if (!cancelled)
+            setRecError(err instanceof Error ? err.message : String(err));
+        } finally {
+          if (!cancelled) {
+            setRecorder(null);
+            invoke("show_popover").catch(() => {});
+            fetchRecent();
+          }
+        }
+      }),
+      listen("clips:recorder-cancel", async () => {
+        try {
+          await recorder.cancel();
+        } finally {
+          if (!cancelled) {
+            setRecorder(null);
+            invoke("show_popover").catch(() => {});
+          }
+        }
+      }),
+    ];
+    return () => {
+      cancelled = true;
+      unlisteners.forEach((p) => p.then((un) => un()).catch(() => {}));
+    };
+  }, [recorder, fetchRecent]);
 
   // Auto-hide on blur is handled on the Rust side (tauri::WindowEvent::Focused).
 
@@ -209,10 +270,25 @@ export function App() {
         />
       </div>
 
-      <button className="primary start" onClick={startRecording}>
-        <span className="rec-dot" aria-hidden />
-        Start recording
-      </button>
+      {lastRecordingId && !isRecording ? (
+        <button
+          className="primary start"
+          onClick={() => openInBrowser(`/r/${lastRecordingId}`)}
+        >
+          <span className="rec-dot" aria-hidden />
+          View last recording
+        </button>
+      ) : (
+        <button
+          className="primary start"
+          onClick={startRecording}
+          disabled={isRecording}
+        >
+          <span className="rec-dot" aria-hidden />
+          {isRecording ? "Recording…" : "Start recording"}
+        </button>
+      )}
+      {recError ? <div className="error-banner">{recError}</div> : null}
 
       <div className="bottom-row">
         <BottomButton

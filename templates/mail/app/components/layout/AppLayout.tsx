@@ -940,7 +940,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 </div>
               )}
 
-              <OrgSwitcher hideWhenSingle />
+              <OrgSwitcher />
               <AgentToggleButton />
             </header>
 
