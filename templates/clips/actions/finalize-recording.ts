@@ -163,9 +163,11 @@ export default defineAction({
     if (upload?.url) {
       videoUrl = upload.url;
     } else {
-      // Fallback: stash the assembled blob in application_state under a
-      // stable key and serve it via the existing chunk route's GET sibling
-      // (the upload provider is the production path; this is dev-only).
+      // Dev-only fallback: stash the assembled blob in application_state
+      // and serve it via /api/video/:id. (See server/plugins/auth.ts —
+      // /api/video is in publicPaths so anonymous viewers on /share/:id
+      // can play public recordings. /api/uploads stays protected because
+      // the chunk upload POST endpoints live under the same prefix.)
       const b64 =
         typeof Buffer !== "undefined"
           ? Buffer.from(assembled).toString("base64")
@@ -174,7 +176,7 @@ export default defineAction({
         mimeType,
         data: b64,
       });
-      videoUrl = `/api/uploads/${id}/blob`;
+      videoUrl = `/api/video/${id}`;
     }
 
     // Update the recording row with final metadata and flip to 'ready'.
