@@ -6,6 +6,7 @@ import {
   IconDownload,
   IconPhoto,
   IconX,
+  IconMoodSmile,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -171,7 +172,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
             onChange={(v) => patch({ enableComments: v })}
           />
           <ToggleRow
-            icon={<span className="text-sm">😀</span>}
+            icon={<IconMoodSmile className="h-4 w-4" />}
             label="Reactions"
             checked={recording.enableReactions}
             onChange={(v) => patch({ enableReactions: v })}

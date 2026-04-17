@@ -180,8 +180,17 @@ export function ShareDialog(props: ShareDialogProps) {
             ) : null}
             {(data?.shares ?? []).map((s) => (
               <li key={s.id} style={itemStyle}>
-                <span style={principalStyle}>
-                  {s.principalType === "org" ? "🏢 " : ""}
+                <span
+                  style={{
+                    ...principalStyle,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                  }}
+                >
+                  {s.principalType === "org" ? (
+                    <IconBuilding size={14} strokeWidth={1.75} />
+                  ) : null}
                   {s.principalId}
                 </span>
                 <span style={{ display: "flex", gap: 6, alignItems: "center" }}>

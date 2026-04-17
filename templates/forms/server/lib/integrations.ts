@@ -47,8 +47,8 @@ function buildSlackPayload(submission: SubmissionPayload) {
         type: "header",
         text: {
           type: "plain_text",
-          text: `📋 New submission: ${submission.formTitle}`,
-          emoji: true,
+          text: `New submission: ${submission.formTitle}`,
+          emoji: false,
         },
       },
       {
@@ -84,7 +84,7 @@ function buildDiscordPayload(submission: SubmissionPayload) {
   return {
     embeds: [
       {
-        title: `📋 New submission: ${submission.formTitle}`,
+        title: `New submission: ${submission.formTitle}`,
         fields: discordFields,
         timestamp: submission.submittedAt,
         color: 0x2563eb,
