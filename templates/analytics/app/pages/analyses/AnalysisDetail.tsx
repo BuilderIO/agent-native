@@ -24,6 +24,7 @@ import {
   IconDatabase,
 } from "@tabler/icons-react";
 import { Link, useNavigate } from "react-router";
+import { ShareButton } from "@agent-native/core/client";
 import { getIdToken } from "@/lib/auth";
 import { useSendToAgentChat } from "@agent-native/core/client";
 import Markdown from "@/components/Markdown";
@@ -122,6 +123,12 @@ export default function AnalysisDetail() {
   useSetHeaderActions(
     analysis ? (
       <>
+        <ShareButton
+          resourceType="analysis"
+          resourceId={analysis.id}
+          resourceTitle={analysis.name}
+          variant="compact"
+        />
         <Button
           variant="default"
           size="sm"

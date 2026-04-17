@@ -107,16 +107,20 @@ Dashboard configs, explorer configs, and theme settings are stored in SQL via th
 
 Solo-mode dashboards/configs are user-scoped. Org dashboards/views are org-scoped. Legacy global rows still load as a fallback, and the Team-page upgrade flow can move those legacy rows onto the signed-in user during migration from local mode.
 
-### Sharing (follow-up)
+### Sharing
 
-The framework ships a standard sharing primitive (private-by-default resources with per-user/per-org share grants and a `<ShareButton>` UI — see the `sharing` skill). **This template does not yet opt in.** Dashboards and analyses are stored in the settings KV store (`u:<email>:dashboard-*`, `o:<orgId>:sql-dashboard-*`, `adhoc-analysis-*`), not SQL resource tables — so the `ownableColumns()` / `createSharesTable()` factories don't apply as-is.
+Dashboards and analyses are **private by default**. The framework's sharing primitive is wired up:
 
-Two options for adopting sharing here:
+| Action                    | Args                                                                                                                                         | Purpose                                |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| `share-resource`          | `--resourceType dashboard\|analysis --resourceId <id> --principalType user\|org --principalId <email-or-orgId> --role viewer\|editor\|admin` | Grant access to a dashboard / analysis |
+| `unshare-resource`        | `--resourceType dashboard\|analysis --resourceId <id> --principalType user\|org --principalId <value>`                                       | Revoke a share grant                   |
+| `list-resource-shares`    | `--resourceType dashboard\|analysis --resourceId <id>`                                                                                       | Show current visibility + grants       |
+| `set-resource-visibility` | `--resourceType dashboard\|analysis --resourceId <id> --visibility private\|org\|public`                                                     | Change coarse visibility               |
 
-1. **Migrate dashboards & analyses to SQL resource tables** (`dashboards`, `analyses`) with `ownableColumns()`, keep the current settings keys as a compatibility read path, then wire up `ShareButton` in the dashboard/analysis toolbars.
-2. **Add a parallel share overlay to the settings store** — e.g. a `settings_shares` table that maps a `setting_key` to principals with roles — and teach the settings read path to check it.
+Read (`/api/sql-dashboards/:id`, `/api/analyses/:id`) admits rows the current user owns, has been shared on, or that match the resource's visibility. Write (save / update via handlers or the `update-dashboard` / `save-analysis` actions) requires `editor` role; delete requires `admin`. Owners always satisfy.
 
-Option 1 is cleaner long-term; option 2 is less invasive. Tracked — ping before starting either.
+**Storage.** Dashboards and analyses now live in SQL (`dashboards`, `analyses`, `dashboard_shares`, `analysis_shares`, `dashboard_views`). Legacy settings-KV keys (`u:<email>:dashboard-*`, `u:<email>:sql-dashboard-*`, `o:<orgId>:sql-dashboard-*`, `adhoc-analysis-*`) are read as a fallback on first access and copied into SQL automatically — existing dashboards are preserved. See `server/lib/dashboards-store.ts` for the exact migration policy.
 
 ## Organizations & Team
 

@@ -4,9 +4,7 @@ import {
   getRequestOrgId,
 } from "@agent-native/core/server";
 import { z } from "zod";
-import { getOrgSetting, getUserSetting } from "@agent-native/core/settings";
-
-const KEY_PREFIX = "adhoc-analysis-";
+import { getAnalysis } from "../server/lib/dashboards-store";
 
 export default defineAction({
   description: "Get a saved ad-hoc analysis by ID, including its full results.",
@@ -17,18 +15,23 @@ export default defineAction({
   run: async (args) => {
     const orgId = getRequestOrgId() || null;
     const email = getRequestUserEmail() || "local@localhost";
-    const key = `${KEY_PREFIX}${args.id}`;
-
-    // Always use a scoped lookup — never fall through to global `getSetting`,
-    // which would leak any user's analysis by ID guess. Local-mode analyses
-    // live at `u:local@localhost:adhoc-analysis-*`.
-    const data =
-      (orgId ? await getOrgSetting(orgId, key) : null) ||
-      (await getUserSetting(email, key));
-
-    if (!data) {
-      return { error: "Analysis not found" };
-    }
-    return data;
+    const a = await getAnalysis(args.id, { email, orgId });
+    if (!a) return { error: "Analysis not found" };
+    return {
+      id: a.id,
+      name: a.name,
+      description: a.description,
+      question: a.question,
+      instructions: a.instructions,
+      dataSources: a.dataSources,
+      resultMarkdown: a.resultMarkdown,
+      resultData: a.resultData,
+      author: a.author,
+      createdAt: a.createdAt,
+      updatedAt: a.updatedAt,
+      ownerEmail: a.ownerEmail,
+      orgId: a.orgId,
+      visibility: a.visibility,
+    };
   },
 });

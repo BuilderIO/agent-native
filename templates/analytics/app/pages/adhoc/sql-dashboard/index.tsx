@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { IconPencil, IconPlus, IconTrash } from "@tabler/icons-react";
+import { ShareButton } from "@agent-native/core/client";
 import { getIdToken } from "@/lib/auth";
 import { SqlChartCard } from "./SqlChartCard";
 import {
@@ -396,6 +397,14 @@ export default function SqlDashboardPage() {
   useSetHeaderActions(
     dashboard ? (
       <>
+        {dashboardId ? (
+          <ShareButton
+            resourceType="dashboard"
+            resourceId={dashboardId}
+            resourceTitle={dashboard.name}
+            variant="compact"
+          />
+        ) : null}
         <Button size="sm" variant="outline" onClick={openAddPanel}>
           <IconPlus className="h-4 w-4 mr-1" />
           Add panel
