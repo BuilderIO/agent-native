@@ -64,8 +64,9 @@ const REGISTRY_KEY = Symbol.for("@agent-native/core/secrets.registry");
 interface GlobalWithRegistry {
   [REGISTRY_KEY]?: Map<string, RegisteredSecret>;
 }
-const registry: Map<string, RegisteredSecret> =
-  ((globalThis as unknown as GlobalWithRegistry)[REGISTRY_KEY] ??= new Map());
+const registry: Map<string, RegisteredSecret> = ((
+  globalThis as unknown as GlobalWithRegistry
+)[REGISTRY_KEY] ??= new Map());
 
 /**
  * Register (or override) a required secret.

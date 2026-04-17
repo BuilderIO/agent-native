@@ -146,8 +146,7 @@ export default defineAction({
       } else {
         let videoUrl = rec.videoUrl;
         if (videoUrl.startsWith("/")) {
-          const port =
-            process.env.NITRO_PORT || process.env.PORT || "3000";
+          const port = process.env.NITRO_PORT || process.env.PORT || "3000";
           const origin =
             process.env.PUBLIC_URL ??
             process.env.NITRO_PUBLIC_URL ??
