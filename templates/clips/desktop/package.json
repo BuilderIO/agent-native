@@ -6,7 +6,8 @@
   "description": "Clips menu-bar tray app (Tauri 2). Quick-record + recent recordings from the OS tray.",
   "scripts": {
     "dev": "tauri dev",
-    "build": "tauri build",
+    "build": "vite build",
+    "build:tauri": "tauri build",
     "tauri": "tauri",
     "vite:dev": "vite",
     "vite:build": "vite build"
