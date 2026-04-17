@@ -27,6 +27,7 @@ export function SearchBar({
   const navigate = useNavigate();
   const [query, setQuery] = useState(initialQuery);
   const [selectedIndex, setSelectedIndex] = useState(-1);
+  const [isFocused, setIsFocused] = useState(autoFocus);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
@@ -56,7 +57,7 @@ export function SearchBar({
       .slice(0, 6);
   }, [query, contacts]);
 
-  const showDropdown = matchedContacts.length > 0;
+  const showDropdown = isFocused && matchedContacts.length > 0;
 
   // Reset selection when matches change
   useEffect(() => {
@@ -169,6 +170,7 @@ export function SearchBar({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
+          onFocus={() => setIsFocused(true)}
           onBlur={(e) => {
             // Don't close if clicking on a dropdown item
             if (
@@ -177,6 +179,7 @@ export function SearchBar({
             ) {
               return;
             }
+            setIsFocused(false);
             // Keep the bar mounted while a search is active — the user needs
             // to see what they searched. Only collapse when empty.
             if (hasActiveSearch || query.trim()) return;
