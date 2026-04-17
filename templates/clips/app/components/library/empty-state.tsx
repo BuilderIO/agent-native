@@ -30,7 +30,7 @@ const COPY: Record<EmptyKind, { title: string; body: string; cta?: string }> = {
   library: {
     title: "Your library is empty",
     body: "Capture your first screen recording and it'll land here, ready to share.",
-    cta: "Record your first Loom",
+    cta: "Record your first Clip",
   },
   folder: {
     title: "This folder is empty",

@@ -113,7 +113,7 @@ export async function getRecordingOrThrow(id: string): Promise<RecordingRow> {
 }
 
 /**
- * Count a view if it meets Loom's rule:
+ * Count a view if it meets the view-counting rule:
  *   ≥ 5 seconds watched, OR ≥ 75% of video, OR scrubbed to end.
  */
 export function shouldCountView(

@@ -23,7 +23,7 @@ export function HydrateFallback() {
 const STORAGE_KEY_PREFIX = "clips-share-pw-";
 
 /**
- * Parse Loom-style `t` param into ms.
+ * Parse `t` URL param into ms (supports plain seconds or `1m20s` / `1h2m3s`).
  *   "80"      → 80_000
  *   "1m20s"   → 80_000
  *   "1h2m3s"  → 3_723_000

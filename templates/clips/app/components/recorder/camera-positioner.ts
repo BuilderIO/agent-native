@@ -43,7 +43,7 @@ export function snapToCorner(
   return { left, top, corner };
 }
 
-/** Default initial position — bottom-left, matching Loom's look. */
+/** Default initial position — bottom-left. */
 export function initialBubblePosition(
   bubbleSize: number,
   viewport: { width: number; height: number },

@@ -1,6 +1,8 @@
 # Clips — Agent Guide
 
-Clips is an agent-native screen-recording app (a Loom alternative). The agent and UI are equal partners: every library search, every transcript edit, every share-link tweak, every new recording is something both the user and the agent can do — via the same actions, against the same SQL database, synced in real time by the framework's polling layer. This guide is how you (the agent) operate inside this app. See the root `AGENTS.md` for the framework-wide rules.
+Clips is an agent-native screen-recording app. The agent and UI are equal partners: every library search, every transcript edit, every share-link tweak, every new Clip is something both the user and the agent can do — via the same actions, against the same SQL database, synced in real time by the framework's polling layer. This guide is how you (the agent) operate inside this app. See the root `AGENTS.md` for the framework-wide rules.
+
+**Naming:** always call a recording a **"Clip"** in any user-facing string or agent message. Never use the word "Loom". Internal table / variable names (`recordings`, `recording_transcripts`, etc.) stay as-is.
 
 **Core philosophy.** Users record videos, the app transcribes them, the agent then assists: suggests titles, writes summaries, builds chapters, removes filler words, finds the exact moment someone said X, opens the right recording, shares it with the right teammate, answers comments. The agent can do any of this without ever leaving the chat — because the UI exposes what the user is seeing via `application_state`, and every operation is a first-class action.
 
@@ -308,7 +310,7 @@ All standard CRUD (list, get, create, update) goes through `/_agent-native/actio
 1. **All AI goes through the agent chat.** Call `sendToAgentChat({ background: true, context, message })` from UI or actions. Do **not** `import OpenAI` / `@anthropic-ai/sdk`. See the `ai-video-tools` skill.
 2. **Transcription is the one exception.** Whisper runs directly against `OPENAI_API_KEY` because it takes an audio file, not a prompt. The secret is registered via the (upcoming) `registerRequiredSecret("OPENAI_API_KEY")` API — onboarding prompts for it. No other AI features may bypass the agent.
 3. **Edits are non-destructive.** Never re-encode on edit. Every trim/cut/split/blur/speed change is appended to `recordings.edits_json`. The player applies edits live; `export-video` only renders when the user explicitly exports. See `video-editing`.
-4. **Count views the Loom way.** A view counts when the viewer hits **≥ 5 seconds** OR **≥ 75% completion** OR scrubs to the end. `shouldCountView` in `server/lib/recordings.ts` is the canonical check — always go through it.
+4. **View-counting rule.** A view counts when the viewer hits **≥ 5 seconds** OR **≥ 75% completion** OR scrubs to the end. `shouldCountView` in `server/lib/recordings.ts` is the canonical check — always go through it.
 5. **Use the framework sharing system.** Never write custom share tables for recordings. `registerShareableResource({ type: "recording", ... })` is already wired in `server/db/index.ts`. Compose with the auto-mounted actions. Add password + `expiresAt` as **additional** checks in the share-resolution path, not replacements. See `video-sharing`.
 6. **SQL must be dialect-agnostic.** The target is Neon Postgres. Use Drizzle operators only. No SQLite-specific functions (`datetime('now')`, `|| ''`), no `json_extract`, no `ROWID`. Use `now()` from `@agent-native/core/db/schema`. See the `portability` skill.
 7. **Screen context is auto-included.** Check `<current-screen>` in the user's message before running `view-screen` — you usually don't need to call it.

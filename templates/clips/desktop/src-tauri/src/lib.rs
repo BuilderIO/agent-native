@@ -28,7 +28,7 @@ fn position_popover(window: &WebviewWindow) {
     // Place the popover near the top-right corner of the active monitor so it
     // feels like it's hanging off the menu bar. We can't read the exact tray
     // icon position in Tauri v2 yet, so top-right is a reasonable default that
-    // Loom/Raycast-style tray apps also use.
+    // Raycast-style tray apps also use this pattern.
     if let Ok(Some(monitor)) = window.current_monitor() {
         let size = monitor.size();
         let scale = monitor.scale_factor();
