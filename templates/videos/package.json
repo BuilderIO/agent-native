@@ -27,7 +27,7 @@
     "@remotion/player": "^4.0.434",
     "@remotion/transitions": "^4.0.434",
     "@tabler/icons-react": "^3.40.0",
-    "drizzle-orm": "^0.44.0",
+    "drizzle-orm": "^0.45.2",
     "h3": "^2.0.1-rc.20",
     "isbot": "^5",
     "remotion": "^4.0.434",

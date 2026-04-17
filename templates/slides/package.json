@@ -43,7 +43,7 @@
     "@tiptap/starter-kit": "^3.22.2",
     "@tiptap/y-tiptap": "^3.0.2",
     "dotenv": "^17.2.1",
-    "drizzle-orm": "^0.44.0",
+    "drizzle-orm": "^0.45.2",
     "h3": "^2.0.1-rc.20",
     "isbot": "^5",
     "mermaid": "^11.14.0",

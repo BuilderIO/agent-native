@@ -105,8 +105,8 @@ importers:
         specifier: ^1.29.0
         version: 1.29.0(zod@3.25.76)
       '@neondatabase/serverless':
-        specifier: ^1.0.2
-        version: 1.0.2
+        specifier: ^1.1.0
+        version: 1.1.0
       '@radix-ui/react-popover':
         specifier: ^1.1.15
         version: 1.1.15(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@19.2.4(react@18.3.1))(react@18.3.1)
@@ -151,7 +151,7 @@ importers:
         version: 3.22.2
       better-auth:
         specifier: ^1.6.0
-        version: 1.6.0(@opentelemetry/api@1.9.1)(better-sqlite3@12.8.0)(drizzle-kit@0.31.10)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.8))(pg@8.20.0)(react-dom@19.2.4(react@18.3.1))(react@18.3.1)(solid-js@1.9.12)(vitest@3.2.4(@types/debug@4.1.13)(@types/node@24.12.2)(happy-dom@20.8.9)(jsdom@28.1.0(@noble/hashes@2.0.1)(canvas@3.2.3))(lightningcss@1.32.0)(terser@5.46.1))
+        version: 1.6.0(@opentelemetry/api@1.9.1)(better-sqlite3@12.8.0)(drizzle-kit@0.31.10)(drizzle-orm@0.45.2(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.9))(pg@8.20.0)(react-dom@19.2.4(react@18.3.1))(react@18.3.1)(solid-js@1.9.12)(vitest@3.2.4(@types/debug@4.1.13)(@types/node@24.12.2)(happy-dom@20.8.9)(jsdom@28.1.0(@noble/hashes@2.0.1)(canvas@3.2.3))(lightningcss@1.32.0)(terser@5.46.1))
       better-sqlite3:
         specifier: ^12.8.0
         version: 12.8.0
@@ -171,8 +171,8 @@ importers:
         specifier: ^17.2.1
         version: 17.4.0
       drizzle-orm:
-        specifier: ^0.44.0
-        version: 0.44.7(@libsql/client@0.15.15)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.8)
+        specifier: ^0.45.2
+        version: 0.45.2(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.9)
       h3:
         specifier: ^2.0.1-rc.20
         version: 2.0.1-rc.20(crossws@0.4.4(srvx@0.11.15))
@@ -190,7 +190,7 @@ importers:
         version: 4.0.2
       nitro:
         specifier: 3.0.260311-beta
-        version: 3.0.260311-beta(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@libsql/client@0.15.15)(better-sqlite3@12.8.0)(chokidar@4.0.3)(dotenv@17.4.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.8))(giget@3.2.0)(ioredis@5.10.1)(jiti@1.21.7)(lru-cache@11.2.7)(miniflare@4.20260405.0)(rollup@4.60.1)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@1.21.7)(terser@5.46.1)(tsx@4.21.0))
+        version: 3.0.260311-beta(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@libsql/client@0.15.15)(better-sqlite3@12.8.0)(chokidar@4.0.3)(dotenv@17.4.0)(drizzle-orm@0.45.2(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.9))(giget@3.2.0)(ioredis@5.10.1)(jiti@1.21.7)(lru-cache@11.2.7)(miniflare@4.20260405.0)(rollup@4.60.1)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@1.21.7)(terser@5.46.1)(tsx@4.21.0))
       ollama-ai-provider:
         specifier: '>=1'
         version: 1.2.0(zod@3.25.76)
@@ -199,7 +199,7 @@ importers:
         version: 7.3.0
       postgres:
         specifier: '>=3'
-        version: 3.4.8
+        version: 3.4.9
       react-dom:
         specifier: '>=18'
         version: 19.2.4(react@18.3.1)
@@ -882,8 +882,8 @@ importers:
         specifier: ^17.2.1
         version: 17.4.0
       drizzle-orm:
-        specifier: ^0.44.2
-        version: 0.44.7(@libsql/client@0.15.15)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.8)
+        specifier: ^0.45.2
+        version: 0.45.2(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.9)
       h3:
         specifier: ^2.0.1-rc.20
         version: 2.0.1-rc.20(crossws@0.4.4(srvx@0.11.15))
@@ -1116,12 +1116,15 @@ importers:
       '@libsql/client':
         specifier: ^0.15.8
         version: 0.15.15
+      '@neondatabase/serverless':
+        specifier: ^1.1.0
+        version: 1.1.0
       '@tabler/icons-react':
         specifier: ^3.40.0
         version: 3.41.1(react@18.3.1)
       drizzle-orm:
-        specifier: ^0.44.0
-        version: 0.44.7(@libsql/client@0.15.15)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.8)
+        specifier: ^0.45.2
+        version: 0.45.2(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.9)
       h3:
         specifier: ^2.0.1-rc.20
         version: 2.0.1-rc.20(crossws@0.4.4(srvx@0.11.15))
@@ -1131,6 +1134,9 @@ importers:
       openai:
         specifier: ^4.76.0
         version: 4.104.0(encoding@0.1.13)(ws@8.20.0)(zod@4.3.6)
+      postgres:
+        specifier: ^3.4.9
+        version: 3.4.9
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -1425,8 +1431,8 @@ importers:
         specifier: ^3.0.2
         version: 3.0.2(prosemirror-model@1.25.4)(prosemirror-state@1.4.4)(prosemirror-view@1.41.8)(y-protocols@1.0.7(yjs@13.6.30))(yjs@13.6.30)
       drizzle-orm:
-        specifier: ^0.44.0
-        version: 0.44.7(@libsql/client@0.15.15)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.8)
+        specifier: ^0.45.2
+        version: 0.45.2(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.9)
       h3:
         specifier: ^2.0.1-rc.20
         version: 2.0.1-rc.20(crossws@0.4.4(srvx@0.11.15))
@@ -1567,8 +1573,8 @@ importers:
         specifier: ^3.40.0
         version: 3.41.1(react@18.3.1)
       drizzle-orm:
-        specifier: ^0.44.5
-        version: 0.44.7(@libsql/client@0.15.15)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.8)
+        specifier: ^0.45.2
+        version: 0.45.2(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.9)
       h3:
         specifier: ^2.0.1-rc.20
         version: 2.0.1-rc.20(crossws@0.4.4(srvx@0.11.15))
@@ -1820,8 +1826,8 @@ importers:
         specifier: ^1.1.1
         version: 1.1.1(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       drizzle-orm:
-        specifier: ^0.44.2
-        version: 0.44.7(@libsql/client@0.15.15)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.8)
+        specifier: ^0.45.2
+        version: 0.45.2(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.9)
       embla-carousel-react:
         specifier: ^8.6.0
         version: 8.6.0(react@18.3.1)
@@ -1992,8 +1998,8 @@ importers:
         specifier: ^3.40.0
         version: 3.41.1(react@18.3.1)
       drizzle-orm:
-        specifier: ^0.44.0
-        version: 0.44.7(@libsql/client@0.15.15)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.8)
+        specifier: ^0.45.2
+        version: 0.45.2(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.9)
       h3:
         specifier: ^2.0.1-rc.20
         version: 2.0.1-rc.20(crossws@0.4.4(srvx@0.11.15))
@@ -2182,8 +2188,8 @@ importers:
         specifier: ^3.40.0
         version: 3.41.1(react@18.3.1)
       drizzle-orm:
-        specifier: ^0.44.0
-        version: 0.44.7(@libsql/client@0.15.15)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.8)
+        specifier: ^0.45.2
+        version: 0.45.2(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.9)
       h3:
         specifier: ^2.0.1-rc.20
         version: 2.0.1-rc.20(crossws@0.4.4(srvx@0.11.15))
@@ -2399,8 +2405,8 @@ importers:
         specifier: ^2.7.6
         version: 2.9.0
       drizzle-orm:
-        specifier: ^0.44.0
-        version: 0.44.7(@libsql/client@0.15.15)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.8)
+        specifier: ^0.45.2
+        version: 0.45.2(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.9)
       embla-carousel-react:
         specifier: ^8.6.0
         version: 8.6.0(react@18.3.1)
@@ -2527,25 +2533,25 @@ importers:
         version: 5.96.2(react@18.3.1)
       '@tiptap/extension-code-block-lowlight':
         specifier: ^3.19.0
-        version: 3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/extension-code-block@3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.1)(highlight.js@11.11.1)(lowlight@3.3.0)
+        version: 3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))(@tiptap/extension-code-block@3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))(@tiptap/pm@3.22.2))(@tiptap/pm@3.22.2)(highlight.js@11.11.1)(lowlight@3.3.0)
       '@tiptap/extension-image':
         specifier: ^3.19.0
-        version: 3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))
+        version: 3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))
       '@tiptap/extension-link':
         specifier: ^3.19.0
-        version: 3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.1)
+        version: 3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))(@tiptap/pm@3.22.2)
       '@tiptap/extension-placeholder':
         specifier: ^3.19.0
-        version: 3.22.1(@tiptap/extensions@3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.1))
+        version: 3.22.2(@tiptap/extensions@3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))(@tiptap/pm@3.22.2))
       '@tiptap/pm':
         specifier: ^3.19.0
-        version: 3.22.1
+        version: 3.22.2
       '@tiptap/react':
         specifier: ^3.19.0
-        version: 3.22.1(@floating-ui/dom@1.7.6)(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.1)(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 3.22.2(@floating-ui/dom@1.7.6)(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))(@tiptap/pm@3.22.2)(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@tiptap/starter-kit':
         specifier: ^3.19.0
-        version: 3.22.1
+        version: 3.22.2
       '@types/node':
         specifier: ^24.2.1
         version: 24.12.2
@@ -2629,7 +2635,7 @@ importers:
         version: 1.0.7(tailwindcss@3.4.19(tsx@4.21.0))
       tiptap-markdown:
         specifier: ^0.9.0
-        version: 0.9.0(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))
+        version: 0.9.0(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))
       tsx:
         specifier: ^4.20.3
         version: 4.21.0
@@ -2661,8 +2667,8 @@ importers:
         specifier: ^3.40.0
         version: 3.41.1(react@18.3.1)
       drizzle-orm:
-        specifier: ^0.44.0
-        version: 0.44.7(@libsql/client@0.15.15)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.8)
+        specifier: ^0.45.2
+        version: 0.45.2(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.9)
       h3:
         specifier: ^2.0.1-rc.20
         version: 2.0.1-rc.20(crossws@0.4.4(srvx@0.11.15))
@@ -2881,8 +2887,8 @@ importers:
         specifier: ^17.2.1
         version: 17.4.0
       drizzle-orm:
-        specifier: ^0.44.0
-        version: 0.44.7(@libsql/client@0.15.15)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.8)
+        specifier: ^0.45.2
+        version: 0.45.2(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.9)
       h3:
         specifier: ^2.0.1-rc.20
         version: 2.0.1-rc.20(crossws@0.4.4(srvx@0.11.15))
@@ -3348,8 +3354,8 @@ importers:
         specifier: ^3.40.0
         version: 3.41.1(react@18.3.1)
       drizzle-orm:
-        specifier: ^0.44.0
-        version: 0.44.7(@libsql/client@0.15.15)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.8)
+        specifier: ^0.45.2
+        version: 0.45.2(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.9)
       h3:
         specifier: ^2.0.1-rc.20
         version: 2.0.1-rc.20(crossws@0.4.4(srvx@0.11.15))
@@ -6222,8 +6228,8 @@ packages:
   '@neon-rs/load@0.0.4':
     resolution: {integrity: sha512-kTPhdZyTQxB+2wpiRcFWrDcejc4JI6tkPuS7UZCG4l6Zvc5kU/gGQ/ozvHTh1XR5tS+UlfAfGuPajjzQjCiHCw==}
 
-  '@neondatabase/serverless@1.0.2':
-    resolution: {integrity: sha512-I5sbpSIAHiB+b6UttofhrN/UJXII+4tZPAq1qugzwCwLIL8EZLV7F/JyHUrEIiGgQpEXzpnjlJ+zwcEhheGvCw==}
+  '@neondatabase/serverless@1.1.0':
+    resolution: {integrity: sha512-r3ZZhRjEcfEdKIZnoB1RusNgvHuaBRqfCzV4Gi+5A9yUX0S4HTws/ASWqt13wL4y4I+0rqsWGdA2w7EQXHi3+Q==}
     engines: {node: '>=19.0.0'}
 
   '@noble/ciphers@2.1.1':
@@ -8419,31 +8425,15 @@ packages:
     peerDependencies:
       '@tiptap/pm': ^3.22.2
 
-  '@tiptap/extension-blockquote@3.22.1':
-    resolution: {integrity: sha512-omPsJ/IMAZYhXqOaEenYE+HA9U2zju5rQbAn6Xktynvr4A5P95jqkgAwncXB82pCkNYU/uYxi51vyTweTeEUHA==}
-    peerDependencies:
-      '@tiptap/core': ^3.22.1
-
   '@tiptap/extension-blockquote@3.22.2':
     resolution: {integrity: sha512-iTdlmGFcgxi4LKaOW2Rc9/yD83qTXgRm5BN3vCHWy5+TbEnReYxYqU5qKsbtTbKy30sO8TJTdAXTZ29uomShQQ==}
     peerDependencies:
       '@tiptap/core': ^3.22.2
 
-  '@tiptap/extension-bold@3.22.1':
-    resolution: {integrity: sha512-0+q6Apu1Vx2+ReB2ktTpBrQ5/dCvGzTkJCy+MZ/t8WBcybqFXOKYRCr/i/VGPDpXZttxpk0EPl0+ao+NVcUTAA==}
-    peerDependencies:
-      '@tiptap/core': ^3.22.1
-
   '@tiptap/extension-bold@3.22.2':
     resolution: {integrity: sha512-bqsPJyKcT/RWse4e16U2EKhraR8a2+98TUuk1amG3yCyFJZStoO/j+pN0IqZdZZjr3WtxFyvwWp7Kc59UN+jUA==}
     peerDependencies:
       '@tiptap/core': ^3.22.2
-
-  '@tiptap/extension-bubble-menu@3.22.1':
-    resolution: {integrity: sha512-JJI63N55hLPjfqHgBnbG1ORZTXJiswnfBkfNd8YKytCC8D++g5qX3UMObxmJKLMBRGyqjEi6krzOyYtOix5ALA==}
-    peerDependencies:
-      '@tiptap/core': ^3.22.1
-      '@tiptap/pm': ^3.22.1
 
   '@tiptap/extension-bubble-menu@3.22.2':
     resolution: {integrity: sha512-5hbyDOSkJwA2uh0v9Mm0Dd9bb9inx6tHBEDSH2tCB9Rm23poz3yOreB7SNX8xDMe5L0/PQesfWC14RitcmhKPg==}
@@ -8451,24 +8441,10 @@ packages:
       '@tiptap/core': ^3.22.2
       '@tiptap/pm': ^3.22.2
 
-  '@tiptap/extension-bullet-list@3.22.1':
-    resolution: {integrity: sha512-83L+4N2JziWORbWtlsM0xBm3LOKIw4YtIm+Kh4amV5kGvIgIL5I1KYzoxv20qjgFX2k08LtLMwPdvPSPSh4e7g==}
-    peerDependencies:
-      '@tiptap/extension-list': ^3.22.1
-
   '@tiptap/extension-bullet-list@3.22.2':
     resolution: {integrity: sha512-llrTJnA72RGcWLLO+ro0QN4sjHynhaCerhpV+GZE/ATd8BqV/ekQFdBLJrvC/09My2XQfCwLsyCh92NPXUdELA==}
     peerDependencies:
       '@tiptap/extension-list': ^3.22.2
-
-  '@tiptap/extension-code-block-lowlight@3.22.1':
-    resolution: {integrity: sha512-6Dj5AKGTi05EYqKJYS2NXpU72TQ8SVWOLDgnbsPDhoyl9hV4cnQ+1imnytfFrLX3wu5aOcKyk3tgV7BsNLIdvg==}
-    peerDependencies:
-      '@tiptap/core': ^3.22.1
-      '@tiptap/extension-code-block': ^3.22.1
-      '@tiptap/pm': ^3.22.1
-      highlight.js: ^11
-      lowlight: ^2 || ^3
 
   '@tiptap/extension-code-block-lowlight@3.22.2':
     resolution: {integrity: sha512-z3OUuNulh2ehHPnMw4PLEt4JvR8Xy9GEqaDLDADIU+hfk6ztrbhweGm1evZ6fzUI00274NZQCNNtcUwZSa3IHw==}
@@ -8479,22 +8455,11 @@ packages:
       highlight.js: ^11
       lowlight: ^2 || ^3
 
-  '@tiptap/extension-code-block@3.22.1':
-    resolution: {integrity: sha512-fr3b1seFsAeYHtPAb9fbATkGcgyfStD05GHsZXFLh7yCpf2ejWLNxdWJT/g+FggSEHYFKCXT06aixk0WbtRcWw==}
-    peerDependencies:
-      '@tiptap/core': ^3.22.1
-      '@tiptap/pm': ^3.22.1
-
   '@tiptap/extension-code-block@3.22.2':
     resolution: {integrity: sha512-PEwFlDyvtKF19WCrOFg77qJV9WqhvjCY4ZoXlHP9Hx0KTcOA8W39mtw8d4NWU5pLRK94yHKF1DVVL8UUkEOnww==}
     peerDependencies:
       '@tiptap/core': ^3.22.2
       '@tiptap/pm': ^3.22.2
-
-  '@tiptap/extension-code@3.22.1':
-    resolution: {integrity: sha512-Ze+hjSLLCn+5gVpuE/Uv7mQ83AlG5A9OPsuDoyzTpJ2XNvZP2iZdwQMGqwXKC8eH7fIOJN6XQ3IDv/EhltQx/Q==}
-    peerDependencies:
-      '@tiptap/core': ^3.22.1
 
   '@tiptap/extension-code@3.22.2':
     resolution: {integrity: sha512-iYFY+yzfYA9MKt7nupyW/PzqL9XC2D0mC8l1z2Y10i0/fGL8NbqIYjhNUAyXGqH3QWcI+DirI66842y2OadPOg==}
@@ -8521,32 +8486,15 @@ packages:
     peerDependencies:
       '@tiptap/extension-text-style': ^3.22.3
 
-  '@tiptap/extension-document@3.22.1':
-    resolution: {integrity: sha512-fBI/+PGtK6pzitqjSSSYL2+uZglX6T53zb5nLEmN/q8q7FzUuUpglp8toHVhBG05WDk4vx6Z7bC95uyxkYdoAA==}
-    peerDependencies:
-      '@tiptap/core': ^3.22.1
-
   '@tiptap/extension-document@3.22.2':
     resolution: {integrity: sha512-yPw9pQeVC4QDh86TuyKCZxxM4g0NAw7mEtGnAo6EpxaBQr1wyBr9yFpys+QTsQpRTmyTf1VHp4iTTLuWHMljIw==}
     peerDependencies:
       '@tiptap/core': ^3.22.2
 
-  '@tiptap/extension-dropcursor@3.22.1':
-    resolution: {integrity: sha512-PuSNoTROZB564KpTG9ExVB3CsfRa0ridHx+1sWZajOBVZJiXSn4QlS/ShS509SOx8z17DyxEw06IH//OHY9XyQ==}
-    peerDependencies:
-      '@tiptap/extensions': ^3.22.1
-
   '@tiptap/extension-dropcursor@3.22.2':
     resolution: {integrity: sha512-sDv3fv4LtX0X4nqwh9Gn3C/aZXT+C2JlK7tJovPOpaYP/a6hr03Sn35X5moAfgMCSiWFygEvlTriqwmCsJuxog==}
     peerDependencies:
       '@tiptap/extensions': ^3.22.2
-
-  '@tiptap/extension-floating-menu@3.22.1':
-    resolution: {integrity: sha512-TaZqmaoKv36FzbKTrBkkv74o0t8dYTftNZ7NotBqfSki0BB2PupTCJHafdu1YI0zmJ3xEzjB/XKcKPz2+10sDA==}
-    peerDependencies:
-      '@floating-ui/dom': ^1.0.0
-      '@tiptap/core': ^3.22.1
-      '@tiptap/pm': ^3.22.1
 
   '@tiptap/extension-floating-menu@3.22.2':
     resolution: {integrity: sha512-r0ZTeh9rNtj9Api+G0YyaB+tAKPDn7aYWg+qSrmAC5EyUPee6Zjn3zlw0q4renCeQflvNRK20xHM8zokC41jOA==}
@@ -8555,41 +8503,20 @@ packages:
       '@tiptap/core': ^3.22.2
       '@tiptap/pm': ^3.22.2
 
-  '@tiptap/extension-gapcursor@3.22.1':
-    resolution: {integrity: sha512-qqsyy7unWM3elv+7ru+6paKAnw1PZTvjNVQu3UzB6d556Gx2uE4isXJNdBaslBZdp2EoaYdIkhhEccW9B/Nwqg==}
-    peerDependencies:
-      '@tiptap/extensions': ^3.22.1
-
   '@tiptap/extension-gapcursor@3.22.2':
     resolution: {integrity: sha512-rR2OLrl/k2kj7xehaZHq0Y7T+1wy2DOTabir9LsTrktTFEcklrh9qY1KC6rEBkwMKaWrmignR1l39kS6RlKFNw==}
     peerDependencies:
       '@tiptap/extensions': ^3.22.2
-
-  '@tiptap/extension-hard-break@3.22.1':
-    resolution: {integrity: sha512-hzLwLEZVbZODa9q5UiCQpOUmDnyxN19FA4LhlqLP0/JSHewP/aol5igFZwuw0XVFp425BuzPjrB7tmr0GRTDWw==}
-    peerDependencies:
-      '@tiptap/core': ^3.22.1
 
   '@tiptap/extension-hard-break@3.22.2':
     resolution: {integrity: sha512-ChsoqF4XRp6EWatTRlXL4LMFh/ggwRVCyt09brSfjJV5knFaXlECSa5/+rKLMLMULaj6dVlJqoAD15exgu2HHA==}
     peerDependencies:
       '@tiptap/core': ^3.22.2
 
-  '@tiptap/extension-heading@3.22.1':
-    resolution: {integrity: sha512-EaIihzrOfXUHQlL6fFyJCkDrjgg0e/eD4jpkjhKpeuJDcqf7eJ1c0E2zcNRAiZkeXdN/hTQFaXKsSyNUE7T7Sg==}
-    peerDependencies:
-      '@tiptap/core': ^3.22.1
-
   '@tiptap/extension-heading@3.22.2':
     resolution: {integrity: sha512-QPHLef+ikAyf7RVc4EdGeKxH4OEGb3ueCEwJ41RcYPtZ1BX9ueei7FC936guTdL1U7w3vQ65qfy86HznzkYgvw==}
     peerDependencies:
       '@tiptap/core': ^3.22.2
-
-  '@tiptap/extension-horizontal-rule@3.22.1':
-    resolution: {integrity: sha512-Q18A8IN+gnfptIksPeVAI6oOBGYKAGf+QN0FEJ5OXO4BEAmA3hflflA1rWNfPC4aQNry/N7sAl8Gpd6HuIbz2w==}
-    peerDependencies:
-      '@tiptap/core': ^3.22.1
-      '@tiptap/pm': ^3.22.1
 
   '@tiptap/extension-horizontal-rule@3.22.2':
     resolution: {integrity: sha512-Oz8KN5KJAWV1mFNE9UIWXdMD6xa5zPf/0yLsT8V4sgaRm+VsdFKllN58BY9qCZf/kIZbaOez5KkaoeAcm0MAZg==}
@@ -8597,31 +8524,15 @@ packages:
       '@tiptap/core': ^3.22.2
       '@tiptap/pm': ^3.22.2
 
-  '@tiptap/extension-image@3.22.1':
-    resolution: {integrity: sha512-FtZCOWyyaEvSfaOPoH78IKb1BlG/Vao4PARdlrVCD1FlV1YGLAgSW5YkQAJ/vPTLwyNNZtqryaBpZrA8Wm25nQ==}
-    peerDependencies:
-      '@tiptap/core': ^3.22.1
-
   '@tiptap/extension-image@3.22.2':
     resolution: {integrity: sha512-xFCgwreF6sn5mQ/hFDQKn41NIbbfks/Ou9j763Djf3pWsastgzdgwifQOpXVI3aSsqlKUO3o8/8R/yQczvZcwg==}
     peerDependencies:
       '@tiptap/core': ^3.22.2
 
-  '@tiptap/extension-italic@3.22.1':
-    resolution: {integrity: sha512-EXPZWEsWJK9tUMypddOBvayaBeu8wFV2uH5PNrtDKrfRZ1Bf8GQ3lfcO0blHssaQ9nWqa9HwBC1mdfWcmfpxig==}
-    peerDependencies:
-      '@tiptap/core': ^3.22.1
-
   '@tiptap/extension-italic@3.22.2':
     resolution: {integrity: sha512-fmtQu2HDnV3sOZPdz0+1lOLI7UtrIhusohJj2UwOLQxG8qqhLwbvWx2OQTlfblgY0z+CjLRr6ANbNDxOTIblfg==}
     peerDependencies:
       '@tiptap/core': ^3.22.2
-
-  '@tiptap/extension-link@3.22.1':
-    resolution: {integrity: sha512-RHch/Bqv+QDvW3J1CXmiTB54pyrQYNQq8Vfa7is/O209dNPA8tdbkRP44rDjqn8NeDCriC/oJ4avWeXL4qNDVw==}
-    peerDependencies:
-      '@tiptap/core': ^3.22.1
-      '@tiptap/pm': ^3.22.1
 
   '@tiptap/extension-link@3.22.2':
     resolution: {integrity: sha512-TXfSoKmng5pecvQUZqdsx6ICeob5V5hhYOj2vCEtjfcjWsyCndqFIl1w+Nt/yI5ehrFNOVPyj3ZvcELuuAW6pw==}
@@ -8629,31 +8540,15 @@ packages:
       '@tiptap/core': ^3.22.2
       '@tiptap/pm': ^3.22.2
 
-  '@tiptap/extension-list-item@3.22.1':
-    resolution: {integrity: sha512-v0FgSX3cqLY3L1hIe2PFRTR3/+wlFOdFjv0p3fSJ5Tl7cgU7DR1OcljFqpw0exePcmt6dXqXVQua3PxSVV15eA==}
-    peerDependencies:
-      '@tiptap/extension-list': ^3.22.1
-
   '@tiptap/extension-list-item@3.22.2':
     resolution: {integrity: sha512-Mk+iiLIFh8Pfuarr6mWfTO7QJbd2ZQd0nGNhNWXlGAO7DJCb4BP9nj4bEIJ17SbcykGRjsi4WMqY50z4MHXqKQ==}
     peerDependencies:
       '@tiptap/extension-list': ^3.22.2
 
-  '@tiptap/extension-list-keymap@3.22.1':
-    resolution: {integrity: sha512-00Nz4jJygYGJg6N1mdbQUslFG9QaGZq5P9MFwqoduWku7gYHWkZoZvrkxZrYtxGTHVIlLnF8LIfblAlOwNd76g==}
-    peerDependencies:
-      '@tiptap/extension-list': ^3.22.1
-
   '@tiptap/extension-list-keymap@3.22.2':
     resolution: {integrity: sha512-TozU9V2vldMUPpTXnfLCO33EO06jLxn7uEJTMBnN4iX/dLV3cBVCbE4kHyDKS0sLd7joUeekS06vYP9uQb1hFw==}
     peerDependencies:
       '@tiptap/extension-list': ^3.22.2
-
-  '@tiptap/extension-list@3.22.1':
-    resolution: {integrity: sha512-6bVI5A12sFeyb0EngABV8/qCtC2IgiDbWC8mtNNLh5dAVGaUKo1KucL6vRYDhzXhyO/eHuGYepXZDLOOdS9LIQ==}
-    peerDependencies:
-      '@tiptap/core': ^3.22.1
-      '@tiptap/pm': ^3.22.1
 
   '@tiptap/extension-list@3.22.2':
     resolution: {integrity: sha512-Vq9xScgkA2A3Zj9dQ4WUBKK7u7UCzeSFRz9FcKTQVZHRPbZoqFGnlRUVngqsE7JXrCOthXQ1dXxgk40nAsBFRw==}
@@ -8661,40 +8556,20 @@ packages:
       '@tiptap/core': ^3.22.2
       '@tiptap/pm': ^3.22.2
 
-  '@tiptap/extension-ordered-list@3.22.1':
-    resolution: {integrity: sha512-sbd99ZUa1lIemH7N6dLB+9aYxUgduwW2216VM3dLJBS9hmTA4iDRxWx0a1ApnAVv+sZasRSbb/wpYLtXviA1XQ==}
-    peerDependencies:
-      '@tiptap/extension-list': ^3.22.1
-
   '@tiptap/extension-ordered-list@3.22.2':
     resolution: {integrity: sha512-K7qxoBKmsVkAd3kW64ZRCUPFrDcNGpXRDUBx9YgAO/bTfsfxtH2oil+igsUWGXPczpP4yoHPKjTfhpBpLjGl6Q==}
     peerDependencies:
       '@tiptap/extension-list': ^3.22.2
-
-  '@tiptap/extension-paragraph@3.22.1':
-    resolution: {integrity: sha512-mnvGEZfZFysHGvmEqrSLjeddaNPB3UmomTInv9gsImw8hlB4/gQedvB6Qf2tFfIjl4ISKC5AbFxraSnJfjaL5g==}
-    peerDependencies:
-      '@tiptap/core': ^3.22.1
 
   '@tiptap/extension-paragraph@3.22.2':
     resolution: {integrity: sha512-EHZZzxVhvzEPDPWtRBF1YKhB+WCUjd1C2NhjHfL3Dl71PBqM3ZWA6qN7NDGPyNyGGWauui/NR/4X+5AfPqlHyA==}
     peerDependencies:
       '@tiptap/core': ^3.22.2
 
-  '@tiptap/extension-placeholder@3.22.1':
-    resolution: {integrity: sha512-f8NJNEJTDuT9UIZdVIAPoySgzQ/nKxR/gWRqCnwtR4O26zo/JdKI2XvrTE/iNrV3Khme8rjCtO7/8CQgTeMMxA==}
-    peerDependencies:
-      '@tiptap/extensions': ^3.22.1
-
   '@tiptap/extension-placeholder@3.22.2':
     resolution: {integrity: sha512-xYw733CmSeG7MyYBDdV5NFiwlBdXXzw4Mvjb2t4QRXagkDbHeNY/LtKTcrtcMNfO4Jx0mwivGQZUIEC8oAfvxg==}
     peerDependencies:
       '@tiptap/extensions': ^3.22.2
-
-  '@tiptap/extension-strike@3.22.1':
-    resolution: {integrity: sha512-LTdnGmglK1f/AW//36k+Km8URA1wrTLENi3R5N+/ipv+yP2rZ2Ki1R1m6yJx3KSFzR55c91xE6659/vz1uZ6iA==}
-    peerDependencies:
-      '@tiptap/core': ^3.22.1
 
   '@tiptap/extension-strike@3.22.2':
     resolution: {integrity: sha512-YFC3elKU1L8PiGbcB6tqd/7vWPF5IbydJz0POJpHzSjstX+VfT8VsvS7ubxVuSIWQ11kGkH3mzX6LX8JHsHZxg==}
@@ -8737,31 +8612,15 @@ packages:
     peerDependencies:
       '@tiptap/core': ^3.22.3
 
-  '@tiptap/extension-text@3.22.1':
-    resolution: {integrity: sha512-wFCNCATSTTFhvA9wOPkAgzPVyG3RM6+jOlDeRhHUCHsFWFWj0w9ZPwA/nP+Qi5hEW7kGG9V8o62RjBdHNvK2PQ==}
-    peerDependencies:
-      '@tiptap/core': ^3.22.1
-
   '@tiptap/extension-text@3.22.2':
     resolution: {integrity: sha512-J1w7JwijfSD7ah0WfiwZ/DVWCIGT9x369RM4RJc57i44mIBElj7tl1dh+N5KPGOXKUup4gr7sSJAE38lgeaDMg==}
     peerDependencies:
       '@tiptap/core': ^3.22.2
 
-  '@tiptap/extension-underline@3.22.1':
-    resolution: {integrity: sha512-p8/ErqQInWJbpncBycIggmtCjdrMwHmA3GNhOugo6F4fYfeVxgy7pVb7ZF+ss62d0mpQvEd81pyrzhkBtb0nBg==}
-    peerDependencies:
-      '@tiptap/core': ^3.22.1
-
   '@tiptap/extension-underline@3.22.2':
     resolution: {integrity: sha512-BaV6WOowxdkGTLWiU7DdZ3Twh633O4RGqwUM5dDas5LvaqL8AMWGTO8Wg9yAaaKXzd9MtKI1ZCqS/+MtzusgkQ==}
     peerDependencies:
       '@tiptap/core': ^3.22.2
-
-  '@tiptap/extensions@3.22.1':
-    resolution: {integrity: sha512-BKpp371Pl1CVcLRLrWH7PC1I+IsXOhet80+pILqCMlwkJnsVtOOVRr5uCF6rbPP4xK5H/ehkQWmxA8rqpv42aA==}
-    peerDependencies:
-      '@tiptap/core': ^3.22.1
-      '@tiptap/pm': ^3.22.1
 
   '@tiptap/extensions@3.22.2':
     resolution: {integrity: sha512-s7MZmm2Xdq+8feIXgY3v7gVpQ5ClqBZi20KheouS7KSbBlrY4fu2irYR1EGc6r1UUVaHMxEa+cx5knhx+mIPUw==}
@@ -8769,21 +8628,8 @@ packages:
       '@tiptap/core': ^3.22.2
       '@tiptap/pm': ^3.22.2
 
-  '@tiptap/pm@3.22.1':
-    resolution: {integrity: sha512-OSqSg2974eLJT5PNKFLM7156lBXCUf/dsKTQXWSzsLTf6HOP4dYP6c0YbAk6lgbNI+BdszsHNClmLVLA8H/L9A==}
-
   '@tiptap/pm@3.22.2':
     resolution: {integrity: sha512-G2ENwIazoSKkAnN5MN5yN91TIZNFm6TxB74kPf3Empr2k9W51Hkcier70jHGpArhgcEaL4BVreuU1PRDRwCeGw==}
-
-  '@tiptap/react@3.22.1':
-    resolution: {integrity: sha512-1pIRfgK9wape4nDXVJRfgUcYVZdPPkuECbGtz8bo0rgtdsVN7B8PBVCDyuitZ7acdLbMuuX5+TxeUOvME8np7Q==}
-    peerDependencies:
-      '@tiptap/core': ^3.22.1
-      '@tiptap/pm': ^3.22.1
-      '@types/react': ^18.3.23
-      '@types/react-dom': ^18.3.7
-      react: ^17.0.0 || ^18.0.0 || ^19.0.0
-      react-dom: ^17.0.0 || ^18.0.0 || ^19.0.0
 
   '@tiptap/react@3.22.2':
     resolution: {integrity: sha512-tyGKG69e/MkpoD/JTpVPz0XydEHxh1MSAYnLb3gRvyvBDv2r/veLea+cApkmjQaCfkKC/CWwTFXBYlOB0caSBA==}
@@ -8794,9 +8640,6 @@ packages:
       '@types/react-dom': ^18.3.7
       react: ^17.0.0 || ^18.0.0 || ^19.0.0
       react-dom: ^17.0.0 || ^18.0.0 || ^19.0.0
-
-  '@tiptap/starter-kit@3.22.1':
-    resolution: {integrity: sha512-1fFmURkgofxgP9GW993bSpxf2rIJzQbWZ9rPw17qbAVuGouIArG+Fd/A1WUD95Vdbx6JIrc1QxbNlLs7bhcoPA==}
 
   '@tiptap/starter-kit@3.22.2':
     resolution: {integrity: sha512-+CCKX8tOQ/ZPb2k/z6em4AQCFYAcdd8+0TOzPWiuLxRyCHRPBBVhnPsXOKgKwE4OO3E8BsezquuYRYRwsyzCqg==}
@@ -10499,8 +10342,8 @@ packages:
     resolution: {integrity: sha512-7OZcmQUrdGI+DUNNsKBn1aW8qSoKuTH7d0mYgSP8bAzdFzKoovxEFnoGQp2dVs82EOJeYycqRtciopszwUf8bw==}
     hasBin: true
 
-  drizzle-orm@0.44.7:
-    resolution: {integrity: sha512-quIpnYznjU9lHshEOAYLoZ9s3jweleHlZIAWR/jX9gAWNg/JhQ1wj0KGRf7/Zm+obRrYd9GjPVJg790QY9N5AQ==}
+  drizzle-orm@0.45.2:
+    resolution: {integrity: sha512-kY0BSaTNYWnoDMVoyY8uxmyHjpJW1geOmBMdSSicKo9CIIWkSxMIj2rkeSR51b8KAPB7m+qysjuHme5nKP+E5Q==}
     peerDependencies:
       '@aws-sdk/client-rds-data': '>=3'
       '@cloudflare/workers-types': '>=4'
@@ -13287,8 +13130,8 @@ packages:
     resolution: {integrity: sha512-9ZhXKM/rw350N1ovuWHbGxnGh/SNJ4cnxHiM0rxE4VN41wsg8P8zWn9hv/buK00RP4WvlOyr/RBDiptyxVbkZQ==}
     engines: {node: '>=0.10.0'}
 
-  postgres@3.4.8:
-    resolution: {integrity: sha512-d+JFcLM17njZaOLkv6SCev7uoLaBtfK86vMUXhW1Z4glPWh4jozno9APvW/XKFJ3CCxVoC7OL38BqRydtu5nGg==}
+  postgres@3.4.9:
+    resolution: {integrity: sha512-GD3qdB0x1z9xgFI6cdRD6xu2Sp2WCOEoe3mtnyB5Ee0XrrL5Pe+e4CCnJrRMnL1zYtRDZmQQVbvOttLnKDLnaw==}
     engines: {node: '>=12'}
 
   postject@1.0.0-alpha.6:
@@ -16173,12 +16016,12 @@ snapshots:
       nanostores: 1.2.0
       zod: 4.3.6
 
-  '@better-auth/drizzle-adapter@1.6.0(@better-auth/core@1.6.0(@better-auth/utils@0.4.0)(@better-fetch/fetch@1.1.21)(@opentelemetry/api@1.9.1)(better-call@1.3.5(zod@3.25.76))(jose@6.2.2)(kysely@0.28.15)(nanostores@1.2.0))(@better-auth/utils@0.4.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.8))':
+  '@better-auth/drizzle-adapter@1.6.0(@better-auth/core@1.6.0(@better-auth/utils@0.4.0)(@better-fetch/fetch@1.1.21)(@opentelemetry/api@1.9.1)(better-call@1.3.5(zod@3.25.76))(jose@6.2.2)(kysely@0.28.15)(nanostores@1.2.0))(@better-auth/utils@0.4.0)(drizzle-orm@0.45.2(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.9))':
     dependencies:
       '@better-auth/core': 1.6.0(@better-auth/utils@0.4.0)(@better-fetch/fetch@1.1.21)(@opentelemetry/api@1.9.1)(better-call@1.3.5(zod@3.25.76))(jose@6.2.2)(kysely@0.28.15)(nanostores@1.2.0)
       '@better-auth/utils': 0.4.0
     optionalDependencies:
-      drizzle-orm: 0.44.7(@libsql/client@0.15.15)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.8)
+      drizzle-orm: 0.45.2(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.9)
 
   '@better-auth/kysely-adapter@1.6.0(@better-auth/core@1.6.0(@better-auth/utils@0.4.0)(@better-fetch/fetch@1.1.21)(@opentelemetry/api@1.9.1)(better-call@1.3.5(zod@3.25.76))(jose@6.2.2)(kysely@0.28.15)(nanostores@1.2.0))(@better-auth/utils@0.4.0)(kysely@0.28.15)':
     dependencies:
@@ -17893,10 +17736,7 @@ snapshots:
 
   '@neon-rs/load@0.0.4': {}
 
-  '@neondatabase/serverless@1.0.2':
-    dependencies:
-      '@types/node': 22.19.17
-      '@types/pg': 8.20.0
+  '@neondatabase/serverless@1.1.0': {}
 
   '@noble/ciphers@2.1.1': {}
 
@@ -20764,36 +20604,17 @@ snapshots:
       '@types/react': 18.3.28
       '@types/react-dom': 18.3.7(@types/react@18.3.28)
 
-  '@tiptap/core@3.22.2(@tiptap/pm@3.22.1)':
-    dependencies:
-      '@tiptap/pm': 3.22.1
-
   '@tiptap/core@3.22.2(@tiptap/pm@3.22.2)':
     dependencies:
       '@tiptap/pm': 3.22.2
-
-  '@tiptap/extension-blockquote@3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))':
-    dependencies:
-      '@tiptap/core': 3.22.2(@tiptap/pm@3.22.1)
 
   '@tiptap/extension-blockquote@3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))':
     dependencies:
       '@tiptap/core': 3.22.2(@tiptap/pm@3.22.2)
 
-  '@tiptap/extension-bold@3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))':
-    dependencies:
-      '@tiptap/core': 3.22.2(@tiptap/pm@3.22.1)
-
   '@tiptap/extension-bold@3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))':
     dependencies:
       '@tiptap/core': 3.22.2(@tiptap/pm@3.22.2)
-
-  '@tiptap/extension-bubble-menu@3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.1)':
-    dependencies:
-      '@floating-ui/dom': 1.7.6
-      '@tiptap/core': 3.22.2(@tiptap/pm@3.22.1)
-      '@tiptap/pm': 3.22.1
-    optional: true
 
   '@tiptap/extension-bubble-menu@3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))(@tiptap/pm@3.22.2)':
     dependencies:
@@ -20801,21 +20622,9 @@ snapshots:
       '@tiptap/core': 3.22.2(@tiptap/pm@3.22.2)
       '@tiptap/pm': 3.22.2
 
-  '@tiptap/extension-bullet-list@3.22.1(@tiptap/extension-list@3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.2))':
-    dependencies:
-      '@tiptap/extension-list': 3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.1)
-
   '@tiptap/extension-bullet-list@3.22.2(@tiptap/extension-list@3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))(@tiptap/pm@3.22.2))':
     dependencies:
       '@tiptap/extension-list': 3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))(@tiptap/pm@3.22.2)
-
-  '@tiptap/extension-code-block-lowlight@3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/extension-code-block@3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.1)(highlight.js@11.11.1)(lowlight@3.3.0)':
-    dependencies:
-      '@tiptap/core': 3.22.2(@tiptap/pm@3.22.1)
-      '@tiptap/extension-code-block': 3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.1)
-      '@tiptap/pm': 3.22.1
-      highlight.js: 11.11.1
-      lowlight: 3.3.0
 
   '@tiptap/extension-code-block-lowlight@3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))(@tiptap/extension-code-block@3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))(@tiptap/pm@3.22.2))(@tiptap/pm@3.22.2)(highlight.js@11.11.1)(lowlight@3.3.0)':
     dependencies:
@@ -20825,24 +20634,10 @@ snapshots:
       highlight.js: 11.11.1
       lowlight: 3.3.0
 
-  '@tiptap/extension-code-block@3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.2)':
-    dependencies:
-      '@tiptap/core': 3.22.2(@tiptap/pm@3.22.1)
-      '@tiptap/pm': 3.22.2
-
-  '@tiptap/extension-code-block@3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.1)':
-    dependencies:
-      '@tiptap/core': 3.22.2(@tiptap/pm@3.22.1)
-      '@tiptap/pm': 3.22.1
-
   '@tiptap/extension-code-block@3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))(@tiptap/pm@3.22.2)':
     dependencies:
       '@tiptap/core': 3.22.2(@tiptap/pm@3.22.2)
       '@tiptap/pm': 3.22.2
-
-  '@tiptap/extension-code@3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))':
-    dependencies:
-      '@tiptap/core': 3.22.2(@tiptap/pm@3.22.1)
 
   '@tiptap/extension-code@3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))':
     dependencies:
@@ -20865,28 +20660,13 @@ snapshots:
     dependencies:
       '@tiptap/extension-text-style': 3.22.3(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))
 
-  '@tiptap/extension-document@3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))':
-    dependencies:
-      '@tiptap/core': 3.22.2(@tiptap/pm@3.22.1)
-
   '@tiptap/extension-document@3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))':
     dependencies:
       '@tiptap/core': 3.22.2(@tiptap/pm@3.22.2)
 
-  '@tiptap/extension-dropcursor@3.22.1(@tiptap/extensions@3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.2))':
-    dependencies:
-      '@tiptap/extensions': 3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.2)
-
   '@tiptap/extension-dropcursor@3.22.2(@tiptap/extensions@3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))(@tiptap/pm@3.22.2))':
     dependencies:
       '@tiptap/extensions': 3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))(@tiptap/pm@3.22.2)
-
-  '@tiptap/extension-floating-menu@3.22.1(@floating-ui/dom@1.7.6)(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.1)':
-    dependencies:
-      '@floating-ui/dom': 1.7.6
-      '@tiptap/core': 3.22.2(@tiptap/pm@3.22.1)
-      '@tiptap/pm': 3.22.1
-    optional: true
 
   '@tiptap/extension-floating-menu@3.22.2(@floating-ui/dom@1.7.6)(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))(@tiptap/pm@3.22.2)':
     dependencies:
@@ -20895,67 +20675,30 @@ snapshots:
       '@tiptap/pm': 3.22.2
     optional: true
 
-  '@tiptap/extension-gapcursor@3.22.1(@tiptap/extensions@3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.2))':
-    dependencies:
-      '@tiptap/extensions': 3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.2)
-
   '@tiptap/extension-gapcursor@3.22.2(@tiptap/extensions@3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))(@tiptap/pm@3.22.2))':
     dependencies:
       '@tiptap/extensions': 3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))(@tiptap/pm@3.22.2)
-
-  '@tiptap/extension-hard-break@3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))':
-    dependencies:
-      '@tiptap/core': 3.22.2(@tiptap/pm@3.22.1)
 
   '@tiptap/extension-hard-break@3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))':
     dependencies:
       '@tiptap/core': 3.22.2(@tiptap/pm@3.22.2)
 
-  '@tiptap/extension-heading@3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))':
-    dependencies:
-      '@tiptap/core': 3.22.2(@tiptap/pm@3.22.1)
-
   '@tiptap/extension-heading@3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))':
     dependencies:
       '@tiptap/core': 3.22.2(@tiptap/pm@3.22.2)
-
-  '@tiptap/extension-horizontal-rule@3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.2)':
-    dependencies:
-      '@tiptap/core': 3.22.2(@tiptap/pm@3.22.1)
-      '@tiptap/pm': 3.22.2
 
   '@tiptap/extension-horizontal-rule@3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))(@tiptap/pm@3.22.2)':
     dependencies:
       '@tiptap/core': 3.22.2(@tiptap/pm@3.22.2)
       '@tiptap/pm': 3.22.2
 
-  '@tiptap/extension-image@3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))':
-    dependencies:
-      '@tiptap/core': 3.22.2(@tiptap/pm@3.22.1)
-
   '@tiptap/extension-image@3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))':
     dependencies:
       '@tiptap/core': 3.22.2(@tiptap/pm@3.22.2)
 
-  '@tiptap/extension-italic@3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))':
-    dependencies:
-      '@tiptap/core': 3.22.2(@tiptap/pm@3.22.1)
-
   '@tiptap/extension-italic@3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))':
     dependencies:
       '@tiptap/core': 3.22.2(@tiptap/pm@3.22.2)
-
-  '@tiptap/extension-link@3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.1)':
-    dependencies:
-      '@tiptap/core': 3.22.2(@tiptap/pm@3.22.1)
-      '@tiptap/pm': 3.22.1
-      linkifyjs: 4.3.2
-
-  '@tiptap/extension-link@3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.2)':
-    dependencies:
-      '@tiptap/core': 3.22.2(@tiptap/pm@3.22.1)
-      '@tiptap/pm': 3.22.2
-      linkifyjs: 4.3.2
 
   '@tiptap/extension-link@3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))(@tiptap/pm@3.22.2)':
     dependencies:
@@ -20963,59 +20706,30 @@ snapshots:
       '@tiptap/pm': 3.22.2
       linkifyjs: 4.3.2
 
-  '@tiptap/extension-list-item@3.22.1(@tiptap/extension-list@3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.2))':
-    dependencies:
-      '@tiptap/extension-list': 3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.1)
-
   '@tiptap/extension-list-item@3.22.2(@tiptap/extension-list@3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))(@tiptap/pm@3.22.2))':
     dependencies:
       '@tiptap/extension-list': 3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))(@tiptap/pm@3.22.2)
 
-  '@tiptap/extension-list-keymap@3.22.1(@tiptap/extension-list@3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.2))':
-    dependencies:
-      '@tiptap/extension-list': 3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.1)
-
   '@tiptap/extension-list-keymap@3.22.2(@tiptap/extension-list@3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))(@tiptap/pm@3.22.2))':
     dependencies:
       '@tiptap/extension-list': 3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))(@tiptap/pm@3.22.2)
-
-  '@tiptap/extension-list@3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.1)':
-    dependencies:
-      '@tiptap/core': 3.22.2(@tiptap/pm@3.22.1)
-      '@tiptap/pm': 3.22.1
 
   '@tiptap/extension-list@3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))(@tiptap/pm@3.22.2)':
     dependencies:
       '@tiptap/core': 3.22.2(@tiptap/pm@3.22.2)
       '@tiptap/pm': 3.22.2
 
-  '@tiptap/extension-ordered-list@3.22.1(@tiptap/extension-list@3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.2))':
-    dependencies:
-      '@tiptap/extension-list': 3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.1)
-
   '@tiptap/extension-ordered-list@3.22.2(@tiptap/extension-list@3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))(@tiptap/pm@3.22.2))':
     dependencies:
       '@tiptap/extension-list': 3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))(@tiptap/pm@3.22.2)
-
-  '@tiptap/extension-paragraph@3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))':
-    dependencies:
-      '@tiptap/core': 3.22.2(@tiptap/pm@3.22.1)
 
   '@tiptap/extension-paragraph@3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))':
     dependencies:
       '@tiptap/core': 3.22.2(@tiptap/pm@3.22.2)
 
-  '@tiptap/extension-placeholder@3.22.1(@tiptap/extensions@3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.1))':
-    dependencies:
-      '@tiptap/extensions': 3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.1)
-
   '@tiptap/extension-placeholder@3.22.2(@tiptap/extensions@3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))(@tiptap/pm@3.22.2))':
     dependencies:
       '@tiptap/extensions': 3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))(@tiptap/pm@3.22.2)
-
-  '@tiptap/extension-strike@3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))':
-    dependencies:
-      '@tiptap/core': 3.22.2(@tiptap/pm@3.22.1)
 
   '@tiptap/extension-strike@3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))':
     dependencies:
@@ -21050,57 +20764,18 @@ snapshots:
     dependencies:
       '@tiptap/core': 3.22.2(@tiptap/pm@3.22.2)
 
-  '@tiptap/extension-text@3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))':
-    dependencies:
-      '@tiptap/core': 3.22.2(@tiptap/pm@3.22.1)
-
   '@tiptap/extension-text@3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))':
     dependencies:
       '@tiptap/core': 3.22.2(@tiptap/pm@3.22.2)
-
-  '@tiptap/extension-underline@3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))':
-    dependencies:
-      '@tiptap/core': 3.22.2(@tiptap/pm@3.22.1)
 
   '@tiptap/extension-underline@3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))':
     dependencies:
       '@tiptap/core': 3.22.2(@tiptap/pm@3.22.2)
 
-  '@tiptap/extensions@3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.2)':
-    dependencies:
-      '@tiptap/core': 3.22.2(@tiptap/pm@3.22.1)
-      '@tiptap/pm': 3.22.2
-
-  '@tiptap/extensions@3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.1)':
-    dependencies:
-      '@tiptap/core': 3.22.2(@tiptap/pm@3.22.1)
-      '@tiptap/pm': 3.22.1
-
   '@tiptap/extensions@3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))(@tiptap/pm@3.22.2)':
     dependencies:
       '@tiptap/core': 3.22.2(@tiptap/pm@3.22.2)
       '@tiptap/pm': 3.22.2
-
-  '@tiptap/pm@3.22.1':
-    dependencies:
-      prosemirror-changeset: 2.4.0
-      prosemirror-collab: 1.3.1
-      prosemirror-commands: 1.7.1
-      prosemirror-dropcursor: 1.8.2
-      prosemirror-gapcursor: 1.4.1
-      prosemirror-history: 1.5.0
-      prosemirror-inputrules: 1.5.1
-      prosemirror-keymap: 1.2.3
-      prosemirror-markdown: 1.13.4
-      prosemirror-menu: 1.3.0
-      prosemirror-model: 1.25.4
-      prosemirror-schema-basic: 1.2.4
-      prosemirror-schema-list: 1.5.1
-      prosemirror-state: 1.4.4
-      prosemirror-tables: 1.8.5
-      prosemirror-trailing-node: 3.0.0(prosemirror-model@1.25.4)(prosemirror-state@1.4.4)(prosemirror-view@1.41.8)
-      prosemirror-transform: 1.12.0
-      prosemirror-view: 1.41.8
 
   '@tiptap/pm@3.22.2':
     dependencies:
@@ -21122,23 +20797,6 @@ snapshots:
       prosemirror-trailing-node: 3.0.0(prosemirror-model@1.25.4)(prosemirror-state@1.4.4)(prosemirror-view@1.41.8)
       prosemirror-transform: 1.12.0
       prosemirror-view: 1.41.8
-
-  '@tiptap/react@3.22.1(@floating-ui/dom@1.7.6)(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.1)(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
-    dependencies:
-      '@tiptap/core': 3.22.2(@tiptap/pm@3.22.1)
-      '@tiptap/pm': 3.22.1
-      '@types/react': 18.3.28
-      '@types/react-dom': 18.3.7(@types/react@18.3.28)
-      '@types/use-sync-external-store': 0.0.6
-      fast-equals: 5.4.0
-      react: 18.3.1
-      react-dom: 18.3.1(react@18.3.1)
-      use-sync-external-store: 1.6.0(react@18.3.1)
-    optionalDependencies:
-      '@tiptap/extension-bubble-menu': 3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.1)
-      '@tiptap/extension-floating-menu': 3.22.1(@floating-ui/dom@1.7.6)(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.1)
-    transitivePeerDependencies:
-      - '@floating-ui/dom'
 
   '@tiptap/react@3.22.2(@floating-ui/dom@1.7.6)(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))(@tiptap/pm@3.22.2)(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
@@ -21173,33 +20831,6 @@ snapshots:
       '@tiptap/extension-floating-menu': 3.22.2(@floating-ui/dom@1.7.6)(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))(@tiptap/pm@3.22.2)
     transitivePeerDependencies:
       - '@floating-ui/dom'
-
-  '@tiptap/starter-kit@3.22.1':
-    dependencies:
-      '@tiptap/core': 3.22.2(@tiptap/pm@3.22.2)
-      '@tiptap/extension-blockquote': 3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))
-      '@tiptap/extension-bold': 3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))
-      '@tiptap/extension-bullet-list': 3.22.1(@tiptap/extension-list@3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.2))
-      '@tiptap/extension-code': 3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))
-      '@tiptap/extension-code-block': 3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.2)
-      '@tiptap/extension-document': 3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))
-      '@tiptap/extension-dropcursor': 3.22.1(@tiptap/extensions@3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.2))
-      '@tiptap/extension-gapcursor': 3.22.1(@tiptap/extensions@3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.2))
-      '@tiptap/extension-hard-break': 3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))
-      '@tiptap/extension-heading': 3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))
-      '@tiptap/extension-horizontal-rule': 3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.2)
-      '@tiptap/extension-italic': 3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))
-      '@tiptap/extension-link': 3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.2)
-      '@tiptap/extension-list': 3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.1)
-      '@tiptap/extension-list-item': 3.22.1(@tiptap/extension-list@3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.2))
-      '@tiptap/extension-list-keymap': 3.22.1(@tiptap/extension-list@3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.2))
-      '@tiptap/extension-ordered-list': 3.22.1(@tiptap/extension-list@3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.2))
-      '@tiptap/extension-paragraph': 3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))
-      '@tiptap/extension-strike': 3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))
-      '@tiptap/extension-text': 3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))
-      '@tiptap/extension-underline': 3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))
-      '@tiptap/extensions': 3.22.1(@tiptap/core@3.22.2(@tiptap/pm@3.22.1))(@tiptap/pm@3.22.2)
-      '@tiptap/pm': 3.22.2
 
   '@tiptap/starter-kit@3.22.2':
     dependencies:
@@ -21540,6 +21171,7 @@ snapshots:
       '@types/node': 24.12.2
       pg-protocol: 1.13.0
       pg-types: 2.2.0
+    optional: true
 
   '@types/plist@3.0.5':
     dependencies:
@@ -22137,10 +21769,10 @@ snapshots:
 
   baseline-browser-mapping@2.10.14: {}
 
-  better-auth@1.6.0(@opentelemetry/api@1.9.1)(better-sqlite3@12.8.0)(drizzle-kit@0.31.10)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.8))(pg@8.20.0)(react-dom@19.2.4(react@18.3.1))(react@18.3.1)(solid-js@1.9.12)(vitest@3.2.4(@types/debug@4.1.13)(@types/node@24.12.2)(happy-dom@20.8.9)(jsdom@28.1.0(@noble/hashes@2.0.1)(canvas@3.2.3))(lightningcss@1.32.0)(terser@5.46.1)):
+  better-auth@1.6.0(@opentelemetry/api@1.9.1)(better-sqlite3@12.8.0)(drizzle-kit@0.31.10)(drizzle-orm@0.45.2(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.9))(pg@8.20.0)(react-dom@19.2.4(react@18.3.1))(react@18.3.1)(solid-js@1.9.12)(vitest@3.2.4(@types/debug@4.1.13)(@types/node@24.12.2)(happy-dom@20.8.9)(jsdom@28.1.0(@noble/hashes@2.0.1)(canvas@3.2.3))(lightningcss@1.32.0)(terser@5.46.1)):
     dependencies:
       '@better-auth/core': 1.6.0(@better-auth/utils@0.4.0)(@better-fetch/fetch@1.1.21)(@opentelemetry/api@1.9.1)(better-call@1.3.5(zod@3.25.76))(jose@6.2.2)(kysely@0.28.15)(nanostores@1.2.0)
-      '@better-auth/drizzle-adapter': 1.6.0(@better-auth/core@1.6.0(@better-auth/utils@0.4.0)(@better-fetch/fetch@1.1.21)(@opentelemetry/api@1.9.1)(better-call@1.3.5(zod@3.25.76))(jose@6.2.2)(kysely@0.28.15)(nanostores@1.2.0))(@better-auth/utils@0.4.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.8))
+      '@better-auth/drizzle-adapter': 1.6.0(@better-auth/core@1.6.0(@better-auth/utils@0.4.0)(@better-fetch/fetch@1.1.21)(@opentelemetry/api@1.9.1)(better-call@1.3.5(zod@3.25.76))(jose@6.2.2)(kysely@0.28.15)(nanostores@1.2.0))(@better-auth/utils@0.4.0)(drizzle-orm@0.45.2(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.9))
       '@better-auth/kysely-adapter': 1.6.0(@better-auth/core@1.6.0(@better-auth/utils@0.4.0)(@better-fetch/fetch@1.1.21)(@opentelemetry/api@1.9.1)(better-call@1.3.5(zod@3.25.76))(jose@6.2.2)(kysely@0.28.15)(nanostores@1.2.0))(@better-auth/utils@0.4.0)(kysely@0.28.15)
       '@better-auth/memory-adapter': 1.6.0(@better-auth/core@1.6.0(@better-auth/utils@0.4.0)(@better-fetch/fetch@1.1.21)(@opentelemetry/api@1.9.1)(better-call@1.3.5(zod@3.25.76))(jose@6.2.2)(kysely@0.28.15)(nanostores@1.2.0))(@better-auth/utils@0.4.0)
       '@better-auth/mongo-adapter': 1.6.0(@better-auth/core@1.6.0(@better-auth/utils@0.4.0)(@better-fetch/fetch@1.1.21)(@opentelemetry/api@1.9.1)(better-call@1.3.5(zod@3.25.76))(jose@6.2.2)(kysely@0.28.15)(nanostores@1.2.0))(@better-auth/utils@0.4.0)
@@ -22159,7 +21791,7 @@ snapshots:
     optionalDependencies:
       better-sqlite3: 12.8.0
       drizzle-kit: 0.31.10
-      drizzle-orm: 0.44.7(@libsql/client@0.15.15)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.8)
+      drizzle-orm: 0.45.2(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.9)
       pg: 8.20.0
       react: 18.3.1
       react-dom: 19.2.4(react@18.3.1)
@@ -22962,11 +22594,11 @@ snapshots:
 
   dayjs@1.11.20: {}
 
-  db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.8.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.8)):
+  db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.8.0)(drizzle-orm@0.45.2(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.9)):
     optionalDependencies:
       '@libsql/client': 0.15.15
       better-sqlite3: 12.8.0
-      drizzle-orm: 0.44.7(@libsql/client@0.15.15)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.8)
+      drizzle-orm: 0.45.2(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.9)
 
   debug@2.6.9:
     dependencies:
@@ -23141,17 +22773,17 @@ snapshots:
       esbuild: 0.25.12
       tsx: 4.21.0
 
-  drizzle-orm@0.44.7(@libsql/client@0.15.15)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.8):
+  drizzle-orm@0.45.2(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.9):
     optionalDependencies:
       '@libsql/client': 0.15.15
-      '@neondatabase/serverless': 1.0.2
+      '@neondatabase/serverless': 1.1.0
       '@opentelemetry/api': 1.9.1
       '@types/better-sqlite3': 7.6.13
       '@types/pg': 8.20.0
       better-sqlite3: 12.8.0
       kysely: 0.28.15
       pg: 8.20.0
-      postgres: 3.4.8
+      postgres: 3.4.9
 
   dunder-proto@1.0.1:
     dependencies:
@@ -26249,11 +25881,11 @@ snapshots:
 
   nf3@0.3.16: {}
 
-  nitro@3.0.260311-beta(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@libsql/client@0.15.15)(better-sqlite3@12.8.0)(chokidar@4.0.3)(dotenv@17.4.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.8))(giget@3.2.0)(ioredis@5.10.1)(jiti@1.21.7)(lru-cache@11.2.7)(miniflare@4.20260405.0)(rollup@4.60.1)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@1.21.7)(terser@5.46.1)(tsx@4.21.0)):
+  nitro@3.0.260311-beta(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@libsql/client@0.15.15)(better-sqlite3@12.8.0)(chokidar@4.0.3)(dotenv@17.4.0)(drizzle-orm@0.45.2(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.9))(giget@3.2.0)(ioredis@5.10.1)(jiti@1.21.7)(lru-cache@11.2.7)(miniflare@4.20260405.0)(rollup@4.60.1)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@1.21.7)(terser@5.46.1)(tsx@4.21.0)):
     dependencies:
       consola: 3.4.2
       crossws: 0.4.4(srvx@0.11.15)
-      db0: 0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.8.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.8))
+      db0: 0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.8.0)(drizzle-orm@0.45.2(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.9))
       env-runner: 0.1.7(miniflare@4.20260405.0)
       h3: 2.0.1-rc.20(crossws@0.4.4(srvx@0.11.15))
       hookable: 6.1.0
@@ -26264,7 +25896,7 @@ snapshots:
       rolldown: 1.0.0-rc.12(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)
       srvx: 0.11.15
       unenv: 2.0.0-rc.24
-      unstorage: 2.0.0-alpha.7(chokidar@4.0.3)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.8.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.8)))(ioredis@5.10.1)(lru-cache@11.2.7)(ofetch@2.0.0-alpha.3)
+      unstorage: 2.0.0-alpha.7(chokidar@4.0.3)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.8.0)(drizzle-orm@0.45.2(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.9)))(ioredis@5.10.1)(lru-cache@11.2.7)(ofetch@2.0.0-alpha.3)
     optionalDependencies:
       dotenv: 17.4.0
       giget: 3.2.0
@@ -26602,14 +26234,16 @@ snapshots:
   pg-connection-string@2.12.0:
     optional: true
 
-  pg-int8@1.0.1: {}
+  pg-int8@1.0.1:
+    optional: true
 
   pg-pool@3.13.0(pg@8.20.0):
     dependencies:
       pg: 8.20.0
     optional: true
 
-  pg-protocol@1.13.0: {}
+  pg-protocol@1.13.0:
+    optional: true
 
   pg-types@2.2.0:
     dependencies:
@@ -26618,6 +26252,7 @@ snapshots:
       postgres-bytea: 1.0.1
       postgres-date: 1.0.7
       postgres-interval: 1.2.0
+    optional: true
 
   pg@8.20.0:
     dependencies:
@@ -26750,17 +26385,21 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
-  postgres-array@2.0.0: {}
+  postgres-array@2.0.0:
+    optional: true
 
-  postgres-bytea@1.0.1: {}
+  postgres-bytea@1.0.1:
+    optional: true
 
-  postgres-date@1.0.7: {}
+  postgres-date@1.0.7:
+    optional: true
 
   postgres-interval@1.2.0:
     dependencies:
       xtend: 4.0.2
+    optional: true
 
-  postgres@3.4.8: {}
+  postgres@3.4.9: {}
 
   postject@1.0.0-alpha.6:
     dependencies:
@@ -28341,14 +27980,6 @@ snapshots:
 
   tinyspy@4.0.4: {}
 
-  tiptap-markdown@0.9.0(@tiptap/core@3.22.2(@tiptap/pm@3.22.1)):
-    dependencies:
-      '@tiptap/core': 3.22.2(@tiptap/pm@3.22.1)
-      '@types/markdown-it': 13.0.9
-      markdown-it: 14.1.1
-      markdown-it-task-lists: 2.1.1
-      prosemirror-markdown: 1.13.4
-
   tiptap-markdown@0.9.0(@tiptap/core@3.22.2(@tiptap/pm@3.22.2)):
     dependencies:
       '@tiptap/core': 3.22.2(@tiptap/pm@3.22.2)
@@ -28570,10 +28201,10 @@ snapshots:
 
   unpipe@1.0.0: {}
 
-  unstorage@2.0.0-alpha.7(chokidar@4.0.3)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.8.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.8)))(ioredis@5.10.1)(lru-cache@11.2.7)(ofetch@2.0.0-alpha.3):
+  unstorage@2.0.0-alpha.7(chokidar@4.0.3)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.8.0)(drizzle-orm@0.45.2(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.9)))(ioredis@5.10.1)(lru-cache@11.2.7)(ofetch@2.0.0-alpha.3):
     optionalDependencies:
       chokidar: 4.0.3
-      db0: 0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.8.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.8))
+      db0: 0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.8.0)(drizzle-orm@0.45.2(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.9))
       ioredis: 5.10.1
       lru-cache: 11.2.7
       ofetch: 2.0.0-alpha.3
@@ -29137,7 +28768,8 @@ snapshots:
 
   xmlchars@2.2.0: {}
 
-  xtend@4.0.2: {}
+  xtend@4.0.2:
+    optional: true
 
   y-protocols@1.0.7(yjs@13.6.30):
     dependencies:

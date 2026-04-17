@@ -19,7 +19,7 @@
     "@agent-native/core": "workspace:*",
     "@supabase/supabase-js": "^2.101.1",
     "@tabler/icons-react": "^3.40.0",
-    "drizzle-orm": "^0.44.0",
+    "drizzle-orm": "^0.45.2",
     "h3": "^2.0.1-rc.20",
     "isbot": "^5",
     "recharts": "2.15.4",
