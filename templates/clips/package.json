@@ -19,11 +19,13 @@
     "@ffmpeg/ffmpeg": "^0.12.15",
     "@ffmpeg/util": "^0.12.2",
     "@libsql/client": "^0.15.8",
+    "@neondatabase/serverless": "^1.1.0",
     "@tabler/icons-react": "^3.40.0",
     "drizzle-orm": "^0.44.0",
     "h3": "^2.0.1-rc.20",
     "isbot": "^5",
     "openai": "^4.76.0",
+    "postgres": "^3.4.9",
     "zod": "^4.3.6"
   },
   "devDependencies": {
