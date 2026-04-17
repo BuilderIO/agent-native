@@ -68,7 +68,7 @@ body {
 }
 
 body {
-  overflow: hidden;
+  overflow: visible;
 }
 
 button {
@@ -79,7 +79,6 @@ button {
 
 #root {
   width: 100vw;
-  min-height: 100vh;
   background: transparent;
 }
 
@@ -98,7 +97,8 @@ button {
   border-radius: 14px;
   /* Subtle drop shadow so the popover visually detaches from the menu bar. */
   box-shadow: var(--shadow-md);
-  min-height: 100vh;
+  /* No fixed height — the Tauri window is resized to match the rendered
+     content via resize_popover, so the shell just flows naturally. */
 }
 
 /* Header — logo + mode toggle + close */
@@ -184,29 +184,6 @@ button {
 }
 
 /* ------------------------------------------------------------------------- */
-/* Live camera preview (pre-record)                                           */
-/* ------------------------------------------------------------------------- */
-
-.camera-preview {
-  margin: 0 0 10px 0;
-  aspect-ratio: 16 / 9;
-  border-radius: var(--radius);
-  overflow: hidden;
-  background: #000;
-  border: 1px solid var(--border);
-}
-
-.camera-preview-video {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  /* Mirror so moving right on screen moves right in preview — matches the
-     webcam self-view convention users expect. */
-  transform: scaleX(-1);
-  display: block;
-}
-
-/* ------------------------------------------------------------------------- */
 /* Source / device rows                                                       */
 /* ------------------------------------------------------------------------- */
 
@@ -275,6 +252,110 @@ button {
 .row-select:focus-visible {
   box-shadow: 0 0 0 2px var(--brand-ring);
   border-radius: 4px;
+}
+
+/* Custom device picker — button + popover menu (replaces native <select>). */
+.row-button {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  outline: none;
+  text-align: left;
+}
+
+.row-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.row-button:focus-visible {
+  box-shadow: 0 0 0 2px var(--brand-ring);
+  border-radius: 4px;
+}
+
+.row-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-chev {
+  display: inline-flex;
+  color: var(--fg-muted);
+  flex-shrink: 0;
+}
+
+/* Popover menu rendered below a device row. */
+.row-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  padding: 4px;
+  z-index: 10;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.row-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.row-menu-item:hover {
+  background: var(--surface-hover);
+}
+
+.row-menu-item.selected {
+  color: var(--brand);
+}
+
+.row-menu-check {
+  width: 16px;
+  display: inline-flex;
+  justify-content: center;
+  color: var(--brand);
+  flex-shrink: 0;
+}
+
+.row-menu-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-menu-empty {
+  padding: 10px 12px;
+  color: var(--fg-muted);
+  font-size: 13px;
 }
 
 /* Toggle chip — mirrors Loom's On/Off pill. Green when on, subtle when off. */

@@ -151,6 +151,24 @@ async fn hide_overlays(app: AppHandle) -> Result<(), String> {
 /// Show the popover window without toggling, and keep it shown even if it
 /// loses focus (popover hides on blur by default, but during post-recording
 /// review we want it sticky while the user reads the "Recording saved" copy).
+/// Resize the popover window to match the rendered React app height. The
+/// React side measures its own shell with a ResizeObserver and calls this
+/// whenever the height changes — gives us auto-sizing without having to
+/// pick a fixed popover size that fits every state.
+#[tauri::command]
+async fn resize_popover(app: AppHandle, height: f64) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("popover") {
+        let clamped = height.clamp(200.0, 820.0);
+        let _ = w.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
+            360.0, clamped,
+        )));
+        // Re-anchor to the tray icon so the window doesn't drift below the
+        // bottom of the monitor after a growth.
+        position_popover(&app, &w);
+    }
+    Ok(())
+}
+
 #[tauri::command]
 async fn show_popover(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("popover") {
@@ -299,6 +317,7 @@ pub fn run() {
             show_bubble,
             hide_overlays,
             show_popover,
+            resize_popover,
         ])
         .plugin(tauri_plugin_shell::init())
         .plugin(

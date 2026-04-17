@@ -62,22 +62,30 @@ async function createRecording(
   hasCamera: boolean,
   hasAudio: boolean,
 ) {
-  const res = await fetch(
-    `${serverUrl.replace(/\/+$/, "")}/_agent-native/actions/create-recording`,
-    {
+  const url = `${serverUrl.replace(/\/+$/, "")}/_agent-native/actions/create-recording`;
+  console.log("[clips-recorder] POST", url, { hasCamera, hasAudio });
+  let res: Response;
+  try {
+    res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      // Tauri webview runs on localhost:1420 (dev) or tauri://localhost (prod);
-      // the clips server is a different origin. The framework's dev CORS is
-      // permissive for "*" but won't accept credentialed requests without
-      // Allow-Credentials — and in dev auth is bypassed anyway, so we don't
-      // need cookies.
+      // Tauri webview is a different origin from the clips server. The dev
+      // CORS middleware is permissive for "*" but won't accept credentialed
+      // requests without Allow-Credentials — and dev auth is bypassed, so
+      // cookies aren't needed.
       credentials: "omit",
       body: JSON.stringify({ hasCamera, hasAudio }),
-    },
-  );
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[clips-recorder] fetch failed:", url, err);
+    throw new Error(
+      `Can't reach Clips server at ${url} — ${msg}. Is the dev server running on that port?`,
+    );
+  }
   if (!res.ok) {
     const body = await res.text().catch(() => "");
+    console.error("[clips-recorder] bad response:", url, res.status, body);
     throw new Error(`create-recording ${res.status}: ${body.slice(0, 200)}`);
   }
   return (await res.json()) as { id: string };
@@ -127,15 +135,27 @@ export async function startNativeRecording(
   const wantsScreen = params.mode !== "camera";
   const wantsCamera = params.mode !== "screen" && params.cameraOn;
   const wantsAudio = params.micOn;
+  console.log("[clips-recorder] startNativeRecording", {
+    serverUrl: params.serverUrl,
+    mode: params.mode,
+    wantsScreen,
+    wantsCamera,
+    wantsAudio,
+  });
 
   // 1. Acquire streams BEFORE the countdown so the user gets the permission
   //    prompts out of the way while the popover is still focused.
   let displayStream: MediaStream | null = null;
   if (wantsScreen) {
+    console.log("[clips-recorder] requesting display media");
     displayStream = await navigator.mediaDevices.getDisplayMedia({
       video: { frameRate: 30 },
       audio: true,
     });
+    console.log(
+      "[clips-recorder] display media acquired",
+      displayStream.getTracks().map((t) => t.kind),
+    );
   }
   let audioStream: MediaStream | null = null;
   if (wantsAudio) {
@@ -174,9 +194,11 @@ export async function startNativeRecording(
     wantsCamera,
     wantsAudio,
   );
+  console.log("[clips-recorder] recording row created", { id });
 
   // 3. Countdown overlay. The popover can hide (or even blur) during the
   //    countdown — the overlay is a standalone window.
+  console.log("[clips-recorder] show_countdown");
   await invoke("show_countdown");
   try {
     await waitForEvent("clips:countdown-done", 8000);

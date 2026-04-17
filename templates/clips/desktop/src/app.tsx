@@ -126,61 +126,16 @@ export function App() {
     loadDevices();
   }, [loadDevices]);
 
-  // ---- live camera preview inside the popover -----------------------------
-  // Matches the Loom-style UX: show the user their own face as soon as the
-  // popover opens, so they know exactly what'll be captured before hitting
-  // record. Stream is torn down when camera is toggled off, the mode loses
-  // its camera, or the recorder takes over.
+  // ---- pre-record camera bubble overlay -----------------------------------
+  // As soon as the popover has a camera configured we drop the bubble into
+  // the bottom-left of the screen so the user can drag it into place before
+  // hitting record. Nothing renders inside the popover itself — the popover
+  // is config, not capture.
 
-  const previewVideoRef = useRef<HTMLVideoElement | null>(null);
-  const previewStreamRef = useRef<MediaStream | null>(null);
-  const showCameraPreview = mode !== "screen" && cameraOn && !isRecording;
+  const showBubblePreview = mode !== "screen" && cameraOn && !isRecording;
 
   useEffect(() => {
-    let cancelled = false;
-    async function attach() {
-      if (!showCameraPreview) return;
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: cameraId ? { deviceId: { exact: cameraId } } : true,
-          audio: false,
-        });
-        if (cancelled) {
-          stream.getTracks().forEach((t) => t.stop());
-          return;
-        }
-        previewStreamRef.current = stream;
-        if (previewVideoRef.current) {
-          previewVideoRef.current.srcObject = stream;
-          previewVideoRef.current.play().catch(() => {});
-        }
-      } catch {
-        // Permission denied or device busy — leave the UI empty; the user
-        // will see the camera toggle in its off state.
-      }
-    }
-    attach();
-    return () => {
-      cancelled = true;
-      const s = previewStreamRef.current;
-      if (s) {
-        s.getTracks().forEach((t) => t.stop());
-        previewStreamRef.current = null;
-      }
-      if (previewVideoRef.current) {
-        previewVideoRef.current.srcObject = null;
-      }
-    };
-  }, [showCameraPreview, cameraId]);
-
-  // ---- pre-record bubble overlay ------------------------------------------
-  // Show the on-screen camera bubble as soon as the popover has a camera
-  // configured, so the user can drag it into place BEFORE hitting record.
-  // The recording flow shows its own bubble — we tear this one down as soon
-  // as recording starts.
-
-  useEffect(() => {
-    if (!showCameraPreview) {
+    if (!showBubblePreview) {
       invoke("hide_overlays").catch(() => {});
       return;
     }
@@ -189,7 +144,30 @@ export function App() {
       emit("clips:bubble-config", { deviceId: cameraId }).catch(() => {});
     }, 250);
     return () => clearTimeout(t);
-  }, [showCameraPreview, cameraId]);
+  }, [showBubblePreview, cameraId]);
+
+  // ---- auto-size popover to content --------------------------------------
+  // The Tauri window is fixed-size via tauri.conf.json, but our content
+  // height varies (more rows when a camera is on, Recent list toggle, etc.).
+  // A ResizeObserver on the app shell tells Rust what the current
+  // content height is and we call `resize_popover` to match.
+  const appRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = appRef.current;
+    if (!el) return;
+    let last = 0;
+    const push = () => {
+      const h = Math.ceil(el.getBoundingClientRect().height);
+      if (h && Math.abs(h - last) >= 2) {
+        last = h;
+        invoke("resize_popover", { height: h }).catch(() => {});
+      }
+    };
+    push();
+    const ro = new ResizeObserver(push);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   // ---- recent list --------------------------------------------------------
 
@@ -308,20 +286,8 @@ export function App() {
   const showSourceRow = mode !== "camera"; // camera-only has no screen source
 
   return (
-    <div className="app">
+    <div className="app" ref={appRef}>
       <Header mode={mode} onModeChange={setMode} />
-
-      {showCameraPreview ? (
-        <div className="camera-preview">
-          <video
-            ref={previewVideoRef}
-            autoPlay
-            muted
-            playsInline
-            className="camera-preview-video"
-          />
-        </div>
-      ) : null}
 
       <div className="panel">
         {showSourceRow ? (
@@ -546,37 +512,91 @@ function DeviceRow({
     () => devices.find((d) => d.deviceId === selectedId) ?? devices[0],
     [devices, selectedId],
   );
-  const label = truncate(
-    current?.label || (kind === "camera" ? "Default camera" : "Default mic"),
-    22,
-  );
+  const label =
+    current?.label || (kind === "camera" ? "Default camera" : "Default mic");
   const Icon = kind === "camera" ? CameraIcon : MicIcon;
 
+  const [open, setOpen] = useState(false);
+  const rowRef = useRef<HTMLDivElement | null>(null);
+
+  // Close on outside click — native-feeling popover behavior.
+  useEffect(() => {
+    if (!open) return;
+    function onDoc(ev: MouseEvent) {
+      const el = rowRef.current;
+      if (!el) return;
+      if (!el.contains(ev.target as Node)) setOpen(false);
+    }
+    function onKey(ev: KeyboardEvent) {
+      if (ev.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const disabled = !on || devices.length === 0;
   return (
-    <div className={`row ${on ? "row-on" : "row-off"}`}>
+    <div className={`row ${on ? "row-on" : "row-off"}`} ref={rowRef}>
       <span className="row-icon">
         <Icon />
       </span>
-      <select
-        className="row-select"
-        value={current?.deviceId ?? ""}
-        onChange={(e) => onSelect(e.target.value)}
-        disabled={!on || devices.length === 0}
-        title={current?.label ?? ""}
+      <button
+        type="button"
+        className="row-button"
+        onClick={() => {
+          if (!disabled) setOpen((v) => !v);
+        }}
+        disabled={disabled}
+        title={label}
       >
-        {devices.length === 0 ? <option value="">{label}</option> : null}
-        {devices.map((d) => (
-          <option key={d.deviceId} value={d.deviceId}>
-            {d.label || (kind === "camera" ? "Camera" : "Microphone")}
-          </option>
-        ))}
-      </select>
+        <span className="row-label">{label}</span>
+        <span className="row-chev" aria-hidden>
+          <ChevronDown />
+        </span>
+      </button>
       <Toggle
         on={on}
         onChange={onToggle}
         label={kind === "camera" ? "Camera" : "Microphone"}
       />
       {kind === "mic" && on ? <MicWave /> : null}
+      {open ? (
+        <div className="row-menu" role="menu">
+          {devices.length === 0 ? (
+            <div className="row-menu-empty">
+              {kind === "camera" ? "No cameras found" : "No microphones found"}
+            </div>
+          ) : (
+            devices.map((d) => {
+              const isSelected = d.deviceId === (current?.deviceId ?? "");
+              return (
+                <button
+                  key={d.deviceId}
+                  type="button"
+                  className={`row-menu-item ${isSelected ? "selected" : ""}`}
+                  role="menuitemradio"
+                  aria-checked={isSelected}
+                  onClick={() => {
+                    onSelect(d.deviceId);
+                    setOpen(false);
+                  }}
+                >
+                  <span className="row-menu-check" aria-hidden>
+                    {isSelected ? <CheckIcon /> : null}
+                  </span>
+                  <span className="row-menu-label">
+                    {d.label || (kind === "camera" ? "Camera" : "Microphone")}
+                  </span>
+                </button>
+              );
+            })
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -794,6 +814,34 @@ function MicIcon() {
         stroke="currentColor"
         strokeWidth="1.75"
         strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function ChevronDown() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+      <path
+        d="M6 9l6 6 6-6"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+      <path
+        d="M5 12l5 5 9-11"
+        stroke="currentColor"
+        strokeWidth="2.25"
+        strokeLinecap="round"
+        strokeLinejoin="round"
       />
     </svg>
   );
