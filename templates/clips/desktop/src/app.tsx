@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { startNativeRecording, type RecorderHandle } from "./lib/recorder";
 
@@ -27,8 +27,10 @@ const MIC_ON_KEY = "clips:mic-on";
 // Sensible defaults so the user never has to type a URL on first launch.
 // Dev builds point at the local dev server; production builds point at the
 // hosted Clips instance. The user can still override from Settings.
+// Dev points at the Clips dev server (shared-app-config says 8094).
+// Prod points at the hosted Clips instance. User can override from Settings.
 const DEFAULT_URL = import.meta.env.DEV
-  ? "http://localhost:8080"
+  ? "http://localhost:8094"
   : "https://clips.agent-native.com";
 
 function loadString(key: string, fallback: string): string {
@@ -123,6 +125,71 @@ export function App() {
   useEffect(() => {
     loadDevices();
   }, [loadDevices]);
+
+  // ---- live camera preview inside the popover -----------------------------
+  // Matches the Loom-style UX: show the user their own face as soon as the
+  // popover opens, so they know exactly what'll be captured before hitting
+  // record. Stream is torn down when camera is toggled off, the mode loses
+  // its camera, or the recorder takes over.
+
+  const previewVideoRef = useRef<HTMLVideoElement | null>(null);
+  const previewStreamRef = useRef<MediaStream | null>(null);
+  const showCameraPreview = mode !== "screen" && cameraOn && !isRecording;
+
+  useEffect(() => {
+    let cancelled = false;
+    async function attach() {
+      if (!showCameraPreview) return;
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: cameraId ? { deviceId: { exact: cameraId } } : true,
+          audio: false,
+        });
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        previewStreamRef.current = stream;
+        if (previewVideoRef.current) {
+          previewVideoRef.current.srcObject = stream;
+          previewVideoRef.current.play().catch(() => {});
+        }
+      } catch {
+        // Permission denied or device busy — leave the UI empty; the user
+        // will see the camera toggle in its off state.
+      }
+    }
+    attach();
+    return () => {
+      cancelled = true;
+      const s = previewStreamRef.current;
+      if (s) {
+        s.getTracks().forEach((t) => t.stop());
+        previewStreamRef.current = null;
+      }
+      if (previewVideoRef.current) {
+        previewVideoRef.current.srcObject = null;
+      }
+    };
+  }, [showCameraPreview, cameraId]);
+
+  // ---- pre-record bubble overlay ------------------------------------------
+  // Show the on-screen camera bubble as soon as the popover has a camera
+  // configured, so the user can drag it into place BEFORE hitting record.
+  // The recording flow shows its own bubble — we tear this one down as soon
+  // as recording starts.
+
+  useEffect(() => {
+    if (!showCameraPreview) {
+      invoke("hide_overlays").catch(() => {});
+      return;
+    }
+    invoke("show_bubble").catch(() => {});
+    const t = setTimeout(() => {
+      emit("clips:bubble-config", { deviceId: cameraId }).catch(() => {});
+    }, 250);
+    return () => clearTimeout(t);
+  }, [showCameraPreview, cameraId]);
 
   // ---- recent list --------------------------------------------------------
 
@@ -243,6 +310,18 @@ export function App() {
   return (
     <div className="app">
       <Header mode={mode} onModeChange={setMode} />
+
+      {showCameraPreview ? (
+        <div className="camera-preview">
+          <video
+            ref={previewVideoRef}
+            autoPlay
+            muted
+            playsInline
+            className="camera-preview-video"
+          />
+        </div>
+      ) : null}
 
       <div className="panel">
         {showSourceRow ? (

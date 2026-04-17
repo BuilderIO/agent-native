@@ -67,7 +67,12 @@ async function createRecording(
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      credentials: "include",
+      // Tauri webview runs on localhost:1420 (dev) or tauri://localhost (prod);
+    // the clips server is a different origin. The framework's dev CORS is
+    // permissive for "*" but won't accept credentialed requests without
+    // Allow-Credentials — and in dev auth is bypassed anyway, so we don't
+    // need cookies.
+    credentials: "omit",
       body: JSON.stringify({ hasCamera, hasAudio }),
     },
   );
@@ -82,7 +87,12 @@ async function uploadChunk(url: string, blob: Blob): Promise<void> {
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": blob.type || "application/octet-stream" },
-    credentials: "include",
+    // Tauri webview runs on localhost:1420 (dev) or tauri://localhost (prod);
+    // the clips server is a different origin. The framework's dev CORS is
+    // permissive for "*" but won't accept credentialed requests without
+    // Allow-Credentials — and in dev auth is bypassed anyway, so we don't
+    // need cookies.
+    credentials: "omit",
     body: blob,
   });
   if (!res.ok) {
@@ -316,7 +326,12 @@ export async function startNativeRecording(
       const finalRes = await fetch(finalizeUrl, {
         method: "POST",
         headers: { "Content-Type": "application/octet-stream" },
-        credentials: "include",
+        // Tauri webview runs on localhost:1420 (dev) or tauri://localhost (prod);
+    // the clips server is a different origin. The framework's dev CORS is
+    // permissive for "*" but won't accept credentialed requests without
+    // Allow-Credentials — and in dev auth is bypassed anyway, so we don't
+    // need cookies.
+    credentials: "omit",
         body: new Blob([], { type: mimeType || "video/webm" }),
       });
       if (!finalRes.ok) {
@@ -349,7 +364,7 @@ export async function startNativeRecording(
       // Tell the server to abort the partial recording.
       await fetch(
         `${params.serverUrl.replace(/\/+$/, "")}/api/uploads/${id}/abort`,
-        { method: "POST", credentials: "include" },
+        { method: "POST", credentials: "omit" },
       ).catch(() => {});
     },
   };
