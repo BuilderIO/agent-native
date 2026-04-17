@@ -1,8 +1,9 @@
 import {
   createAgentChatPlugin,
-  autoDiscoverActions,
+  loadActionsFromStaticRegistry,
 } from "@agent-native/core/server";
+import actionsRegistry from "../../.generated/actions-registry.js";
 
 export default createAgentChatPlugin({
-  actions: () => autoDiscoverActions(import.meta.url),
+  actions: loadActionsFromStaticRegistry(actionsRegistry),
 });

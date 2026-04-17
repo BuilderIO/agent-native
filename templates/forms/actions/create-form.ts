@@ -1,4 +1,8 @@
 import { defineAction } from "@agent-native/core";
+import {
+  getRequestUserEmail,
+  getRequestOrgId,
+} from "@agent-native/core/server/request-context";
 import { customAlphabet } from "nanoid";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -79,6 +83,8 @@ export default defineAction({
       status: args.status || "draft",
       createdAt: now,
       updatedAt: now,
+      ownerEmail: getRequestUserEmail() ?? "local@localhost",
+      orgId: getRequestOrgId(),
     });
 
     const [row] = await db
@@ -95,6 +101,8 @@ export default defineAction({
       fields: JSON.parse(row!.fields) as FormField[],
       settings: JSON.parse(row!.settings) as FormSettings,
       status: row!.status,
+      visibility: row!.visibility,
+      ownerEmail: row!.ownerEmail,
       responseCount: 0,
       createdAt: row!.createdAt,
       updatedAt: row!.updatedAt,

@@ -41,6 +41,7 @@ import { useDbStatus } from "@/hooks/use-db-status";
 import { CloudUpgrade } from "@/components/CloudUpgrade";
 import {
   AgentToggleButton,
+  ShareButton,
   useSendToAgentChat,
 } from "@agent-native/core/client";
 import {
@@ -444,6 +445,12 @@ export function FormBuilderPage() {
             </TooltipTrigger>
             <TooltipContent>{copied ? "Copied!" : "Share"}</TooltipContent>
           </Tooltip>
+
+          <ShareButton
+            resourceType="form"
+            resourceId={form.id}
+            resourceTitle={form.title}
+          />
 
           <Button size="sm" className="text-xs" onClick={handleTogglePublish}>
             {form.status === "published" ? "Unpublish" : "Publish"}

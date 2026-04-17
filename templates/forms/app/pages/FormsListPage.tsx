@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { VisibilityBadge } from "@agent-native/core/client";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -199,7 +200,13 @@ export function FormsListPage() {
             >
               <div className="flex items-start justify-between mb-3">
                 <div className="flex-1 min-w-0">
-                  <h3 className="font-medium truncate">{form.title}</h3>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <h3 className="font-medium truncate">{form.title}</h3>
+                    <VisibilityBadge
+                      visibility={(form as any).visibility}
+                      className="shrink-0"
+                    />
+                  </div>
                   {form.description && (
                     <p className="text-xs text-muted-foreground mt-0.5 truncate">
                       {form.description}

@@ -1,4 +1,11 @@
-import { table, text, integer } from "@agent-native/core/db/schema";
+import {
+  table,
+  text,
+  integer,
+  ownableColumns,
+  createSharesTable,
+} from "@agent-native/core/db/schema";
+import { registerShareableResource } from "@agent-native/core/sharing";
 
 export const forms = table("forms", {
   id: text("id").primaryKey(),
@@ -12,6 +19,7 @@ export const forms = table("forms", {
     .default("draft"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
+  ...ownableColumns(),
 });
 
 export const responses = table("responses", {
@@ -22,4 +30,14 @@ export const responses = table("responses", {
   data: text("data").notNull(), // JSON object: { fieldId: value }
   submittedAt: text("submitted_at").notNull(),
   ip: text("ip"),
+});
+
+export const formShares = createSharesTable("form_shares");
+
+registerShareableResource({
+  type: "form",
+  resourceTable: forms,
+  sharesTable: formShares,
+  displayName: "Form",
+  titleColumn: "title",
 });
