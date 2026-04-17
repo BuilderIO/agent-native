@@ -1,13 +1,15 @@
-import { useEffect, useState } from "react";
+import { forwardRef, useEffect, useState, type ReactNode } from "react";
 import {
   IconShare,
   IconLock,
   IconBuilding,
   IconWorld,
   IconTrash,
+  IconCheck,
   IconChevronDown,
 } from "@tabler/icons-react";
 import * as Popover from "@radix-ui/react-popover";
+import * as Select from "@radix-ui/react-select";
 import { useActionQuery, useActionMutation } from "../use-action.js";
 import { cn } from "../utils.js";
 
@@ -38,12 +40,8 @@ interface SharesResponse {
   shares: Share[];
 }
 
-// Match the exact Tailwind classes emitted by shadcn's `<Button size="sm"
-// variant="outline">`. Templates vendor their own Button component, but
-// every template uses the same shadcn theme + preset, so the same class
-// string renders identically. Keeping them as literal strings here means
-// this component looks native in every template without importing from
-// the template itself (which wouldn't be possible from core).
+// Mirror shadcn's <Button size="sm" variant="outline"> class string so the
+// trigger sits flush next to other sm outline buttons in the template.
 const BUTTON_BASE =
   "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0";
 const BUTTON_OUTLINE_SM = cn(
@@ -57,10 +55,6 @@ const BUTTON_PRIMARY_SM = cn(
 const BUTTON_GHOST_ICON = cn(
   BUTTON_BASE,
   "h-7 w-7 p-0 text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-);
-const BUTTON_GHOST_INLINE = cn(
-  BUTTON_BASE,
-  "h-7 px-2 text-muted-foreground hover:bg-accent hover:text-accent-foreground",
 );
 
 const VIS_META: Record<
@@ -84,11 +78,22 @@ const VIS_META: Record<
   },
 };
 
+const ROLE_OPTIONS: Array<{ value: Role; label: string; description: string }> =
+  [
+    { value: "viewer", label: "Viewer", description: "Can view" },
+    { value: "editor", label: "Editor", description: "Can edit" },
+    {
+      value: "admin",
+      label: "Admin",
+      description: "Can edit and manage access",
+    },
+  ];
+
 /**
  * Framework share control. Renders a shadcn-outline-styled trigger that
- * opens a Google-Docs-style popover anchored beneath it. Uses CSS
- * variables and Tailwind classes that every shadcn template already
- * ships, so the same component renders natively in light and dark mode.
+ * opens a Google-Docs-style popover anchored beneath it. Uses Tailwind
+ * + CSS variables so the same component renders natively in light and
+ * dark mode in any shadcn template.
  */
 export function ShareButton(props: ShareButtonProps) {
   const [open, setOpen] = useState(false);
@@ -190,6 +195,7 @@ function SharePanel(
     useState<Visibility | null>(null);
   const [pendingAdds, setPendingAdds] = useState<Share[]>([]);
   const [pendingRemoves, setPendingRemoves] = useState<Set<string>>(new Set());
+  const [roleOverrides, setRoleOverrides] = useState<Record<string, Role>>({});
 
   useEffect(() => {
     sharesQuery.refetch();
@@ -205,7 +211,9 @@ function SharePanel(
 
   const serverShares = data?.shares ?? [];
   const shares: Share[] = [
-    ...serverShares.filter((s) => !pendingRemoves.has(keyOf(s))),
+    ...serverShares
+      .filter((s) => !pendingRemoves.has(keyOf(s)))
+      .map((s) => ({ ...s, role: roleOverrides[keyOf(s)] ?? s.role })),
     ...pendingAdds,
   ];
 
@@ -250,6 +258,39 @@ function SharePanel(
         },
         onError: () => {
           setPendingAdds((p) => p.filter((s) => s.id !== optimistic.id));
+        },
+      },
+    );
+  };
+
+  const handleChangeRole = (s: Share, next: Role) => {
+    if (s.role === next) return;
+    const k = keyOf(s);
+    setRoleOverrides((prev) => ({ ...prev, [k]: next }));
+    // share-resource is upsert: calling with same principal + new role
+    // updates the existing share row. See sharing/actions/share-resource.ts.
+    share.mutate(
+      {
+        resourceType,
+        resourceId,
+        principalType: s.principalType,
+        principalId: s.principalId,
+        role: next,
+      } as any,
+      {
+        onSuccess: () => {
+          sharesQuery.refetch().then(() => {
+            setRoleOverrides((prev) => {
+              const { [k]: _, ...rest } = prev;
+              return rest;
+            });
+          });
+        },
+        onError: () => {
+          setRoleOverrides((prev) => {
+            const { [k]: _, ...rest } = prev;
+            return rest;
+          });
         },
       },
     );
@@ -330,15 +371,7 @@ function SharePanel(
                 ))}
             </datalist>
           ) : null}
-          <ChevronSelect
-            value={role}
-            onChange={(v) => setRole(v as Role)}
-            options={[
-              { value: "viewer", label: "Viewer" },
-              { value: "editor", label: "Editor" },
-              { value: "admin", label: "Admin" },
-            ]}
-          />
+          <RoleSelect value={role} onChange={setRole} />
         </div>
       ) : null}
 
@@ -358,7 +391,17 @@ function SharePanel(
           >
             <Avatar label={s.principalId} org={s.principalType === "org"} />
             <span className="flex-1 min-w-0 truncate">{s.principalId}</span>
-            <span className="text-xs text-muted-foreground">{cap(s.role)}</span>
+            {canManage ? (
+              <RoleSelect
+                value={s.role}
+                onChange={(r) => handleChangeRole(s, r)}
+                plain
+              />
+            ) : (
+              <span className="text-xs text-muted-foreground">
+                {cap(s.role)}
+              </span>
+            )}
             {canManage ? (
               <button
                 type="button"
@@ -387,16 +430,10 @@ function SharePanel(
           <meta.Icon size={16} strokeWidth={1.75} />
         </span>
         <div className="min-w-0 flex-1">
-          <ChevronSelect
+          <VisibilitySelect
             value={visibility}
-            onChange={(v) => handleVisibility(v as Visibility)}
+            onChange={handleVisibility}
             disabled={!canManage}
-            plain
-            options={[
-              { value: "private", label: VIS_META.private.label },
-              { value: "org", label: VIS_META.org.label },
-              { value: "public", label: VIS_META.public.label },
-            ]}
           />
           <div className="mt-0.5 text-xs text-muted-foreground">
             {meta.description}
@@ -413,6 +450,142 @@ function SharePanel(
   );
 }
 
+// ---------------------------------------------------------------------------
+// Radix Select wrappers styled like shadcn Select (no native <select> anywhere)
+// ---------------------------------------------------------------------------
+
+const selectContentClass =
+  "z-[2100] min-w-[12rem] overflow-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0";
+const selectItemClass =
+  "relative flex w-full cursor-pointer select-none items-start gap-2 rounded-sm py-2 pl-8 pr-3 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50";
+
+interface ShadSelectItemProps {
+  value: string;
+  label: string;
+  description?: string;
+}
+
+function SelectItems({ items }: { items: ShadSelectItemProps[] }) {
+  return (
+    <>
+      {items.map((it) => (
+        <Select.Item
+          key={it.value}
+          value={it.value}
+          className={selectItemClass}
+        >
+          <span className="absolute left-2 top-2 flex h-4 w-4 items-center justify-center">
+            <Select.ItemIndicator>
+              <IconCheck size={14} />
+            </Select.ItemIndicator>
+          </span>
+          <span className="flex flex-col">
+            <Select.ItemText>{it.label}</Select.ItemText>
+            {it.description ? (
+              <span className="text-xs text-muted-foreground">
+                {it.description}
+              </span>
+            ) : null}
+          </span>
+        </Select.Item>
+      ))}
+    </>
+  );
+}
+
+function RoleSelect(props: {
+  value: Role;
+  onChange: (v: Role) => void;
+  /** When true, render as inline text + chevron (no border / bg) — matches
+   *  the per-person role picker in Google Docs. */
+  plain?: boolean;
+}) {
+  const current =
+    ROLE_OPTIONS.find((o) => o.value === props.value) ?? ROLE_OPTIONS[0];
+  return (
+    <Select.Root
+      value={props.value}
+      onValueChange={(v) => props.onChange(v as Role)}
+    >
+      <Select.Trigger
+        className={
+          props.plain
+            ? cn(
+                BUTTON_BASE,
+                "h-7 px-2 bg-transparent text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+              )
+            : cn(
+                BUTTON_BASE,
+                "h-9 px-3 border border-input bg-background hover:bg-accent hover:text-accent-foreground",
+              )
+        }
+        aria-label="Role"
+      >
+        <Select.Value>{current.label}</Select.Value>
+        <Select.Icon>
+          <IconChevronDown size={14} />
+        </Select.Icon>
+      </Select.Trigger>
+      <Select.Portal>
+        <Select.Content
+          className={selectContentClass}
+          position="popper"
+          sideOffset={4}
+        >
+          <Select.Viewport>
+            <SelectItems items={ROLE_OPTIONS} />
+          </Select.Viewport>
+        </Select.Content>
+      </Select.Portal>
+    </Select.Root>
+  );
+}
+
+function VisibilitySelect(props: {
+  value: Visibility;
+  onChange: (v: Visibility) => void;
+  disabled?: boolean;
+}) {
+  const current = VIS_META[props.value];
+  return (
+    <Select.Root
+      value={props.value}
+      onValueChange={(v) => props.onChange(v as Visibility)}
+      disabled={props.disabled}
+    >
+      <Select.Trigger
+        className={cn(
+          BUTTON_BASE,
+          "h-7 px-1 -ml-1 bg-transparent text-foreground hover:bg-accent hover:text-accent-foreground",
+        )}
+        aria-label="General access"
+      >
+        <Select.Value>{current.label}</Select.Value>
+        <Select.Icon>
+          <IconChevronDown size={14} />
+        </Select.Icon>
+      </Select.Trigger>
+      <Select.Portal>
+        <Select.Content
+          className={selectContentClass}
+          position="popper"
+          sideOffset={4}
+        >
+          <Select.Viewport>
+            <SelectItems
+              items={(Object.keys(VIS_META) as Visibility[]).map((k) => ({
+                value: k,
+                label: VIS_META[k].label,
+                description: VIS_META[k].description,
+              }))}
+            />
+          </Select.Viewport>
+        </Select.Content>
+      </Select.Portal>
+    </Select.Root>
+  );
+}
+
 function Avatar({ label, org }: { label: string; org?: boolean }) {
   return (
     <span
@@ -421,41 +594,6 @@ function Avatar({ label, org }: { label: string; org?: boolean }) {
     >
       {org ? "🏢" : initials(label)}
     </span>
-  );
-}
-
-function ChevronSelect(props: {
-  value: string;
-  onChange: (v: string) => void;
-  options: Array<{ value: string; label: string }>;
-  disabled?: boolean;
-  /** When true, render as inline text (no border/background) — matches
-   *  Google Docs' "General access" presentation. */
-  plain?: boolean;
-}) {
-  return (
-    <div className="relative inline-flex items-center">
-      <select
-        value={props.value}
-        onChange={(e) => props.onChange(e.target.value)}
-        disabled={props.disabled}
-        className={
-          props.plain
-            ? "appearance-none bg-transparent border-0 pr-6 pl-0 text-sm font-medium text-foreground cursor-pointer focus:outline-none disabled:opacity-60"
-            : "appearance-none h-9 rounded-md border border-input bg-background pl-3 pr-7 text-sm text-foreground cursor-pointer focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
-        }
-      >
-        {props.options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-      <IconChevronDown
-        size={14}
-        className="pointer-events-none absolute right-1.5 text-muted-foreground"
-      />
-    </div>
   );
 }
 
