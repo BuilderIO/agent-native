@@ -1,6 +1,7 @@
 packages:
   - "packages/*"
   - "templates/*"
+  - "templates/*/desktop"
 onlyBuiltDependencies: ["esbuild", "lightningcss", "electron", "@swc/core"]
 catalog:
   "@tabler/icons-react": "^3.40.0"

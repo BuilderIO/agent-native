@@ -51,7 +51,6 @@
   "plugins": {
     "shell": {
       "open": true
-    },
-    "global-shortcut": {}
+    }
   }
 }
