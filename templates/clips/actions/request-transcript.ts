@@ -125,14 +125,12 @@ export default defineAction({
     //  1. Dev fallback — finalize-recording stashed the assembled blob in
     //     application_state under `recording-blob-:id`. Read it directly
     //     instead of round-tripping through HTTP (avoids the localhost-port
-    //     guess and works under any port / host).
+    //     guess and works under any port / host). Covers both the current
+    //     `/api/video/:id` shape and the legacy `/api/uploads/:id/blob`.
     //  2. Production — videoUrl is an absolute URL on a real provider
     //     (Builder.io / R2 / S3). Fetch it normally.
     let videoBlob: Blob;
     try {
-      // Dev fallback path set by finalize-recording when no provider is
-      // configured. Current shape: `/api/video/:id`. Legacy shape
-      // `/api/uploads/:id/blob` is still accepted for old rows.
       const isLocalBlob =
         rec.videoUrl.startsWith("/api/video/") ||
         (rec.videoUrl.startsWith("/api/uploads/") &&
@@ -148,10 +146,12 @@ export default defineAction({
       } else {
         let videoUrl = rec.videoUrl;
         if (videoUrl.startsWith("/")) {
+          const port =
+            process.env.NITRO_PORT || process.env.PORT || "3000";
           const origin =
             process.env.PUBLIC_URL ??
             process.env.NITRO_PUBLIC_URL ??
-            `http://localhost:${process.env.PORT ?? 3000}`;
+            `http://localhost:${port}`;
           videoUrl = `${origin}${videoUrl}`;
         }
         const vidRes = await fetch(videoUrl);
