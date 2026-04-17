@@ -6,7 +6,6 @@ import {
   IconSettings,
   IconUsers,
 } from "@tabler/icons-react";
-import { InvitationBanner } from "@agent-native/core/client/org";
 import { useDecks } from "@/context/DeckContext";
 import DeckCard from "@/components/deck/DeckCard";
 import PromptPopover from "@/components/editor/PromptDialog";
@@ -108,8 +107,6 @@ export default function Index() {
           </div>
         </div>
       </header>
-
-      <InvitationBanner />
 
       {/* Content */}
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-10">

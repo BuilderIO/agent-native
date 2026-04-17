@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useParams, Navigate } from "react-router";
 import { AgentSidebar } from "@agent-native/core/client";
+import { InvitationBanner } from "@agent-native/core/client/org";
 import { compositions } from "@/remotion/registry";
 import { Sidebar } from "@/components/Sidebar";
 import { StudioHeader } from "@/components/StudioHeader";
@@ -64,6 +65,7 @@ function StudioContent() {
             sidebarOpen={sidebarOpen}
             onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
           />
+          <InvitationBanner />
           <div className="flex flex-1 min-h-0 relative">
             <Sidebar
               open={sidebarOpen}
@@ -134,6 +136,7 @@ export default function Studio() {
                 >
                   <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
                     <StudioHeader sidebarOpen onToggleSidebar={() => {}} />
+                    <InvitationBanner />
                     <div className="flex flex-1 min-h-0 relative">
                       <Sidebar
                         open

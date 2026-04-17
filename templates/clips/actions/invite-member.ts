@@ -12,26 +12,17 @@
 
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
+import {
+  sendEmail,
+  isEmailConfigured,
+  renderEmail,
+  emailStrong,
+} from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { getCurrentOwnerEmail, nanoid } from "../server/lib/recordings.js";
-// Email/app-name helpers are not part of @agent-native/core's public
-// subpath exports, so we fall back to inline no-ops. The invite row +
-// URL are still created — email delivery is deferred until a public
-// email helper lands in core.
-async function sendEmail(_args: {
-  to: string;
-  subject: string;
-  html: string;
-  text: string;
-}): Promise<void> {
-  // No-op: log the invite URL to the console so the flow works end-to-end.
-  console.log(`[invite-member] email send skipped for ${_args.to}`);
-}
-function isEmailConfigured(): boolean {
-  return false;
-}
+
 function getAppName(): string {
   return process.env.APP_NAME || "Clips";
 }
@@ -60,42 +51,6 @@ async function assertCallerIsAdmin(workspaceId: string, email: string) {
   if (!ws) throw new Error(`Workspace not found: ${workspaceId}`);
   if (ws.ownerEmail === email) return;
   throw new Error("Only workspace admins can invite members.");
-}
-
-function inviteEmailHtml(args: {
-  inviterEmail: string;
-  workspaceName: string;
-  role: string;
-  appName: string;
-  inviteUrl: string;
-}): string {
-  return `
-<!DOCTYPE html>
-<html>
-  <body style="font-family: Inter, -apple-system, BlinkMacSystemFont, sans-serif; background:#f7f7f9; padding:32px; color:#111827;">
-    <div style="max-width:520px; margin:auto; background:#ffffff; border-radius:12px; padding:32px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-      <div style="display:flex; align-items:center; gap:10px; margin-bottom:20px;">
-        <div style="width:32px; height:32px; border-radius:8px; background:#625DF5; color:white; display:inline-flex; align-items:center; justify-content:center; font-weight:700;">${args.appName.slice(0, 1)}</div>
-        <div style="font-weight:600;">${args.appName}</div>
-      </div>
-      <h1 style="font-size:22px; margin:0 0 12px 0;">You're invited to join ${escapeHtml(args.workspaceName)}</h1>
-      <p style="line-height:1.5; margin:0 0 8px 0;"><strong>${escapeHtml(args.inviterEmail)}</strong> invited you to the <strong>${escapeHtml(args.workspaceName)}</strong> workspace on ${args.appName} as <strong>${escapeHtml(args.role)}</strong>.</p>
-      <p style="line-height:1.5; margin:0 0 24px 0;">Click the button below to accept the invite and start collaborating.</p>
-      <a href="${args.inviteUrl}" style="display:inline-block; background:#625DF5; color:white; padding:12px 18px; border-radius:8px; text-decoration:none; font-weight:600;">Accept invite</a>
-      <p style="color:#6b7280; font-size:13px; margin-top:24px;">Or paste this link into your browser: <br/><a href="${args.inviteUrl}" style="color:#625DF5; word-break:break-all;">${args.inviteUrl}</a></p>
-      <p style="color:#9ca3af; font-size:12px; margin-top:24px;">This invite expires in 7 days.</p>
-    </div>
-  </body>
-</html>
-`;
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }
 
 function baseUrl(): string {
@@ -199,19 +154,23 @@ export default defineAction({
     // Fire-and-forget email send. We don't want a transient email failure
     // to wipe the invite row — the invite URL is still usable.
     const appName = getAppName() ?? "Clips";
-    const html = inviteEmailHtml({
-      inviterEmail: inviter,
-      workspaceName,
-      role: args.role,
-      appName,
-      inviteUrl,
+    const { html, text } = renderEmail({
+      preheader: `${inviter} invited you to ${workspaceName} on ${appName}.`,
+      heading: `You're invited to join ${workspaceName}`,
+      paragraphs: [
+        `${emailStrong(inviter)} invited you to the ${emailStrong(workspaceName)} workspace on ${emailStrong(appName)} as ${emailStrong(args.role)}.`,
+        `Click the button below to accept the invite and start collaborating.`,
+      ],
+      cta: { label: "Accept invite", url: inviteUrl },
+      footer: "This invite expires in 7 days.",
+      brandColor: "#625DF5",
     });
     try {
       await sendEmail({
         to: args.email,
         subject: `You're invited to ${workspaceName} on ${appName}`,
         html,
-        text: `${inviter} invited you to ${workspaceName} on ${appName} as ${args.role}. Accept: ${inviteUrl}`,
+        text,
       });
     } catch (err) {
       console.warn("[invite-member] email send failed:", err);
