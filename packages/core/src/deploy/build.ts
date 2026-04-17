@@ -401,7 +401,10 @@ async function buildCloudflarePages() {
     "@excalidraw/excalidraw",
     "@excalidraw/mermaid-to-excalidraw",
     "pdf-parse",
+    "pdfjs-dist",
     "@google/genai",
+    "chartjs-node-canvas",
+    "@napi-rs/canvas",
   ].map((p) => `--external:${p}`);
 
   execFileSync(

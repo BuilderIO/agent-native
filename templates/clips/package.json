@@ -21,7 +21,7 @@
     "@libsql/client": "^0.15.8",
     "@neondatabase/serverless": "^1.1.0",
     "@tabler/icons-react": "^3.40.0",
-    "drizzle-orm": "^0.44.0",
+    "drizzle-orm": "^0.45.2",
     "h3": "^2.0.1-rc.20",
     "isbot": "^5",
     "openai": "^4.76.0",

@@ -23,7 +23,7 @@ import {
   validateComposition,
   secondsToFrames,
 } from "@/utils/compositionHelpers";
-import { MyComponent } from "@/remotion/compositions/MyComponent"; // Your component
+import { BlankComposition as MyComponent } from "@/remotion/compositions/BlankComposition"; // Your component
 
 // ─── Configuration ────────────────────────────────────────────────────────────
 
