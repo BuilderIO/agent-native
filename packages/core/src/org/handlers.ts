@@ -39,19 +39,14 @@ import { getSession } from "../server/auth.js";
 import { putUserSetting } from "../settings/user-settings.js";
 import { getDbExec } from "../db/client.js";
 import { sendEmail, isEmailConfigured } from "../server/email.js";
+import { renderEmail, emailStrong } from "../server/email-template.js";
 import { getAppName } from "../server/app-name.js";
+import { getAppProductionUrl } from "../server/app-url.js";
 import { getOrgContext } from "./context.js";
 import type { OrgRole } from "./types.js";
 
 function getInviteAppUrl(event: H3Event): string {
-  const fromEnv = process.env.APP_URL || process.env.BETTER_AUTH_URL;
-  if (fromEnv) return fromEnv.replace(/\/$/, "");
-  try {
-    const url = getRequestURL(event);
-    return `${url.protocol}//${url.host}`;
-  } catch {
-    return "http://localhost:3000";
-  }
+  return getAppProductionUrl(event);
 }
 
 function escapeHtml(s: string): string {
@@ -245,18 +240,21 @@ export const createInvitationHandler = defineEventHandler(
       const appName = stripCrlf(getAppName() || "");
       const onApp = appName ? ` on ${appName}` : "";
       try {
+        const { html, text } = renderEmail({
+          preheader: `${inviter} invited you to join ${orgName}${onApp}.`,
+          heading: `You're invited to join ${orgName}`,
+          paragraphs: [
+            `${emailStrong(inviter)} invited you to join ${emailStrong(orgName)}${appName ? ` on ${emailStrong(appName)}` : ""}.`,
+            `Sign in with ${emailStrong(email)} to accept the invitation.`,
+          ],
+          cta: { label: "Accept invitation", url: appUrl },
+          footer: `If you weren't expecting this, you can safely ignore this email.`,
+        });
         await sendEmail({
           to: email,
           subject: `${inviter} invited you to join ${orgName}${onApp}`,
-          html:
-            `<p>Hi,</p>` +
-            `<p><strong>${escapeHtml(inviter)}</strong> invited you to join <strong>${escapeHtml(orgName)}</strong>${appName ? ` on <strong>${escapeHtml(appName)}</strong>` : ""}.</p>` +
-            `<p>Sign in at <a href="${appUrl}">${escapeHtml(appUrl)}</a> with this email address (${escapeHtml(email)}) to accept the invitation.</p>` +
-            `<p>If you weren't expecting this, you can safely ignore this email.</p>`,
-          text:
-            `${inviter} invited you to join ${orgName}${onApp}.\n\n` +
-            `Sign in at ${appUrl} with ${email} to accept.\n\n` +
-            `If you weren't expecting this, you can ignore this email.`,
+          html,
+          text,
         });
         emailSent = true;
       } catch (err) {

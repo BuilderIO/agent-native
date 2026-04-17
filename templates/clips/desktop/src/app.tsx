@@ -49,14 +49,13 @@ function formatAgo(iso: string): string {
 }
 
 export function App() {
-  const [serverUrl, setServerUrl] = useState<string | null>(loadServerUrl());
+  const [serverUrl, setServerUrl] = useState<string>(loadServerUrl());
   const [recordings, setRecordings] = useState<RecordingSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
 
   const fetchRecent = useCallback(async () => {
-    if (!serverUrl) return;
     setLoading(true);
     setError(null);
     try {
@@ -85,19 +84,8 @@ export function App() {
     fetchRecent();
   }, [fetchRecent]);
 
-  if (!serverUrl) {
-    return (
-      <Setup
-        onConnect={(url) => {
-          saveServerUrl(url);
-          setServerUrl(url.replace(/\/+$/, ""));
-        }}
-      />
-    );
-  }
-
   function openInBrowser(path: string) {
-    const href = `${serverUrl!.replace(/\/+$/, "")}${path}`;
+    const href = `${serverUrl.replace(/\/+$/, "")}${path}`;
     openExternal(href).catch((err) => {
       console.error("[clips-tray] open failed:", err);
     });

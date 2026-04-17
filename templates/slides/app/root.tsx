@@ -21,6 +21,7 @@ import {
   exitSelectionMode as coreExitSelectionMode,
   useCommandMenuShortcut,
 } from "@agent-native/core/client";
+import { InvitationBanner } from "@agent-native/core/client/org";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
 
@@ -139,6 +140,7 @@ function AppContent() {
             "Add an image to this slide",
           ]}
         >
+          <InvitationBanner />
           <Outlet />
         </AgentSidebar>
       </DeckProvider>

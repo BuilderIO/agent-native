@@ -11,7 +11,10 @@ import { organization } from "better-auth/plugins/organization";
 import { jwt } from "better-auth/plugins/jwt";
 import { bearer } from "better-auth/plugins/bearer";
 import { sendEmail } from "./email.js";
+import { renderEmail } from "./email-template.js";
+import { getAppProductionUrl } from "./app-url.js";
 import { getDbExec, isPostgres } from "../db/client.js";
+import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
 import {
   getDialect,
   getDatabaseUrl,
@@ -340,10 +343,7 @@ async function createBetterAuthInstance(
     process.env.ACCESS_TOKEN ||
     "agent-native-local-dev-secret-k9x2m7q4w8";
 
-  const appUrl =
-    process.env.APP_URL ||
-    process.env.BETTER_AUTH_URL ||
-    "http://localhost:3000";
+  const appUrl = getAppProductionUrl();
 
   const auth = betterAuth({
     basePath,
@@ -362,21 +362,49 @@ async function createBetterAuthInstance(
           ""
         ).replace(/\/$/, "");
         const resetUrl = `${appUrl}${appBasePath}/_agent-native/auth/reset?token=${encodeURIComponent(token)}`;
+        const { html, text } = renderEmail({
+          preheader: "Reset your password. This link expires in 1 hour.",
+          heading: "Reset your password",
+          paragraphs: [
+            "Someone requested a password reset for your account. Click the button below to choose a new password.",
+            "This link expires in 1 hour.",
+          ],
+          cta: { label: "Reset password", url: resetUrl },
+          footer:
+            "If you didn't request this, you can safely ignore this email.",
+        });
         await sendEmail({
           to: user.email,
           subject: "Reset your password",
-          html:
-            `<p>Hi,</p>` +
-            `<p>Someone requested a password reset for your account. Click the link below to choose a new password. This link expires in 1 hour.</p>` +
-            `<p><a href="${resetUrl}">Reset your password</a></p>` +
-            `<p>If you didn't request this, you can safely ignore this email.</p>`,
-          text:
-            `Reset your password: ${resetUrl}\n\n` +
-            `This link expires in 1 hour. If you didn't request this, you can ignore this email.`,
+          html,
+          text,
         });
       },
     },
     socialProviders,
+    databaseHooks: {
+      user: {
+        create: {
+          after: async (user: { email?: string }) => {
+            // When a newly-created user's email has pending org invitations
+            // (common when someone is invited *before* they've signed up),
+            // auto-accept them so the user lands in the org on their very
+            // first page load instead of a blank-slate workspace.
+            const email = user?.email;
+            if (!email) return;
+            try {
+              await acceptPendingInvitationsForEmail(email);
+            } catch (err) {
+              // Never block signup on invite bookkeeping — log and continue.
+              console.error(
+                "[auth] failed to auto-accept pending invitations",
+                err,
+              );
+            }
+          },
+        },
+      },
+    },
     session: {
       expiresIn: 60 * 60 * 24 * 30, // 30 days
       updateAge: 60 * 60 * 24, // refresh daily

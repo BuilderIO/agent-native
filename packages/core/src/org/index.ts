@@ -12,6 +12,9 @@ export type {
 
 export { getOrgContext } from "./context.js";
 
+export { acceptPendingInvitationsForEmail } from "./accept-pending.js";
+export type { AcceptPendingResult } from "./accept-pending.js";
+
 export { ORG_MIGRATIONS } from "./migrations.js";
 
 export { createOrgPlugin, defaultOrgPlugin } from "./plugin.js";
