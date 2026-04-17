@@ -126,9 +126,10 @@ export function App() {
         setSignedInAs(null);
         return false;
       }
-      const json = (await res.json().catch(() => null)) as
-        | { email?: string; error?: string }
-        | null;
+      const json = (await res.json().catch(() => null)) as {
+        email?: string;
+        error?: string;
+      } | null;
       if (json?.email) {
         setAuthStatus("authed");
         setSignedInAs(json.email);
