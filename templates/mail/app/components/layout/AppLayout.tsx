@@ -121,6 +121,18 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     const { view: v, label: l } = preSearchViewRef.current;
     return `/${v}${l ? `?label=${encodeURIComponent(l)}` : ""}`;
   }, []);
+  // When the search param is cleared externally (browser back/forward,
+  // agent navigation), drop the searchFocused flag — otherwise the bar
+  // stays mounted with an empty input and no focus, since nothing fires
+  // onBlur after the input was already blurred by a prior Enter.
+  const prevSearchQueryRef = useRef(activeSearchQuery);
+  useEffect(() => {
+    if (prevSearchQueryRef.current && !activeSearchQuery) {
+      setSearchFocused(false);
+      setSearchQuery("");
+    }
+    prevSearchQueryRef.current = activeSearchQuery;
+  }, [activeSearchQuery]);
   const { data: labels = [], isLoading: labelsLoading } = useLabels();
   const { data: settings, isLoading: settingsLoading } = useSettings();
   useContacts(); // Prefetch contacts so composer autocomplete is instant
