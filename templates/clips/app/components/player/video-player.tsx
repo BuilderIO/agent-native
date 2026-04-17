@@ -185,7 +185,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         v.removeEventListener("enterpictureinpicture", onEnter);
         v.removeEventListener("leavepictureinpicture", onLeave);
       };
-    }, []);
+    }, [videoUrl]);
 
     async function togglePipInternal() {
       const v = videoRef.current;
