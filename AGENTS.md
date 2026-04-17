@@ -87,7 +87,7 @@ Run `agent-native setup-agents` to create all symlinks (done automatically by `a
 - **Prettier** — run `npx prettier --write <files>` after modifying source files.
 - **Client-side rendering** — all app content renders client-side via the `ClientOnly` wrapper in `root.tsx`.
 - **shadcn/ui components** for standard UI. Check `app/components/ui/` before building custom.
-- **Tabler Icons** (`@tabler/icons-react`) for all icons. No other icon libraries. No inline SVGs.
+- **Tabler Icons** (`@tabler/icons-react`) for all icons. **Never use emojis as icons** — not in buttons, not in avatars, not in labels, not in toasts/notifications, not in outbound messages (Slack, email). No other icon libraries, no inline SVGs. Emojis are fine when they are _user-authored content_ (a document title emoji picker, a reaction the user chose, a user-picked space icon) — the rule is about icons the UI picks, not data the user picks.
 - **No browser dialogs** — use shadcn AlertDialog instead of `window.confirm/alert/prompt`.
 
 ## Auto-Memory

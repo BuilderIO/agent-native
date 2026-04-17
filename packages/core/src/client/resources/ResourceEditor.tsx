@@ -593,7 +593,7 @@ function InlineBubbleToolbar({ editor }: { editor: any }) {
     },
     { type: "divider" as const },
     {
-      label: "🔗",
+      label: "Link",
       title: "Link",
       action: toggleLink,
       isActive: () => editor.isActive("link"),
