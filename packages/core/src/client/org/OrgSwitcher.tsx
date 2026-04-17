@@ -21,6 +21,18 @@ export interface OrgSwitcherProps {
   hideWhenSingle?: boolean;
 }
 
+function personalLabelFromEmail(email: string | null | undefined): string {
+  if (!email) return "Personal";
+  const local = email.split("@")[0] ?? email;
+  const cleaned = local.replace(/[._-]+/g, " ").trim();
+  if (!cleaned) return "Personal";
+  return cleaned
+    .split(" ")
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
 type Mode = "list" | "create" | "invite";
 
 /**
@@ -76,7 +88,8 @@ export function OrgSwitcher({ className, hideWhenSingle }: OrgSwitcherProps) {
   const canInvite =
     !!org.orgId && (org.role === "owner" || org.role === "admin");
 
-  const label = org.orgName ?? "Choose organization";
+  const personalLabel = personalLabelFromEmail(org.email);
+  const label = org.orgName ?? personalLabel;
 
   return (
     <div ref={ref} className={`relative ${className ?? ""}`}>
@@ -93,9 +106,21 @@ export function OrgSwitcher({ className, hideWhenSingle }: OrgSwitcherProps) {
         <div className="absolute left-0 right-0 bottom-full mb-1 z-50 rounded-md border border-border bg-popover shadow-md py-1 min-w-[14rem]">
           {mode === "list" && (
             <>
-              {orgs.length > 0 && (
+              {(orgs.length > 0 || !org.orgId) && (
                 <div className="px-2.5 pt-1 pb-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-                  Organizations
+                  Organization
+                </div>
+              )}
+              {orgs.length === 0 && !org.orgId && (
+                <div
+                  className="flex w-full items-center gap-2 px-2.5 py-1.5 text-xs text-muted-foreground"
+                  aria-disabled="true"
+                >
+                  <IconBuilding className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate flex-1 text-left">
+                    {personalLabel}
+                  </span>
+                  <IconCheck className="h-3.5 w-3.5 shrink-0 opacity-50" />
                 </div>
               )}
               {orgs.map((o) => (

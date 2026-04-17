@@ -333,14 +333,16 @@ button {
 }
 
 .row-menu-item.selected {
-  color: var(--brand);
+  color: var(--fg);
+  font-weight: 600;
+  background: var(--surface-hover);
 }
 
 .row-menu-check {
   width: 16px;
   display: inline-flex;
   justify-content: center;
-  color: var(--brand);
+  color: var(--fg);
   flex-shrink: 0;
 }
 

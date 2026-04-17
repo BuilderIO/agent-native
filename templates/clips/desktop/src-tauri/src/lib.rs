@@ -169,6 +169,42 @@ async fn resize_popover(app: AppHandle, height: f64) -> Result<(), String> {
     Ok(())
 }
 
+/// Open a login window pointed at the Clips server's /login route. The
+/// WebView has its own persistent cookie jar, so once the user signs in
+/// here the session cookie is available to every subsequent fetch from
+/// the popover (localhost:1420 and localhost:8094 are same-site — ports
+/// aren't part of the site check — so SameSite=Lax cookies cross-send
+/// correctly with credentials: "include").
+#[tauri::command]
+async fn show_signin(app: AppHandle, url: String) -> Result<(), String> {
+    const LABEL: &str = "signin";
+    if let Some(existing) = app.get_webview_window(LABEL) {
+        let _ = existing.show();
+        let _ = existing.set_focus();
+        return Ok(());
+    }
+    let parsed = url::Url::parse(&url).map_err(|e| e.to_string())?;
+    let win = WebviewWindowBuilder::new(&app, LABEL, WebviewUrl::External(parsed))
+        .title("Sign in to Clips")
+        .inner_size(520.0, 720.0)
+        .resizable(true)
+        .always_on_top(false)
+        .focused(true)
+        .build()
+        .map_err(|e| e.to_string())?;
+    let _ = win.show();
+    let _ = win.set_focus();
+    Ok(())
+}
+
+#[tauri::command]
+async fn close_signin(app: AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("signin") {
+        let _ = w.close();
+    }
+    Ok(())
+}
+
 #[tauri::command]
 async fn show_popover(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("popover") {
@@ -318,6 +354,8 @@ pub fn run() {
             hide_overlays,
             show_popover,
             resize_popover,
+            show_signin,
+            close_signin,
         ])
         .plugin(tauri_plugin_shell::init())
         .plugin(

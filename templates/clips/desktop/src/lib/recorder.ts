@@ -73,7 +73,7 @@ async function createRecording(
       // CORS middleware is permissive for "*" but won't accept credentialed
       // requests without Allow-Credentials — and dev auth is bypassed, so
       // cookies aren't needed.
-      credentials: "omit",
+      credentials: "include",
       body: JSON.stringify({ hasCamera, hasAudio }),
     });
   } catch (err) {
@@ -100,7 +100,7 @@ async function uploadChunk(url: string, blob: Blob): Promise<void> {
     // permissive for "*" but won't accept credentialed requests without
     // Allow-Credentials — and in dev auth is bypassed anyway, so we don't
     // need cookies.
-    credentials: "omit",
+    credentials: "include",
     body: blob,
   });
   if (!res.ok) {
@@ -353,7 +353,7 @@ export async function startNativeRecording(
         // permissive for "*" but won't accept credentialed requests without
         // Allow-Credentials — and in dev auth is bypassed anyway, so we don't
         // need cookies.
-        credentials: "omit",
+        credentials: "include",
         body: new Blob([], { type: mimeType || "video/webm" }),
       });
       if (!finalRes.ok) {
@@ -386,7 +386,7 @@ export async function startNativeRecording(
       // Tell the server to abort the partial recording.
       await fetch(
         `${params.serverUrl.replace(/\/+$/, "")}/api/uploads/${id}/abort`,
-        { method: "POST", credentials: "omit" },
+        { method: "POST", credentials: "include" },
       ).catch(() => {});
     },
   };

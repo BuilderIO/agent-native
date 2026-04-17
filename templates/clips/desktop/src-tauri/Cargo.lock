@@ -473,6 +473,7 @@ dependencies = [
  "tauri-plugin-global-shortcut",
  "tauri-plugin-shell",
  "tauri-plugin-single-instance",
+ "url",
 ]
 
 [[package]]

@@ -105,10 +105,70 @@ export function App() {
   const [recorder, setRecorder] = useState<RecorderHandle | null>(null);
   const [recError, setRecError] = useState<string | null>(null);
   const [lastRecordingId, setLastRecordingId] = useState<string | null>(null);
+  const [authStatus, setAuthStatus] = useState<"unknown" | "authed" | "anon">(
+    "unknown",
+  );
+  const [signedInAs, setSignedInAs] = useState<string | null>(null);
   const isRecording = recorder !== null;
 
-  // ---- device enumeration -------------------------------------------------
+  // ---- auth status --------------------------------------------------------
+  // The Tauri WebView has its own cookie jar (separate from the user's
+  // browser). Before anything else, check whether we have a session cookie
+  // for the Clips server; if not, surface a Sign in button.
+  const checkAuth = useCallback(async () => {
+    try {
+      const res = await fetch(
+        `${serverUrl.replace(/\/+$/, "")}/_agent-native/auth/session`,
+        { credentials: "include" },
+      );
+      if (!res.ok) {
+        setAuthStatus("anon");
+        setSignedInAs(null);
+        return false;
+      }
+      const json = (await res.json().catch(() => null)) as
+        | { email?: string; error?: string }
+        | null;
+      if (json?.email) {
+        setAuthStatus("authed");
+        setSignedInAs(json.email);
+        return true;
+      }
+      setAuthStatus("anon");
+      setSignedInAs(null);
+      return false;
+    } catch {
+      setAuthStatus("anon");
+      setSignedInAs(null);
+      return false;
+    }
+  }, [serverUrl]);
 
+  useEffect(() => {
+    checkAuth();
+  }, [checkAuth]);
+
+  async function signIn() {
+    await invoke("show_signin", {
+      url: `${serverUrl.replace(/\/+$/, "")}/login`,
+    }).catch(() => {});
+    // Poll for auth — close the signin window automatically when the
+    // session lands (usually right after the login redirect).
+    const start = Date.now();
+    const interval = setInterval(async () => {
+      const ok = await checkAuth();
+      if (ok || Date.now() - start > 120_000) {
+        clearInterval(interval);
+        if (ok) invoke("close_signin").catch(() => {});
+      }
+    }, 1500);
+  }
+
+  // ---- device enumeration -------------------------------------------------
+  // WebKit only returns full device labels after getUserMedia() has granted
+  // access once. So we do a one-shot mic + camera probe when the popover
+  // first loads (if permissions are already granted, this is silent; if
+  // not, the OS prompts once and we get the full list on the next render).
   const loadDevices = useCallback(async () => {
     try {
       if (!navigator.mediaDevices?.enumerateDevices) return;
@@ -116,15 +176,34 @@ export function App() {
       setCameras(list.filter((d) => d.kind === "videoinput"));
       setMics(list.filter((d) => d.kind === "audioinput"));
     } catch {
-      // Permission not granted yet — labels will be empty until the user
-      // grants access once on /record. We still render the row with a
-      // fallback label so the tray UI isn't broken.
+      // ignore
     }
   }, []);
 
+  const unlockDeviceLabels = useCallback(async () => {
+    // Probe mic + camera to unlock labels. Stream is stopped immediately —
+    // we only needed the permission grant.
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: true,
+      });
+      s.getTracks().forEach((t) => t.stop());
+    } catch {
+      try {
+        const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+        s.getTracks().forEach((t) => t.stop());
+      } catch {
+        // permission denied — labels will stay empty until user grants
+      }
+    }
+    await loadDevices();
+  }, [loadDevices]);
+
   useEffect(() => {
     loadDevices();
-  }, [loadDevices]);
+    unlockDeviceLabels();
+  }, [loadDevices, unlockDeviceLabels]);
 
   // ---- pre-record camera bubble overlay -----------------------------------
   // As soon as the popover has a camera configured we drop the bubble into
@@ -315,7 +394,11 @@ export function App() {
         />
       </div>
 
-      {lastRecordingId && !isRecording ? (
+      {authStatus === "anon" ? (
+        <button className="primary start" onClick={signIn}>
+          Sign in to Clips
+        </button>
+      ) : lastRecordingId && !isRecording ? (
         <button
           className="primary start"
           onClick={() => openInBrowser(`/r/${lastRecordingId}`)}
