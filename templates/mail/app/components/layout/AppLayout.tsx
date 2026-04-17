@@ -805,12 +805,19 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
               <div className="flex-1" />
 
-              {/* Search */}
-              {searchFocused ? (
+              {/* Search — stays visible while a search is active so the
+                  user always knows what they searched */}
+              {searchFocused || activeSearchQuery ? (
                 <SearchBar
+                  initialQuery={activeSearchQuery ?? ""}
+                  autoFocus={searchFocused && !activeSearchQuery}
+                  hasActiveSearch={!!activeSearchQuery}
                   onClose={() => {
                     setSearchFocused(false);
                     setSearchQuery("");
+                    if (activeSearchQuery) {
+                      navigate(`/${view}`);
+                    }
                   }}
                 />
               ) : (
@@ -824,7 +831,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
               )}
 
               {/* Hidden input for keyboard shortcut target */}
-              {!searchFocused && (
+              {!searchFocused && !activeSearchQuery && (
                 <input
                   id="mail-search"
                   className="sr-only"

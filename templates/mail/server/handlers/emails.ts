@@ -399,8 +399,9 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
           new Date(b.date).getTime() - new Date(a.date).getTime(),
       );
 
-      // Filter out snoozed emails (they may linger in Gmail due to eventual consistency)
-      if (view === "inbox" || view === "unread") {
+      // Filter out snoozed emails (they may linger in Gmail due to eventual consistency).
+      // Skip when searching — the user wants to find snoozed emails too.
+      if (!q && (view === "inbox" || view === "unread")) {
         const snoozedIds = await getSnoozedThreadIds(email);
         if (snoozedIds.size > 0) {
           emails = emails.filter(
@@ -488,8 +489,8 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
     );
   }
 
-  // Filter out snoozed emails
-  if (view === "inbox" || view === "unread") {
+  // Filter out snoozed emails. Skip when searching so snoozed hits surface too.
+  if (!q && (view === "inbox" || view === "unread")) {
     const snoozedIds = await getSnoozedThreadIds(email);
     if (snoozedIds.size > 0) {
       emails = emails.filter(

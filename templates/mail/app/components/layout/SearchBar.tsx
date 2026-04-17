@@ -7,22 +7,42 @@ import {
   type KeyboardEvent,
 } from "react";
 import { useNavigate } from "react-router";
+import { IconX } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { useContacts, type Contact } from "@/hooks/use-emails";
 
 interface SearchBarProps {
   onClose: () => void;
+  initialQuery?: string;
+  autoFocus?: boolean;
+  hasActiveSearch?: boolean;
 }
 
-export function SearchBar({ onClose }: SearchBarProps) {
+export function SearchBar({
+  onClose,
+  initialQuery = "",
+  autoFocus = true,
+  hasActiveSearch = false,
+}: SearchBarProps) {
   const navigate = useNavigate();
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery);
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const lastSyncedQueryRef = useRef(initialQuery);
 
   const { data: contacts = [] } = useContacts();
+
+  // Sync from URL when it changes externally (e.g. browser back/forward).
+  // Track the last prop we absorbed so user typing isn't clobbered when the
+  // debounced navigate round-trips back through the URL.
+  useEffect(() => {
+    if (initialQuery !== lastSyncedQueryRef.current) {
+      lastSyncedQueryRef.current = initialQuery;
+      setQuery(initialQuery);
+    }
+  }, [initialQuery]);
 
   // Filter contacts matching the query
   const matchedContacts = useMemo(() => {
@@ -46,6 +66,7 @@ export function SearchBar({ onClose }: SearchBarProps) {
   const executeSearch = useCallback(
     (q: string) => {
       if (q.trim()) {
+        lastSyncedQueryRef.current = q.trim();
         navigate(`/inbox?q=${encodeURIComponent(q.trim())}`);
       }
     },
@@ -56,10 +77,11 @@ export function SearchBar({ onClose }: SearchBarProps) {
     (contact: Contact) => {
       const q = contact.email;
       setQuery(q);
+      lastSyncedQueryRef.current = q;
       navigate(`/inbox?q=${encodeURIComponent(q)}`);
-      onClose();
+      inputRef.current?.blur();
     },
-    [navigate, onClose],
+    [navigate],
   );
 
   // Debounced auto-search as you type (only for text queries, not contact selection)
@@ -95,6 +117,7 @@ export function SearchBar({ onClose }: SearchBarProps) {
         selectContact(matchedContacts[selectedIndex]);
       } else {
         executeSearch(query);
+        inputRef.current?.blur();
       }
     } else if (e.key === "Escape") {
       setQuery("");
@@ -125,28 +148,60 @@ export function SearchBar({ onClose }: SearchBarProps) {
     );
   };
 
+  const handleClear = useCallback(() => {
+    setQuery("");
+    lastSyncedQueryRef.current = "";
+    onClose();
+  }, [onClose]);
+
   return (
     <div className="relative flex items-center gap-1.5">
-      <input
-        ref={inputRef}
-        id="mail-search"
-        autoFocus
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        onKeyDown={handleKeyDown}
-        onBlur={(e) => {
-          // Don't close if clicking on a dropdown item
-          if (
-            e.relatedTarget &&
-            (e.relatedTarget as HTMLElement).closest("[data-search-dropdown]")
-          ) {
-            return;
-          }
-          setTimeout(onClose, 100);
-        }}
-        placeholder="Search..."
-        className="h-8 sm:h-7 w-40 sm:w-48 rounded bg-accent/80 border-none px-2.5 text-[13px] text-foreground placeholder:text-muted-foreground/60 outline-none focus:ring-1 focus:ring-primary/40"
-      />
+      <div
+        className={cn(
+          "relative flex items-center rounded bg-accent/80 focus-within:ring-1 focus-within:ring-primary/40",
+          hasActiveSearch ? "w-56 sm:w-64" : "w-40 sm:w-48",
+        )}
+      >
+        <input
+          ref={inputRef}
+          id="mail-search"
+          autoFocus={autoFocus}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onBlur={(e) => {
+            // Don't close if clicking on a dropdown item
+            if (
+              e.relatedTarget &&
+              (e.relatedTarget as HTMLElement).closest("[data-search-dropdown]")
+            ) {
+              return;
+            }
+            // Keep the bar mounted while a search is active — the user needs
+            // to see what they searched. Only collapse when empty.
+            if (hasActiveSearch || query.trim()) return;
+            setTimeout(onClose, 100);
+          }}
+          placeholder="Search..."
+          className={cn(
+            "h-8 sm:h-7 flex-1 min-w-0 bg-transparent border-none px-2.5 text-[13px] text-foreground placeholder:text-muted-foreground/60 outline-none",
+            hasActiveSearch && "font-medium",
+          )}
+        />
+        {(hasActiveSearch || query) && (
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              handleClear();
+            }}
+            title="Clear search (Esc)"
+            className="flex h-5 w-5 mr-1 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent"
+          >
+            <IconX className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
 
       {/* Contact suggestions dropdown */}
       {showDropdown && (
