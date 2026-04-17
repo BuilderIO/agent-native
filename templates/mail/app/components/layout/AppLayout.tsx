@@ -104,13 +104,23 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const [searchParams] = useSearchParams();
   const activeSearchQuery = searchParams.get("q");
   const activeLabel = searchParams.get("label");
-  // Remember which view the user was in before searching — SearchBar always
-  // routes searches through /inbox?q=..., so on clear we'd otherwise drop a
-  // user searching from Starred/Sent/Archive back into Inbox.
-  const preSearchViewRef = useRef(view);
+  // Remember which view (and label tab) the user was in before searching —
+  // SearchBar always routes searches through /inbox?q=..., so on clear we'd
+  // otherwise drop a user searching from Starred/Sent/Archive or from a
+  // label-filtered tab back into plain Inbox.
+  const preSearchViewRef = useRef<{ view: string; label: string | null }>({
+    view,
+    label: activeLabel,
+  });
   useEffect(() => {
-    if (!activeSearchQuery) preSearchViewRef.current = view;
-  }, [view, activeSearchQuery]);
+    if (!activeSearchQuery) {
+      preSearchViewRef.current = { view, label: activeLabel };
+    }
+  }, [view, activeLabel, activeSearchQuery]);
+  const restorePreSearchPath = useCallback(() => {
+    const { view: v, label: l } = preSearchViewRef.current;
+    return `/${v}${l ? `?label=${encodeURIComponent(l)}` : ""}`;
+  }, []);
   const { data: labels = [], isLoading: labelsLoading } = useLabels();
   const { data: settings, isLoading: settingsLoading } = useSettings();
   useContacts(); // Prefetch contacts so composer autocomplete is instant
@@ -620,7 +630,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         setSearchFocused(false);
         (document.getElementById("mail-search") as HTMLInputElement)?.blur();
         if (activeSearchQuery) {
-          navigate(`/${preSearchViewRef.current}`);
+          navigate(restorePreSearchPath());
         }
       },
     },
@@ -826,7 +836,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     setSearchFocused(false);
                     setSearchQuery("");
                     if (activeSearchQuery) {
-                      navigate(`/${preSearchViewRef.current}`);
+                      navigate(restorePreSearchPath());
                     }
                   }}
                 />
