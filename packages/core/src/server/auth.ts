@@ -12,7 +12,6 @@ async function getFs(): Promise<typeof import("fs")> {
 }
 import {
   defineEventHandler,
-  getHeader,
   getMethod,
   getQuery,
   setResponseHeader,
@@ -370,7 +369,12 @@ function applyCorsHeaders(event: H3Event): void {
   // response would be missing the Allow-Origin header and the browser
   // blocks the response body (making it look like a network error
   // rather than "unauthenticated").
-  const origin = getHeader(event, "origin");
+  const reqHeaders = (event.node?.req?.headers ?? {}) as Record<
+    string,
+    string | string[] | undefined
+  >;
+  const originRaw = reqHeaders["origin"];
+  const origin = Array.isArray(originRaw) ? originRaw[0] : originRaw;
   if (!origin) return;
   // Dev convenience: always allow localhost origins across ports (Tauri
   // tray apps, the frame, docs). In prod, the CORS_ALLOWED_ORIGINS env

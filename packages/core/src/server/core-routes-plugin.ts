@@ -4,7 +4,6 @@ import {
   setResponseStatus,
   setResponseHeader,
   getMethod,
-  getRequestHeader,
 } from "h3";
 import type { H3Event } from "h3";
 import path from "node:path";
@@ -120,7 +119,12 @@ export function createCoreRoutesPlugin(
       defineEventHandler((event) => {
         const url = event.node?.req?.url ?? event.path ?? "/";
         if (!url.startsWith(P) && !url.startsWith("/api/")) return;
-        const origin = getRequestHeader(event, "origin");
+        const reqHeaders = (event.node?.req?.headers ?? {}) as Record<
+          string,
+          string | string[] | undefined
+        >;
+        const originRaw = reqHeaders["origin"];
+        const origin = Array.isArray(originRaw) ? originRaw[0] : originRaw;
         if (!origin) return;
         const allowed =
           allowlist.length === 0 ||
