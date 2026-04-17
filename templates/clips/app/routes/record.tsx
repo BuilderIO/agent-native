@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { IconVideo } from "@tabler/icons-react";
-import { writeAppState } from "@agent-native/core/application-state";
+
+// Client-side app-state writer (the server module pulls in Node's `events`
+// and cannot be bundled for the browser).
+async function writeAppState(key: string, value: unknown): Promise<void> {
+  await fetch(`/_agent-native/application-state/${encodeURIComponent(key)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ value }),
+  });
+}
 import {
   AlertDialog,
   AlertDialogAction,
@@ -179,7 +188,7 @@ export default function RecordRoute() {
               chunksReceived: index + 1,
               lastChunkBytes: bytes,
               updatedAt: new Date().toISOString(),
-            });
+            }).catch(() => {});
           },
         });
         engineRef.current = engine;

@@ -1,3 +1,4 @@
+import "./register-secrets.js";
 import {
   createAgentChatPlugin,
   autoDiscoverActions,
