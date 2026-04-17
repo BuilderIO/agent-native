@@ -235,10 +235,14 @@ export const createInvitationHandler = defineEventHandler(
     let emailSent = false;
     let emailError: string | undefined;
     if (isEmailConfigured()) {
-      const orgName = ctx.orgName || "your team";
-      const inviter = ctx.email;
+      // Strip CRLF from any field that flows into the Subject line — a
+      // malicious org name or inviter could otherwise inject Bcc/Reply-To
+      // headers via "Name\r\nBcc: attacker@...".
+      const stripCrlf = (s: string) => s.replace(/[\r\n]+/g, " ").trim();
+      const orgName = stripCrlf(ctx.orgName || "your team");
+      const inviter = stripCrlf(ctx.email);
       const appUrl = getInviteAppUrl(event);
-      const appName = getAppName();
+      const appName = stripCrlf(getAppName() || "");
       const onApp = appName ? ` on ${appName}` : "";
       try {
         await sendEmail({

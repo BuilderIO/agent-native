@@ -88,9 +88,10 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
 
   // Min time-to-submit: client-controlled timestamp from when the form was
   // shown. Trivially spoofable, but blocks naive scripted submitters.
+  // Negative elapsed means _t is in the future — treat as a bypass attempt.
   if (typeof body._t === "number" && body._t > 0) {
     const elapsed = Date.now() - body._t;
-    if (elapsed >= 0 && elapsed < MIN_FILL_TIME_MS) {
+    if (elapsed < MIN_FILL_TIME_MS) {
       setResponseStatus(event, 429);
       return { error: "Submitted too quickly" };
     }
