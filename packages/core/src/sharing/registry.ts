@@ -39,24 +39,44 @@ export interface ShareableResourceRegistration {
   getDb: () => any;
 }
 
-const registry = new Map<string, ShareableResourceRegistration>();
+// Stash the registry on globalThis so it survives SSR bundle duplication.
+// Vite SSR's `noExternal: /^(?!node:)/` policy means @agent-native/core gets
+// inlined into every server bundle that imports it — and each bundle gets its
+// own module-level state. A plain `new Map()` here would create one Map per
+// bundle, so the template's `registerShareableResource()` (called from the
+// Nitro plugin graph) wouldn't be visible to the framework's auto-mounted
+// share-resource action (loaded via `import("../sharing/actions/...js")` in a
+// different module instance). Using globalThis collapses them back to one Map.
+const REGISTRY_KEY = "__agentNativeShareableResources__";
+type RegistryStore = Map<string, ShareableResourceRegistration>;
+const globalRegistry: { [K in typeof REGISTRY_KEY]?: RegistryStore } =
+  globalThis as any;
+function getRegistry(): RegistryStore {
+  let r = globalRegistry[REGISTRY_KEY];
+  if (!r) {
+    r = new Map<string, ShareableResourceRegistration>();
+    globalRegistry[REGISTRY_KEY] = r;
+  }
+  return r;
+}
 
 export function registerShareableResource(
   entry: ShareableResourceRegistration,
 ): void {
-  registry.set(entry.type, entry);
+  getRegistry().set(entry.type, entry);
 }
 
 export function getShareableResource(
   type: string,
 ): ShareableResourceRegistration | undefined {
-  return registry.get(type);
+  return getRegistry().get(type);
 }
 
 export function requireShareableResource(
   type: string,
 ): ShareableResourceRegistration {
-  const entry = registry.get(type);
+  const reg = getRegistry();
+  const entry = reg.get(type);
   if (!entry) {
     throw new Error(
       `Unknown shareable resource type: "${type}". Did you forget registerShareableResource()?`,
@@ -66,5 +86,5 @@ export function requireShareableResource(
 }
 
 export function listShareableResources(): ShareableResourceRegistration[] {
-  return Array.from(registry.values());
+  return Array.from(getRegistry().values());
 }

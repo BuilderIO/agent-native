@@ -119,6 +119,28 @@ export default defineEventHandler(async (event) => {
     } catch {}
   }
 
+  // Normalize the dev-fallback videoUrl:
+  //   1. Rewrite the legacy `/api/uploads/:id/blob` shape to the current
+  //      `/api/video/:id` endpoint so old rows keep playing after the move.
+  //   2. For password-protected recordings, bake the already-validated
+  //      password into the query string so the <video> element's background
+  //      fetch sails through the blob route's password gate. Real provider
+  //      URLs (R2/S3/Builder) are left untouched; they're already signed.
+  let resolvedVideoUrl = rec.videoUrl ?? null;
+  if (resolvedVideoUrl) {
+    const legacyMatch = resolvedVideoUrl.match(
+      /^\/api\/uploads\/([^/]+)\/blob$/,
+    );
+    if (legacyMatch) {
+      resolvedVideoUrl = `/api/video/${legacyMatch[1]}`;
+    }
+    if (rec.password && resolvedVideoUrl.startsWith("/api/video/")) {
+      const sep = resolvedVideoUrl.includes("?") ? "&" : "?";
+      resolvedVideoUrl =
+        resolvedVideoUrl + sep + "password=" + encodeURIComponent(rec.password);
+    }
+  }
+
   return {
     recording: {
       id: rec.id,
@@ -128,7 +150,7 @@ export default defineEventHandler(async (event) => {
       thumbnailUrl: rec.thumbnailUrl,
       animatedThumbnailUrl: rec.animatedThumbnailUrl,
       durationMs: rec.durationMs,
-      videoUrl: rec.videoUrl,
+      videoUrl: resolvedVideoUrl,
       videoFormat: rec.videoFormat,
       width: rec.width,
       height: rec.height,

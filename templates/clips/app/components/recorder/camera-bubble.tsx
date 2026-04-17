@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { IconCamera } from "@tabler/icons-react";
 import {
   clampToViewport,
@@ -43,15 +43,30 @@ export function CameraBubble({
   const [dragging, setDragging] = useState(false);
   const dragOffsetRef = useRef({ dx: 0, dy: 0 });
 
-  useEffect(() => {
-    if (!videoRef.current) return;
+  // useLayoutEffect so srcObject is assigned before the first paint. Using
+  // a regular useEffect leaves the element in its "no srcObject" state for
+  // one paint, which Chrome sometimes latches as a blank frame that doesn't
+  // recover when the real stream arrives next tick.
+  useLayoutEffect(() => {
+    const el = videoRef.current;
+    if (!el) return;
     if (stream) {
-      videoRef.current.srcObject = stream;
-      videoRef.current.play().catch(() => {
-        // autoplay may be blocked; preview will recover on user interaction.
-      });
+      if (el.srcObject !== stream) {
+        el.srcObject = stream;
+      }
+      // play() may be rejected if the element isn't ready yet; retry once on
+      // loadedmetadata which fires when the stream's first frame is decoded.
+      const tryPlay = () => {
+        el.play().catch(() => undefined);
+      };
+      tryPlay();
+      el.addEventListener("loadedmetadata", tryPlay, { once: true });
+      return () => {
+        el.removeEventListener("loadedmetadata", tryPlay);
+      };
     } else {
-      videoRef.current.srcObject = null;
+      el.srcObject = null;
+      return;
     }
   }, [stream]);
 
@@ -112,8 +127,11 @@ export function CameraBubble({
     onSizeChange(order[(idx + 1) % order.length]);
   }
 
-  if (hidden) return null;
-
+  // Note: we deliberately don't `return null` when hidden — unmounting the
+  // <video> drops its `srcObject` assignment, and remounting it after the
+  // countdown races against Chrome's first-paint + play() pipeline. The
+  // result is a bubble that stays black even though the stream has frames.
+  // Hide via CSS visibility instead so the video element keeps playing.
   return (
     <div
       ref={bubbleRef}
@@ -131,6 +149,7 @@ export function CameraBubble({
         top: pos.top,
         touchAction: "none",
         boxShadow: "0 10px 40px rgba(0,0,0,0.4), 0 0 0 2px rgba(98,93,245,0.6)",
+        visibility: hidden ? "hidden" : "visible",
       }}
     >
       {stream ? (

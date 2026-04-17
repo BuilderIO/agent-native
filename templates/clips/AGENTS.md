@@ -119,30 +119,32 @@ Views: `library`, `spaces`, `space`, `archive`, `trash`, `record`, `recording`, 
 
 ## Common Tasks
 
-| User request                                        | What to do                                                                                                                                 |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| "What am I looking at?"                             | `pnpm action view-screen`                                                                                                                  |
-| "Start a screen recording"                          | `pnpm action start-recording --mode=screen`                                                                                                |
-| "Stop recording"                                    | `pnpm action stop-recording`                                                                                                               |
-| "Rename this recording to 'Onboarding walkthrough'" | `pnpm action update-recording --id=<id> --title="Onboarding walkthrough"`                                                                  |
-| "Write me a title and summary"                      | `pnpm action generate-ai-metadata --id=<id> --kind=title,summary` (delegates to agent chat in background)                                  |
-| "Add chapters to this video"                        | `pnpm action generate-chapters --id=<id>`                                                                                                  |
-| "Remove the filler words"                           | `pnpm action generate-filler-removal --id=<id>` (writes proposed trims into `editsJson` for user review)                                   |
-| "Find the part where I talk about pricing"          | `pnpm action search-transcript --id=<id> --q="pricing"` then `pnpm action seek --id=<id> --ms=<offsetMs>`                                  |
-| "Share this with alice@example.com as viewer"       | `pnpm action share-resource --resourceType=recording --resourceId=<id> --principalType=user --principalId=alice@example.com --role=viewer` |
-| "Make this public"                                  | `pnpm action set-resource-visibility --resourceType=recording --resourceId=<id> --visibility=public`                                       |
-| "Add a password to this share"                      | `pnpm action update-recording --id=<id> --password=<pw>`                                                                                   |
-| "Set this to expire in 7 days"                      | `pnpm action update-recording --id=<id> --expiresAt=<iso>`                                                                                 |
-| "Trim the first 30 seconds"                         | `pnpm action apply-edit --id=<id> --type=trim --startMs=0 --endMs=30000`                                                                   |
-| "Split this at the current playhead"                | Read `player-state` for `currentMs`, then `apply-edit --type=split --atMs=<currentMs>`                                                     |
-| "Move this recording to my 'Design Reviews' folder" | Look up folder id via `list-folders`, then `update-recording --id=<id> --folderId=<fid>`                                                   |
-| "Archive this"                                      | `pnpm action archive-recording --id=<id>`                                                                                                  |
-| "Delete this"                                       | `pnpm action trash-recording --id=<id>`                                                                                                    |
-| "Show me my most-watched recordings"                | `pnpm action list-recordings --sort=views --limit=10`                                                                                      |
-| "Who watched this?"                                 | `pnpm action list-viewers --id=<id>`                                                                                                       |
-| "Reply to the comment at 1:23"                      | Use `list-comments --id=<id>` to find the thread, then `add-comment --recordingId=<id> --threadId=<tid> --content="..."`                   |
-| "Give me an embed link that starts at 1:20"         | `pnpm action build-embed-url --id=<id> --t=80` — returns `/embed/<shareId>?t=80&autoplay=1`                                                |
-| "Switch to the Product workspace"                   | `pnpm action set-current-workspace --id=<workspaceId>`                                                                                     |
+| User request                                        | What to do                                                                                                                                                         |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| "What am I looking at?"                             | `pnpm action view-screen`                                                                                                                                          |
+| "Start a screen recording"                          | `pnpm action navigate --view=record` — then the user picks a mode and hits Start. Recording is a UI gesture (MediaRecorder needs user consent) — see Rule 10.      |
+| "Stop recording"                                    | Stop is a UI gesture. Users press the stop button in the recording toolbar.                                                                                        |
+| "Rename this recording to 'Onboarding walkthrough'" | `pnpm action update-recording --id=<id> --title="Onboarding walkthrough"`                                                                                          |
+| "Write me a title"                                  | Read transcript via `get-recording-player-data --recordingId=<id>`, then `update-recording --id=<id> --title="..."`                                                |
+| "Write me a description/summary"                    | Read transcript via `get-recording-player-data --recordingId=<id>`, then `update-recording --id=<id> --description="..."`                                          |
+| "Add chapters to this video"                        | Read transcript, then `set-chapters --recordingId=<id> --chapters='[{"startMs":0,"title":"Intro"},...]'`                                                           |
+| "Remove the filler words"                           | `pnpm action remove-filler-words --recordingId=<id>` (appends proposed trims into `editsJson`)                                                                     |
+| "Remove silences"                                   | `pnpm action remove-silences --recordingId=<id> [--thresholdMs=500]`                                                                                               |
+| "Find the part where I talk about pricing"          | Read `get-recording-player-data --recordingId=<id>` and grep the transcript segments for the term.                                                                 |
+| "Share this with alice@example.com as viewer"       | `pnpm action share-resource --resourceType=recording --resourceId=<id> --principalType=user --principalId=alice@example.com --role=viewer`                         |
+| "Make this public"                                  | `pnpm action set-resource-visibility --resourceType=recording --resourceId=<id> --visibility=public`                                                               |
+| "Add a password to this share"                      | `pnpm action update-recording --id=<id> --password=<pw>`                                                                                                           |
+| "Set this to expire in 7 days"                      | `pnpm action update-recording --id=<id> --expiresAt=<iso>`                                                                                                         |
+| "Trim the first 30 seconds"                         | `pnpm action trim-recording --recordingId=<id> --startMs=0 --endMs=30000`                                                                                          |
+| "Split this at the current playhead"                | Read `player-state` for `currentMs`, then `split-recording --recordingId=<id> --atMs=<currentMs>`                                                                  |
+| "Move this recording to my 'Design Reviews' folder" | Look up folder id via `list-workspace-state`, then `update-recording --id=<id> --folderId=<fid>` (or `move-recording --id=<id> --folderId=<fid>`)                  |
+| "Archive this"                                      | `pnpm action archive-recording --id=<id>`                                                                                                                          |
+| "Delete this"                                       | `pnpm action trash-recording --id=<id>`                                                                                                                            |
+| "Show me my most-watched recordings"                | `pnpm action list-recordings --sort=views --limit=10`                                                                                                              |
+| "Who watched this?"                                 | `pnpm action list-viewers --recordingId=<id>`                                                                                                                      |
+| "Reply to the comment at 1:23"                      | Use `list-comments --recordingId=<id>` to find the thread, then `add-comment --recordingId=<id> --threadId=<tid> --content="..."`                                  |
+| "Give me a share link"                              | The public share link is `/share/<recordingId>` and the embed is `/embed/<recordingId>`. Make sure visibility is `public` via `set-resource-visibility` if needed. |
+| "Switch to the Product workspace"                   | `pnpm action set-current-workspace --id=<workspaceId>`                                                                                                             |
 
 After any recording mutation (rename, move, edit, archive, delete, add comment, etc.) the actions trigger a UI refresh automatically via `refresh-signal`.
 
@@ -158,98 +160,129 @@ cd templates/clips && pnpm action <name> [args]
 
 `.env` is loaded automatically — **never manually set `DATABASE_URL` or other env vars**.
 
+> **Note on param names.** Most actions that reference a recording use `recordingId`. A handful of lifecycle actions (`archive-recording`, `trash-recording`, `restore-recording`, `update-recording`, `finalize-recording`, `delete-recording-permanent`) use `id` because they're CRUD on the recording row itself. Use what each table below says. When unsure, `ls actions/` and open the relevant file — its Zod schema is the source of truth.
+
 ### Recording lifecycle
 
-| Action             | Args                                                                | Purpose                                                  |
-| ------------------ | ------------------------------------------------------------------- | -------------------------------------------------------- |
-| `start-recording`  | `[--mode=screen\|camera\|screen+camera] [--withAudio] [--folderId]` | Ask the UI to start a recording (writes `record-intent`) |
-| `stop-recording`   |                                                                     | Ask the UI to stop the active recording                  |
-| `pause-recording`  |                                                                     | Pause the active recording                               |
-| `resume-recording` |                                                                     | Resume the active recording                              |
-| `create-recording` | `--title [--folderId] [--spaceIds] [--durationMs]`                  | Insert a recording row (used by the upload flow)         |
+Start / stop / pause are **UI gestures** — there is no server action. MediaRecorder needs an explicit user click (permission + user-activation). The agent sends the user to `/record` via `navigate --view=record`, the user picks the mode and hits Start.
+
+| Action               | Args                                                              | Purpose                                                                             |
+| -------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `create-recording`   | `--title [--folderId] [--workspaceId] [--hasCamera] [--hasAudio]` | Insert a recording row in `uploading` status. Called from the frontend upload flow. |
+| `finalize-recording` | `--id <id>`                                                       | Internal — assembles chunks, uploads the blob, flips status to `ready`.             |
 
 ### Library + CRUD
 
-| Action              | Args                                                                                                            | Purpose                                        |
-| ------------------- | --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
-| `list-recordings`   | `[--folderId] [--spaceId] [--includeArchived] [--includeTrashed] [--sort=recent\|views\|duration] [--limit]`    | List recordings the user has access to         |
-| `search-recordings` | `--q <term> [--in=title,description,transcript]`                                                                | Search across title / description / transcript |
-| `get-recording`     | `--id <id>`                                                                                                     | Get one recording with full metadata           |
-| `update-recording`  | `--id <id> [--title] [--description] [--folderId] [--spaceIds] [--password] [--expiresAt] [--defaultSpeed] ...` | Update recording metadata                      |
-| `archive-recording` | `--id <id>`                                                                                                     | Archive (hides from library, keeps viewable)   |
-| `trash-recording`   | `--id <id>`                                                                                                     | Soft-delete — restorable from Trash            |
-| `restore-recording` | `--id <id>`                                                                                                     | Restore from archive or trash                  |
-| `delete-recording`  | `--id <id>`                                                                                                     | Permanently delete (requires `admin` role)     |
-| `list-folders`      | `[--spaceId]`                                                                                                   | List folders in a space or personal library    |
-| `create-folder`     | `--name <name> [--parentId] [--spaceId]`                                                                        | Create a folder                                |
-| `list-spaces`       |                                                                                                                 | List spaces in the current workspace           |
+| Action                       | Args                                                                                                                                                                       | Purpose                                                                                           |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `list-recordings`            | `[--view library\|space\|archive\|trash\|all] [--folderId] [--spaceId] [--search] [--tag] [--sort recent\|views\|oldest] [--limit] [--offset]`                             | List recordings the user has access to                                                            |
+| `search-recordings`          | `--query <term> [--limit]`                                                                                                                                                 | Fuzzy search over title / description / transcripts                                               |
+| `get-recording-player-data`  | `--recordingId <id>`                                                                                                                                                       | Everything the player page needs (metadata + transcript + comments + reactions + chapters + CTAs) |
+| `update-recording`           | `--id <id> [--title] [--description] [--folderId] [--spaceIds] [--password] [--expiresAt] [--defaultSpeed] [--enableComments] [--enableReactions] [--enableDownloads] ...` | Update recording metadata                                                                         |
+| `move-recording`             | `--id <id> --folderId <fid>`                                                                                                                                               | Move to a folder                                                                                  |
+| `archive-recording`          | `--id <id>`                                                                                                                                                                | Archive (hidden from library, still viewable)                                                     |
+| `trash-recording`            | `--id <id>`                                                                                                                                                                | Soft-delete — restorable from Trash                                                               |
+| `restore-recording`          | `--id <id>`                                                                                                                                                                | Restore from archive or trash                                                                     |
+| `delete-recording-permanent` | `--id <id>`                                                                                                                                                                | Permanently delete (requires `admin` role)                                                        |
+| `tag-recording`              | `--recordingId <id> --tag <tag>`                                                                                                                                           | Add a free-form tag                                                                               |
+| `set-thumbnail`              | `--recordingId <id> --atMs <ms>`                                                                                                                                           | Pick a frame as the thumbnail                                                                     |
+| `add-recording-to-space`     | `--recordingId <id> --spaceId <sid>`                                                                                                                                       | Make a recording visible in a space                                                               |
+
+### Folders + spaces
+
+| Action                 | Args                                                         | Purpose                                                                                              |
+| ---------------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| `list-workspace-state` |                                                              | Members + spaces + folders for the current workspace (use instead of `list-folders` / `list-spaces`) |
+| `create-folder`        | `--name <name> --workspaceId <wid> [--parentId] [--spaceId]` | Create a folder (workspaceId is required)                                                            |
+| `rename-folder`        | `--id <fid> --name <name>`                                   | Rename a folder                                                                                      |
+| `delete-folder`        | `--id <fid>`                                                 | Delete an empty folder                                                                               |
+| `create-space`         | `--name <name> [--description] [--icon] [--color]`           | Create a topic space                                                                                 |
+| `rename-space`         | `--id <sid> --name <name>`                                   | Rename a space                                                                                       |
+| `delete-space`         | `--id <sid>`                                                 | Delete a space                                                                                       |
+| `add-space-member`     | `--spaceId <sid> --email <e> [--role]`                       | Add a member to a space                                                                              |
+| `remove-space-member`  | `--spaceId <sid> --email <e>`                                | Remove a member from a space                                                                         |
 
 ### Transcript + AI
 
-| Action                    | Args                                    | Purpose                                                                 |
-| ------------------------- | --------------------------------------- | ----------------------------------------------------------------------- |
-| `get-transcript`          | `--id <id>`                             | Return transcript segments + full text                                  |
-| `search-transcript`       | `--id <id> --q <term>`                  | Find occurrences with timestamps                                        |
-| `transcribe-recording`    | `--id <id>`                             | Run Whisper now (uses `OPENAI_API_KEY` directly — see Rules)            |
-| `generate-ai-metadata`    | `--id <id> [--kind=title,summary,tags]` | Delegate AI title/summary/tags generation to the agent (background)     |
-| `generate-chapters`       | `--id <id>`                             | Delegate chapter generation to the agent (background)                   |
-| `generate-filler-removal` | `--id <id>`                             | Delegate filler-word detection — writes proposed trims into `editsJson` |
+| Action                | Args                                     | Purpose                                                                                                                                                                                             |
+| --------------------- | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `request-transcript`  | `--recordingId <id>`                     | Run Whisper now (uses `OPENAI_API_KEY` directly — see Rule 2). Writes segments + fullText to `recording_transcripts`.                                                                               |
+| `regenerate-title`    | `--recordingId <id>`                     | Queue a delegation for the agent chat to regenerate the title. **Only useful via agent chat** — CLI invocation just writes the request; the agent (in the open chat window) actually does the work. |
+| `regenerate-summary`  | `--recordingId <id>`                     | Same pattern as `regenerate-title` — delegation queue for the agent.                                                                                                                                |
+| `regenerate-chapters` | `--recordingId <id>`                     | Same pattern — delegation queue for the agent.                                                                                                                                                      |
+| `set-chapters`        | `--recordingId <id> --chapters '<json>'` | Directly set `chaptersJson`. Shape: `[{"startMs":0,"title":"Intro"},...]`.                                                                                                                          |
+| `generate-workflow`   | `--recordingId <id>`                     | Delegate: agent extracts the repeatable workflow from the transcript.                                                                                                                               |
 
-### Editor
+### Editor (non-destructive — writes into `editsJson`)
 
-| Action         | Args                                                                                  | Purpose                                                  |
-| -------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| `apply-edit`   | `--id <id> --type=trim\|cut\|split\|speed\|blur --startMs --endMs [--atMs] [--speed]` | Append a non-destructive edit into `editsJson`           |
-| `reset-edits`  | `--id <id>`                                                                           | Clear `editsJson` back to `{}`                           |
-| `export-video` | `--id <id> [--format=mp4\|webm]`                                                      | Kick off ffmpeg.wasm export of the edited video          |
-| `seek`         | `--id <id> --ms <ms>`                                                                 | Tell the player to jump to a timestamp                   |
-| `set-speed`    | `--id <id> --speed <n>`                                                               | Set playback speed (default is `1.2` for all recordings) |
+| Action                | Args                                           | Purpose                                                            |
+| --------------------- | ---------------------------------------------- | ------------------------------------------------------------------ |
+| `trim-recording`      | `--recordingId <id> --startMs <n> --endMs <n>` | Trim a span                                                        |
+| `split-recording`     | `--recordingId <id> --atMs <n>`                | Split at a timestamp                                               |
+| `remove-filler-words` | `--recordingId <id>`                           | Detect filler words (um, uh, like) and write them as proposed cuts |
+| `remove-silences`     | `--recordingId <id> [--thresholdMs <n>]`       | Cut long silences                                                  |
+| `stitch-recordings`   | `--recordingIds '<json-array>' --title <t>`    | Create a new recording that stitches several clips                 |
+| `clear-edits`         | `--recordingId <id>`                           | Clear `editsJson` back to `{}`                                     |
+| `undo-edit`           | `--recordingId <id>`                           | Remove the last edit from `editsJson`                              |
 
 ### Sharing (framework-wide, auto-mounted)
 
-| Action                    | Args                                                                                                                               | Purpose                                 |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
-| `share-resource`          | `--resourceType recording --resourceId <id> --principalType user\|org --principalId <email-or-orgId> --role viewer\|editor\|admin` | Grant a user or org access              |
-| `unshare-resource`        | `--resourceType recording --resourceId <id> --principalType user\|org --principalId <value>`                                       | Revoke a share grant                    |
-| `list-resource-shares`    | `--resourceType recording --resourceId <id>`                                                                                       | Show current visibility + all grants    |
-| `set-resource-visibility` | `--resourceType recording --resourceId <id> --visibility private\|org\|public`                                                     | Change coarse visibility                |
-| `build-embed-url`         | `--id <id> [--t <seconds>] [--autoplay] [--hideControls]`                                                                          | Build `/embed/<shareId>?t=…&autoplay=1` |
+| Action                    | Args                                                                                                                               | Purpose                              |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| `share-resource`          | `--resourceType recording --resourceId <id> --principalType user\|org --principalId <email-or-orgId> --role viewer\|editor\|admin` | Grant a user or org access           |
+| `unshare-resource`        | `--resourceType recording --resourceId <id> --principalType user\|org --principalId <value>`                                       | Revoke a share grant                 |
+| `list-resource-shares`    | `--resourceType recording --resourceId <id>`                                                                                       | Show current visibility + all grants |
+| `set-resource-visibility` | `--resourceType recording --resourceId <id> --visibility private\|org\|public`                                                     | Change coarse visibility             |
 
 Password + `expiresAt` are **additions** stored directly on the recording row — they compose with the framework share grants. See the `video-sharing` skill.
 
+Public share link: `/share/<recordingId>`. Embed: `/embed/<recordingId>`. Both require `visibility=public`.
+
 ### Comments + reactions
 
-| Action            | Args                                                                          | Purpose                                |
-| ----------------- | ----------------------------------------------------------------------------- | -------------------------------------- |
-| `list-comments`   | `--recordingId <id>`                                                          | List threaded comments with timestamps |
-| `add-comment`     | `--recordingId <id> --content <text> [--threadId] [--parentId] [--atMs <ms>]` | Post a comment or reply                |
-| `resolve-comment` | `--id <commentId>`                                                            | Mark a thread resolved                 |
-| `react`           | `--recordingId <id> --emoji <e> [--atMs <ms>]`                                | Drop an emoji reaction at a timestamp  |
+| Action               | Args                                                                                      | Purpose                                |
+| -------------------- | ----------------------------------------------------------------------------------------- | -------------------------------------- |
+| `list-comments`      | `--recordingId <id>`                                                                      | List threaded comments with timestamps |
+| `add-comment`        | `--recordingId <id> --content <text> [--threadId] [--parentId] [--videoTimestampMs <ms>]` | Post a comment or top-level reaction   |
+| `reply-to-comment`   | `--parentId <cid> --content <text>`                                                       | Reply within an existing thread        |
+| `resolve-comment`    | `--id <commentId>`                                                                        | Mark a thread resolved                 |
+| `delete-comment`     | `--id <commentId>`                                                                        | Delete a comment                       |
+| `react-to-recording` | `--recordingId <id> --emoji <e> [--videoTimestampMs <ms>]`                                | Drop an emoji reaction at a timestamp  |
 
 ### Analytics
 
-| Action         | Args                          | Purpose                                                                       |
-| -------------- | ----------------------------- | ----------------------------------------------------------------------------- |
-| `list-viewers` | `--id <recordingId>`          | Viewers + watch totals + whether their view counted                           |
-| `get-insights` | `--id <recordingId>`          | Aggregate: views, completion %, drop-off curve, CTA CTR                       |
-| `view-event`   | `--id --kind --timestampMs …` | Record a granular event (also called from `/api/view-events` from the player) |
+| Action                   | Args                           | Purpose                                                 |
+| ------------------------ | ------------------------------ | ------------------------------------------------------- |
+| `list-viewers`           | `--recordingId <id> [--limit]` | Viewers + watch totals + whether their view counted     |
+| `get-recording-insights` | `--recordingId <id>`           | Aggregate: views, completion %, drop-off curve, CTA CTR |
+| `get-workspace-insights` |                                | Aggregate analytics for the current workspace           |
+| `export-insights-csv`    | `--recordingId <id>`           | Download insights for a recording as CSV                |
 
-### Workspace
+Granular per-event recording (view-start / watch-progress / seek / pause / cta-click) is a custom HTTP route at `POST /api/view-event`, not an action — the player hits it directly.
 
-| Action                  | Args                                                        | Purpose                                                     |
-| ----------------------- | ----------------------------------------------------------- | ----------------------------------------------------------- |
-| `list-workspace-state`  |                                                             | Roster + spaces + folders summary for the current workspace |
-| `set-current-workspace` | `--id <workspaceId>`                                        | Set which workspace is active                               |
-| `invite-member`         | `--email <e> [--role viewer\|creator-lite\|creator\|admin]` | Send a workspace invite                                     |
-| `update-member-role`    | `--email <e> --role <r>`                                    | Change an existing member's role                            |
+### Workspace + invites
+
+| Action                   | Args                                                        | Purpose                                                     |
+| ------------------------ | ----------------------------------------------------------- | ----------------------------------------------------------- |
+| `list-workspace-state`   |                                                             | Roster + spaces + folders summary for the current workspace |
+| `set-current-workspace`  | `--id <workspaceId>`                                        | Set which workspace is active                               |
+| `create-workspace`       | `--name <name> [--brandColor]`                              | Create a new workspace                                      |
+| `set-workspace-branding` | `--brandColor <hex> [--brandLogoUrl]`                       | Update the current workspace's brand color / logo           |
+| `invite-member`          | `--email <e> [--role viewer\|creator-lite\|creator\|admin]` | Send a workspace invite                                     |
+| `update-member-role`     | `--email <e> --role <r>`                                    | Change an existing member's role                            |
+| `remove-member`          | `--email <e>`                                               | Remove a member from the workspace                          |
+| `get-invite`             | `--token <t>`                                               | Look up a pending invite                                    |
+| `accept-invite`          | `--token <t>`                                               | Accept a pending invite                                     |
+| `decline-invite`         | `--token <t>`                                               | Decline a pending invite                                    |
 
 ### Navigation + context
 
-| Action         | Args                                                                                     | Purpose                                     |
-| -------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------- |
-| `view-screen`  |                                                                                          | Snapshot of what the user is looking at now |
-| `navigate`     | `--view <name> [--recordingId] [--spaceId] [--folderId] [--shareId] [--search] [--path]` | Navigate the UI                             |
-| `refresh-list` |                                                                                          | Bump the `refresh-signal` timestamp         |
+| Action               | Args                                                                                     | Purpose                                     |
+| -------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------- |
+| `view-screen`        |                                                                                          | Snapshot of what the user is looking at now |
+| `navigate`           | `--view <name> [--recordingId] [--spaceId] [--folderId] [--shareId] [--search] [--path]` | Navigate the UI                             |
+| `refresh-list`       |                                                                                          | Bump the `refresh-signal` timestamp         |
+| `list-notifications` |                                                                                          | List the current user's notifications       |
 
 ## API Routes
 

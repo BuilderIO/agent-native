@@ -247,7 +247,7 @@ export default function RecordRoute() {
         recordingId: pending.id,
       });
       setTimeout(() => {
-        navigate(`/recording/${pending.id}`);
+        navigate(`/r/${pending.id}`);
       }, 50);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Upload failed";
