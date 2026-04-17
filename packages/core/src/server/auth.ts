@@ -889,6 +889,13 @@ async function mountBetterAuthRoutes(
             "Local mode is not available in production. Create an account to continue.",
         };
       }
+      if (!isLocalDatabase()) {
+        setResponseStatus(event, 400);
+        return {
+          error:
+            "Local mode is only available on a local SQLite database. Your DATABASE_URL points at a shared database — create an account instead.",
+        };
+      }
       const ok = await setAuthModeLocal();
       if (!ok) {
         setResponseStatus(event, 500);
@@ -1317,6 +1324,13 @@ function mountAuthFallbackRoutes(app: H3App): void {
         return {
           error:
             "Local mode is not available in production. Create an account to continue.",
+        };
+      }
+      if (!isLocalDatabase()) {
+        setResponseStatus(event, 400);
+        return {
+          error:
+            "Local mode is only available on a local SQLite database. Your DATABASE_URL points at a shared database — create an account instead.",
         };
       }
       const ok = await setAuthModeLocal();

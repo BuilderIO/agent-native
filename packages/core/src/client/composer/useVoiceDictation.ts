@@ -1,0 +1,420 @@
+/**
+ * Voice dictation hook for the agent composer.
+ *
+ * Wires three providers behind a single state machine:
+ *   - "openai"  — MediaRecorder → POST /_agent-native/transcribe-voice (Whisper)
+ *   - "browser" — Web Speech API (low quality, offline capable)
+ *   - "builder" — reserved (coming soon — same as "browser" today)
+ *
+ * Provider preference lives in application_state under
+ * `voice-transcription-prefs` (`{ provider: "openai" | "browser" }`).
+ * The composer reads it on every start so settings changes take effect
+ * immediately without unmounting the composer.
+ *
+ * The hook exposes amplitude (0..1) and duration (ms) so the composer can
+ * render the Lovable-style live waveform + MM:SS timer.
+ */
+
+import { useCallback, useEffect, useRef, useState } from "react";
+
+export type VoiceProvider = "openai" | "browser" | "builder";
+
+export interface VoicePrefs {
+  provider: VoiceProvider;
+}
+
+const PREFS_KEY = "voice-transcription-prefs";
+const PREFS_URL = `/_agent-native/application-state/${PREFS_KEY}`;
+const TRANSCRIBE_URL = "/_agent-native/transcribe-voice";
+
+export type VoiceState =
+  | "idle"
+  | "starting"
+  | "recording"
+  | "transcribing"
+  | "error";
+
+export interface UseVoiceDictationOptions {
+  onTranscript: (text: string) => void;
+  onError?: (message: string) => void;
+}
+
+export interface VoiceDictationApi {
+  state: VoiceState;
+  amplitude: number;
+  durationMs: number;
+  errorMessage: string | null;
+  provider: VoiceProvider;
+  supported: boolean;
+  start: () => Promise<void>;
+  stop: () => void;
+  cancel: () => void;
+}
+
+async function readProviderPrefs(): Promise<VoiceProvider> {
+  try {
+    const res = await fetch(PREFS_URL);
+    if (!res.ok) return "browser";
+    const body = (await res.json()) as { value?: VoicePrefs } | null;
+    const p = body?.value?.provider;
+    if (p === "openai" || p === "browser" || p === "builder") return p;
+  } catch {
+    /* fall through */
+  }
+  return "browser";
+}
+
+function getSpeechRecognitionCtor(): any {
+  if (typeof window === "undefined") return null;
+  return (
+    (window as any).SpeechRecognition ||
+    (window as any).webkitSpeechRecognition ||
+    null
+  );
+}
+
+function pickMimeType(): string {
+  if (typeof MediaRecorder === "undefined") return "audio/webm";
+  const candidates = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/mp4",
+    "audio/ogg;codecs=opus",
+  ];
+  for (const mime of candidates) {
+    try {
+      if (MediaRecorder.isTypeSupported(mime)) return mime;
+    } catch {
+      /* ignore */
+    }
+  }
+  return "audio/webm";
+}
+
+export function useVoiceDictation(
+  options: UseVoiceDictationOptions,
+): VoiceDictationApi {
+  const { onTranscript, onError } = options;
+  const onTranscriptRef = useRef(onTranscript);
+  const onErrorRef = useRef(onError);
+  onTranscriptRef.current = onTranscript;
+  onErrorRef.current = onError;
+
+  const [state, setState] = useState<VoiceState>("idle");
+  const [amplitude, setAmplitude] = useState(0);
+  const [durationMs, setDurationMs] = useState(0);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [provider, setProvider] = useState<VoiceProvider>("browser");
+
+  // Keep refs for teardown / cross-branch access.
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const startedAtRef = useRef<number>(0);
+  const cancelledRef = useRef(false);
+  const speechRef = useRef<any>(null);
+  const speechTranscriptRef = useRef<string>("");
+  const activeProviderRef = useRef<VoiceProvider>("browser");
+
+  const mediaRecorderSupported =
+    typeof window !== "undefined" &&
+    typeof navigator !== "undefined" &&
+    !!navigator.mediaDevices?.getUserMedia &&
+    typeof (window as any).MediaRecorder !== "undefined";
+  const speechSupported = !!getSpeechRecognitionCtor();
+  const supported = mediaRecorderSupported || speechSupported;
+
+  const teardown = useCallback(() => {
+    if (rafRef.current != null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+    if (timerRef.current != null) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    if (mediaStreamRef.current) {
+      for (const track of mediaStreamRef.current.getTracks()) {
+        track.stop();
+      }
+      mediaStreamRef.current = null;
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close().catch(() => {});
+      audioContextRef.current = null;
+    }
+    analyserRef.current = null;
+    mediaRecorderRef.current = null;
+    chunksRef.current = [];
+    speechRef.current = null;
+    speechTranscriptRef.current = "";
+    setAmplitude(0);
+  }, []);
+
+  useEffect(() => teardown, [teardown]);
+
+  const failWith = useCallback(
+    (message: string) => {
+      setErrorMessage(message);
+      setState("error");
+      onErrorRef.current?.(message);
+      teardown();
+    },
+    [teardown],
+  );
+
+  const startMeter = useCallback((stream: MediaStream) => {
+    try {
+      const AudioCtor =
+        typeof window !== "undefined"
+          ? window.AudioContext || (window as any).webkitAudioContext || null
+          : null;
+      if (!AudioCtor) return;
+      const ctx: AudioContext = new AudioCtor();
+      const source = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 512;
+      source.connect(analyser);
+      audioContextRef.current = ctx;
+      analyserRef.current = analyser;
+
+      const buffer = new Uint8Array(analyser.frequencyBinCount);
+      const tick = () => {
+        if (!analyserRef.current) return;
+        analyserRef.current.getByteTimeDomainData(buffer);
+        let sumSquares = 0;
+        for (let i = 0; i < buffer.length; i++) {
+          const n = (buffer[i] - 128) / 128;
+          sumSquares += n * n;
+        }
+        const rms = Math.sqrt(sumSquares / buffer.length);
+        setAmplitude(Math.min(1, rms * 2.5));
+        rafRef.current = requestAnimationFrame(tick);
+      };
+      rafRef.current = requestAnimationFrame(tick);
+    } catch {
+      /* analyser is best-effort */
+    }
+  }, []);
+
+  const startTimer = useCallback(() => {
+    startedAtRef.current = Date.now();
+    setDurationMs(0);
+    timerRef.current = setInterval(() => {
+      setDurationMs(Date.now() - startedAtRef.current);
+    }, 100);
+  }, []);
+
+  const startOpenAi = useCallback(async () => {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaStreamRef.current = stream;
+    const mimeType = pickMimeType();
+    const recorder = new MediaRecorder(stream, { mimeType });
+    mediaRecorderRef.current = recorder;
+    chunksRef.current = [];
+
+    recorder.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
+    };
+    recorder.onstop = async () => {
+      const localChunks = chunksRef.current.slice();
+      const localMime = recorder.mimeType || mimeType;
+      teardown();
+      if (cancelledRef.current) {
+        cancelledRef.current = false;
+        setState("idle");
+        return;
+      }
+      if (localChunks.length === 0) {
+        setState("idle");
+        return;
+      }
+      setState("transcribing");
+      try {
+        const audioBlob = new Blob(localChunks, { type: localMime });
+        const form = new FormData();
+        form.append(
+          "audio",
+          audioBlob,
+          `voice.${localMime.split("/")[1] ?? "webm"}`,
+        );
+        const res = await fetch(TRANSCRIBE_URL, {
+          method: "POST",
+          body: form,
+        });
+        if (!res.ok) {
+          const body = await res
+            .json()
+            .catch(() => ({ error: `HTTP ${res.status}` }));
+          throw new Error(body.error || `Transcription failed (${res.status})`);
+        }
+        const data = (await res.json()) as { text?: string };
+        const text = (data.text ?? "").trim();
+        setState("idle");
+        if (text) onTranscriptRef.current?.(text);
+      } catch (err) {
+        failWith(
+          (err as Error)?.message ??
+            "Transcription failed. Check your OpenAI key in settings.",
+        );
+      }
+    };
+
+    startMeter(stream);
+    startTimer();
+    setState("recording");
+    recorder.start();
+  }, [startMeter, startTimer, teardown, failWith]);
+
+  const startBrowser = useCallback(async () => {
+    const Ctor = getSpeechRecognitionCtor();
+    if (!Ctor) {
+      throw new Error(
+        "Your browser doesn't support speech recognition. Add an OpenAI API key in settings for Whisper transcription.",
+      );
+    }
+    // Still request mic to drive the amplitude meter, so the UI doesn't look
+    // dead while the user talks. SpeechRecognition manages its own capture
+    // under the hood in most browsers.
+    let stream: MediaStream | null = null;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+      startMeter(stream);
+    } catch {
+      /* non-fatal — recognition can still work without our analyser */
+    }
+
+    const recognition = new Ctor();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang =
+      (typeof navigator !== "undefined" && navigator.language) || "en-US";
+    speechRef.current = recognition;
+    speechTranscriptRef.current = "";
+
+    recognition.onresult = (event: any) => {
+      let finalText = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const result = event.results[i];
+        if (result.isFinal) {
+          finalText += result[0]?.transcript ?? "";
+        }
+      }
+      if (finalText) speechTranscriptRef.current += finalText;
+    };
+    recognition.onerror = (event: any) => {
+      if (event?.error === "no-speech" || event?.error === "aborted") return;
+      failWith(
+        event?.error === "not-allowed"
+          ? "Microphone permission denied. Enable it in your browser settings."
+          : `Speech recognition error: ${event?.error ?? "unknown"}`,
+      );
+    };
+    recognition.onend = () => {
+      const text = speechTranscriptRef.current.trim();
+      const wasCancelled = cancelledRef.current;
+      cancelledRef.current = false;
+      teardown();
+      setState("idle");
+      if (!wasCancelled && text) onTranscriptRef.current?.(text);
+    };
+
+    startTimer();
+    setState("recording");
+    recognition.start();
+  }, [startMeter, startTimer, teardown, failWith]);
+
+  const start = useCallback(async () => {
+    if (state === "recording" || state === "starting") return;
+    setErrorMessage(null);
+    setState("starting");
+    cancelledRef.current = false;
+
+    const pref = await readProviderPrefs();
+    setProvider(pref);
+
+    // "builder" is a placeholder; behave like browser for now.
+    const resolvedProvider: VoiceProvider =
+      pref === "builder" ? "browser" : pref;
+    activeProviderRef.current = resolvedProvider;
+
+    try {
+      if (resolvedProvider === "openai") {
+        if (!mediaRecorderSupported) {
+          throw new Error(
+            "Your browser doesn't support audio recording. Use the browser provider in Settings → Voice Transcription.",
+          );
+        }
+        await startOpenAi();
+      } else {
+        await startBrowser();
+      }
+    } catch (err) {
+      const message =
+        (err as Error)?.name === "NotAllowedError"
+          ? "Microphone permission denied. Enable it in your browser settings."
+          : ((err as Error)?.message ?? "Could not start recording");
+      failWith(message);
+    }
+  }, [state, mediaRecorderSupported, startOpenAi, startBrowser, failWith]);
+
+  const stop = useCallback(() => {
+    if (state !== "recording") return;
+    cancelledRef.current = false;
+    if (activeProviderRef.current === "openai" && mediaRecorderRef.current) {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch {
+        teardown();
+        setState("idle");
+      }
+    } else if (speechRef.current) {
+      try {
+        speechRef.current.stop();
+      } catch {
+        teardown();
+        setState("idle");
+      }
+    } else {
+      teardown();
+      setState("idle");
+    }
+  }, [state, teardown]);
+
+  const cancel = useCallback(() => {
+    if (state !== "recording" && state !== "starting") return;
+    cancelledRef.current = true;
+    if (activeProviderRef.current === "openai" && mediaRecorderRef.current) {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch {
+        /* ignore */
+      }
+    } else if (speechRef.current) {
+      try {
+        speechRef.current.abort?.();
+      } catch {
+        /* ignore */
+      }
+    }
+    teardown();
+    setState("idle");
+  }, [state, teardown]);
+
+  return {
+    state,
+    amplitude,
+    durationMs,
+    errorMessage,
+    provider,
+    supported,
+    start,
+    stop,
+    cancel,
+  };
+}
