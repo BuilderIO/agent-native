@@ -1,7 +1,8 @@
 import { defineAction } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
-import { eq, desc } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
+import { accessFilter } from "@agent-native/core/sharing";
 
 export default defineAction({
   description:
@@ -21,7 +22,12 @@ export default defineAction({
       const rows = await db
         .select()
         .from(schema.decks)
-        .where(eq(schema.decks.id, navigation.deckId))
+        .where(
+          and(
+            eq(schema.decks.id, navigation.deckId),
+            accessFilter(schema.decks, schema.deckShares),
+          ),
+        )
         .limit(1);
 
       if (rows.length === 0) {
@@ -102,6 +108,7 @@ export default defineAction({
     const rows = await db
       .select()
       .from(schema.decks)
+      .where(accessFilter(schema.decks, schema.deckShares))
       .orderBy(desc(schema.decks.updatedAt));
 
     const lines: string[] = [];

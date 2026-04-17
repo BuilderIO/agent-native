@@ -284,12 +284,64 @@ async function loadActionsIntoRegistry(
 }
 
 /**
+ * Normalize a pre-bundled static action registry (name → raw module) into
+ * the `Record<string, ActionEntry>` shape the agent-chat plugin expects.
+ *
+ * Used by `autoDiscoverActions` when `.generated/actions-registry.ts` is
+ * present so that Nitro-bundled serverless functions (Netlify, Vercel,
+ * AWS-Lambda) can serve `/_agent-native/actions/*` routes without relying
+ * on a filesystem scan that doesn't work in bundled output.
+ */
+export function loadActionsFromStaticRegistry(
+  modules: Record<string, unknown>,
+): Record<string, ActionEntry> {
+  const registry: Record<string, ActionEntry> = {};
+  for (const [name, raw] of Object.entries(modules)) {
+    const mod = raw as Record<string, any> | null | undefined;
+    if (!mod) continue;
+
+    if (mod.tool && typeof mod.run === "function") {
+      registry[name] = {
+        tool: mod.tool,
+        run: mod.run,
+        ...(mod.http !== undefined ? { http: mod.http } : {}),
+        ...(mod.readOnly === true ? { readOnly: true } : {}),
+      };
+      continue;
+    }
+
+    const def = mod.default;
+    if (def && typeof def === "object" && def.tool && typeof def.run === "function") {
+      registry[name] = {
+        tool: def.tool,
+        run: def.run,
+        ...(def.http !== undefined ? { http: def.http } : {}),
+        ...(def.readOnly === true ? { readOnly: true } : {}),
+      };
+      continue;
+    }
+
+    if (typeof def === "function") {
+      registry[name] = wrapDefaultExport(name, def);
+    }
+  }
+  return registry;
+}
+
+/**
  * Auto-discover actions from a directory.
  *
  * Merges in any actions from the enterprise workspace core (if present in
  * the ancestor chain). Template actions take precedence over workspace-core
  * actions on name collision, so an app can override an enterprise-wide
  * action by dropping a same-named file under its own `actions/`.
+ *
+ * Note: this helper uses a filesystem scan, which works in dev and in
+ * non-bundled Node deployments. In bundled serverless functions (Nitro's
+ * netlify / vercel / aws-lambda presets) the `actions/` directory is not
+ * on disk at runtime; templates should pass the static registry generated
+ * by the Vite plugin to `createAgentChatPlugin({ actions })` instead, so
+ * the bundler sees static imports and pulls every action into the bundle.
  *
  * @param from - The caller's `import.meta.url` or an absolute path to the
  *   actions directory.
@@ -326,7 +378,53 @@ export async function autoDiscoverActions(
     // workspace-core discovery unavailable (e.g. edge runtime) — skip.
   }
 
+  // 3. Framework-level sharing actions — always available to any template
+  //    that registers a shareable resource. Merged with skipExisting so
+  //    templates can override by providing a same-named file.
+  try {
+    await mergeCoreSharingActions(registry);
+  } catch {
+    // Ignore — templates without sharing still work.
+  }
+
   return registry;
+}
+
+async function mergeCoreSharingActions(
+  registry: Record<string, ActionEntry>,
+): Promise<void> {
+  const entries: Array<[string, () => Promise<any>]> = [
+    ["share-resource", () => import("../sharing/actions/share-resource.js")],
+    [
+      "unshare-resource",
+      () => import("../sharing/actions/unshare-resource.js"),
+    ],
+    [
+      "list-resource-shares",
+      () => import("../sharing/actions/list-resource-shares.js"),
+    ],
+    [
+      "set-resource-visibility",
+      () => import("../sharing/actions/set-resource-visibility.js"),
+    ],
+  ];
+  for (const [name, loader] of entries) {
+    if (registry[name]) continue;
+    try {
+      const mod = await loader();
+      const def = mod.default;
+      if (def && def.tool && typeof def.run === "function") {
+        registry[name] = {
+          tool: def.tool,
+          run: def.run,
+          ...(def.http !== undefined ? { http: def.http } : {}),
+          ...(def.readOnly === true ? { readOnly: true } : {}),
+        };
+      }
+    } catch {
+      // Skip any sharing action that fails to import.
+    }
+  }
 }
 
 /** @deprecated Use `autoDiscoverActions` instead */

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { eq } from "drizzle-orm";
 import fs from "fs/promises";
 import path from "path";
+import { assertAccess } from "@agent-native/core/sharing";
 import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
@@ -14,6 +15,8 @@ export default defineAction({
     if (!args.id) {
       return { error: "Composition id is required" };
     }
+
+    await assertAccess("composition", args.id, "admin");
 
     const db = getDb();
     await db

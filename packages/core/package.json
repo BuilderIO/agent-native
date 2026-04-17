@@ -39,6 +39,8 @@
     "./oauth-tokens": "./dist/oauth-tokens/index.js",
     "./org": "./dist/org/index.js",
     "./client/org": "./dist/client/org/index.js",
+    "./sharing": "./dist/sharing/index.js",
+    "./client/sharing": "./dist/client/sharing/index.js",
     "./adapters/cli": "./dist/adapters/cli/index.js",
     "./router": "./dist/router/index.js",
     "./collab": "./dist/collab/index.js",
@@ -106,7 +108,8 @@
     "tailwind-merge": "^2.6.0",
     "tiptap-markdown": "^0.9.0",
     "y-protocols": "^1.0.7",
-    "yjs": "^13.6.30"
+    "yjs": "^13.6.30",
+    "zod": "^3.24.0"
   },
   "peerDependencies": {
     "@ai-sdk/anthropic": ">=1",

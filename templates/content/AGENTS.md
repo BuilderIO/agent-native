@@ -114,6 +114,19 @@ cd templates/content && pnpm action <name> [args]
 | `list-comments` | `--documentId <id>`                                            | List all comment threads |
 | `add-comment`   | `--documentId <id> --content <text> [--threadId] [--parentId]` | Add a comment or reply   |
 
+### Sharing
+
+Documents are **private by default** — only the creator can see them. To grant access to others, change the visibility or add explicit share grants. These actions are auto-mounted framework-wide:
+
+| Action                    | Args                                                                                                                              | Purpose                                  |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| `share-resource`          | `--resourceType document --resourceId <id> --principalType user\|org --principalId <email-or-orgId> --role viewer\|editor\|admin` | Grant a user or org access to a document |
+| `unshare-resource`        | `--resourceType document --resourceId <id> --principalType user\|org --principalId <email-or-orgId>`                              | Revoke a share grant                     |
+| `list-resource-shares`    | `--resourceType document --resourceId <id>`                                                                                       | Show current visibility + all grants     |
+| `set-resource-visibility` | `--resourceType document --resourceId <id> --visibility private\|org\|public`                                                     | Change coarse visibility                 |
+
+Read (`get-document`, `list-documents`, `search-documents`) admits rows the current user owns, has been shared on, or that match the resource's visibility. Write (`update-document`, `edit-document`) requires `editor` role or above; `delete-document` requires `admin` (owners always satisfy). See the `sharing` skill for the full model.
+
 ## Common Tasks
 
 | User request                   | What to do                                                                     |
@@ -138,18 +151,22 @@ After any create, update, or delete operation, the scripts automatically trigger
 
 Documents are stored in the SQL `documents` table via Drizzle ORM:
 
-| Column        | Type    | Description                                            |
-| ------------- | ------- | ------------------------------------------------------ |
-| `id`          | text    | Primary key (12-char hex)                              |
-| `owner_email` | text    | Per-user owner; local mode starts as `local@localhost` |
-| `parent_id`   | text    | Parent document ID (null for root)                     |
-| `title`       | text    | Document title                                         |
-| `content`     | text    | Markdown content                                       |
-| `icon`        | text    | Emoji icon                                             |
-| `position`    | integer | Sort order within parent                               |
-| `is_favorite` | integer | Whether favorited (0 or 1)                             |
-| `created_at`  | text    | ISO timestamp                                          |
-| `updated_at`  | text    | ISO timestamp                                          |
+| Column        | Type    | Description                                                 |
+| ------------- | ------- | ----------------------------------------------------------- |
+| `id`          | text    | Primary key (12-char hex)                                   |
+| `owner_email` | text    | Per-user owner; local mode starts as `local@localhost`      |
+| `org_id`      | text    | Owner's active org at creation time (nullable)              |
+| `visibility`  | text    | `'private' \| 'org' \| 'public'` — coarse default (private) |
+| `parent_id`   | text    | Parent document ID (null for root)                          |
+| `title`       | text    | Document title                                              |
+| `content`     | text    | Markdown content                                            |
+| `icon`        | text    | Emoji icon                                                  |
+| `position`    | integer | Sort order within parent                                    |
+| `is_favorite` | integer | Whether favorited (0 or 1)                                  |
+| `created_at`  | text    | ISO timestamp                                               |
+| `updated_at`  | text    | ISO timestamp                                               |
+
+A companion `document_shares` table holds per-user or per-org grants with a `role` (`viewer | editor | admin`). See the Sharing section above for the share actions.
 
 Documents form a tree via `parent_id`. Content is stored as markdown.
 

@@ -28,6 +28,7 @@ import {
   emailToName,
   type CollabUser,
 } from "@agent-native/core/client";
+import { ShareButton } from "@agent-native/core/client";
 import {
   Tooltip,
   TooltipContent,
@@ -143,6 +144,7 @@ function CurrentUserAvatar({ email }: { email: string }) {
 
 interface DocumentToolbarProps {
   documentId: string;
+  documentTitle?: string;
   activeUsers?: CollabUser[];
   agentActive?: boolean;
   isSaving?: boolean;
@@ -151,6 +153,7 @@ interface DocumentToolbarProps {
 
 export function DocumentToolbar({
   documentId,
+  documentTitle,
   activeUsers,
   agentActive,
   isSaving,
@@ -357,6 +360,13 @@ export function DocumentToolbar({
           <CurrentUserAvatar email={currentUserEmail} />
         </div>
       )}
+      <ShareButton
+        resourceType="document"
+        resourceId={documentId}
+        resourceTitle={documentTitle}
+        variant="compact"
+      />
+
       <button
         onClick={() => setHistoryOpen(true)}
         className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"

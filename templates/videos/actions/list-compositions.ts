@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { desc } from "drizzle-orm";
+import { accessFilter } from "@agent-native/core/sharing";
 import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
@@ -10,6 +11,7 @@ export default defineAction({
     const rows = await db
       .select()
       .from(schema.compositions)
+      .where(accessFilter(schema.compositions, schema.compositionShares))
       .orderBy(desc(schema.compositions.updatedAt));
 
     return rows.map((row) => ({
@@ -19,6 +21,9 @@ export default defineAction({
       data: JSON.parse(row.data),
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
+      ownerEmail: row.ownerEmail,
+      orgId: row.orgId,
+      visibility: row.visibility,
     }));
   },
 });

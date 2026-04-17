@@ -58,6 +58,8 @@ export interface Deck {
   slides: Slide[];
   /** Share token if this deck has been shared */
   shareToken?: string;
+  /** Framework sharing visibility — private (default), org, or public. */
+  visibility?: "private" | "org" | "public";
 }
 
 export interface HistoryEntry {

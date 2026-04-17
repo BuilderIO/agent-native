@@ -2,7 +2,7 @@ import { defineAction } from "@agent-native/core";
 import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { writeAppState } from "@agent-native/core/application-state";
-import { getCurrentOwnerEmail } from "../server/lib/documents.js";
+import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 async function deleteRecursive(
@@ -25,7 +25,7 @@ async function deleteRecursive(
     deleted.push(...(await deleteRecursive(db, child.id, ownerEmail)));
   }
 
-  // Delete sync links, versions, then document
+  // Delete sync links, versions, shares, then document
   await db
     .delete(schema.documentSyncLinks)
     .where(
@@ -43,13 +43,9 @@ async function deleteRecursive(
       ),
     );
   await db
-    .delete(schema.documents)
-    .where(
-      and(
-        eq(schema.documents.id, id),
-        eq(schema.documents.ownerEmail, ownerEmail),
-      ),
-    );
+    .delete(schema.documentShares)
+    .where(eq(schema.documentShares.resourceId, id));
+  await db.delete(schema.documents).where(eq(schema.documents.id, id));
   deleted.push(id);
 
   return deleted;
@@ -64,21 +60,15 @@ export default defineAction({
     const id = args.id;
     if (!id) throw new Error("--id is required");
 
-    const ownerEmail = getCurrentOwnerEmail();
+    const access = await assertAccess("document", id, "admin");
+    const existing = access.resource;
+
     const db = getDb();
-    const [existing] = await db
-      .select({ id: schema.documents.id, title: schema.documents.title })
-      .from(schema.documents)
-      .where(
-        and(
-          eq(schema.documents.id, id),
-          eq(schema.documents.ownerEmail, ownerEmail),
-        ),
-      );
-
-    if (!existing) throw new Error(`Document "${id}" not found`);
-
-    const deleted = await deleteRecursive(db, id, ownerEmail);
+    const deleted = await deleteRecursive(
+      db,
+      id,
+      existing.ownerEmail as string,
+    );
     const childCount = deleted.length - 1;
 
     // Trigger UI refresh

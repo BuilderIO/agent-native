@@ -1,10 +1,8 @@
 import { defineAction } from "@agent-native/core";
-import { asc, eq } from "drizzle-orm";
+import { asc } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
-import {
-  getCurrentOwnerEmail,
-  parseDocumentFavorite,
-} from "../server/lib/documents.js";
+import { parseDocumentFavorite } from "../server/lib/documents.js";
+import { accessFilter } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 export default defineAction({
@@ -12,12 +10,11 @@ export default defineAction({
   schema: z.object({}),
   http: { method: "GET" },
   run: async () => {
-    const ownerEmail = getCurrentOwnerEmail();
     const db = getDb();
     const documents = await db
       .select()
       .from(schema.documents)
-      .where(eq(schema.documents.ownerEmail, ownerEmail))
+      .where(accessFilter(schema.documents, schema.documentShares))
       .orderBy(asc(schema.documents.position));
 
     const mapped = documents.map((d) => ({
@@ -28,6 +25,7 @@ export default defineAction({
       icon: d.icon,
       position: d.position,
       isFavorite: parseDocumentFavorite(d.isFavorite),
+      visibility: d.visibility,
       createdAt: d.createdAt,
       updatedAt: d.updatedAt,
     }));

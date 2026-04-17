@@ -6,6 +6,11 @@ import {
 } from "h3";
 import { nanoid } from "nanoid";
 import { desc, eq } from "drizzle-orm";
+import { accessFilter, assertAccess } from "@agent-native/core/sharing";
+import {
+  getRequestUserEmail,
+  getRequestOrgId,
+} from "@agent-native/core/server/request-context";
 import type { BookingLink } from "../../shared/api.js";
 import { getDb, schema } from "../db/index.js";
 import { readBody } from "@agent-native/core/server";
@@ -42,6 +47,7 @@ function rowToBookingLink(
     conferencing,
     color: row.color ?? undefined,
     isActive: row.isActive,
+    visibility: row.visibility,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -52,6 +58,7 @@ export const listBookingLinks = defineEventHandler(async (event: H3Event) => {
     const rows = await getDb()
       .select()
       .from(schema.bookingLinks)
+      .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares))
       .orderBy(desc(schema.bookingLinks.updatedAt));
     return rows.map(rowToBookingLink);
   } catch (error: any) {
@@ -105,6 +112,8 @@ export const createBookingLink = defineEventHandler(async (event: H3Event) => {
           : null,
         color: body.color ? String(body.color).trim() : null,
         isActive: body.isActive ?? true,
+        ownerEmail: getRequestUserEmail() ?? "local@localhost",
+        orgId: getRequestOrgId(),
         createdAt: now,
         updatedAt: now,
       });
@@ -133,6 +142,9 @@ export const updateBookingLink = defineEventHandler(async (event: H3Event) => {
       setResponseStatus(event, 400);
       return { error: "title, slug, and duration are required" };
     }
+
+    // Sharing: only owner / editor / admin can update.
+    await assertAccess("booking-link", id, "editor");
 
     const slug = String(body.slug).trim().toLowerCase();
     const [existingSlug, existingRedirect] = await Promise.all([
@@ -216,7 +228,8 @@ export const updateBookingLink = defineEventHandler(async (event: H3Event) => {
 
     return rowToBookingLink(updated[0]);
   } catch (error: any) {
-    setResponseStatus(event, 500);
+    const status = error?.statusCode ?? 500;
+    setResponseStatus(event, status);
     return { error: error.message };
   }
 });
@@ -228,6 +241,9 @@ export const deleteBookingLink = defineEventHandler(async (event: H3Event) => {
       setResponseStatus(event, 400);
       return { error: "id is required" };
     }
+
+    // Sharing: only owner / admin grantees can delete.
+    await assertAccess("booking-link", id, "admin");
 
     // Get the slug before deleting so we can clean up redirects
     const toDelete = await getDb()
@@ -248,11 +264,16 @@ export const deleteBookingLink = defineEventHandler(async (event: H3Event) => {
 
     return { ok: true };
   } catch (error: any) {
-    setResponseStatus(event, 500);
+    const status = error?.statusCode ?? 500;
+    setResponseStatus(event, status);
     return { error: error.message };
   }
 });
 
+// PUBLIC booking page — unauthenticated visitors fetch a link by slug to book.
+// This is the anonymous-booking axis and MUST NOT apply the sharing filter.
+// Sharing controls who can MANAGE the link; the public slug controls who can
+// BOOK via the link (gated only by `isActive` + explicit publish).
 export const getPublicBookingLink = defineEventHandler(
   async (event: H3Event) => {
     try {
