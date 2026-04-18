@@ -38,3 +38,23 @@ export const automationRules = table("automation_rules", {
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });
+
+export const emailTracking = table("email_tracking", {
+  pixelToken: text("pixel_token").primaryKey(),
+  messageId: text("message_id").notNull(),
+  ownerEmail: text("owner_email").notNull(),
+  sentAt: integer("sent_at").notNull(),
+  opensCount: integer("opens_count").notNull().default(0),
+  firstOpenedAt: integer("first_opened_at"),
+  lastOpenedAt: integer("last_opened_at"),
+  lastUserAgent: text("last_user_agent"),
+});
+
+export const emailLinkTracking = table("email_link_tracking", {
+  clickToken: text("click_token").primaryKey(),
+  pixelToken: text("pixel_token").notNull(),
+  url: text("url").notNull(),
+  clicksCount: integer("clicks_count").notNull().default(0),
+  firstClickedAt: integer("first_clicked_at"),
+  lastClickedAt: integer("last_clicked_at"),
+});

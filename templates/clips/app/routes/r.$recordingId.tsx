@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router";
+import { toast } from "sonner";
 import {
   IconShare3,
   IconSettings,
@@ -7,8 +8,7 @@ import {
   IconFileText,
   IconChartLine,
   IconArrowLeft,
-  IconSparkles,
-  IconWand,
+  IconChevronDown,
 } from "@tabler/icons-react";
 import {
   useActionQuery,
@@ -16,6 +16,7 @@ import {
   sendToAgentChat,
 } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   DropdownMenu,
@@ -46,7 +47,7 @@ export function meta({ params }: { params: { recordingId?: string } }) {
 export function HydrateFallback() {
   return (
     <div className="flex items-center justify-center h-screen w-full bg-background">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-foreground" />
+      <Spinner className="h-8 w-8" />
     </div>
   );
 }
@@ -64,13 +65,32 @@ export default function RecordingPage() {
   const [shareOpen, setShareOpen] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
   const [speed, setSpeed] = useState(1.2);
+  // When the recording lands in the processing state but never flips to
+  // 'ready', stop spinning forever and surface an error banner so the user
+  // can retry or report the issue instead of staring at a spinner.
+  const [processingTimeout, setProcessingTimeout] = useState(false);
 
   const playerDataQ = useActionQuery<any>(
     "get-recording-player-data",
     {
       recordingId: recordingId ?? "",
     },
-    { enabled: !!recordingId },
+    {
+      enabled: !!recordingId,
+      refetchInterval: (q) => {
+        const data = q.state.data as any;
+        const rec = data?.recording;
+        if (!rec) return false;
+        // Poll while the recording is still being assembled / transcoded so
+        // the page auto-upgrades from "Processing" to the real player the
+        // moment the server flips status to 'ready' and writes videoUrl.
+        if (rec.status !== "ready" || !rec.videoUrl) return 1000;
+        // Also keep polling while a transcript is pending so "Transcribing…"
+        // auto-flips to the ready transcript (or to the failure card).
+        if (data?.transcript?.status === "pending") return 3000;
+        return false;
+      },
+    },
   );
 
   const recording = playerDataQ.data?.recording;
@@ -85,6 +105,7 @@ export default function RecordingPage() {
   const chapters = playerDataQ.data?.chapters ?? [];
   const transcriptSegments = playerDataQ.data?.transcript?.segments ?? [];
   const transcriptStatus = playerDataQ.data?.transcript?.status;
+  const transcriptFailureReason = playerDataQ.data?.transcript?.failureReason;
   const ctas = playerDataQ.data?.ctas ?? [];
 
   const canEdit = role === "owner" || role === "admin" || role === "editor";
@@ -95,6 +116,27 @@ export default function RecordingPage() {
     const s = parseFloat(recording.defaultSpeed || "1.2");
     if (!Number.isNaN(s)) setSpeed(s);
   }, [recording?.defaultSpeed]);
+
+  // After 30 seconds of non-ready status (without an explicit failure), flip
+  // a local flag so we can stop pretending this is normal and show an error.
+  // Even a 10-minute recording's finalize completes in a few seconds with
+  // the SQL fallback, so anything past 30s means something is wrong.
+  useEffect(() => {
+    if (!recording) {
+      setProcessingTimeout(false);
+      return;
+    }
+    if (recording.status === "ready" && recording.videoUrl) {
+      setProcessingTimeout(false);
+      return;
+    }
+    if (recording.status === "failed") {
+      setProcessingTimeout(false);
+      return;
+    }
+    const handle = setTimeout(() => setProcessingTimeout(true), 30_000);
+    return () => clearTimeout(handle);
+  }, [recording?.status, recording?.videoUrl, recordingId]);
 
   // Sync navigation state
   useEffect(() => {
@@ -130,7 +172,7 @@ export default function RecordingPage() {
   if (playerDataQ.isLoading) {
     return (
       <div className="flex items-center justify-center h-screen w-full bg-background">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-foreground" />
+        <Spinner className="h-8 w-8" />
       </div>
     );
   }
@@ -146,6 +188,60 @@ export default function RecordingPage() {
         <Button onClick={() => navigate("/")} variant="outline">
           Back to library
         </Button>
+      </div>
+    );
+  }
+
+  // Desktop app opens this page the moment stop is pressed — finalize runs
+  // in the background. Show a dedicated "still processing" state and let the
+  // refetch-interval above upgrade it to the full player as soon as the
+  // server writes videoUrl + flips status to 'ready'.
+  if (recording.status !== "ready" || !recording.videoUrl) {
+    const progress = Number(recording.uploadProgress ?? 0);
+    const explicitFailure = recording.status === "failed";
+    // Treat "stuck on processing/uploading past the 30s mark" as a failure
+    // too — otherwise the user stares at a spinner forever when finalize
+    // silently dies (e.g. chunk route 401s, storage provider throws).
+    const stuckFailure = !explicitFailure && processingTimeout;
+    const isFailure = explicitFailure || stuckFailure;
+    const label = isFailure
+      ? "Something went wrong while saving this clip."
+      : "Finishing up your clip…";
+    const failureReason = explicitFailure
+      ? ((recording as any).failureReason ?? "You can retry from the library.")
+      : stuckFailure
+        ? `Processing hasn't completed after 30 seconds (status=${recording.status}). The clip may not have finished uploading — check the server logs for [chunk]/[finalize] messages.`
+        : "Uploading and assembling your video — this usually takes just a few seconds.";
+    return (
+      <div className="flex flex-col items-center justify-center h-screen w-full bg-background px-6">
+        {!isFailure ? <Spinner className="h-8 w-8 mb-4" /> : null}
+        <h1 className="text-lg font-semibold mb-1">{label}</h1>
+        <p className="text-sm text-muted-foreground mb-4 max-w-md text-center">
+          {failureReason}
+        </p>
+        {!isFailure && progress > 0 ? (
+          <div className="w-64 h-1.5 rounded-full bg-muted overflow-hidden mb-4">
+            <div
+              className="h-full bg-foreground"
+              style={{ width: `${Math.min(100, Math.max(0, progress))}%` }}
+            />
+          </div>
+        ) : null}
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={() => {
+              setProcessingTimeout(false);
+              playerDataQ.refetch();
+            }}
+            variant="outline"
+            size="sm"
+          >
+            Check again
+          </Button>
+          <Button onClick={() => navigate("/")} variant="ghost" size="sm">
+            Back to library
+          </Button>
+        </div>
       </div>
     );
   }
@@ -177,8 +273,8 @@ export default function RecordingPage() {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="sm" className="gap-1.5">
-                  <IconWand className="h-4 w-4" />
                   AI tools
+                  <IconChevronDown className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-60">
@@ -282,7 +378,7 @@ export default function RecordingPage() {
 
           <Button
             onClick={() => setShareOpen(true)}
-            className="bg-[#625DF5] hover:bg-[#5751e5] text-white gap-1.5"
+            className="bg-primary hover:bg-primary/90 text-primary-foreground gap-1.5"
             size="sm"
           >
             <IconShare3 className="h-4 w-4" />
@@ -298,6 +394,7 @@ export default function RecordingPage() {
               videoUrl={recording.videoUrl}
               durationMs={recording.durationMs}
               thumbnailUrl={recording.thumbnailUrl}
+              role={role}
               defaultSpeed={speed}
               comments={comments}
               chapters={chapters}
@@ -364,18 +461,17 @@ export default function RecordingPage() {
               onValueChange={(v) => setPanel(v as SidePanel)}
               className="flex flex-col h-full"
             >
-              <TabsList className="w-full rounded-none border-b border-border bg-background h-auto p-0">
-                <TabsTrigger
-                  value="transcript"
-                  className="flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-[#625DF5] data-[state=active]:bg-transparent py-3 gap-1.5"
-                >
+              <TabsList
+                className={cn(
+                  "mx-3 mt-3 grid w-auto",
+                  canEdit ? "grid-cols-3" : "grid-cols-2",
+                )}
+              >
+                <TabsTrigger value="transcript" className="gap-1.5">
                   <IconFileText className="h-4 w-4" />
                   Transcript
                 </TabsTrigger>
-                <TabsTrigger
-                  value="comments"
-                  className="flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-[#625DF5] data-[state=active]:bg-transparent py-3 gap-1.5"
-                >
+                <TabsTrigger value="comments" className="gap-1.5">
                   <IconMessage className="h-4 w-4" />
                   Comments
                   {comments.length > 0 ? (
@@ -385,10 +481,7 @@ export default function RecordingPage() {
                   ) : null}
                 </TabsTrigger>
                 {canEdit ? (
-                  <TabsTrigger
-                    value="insights"
-                    className="flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-[#625DF5] data-[state=active]:bg-transparent py-3 gap-1.5"
-                  >
+                  <TabsTrigger value="insights" className="gap-1.5">
                     <IconChartLine className="h-4 w-4" />
                     Insights
                   </TabsTrigger>
@@ -397,19 +490,40 @@ export default function RecordingPage() {
 
               <TabsContent
                 value="transcript"
-                className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden"
+                className="flex-1 min-h-0 mt-3 data-[state=inactive]:hidden"
               >
                 <TranscriptPanel
                   segments={transcriptSegments}
                   currentMs={currentMs}
                   onSeek={(ms) => playerRef.current?.seek(ms)}
                   status={transcriptStatus}
+                  failureReason={transcriptFailureReason}
                   recordingTitle={recording.title}
+                  onRetry={() => {
+                    // Re-run the Whisper transcription now that the user may
+                    // have set their OPENAI_API_KEY (or after a one-off
+                    // network error). The action flips the row to 'pending'
+                    // first, so the UI will swap back to "Transcribing…".
+                    fetch("/_agent-native/actions/request-transcript", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ recordingId: recording.id }),
+                    })
+                      .then((res) => {
+                        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                      })
+                      .catch((err) =>
+                        toast.error(
+                          `Retry failed: ${err?.message ?? "network error"}`,
+                        ),
+                      )
+                      .finally(() => playerDataQ.refetch());
+                  }}
                 />
               </TabsContent>
               <TabsContent
                 value="comments"
-                className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden"
+                className="flex-1 min-h-0 mt-3 data-[state=inactive]:hidden"
               >
                 <CommentsPanel
                   recordingId={recording.id}
@@ -424,7 +538,7 @@ export default function RecordingPage() {
               {canEdit ? (
                 <TabsContent
                   value="insights"
-                  className="flex-1 min-h-0 mt-0 overflow-y-auto data-[state=inactive]:hidden"
+                  className="flex-1 min-h-0 mt-3 overflow-y-auto data-[state=inactive]:hidden"
                 >
                   <InsightsPanel
                     recordingId={recording.id}
@@ -469,4 +583,3 @@ function capitalize(s: string) {
 
 // Silence unused-import warnings where applicable.
 void cn;
-void IconSparkles;

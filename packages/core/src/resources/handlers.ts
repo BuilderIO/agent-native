@@ -33,6 +33,8 @@ import {
 import { getSession } from "../server/auth.js";
 import { readBody } from "../server/h3-helpers.js";
 import { uploadFile } from "../file-upload/index.js";
+import { getOrgContext } from "../org/context.js";
+import { createError } from "h3";
 
 // ---------------------------------------------------------------------------
 // Owner resolution
@@ -47,6 +49,21 @@ async function resolveOwner(event: any, shared?: boolean): Promise<string> {
 async function resolveEmail(event: any): Promise<string> {
   const session = await getSession(event);
   return session?.email || "local@localhost";
+}
+
+/**
+ * Reject writes to organization-wide resources unless the user is the
+ * organization owner/admin (or the deployment is solo — no org membership).
+ * Read access remains open to every org member.
+ */
+async function assertCanEditShared(event: any): Promise<void> {
+  const ctx = await getOrgContext(event);
+  if (!ctx.orgId) return; // solo / dev mode — no org, treat as owner
+  if (ctx.role === "owner" || ctx.role === "admin") return;
+  throw createError({
+    statusCode: 403,
+    message: "Only organization admins can edit organization files",
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -316,6 +333,10 @@ export async function handleCreateResource(event: any) {
     return { error: "path is required" };
   }
 
+  if (body.shared) {
+    await assertCanEditShared(event);
+  }
+
   const owner = await resolveOwner(event, body.shared);
 
   // If ifNotExists is set, skip if the resource already exists
@@ -357,6 +378,9 @@ export async function handleUpdateResource(event: any) {
     setResponseStatus(event, 403);
     return { error: "Forbidden" };
   }
+  if (existing.owner === SHARED_OWNER) {
+    await assertCanEditShared(event);
+  }
 
   const body = await readBody(event);
 
@@ -396,6 +420,9 @@ export async function handleDeleteResource(event: any) {
     setResponseStatus(event, 403);
     return { error: "Forbidden" };
   }
+  if (existing.owner === SHARED_OWNER) {
+    await assertCanEditShared(event);
+  }
 
   await resourceDelete(id);
   return { ok: true };
@@ -423,6 +450,9 @@ export async function handleUploadResource(event: any) {
   const path = pathPart?.data?.toString() || `/${fileName}`;
   const shared = sharedPart?.data?.toString() === "true";
   const mimeType = filePart.type || "application/octet-stream";
+  if (shared) {
+    await assertCanEditShared(event);
+  }
   const owner = await resolveOwner(event, shared);
 
   // Prefer a registered file upload provider (e.g. Builder.io) for binary

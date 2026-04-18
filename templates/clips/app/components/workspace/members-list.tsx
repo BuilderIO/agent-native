@@ -43,7 +43,7 @@ export interface MemberRow {
 }
 
 interface MembersListProps {
-  workspaceId: string;
+  organizationId: string;
   members: MemberRow[];
   currentUserEmail: string;
   currentUserRole: MemberRole | "owner";
@@ -63,7 +63,7 @@ const ROLE_OPTIONS: { value: MemberRole; label: string }[] = [
 ];
 
 export function MembersList({
-  workspaceId,
+  organizationId,
   members,
   currentUserEmail,
   currentUserRole,
@@ -75,22 +75,24 @@ export function MembersList({
 
   const updateRole = useActionMutation<
     any,
-    { workspaceId: string; email: string; role: MemberRole }
+    { organizationId: string; email: string; role: MemberRole }
   >("update-member-role");
   const removeMember = useActionMutation<
     any,
-    { workspaceId: string; email: string }
+    { organizationId: string; email: string }
   >("remove-member");
 
   async function handleRoleChange(member: MemberRow, role: MemberRole) {
     try {
       await updateRole.mutateAsync({
-        workspaceId,
+        organizationId,
         email: member.email,
         role,
       });
       toast.success(`Updated ${member.email}'s role to ${role}`);
-      qc.invalidateQueries({ queryKey: ["action", "list-workspace-state"] });
+      qc.invalidateQueries({
+        queryKey: ["action", "list-organization-state"],
+      });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to update role");
     }
@@ -100,11 +102,13 @@ export function MembersList({
     if (!pendingRemove) return;
     try {
       await removeMember.mutateAsync({
-        workspaceId,
+        organizationId,
         email: pendingRemove.email,
       });
-      toast.success(`Removed ${pendingRemove.email} from the workspace`);
-      qc.invalidateQueries({ queryKey: ["action", "list-workspace-state"] });
+      toast.success(`Removed ${pendingRemove.email} from the organization`);
+      qc.invalidateQueries({
+        queryKey: ["action", "list-organization-state"],
+      });
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : "Failed to remove member",
@@ -142,7 +146,7 @@ export function MembersList({
                   <TableCell>
                     <div className="flex items-center gap-2 min-w-0">
                       <Avatar className="h-8 w-8 flex-shrink-0">
-                        <AvatarFallback className="text-xs bg-[#625DF5] text-white">
+                        <AvatarFallback className="text-xs bg-primary text-primary-foreground">
                           {initials(m.email)}
                         </AvatarFallback>
                       </Avatar>
@@ -222,7 +226,7 @@ export function MembersList({
             <AlertDialogTitle>Remove member?</AlertDialogTitle>
             <AlertDialogDescription>
               {pendingRemove
-                ? `${pendingRemove.email} will lose access to this workspace. You can always invite them back.`
+                ? `${pendingRemove.email} will lose access to this organization. You can always invite them back.`
                 : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>

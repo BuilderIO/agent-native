@@ -21,7 +21,7 @@ interface Particle {
 }
 
 const COLORS = [
-  "#625DF5",
+  "#a1a1aa",
   "#A78BFA",
   "#F472B6",
   "#F59E0B",

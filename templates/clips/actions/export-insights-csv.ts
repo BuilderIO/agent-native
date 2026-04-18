@@ -1,18 +1,18 @@
 /**
- * Export a CSV of every recording in the workspace with view / engagement
+ * Export a CSV of every recording in the organization with view / engagement
  * counts. Returned as `text/csv` with Content-Disposition attachment so the
  * browser downloads it.
  *
  * Usage:
  *   pnpm action export-insights-csv
- *   pnpm action export-insights-csv --workspaceId=<id>
+ *   pnpm action export-insights-csv --organizationId=<id>
  */
 
 import { defineAction } from "@agent-native/core";
-import { readAppState } from "@agent-native/core/application-state";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
+import { getActiveOrganizationId } from "../server/lib/recordings.js";
 
 function csvEscape(value: unknown): string {
   if (value === null || value === undefined) return "";
@@ -29,38 +29,25 @@ function formatDate(d: Date): string {
 
 export default defineAction({
   description:
-    "Export every recording in the workspace with view and engagement counts as a CSV attachment. Uses the current workspace when workspaceId is omitted.",
+    "Export every recording in the organization with view and engagement counts as a CSV attachment. Uses the active organization when organizationId is omitted.",
   schema: z.object({
-    workspaceId: z
+    organizationId: z
       .string()
       .optional()
-      .describe("Workspace id — defaults to current workspace"),
+      .describe("Organization id — defaults to active organization"),
   }),
   http: { method: "GET" },
   run: async (args) => {
     const db = getDb();
 
-    let workspaceId = args.workspaceId;
-    if (!workspaceId) {
-      const current = (await readAppState("current-workspace")) as {
-        id?: string;
-      } | null;
-      workspaceId = current?.id;
-    }
-    if (!workspaceId) {
-      const [latest] = await db
-        .select({ id: schema.workspaces.id })
-        .from(schema.workspaces)
-        .orderBy(sql`${schema.workspaces.createdAt} DESC`)
-        .limit(1);
-      workspaceId = latest?.id;
-    }
+    const organizationId =
+      args.organizationId || (await getActiveOrganizationId());
 
-    const recordings = workspaceId
+    const recordings = organizationId
       ? await db
           .select()
           .from(schema.recordings)
-          .where(eq(schema.recordings.workspaceId, workspaceId))
+          .where(eq(schema.recordings.organizationId, organizationId))
       : [];
 
     const recordingIds = recordings.map((r) => r.id);

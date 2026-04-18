@@ -76,7 +76,7 @@ export function useCreateFolder() {
     any,
     {
       name: string;
-      workspaceId: string;
+      organizationId: string;
       spaceId?: string;
       parentId?: string | null;
     }
@@ -111,21 +111,22 @@ export function useTagRecording() {
   >("tag-recording");
 }
 
-// ── Folders / spaces / workspaces ─────────────────────────────────────────────
-// Derived from `list-workspace-state` which ships with the template. All three
-// hooks hit the same endpoint and slice — React Query dedupes identical keys.
+// ── Folders / spaces / organizations ──────────────────────────────────────────
+// Derived from `list-organization-state` which ships with the template. All
+// three hooks hit the same endpoint and slice — React Query dedupes identical
+// keys.
 
-export function useWorkspaceState(workspaceId?: string) {
+export function useOrganizationState(organizationId?: string) {
   return useActionQuery<any>(
-    "list-workspace-state",
-    workspaceId ? { workspaceId } : undefined,
+    "list-organization-state",
+    organizationId ? { organizationId } : undefined,
   );
 }
 
 export function useFolders(
-  args: { workspaceId?: string; spaceId?: string | null } = {},
+  args: { organizationId?: string; spaceId?: string | null } = {},
 ) {
-  const { data, isLoading } = useWorkspaceState(args.workspaceId);
+  const { data, isLoading } = useOrganizationState(args.organizationId);
   const all = Array.isArray(data?.folders) ? (data.folders as any[]) : [];
   const folders =
     args.spaceId !== undefined
@@ -136,20 +137,20 @@ export function useFolders(
   return { data: { folders }, isLoading };
 }
 
-export function useSpaces(workspaceId?: string) {
-  const { data, isLoading } = useWorkspaceState(workspaceId);
+export function useSpaces(organizationId?: string) {
+  const { data, isLoading } = useOrganizationState(organizationId);
   const spaces = Array.isArray(data?.spaces) ? (data.spaces as any[]) : [];
   return { data: { spaces }, isLoading };
 }
 
-export function useWorkspaces() {
-  // list-workspace-state only returns the current workspace. We surface it as
-  // a single-item list so the switcher has something to render; foundation /
-  // workspace-team will replace this with a proper `list-workspaces` later.
-  const { data, isLoading } = useWorkspaceState();
-  const workspaces = data?.workspace ? [data.workspace] : [];
+export function useOrganizations() {
+  // list-organization-state only returns the current organization. We surface
+  // it as a single-item list so the switcher has something to render; the
+  // framework team will replace this with a proper `list-organizations` later.
+  const { data, isLoading } = useOrganizationState();
+  const organizations = data?.organization ? [data.organization] : [];
   return {
-    data: { workspaces, currentId: data?.workspace?.id },
+    data: { organizations, currentId: data?.organization?.id },
     isLoading,
   };
 }

@@ -99,7 +99,7 @@ export function CaptionsOverlay({
       <div
         className="rounded-md bg-black/80 text-white px-4 py-1.5 text-[15px] leading-snug font-medium max-w-[70vw] text-center"
         style={{
-          outline: dragging ? "2px solid #625DF5" : undefined,
+          outline: dragging ? "2px solid hsl(var(--primary))" : undefined,
         }}
       >
         {text}

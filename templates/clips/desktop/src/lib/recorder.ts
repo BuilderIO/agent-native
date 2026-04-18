@@ -105,8 +105,14 @@ async function uploadChunk(url: string, blob: Blob): Promise<void> {
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
+    console.error(
+      "[clips-recorder] chunk failed:",
+      res.status,
+      body.slice(0, 200),
+    );
     throw new Error(`chunk ${res.status}: ${body.slice(0, 200)}`);
   }
+  console.log("[clips-recorder] chunk ok:", res.status, blob.size, "bytes");
 }
 
 async function waitForEvent(name: string, timeoutMs = 15_000): Promise<void> {
@@ -143,6 +149,46 @@ export async function startNativeRecording(
     wantsAudio,
   });
 
+  // CRITICAL: before any getDisplayMedia / getUserMedia call in this
+  // (popover) webview, TEAR DOWN the bubble webview if it's alive. On
+  // macOS all Tauri webviews share a single WebKit process and a single
+  // media-session arbiter. If the bubble holds a live camera track
+  // when we call getDisplayMedia or getUserMedia({audio}), WebKit
+  // renegotiates the process's capture graph in a way that mutes the
+  // bubble's camera track (readyState stays "live" but frames stop
+  // arriving → black circle).
+  //
+  // Previous fixes tried to recover AFTER the mute (onmute handler,
+  // watchdog, proactive re-acquire). None held up consistently because
+  // the cross-webview contention keeps re-firing as long as BOTH
+  // webviews are touching capture hardware. The only robust fix is to
+  // completely release the bubble's camera before we acquire ours, and
+  // re-spawn the bubble after MediaRecorder is running (MediaRecorder
+  // doesn't touch the camera after start, so there's no contention at
+  // that point).
+  if (wantsCamera) {
+    console.log(
+      "[clips-recorder] closing bubble webview BEFORE screen/mic acquisition to release camera",
+    );
+    // Tell the popover's React effect to stop trying to keep the
+    // bubble open until we say otherwise. Without this the effect
+    // would immediately race us and re-invoke show_bubble while the
+    // camera is still transitioning back to free.
+    await emit("clips:bubble-suppress", { suppressed: true }).catch((err) =>
+      console.error("[clips-recorder] bubble-suppress emit failed:", err),
+    );
+    try {
+      await invoke("close_bubble");
+    } catch (err) {
+      console.error("[clips-recorder] close_bubble failed:", err);
+    }
+    // Wait long enough for macOS to release the camera hardware and
+    // for WebKit to tear down the bubble's capture session. 400ms is
+    // comfortably above the observed settle time.
+    console.log("[clips-recorder] waiting 400ms for camera hardware release");
+    await new Promise((r) => setTimeout(r, 400));
+  }
+
   // 1. Acquire streams BEFORE the countdown so the user gets the permission
   //    prompts out of the way while the popover is still focused.
   let displayStream: MediaStream | null = null;
@@ -159,15 +205,31 @@ export async function startNativeRecording(
   }
   let audioStream: MediaStream | null = null;
   if (wantsAudio) {
+    console.log("[clips-recorder] acquiring audioStream (mic only)");
+    // IMPORTANT: `video: false` is EXPLICIT here. WebKit on macOS has been
+    // observed to treat `{ audio: ... }` with no `video` key as "caller
+    // hasn't expressed a video preference" and — when another webview in
+    // the same process has a live camera track — renegotiate the media
+    // session in a way that MUTES the bubble's camera track. Spelling
+    // out `video: false` blocks that renegotiation path entirely.
     audioStream = await navigator.mediaDevices.getUserMedia({
       audio: params.micId ? { deviceId: { exact: params.micId } } : true,
+      video: false,
     });
+    console.log(
+      "[clips-recorder] audioStream acquired",
+      audioStream.getAudioTracks().map((t) => ({
+        label: t.label,
+        readyState: t.readyState,
+      })),
+    );
   }
 
   // For the camera-only mode the bubble's own getUserMedia is the primary
   // video source. We don't need a second stream in the popover.
   let cameraStream: MediaStream | null = null;
   if (params.mode === "camera") {
+    console.log("[clips-recorder] acquiring cameraStream (mode=camera only)");
     cameraStream = await navigator.mediaDevices.getUserMedia({
       video: params.cameraId ? { deviceId: { exact: params.cameraId } } : true,
       audio: false,
@@ -286,10 +348,16 @@ export async function startNativeRecording(
       }
     }),
     listen("clips:recorder-stop", () => {
-      void handle.stop();
+      console.log("[clips-recorder] stop event received");
+      handle.stop().catch((err) => {
+        console.error("[clips-recorder] handle.stop() threw:", err);
+      });
     }),
     listen("clips:recorder-cancel", () => {
-      void handle.cancel();
+      console.log("[clips-recorder] cancel event received");
+      handle.cancel().catch((err) => {
+        console.error("[clips-recorder] handle.cancel() threw:", err);
+      });
     }),
   ]);
   stateUnlistens = toolbarUnlistens;
@@ -297,26 +365,59 @@ export async function startNativeRecording(
   recorder.start(2_000);
   console.log("[clips-recorder] MediaRecorder started");
 
-  // 6. Show the floating toolbar + camera bubble.
+  // 6. Show the floating toolbar.
   try {
     await invoke("show_toolbar");
     console.log("[clips-recorder] show_toolbar ok");
   } catch (err) {
     console.error("[clips-recorder] show_toolbar failed:", err);
   }
+
+  // 7. Re-spawn the camera bubble NOW that MediaRecorder is running and
+  // we've closed the bubble window before acquiring display/mic. The
+  // bubble webview starts fresh, calls getUserMedia in isolation, and
+  // since MediaRecorder doesn't touch the camera after start, there's
+  // no cross-webview contention this time. We give the capture graph
+  // ~500ms to stabilize after MediaRecorder.start() before the bubble
+  // reaches for the camera — empirically macOS fully releases the
+  // last-held capture arbiter within a few frames of the new
+  // MediaRecorder hitting steady state.
   if (wantsCamera) {
-    try {
-      await invoke("show_bubble");
-      console.log("[clips-recorder] show_bubble ok");
-    } catch (err) {
-      console.error("[clips-recorder] show_bubble failed:", err);
-    }
-    // Tell the bubble which device to use (if any). It grabs its own stream.
+    console.log(
+      "[clips-recorder] waiting 500ms for MediaRecorder to stabilize before re-spawning bubble",
+    );
     setTimeout(() => {
-      emit("clips:bubble-config", { deviceId: params.cameraId }).catch((err) =>
-        console.error("[clips-recorder] bubble-config emit failed:", err),
+      console.log(
+        "[clips-recorder] re-spawning bubble webview (post-MediaRecorder)",
       );
-    }, 300);
+      // Clear the suppression flag first so the popover's bubble
+      // effect stops tearing the bubble back down the moment Rust
+      // opens it.
+      emit("clips:bubble-suppress", { suppressed: false }).catch((err) =>
+        console.error(
+          "[clips-recorder] bubble-suppress(false) emit failed:",
+          err,
+        ),
+      );
+      invoke("show_bubble")
+        .then(() => {
+          console.log("[clips-recorder] show_bubble (post-MR) ok");
+          // Give the new bubble webview a beat to mount its listener,
+          // then push the camera deviceId so it picks the right device.
+          setTimeout(() => {
+            emit("clips:bubble-config", { deviceId: params.cameraId }).catch(
+              (err) =>
+                console.error(
+                  "[clips-recorder] bubble-config (post-MR) emit failed:",
+                  err,
+                ),
+            );
+          }, 300);
+        })
+        .catch((err) =>
+          console.error("[clips-recorder] show_bubble (post-MR) failed:", err),
+        );
+    }, 500);
   }
 
   const handle: RecorderHandle = {
@@ -357,51 +458,54 @@ export async function startNativeRecording(
         s?.getTracks().forEach((t) => t.stop()),
       );
 
-      // Tear down all overlays and open the playback URL IMMEDIATELY. The
-      // finalize roundtrip can take seconds (and sometimes the dev server
-      // stalls) — we don't want the UI to sit there doing nothing while
-      // the user waits for the network. The recording is safe server-side
-      // as long as the chunks have streamed; finalize just assembles them.
-      const viewUrl = `/r/${id}`;
-      console.log("[clips-recorder] hiding overlays + opening browser");
+      // Hide overlays right away so the user sees the chrome disappear, but
+      // keep the popover alive until finalize completes — otherwise closing
+      // the Tauri webview cancels the in-flight fetch and the recording
+      // gets stuck in "processing" forever. Popover hide happens AFTER
+      // we've gotten the server's finalize response.
+      console.log("[clips-recorder] hiding overlay chrome");
       await invoke("hide_overlays").catch((err) =>
         console.error("[clips-recorder] hide_overlays failed:", err),
       );
+
+      // Wait for any in-flight chunk uploads to settle before sending the
+      // final chunk. Otherwise the server could finalize before the last
+      // few bytes land.
+      await Promise.allSettled(uploadQueue);
+      if (failed)
+        console.error("[clips-recorder] chunk upload failed:", failed);
+
+      const finalizeUrl = chunkUrl(params.serverUrl, id, chunkIndex, true, {
+        mimeType: mimeType || "video/webm",
+      });
+      console.log("[clips-recorder] finalize POST", finalizeUrl, {
+        chunksSent: chunkIndex,
+        uploadQueueLen: uploadQueue.length,
+        anyFailed: !!failed,
+      });
+      try {
+        const finalRes = await fetch(finalizeUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/octet-stream" },
+          credentials: "include",
+          body: new Blob([], { type: mimeType || "video/webm" }),
+        });
+        const bodyText = await finalRes.text().catch(() => "");
+        console.log(
+          "[clips-recorder] finalize response:",
+          finalRes.status,
+          bodyText.slice(0, 500),
+        );
+      } catch (err) {
+        console.error("[clips-recorder] finalize fetch failed:", err);
+      }
+
+      // Finalize done (or tried and failed — the player page shows a clear
+      // error state in either case). Open the browser to the playback URL.
+      const viewUrl = `/r/${id}`;
       openExternal(`${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`).catch(
         (err) => console.error("[clips-recorder] openExternal failed:", err),
       );
-
-      // Best-effort finalize in the background. Log failures, but don't
-      // block or throw — the browser tab is already opening and the user
-      // will see whatever state the server landed on.
-      (async () => {
-        await Promise.allSettled(uploadQueue);
-        if (failed) {
-          console.error("[clips-recorder] chunk upload failed:", failed);
-          return;
-        }
-        const finalizeUrl = chunkUrl(params.serverUrl, id, chunkIndex, true, {
-          mimeType: mimeType || "video/webm",
-        });
-        try {
-          const finalRes = await fetch(finalizeUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/octet-stream" },
-            credentials: "include",
-            body: new Blob([], { type: mimeType || "video/webm" }),
-          });
-          if (!finalRes.ok) {
-            const body = await finalRes.text().catch(() => "");
-            console.error(
-              `[clips-recorder] finalize ${finalRes.status}: ${body.slice(0, 200)}`,
-            );
-          } else {
-            console.log("[clips-recorder] finalize ok");
-          }
-        } catch (err) {
-          console.error("[clips-recorder] finalize fetch failed:", err);
-        }
-      })();
 
       return { recordingId: id, viewUrl };
     },

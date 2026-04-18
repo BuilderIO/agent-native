@@ -104,6 +104,14 @@ export function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [recorder, setRecorder] = useState<RecorderHandle | null>(null);
   const [recError, setRecError] = useState<string | null>(null);
+  // Latched true the moment the user clicks Start Recording and cleared
+  // when the recorder fully stops/cancels. We use this to keep the camera
+  // bubble alive across the brief popover-visibility transitions during
+  // recording setup (the macOS screen-picker steals focus and can briefly
+  // flip `popoverVisible` to false — without this latch, the bubble
+  // window would be destroyed + recreated, and the second getUserMedia
+  // would race the first and come back black).
+  const [recordingFlowActive, setRecordingFlowActive] = useState(false);
   const [lastRecordingId, setLastRecordingId] = useState<string | null>(null);
   const [authStatus, setAuthStatus] = useState<"unknown" | "authed" | "anon">(
     "unknown",
@@ -149,13 +157,12 @@ export function App() {
     checkAuth();
   }, [checkAuth]);
 
-  async function signIn() {
-    // The framework's auth guard serves the login HTML at any protected
-    // path — there is no dedicated `/login` route in the template router.
-    // Opening `/` means: (a) if already signed in, land on the library;
-    // (b) if anon, the guard intercepts and serves the login form. After
-    // a successful sign-in, the cookie is set even if the post-login
-    // redirect target 404s (as it currently does in this dev build).
+  // Fallback for OAuth (Google / Apple) where a browser window is
+  // unavoidable. Email/password uses the inline <SignInForm /> below, which
+  // avoids the Tauri 2 separate-WebKit-data-store cookie issue entirely —
+  // the cookie is set in the same webview that will read it on the next
+  // session poll.
+  async function signInExternal() {
     await invoke("show_signin", {
       url: `${serverUrl.replace(/\/+$/, "")}/`,
     }).catch(() => {});
@@ -165,9 +172,6 @@ export function App() {
       if (ok || Date.now() - start > 120_000) {
         clearInterval(interval);
         if (ok) {
-          // Session is live — close the signin window AND re-show the
-          // popover so the user lands back in the config UI (not a
-          // mysterious empty screen).
           invoke("close_signin").catch(() => {});
           invoke("show_popover").catch(() => {});
         }
@@ -256,18 +260,48 @@ export function App() {
   // (so the bubble isn't hovering over everything while the user is
   // working in another app).
 
+  // The recorder driver needs to DESTROY and re-spawn the bubble during
+  // the startup handshake (to release the camera hardware before we
+  // acquire display + mic — see recorder.ts for the full explanation).
+  // While that handshake is mid-flight it emits `clips:bubble-suppress`
+  // with `true` so this effect doesn't race to re-open the bubble; it
+  // flips back to `false` once MediaRecorder is running and we want the
+  // bubble back. Keep this as a ref-like piece of state so toggles
+  // propagate through the effect cleanly.
+  const [bubbleSuppressed, setBubbleSuppressed] = useState(false);
+  useEffect(() => {
+    const unlistens: Array<() => void> = [];
+    listen<{ suppressed?: boolean }>("clips:bubble-suppress", (ev) => {
+      const next = !!ev.payload.suppressed;
+      console.log("[clips-popover] bubble-suppress =", next);
+      setBubbleSuppressed(next);
+    }).then((u) => unlistens.push(u));
+    return () => unlistens.forEach((u) => u());
+  }, []);
+
   const showBubblePreview =
-    mode !== "screen" && cameraOn && (popoverVisible || isRecording);
+    mode !== "screen" &&
+    cameraOn &&
+    !bubbleSuppressed &&
+    (popoverVisible || isRecording || recordingFlowActive);
 
   useEffect(() => {
     console.log("[clips-popover] wantsBubble", showBubblePreview, {
       mode,
       cameraOn,
       isRecording,
+      recordingFlowActive,
+      bubbleSuppressed,
     });
     if (!showBubblePreview) {
-      invoke("hide_overlays").catch((e) =>
-        console.error("[clips-popover] hide_overlays failed", e),
+      // Don't call hide_overlays here — that would also close the
+      // countdown / toolbar mid-recording. If we want the bubble gone
+      // (either because suppression is on, or the popover closed
+      // pre-recording), close JUST the bubble via close_bubble. The
+      // recorder driver is the only other caller, and it uses the
+      // same command.
+      invoke("close_bubble").catch((e) =>
+        console.error("[clips-popover] close_bubble failed", e),
       );
       return;
     }
@@ -280,7 +314,15 @@ export function App() {
       );
     }, 250);
     return () => clearTimeout(t);
-  }, [showBubblePreview, cameraId, mode, cameraOn, isRecording]);
+  }, [
+    showBubblePreview,
+    cameraId,
+    mode,
+    cameraOn,
+    isRecording,
+    recordingFlowActive,
+    bubbleSuppressed,
+  ]);
 
   // ---- auto-size popover to content --------------------------------------
   // The Tauri window is fixed-size via tauri.conf.json, but our content
@@ -360,12 +402,26 @@ export function App() {
       cameraOn,
       micOn,
     });
+    // Latch BEFORE the async work so the bubble-preview effect keeps the
+    // bubble window alive even if `popoverVisible` briefly flips during
+    // the macOS screen-picker dance — rebuilding the bubble mid-startup
+    // is what left it black when MediaRecorder acquired its streams.
+    setRecordingFlowActive(true);
     // Tell Rust we're entering the recording flow NOW, not after the
     // handle arrives. The macOS screen-picker dialog steals focus from
     // the popover, which would otherwise trigger the blur-auto-hide
     // mid-setup — so the countdown and toolbar render behind a hidden
     // popover and the user sees nothing happen.
     invoke("set_recording_state", { active: true }).catch(() => {});
+    // Hide the popover BEFORE `getDisplayMedia` runs so the macOS screen
+    // picker doesn't list the popover as a capture target (otherwise a
+    // stray click down selects the popover itself as the "window" to
+    // record). The popover stays hidden during recording anyway; on
+    // cancel/error we show it again below.
+    getCurrentWindow()
+      .hide()
+      .catch(() => {});
+    emit("clips:popover-visible", false).catch(() => {});
     try {
       const handle = await startNativeRecording({
         serverUrl,
@@ -380,16 +436,30 @@ export function App() {
     } catch (err) {
       // Recording didn't actually start — clear the flag so the popover
       // can auto-hide normally again.
+      setRecordingFlowActive(false);
       invoke("set_recording_state", { active: false }).catch(() => {});
-      const message = err instanceof Error ? err.message : String(err);
+      // Bring the popover back so the user can see we returned to the
+      // pre-record state instead of disappearing silently.
+      invoke("show_popover").catch(() => {});
       console.error("[clips-popover] startRecording failed:", err);
+      // User cancelled the macOS screen-picker (or denied permission).
+      // WebKit throws DOMException `NotAllowedError` for BOTH cancel and
+      // deny with the same message string, so we can't reliably tell them
+      // apart — treat both as a silent no-op and return to pre-record
+      // state. Some browsers throw `AbortError` on user abort instead.
+      const errName =
+        err instanceof DOMException || err instanceof Error ? err.name : "";
+      const message = err instanceof Error ? err.message : String(err);
       if (
-        !/NotAllowedError|permission denied by system|was cancelled|dismissed/i.test(
+        errName === "NotAllowedError" ||
+        errName === "AbortError" ||
+        /NotAllowedError|permission denied by system|was cancelled|dismissed/i.test(
           message,
         )
       ) {
-        setRecError(message);
+        return;
       }
+      setRecError(message);
     }
   }
 
@@ -411,6 +481,7 @@ export function App() {
         } finally {
           if (!cancelled) {
             setRecorder(null);
+            setRecordingFlowActive(false);
             invoke("set_recording_state", { active: false }).catch(() => {});
             // Close the popover — recorder.stop() already opened the
             // recording's page in the default browser. The popover doesn't
@@ -429,6 +500,7 @@ export function App() {
         } finally {
           if (!cancelled) {
             setRecorder(null);
+            setRecordingFlowActive(false);
             invoke("set_recording_state", { active: false }).catch(() => {});
             invoke("show_popover").catch(() => {});
           }
@@ -445,6 +517,51 @@ export function App() {
 
   const showCameraRow = mode !== "screen"; // screen-only has no camera
   const showSourceRow = mode !== "camera"; // camera-only has no screen source
+
+  // During recording the popover is normally hidden — the tray click and the
+  // global shortcut both emit `clips:recorder-stop` directly, and the
+  // floating left-edge toolbar has the canonical Stop button. If the popover
+  // does somehow end up visible (dock reopen, global-shortcut race, etc.),
+  // we just render the normal pre-record panel so the user at least knows
+  // where they are. No recording-only UI lives here.
+
+  // When unauthenticated, render the sign-in form INLINE in the popover
+  // (not a separate Tauri window). This avoids Tauri 2's separate-WebKit-
+  // data-store-per-WebviewWindow cookie-jar issue — the cookie is set in
+  // the same webview that reads it on the next /auth/session poll.
+  // OAuth (Google / Apple) still needs a browser, so we offer that as a
+  // secondary link via signInExternal().
+  if (authStatus === "anon") {
+    return (
+      <div className="app" ref={appRef}>
+        <Header mode={mode} onModeChange={setMode} />
+        <SignInForm
+          serverUrl={serverUrl}
+          onSignedIn={async () => {
+            await checkAuth();
+          }}
+          onUseBrowser={signInExternal}
+        />
+        <div className="footer">
+          <span className="kbd">⌘⇧L</span>
+          <a className="footer-link" onClick={() => setShowSettings(true)}>
+            Change server
+          </a>
+        </div>
+        {showSettings ? (
+          <Setup
+            initial={serverUrl}
+            onConnect={(url) => {
+              saveString(STORAGE_KEY, url.replace(/\/+$/, ""));
+              setServerUrl(url.replace(/\/+$/, ""));
+              setShowSettings(false);
+            }}
+            onCancel={() => setShowSettings(false)}
+          />
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div className="app" ref={appRef}>
@@ -476,18 +593,10 @@ export function App() {
         />
       </div>
 
-      {authStatus === "anon" ? (
-        <button className="primary start" onClick={signIn}>
-          Sign in to Clips
-        </button>
-      ) : isRecording ? (
-        <RecordingRow onStop={() => emit("clips:recorder-stop")} />
-      ) : (
-        <button className="primary start" onClick={startRecording}>
-          <span className="rec-dot" aria-hidden />
-          Start recording
-        </button>
-      )}
+      <button className="primary start" onClick={startRecording}>
+        <span className="rec-dot" aria-hidden />
+        Start recording
+      </button>
       {recError ? <div className="error-banner">{recError}</div> : null}
 
       <div className="bottom-row">
@@ -579,8 +688,11 @@ function Header({
   mode: CaptureMode;
   onModeChange: (m: CaptureMode) => void;
 }) {
+  // Mode-toggle is absolutely centered (visual center of the popover) and the
+  // close button lives top-right as an absolute-positioned sibling, so the
+  // tabs aren't offset by the close button's width.
   return (
-    <div className="header">
+    <div className="header header-centered">
       <div
         className="mode-toggle"
         role="radiogroup"
@@ -612,7 +724,7 @@ function Header({
         </button>
       </div>
       <button
-        className="icon-button"
+        className="icon-button header-close"
         onClick={hidePopover}
         aria-label="Close"
         title="Close"
@@ -620,6 +732,96 @@ function Header({
         <CloseIcon />
       </button>
     </div>
+  );
+}
+
+function SignInForm({
+  serverUrl,
+  onSignedIn,
+  onUseBrowser,
+}: {
+  serverUrl: string;
+  onSignedIn: () => Promise<void> | void;
+  onUseBrowser: () => void;
+}) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const emailRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    emailRef.current?.focus();
+  }, []);
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (submitting) return;
+    setError(null);
+    setSubmitting(true);
+    try {
+      // Post to the framework's Better Auth-backed email/password endpoint.
+      // credentials: "include" ensures the session cookie is attached to
+      // this webview's jar — and because we poll /auth/session from the
+      // SAME webview, it resolves correctly (unlike the previous separate-
+      // window flow, where Tauri 2 gave each webview its own WebKit data
+      // store and the cookie never reached the popover).
+      const res = await fetch(
+        `${serverUrl.replace(/\/+$/, "")}/_agent-native/auth/login`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: email.trim(), password }),
+          credentials: "include",
+        },
+      );
+      if (!res.ok) {
+        const json = await res.json().catch(() => null);
+        throw new Error(json?.error || `Sign in failed (${res.status})`);
+      }
+      await onSignedIn();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form className="signin" onSubmit={onSubmit}>
+      <div className="signin-title">Sign in to Clips</div>
+      <input
+        ref={emailRef}
+        type="email"
+        autoComplete="email"
+        placeholder="Email"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        required
+      />
+      <input
+        type="password"
+        autoComplete="current-password"
+        placeholder="Password"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        required
+      />
+      {error ? <div className="error-banner">{error}</div> : null}
+      <button
+        type="submit"
+        className="primary start"
+        disabled={submitting || !email || !password}
+      >
+        {submitting ? "Signing in…" : "Sign in"}
+      </button>
+      <button
+        type="button"
+        className="footer-link signin-alt"
+        onClick={onUseBrowser}
+      >
+        Sign in with Google / other (opens browser)
+      </button>
+    </form>
   );
 }
 
@@ -761,30 +963,6 @@ function DeviceRow({
         </div>
       ) : null}
     </div>
-  );
-}
-
-function RecordingRow({ onStop }: { onStop: () => void }) {
-  // Live timer driven by the `clips:recorder-state` events already emitted
-  // by the recorder driver. Falls back to 0:00 if the driver hasn't
-  // started pinging yet.
-  const [elapsed, setElapsed] = useState(0);
-  useEffect(() => {
-    const unlistens: Array<() => void> = [];
-    listen<{ paused: boolean; elapsedMs: number }>(
-      "clips:recorder-state",
-      (ev) => setElapsed(ev.payload?.elapsedMs ?? 0),
-    ).then((u) => unlistens.push(u));
-    return () => unlistens.forEach((u) => u());
-  }, []);
-  const total = Math.max(0, Math.floor(elapsed / 1000));
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return (
-    <button className="primary start rec-active" onClick={onStop}>
-      <span className="rec-dot rec-dot-live" aria-hidden />
-      Stop recording · {m}:{s.toString().padStart(2, "0")}
-    </button>
   );
 }
 

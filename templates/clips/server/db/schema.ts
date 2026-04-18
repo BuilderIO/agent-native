@@ -8,14 +8,41 @@ import {
 } from "@agent-native/core/db/schema";
 
 // -----------------------------------------------------------------------------
-// Workspaces & members
+// Organizations (new canonical "team" primitive, powered by better-auth).
+//
+// Team / member / invitation rows live in better-auth's own tables:
+//   `organization`, `member`, `invitation` — managed by the framework.
+//
+// `organization_settings` is the Clips-specific sidecar: brand color, logo,
+// default visibility — one row per organization, keyed by `organization.id`.
+//
 // -----------------------------------------------------------------------------
+// Workspaces & members (DEPRECATED — kept only for the in-place migration
+// from the old Clips workspace model to better-auth orgs. Every new Clips
+// deploy auto-backfills an `organization` + `organization_settings` row for
+// every workspace row at startup (see `server/plugins/db.ts`), keeping the
+// same id across both. Actions and UI will migrate off these tables in a
+// follow-up; at that point these table definitions can be deleted.)
+// -----------------------------------------------------------------------------
+
+export const organizationSettings = table("organization_settings", {
+  organizationId: text("organization_id").primaryKey(),
+  brandColor: text("brand_color").notNull().default("#18181B"),
+  brandLogoUrl: text("brand_logo_url"),
+  defaultVisibility: text("default_visibility", {
+    enum: ["private", "org", "public"],
+  })
+    .notNull()
+    .default("private"),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+});
 
 export const workspaces = table("workspaces", {
   id: text("id").primaryKey(),
   name: text("name").notNull().default("My Workspace"),
   slug: text("slug").notNull(),
-  brandColor: text("brand_color").notNull().default("#625DF5"),
+  brandColor: text("brand_color").notNull().default("#18181B"),
   brandLogoUrl: text("brand_logo_url"),
   defaultVisibility: text("default_visibility", {
     enum: ["private", "org", "public"],
@@ -62,9 +89,9 @@ export const invites = table("invites", {
 
 export const spaces = table("spaces", {
   id: text("id").primaryKey(),
-  workspaceId: text("workspace_id").notNull(),
+  organizationId: text("workspace_id").notNull(),
   name: text("name").notNull(),
-  color: text("color").notNull().default("#625DF5"),
+  color: text("color").notNull().default("#18181B"),
   iconEmoji: text("icon_emoji"),
   isAllCompany: integer("is_all_company", { mode: "boolean" })
     .notNull()
@@ -83,7 +110,7 @@ export const spaceMembers = table("space_members", {
 
 export const folders = table("folders", {
   id: text("id").primaryKey(),
-  workspaceId: text("workspace_id").notNull(),
+  organizationId: text("workspace_id").notNull(),
   parentId: text("parent_id"),
   spaceId: text("space_id"), // null = personal Library
   ownerEmail: text("owner_email").notNull().default("local@localhost"),
@@ -98,7 +125,7 @@ export const folders = table("folders", {
 
 export const recordings = table("recordings", {
   id: text("id").primaryKey(),
-  workspaceId: text("workspace_id").notNull(),
+  organizationId: text("workspace_id").notNull(),
   folderId: text("folder_id"),
   spaceIds: text("space_ids").notNull().default("[]"), // JSON array of space ids
 
@@ -171,7 +198,7 @@ export const recordingShares = createSharesTable("recording_shares");
 export const recordingTags = table("recording_tags", {
   id: text("id").primaryKey(),
   recordingId: text("recording_id").notNull(),
-  workspaceId: text("workspace_id").notNull(),
+  organizationId: text("workspace_id").notNull(),
   tag: text("tag").notNull(),
 });
 
@@ -195,7 +222,7 @@ export const recordingCtas = table("recording_ctas", {
   recordingId: text("recording_id").notNull(),
   label: text("label").notNull(),
   url: text("url").notNull(),
-  color: text("color").notNull().default("#625DF5"),
+  color: text("color").notNull().default("#18181B"),
   placement: text("placement", { enum: ["end", "throughout"] })
     .notNull()
     .default("throughout"),
@@ -209,7 +236,7 @@ export const recordingCtas = table("recording_ctas", {
 export const recordingComments = table("recording_comments", {
   id: text("id").primaryKey(),
   recordingId: text("recording_id").notNull(),
-  workspaceId: text("workspace_id").notNull(),
+  organizationId: text("workspace_id").notNull(),
   threadId: text("thread_id").notNull(),
   parentId: text("parent_id"),
   authorEmail: text("author_email").notNull(),

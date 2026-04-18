@@ -253,8 +253,8 @@ export default function Home() {
             </div>
 
             <h1 className="mx-auto max-w-3xl">
-              Agentic Apps That{" "}
-              <span className="hero-gradient-text">Self Improve</span>
+              Agent Applications{" "}
+              <span className="hero-gradient-text">You Own</span>
             </h1>
 
             <p className="mx-auto mb-10 max-w-xl text-lg leading-relaxed text-[var(--fg-secondary)]">

@@ -117,13 +117,12 @@ export default function SlidesTemplate() {
             </div>
 
             <h1 className="mb-4 text-4xl font-bold tracking-tight md:text-5xl">
-              Agent-Native Slide Deck Generation
+              The open-source AI alternative to PowerPoint &amp; Canva
             </h1>
 
             <p className="mb-6 text-lg leading-relaxed text-[var(--fg-secondary)]">
-              Describe your presentation. The agent generates a complete deck
-              with layouts, content, and images. Refine conversationally or edit
-              visually.
+              Generate a full deck from a prompt, then refine conversationally
+              or edit visually.
             </p>
 
             <div className="mb-8 flex flex-wrap items-center gap-3">

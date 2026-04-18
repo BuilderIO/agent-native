@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import { cn } from "@/lib/utils";
+import { Spinner } from "@/components/ui/spinner";
 import { PlayerControls } from "./player-controls";
 import { CaptionsOverlay } from "./captions-overlay";
 import { CtaButton } from "./cta-button";
@@ -66,6 +67,14 @@ export interface VideoPlayerProps {
   hideCaptions?: boolean;
   /** Optional poster/thumbnail styling. */
   cover?: boolean;
+  /**
+   * Viewer role for this recording. When `owner` (and `thumbnailUrl` is not
+   * already set) we opportunistically capture the first rendered frame and
+   * POST it to `/api/recordings/:id/thumbnail` so the library grid has a
+   * real thumbnail on future loads — fixes clips recorded before the
+   * thumbnail-capture feature shipped.
+   */
+  role?: "owner" | "admin" | "editor" | "viewer";
 }
 
 export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
@@ -95,6 +104,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       hideChrome,
       hideCaptions,
       cover,
+      recordingId,
+      role,
     } = props;
 
     const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -109,6 +120,28 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const [captionsOn, setCaptionsOn] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [isPip, setIsPip] = useState(false);
+    // MediaRecorder-created WebM files report `video.duration === Infinity`
+    // until the browser has actually scrubbed to the end. When that happens
+    // the scrubber's percentage math breaks (anything / Infinity = 0) and
+    // Chrome refuses to honor `currentTime = X` seeks. We therefore track the
+    // duration ourselves, starting from the durationMs prop (which comes from
+    // the recorder's elapsed-time counter and is always a real number) and
+    // upgrading it once `loadedmetadata` tells us the real value.
+    const [resolvedDurationMs, setResolvedDurationMs] = useState<number>(
+      Number.isFinite(durationMs) && durationMs > 0 ? durationMs : 0,
+    );
+    // Whether we've already applied the Infinity-duration work-around so we
+    // don't seek to 1e10 on every loadedmetadata fire (autoplay + iOS replay).
+    const durationProbedRef = useRef(false);
+    // Whether we've already captured-and-uploaded a still-frame thumbnail for
+    // this clip. Owner-only, once per player lifecycle, skipped if the row
+    // already has a thumbnailUrl — see the capture effect below for why.
+    const thumbnailCapturedRef = useRef(false);
+    // "Preparing your clip…" overlay — shown while the browser buffers the
+    // first frame of a freshly-finalized clip so the user doesn't see a blank
+    // black rectangle. Hidden on loadeddata / canplay / currentTime > 0, or
+    // after a 10s safety timeout.
+    const [isPreparing, setIsPreparing] = useState<boolean>(!!videoUrl);
 
     // Imperative handle for parent
     useImperativeHandle(
@@ -120,11 +153,12 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         play: () => videoRef.current?.play(),
         pause: () => videoRef.current?.pause(),
         seek: (ms: number) => {
-          if (videoRef.current) {
-            videoRef.current.currentTime = ms / 1000;
-            setCurrentMs(ms);
-            onSeek?.(ms);
-          }
+          const v = videoRef.current;
+          if (!v) return;
+          const clamped = clampSeek(ms, v, resolvedDurationMs);
+          v.currentTime = clamped / 1000;
+          setCurrentMs(clamped);
+          onSeek?.(clamped);
         },
         setSpeed: (rate: number) => {
           if (videoRef.current) videoRef.current.playbackRate = rate;
@@ -140,7 +174,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         toggleFullscreen: () => void toggleFullscreenInternal(),
         togglePip: () => togglePipInternal(),
       }),
-      [onSeek],
+      [onSeek, resolvedDurationMs],
     );
 
     // Apply initial playbackRate and start position.
@@ -154,6 +188,137 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         setCurrentMs(startMs);
       }
     }, [defaultSpeed, startMs, videoUrl]);
+
+    // Keep the resolved duration in sync with the prop when it changes (new
+    // recording loaded, etc.) — only bump it if the prop is a real number.
+    useEffect(() => {
+      if (Number.isFinite(durationMs) && durationMs > 0) {
+        setResolvedDurationMs(durationMs);
+      }
+      durationProbedRef.current = false;
+    }, [durationMs, videoUrl]);
+
+    // Resolve the WebM-duration-is-Infinity Chrome quirk: when a video created
+    // by MediaRecorder doesn't have a Duration element in the container, the
+    // <video> element reports `duration === Infinity` until we scrub to the
+    // very end. Once we do, `durationchange` fires with the real duration.
+    // Without this, scrubber clicks/drags silently no-op (Chrome ignores
+    // `currentTime = X` when duration is Infinity) and the percent fill stays
+    // at 0 because `currentMs / Infinity = 0`.
+    useEffect(() => {
+      const v = videoRef.current;
+      if (!v) return;
+
+      const onLoadedMetadata = () => {
+        if (durationProbedRef.current) return;
+        if (!Number.isFinite(v.duration) || v.duration === 0) {
+          // Poke the browser into computing the real duration.
+          durationProbedRef.current = true;
+          try {
+            v.currentTime = 1e10;
+          } catch {
+            // Safari occasionally throws — the durationchange fallback
+            // handler below still picks up the real duration.
+          }
+        } else {
+          durationProbedRef.current = true;
+          setResolvedDurationMs(Math.round(v.duration * 1000));
+        }
+      };
+
+      const onDurationChange = () => {
+        if (Number.isFinite(v.duration) && v.duration > 0) {
+          setResolvedDurationMs(Math.round(v.duration * 1000));
+          // After we've resolved the real duration, rewind back to 0 so the
+          // user isn't sitting at the end of the clip.
+          if (durationProbedRef.current && v.currentTime > v.duration) {
+            try {
+              v.currentTime = 0;
+              setCurrentMs(0);
+            } catch {
+              // ignore
+            }
+          }
+        }
+      };
+
+      v.addEventListener("loadedmetadata", onLoadedMetadata);
+      v.addEventListener("durationchange", onDurationChange);
+      // If metadata is already loaded by the time this effect runs, trigger it.
+      if (v.readyState >= 1) onLoadedMetadata();
+
+      return () => {
+        v.removeEventListener("loadedmetadata", onLoadedMetadata);
+        v.removeEventListener("durationchange", onDurationChange);
+      };
+    }, [videoUrl]);
+
+    // Reset the thumbnail-capture flag when the source changes (e.g. the
+    // player is reused for a different recording via React Router).
+    useEffect(() => {
+      thumbnailCapturedRef.current = false;
+    }, [recordingId, videoUrl]);
+
+    // Opportunistically capture and upload a still-frame thumbnail for the
+    // owner as soon as the first frame is ready. We only do this once per
+    // clip, skip if the row already has a thumbnail, and silently no-op on
+    // failure — the fallback play-icon placeholder in the library grid is
+    // still fine. This backfills thumbnails for clips recorded before the
+    // capture feature shipped.
+    const captureThumbnail = useCallback(() => {
+      if (thumbnailCapturedRef.current) return;
+      if (role !== "owner") return;
+      if (thumbnailUrl) return;
+      if (!recordingId) return;
+      const v = videoRef.current;
+      if (!v || !v.videoWidth || !v.videoHeight) return;
+
+      thumbnailCapturedRef.current = true;
+
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = v.videoWidth;
+        canvas.height = v.videoHeight;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+        ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) return;
+            fetch(`/api/recordings/${recordingId}/thumbnail`, {
+              method: "POST",
+              headers: { "Content-Type": blob.type || "image/jpeg" },
+              body: blob,
+            }).catch((err) => {
+              console.warn("[clips] thumbnail upload failed", err);
+            });
+          },
+          "image/jpeg",
+          0.85,
+        );
+      } catch (err) {
+        console.warn("[clips] thumbnail capture failed", err);
+      }
+    }, [recordingId, role, thumbnailUrl]);
+
+    // Reset the "Preparing your clip…" overlay whenever the video source
+    // changes, and start a 10s safety timeout so the overlay can never stick.
+    useEffect(() => {
+      if (!videoUrl) {
+        setIsPreparing(false);
+        return;
+      }
+      const v = videoRef.current;
+      // If the video already has a frame ready (cached playback, re-render),
+      // skip the overlay entirely.
+      if (v && (v.readyState >= 2 || v.currentTime > 0)) {
+        setIsPreparing(false);
+        return;
+      }
+      setIsPreparing(true);
+      const t = setTimeout(() => setIsPreparing(false), 10000);
+      return () => clearTimeout(t);
+    }, [videoUrl]);
 
     // Hide controls after 2s of idle movement.
     const bumpControls = useCallback(() => {
@@ -230,8 +395,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const showEndCta =
       cta &&
       cta.placement === "end" &&
-      durationMs > 0 &&
-      currentMs >= durationMs - 200;
+      resolvedDurationMs > 0 &&
+      currentMs >= resolvedDurationMs - 200;
 
     const showThroughoutCta = cta && cta.placement === "throughout";
 
@@ -274,10 +439,26 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               setIsPlaying(false);
               onPause?.();
             }}
+            onLoadedData={() => {
+              setIsPreparing(false);
+              captureThumbnail();
+            }}
+            onCanPlay={() => {
+              setIsPreparing(false);
+              captureThumbnail();
+            }}
             onTimeUpdate={(e) => {
-              const ms = Math.floor(e.currentTarget.currentTime * 1000);
+              const v = e.currentTarget;
+              // Chrome occasionally emits a timeupdate with currentTime=1e10
+              // while we're probing the real duration. Clamp anything beyond
+              // a plausible ceiling so the scrubber doesn't yank to the end.
+              const raw = v.currentTime;
+              const ct =
+                Number.isFinite(raw) && raw >= 0 && raw < 1e7 ? raw : 0;
+              const ms = Math.floor(ct * 1000);
               setCurrentMs(ms);
-              onTimeUpdate?.(ms, durationMs);
+              if (ms > 0) setIsPreparing(false);
+              onTimeUpdate?.(ms, resolvedDurationMs);
             }}
             onEnded={() => {
               setIsPlaying(false);
@@ -293,6 +474,18 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             No video available
           </div>
         )}
+
+        {/* Preparing overlay — shown while the browser buffers the first
+            playable frame so the user doesn't stare at a black rectangle. */}
+        {videoUrl && isPreparing ? (
+          <div
+            data-player-ui
+            className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black text-white/80 pointer-events-none"
+          >
+            <Spinner className="h-8 w-8 text-white/70" />
+            <p className="text-sm font-medium">Preparing your clip…</p>
+          </div>
+        ) : null}
 
         {/* Captions */}
         {!hideCaptions && captionsOn && currentSegment ? (
@@ -338,7 +531,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           >
             <PlayerControls
               isPlaying={isPlaying}
-              durationMs={durationMs}
+              durationMs={resolvedDurationMs}
               currentMs={currentMs}
               volume={volume}
               muted={muted}
@@ -359,11 +552,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               }}
               onSeek={(ms) => {
                 const v = videoRef.current;
-                if (v) {
-                  v.currentTime = ms / 1000;
-                  setCurrentMs(ms);
-                  onSeek?.(ms);
-                }
+                if (!v) return;
+                const clamped = clampSeek(ms, v, resolvedDurationMs);
+                v.currentTime = clamped / 1000;
+                setCurrentMs(clamped);
+                onSeek?.(clamped);
               }}
               onVolumeChange={(vol) => {
                 const v = videoRef.current;
@@ -397,3 +590,29 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     );
   },
 );
+
+/**
+ * Clamp a millisecond seek target to a value the browser will actually accept.
+ *
+ * Chrome silently ignores `video.currentTime = X` when the media's duration is
+ * `Infinity` (MediaRecorder-created WebM files without a Duration element in
+ * their container). To work around that we upper-bound the seek by the most
+ * trustworthy finite number we have — preferring the resolved duration from
+ * the player, then falling back to `video.duration`, then the seekable range.
+ */
+function clampSeek(
+  ms: number,
+  v: HTMLVideoElement,
+  resolvedDurationMs: number,
+): number {
+  let maxSec = Number.POSITIVE_INFINITY;
+  if (resolvedDurationMs > 0) {
+    maxSec = resolvedDurationMs / 1000;
+  } else if (Number.isFinite(v.duration) && v.duration > 0) {
+    maxSec = v.duration;
+  } else if (v.seekable && v.seekable.length > 0) {
+    maxSec = v.seekable.end(v.seekable.length - 1);
+  }
+  const sec = Math.max(0, Math.min(maxSec, ms / 1000));
+  return Math.floor(sec * 1000);
+}

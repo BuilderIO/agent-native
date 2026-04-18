@@ -873,3 +873,28 @@ export function useUpdateSettings() {
     onSettled: () => qc.invalidateQueries({ queryKey: ["settings"] }),
   });
 }
+
+// ─── Email Tracking Stats ────────────────────────────────────────────────────
+
+export type EmailTrackingStats = {
+  opens: number;
+  firstOpenedAt?: number;
+  lastOpenedAt?: number;
+  linkClicks: {
+    url: string;
+    count: number;
+    firstClickedAt?: number;
+    lastClickedAt?: number;
+  }[];
+  totalClicks: number;
+};
+
+export function useEmailTracking(messageId: string | undefined) {
+  return useQuery<EmailTrackingStats>({
+    queryKey: ["email-tracking", messageId],
+    queryFn: () => apiFetch(`/api/emails/${messageId}/tracking`),
+    enabled: !!messageId,
+    refetchInterval: 30_000,
+    staleTime: 10_000,
+  });
+}

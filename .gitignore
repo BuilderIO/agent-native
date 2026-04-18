@@ -63,5 +63,9 @@ db-exec
 
 # Environment files (may contain secrets)
 .env
+.env.local
+.env.*.local
 templates/*/.env
+templates/*/.env.local
+templates/*/.env.*.local
 test-reports/

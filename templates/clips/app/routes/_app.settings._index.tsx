@@ -96,7 +96,7 @@ export default function SettingsIndexRoute() {
     <div className="p-6 max-w-2xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-semibold flex items-center gap-2">
-          <IconSettings className="size-6 text-[#625DF5]" />
+          <IconSettings className="size-6 text-primary" />
           Settings
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
@@ -107,7 +107,7 @@ export default function SettingsIndexRoute() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
-            <IconUser className="size-4 text-[#625DF5]" />
+            <IconUser className="size-4 text-primary" />
             Profile
           </CardTitle>
         </CardHeader>
@@ -188,7 +188,7 @@ export default function SettingsIndexRoute() {
         <Button
           onClick={handleSave}
           disabled={loading || saving}
-          className="bg-[#625DF5] hover:bg-[#5049d9]"
+          className="bg-primary hover:bg-primary/90"
         >
           {saving ? "Saving…" : "Save changes"}
         </Button>

@@ -23,6 +23,7 @@ import {
   useUnarchiveEmail,
   useSettings,
   useUpdateSettings,
+  useEmailTracking,
   unsuppressThread,
 } from "@/hooks/use-emails";
 import { useQueryClient } from "@tanstack/react-query";
@@ -1181,6 +1182,7 @@ export function EmailThread({
                     }}
                     email={msg}
                     isFocused={isFocused}
+                    isFromMe={myEmails.has(msg.from.email.toLowerCase())}
                     onCollapse={() => {
                       setUserToggles((prev) => ({ ...prev, [msg.id]: false }));
                     }}
@@ -1456,6 +1458,7 @@ const ExpandedMessageCard = forwardRef<
   {
     email: EmailMessage;
     isFocused?: boolean;
+    isFromMe?: boolean;
     onCollapse: () => void;
     onReply: () => void;
     onReplyAll: () => void;
@@ -1469,6 +1472,7 @@ const ExpandedMessageCard = forwardRef<
   {
     email,
     isFocused,
+    isFromMe,
     onCollapse,
     onReply,
     onReplyAll,
@@ -1734,9 +1738,52 @@ const ExpandedMessageCard = forwardRef<
           </div>
         </div>
       )}
+
+      {isFromMe && <TrackingFooter messageId={email.id} />}
     </div>
   );
 });
+
+// ─── Tracking footer (opens / clicks on sent messages) ───────────────────────
+
+function formatRelativeTime(ts: number): string {
+  const diff = Date.now() - ts;
+  const s = Math.floor(diff / 1000);
+  if (s < 60) return "just now";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d}d ago`;
+  const w = Math.floor(d / 7);
+  if (w < 5) return `${w}w ago`;
+  return new Date(ts).toLocaleDateString();
+}
+
+function TrackingFooter({ messageId }: { messageId: string }) {
+  const { data } = useEmailTracking(messageId);
+  if (!data) return null;
+  const { opens, lastOpenedAt, totalClicks } = data;
+  if (opens === 0 && totalClicks === 0) return null;
+
+  const parts: string[] = [];
+  if (opens > 0) {
+    parts.push(`Opened ${opens} ${opens === 1 ? "time" : "times"}`);
+    if (lastOpenedAt) parts.push(`last ${formatRelativeTime(lastOpenedAt)}`);
+  }
+  if (totalClicks > 0) {
+    parts.push(`${totalClicks} link ${totalClicks === 1 ? "click" : "clicks"}`);
+  }
+
+  return (
+    <div className="px-3 sm:px-4 pb-3 pt-0 flex justify-end">
+      <span className="text-[11px] text-muted-foreground/50">
+        {parts.join(" · ")}
+      </span>
+    </div>
+  );
+}
 
 // ─── Plain text body with quoted text trimming ───────────────────────────────
 
