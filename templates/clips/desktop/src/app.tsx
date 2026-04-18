@@ -542,14 +542,20 @@ export function App() {
       // the normal error path.
       handle = await recordingPromise;
       console.log("[clips-popover] recorder handle received");
-      // Move the popover FAR off-screen instead of hiding it. Reason:
-      // `window.hide()` causes WKWebView to suspend JS on the hidden
-      // window (rAF + `requestVideoFrameCallback` stop firing), which
-      // freezes the bubble frame pump — so the bubble shows the last
-      // captured frame and stops updating while recording. Parking
-      // off-screen keeps the window visible to WebKit (JS stays active)
-      // while invisible to the user. The popover is already
-      // `NSWindowSharingNone`, so it can't leak into the recording.
+      // Shrink the popover to a 2×2 pinhole anchored on the primary
+      // screen — WKWebView treats this as "on-screen" and keeps the
+      // bubble frame pump's `<video>` + `requestVideoFrameCallback`
+      // running. Parking off-screen (the previous approach) triggered
+      // macOS 15+ occlusion throttling, which paused the <video> and
+      // froze the bubble at its last captured frame during recording.
+      // The popover is `NSWindowSharingNone`, so it can't leak into
+      // the recording either way.
+      //
+      // Belt-and-suspenders: set `window.clipsForceAlive` so the pump's
+      // document.hidden early-out is bypassed even if WebKit still flips
+      // visibility=hidden on a pinhole-sized window.
+      (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive =
+        true;
       invoke("park_popover_offscreen").catch(() => {});
       emit("clips:popover-visible", false).catch(() => {});
     } catch (err) {
@@ -565,6 +571,9 @@ export function App() {
         console.warn(
           "[clips-popover] startRecording finally: no handle — running recovery",
         );
+        // Clear the force-alive flag if it was latched before the failure.
+        (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive =
+          false;
         // Hand the stream back to the popover session. The recorder
         // never got far enough to take ownership of the tracks, so the
         // bubble-session effect must be allowed to stop them again on
@@ -634,6 +643,11 @@ export function App() {
             setRecError(err instanceof Error ? err.message : String(err));
         } finally {
           if (!cancelled) {
+            // Clear the force-alive flag — recording is done, the pump
+            // can honor document.hidden normally again.
+            (
+              window as unknown as { clipsForceAlive?: boolean }
+            ).clipsForceAlive = false;
             // Recorder has stopped its tracks; next popover session can
             // acquire the camera cleanly again.
             bubbleStreamTransferredToRecorder.current = false;
@@ -657,6 +671,9 @@ export function App() {
           await recorder.cancel();
         } finally {
           if (!cancelled) {
+            (
+              window as unknown as { clipsForceAlive?: boolean }
+            ).clipsForceAlive = false;
             bubbleStreamTransferredToRecorder.current = false;
             bubbleStreamRef.current = null;
             setRecorder(null);

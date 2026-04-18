@@ -121,10 +121,17 @@ export function startBubbleFramePump(stream: MediaStream): () => void {
   async function encodeAndEmit(): Promise<void> {
     if (!ctx || busy || stopped) return;
     // Skip when the tab/popover is hidden — rAF is already throttled but
-    // rVFC keeps firing on an active track, so guard it explicitly. Also
-    // skip until the video actually has a frame (avoids an all-black
-    // blip while the track negotiates).
-    if (document.hidden) return;
+    // rVFC keeps firing on an active track, so guard it explicitly. We
+    // honor a `window.clipsForceAlive` flag as an override: during recording
+    // the popover is pinhole-sized (2×2) which SHOULD keep document.hidden
+    // false, but WKWebView on macOS 15+ sometimes flips visibility=hidden
+    // anyway when the window loses significant on-screen area. Setting the
+    // force-alive flag from the recording-start path bypasses the check so
+    // the bubble stays live.
+    const forceAlive =
+      (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive ===
+      true;
+    if (document.hidden && !forceAlive) return;
     if (video.readyState < 2 || video.videoWidth === 0) return;
 
     // Throttle to BUBBLE_FRAME_INTERVAL_MS. Under both rAF and rVFC the
