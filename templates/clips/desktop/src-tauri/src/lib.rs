@@ -620,6 +620,11 @@ async fn reset_state(app: AppHandle) -> Result<(), String> {
         }
     }
     if let Some(window) = app.get_webview_window("popover") {
+        // Restore normal size in case the window was shrunk to a pinhole
+        // during recording — otherwise it would reappear as a 2×2 dot.
+        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
+            360.0, 520.0,
+        )));
         position_popover(&app, &window);
         mark_popover_shown(&app);
         let _ = window.show();
@@ -638,6 +643,15 @@ fn is_recording_active(app: &AppHandle) -> bool {
 #[tauri::command]
 async fn show_popover(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("popover") {
+        // Restore the popover's normal size — it may have been shrunk to 2×2
+        // during recording by `park_popover_offscreen` (kept the JS alive
+        // while keeping the window out of the way). The content's
+        // ResizeObserver will call `resize_popover` on the next render to
+        // fine-tune the height, but we need a sensible starting size so
+        // `position_popover` can anchor correctly.
+        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
+            360.0, 520.0,
+        )));
         position_popover(&app, &window);
         mark_popover_shown(&app);
         let _ = window.show();
@@ -647,22 +661,38 @@ async fn show_popover(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Move the popover far off-screen WITHOUT hiding it. Used during recording:
-/// fully hiding the popover suspends its JS (WKWebView stops `rAF` and
-/// `requestVideoFrameCallback` on hidden windows) which freezes the camera
-/// bubble frame pump. Parking the window off the right edge of the primary
-/// monitor keeps JS running (WKWebView only throttles, doesn't suspend) while
-/// the user doesn't see the popover. The popover is already
-/// `NSWindowSharingNone` so it can't appear in the recording.
+/// Shrink the popover to a 2×2 pinhole anchored on the primary screen WITHOUT
+/// hiding it. Used during recording to hide the popover from the user while
+/// keeping its JS alive.
 ///
-/// Call this from the frontend instead of `getCurrentWindow().hide()` when
-/// you want the popover's JS to keep ticking.
+/// History: we used to park the window off-screen at (99999,99999). That kept
+/// AppKit's backing surface alive, but on macOS 15+ WKWebView treats a window
+/// with no on-screen pixels as "occluded" and throttles the whole page's JS —
+/// `requestAnimationFrame`, `setInterval`, and (critically) `<video>` playback
+/// + `requestVideoFrameCallback` all stall. The bubble frame pump is owned by
+/// this popover, so the moment we parked it the bubble showed its last frame
+/// and froze.
+///
+/// Fix: anchor the window at a visible coordinate on the primary screen and
+/// shrink it to 2×2 physical pixels. From WKWebView's point of view the
+/// window IS on-screen — no occlusion, no throttling, pump keeps ticking. The
+/// user sees a 2-pixel dot that effectively vanishes against any pixel the
+/// cursor won't touch. NSWindowSharingNone is already set on the popover, so
+/// it stays out of the recording either way.
+///
+/// Call `show_popover` to restore normal size + tray-anchored position when
+/// the recording ends.
 #[tauri::command]
 async fn park_popover_offscreen(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("popover") {
-        // 99999,99999 matches the boot-time parking trick already used in
-        // tauri.conf.json — far off any realistic display's bounds.
-        let _ = window.set_position(PhysicalPosition::new(99999_i32, 99999_i32));
+        // Anchor near the top-left of the primary display. We avoid (0,0)
+        // exactly because on some macOS versions that corner falls under the
+        // menu-bar cutout — 2,2 is safely inside every real display's bounds.
+        let _ = window.set_position(PhysicalPosition::new(2_i32, 2_i32));
+        // 2×2 physical px ≈ 1×1 logical on retina — visually a dot that
+        // disappears into the menu-bar shadow. Going smaller than 2×2 has
+        // caused AppKit to treat the window as "empty" on some macOS builds.
+        let _ = window.set_size(tauri::Size::Physical(PhysicalSize::new(2, 2)));
     }
     Ok(())
 }
@@ -700,6 +730,11 @@ fn toggle_popover(app: &AppHandle) {
         let _ = window.hide();
         let _ = app.emit("clips:popover-visible", false);
     } else {
+        // Restore normal size in case the window was shrunk to a pinhole
+        // during recording — otherwise it would reappear as a 2×2 dot.
+        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
+            360.0, 520.0,
+        )));
         position_popover(app, &window);
         mark_popover_shown(app);
         let _ = window.show();

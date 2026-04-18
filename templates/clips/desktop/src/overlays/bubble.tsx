@@ -232,28 +232,51 @@ export function Bubble() {
   }, []);
 
   return (
+    // The ENTIRE wrapper is a drag region — Tauri's macOS backend treats any
+    // mousedown on an element with `data-tauri-drag-region` as drag-initiation
+    // UNLESS the event path passes through a descendant marked
+    // `data-tauri-drag-region="false"`. Putting the drag marker on a deeper
+    // child (like `.bubble-root`) was unreliable because the hover wrapper's
+    // pointer events + the mousedown path made Tauri see the event on the
+    // wrapper first. Moving the marker to the wrapper gives us a single,
+    // consistent source of "is this a drag?" truth — and the interactive
+    // children (close X, dot buttons) opt out explicitly below.
     <div
       className={`bubble-wrapper bubble-${size}`}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
+      onMouseDown={() => {
+        // Diagnostic: this fires on every mousedown on the wrapper.
+        // If you see "[bubble] mousedown on drag region" but the window
+        // still doesn't move, the capability or NSWindow setup is the
+        // problem — not the React/CSS layer.
+        console.log("[bubble] mousedown on drag region");
+      }}
+      data-tauri-drag-region
     >
-      {/*
-       * `data-tauri-drag-region` MUST live on this circular root and NOT
-       * on a parent wrapper — Tauri only treats clicks directly on the
-       * attributed element as drag-initiation. The <canvas> below has
-       * `pointer-events: none` so clicks fall through to this drag region.
-       * The control pill sits OUTSIDE this div (in the wrapper) so its
-       * buttons keep their own pointer events and don't trigger a drag.
-       */}
       <div className="bubble-root" data-tauri-drag-region>
-        <canvas ref={canvasRef} className="bubble-video" />
-        {/* Close X — top-right of bubble, only visible on hover. */}
+        {/*
+         * <canvas> has `pointer-events: none` in CSS so mousedown falls
+         * through to the drag-region wrapper. Still tag it explicitly as a
+         * drag region for defense-in-depth — some WKWebView versions have
+         * latched event targets that ignore pointer-events on the first
+         * click of an unfocused window.
+         */}
+        <canvas
+          ref={canvasRef}
+          className="bubble-video"
+          data-tauri-drag-region
+        />
+        {/* Close X — top-right of bubble, only visible on hover. Explicitly
+            opts OUT of drag so clicking the X fires onClick instead of
+            kicking off a window drag. */}
         <button
           type="button"
           className={`bubble-close ${showControls ? "is-visible" : ""}`}
           onClick={onClose}
           aria-label="Close camera"
           title="Close camera"
+          data-tauri-drag-region="false"
         >
           <svg
             width="10"
@@ -274,13 +297,17 @@ export function Bubble() {
       {/* Size control pill — fades in under the bubble on hover. Sits in
           the wrapper (outside the drag-region circle) so its buttons
           receive pointer events normally without triggering a drag. */}
-      <div className={`bubble-controls ${showControls ? "is-visible" : ""}`}>
+      <div
+        className={`bubble-controls ${showControls ? "is-visible" : ""}`}
+        data-tauri-drag-region="false"
+      >
         <button
           type="button"
           className={`bubble-dot bubble-dot-small ${size === "small" ? "is-active" : ""}`}
           onClick={() => pickSize("small")}
           aria-label="Small camera"
           title="Small"
+          data-tauri-drag-region="false"
         />
         <button
           type="button"
@@ -288,6 +315,7 @@ export function Bubble() {
           onClick={() => pickSize("medium")}
           aria-label="Medium camera"
           title="Medium"
+          data-tauri-drag-region="false"
         />
       </div>
     </div>
