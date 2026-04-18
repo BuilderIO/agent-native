@@ -66,7 +66,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "scheduling",
     label: "Scheduling",
-    hint: "Cal.com / Calendly clone — event types, team round-robin, routing forms, workflows",
+    hint: "Full scheduling app — event types, team round-robin, routing forms, workflows",
     icon: "CalendarTime",
     color: "#7C3AED",
     colorRgb: "124 58 237",

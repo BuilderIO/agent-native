@@ -214,11 +214,11 @@ export async function markNoShow(
 }
 
 function isVideoKind(kind: string): boolean {
-  return ["cal-video", "zoom", "google-meet", "teams"].includes(kind);
+  return ["builtin-video", "zoom", "google-meet", "teams"].includes(kind);
 }
 
 function videoProviderKindFor(kind: string): string {
-  if (kind === "cal-video") return "cal_video";
+  if (kind === "builtin-video") return "builtin_video";
   if (kind === "zoom") return "zoom_video";
   if (kind === "google-meet") return "google_meet";
   if (kind === "teams") return "teams_video";

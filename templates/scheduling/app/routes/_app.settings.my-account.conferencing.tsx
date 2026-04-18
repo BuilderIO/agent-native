@@ -1,6 +1,5 @@
 /**
  * Conferencing settings — pick a default video provider for new event types.
- * Same pattern Cal.com uses at /settings/my-account/conferencing.
  */
 import { useEffect, useState } from "react";
 import { callAction } from "@/lib/api";

@@ -28,12 +28,20 @@ type BubbleSize = "small" | "medium";
  * payload to an ImageBitmap, and blits it onto a `<canvas>`. No
  * getUserMedia, no track lifecycle, no watchdog.
  *
- * Frame format (emitted by `recorder.ts`):
+ * Frame format (emitted by `bubble-pump.ts`):
  *   {
- *     bytes: number[]   // JPEG bytes (each entry 0–255)
- *     w:     number     // source width  (e.g. 256)
- *     h:     number     // source height (e.g. 256)
+ *     dataUrl: string   // "data:image/jpeg;base64,..." (base64 JPEG)
+ *     w:       number   // source width  (192 preview / 144 recording)
+ *     h:       number   // source height (always equals w — square crop)
  *   }
+ *
+ * The pump previously sent `bytes: number[]` (a raw JS number array of
+ * JPEG bytes), which was slow to JSON-stringify on the sender and
+ * required a Blob → createImageBitmap round trip on the receiver. The
+ * data-URL path cuts both costs: Tauri serializes one string in O(n),
+ * and decoding via an `<img>` element lets WebKit decode off-main-
+ * thread. A `bytes` fallback branch is kept below so a stale popover
+ * build can still drive this bubble.
  *
  * # Hover controls (Loom-style)
  *
@@ -133,48 +141,95 @@ export function Bubble() {
   useEffect(() => {
     const unlistens: Array<() => void> = [];
 
-    listen<{ bytes: number[]; w: number; h: number }>(
-      "clips:bubble-frame",
-      async (ev) => {
-        const { bytes, w, h } = ev.payload;
-        if (!bytes || !bytes.length) return;
-        if (firstFrameAtRef.current == null) {
-          firstFrameAtRef.current = Date.now();
-          console.log("[bubble] first frame received size=", bytes.length);
-        } else {
-          // Log every ~60 frames so we can confirm frames are landing
-          // without spamming the console.
-          const age = Date.now() - firstFrameAtRef.current;
-          if (age % 3000 < 60) {
-            console.log("[bubble] frame received size=", bytes.length);
-          }
+    // Reusable `<img>` for the dataUrl path. Setting `img.src` kicks the
+    // decode off-main-thread in WebKit — once `onload` fires the image
+    // is ready to draw. Reusing a single element avoids per-frame DOM
+    // allocation and lets the browser reuse its decode pipeline.
+    const decodeImg = new Image();
+    // `img.decoding = 'async'` is a hint to WebKit to decode off the
+    // main thread; even without it Safari has done async decode for
+    // <img> since 2017 but the hint removes any ambiguity.
+    decodeImg.decoding = "async";
+    let pendingDraw: { w: number; h: number } | null = null;
+    decodeImg.onload = () => {
+      if (!pendingDraw) return;
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const { w, h } = pendingDraw;
+      if (canvas.width !== w) canvas.width = w;
+      if (canvas.height !== h) canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      try {
+        ctx.drawImage(decodeImg, 0, 0, canvas.width, canvas.height);
+      } catch (err) {
+        console.warn("[bubble] frame drawImage failed", err);
+      }
+    };
+    decodeImg.onerror = (err) => {
+      console.warn("[bubble] frame img decode failed", err);
+    };
+
+    listen<{
+      dataUrl?: string;
+      bytes?: number[];
+      w: number;
+      h: number;
+    }>("clips:bubble-frame", async (ev) => {
+      const { dataUrl, bytes, w, h } = ev.payload;
+
+      if (firstFrameAtRef.current == null) {
+        firstFrameAtRef.current = Date.now();
+        console.log(
+          "[bubble] first frame received path=",
+          dataUrl ? "dataUrl" : "bytes",
+        );
+      } else {
+        // Log every ~3s so we can confirm frames are landing without
+        // spamming the console.
+        const age = Date.now() - firstFrameAtRef.current;
+        if (age % 3000 < 60) {
+          console.log(
+            "[bubble] frame received path=",
+            dataUrl ? "dataUrl" : "bytes",
+          );
         }
+      }
 
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-        // Size the canvas buffer to the incoming frame size once (source
-        // resolution is constant for a given recording). The CSS sizes
-        // the canvas to the bubble's display size; the buffer stays at
-        // the source resolution so we don't upscale on GPU.
-        if (canvas.width !== w) canvas.width = w;
-        if (canvas.height !== h) canvas.height = h;
+      // Fast path — data URL. WebKit decodes <img> off the main
+      // thread and drawImage is a cheap GPU blit.
+      if (dataUrl) {
+        pendingDraw = { w, h };
+        // Setting .src triggers decode; onload handler above does the
+        // drawImage. Overwriting .src mid-decode is safe — the in-
+        // flight decode is dropped.
+        decodeImg.src = dataUrl;
+        return;
+      }
 
-        try {
-          const u8 = new Uint8Array(bytes);
-          const blob = new Blob([u8], { type: "image/jpeg" });
-          const bitmap = await createImageBitmap(blob);
-          const ctx = canvas.getContext("2d");
-          if (!ctx) {
-            bitmap.close();
-            return;
-          }
-          ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      // Legacy fallback — bytes array. Kept so that a stale popover
+      // build can still drive this bubble. Can be removed once every
+      // shipping build of the popover emits dataUrl.
+      if (!bytes || !bytes.length) return;
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      if (canvas.width !== w) canvas.width = w;
+      if (canvas.height !== h) canvas.height = h;
+      try {
+        const u8 = new Uint8Array(bytes);
+        const blob = new Blob([u8], { type: "image/jpeg" });
+        const bitmap = await createImageBitmap(blob);
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
           bitmap.close();
-        } catch (err) {
-          console.warn("[bubble] frame decode failed", err);
+          return;
         }
-      },
-    ).then((u) => unlistens.push(u));
+        ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+        bitmap.close();
+      } catch (err) {
+        console.warn("[bubble] frame decode failed", err);
+      }
+    }).then((u) => unlistens.push(u));
 
     // Keep `clips:bubble-config` as a no-op legacy listener so emits
     // from older code paths don't blow up. The popover now picks the
@@ -238,52 +293,58 @@ export function Bubble() {
     };
   }, []);
 
+  // ---- explicit drag handler --------------------------------------------
+  // We bypass `data-tauri-drag-region` entirely — it was unreliable across
+  // three iterations (see PR history). Tauri's attribute hook watches for
+  // elements with the attribute at page-load time, and also has gotchas
+  // with pointer-events, unfocused-window first-click swallowing, and
+  // WKWebView's latched event target. Calling `startDragging()` explicitly
+  // on mousedown is the canonical robust path (per Tauri's own docs for
+  // "customize drag behavior") and skips all of those footguns.
+  //
+  // Interactive children (close X, size dots) are marked `data-no-drag`
+  // so their clicks land on their onClick handlers instead of starting
+  // a window drag.
+  const handleBubbleMouseDown = (e: React.MouseEvent) => {
+    // Only left mouse button initiates drag.
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    // Walk up from the target — any ancestor marked `data-no-drag`
+    // means we're over a real control, not the draggable surface.
+    if (target.closest("[data-no-drag]")) return;
+    console.log("[bubble] startDragging");
+    getCurrentWindow()
+      .startDragging()
+      .catch((err) => {
+        console.warn("[bubble] startDragging failed", err);
+      });
+  };
+
   return (
-    // The ENTIRE wrapper is a drag region — Tauri's macOS backend treats any
-    // mousedown on an element with `data-tauri-drag-region` as drag-initiation
-    // UNLESS the event path passes through a descendant marked
-    // `data-tauri-drag-region="false"`. Putting the drag marker on a deeper
-    // child (like `.bubble-root`) was unreliable because the hover wrapper's
-    // pointer events + the mousedown path made Tauri see the event on the
-    // wrapper first. Moving the marker to the wrapper gives us a single,
-    // consistent source of "is this a drag?" truth — and the interactive
-    // children (close X, dot buttons) opt out explicitly below.
+    // The ENTIRE wrapper catches mousedown and calls `startDragging()`
+    // directly. No `data-tauri-drag-region` — see `handleBubbleMouseDown`.
     <div
       className={`bubble-wrapper bubble-${size}`}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
-      onMouseDown={() => {
-        // Diagnostic: this fires on every mousedown on the wrapper.
-        // If you see "[bubble] mousedown on drag region" but the window
-        // still doesn't move, the capability or NSWindow setup is the
-        // problem — not the React/CSS layer.
-        console.log("[bubble] mousedown on drag region");
-      }}
-      data-tauri-drag-region
+      onMouseDown={handleBubbleMouseDown}
     >
-      <div className="bubble-root" data-tauri-drag-region>
+      <div className="bubble-root">
         {/*
          * <canvas> has `pointer-events: none` in CSS so mousedown falls
-         * through to the drag-region wrapper. Still tag it explicitly as a
-         * drag region for defense-in-depth — some WKWebView versions have
-         * latched event targets that ignore pointer-events on the first
-         * click of an unfocused window.
+         * through to the drag-handler wrapper.
          */}
-        <canvas
-          ref={canvasRef}
-          className="bubble-video"
-          data-tauri-drag-region
-        />
-        {/* Close X — top-right of bubble, only visible on hover. Explicitly
-            opts OUT of drag so clicking the X fires onClick instead of
-            kicking off a window drag. */}
+        <canvas ref={canvasRef} className="bubble-video" />
+        {/* Close X — top-right of bubble, only visible on hover. Marked
+            `data-no-drag` so mousedown here does NOT call startDragging;
+            onClick fires normally. */}
         <button
           type="button"
           className={`bubble-close ${showControls ? "is-visible" : ""}`}
           onClick={onClose}
           aria-label="Close camera"
           title="Close camera"
-          data-tauri-drag-region="false"
+          data-no-drag
         >
           <svg
             width="10"
@@ -301,12 +362,11 @@ export function Bubble() {
           </svg>
         </button>
       </div>
-      {/* Size control pill — fades in under the bubble on hover. Sits in
-          the wrapper (outside the drag-region circle) so its buttons
-          receive pointer events normally without triggering a drag. */}
+      {/* Size control pill — fades in under the bubble on hover. Marked
+          `data-no-drag` so clicks land on the onClick handlers. */}
       <div
         className={`bubble-controls ${showControls ? "is-visible" : ""}`}
-        data-tauri-drag-region="false"
+        data-no-drag
       >
         <button
           type="button"
@@ -314,7 +374,7 @@ export function Bubble() {
           onClick={() => pickSize("small")}
           aria-label="Small camera"
           title="Small"
-          data-tauri-drag-region="false"
+          data-no-drag
         />
         <button
           type="button"
@@ -322,7 +382,7 @@ export function Bubble() {
           onClick={() => pickSize("medium")}
           aria-label="Medium camera"
           title="Medium"
-          data-tauri-drag-region="false"
+          data-no-drag
         />
       </div>
     </div>

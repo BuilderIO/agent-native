@@ -1,8 +1,8 @@
 # Scheduling — Agent Guide
 
-You are the AI assistant for this scheduling app, a thorough Cal.com clone
-that supports 1:1 scheduling, team scheduling, routing forms, and workflows.
-This is an **agent-native** app built with `@agent-native/core` and the
+You are the AI assistant for this scheduling app. It supports 1:1
+scheduling, team scheduling, routing forms, and workflows. This is an
+**agent-native** app built with `@agent-native/core` and the
 `@agent-native/scheduling` package.
 
 **Core philosophy:** The agent and UI have full parity. Everything the user
@@ -72,7 +72,7 @@ The first four are must-reads for most tasks. The skill files live in
 - `/booking/:uid` — manage / success
 - `/reschedule/:uid` — reschedule Booker
 - `/forms/:formId` — routing form
-- `/video/:uid` — Cal Video
+- `/video/:uid` — built-in video room
 
 ### Authed dashboard
 
@@ -118,14 +118,14 @@ directory (framework root cwd won't find them).
 
 This template uses the framework's standard **organization** primitive
 (`@agent-native/core/org`) as the top-level multi-tenant boundary, plus
-Cal.com-style **teams** as a sub-grouping inside an org. See `ORG_MODEL.md`
-in the template root for the full picture.
+**teams** as a sub-grouping inside an org. See `ORG_MODEL.md` in the
+template root for the full picture.
 
 - **Organization** = framework tenant. Tables: `organizations`,
   `org_members`, `org_invitations`. Switched via the sidebar `OrgSwitcher`.
-- **Team** = Cal.com team within an org. Owns team event types, team
-  workflows, the public `/team/:slug` page. Lives at `team_id` on event
-  types / workflows / forms, with `org_id` on the team itself.
+- **Team** = slugged group of users within an org. Owns team event types,
+  team workflows, the public `/team/:slug` page. Lives at `team_id` on
+  event types / workflows / forms, with `org_id` on the team itself.
 - **Resource visibility** — every user-authored resource (event type,
   schedule, booking, workflow, routing form) carries `owner_email`, `org_id`,
   and `visibility ∈ {private, org, public}` via `ownableColumns()`. Companion
@@ -156,7 +156,8 @@ can _manage_ a resource, not who can book against it.
 - **No browser dialogs** (`window.confirm/alert/prompt`) — use
   `AlertDialog` from shadcn.
 - **No decorative transitions** — keep UI snappy. Framer-motion is allowed
-  for booker stage transitions because that's the Cal.com signature feel.
+  for booker stage transitions where a continuous, animated feel is the
+  intended product polish.
 - **Use shadcn's default pill tabs** for the event type editor — not
   MUI-style underline tabs.
 - **Call view-screen first** when the user's request is ambiguous about

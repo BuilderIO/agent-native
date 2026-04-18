@@ -148,7 +148,7 @@ export const MANIFEST: SchedulingManifest = {
     },
     {
       key: "DAILY_API_KEY",
-      label: "Daily.co API Key (Cal Video)",
+      label: "Daily.co API Key (built-in video)",
       optional: true,
     },
     {
@@ -168,6 +168,6 @@ export const MANIFEST: SchedulingManifest = {
     "office365",
     "zoom",
     "google-meet",
-    "cal-video",
+    "builtin-video",
   ],
 };

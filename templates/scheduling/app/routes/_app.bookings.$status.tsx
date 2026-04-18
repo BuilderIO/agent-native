@@ -384,7 +384,7 @@ function formatDayLabel(iso: string): string {
 }
 
 function locationLabel(kind: string): string {
-  if (kind === "cal-video") return "Cal Video";
+  if (kind === "builtin-video") return "Video call";
   if (kind === "google-meet") return "Google Meet";
   if (kind === "zoom") return "Zoom";
   if (kind === "teams") return "Teams";

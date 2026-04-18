@@ -350,6 +350,22 @@ export function App() {
         } catch (err) {
           console.error("[clips-popover] show_bubble failed:", err);
         }
+        // Also open the toolbar in its pre-record disabled state so the
+        // user can drag both the bubble AND the toolbar around and
+        // position them BEFORE hitting Start. The Stop / Pause buttons
+        // are greyed out + click-as-no-op until MediaRecorder actually
+        // begins, at which point `recorder.ts` emits `toolbar-enabled:
+        // true` and the buttons go live.
+        try {
+          await invoke("show_toolbar");
+          // Explicitly seed disabled — in case a previous recording
+          // left the flag latched true in the toolbar's React state
+          // (the window is destroyed on `hide_overlays`, so this is
+          // mostly defensive, but free).
+          emit("clips:toolbar-enabled", false).catch(() => {});
+        } catch (err) {
+          console.error("[clips-popover] show_toolbar failed:", err);
+        }
         if (cancelled) {
           s.getTracks().forEach((t) => t.stop());
           return;
@@ -503,24 +519,36 @@ export function App() {
     let handle: RecorderHandle | null = null;
     let startError: unknown = null;
     try {
-      // Kick off the native recording. We used to hide the popover here
-      // (before awaiting getDisplayMedia) so it wouldn't appear in the
-      // screen picker — but hiding the popover's webview mid-navigator-
-      // .mediaDevices.getDisplayMedia() suspends its JS execution in
-      // WebKit and the promise never resolves. Symptom: tray dead,
-      // recorder hangs forever, allSettled stuck.
+      // Per Steve: "when we hit Start Recording the popover should disappear
+      // BEFORE the screen picker shows up — otherwise you might accidentally
+      // pick the popover itself." NSWindowSharingNone keeps the popover out
+      // of the final recording, but on modern macOS the picker STILL lists
+      // NSWindowSharingNone windows — only the actual capture is blocked.
+      // So we have to visually hide it early.
       //
-      // The fix is on the Rust side: every Clips-owned window (popover,
-      // bubble, toolbar, countdown, signin) is marked NSWindowSharingNone
-      // at build time, so macOS's screen picker CAN'T pick the popover
-      // as a capture target AND the popover doesn't show up in full-
-      // screen recordings either. We keep the popover visible during the
-      // screen picker and the popover's JS keeps running — same approach
-      // Loom / 1Password / CleanShot take.
+      // We can't hide() the popover — that suspends its JS and the bubble
+      // frame pump dies. Instead we park it as a 2×2 pinhole on the primary
+      // screen (AppKit sees the window as on-screen, no occlusion
+      // throttling, pump keeps ticking). The pinhole is too small to show
+      // up prominently in the picker and since NSWindowSharingNone is also
+      // set the picker's thumbnail is empty anyway.
       //
-      // The popover gets hidden later, AFTER we receive the recorder
-      // handle (i.e. after the countdown has started), which matches
-      // Loom's UX.
+      // USER ACTIVATION: WebKit requires `getDisplayMedia` to be called
+      // from within a user gesture handler. The first `await` in a click
+      // handler consumes user activation. `startNativeRecording` kicks off
+      // `getDisplayMedia` SYNCHRONOUSLY before its first `await`, so we
+      // start the recording promise FIRST (capturing the gesture), then
+      // park the popover in parallel via a fire-and-forget `invoke`.
+      // `invoke` itself is async — but because `getDisplayMedia` was
+      // already dispatched at that point, user activation has already been
+      // consumed for the purpose that needs it.
+      //
+      // Set `clipsForceAlive` before parking so the bubble frame pump's
+      // `document.hidden` early-out is bypassed even if WebKit flips
+      // visibility=hidden on a pinhole-sized window.
+      (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive =
+        true;
+
       const recordingPromise = startNativeRecording({
         serverUrl,
         mode,
@@ -530,6 +558,13 @@ export function App() {
         micOn,
         preAcquiredCameraStream,
       });
+      // Park the popover to its 2×2 pinhole IMMEDIATELY — we want the
+      // popover to vanish the instant the user clicks Start, before the
+      // screen picker has a chance to enumerate windows. Fire-and-forget;
+      // the recording promise was already dispatched above so
+      // getDisplayMedia has already captured the user gesture.
+      invoke("park_popover_offscreen").catch(() => {});
+      emit("clips:popover-visible", false).catch(() => {});
 
       // No watchdog — the macOS screen picker can stay open indefinitely
       // (a user deciding which window to capture may take 20, 60, 180
@@ -542,22 +577,6 @@ export function App() {
       // the normal error path.
       handle = await recordingPromise;
       console.log("[clips-popover] recorder handle received");
-      // Shrink the popover to a 2×2 pinhole anchored on the primary
-      // screen — WKWebView treats this as "on-screen" and keeps the
-      // bubble frame pump's `<video>` + `requestVideoFrameCallback`
-      // running. Parking off-screen (the previous approach) triggered
-      // macOS 15+ occlusion throttling, which paused the <video> and
-      // froze the bubble at its last captured frame during recording.
-      // The popover is `NSWindowSharingNone`, so it can't leak into
-      // the recording either way.
-      //
-      // Belt-and-suspenders: set `window.clipsForceAlive` so the pump's
-      // document.hidden early-out is bypassed even if WebKit still flips
-      // visibility=hidden on a pinhole-sized window.
-      (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive =
-        true;
-      invoke("park_popover_offscreen").catch(() => {});
-      emit("clips:popover-visible", false).catch(() => {});
     } catch (err) {
       startError = err;
     } finally {

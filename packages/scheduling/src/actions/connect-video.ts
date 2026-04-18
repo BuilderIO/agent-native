@@ -6,9 +6,9 @@
  * callback at `/_agent-native/oauth/<kind>/callback` (see
  * `handleVideoOAuthCallback` in the server entry point).
  *
- * Zero-OAuth providers (Cal Video, built-in Google Meet via the Google
- * Calendar credential) do not expose `startOAuth` and should be installed
- * via `install-conferencing-app` instead.
+ * Zero-OAuth providers (the built-in video provider, or Google Meet via the
+ * Google Calendar credential) do not expose `startOAuth` and should be
+ * installed via `install-conferencing-app` instead.
  */
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";

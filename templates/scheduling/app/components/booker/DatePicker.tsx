@@ -1,6 +1,6 @@
 /**
  * Month calendar grid — marks days that have available slots and lets the
- * user click into a day. Cal.com-style: subtle dot under each available day.
+ * user click into a day. Available days show a subtle dot beneath the number.
  */
 import { useMemo } from "react";
 import { TZDate } from "@date-fns/tz";

@@ -114,6 +114,7 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 const COUNTDOWN_LABEL: &str = "countdown";
 const TOOLBAR_LABEL: &str = "toolbar";
 const BUBBLE_LABEL: &str = "bubble";
+const FINALIZING_LABEL: &str = "finalizing";
 
 fn build_overlay_url(path: &str) -> WebviewUrl {
     // tauri dev serves the Vite dev server; prod builds resolve relative to
@@ -157,6 +158,55 @@ async fn show_countdown(app: AppHandle) -> Result<(), String> {
     set_capture_excluded(&win);
     let _ = win.show();
     eprintln!("[clips-tray] countdown shown");
+    Ok(())
+}
+
+/// Full-screen transparent overlay that shows a centered spinner while the
+/// recorder flushes its final chunks and awaits the server finalize. Rendered
+/// immediately after the user clicks Stop so they don't stare at a blank
+/// screen for a few seconds while `recorder.stop()` completes. Ignores cursor
+/// events so accidental clicks can't disrupt the finalize flow. Marked
+/// non-sharable for consistency with the other Clips overlays, even though
+/// the recording has already ended by the time this appears.
+#[tauri::command]
+async fn show_finalizing(app: AppHandle) -> Result<(), String> {
+    eprintln!("[clips-tray] show_finalizing invoked");
+    if let Some(existing) = app.get_webview_window(FINALIZING_LABEL) {
+        let _ = existing.close();
+    }
+    let (mw, mh) = primary_monitor_physical_size(&app).unwrap_or((2880, 1800));
+    eprintln!("[clips-tray] finalizing target size {}x{} physical", mw, mh);
+    let win = WebviewWindowBuilder::new(&app, FINALIZING_LABEL, build_overlay_url("finalizing"))
+        .title("Finalizing")
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .shadow(false)
+        .visible(false)
+        // Don't steal focus — same rationale as the countdown overlay.
+        .focused(false)
+        .build()
+        .map_err(|e| {
+            eprintln!("[clips-tray] finalizing build failed: {}", e);
+            e.to_string()
+        })?;
+    let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(mw, mh)));
+    let _ = win.set_position(PhysicalPosition::new(0, 0));
+    let _ = win.set_ignore_cursor_events(true);
+    set_capture_excluded(&win);
+    let _ = win.show();
+    eprintln!("[clips-tray] finalizing shown");
+    Ok(())
+}
+
+/// Close the finalizing spinner overlay. Called from the recorder stop path
+/// right after `openExternal` opens the browser to the recording URL.
+#[tauri::command]
+async fn hide_finalizing(app: AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window(FINALIZING_LABEL) {
+        let _ = w.close();
+    }
     Ok(())
 }
 
@@ -488,7 +538,12 @@ async fn show_bubble(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 async fn hide_overlays(app: AppHandle) -> Result<(), String> {
-    for label in [COUNTDOWN_LABEL, TOOLBAR_LABEL, BUBBLE_LABEL] {
+    for label in [
+        COUNTDOWN_LABEL,
+        TOOLBAR_LABEL,
+        BUBBLE_LABEL,
+        FINALIZING_LABEL,
+    ] {
         if let Some(w) = app.get_webview_window(label) {
             let _ = w.close();
         }
@@ -830,6 +885,8 @@ pub fn run() {
         }))
         .invoke_handler(tauri::generate_handler![
             show_countdown,
+            show_finalizing,
+            hide_finalizing,
             show_toolbar,
             show_bubble,
             hide_overlays,

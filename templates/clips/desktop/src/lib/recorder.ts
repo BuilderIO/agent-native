@@ -506,21 +506,20 @@ async function startNativeRecordingInner(
 
   recorder.start(2_000);
   console.log("[clips-recorder] MediaRecorder started");
+  // The toolbar is already open (the popover's bubble-session effect
+  // spawns it alongside the bubble in its pre-record, disabled state).
+  // Now that MediaRecorder is actually ticking, flip the toolbar's
+  // Stop / Pause buttons to enabled so the user can drive the recorder.
+  emit("clips:toolbar-enabled", true).catch(() => {});
+  // Seed the initial recorder-state so the time / paused styling match
+  // MediaRecorder's real state (before the first 500ms tick).
+  emitState(false);
 
-  // 6. Show the floating toolbar.
-  //
-  // Bubble visibility + the JPEG frame pump are owned by the popover's
-  // session effect (see app.tsx + bubble-pump.ts) — not the recorder.
-  // The popover already made the bubble visible as soon as the user
-  // opened the popover in screen-camera / camera mode with cameraOn,
-  // and the pump has been running since then. The recorder just borrows
-  // the video track for MediaRecorder.
-  try {
-    await invoke("show_toolbar");
-    console.log("[clips-recorder] show_toolbar ok");
-  } catch (err) {
-    console.error("[clips-recorder] show_toolbar failed:", err);
-  }
+  // 6. Bubble + toolbar visibility are owned by the popover's session
+  // effect (see app.tsx + bubble-pump.ts) — not the recorder. Both open
+  // as soon as the user opens the popover in screen-camera / camera mode
+  // with cameraOn. The recorder just borrows the video track for
+  // MediaRecorder and flips the toolbar from disabled → enabled above.
 
   const handle: RecorderHandle = {
     async stop() {
@@ -578,6 +577,18 @@ async function startNativeRecordingInner(
         console.error(`[clips-recorder] ${chromeCmd} failed:`, err),
       );
 
+      // Show the full-screen "Finishing up your clip…" spinner overlay so
+      // the user gets immediate feedback while we flush the recorder
+      // buffer, wait for in-flight chunk uploads to settle, and POST the
+      // finalize. Without this the screen goes blank between the toolbar
+      // disappearing and the browser opening — several seconds of nothing
+      // on a longer recording. The overlay ignores cursor events and is
+      // closed right after openExternal below. Fired-and-forgotten (no
+      // await) so we don't add latency to the finalize path.
+      invoke("show_finalizing").catch((err) =>
+        console.error("[clips-recorder] show_finalizing failed:", err),
+      );
+
       // Wait for any in-flight chunk uploads to settle before sending the
       // final chunk. Otherwise the server could finalize before the last
       // few bytes land.
@@ -611,10 +622,18 @@ async function startNativeRecordingInner(
       }
 
       // Finalize done (or tried and failed — the player page shows a clear
-      // error state in either case). Open the browser to the playback URL.
+      // error state in either case). Open the browser to the playback URL
+      // and THEN close the finalizing spinner. Closing before the browser
+      // opens would leave the user staring at an empty desktop for the
+      // brief moment while the OS launches / focuses the default browser.
       const viewUrl = `/r/${id}`;
-      openExternal(`${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`).catch(
-        (err) => console.error("[clips-recorder] openExternal failed:", err),
+      try {
+        await openExternal(`${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`);
+      } catch (err) {
+        console.error("[clips-recorder] openExternal failed:", err);
+      }
+      invoke("hide_finalizing").catch((err) =>
+        console.error("[clips-recorder] hide_finalizing failed:", err),
       );
 
       return { recordingId: id, viewUrl };

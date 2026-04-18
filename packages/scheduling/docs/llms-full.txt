@@ -185,8 +185,8 @@ Now you own the code and can modify freely. Upstream updates are available via
 # @agent-native/scheduling
 
 Scheduling primitives for agent-native apps — event types, availability,
-bookings, team scheduling, workflows, routing forms. A thorough, locally-
-owned Cal.com clone, not an API wrapper.
+bookings, team scheduling, workflows, routing forms. A self-hosted,
+locally-owned scheduling stack, not an API wrapper.
 
 ## What this package provides
 
@@ -201,7 +201,7 @@ owned Cal.com clone, not an API wrapper.
   application, booking-limit bucketing, recurring-event expansion.
 - **Server layer** (`/server`) — DB repos, availability engine, booking
   service, pluggable calendar + video providers (Google Calendar, Outlook,
-  Zoom, Google Meet, Cal Video), iCal generator, lifecycle hooks →
+  Zoom, Google Meet, built-in video), iCal generator, lifecycle hooks →
   workflows.
 - **Actions** (`/actions/*`) — ~55 `defineAction` modules covering every
   operation in the product (event type CRUD, availability edit, booking
@@ -283,7 +283,7 @@ Scheduling needs two kinds of providers:
 - **CalendarProvider** — reads busy intervals + writes events.
 - **VideoProvider** — creates meeting rooms when a booking is confirmed.
 
-Built-ins: Google Calendar, Office 365, Zoom, Cal Video (Daily.co), Google
+Built-ins: Google Calendar, Office 365, Zoom, built-in video (Daily.co), Google
 Meet (piggy-backs on Google Calendar).
 
 ## CalendarProvider
@@ -342,7 +342,7 @@ registerVideoProvider({
 ```
 
 Video providers are invoked by the booking service when a booking's location
-is `cal-video`, `zoom`, `google-meet`, or `teams`. Meeting URLs land in
+is `builtin-video`, `zoom`, `google-meet`, or `teams`. Meeting URLs land in
 `booking_references`.
 
 
@@ -580,7 +580,7 @@ logging in.
 
 ## References
 
-External system IDs: Google Calendar event id, Zoom meeting id, Cal Video
+External system IDs: Google Calendar event id, Zoom meeting id, Daily.co
 room name. Stored in `booking_references`, used during cancel/reschedule to
 propagate changes back to the source system.
 
@@ -675,7 +675,7 @@ description: How event types work — fields, scheduling types, tabs in the edit
 
 ## Location kinds
 
-`cal-video`, `zoom`, `google-meet`, `teams`, `phone`, `in-person`,
+`builtin-video`, `zoom`, `google-meet`, `teams`, `phone`, `in-person`,
 `custom-link`, `attendee-phone`, `organizer-phone`, `attendee-choice`.
 
 ## Custom fields
@@ -694,7 +694,7 @@ optionally with `expiresAt` and `isSingleUse`.
 
 ---
 name: integrations
-description: Calendar + video provider integrations — Google Calendar, Office 365, Zoom, Cal Video, Google Meet — and how to write new ones.
+description: Calendar + video provider integrations — Google Calendar, Office 365, Zoom, built-in video, Google Meet — and how to write new ones.
 ---
 
 # Integrations
@@ -708,7 +708,7 @@ description: Calendar + video provider integrations — Google Calendar, Office 
 
 ## Video providers
 
-- **cal_video** — Daily.co-backed; zero OAuth; server-to-server API key.
+- **builtin_video** — Daily.co-backed; zero OAuth; server-to-server API key.
 - **zoom_video** — OAuth; create meetings via Zoom REST API.
 - **google_meet** — piggy-backs on Google Calendar credential.
 - **teams_video** (planned) — Microsoft Teams.
@@ -800,7 +800,7 @@ description: Core concepts of the scheduling package — event types, schedules,
 
 # Scheduling basics
 
-This app is a Cal.com clone. The mental model:
+The mental model:
 
 - **Event Type** — a definition of "a bookable thing" (30-minute intro call,
   45-minute demo). Lives at `/:user/:slug` or `/team/:teamSlug/:slug`.
@@ -813,7 +813,7 @@ This app is a Cal.com clone. The mental model:
 - **Host** — a user assigned to an event type. Hosts have weights and
   priorities for round-robin.
 - **Team** — a group of users who can co-host event types.
-- **Location** — where the meeting happens. Video (Cal Video, Zoom, Meet,
+- **Location** — where the meeting happens. Video (built-in, Zoom, Meet,
   Teams), phone, in-person, or custom link.
 
 ## Workflows and routing forms

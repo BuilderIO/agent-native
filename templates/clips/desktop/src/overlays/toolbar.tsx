@@ -27,6 +27,11 @@ export function Toolbar() {
   const [paused, setPaused] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [stopping, setStopping] = useState(false);
+  // Pre-record mode: the toolbar shows alongside the pre-record bubble so
+  // the user can drag both around and position them before hitting Start.
+  // Stop / Pause are disabled until the recorder actually begins, at which
+  // point `clips:toolbar-enabled` fires with `true` from the recorder.
+  const [enabled, setEnabled] = useState(false);
   const fallbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -38,6 +43,9 @@ export function Toolbar() {
         setElapsed(ev.payload.elapsedMs ?? 0);
       },
     ).then((u) => unlistens.push(u));
+    listen<boolean>("clips:toolbar-enabled", (ev) => {
+      setEnabled(!!ev.payload);
+    }).then((u) => unlistens.push(u));
     return () => {
       unlistens.forEach((u) => u());
       if (fallbackTimer.current) clearTimeout(fallbackTimer.current);
@@ -45,7 +53,7 @@ export function Toolbar() {
   }, []);
 
   function stop() {
-    if (stopping) return;
+    if (stopping || !enabled) return;
     setStopping(true);
     console.log("[clips-toolbar] stop clicked — emitting clips:recorder-stop");
     emit("clips:recorder-stop").catch((err) => {
@@ -67,33 +75,52 @@ export function Toolbar() {
     }, 3_000);
   }
   function togglePause() {
+    if (!enabled) return;
     emit(paused ? "clips:recorder-resume" : "clips:recorder-pause").catch(
       () => {},
     );
   }
 
+  // Same explicit-drag pattern the bubble uses — `data-tauri-drag-region`
+  // has been unreliable across iterations so we call `startDragging()`
+  // directly on mousedown. Interactive controls are marked `data-no-drag`
+  // so their clicks reach onClick instead of starting a drag.
+  const handleToolbarMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    if (target.closest("[data-no-drag]")) return;
+    getCurrentWindow()
+      .startDragging()
+      .catch((err) => {
+        console.warn("[clips-toolbar] startDragging failed", err);
+      });
+  };
+
   return (
     <div
-      className={`toolbar-v ${paused ? "toolbar-v-paused" : ""}`}
-      data-tauri-drag-region
+      className={`toolbar-v ${paused ? "toolbar-v-paused" : ""} ${enabled ? "" : "toolbar-v-disabled"}`}
+      onMouseDown={handleToolbarMouseDown}
     >
       <button
         className="toolbar-v-stop"
         onClick={stop}
-        disabled={stopping}
+        disabled={stopping || !enabled}
         aria-label="Stop recording"
-        title="Stop recording"
+        title={enabled ? "Stop recording" : "Recording not started yet"}
+        data-no-drag
       >
         <span className="toolbar-v-stop-square" />
       </button>
-      <div className="toolbar-v-time" data-tauri-drag-region>
-        {formatTime(elapsed)}
-      </div>
+      <div className="toolbar-v-time">{formatTime(elapsed)}</div>
       <button
         className="toolbar-v-pause"
         onClick={togglePause}
+        disabled={!enabled}
         aria-label={paused ? "Resume" : "Pause"}
-        title={paused ? "Resume" : "Pause"}
+        title={
+          enabled ? (paused ? "Resume" : "Pause") : "Recording not started yet"
+        }
+        data-no-drag
       >
         {paused ? <PlayGlyph /> : <PauseGlyph />}
       </button>

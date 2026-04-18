@@ -1,8 +1,8 @@
 # Org Model — Scheduling Template
 
 This document describes how the Scheduling template uses the framework's
-multi-tenant **organization** primitive together with Cal.com-style **teams**
-and the framework **sharing** system.
+multi-tenant **organization** primitive together with **teams** and the
+framework **sharing** system.
 
 ## TL;DR — teams under orgs
 
@@ -13,15 +13,14 @@ Scheduling uses **two layers**:
    `org_invitations`. Owned at `org_members.role = 'owner' | 'admin' | 'member'`.
    This is the boundary every user-authored resource is scoped to via the
    `org_id` column added by `ownableColumns()`.
-2. **Team** (sub-grouping inside an org) — Cal.com's notion of a team:
-   a slugged collection of users (`teams`, `team_members`) that own a public
-   booking page (`/team/:slug`), team event types, and team workflows / forms.
+2. **Team** (sub-grouping inside an org) — a slugged collection of users
+   (`teams`, `team_members`) that own a public booking page
+   (`/team/:slug`), team event types, and team workflows / forms.
    Teams **always live inside one org** (the creator's active org at create
    time, persisted to `teams.org_id`).
 
-This matches Cal.com's hierarchy (organizations → teams → event types) while
-plugging into the standard agent-native multi-tenant rails the rest of the
-framework uses.
+The hierarchy is `organizations → teams → event types`, plugging into the
+standard agent-native multi-tenant rails the rest of the framework uses.
 
 ## Why two layers (and not just one)
 
@@ -31,13 +30,12 @@ We considered three options:
   framework (org-aware sharing, settings scoping, agent teams, the
   `OrgSwitcher` UX, the `org_id` column convention) all assume the canonical
   `organizations` table exists.
-- (b) Drop `teams` and treat each Cal.com team as its own framework org —
-  rejected. Cal.com users routinely belong to one company (org) with multiple
-  internal teams (Sales, Support, Engineering). Modeling each team as a
-  separate top-level tenant breaks org-wide settings, billing, and member
-  invites.
+- (b) Drop `teams` and treat each team as its own framework org — rejected.
+  Users routinely belong to one company (org) with multiple internal teams
+  (Sales, Support, Engineering). Modeling each team as a separate top-level
+  tenant breaks org-wide settings, billing, and member invites.
 - (c) **Teams are nested inside orgs** — chosen. Standard org rails for
-  identity, sharing, and tenant scoping; teams stay as a Cal.com-shaped
+  identity, sharing, and tenant scoping; teams stay as a lightweight
   sub-grouping for round-robin / collective event types and team booking
   pages.
 
@@ -50,7 +48,7 @@ organizations (framework)              ← top-level tenant
   ↑
   │ org_id
   │
-teams                                  ← Cal.com team within an org
+teams                                  ← sub-grouping within an org
   team_members
   team_shares
   ↑

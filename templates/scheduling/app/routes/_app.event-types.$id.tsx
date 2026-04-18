@@ -874,8 +874,8 @@ function PreviewCard({
 
 function locationLabel(kind: string): string {
   switch (kind) {
-    case "cal-video":
-      return "Cal Video";
+    case "builtin-video":
+      return "Video call";
     case "google-meet":
       return "Google Meet";
     case "zoom":

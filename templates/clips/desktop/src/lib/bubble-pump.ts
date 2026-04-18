@@ -27,11 +27,25 @@
  * avoidable cost.
  *
  * Optimizations applied:
- * - Lowered to 15 FPS (bubble is a talking-head PiP; MediaRecorder still
- *   records at 30 FPS independently).
- * - Canvas 192×192 (bubble is ~180 logical px so only a hair of headroom
- *   lost) → ~44% fewer pixels per frame.
- * - JPEG quality 0.6 (self-view) → smaller blobs, faster encode.
+ * - Lowered to 15 FPS preview / 10 FPS recording. The bubble is a small
+ *   talking-head PiP; MediaRecorder still captures the composed scene at
+ *   30 FPS independently — the pump's job is just to keep the self-view
+ *   lively.
+ * - Canvas 192 preview / 144 recording → ~44% / ~68% fewer pixels per
+ *   frame vs the original 256, and a further 44% drop during recording
+ *   specifically when the main thread is already hot with MediaRecorder
+ *   encode + chunk upload.
+ * - JPEG quality 0.6 preview / 0.55 recording — self-view is forgiving.
+ * - **`toDataURL` instead of `toBlob` + `Array.from(Uint8Array)`.** The
+ *   previous path encoded JPEG bytes into a ~5–12KB `Uint8Array`, then
+ *   `Array.from`'d it into a JS number array, which Tauri then
+ *   JSON-stringified for IPC. That was the single hottest main-thread
+ *   cost during recording: allocating 5–12k-element arrays at 15 Hz
+ *   churns the GC and the JSON serializer blows through the main
+ *   thread. `toDataURL` returns a base64 string directly — Tauri can
+ *   JSON-stringify a single string in O(bytes) with no array walk. The
+ *   bubble side decodes via an `<img>` element (HTML image decode is
+ *   off-main-thread in WebKit), drawing once `onload` fires.
  * - `requestAnimationFrame` gating with last-tick throttle so ticks run
  *   when the browser is ready; rAF is paused by WebKit when the tab is
  *   occluded, which gracefully halts work.
@@ -46,16 +60,34 @@
 import { emit } from "@tauri-apps/api/event";
 
 /**
- * 15 FPS (≈67ms interval) is plenty for a small talking-head circle and
- * keeps IPC bandwidth and main-thread encode time under control. At
- * 192×192 JPEG q=0.6 each frame is ~5–12KB, so ~75–180 KB/s of local IPC.
- * The bubble is ~180 logical px on retina, so a 192 source resolution is
- * comfortable without over-sampling.
+ * Preview (pre-record) vs recording tuning. During recording the popover
+ * is also running MediaRecorder + chunked fetch uploads on this same main
+ * thread, so we downshift everything pump-related to leave headroom.
+ * The `window.clipsForceAlive` flag is set by the recording-start path
+ * (see `app.tsx`) and serves double duty as our "recording active?"
+ * signal — no extra wiring needed.
+ *
+ * 15 FPS preview / 10 FPS recording:
+ * - Preview feels like a live camera.
+ * - Recording is a talking-head PiP of yourself; 10 FPS self-view is
+ *   plenty and buys us a third of the per-frame encode budget back.
+ *
+ * 192px preview / 144px recording:
+ * - Small bubble is ~96 logical px = 192 physical on retina. Medium is
+ *   ~128 logical = 256 physical — slightly oversampled at 192, more at
+ *   144, but the bubble circle + mild scaling hides the loss and the
+ *   pixel-count win is large.
  */
-const BUBBLE_FPS = 15;
-const BUBBLE_FRAME_INTERVAL_MS = Math.round(1000 / BUBBLE_FPS);
-const BUBBLE_FRAME_SIZE = 192;
-const BUBBLE_JPEG_QUALITY = 0.6;
+const BUBBLE_PREVIEW_FPS = 15;
+const BUBBLE_RECORDING_FPS = 10;
+const BUBBLE_PREVIEW_FRAME_INTERVAL_MS = Math.round(1000 / BUBBLE_PREVIEW_FPS);
+const BUBBLE_RECORDING_FRAME_INTERVAL_MS = Math.round(
+  1000 / BUBBLE_RECORDING_FPS,
+);
+const BUBBLE_PREVIEW_FRAME_SIZE = 192;
+const BUBBLE_RECORDING_FRAME_SIZE = 144;
+const BUBBLE_PREVIEW_JPEG_QUALITY = 0.6;
+const BUBBLE_RECORDING_JPEG_QUALITY = 0.55;
 
 type VideoWithRvfc = HTMLVideoElement & {
   requestVideoFrameCallback?: (cb: () => void) => number;
@@ -90,13 +122,16 @@ export function startBubbleFramePump(stream: MediaStream): () => void {
   });
 
   const canvas = document.createElement("canvas");
-  canvas.width = BUBBLE_FRAME_SIZE;
-  canvas.height = BUBBLE_FRAME_SIZE;
+  // Canvas starts at preview size; if we enter recording mode the tick
+  // loop grows/shrinks it in-place. Resizing a canvas clears it, which is
+  // fine — we re-draw every frame anyway.
+  canvas.width = BUBBLE_PREVIEW_FRAME_SIZE;
+  canvas.height = BUBBLE_PREVIEW_FRAME_SIZE;
   const ctx = canvas.getContext("2d", { willReadFrequently: false });
 
   const hasRvfc = typeof video.requestVideoFrameCallback === "function";
   console.log(
-    `[clips-bubble-pump] started @ ${BUBBLE_FPS}fps (${BUBBLE_FRAME_SIZE}x${BUBBLE_FRAME_SIZE}) rvfc=${hasRvfc}`,
+    `[clips-bubble-pump] started preview=${BUBBLE_PREVIEW_FPS}fps@${BUBBLE_PREVIEW_FRAME_SIZE}px record=${BUBBLE_RECORDING_FPS}fps@${BUBBLE_RECORDING_FRAME_SIZE}px rvfc=${hasRvfc}`,
   );
 
   let busy = false;
@@ -118,7 +153,7 @@ export function startBubbleFramePump(stream: MediaStream): () => void {
     }
   }, 2000);
 
-  async function encodeAndEmit(): Promise<void> {
+  function encodeAndEmit(): void {
     if (!ctx || busy || stopped) return;
     // Skip when the tab/popover is hidden — rAF is already throttled but
     // rVFC keeps firing on an active track, so guard it explicitly. We
@@ -127,51 +162,60 @@ export function startBubbleFramePump(stream: MediaStream): () => void {
     // false, but WKWebView on macOS 15+ sometimes flips visibility=hidden
     // anyway when the window loses significant on-screen area. Setting the
     // force-alive flag from the recording-start path bypasses the check so
-    // the bubble stays live.
+    // the bubble stays live. The same flag also serves as our "recording
+    // active?" signal so we can downshift FPS / size / quality.
     const forceAlive =
       (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive ===
       true;
     if (document.hidden && !forceAlive) return;
     if (video.readyState < 2 || video.videoWidth === 0) return;
 
-    // Throttle to BUBBLE_FRAME_INTERVAL_MS. Under both rAF and rVFC the
-    // callback can fire faster than we want to encode; this is the single
-    // pace-limiting gate.
+    const recording = forceAlive;
+    const frameSize = recording
+      ? BUBBLE_RECORDING_FRAME_SIZE
+      : BUBBLE_PREVIEW_FRAME_SIZE;
+    const frameIntervalMs = recording
+      ? BUBBLE_RECORDING_FRAME_INTERVAL_MS
+      : BUBBLE_PREVIEW_FRAME_INTERVAL_MS;
+    const quality = recording
+      ? BUBBLE_RECORDING_JPEG_QUALITY
+      : BUBBLE_PREVIEW_JPEG_QUALITY;
+
+    // Throttle to the active-mode frame interval. Under both rAF and
+    // rVFC the callback can fire faster than we want to encode; this is
+    // the single pace-limiting gate.
     const now = performance.now();
-    if (now - lastEmitMs < BUBBLE_FRAME_INTERVAL_MS) return;
+    if (now - lastEmitMs < frameIntervalMs) return;
     lastEmitMs = now;
+
+    // Re-size the canvas if the recording mode flipped. `<canvas>.width`
+    // resets pixel data, which is fine because we redraw from the video
+    // every tick.
+    if (canvas.width !== frameSize) canvas.width = frameSize;
+    if (canvas.height !== frameSize) canvas.height = frameSize;
 
     busy = true;
     try {
-      // Center-crop the video into a square then scale to BUBBLE_FRAME_SIZE.
+      // Center-crop the video into a square then scale to frameSize.
       const vw = video.videoWidth;
       const vh = video.videoHeight;
       const side = Math.min(vw, vh);
       const sx = (vw - side) / 2;
       const sy = (vh - side) / 2;
-      ctx.drawImage(
-        video,
-        sx,
-        sy,
-        side,
-        side,
-        0,
-        0,
-        BUBBLE_FRAME_SIZE,
-        BUBBLE_FRAME_SIZE,
-      );
-      const blob: Blob | null = await new Promise((resolve) =>
-        canvas.toBlob(resolve, "image/jpeg", BUBBLE_JPEG_QUALITY),
-      );
-      if (!blob || stopped) return;
-      const buf = await blob.arrayBuffer();
-      const bytes = Array.from(new Uint8Array(buf));
-      // Tauri event payloads are JSON-encoded — binary data must be a
-      // number array. JPEG-compressed @ q=0.6 keeps this to ~5–12KB.
-      await emit("clips:bubble-frame", {
-        bytes,
-        w: BUBBLE_FRAME_SIZE,
-        h: BUBBLE_FRAME_SIZE,
+      ctx.drawImage(video, sx, sy, side, side, 0, 0, frameSize, frameSize);
+      // `toDataURL` is a synchronous main-thread encode, but it avoids
+      // the `toBlob` → `arrayBuffer` → `Array.from(Uint8Array)` round
+      // trip which dominated the old path's main-thread cost. The
+      // resulting string is a ready-to-emit JSON value — Tauri IPC
+      // serializes a single string in O(bytes) with zero per-byte JS
+      // allocation, vs O(bytes) allocations when serializing a number
+      // array of the same length.
+      const dataUrl = canvas.toDataURL("image/jpeg", quality);
+      if (stopped) return;
+      emit("clips:bubble-frame", {
+        dataUrl,
+        w: frameSize,
+        h: frameSize,
       }).catch(() => {});
     } catch (err) {
       // Don't flood the console — one warning per failure-window is enough.
@@ -186,7 +230,7 @@ export function startBubbleFramePump(stream: MediaStream): () => void {
   function rafLoop(): void {
     if (stopped) return;
     rafHandle = requestAnimationFrame(() => {
-      void encodeAndEmit();
+      encodeAndEmit();
       rafLoop();
     });
   }
@@ -194,7 +238,7 @@ export function startBubbleFramePump(stream: MediaStream): () => void {
   function rvfcLoop(): void {
     if (stopped || !video.requestVideoFrameCallback) return;
     rvfcHandle = video.requestVideoFrameCallback(() => {
-      void encodeAndEmit();
+      encodeAndEmit();
       rvfcLoop();
     });
   }

@@ -1,9 +1,10 @@
 /**
  * Booker — the public booking flow orchestrator.
  *
- * Layout: Cal.com-style three-column split:
+ * Layout: three-column split:
  *   [host info] [month calendar] [time slots (when date picked)]
- * Stages advance via framer-motion width+fade, matching Cal.com's feel.
+ * Stages advance via framer-motion width+fade for a polished, animated
+ * feel that's the core product touch of the booker flow.
  */
 import { useCallback, useEffect, useMemo } from "react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -337,7 +338,7 @@ function HostColumn({
   selectedSlot?: Slot;
   compact?: boolean;
 }) {
-  const locationKind = eventType.locations?.[0]?.kind ?? "cal-video";
+  const locationKind = eventType.locations?.[0]?.kind ?? "builtin-video";
   const LocationIcon = locationKind === "in-person" ? IconMapPin : IconVideo;
   return (
     <div className={"p-5 " + (compact ? "md:border-r md:border-border" : "")}>
@@ -421,7 +422,7 @@ function hostInitials(name: string): string {
 }
 
 function locationLabel(kind: string): string {
-  if (kind === "cal-video") return "Cal Video";
+  if (kind === "builtin-video") return "Video call";
   if (kind === "google-meet") return "Google Meet";
   if (kind === "zoom") return "Zoom";
   if (kind === "teams") return "Microsoft Teams";

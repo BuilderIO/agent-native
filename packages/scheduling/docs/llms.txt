@@ -1,8 +1,8 @@
 # @agent-native/scheduling
 
 Scheduling primitives for agent-native apps — event types, availability,
-bookings, team scheduling, workflows, routing forms. A thorough, locally-
-owned Cal.com clone, not an API wrapper.
+bookings, team scheduling, workflows, routing forms. A self-hosted,
+locally-owned scheduling stack, not an API wrapper.
 
 ## What this package provides
 
@@ -17,7 +17,7 @@ owned Cal.com clone, not an API wrapper.
   application, booking-limit bucketing, recurring-event expansion.
 - **Server layer** (`/server`) — DB repos, availability engine, booking
   service, pluggable calendar + video providers (Google Calendar, Outlook,
-  Zoom, Google Meet, Cal Video), iCal generator, lifecycle hooks →
+  Zoom, Google Meet, built-in video), iCal generator, lifecycle hooks →
   workflows.
 - **Actions** (`/actions/*`) — ~55 `defineAction` modules covering every
   operation in the product (event type CRUD, availability edit, booking

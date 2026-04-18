@@ -35,7 +35,7 @@
     --sidebar-border: 220 10% 90%;
     --sidebar-ring: 220 10% 40%;
 
-    /* Default event-type accent — Cal.com-style brand blue (#007EE5).
+    /* Default event-type accent — brand blue (#007EE5).
        Individual event types may override via --brand-accent on their scope. */
     --brand-accent: 209 100% 45%;
     --brand-accent-foreground: 0 0% 100%;

@@ -859,6 +859,83 @@ button {
 }
 
 /* ------------------------------------------------------------------------- */
+/* Overlay: finalizing spinner                                                */
+/* ------------------------------------------------------------------------- */
+
+/*
+ * Full-screen transparent overlay shown after the user clicks Stop and
+ * before the browser opens at /r/:id. The Tauri window is transparent +
+ * decorations-less (see `show_finalizing` in lib.rs), so we paint a
+ * rounded-pill card centered on the desktop with a spinner and caption.
+ * The window also has ignore_cursor_events(true), so clicks pass through
+ * to whatever is beneath — the user can't disrupt the finalize by
+ * clicking around.
+ */
+.finalizing-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  pointer-events: none;
+}
+
+.finalizing-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 28px 36px;
+  border-radius: 22px;
+  background: rgba(20, 22, 28, 0.94);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 14px 40px rgba(0, 0, 0, 0.45),
+    0 2px 6px rgba(0, 0, 0, 0.3);
+  color: white;
+  min-width: 260px;
+}
+
+/*
+ * CSS-only spinner — no dependency on @tabler/icons-react (the desktop
+ * bundle doesn't pull that in). A ring with one highlighted quadrant is
+ * rotated continuously.
+ */
+.finalizing-spinner {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.18);
+  border-top-color: #ffffff;
+  animation: finalizing-spin 0.9s linear infinite;
+}
+
+@keyframes finalizing-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.finalizing-caption {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.1px;
+  color: white;
+  text-align: center;
+}
+
+.finalizing-sub {
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.65);
+  text-align: center;
+  margin-top: -4px;
+}
+
+/* ------------------------------------------------------------------------- */
 /* Overlay: toolbar                                                           */
 /* ------------------------------------------------------------------------- */
 
@@ -1079,6 +1156,27 @@ button {
 
 .toolbar-v-paused {
   border-color: rgba(245, 158, 11, 0.35);
+}
+
+/* Pre-record state: the toolbar is visible during the bubble session so the
+   user can drag + position it before hitting Start. Buttons are disabled
+   (no recorder to drive yet). Greyed out + not-allowed cursor makes the
+   "not yet" affordance obvious. */
+.toolbar-v-disabled .toolbar-v-stop,
+.toolbar-v-disabled .toolbar-v-pause {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.35);
+  cursor: not-allowed;
+  pointer-events: auto;
+}
+.toolbar-v-disabled .toolbar-v-stop:hover,
+.toolbar-v-disabled .toolbar-v-pause:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.35);
+}
+.toolbar-v-stop:disabled,
+.toolbar-v-pause:disabled {
+  cursor: not-allowed;
 }
 
 /* ------------------------------------------------------------------------- */

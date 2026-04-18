@@ -80,8 +80,8 @@ export interface VideoProvider {
   /**
    * Start the OAuth flow — optional. Present on providers like Zoom /
    * Microsoft Teams that require a user's OAuth grant to create meetings on
-   * their behalf. Zero-OAuth providers (Cal Video, built-in Meet via
-   * Google Calendar scope) omit this.
+   * their behalf. Zero-OAuth providers (the built-in video provider, or
+   * Google Meet which piggy-backs on the Google Calendar scope) omit this.
    */
   startOAuth?(opts: {
     redirectUri: string;
