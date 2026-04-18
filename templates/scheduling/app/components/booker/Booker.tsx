@@ -14,8 +14,7 @@ import {
   useSlots,
 } from "@agent-native/scheduling/react";
 import type { EventType, Slot } from "@agent-native/scheduling/shared";
-import { callAction } from "@/lib/api";
-import { writeAppState } from "@agent-native/core/application-state";
+import { callAction, writeAppState } from "@/lib/api";
 import { DatePicker } from "./DatePicker";
 import { SlotPicker } from "./SlotPicker";
 import { BookingForm } from "./BookingForm";

@@ -1,6 +1,6 @@
 import { Link, NavLink, useLocation } from "react-router";
 import { useEffect } from "react";
-import { writeAppState } from "@agent-native/core/application-state";
+import { writeAppState } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
   IconCalendarTime,

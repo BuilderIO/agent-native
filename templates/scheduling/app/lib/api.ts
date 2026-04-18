@@ -19,3 +19,48 @@ export async function callAction<T = any>(
   }
   return (await res.json()) as T;
 }
+
+/**
+ * Browser-safe application_state helpers. The core script-helpers module is
+ * Node-only (it imports EventEmitter), so we use the framework's HTTP endpoint
+ * directly in the browser.
+ */
+export async function writeAppState(
+  key: string,
+  value: unknown,
+): Promise<void> {
+  try {
+    await fetch(`/_agent-native/application-state/${encodeURIComponent(key)}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ value }),
+    });
+  } catch {
+    // Swallow — application state is best-effort in the UI.
+  }
+}
+
+export async function readAppState<T = unknown>(
+  key: string,
+): Promise<T | null> {
+  try {
+    const res = await fetch(
+      `/_agent-native/application-state/${encodeURIComponent(key)}`,
+    );
+    if (!res.ok) return null;
+    const body = (await res.json()) as { value?: T };
+    return body?.value ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function deleteAppState(key: string): Promise<void> {
+  try {
+    await fetch(`/_agent-native/application-state/${encodeURIComponent(key)}`, {
+      method: "DELETE",
+    });
+  } catch {
+    // best-effort
+  }
+}
