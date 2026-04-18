@@ -49,10 +49,7 @@ function likePattern(term: string): string {
   return `%${escapeLikeTerm(term)}%`;
 }
 
-function anyColumnMatches(
-  pattern: string,
-  cols: AnyColumn[],
-): SQL | undefined {
+function anyColumnMatches(pattern: string, cols: AnyColumn[]): SQL | undefined {
   const parts = cols.map((c) => like(c, pattern));
   if (parts.length === 0) return undefined;
   if (parts.length === 1) return parts[0];
@@ -99,11 +96,7 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-export function highlight(
-  text: string,
-  terms: string[],
-  maxLen = 240,
-): string {
+export function highlight(text: string, terms: string[], maxLen = 240): string {
   if (typeof text !== "string" || !text) return "";
   const cleanTerms = (terms || [])
     .filter((t) => typeof t === "string" && t.trim().length > 0)

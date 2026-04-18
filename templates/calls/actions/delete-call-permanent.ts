@@ -48,9 +48,7 @@ export default defineAction({
     await db
       .delete(schema.callParticipants)
       .where(eq(schema.callParticipants.callId, args.id));
-    await db
-      .delete(schema.callTags)
-      .where(eq(schema.callTags.callId, args.id));
+    await db.delete(schema.callTags).where(eq(schema.callTags.callId, args.id));
     await db
       .delete(schema.callComments)
       .where(eq(schema.callComments.callId, args.id));

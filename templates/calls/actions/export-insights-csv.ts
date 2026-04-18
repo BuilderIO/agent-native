@@ -20,7 +20,10 @@ import {
   resolveDefaultWorkspaceId,
 } from "../server/lib/calls.js";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import { writeAppState, readAppState } from "@agent-native/core/application-state";
+import {
+  writeAppState,
+  readAppState,
+} from "@agent-native/core/application-state";
 
 function csvEscape(value: unknown): string {
   if (value === null || value === undefined) return "";

@@ -14,7 +14,9 @@ export default defineAction({
   http: { method: "POST" },
   run: async (args) => {
     const apiKey =
-      typeof process !== "undefined" ? process.env.RECALL_AI_API_KEY : undefined;
+      typeof process !== "undefined"
+        ? process.env.RECALL_AI_API_KEY
+        : undefined;
     if (!apiKey) {
       throw new Error("RECALL_AI_API_KEY is not configured.");
     }
@@ -28,10 +30,13 @@ export default defineAction({
 
     let apiError: string | null = null;
     try {
-      const res = await fetch(`https://api.recall.ai/api/v1/bot/${args.botId}`, {
-        method: "DELETE",
-        headers: { Authorization: `Token ${apiKey}` },
-      });
+      const res = await fetch(
+        `https://api.recall.ai/api/v1/bot/${args.botId}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Token ${apiKey}` },
+        },
+      );
       if (!res.ok && res.status !== 404) {
         const body = await res.text().catch(() => "");
         apiError = `Recall.ai responded with ${res.status}: ${body.slice(0, 200)}`;

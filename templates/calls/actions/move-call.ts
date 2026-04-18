@@ -10,7 +10,10 @@ export default defineAction({
     "Move a call to a different folder (or to the library root when folderId is null).",
   schema: z.object({
     id: z.string().describe("Call ID"),
-    folderId: z.string().nullish().describe("Target folder id, or null for root"),
+    folderId: z
+      .string()
+      .nullish()
+      .describe("Target folder id, or null for root"),
   }),
   http: { method: "POST" },
   run: async (args) => {

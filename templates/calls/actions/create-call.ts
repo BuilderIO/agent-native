@@ -62,7 +62,8 @@ export default defineAction({
       title: args.title?.trim() || "Untitled call",
       source: args.source,
       mediaKind: args.mediaKind,
-      mediaFormat: args.mediaFormat ?? (args.mediaKind === "audio" ? "m4a" : "mp4"),
+      mediaFormat:
+        args.mediaFormat ?? (args.mediaKind === "audio" ? "m4a" : "mp4"),
       recordedAt: args.recordedAt ?? null,
       accountId: args.accountId ?? null,
       status: "uploading",

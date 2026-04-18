@@ -31,7 +31,9 @@ export default defineAction({
     botName: z
       .string()
       .optional()
-      .describe("Display name the bot uses when joining (defaults to 'Notes Bot')"),
+      .describe(
+        "Display name the bot uses when joining (defaults to 'Notes Bot')",
+      ),
     workspaceId: z
       .string()
       .optional()
@@ -40,7 +42,9 @@ export default defineAction({
   http: { method: "POST" },
   run: async (args) => {
     const apiKey =
-      typeof process !== "undefined" ? process.env.RECALL_AI_API_KEY : undefined;
+      typeof process !== "undefined"
+        ? process.env.RECALL_AI_API_KEY
+        : undefined;
     if (!apiKey) {
       throw new Error(
         "RECALL_AI_API_KEY is not configured. Add it via the onboarding secrets flow.",
@@ -83,13 +87,21 @@ export default defineAction({
           `Recall.ai responded with ${res.status}`;
       } else {
         externalId =
-          typeof raw?.id === "string" ? raw.id : typeof raw?.bot_id === "string" ? raw.bot_id : undefined;
-        const recallStatus = typeof raw?.status_changes?.[0]?.code === "string"
-          ? raw.status_changes[0].code
-          : typeof raw?.status === "string"
-            ? raw.status
-            : undefined;
-        if (recallStatus === "joining_call" || recallStatus === "in_call_not_recording") {
+          typeof raw?.id === "string"
+            ? raw.id
+            : typeof raw?.bot_id === "string"
+              ? raw.bot_id
+              : undefined;
+        const recallStatus =
+          typeof raw?.status_changes?.[0]?.code === "string"
+            ? raw.status_changes[0].code
+            : typeof raw?.status === "string"
+              ? raw.status
+              : undefined;
+        if (
+          recallStatus === "joining_call" ||
+          recallStatus === "in_call_not_recording"
+        ) {
           status = "joining";
         } else if (recallStatus === "in_call_recording") {
           status = "recording";

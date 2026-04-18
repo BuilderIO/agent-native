@@ -1,10 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { IconArrowLeft, IconCheck } from "@tabler/icons-react";
-import {
-  useActionQuery,
-  useActionMutation,
-} from "@agent-native/core/client";
+import { useActionQuery, useActionMutation } from "@agent-native/core/client";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -134,7 +131,10 @@ export default function CallEditRoute() {
         folderId: folderId === "none" ? null : folderId,
       });
 
-      if ((originalCall.accountId ?? null) !== (accountId === "none" ? null : accountId)) {
+      if (
+        (originalCall.accountId ?? null) !==
+        (accountId === "none" ? null : accountId)
+      ) {
         await setAccount.mutateAsync({
           callId: callId!,
           accountId: accountId === "none" ? null : accountId,

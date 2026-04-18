@@ -14,7 +14,10 @@ export const mmss = formatMs;
 
 export function parseTimestamp(input: string): number {
   if (!input) return 0;
-  const parts = input.trim().split(":").map((p) => p.trim());
+  const parts = input
+    .trim()
+    .split(":")
+    .map((p) => p.trim());
   if (parts.some((p) => !/^\d+(\.\d+)?$/.test(p))) return 0;
   const nums = parts.map(Number);
   let hours = 0;
@@ -29,7 +32,10 @@ export function parseTimestamp(input: string): number {
   } else {
     return 0;
   }
-  return Math.max(0, Math.round((hours * 3600 + minutes * 60 + seconds) * 1000));
+  return Math.max(
+    0,
+    Math.round((hours * 3600 + minutes * 60 + seconds) * 1000),
+  );
 }
 
 function pad(n: number): string {

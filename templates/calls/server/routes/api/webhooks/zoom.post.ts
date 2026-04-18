@@ -73,13 +73,8 @@ function verifyZoomSignature(
 ): boolean {
   if (!timestamp || !signature) return false;
   // Build the canonical message: "v0:<timestamp>:<rawBody>"
-  const canonical = Buffer.concat([
-    Buffer.from(`v0:${timestamp}:`),
-    rawBody,
-  ]);
-  const expected = createHmac("sha256", secret)
-    .update(canonical)
-    .digest("hex");
+  const canonical = Buffer.concat([Buffer.from(`v0:${timestamp}:`), rawBody]);
+  const expected = createHmac("sha256", secret).update(canonical).digest("hex");
   const supplied = signature.replace(/^v0=/, "").trim();
   try {
     const a = Buffer.from(expected, "hex");
@@ -123,7 +118,9 @@ function pickRecordingFile(
     downloadUrl: best.download_url as string,
     fileType: (best.file_type ?? "").toUpperCase() || "MP4",
     fileExtension: (
-      best.file_extension ?? best.file_type ?? "mp4"
+      best.file_extension ??
+      best.file_type ??
+      "mp4"
     ).toLowerCase(),
     fileSize: Number(best.file_size ?? 0) || 0,
   };

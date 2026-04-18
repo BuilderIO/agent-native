@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { TranscriptSegment } from "@/../shared/api";
+import type { TranscriptSegment } from "@shared/api";
 
 export type TalkTracks = Record<string, number[]>;
 
@@ -16,10 +16,7 @@ export function useTalkTracks(
     for (const seg of segments) {
       const speaker = seg.speakerLabel || "Unknown";
       if (!tracks[speaker]) tracks[speaker] = new Array(bucketCount).fill(0);
-      const startBucket = Math.max(
-        0,
-        Math.floor(seg.startMs / bucketMs),
-      );
+      const startBucket = Math.max(0, Math.floor(seg.startMs / bucketMs));
       const endBucket = Math.min(
         bucketCount - 1,
         Math.floor(seg.endMs / bucketMs),

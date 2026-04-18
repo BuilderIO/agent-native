@@ -47,7 +47,8 @@ export default defineEventHandler(async (event) => {
 
   if (call.expiresAt) {
     const expires = new Date(call.expiresAt).getTime();
-    if (Number.isFinite(expires) && expires < Date.now()) return notFound(event);
+    if (Number.isFinite(expires) && expires < Date.now())
+      return notFound(event);
   }
 
   if (call.password && access.role !== "owner") {

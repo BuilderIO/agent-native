@@ -2,10 +2,7 @@ import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
-import {
-  getCallOrThrow,
-  stringifySpaceIds,
-} from "../server/lib/calls.js";
+import { getCallOrThrow, stringifySpaceIds } from "../server/lib/calls.js";
 import { assertAccess } from "@agent-native/core/sharing";
 import { writeAppState } from "@agent-native/core/application-state";
 
@@ -21,10 +18,7 @@ export default defineAction({
       .array(z.string())
       .optional()
       .describe("Replacement space id list (JSON-serialized on disk)"),
-    password: z
-      .string()
-      .nullish()
-      .describe("Share password (null to clear)"),
+    password: z.string().nullish().describe("Share password (null to clear)"),
     expiresAt: z
       .string()
       .nullish()
@@ -63,7 +57,8 @@ export default defineAction({
     };
 
     if (typeof args.title === "string") patch.title = args.title.trim();
-    if (typeof args.description === "string") patch.description = args.description;
+    if (typeof args.description === "string")
+      patch.description = args.description;
     if (args.folderId !== undefined) patch.folderId = args.folderId ?? null;
     if (args.spaceIds) patch.spaceIds = stringifySpaceIds(args.spaceIds);
     if (args.password !== undefined) patch.password = args.password ?? null;
@@ -81,7 +76,10 @@ export default defineAction({
     if (args.accountId !== undefined) patch.accountId = args.accountId ?? null;
     if (args.dealStage !== undefined) patch.dealStage = args.dealStage ?? null;
 
-    await db.update(schema.calls).set(patch).where(eq(schema.calls.id, args.id));
+    await db
+      .update(schema.calls)
+      .set(patch)
+      .where(eq(schema.calls.id, args.id));
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 

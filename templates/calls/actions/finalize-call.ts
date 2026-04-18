@@ -220,7 +220,9 @@ export default defineAction({
 
     // Kick off transcription. request-transcript is auto-mounted as an action.
     try {
-      const mod: any = await import("./request-transcript.js").catch(() => null);
+      const mod: any = await import("./request-transcript.js").catch(
+        () => null,
+      );
       const action = mod?.default;
       if (action && typeof action.run === "function") {
         await action.run({ callId: id });

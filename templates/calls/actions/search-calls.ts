@@ -11,7 +11,7 @@ import {
 
 export default defineAction({
   description:
-    "Search calls across title, description, and transcripts. Supports +required, -excluded, and \"quoted phrases\". Returns the matching calls with a highlight snippet drawn from the transcript (or description) where applicable.",
+    'Search calls across title, description, and transcripts. Supports +required, -excluded, and "quoted phrases". Returns the matching calls with a highlight snippet drawn from the transcript (or description) where applicable.',
   schema: z.object({
     query: z.string().min(1).describe("Search text"),
     limit: z.coerce.number().int().min(1).max(200).default(30),

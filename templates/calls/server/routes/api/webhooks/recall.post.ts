@@ -169,7 +169,8 @@ export default defineEventHandler(async (event: H3Event) => {
     return { ok: true, unknownBot: true };
   }
 
-  const normalizedMeetingUrl = extractMeetingUrl(payload.data) || bot.meetingUrl;
+  const normalizedMeetingUrl =
+    extractMeetingUrl(payload.data) || bot.meetingUrl;
   const patch: Partial<typeof schema.recallBots.$inferInsert> = {
     updatedAt: now,
     rawJson: JSON.stringify(payload),

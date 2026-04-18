@@ -20,7 +20,10 @@ import {
   resolveDefaultWorkspaceId,
 } from "../server/lib/calls.js";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import { writeAppState, readAppState } from "@agent-native/core/application-state";
+import {
+  writeAppState,
+  readAppState,
+} from "@agent-native/core/application-state";
 
 export default defineAction({
   description:
@@ -98,7 +101,8 @@ export default defineAction({
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    const shouldAutoTitle = !titleTrim || titleTrim.toLowerCase() === "untitled";
+    const shouldAutoTitle =
+      !titleTrim || titleTrim.toLowerCase() === "untitled";
     if (shouldAutoTitle) {
       await writeAppState(`agent-task-auto-title-snippet-${id}`, {
         kind: "auto-title-snippet",

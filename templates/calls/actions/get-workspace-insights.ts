@@ -21,7 +21,10 @@ import {
   resolveDefaultWorkspaceId,
 } from "../server/lib/calls.js";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import { writeAppState, readAppState } from "@agent-native/core/application-state";
+import {
+  writeAppState,
+  readAppState,
+} from "@agent-native/core/application-state";
 
 function startOfDay(d: Date): Date {
   const out = new Date(d);
@@ -43,8 +46,7 @@ export default defineAction({
       .describe(
         "Workspace id — defaults to current-workspace app state, then user's first workspace.",
       ),
-    days: z
-      .coerce
+    days: z.coerce
       .number()
       .int()
       .min(1)

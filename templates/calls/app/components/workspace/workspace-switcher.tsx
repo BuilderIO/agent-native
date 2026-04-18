@@ -117,7 +117,9 @@ export function WorkspaceSwitcher({
           >
             <div
               className="flex h-6 w-6 items-center justify-center rounded-md text-[11px] font-semibold text-background shrink-0"
-              style={{ background: current?.brandColor ?? "hsl(var(--foreground))" }}
+              style={{
+                background: current?.brandColor ?? "hsl(var(--foreground))",
+              }}
             >
               {(current?.name ?? "W").slice(0, 1).toUpperCase()}
             </div>

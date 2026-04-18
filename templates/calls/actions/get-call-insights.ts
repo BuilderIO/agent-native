@@ -20,7 +20,10 @@ import {
   resolveDefaultWorkspaceId,
 } from "../server/lib/calls.js";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import { writeAppState, readAppState } from "@agent-native/core/application-state";
+import {
+  writeAppState,
+  readAppState,
+} from "@agent-native/core/application-state";
 
 export default defineAction({
   description:
@@ -88,12 +91,14 @@ export default defineAction({
     for (const h of trackerHits) {
       hitCounts[h.trackerId] = (hitCounts[h.trackerId] ?? 0) + 1;
     }
-    const trackerCounts = Object.entries(hitCounts).map(([trackerId, count]) => ({
-      trackerId,
-      trackerName: trackerDefById.get(trackerId)?.name ?? "Unknown",
-      trackerColor: trackerDefById.get(trackerId)?.color ?? "#111111",
-      count,
-    }));
+    const trackerCounts = Object.entries(hitCounts).map(
+      ([trackerId, count]) => ({
+        trackerId,
+        trackerName: trackerDefById.get(trackerId)?.name ?? "Unknown",
+        trackerColor: trackerDefById.get(trackerId)?.color ?? "#111111",
+        count,
+      }),
+    );
     trackerCounts.sort((a, b) => b.count - a.count);
 
     return {

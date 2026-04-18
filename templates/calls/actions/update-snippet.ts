@@ -20,7 +20,10 @@ import {
   resolveDefaultWorkspaceId,
 } from "../server/lib/calls.js";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import { writeAppState, readAppState } from "@agent-native/core/application-state";
+import {
+  writeAppState,
+  readAppState,
+} from "@agent-native/core/application-state";
 
 export default defineAction({
   description:
@@ -35,12 +38,7 @@ export default defineAction({
       .min(0)
       .optional()
       .describe("New start offset in ms"),
-    endMs: z
-      .number()
-      .int()
-      .min(1)
-      .optional()
-      .describe("New end offset in ms"),
+    endMs: z.number().int().min(1).optional().describe("New end offset in ms"),
     password: z
       .string()
       .nullish()

@@ -18,9 +18,13 @@ interface OnboardingState {
 }
 
 export default function UploadRoute() {
-  const { data } = useActionQuery<OnboardingState>("get-onboarding-status", undefined, {
-    retry: false,
-  });
+  const { data } = useActionQuery<OnboardingState>(
+    "get-onboarding-status",
+    undefined,
+    {
+      retry: false,
+    },
+  );
   const deepgramMissing = data && data.deepgramConfigured === false;
 
   return (
@@ -44,12 +48,7 @@ export default function UploadRoute() {
               <span>
                 Add your Deepgram API key to start transcribing uploads.
               </span>
-              <Button
-                asChild
-                size="sm"
-                variant="outline"
-                className="shrink-0"
-              >
+              <Button asChild size="sm" variant="outline" className="shrink-0">
                 <Link to="/settings">Go to Settings</Link>
               </Button>
             </AlertDescription>

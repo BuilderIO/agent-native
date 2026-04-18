@@ -15,7 +15,7 @@ import {
   IconMessage,
 } from "@tabler/icons-react";
 import { formatMs } from "@/lib/timestamp-format";
-import type { TranscriptSegment, TrackerHit } from "@/../shared/api";
+import type { TranscriptSegment, TrackerHit } from "@shared/api";
 import type { SpeakerParticipant } from "./speaker-avatars";
 
 export interface TranscriptLineProps {
@@ -52,8 +52,7 @@ export const TranscriptLine = forwardRef<HTMLDivElement, TranscriptLineProps>(
     } = props;
 
     const textParts = useMemo(
-      () =>
-        renderWithHighlights(segment.text, highlightTerm, activeMatchStart),
+      () => renderWithHighlights(segment.text, highlightTerm, activeMatchStart),
       [segment.text, highlightTerm, activeMatchStart],
     );
 

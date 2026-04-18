@@ -1,13 +1,8 @@
 import { useMemo } from "react";
 import { cn } from "@/lib/utils";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatMs } from "@/lib/timestamp-format";
-import type { CallSummary, TrackerHit } from "@/../shared/api";
+import type { CallSummary, TrackerHit } from "@shared/api";
 
 export type PoiTab = "questions" | "trackers" | "actions" | "filler";
 
@@ -57,7 +52,9 @@ export function PoiTabs(props: PoiTabsProps) {
           hits: [h],
         });
     }
-    return Array.from(map.values()).sort((a, b) => b.hits.length - a.hits.length);
+    return Array.from(map.values()).sort(
+      (a, b) => b.hits.length - a.hits.length,
+    );
   }, [trackerHits]);
 
   return (
@@ -213,10 +210,7 @@ function Moment({
       {noSeek ? (
         inner
       ) : (
-        <button
-          onClick={() => onSeek(ms)}
-          className="block w-full text-left"
-        >
+        <button onClick={() => onSeek(ms)} className="block w-full text-left">
           {inner}
         </button>
       )}

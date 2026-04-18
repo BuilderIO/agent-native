@@ -34,10 +34,7 @@ export default defineAction({
       .string()
       .nullish()
       .describe("Title / description substring match"),
-    tag: z
-      .string()
-      .nullish()
-      .describe("Filter to calls carrying this tag"),
+    tag: z.string().nullish().describe("Filter to calls carrying this tag"),
     accountId: z
       .string()
       .nullish()
@@ -147,11 +144,20 @@ export default defineAction({
     const viewsByCall: Record<string, number> = {};
     const participantsByCall: Record<
       string,
-      Array<{ speakerLabel: string; displayName: string | null; talkPct: number }>
+      Array<{
+        speakerLabel: string;
+        displayName: string | null;
+        talkPct: number;
+      }>
     > = {};
     const trackerHitsByCall: Record<
       string,
-      Array<{ trackerId: string; name: string; color: string; hitCount: number }>
+      Array<{
+        trackerId: string;
+        name: string;
+        color: string;
+        hitCount: number;
+      }>
     > = {};
 
     if (ids.length) {

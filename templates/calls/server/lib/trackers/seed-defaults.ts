@@ -71,8 +71,7 @@ export const DEFAULT_TRACKERS: DefaultTrackerDef[] = [
   },
   {
     name: "Timing",
-    description:
-      "Timelines, deadlines, urgency, quarters, or renewal dates.",
+    description: "Timelines, deadlines, urgency, quarters, or renewal dates.",
     kind: "smart",
     classifierPrompt:
       "Does this paragraph reference a timeline, deadline, quarter, renewal date, or urgency signal — for example 'by end of Q2', 'we need this live before launch', 'our contract renews in March'?",

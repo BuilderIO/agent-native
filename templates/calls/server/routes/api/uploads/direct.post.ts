@@ -51,8 +51,7 @@ function readCloudConfig(): CloudConfig | null {
   const env = process.env;
   const bucket = env.S3_BUCKET || env.R2_BUCKET;
   const accessKeyId = env.S3_ACCESS_KEY_ID || env.R2_ACCESS_KEY_ID;
-  const secretAccessKey =
-    env.S3_SECRET_ACCESS_KEY || env.R2_SECRET_ACCESS_KEY;
+  const secretAccessKey = env.S3_SECRET_ACCESS_KEY || env.R2_SECRET_ACCESS_KEY;
   const endpoint = env.S3_ENDPOINT || env.R2_ENDPOINT;
   if (!bucket || !accessKeyId || !secretAccessKey || !endpoint) {
     return null;
@@ -141,10 +140,11 @@ async function presignPutUrl(
   expiresInSeconds: number,
 ): Promise<string> {
   const now = new Date();
-  const amzDate = now
-    .toISOString()
-    .replace(/[:-]|\.\d{3}/g, "")
-    .slice(0, 15) + "Z";
+  const amzDate =
+    now
+      .toISOString()
+      .replace(/[:-]|\.\d{3}/g, "")
+      .slice(0, 15) + "Z";
   const dateStamp = amzDate.slice(0, 8);
   const credentialScope = `${dateStamp}/${cfg.region}/${cfg.service}/aws4_request`;
 
@@ -157,10 +157,7 @@ async function presignPutUrl(
 
   const query = new URLSearchParams();
   query.set("X-Amz-Algorithm", "AWS4-HMAC-SHA256");
-  query.set(
-    "X-Amz-Credential",
-    `${cfg.accessKeyId}/${credentialScope}`,
-  );
+  query.set("X-Amz-Credential", `${cfg.accessKeyId}/${credentialScope}`);
   query.set("X-Amz-Date", amzDate);
   query.set("X-Amz-Expires", String(expiresInSeconds));
   query.set("X-Amz-SignedHeaders", "host");
@@ -241,7 +238,12 @@ export default defineEventHandler(async (event: H3Event) => {
 
   let uploadUrl: string;
   try {
-    uploadUrl = await presignPutUrl(cfg, objectKey, contentType, expiresInSeconds);
+    uploadUrl = await presignPutUrl(
+      cfg,
+      objectKey,
+      contentType,
+      expiresInSeconds,
+    );
   } catch (err) {
     console.error("[calls] presign failed:", err);
     return {

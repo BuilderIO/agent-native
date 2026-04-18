@@ -1,6 +1,10 @@
 import { useEffect, useMemo } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
-import { IconAlertTriangle, IconLoader2, IconRefresh } from "@tabler/icons-react";
+import {
+  IconAlertTriangle,
+  IconLoader2,
+  IconRefresh,
+} from "@tabler/icons-react";
 import { useActionQuery, useActionMutation } from "@agent-native/core/client";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -117,11 +121,7 @@ export default function CallPlayerRoute() {
         />
       ) : null}
       <div className="flex-1 min-h-0">
-        <CallPlayer
-          data={data}
-          initialSpeed={initialSpeed}
-          startMs={startMs}
-        />
+        <CallPlayer data={data} initialSpeed={initialSpeed} startMs={startMs} />
       </div>
     </div>
   );

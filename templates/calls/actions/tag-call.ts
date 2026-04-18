@@ -7,7 +7,8 @@ import { writeAppState } from "@agent-native/core/application-state";
 import { getCallOrThrow, nanoid } from "../server/lib/calls.js";
 
 export default defineAction({
-  description: "Add a tag to a call. Idempotent — no duplicate for the same (call, tag).",
+  description:
+    "Add a tag to a call. Idempotent — no duplicate for the same (call, tag).",
   schema: z.object({
     callId: z.string().describe("Call ID"),
     tag: z.string().min(1).max(64).describe("Tag text"),

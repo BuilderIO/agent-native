@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { TranscriptSegment } from "@/../shared/api";
+import type { TranscriptSegment } from "@shared/api";
 
 export interface TranscriptHit {
   segmentIndex: number;

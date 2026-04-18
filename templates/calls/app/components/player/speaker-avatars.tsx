@@ -171,11 +171,7 @@ function SpeakerChip({
             </div>
           </div>
           <div className="flex justify-end gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setOpen(false)}
-            >
+            <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
               Cancel
             </Button>
             <Button

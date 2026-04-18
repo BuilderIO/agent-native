@@ -7,7 +7,8 @@ import { writeAppState } from "@agent-native/core/application-state";
 import { parseSpaceIds, stringifySpaceIds } from "../server/lib/calls.js";
 
 export default defineAction({
-  description: "Append a space id to a call's space_ids list (no-op if already present).",
+  description:
+    "Append a space id to a call's space_ids list (no-op if already present).",
   schema: z.object({
     callId: z.string().describe("Call ID"),
     spaceId: z.string().describe("Space ID to append"),

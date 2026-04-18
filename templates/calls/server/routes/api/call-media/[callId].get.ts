@@ -57,7 +57,8 @@ function parseRange(
   } else {
     const [startStr, endStr] = spec.split("-");
     start = Number.parseInt(startStr, 10);
-    if (!Number.isFinite(start) || start < 0 || start >= total) return "invalid";
+    if (!Number.isFinite(start) || start < 0 || start >= total)
+      return "invalid";
     if (endStr === "" || endStr === undefined) {
       end = total - 1;
     } else {

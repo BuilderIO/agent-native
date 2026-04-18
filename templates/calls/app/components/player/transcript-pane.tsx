@@ -1,10 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -18,7 +12,7 @@ import {
 import { TranscriptLine } from "./transcript-line";
 import type { SpeakerParticipant } from "./speaker-avatars";
 import { useTranscriptSearch } from "@/hooks/use-transcript-search";
-import type { TranscriptSegment, TrackerHit } from "@/../shared/api";
+import type { TranscriptSegment, TrackerHit } from "@shared/api";
 
 export interface TranscriptPaneProps {
   segments: TranscriptSegment[];

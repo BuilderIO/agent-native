@@ -179,4 +179,3 @@ export default defineEventHandler(async (event: H3Event) => {
     participants: talkStats.participants.length,
   };
 });
-

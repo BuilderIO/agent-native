@@ -145,7 +145,8 @@ export function parseSummaryJson(raw: string): CallSummary | null {
   } catch {
     return null;
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+    return null;
 
   const r = parsed as Record<string, unknown>;
   const summary: CallSummary = {

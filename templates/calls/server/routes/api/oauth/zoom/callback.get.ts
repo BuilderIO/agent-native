@@ -59,7 +59,10 @@ function decodeState(raw: string | undefined): PkceState {
   if (!raw || typeof raw !== "string") return {};
   try {
     const normalized = raw.replace(/-/g, "+").replace(/_/g, "/");
-    const pad = normalized.length % 4 === 0 ? "" : "=".repeat(4 - (normalized.length % 4));
+    const pad =
+      normalized.length % 4 === 0
+        ? ""
+        : "=".repeat(4 - (normalized.length % 4));
     const json = Buffer.from(normalized + pad, "base64").toString("utf8");
     const parsed = JSON.parse(json);
     return typeof parsed === "object" && parsed !== null ? parsed : {};

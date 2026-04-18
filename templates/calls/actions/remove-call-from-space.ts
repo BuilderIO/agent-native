@@ -22,7 +22,9 @@ export default defineAction({
       .where(eq(schema.calls.id, args.callId));
     if (!row) throw new Error(`Call not found: ${args.callId}`);
 
-    const next = parseSpaceIds(row.spaceIds).filter((id) => id !== args.spaceId);
+    const next = parseSpaceIds(row.spaceIds).filter(
+      (id) => id !== args.spaceId,
+    );
 
     await db
       .update(schema.calls)

@@ -19,7 +19,10 @@ import {
   resolveDefaultWorkspaceId,
 } from "../server/lib/calls.js";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import { writeAppState, readAppState } from "@agent-native/core/application-state";
+import {
+  writeAppState,
+  readAppState,
+} from "@agent-native/core/application-state";
 
 const RoleEnum = z.enum(["viewer", "creator-lite", "creator", "admin"]);
 const DAY_MS = 24 * 60 * 60 * 1000;

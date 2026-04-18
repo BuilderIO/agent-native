@@ -7,7 +7,7 @@ import {
 } from "@tabler/icons-react";
 import { useActionMutation } from "@agent-native/core/client";
 import { formatMs } from "@/lib/timestamp-format";
-import type { CallSummary } from "@/../shared/api";
+import type { CallSummary } from "@shared/api";
 
 export interface AiSummaryPanelProps {
   callId: string;

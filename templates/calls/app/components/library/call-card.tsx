@@ -77,7 +77,9 @@ function formatDate(iso: string | null): string {
 function initialsFor(p: CallCardParticipant): string {
   const source = p.displayName || p.email || p.speakerLabel || "?";
   const [first = "", second = ""] = source.replace(/@.*/, "").split(/[\s._-]+/);
-  return (first.slice(0, 1) + second.slice(0, 1) || source.slice(0, 2)).toUpperCase();
+  return (
+    first.slice(0, 1) + second.slice(0, 1) || source.slice(0, 2)
+  ).toUpperCase();
 }
 
 export function CallCard({
@@ -260,9 +262,7 @@ export function CallCard({
                 key={`${p.speakerLabel}-${i}`}
                 className="h-6 w-6 border-2 border-card"
               >
-                {p.avatarUrl ? (
-                  <AvatarImage src={p.avatarUrl} alt="" />
-                ) : null}
+                {p.avatarUrl ? <AvatarImage src={p.avatarUrl} alt="" /> : null}
                 <AvatarFallback className="text-[9px] bg-muted text-muted-foreground">
                   {initialsFor(p)}
                 </AvatarFallback>

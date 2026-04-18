@@ -20,7 +20,10 @@ import {
   resolveDefaultWorkspaceId,
 } from "../server/lib/calls.js";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import { writeAppState, readAppState } from "@agent-native/core/application-state";
+import {
+  writeAppState,
+  readAppState,
+} from "@agent-native/core/application-state";
 
 export default defineAction({
   description:
@@ -41,7 +44,9 @@ export default defineAction({
     parentId: z
       .string()
       .optional()
-      .describe("Parent comment id (for replies). Inherits the parent's threadId."),
+      .describe(
+        "Parent comment id (for replies). Inherits the parent's threadId.",
+      ),
     authorName: z
       .string()
       .optional()

@@ -1,13 +1,6 @@
 import { useMemo, useState } from "react";
-import {
-  IconRestore,
-  IconTrash,
-  IconTrashX,
-} from "@tabler/icons-react";
-import {
-  useActionQuery,
-  useActionMutation,
-} from "@agent-native/core/client";
+import { IconRestore, IconTrash, IconTrashX } from "@tabler/icons-react";
+import { useActionQuery, useActionMutation } from "@agent-native/core/client";
 import { toast } from "sonner";
 import {
   AlertDialog,

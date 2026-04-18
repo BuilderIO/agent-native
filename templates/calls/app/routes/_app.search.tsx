@@ -24,7 +24,9 @@ function loadRecent(): string[] {
   try {
     const raw = sessionStorage.getItem(RECENT_KEY);
     const arr = raw ? (JSON.parse(raw) as unknown) : [];
-    return Array.isArray(arr) ? (arr.filter((s) => typeof s === "string") as string[]) : [];
+    return Array.isArray(arr)
+      ? (arr.filter((s) => typeof s === "string") as string[])
+      : [];
   } catch {
     return [];
   }
@@ -128,7 +130,11 @@ export default function SearchRoute() {
         ) : (
           <div className="flex flex-col divide-y divide-border rounded-md border border-border overflow-hidden">
             {results.map((r, i) => (
-              <ResultRow key={`${r.callId}-${i}`} result={r} query={debounced} />
+              <ResultRow
+                key={`${r.callId}-${i}`}
+                result={r}
+                query={debounced}
+              />
             ))}
           </div>
         )}
@@ -176,7 +182,10 @@ function Highlight({ text, query }: { text: string; query: string }) {
     <>
       {parts.map((p, i) =>
         p.toLowerCase() === q.toLowerCase() ? (
-          <mark key={i} className="bg-[#625DF5]/20 text-foreground rounded px-0.5">
+          <mark
+            key={i}
+            className="bg-[#625DF5]/20 text-foreground rounded px-0.5"
+          >
             {p}
           </mark>
         ) : (

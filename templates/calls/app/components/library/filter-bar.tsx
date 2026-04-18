@@ -142,9 +142,10 @@ export function FilterBar({
   const [saveOpen, setSaveOpen] = useState(false);
   const [saveName, setSaveName] = useState("");
   const qc = useQueryClient();
-  const createSavedView = useActionMutation<any, { name: string; filtersJson: string; workspaceId?: string }>(
-    "create-saved-view",
-  );
+  const createSavedView = useActionMutation<
+    any,
+    { name: string; filtersJson: string; workspaceId?: string }
+  >("create-saved-view");
 
   function set<K extends keyof FilterState>(key: K, v: FilterState[K]) {
     onChange({ ...value, [key]: v });
@@ -173,8 +174,7 @@ export function FilterBar({
 
   const participantsLabel = (() => {
     if (value.participantEmails.length === 0) return "Participants";
-    if (value.participantEmails.length === 1)
-      return value.participantEmails[0];
+    if (value.participantEmails.length === 1) return value.participantEmails[0];
     return `${value.participantEmails.length} participants`;
   })();
 
@@ -185,7 +185,9 @@ export function FilterBar({
   const trackersLabel = (() => {
     if (value.trackerIds.length === 0) return "Trackers";
     if (value.trackerIds.length === 1) {
-      return trackers.find((t) => t.id === value.trackerIds[0])?.name ?? "Tracker";
+      return (
+        trackers.find((t) => t.id === value.trackerIds[0])?.name ?? "Tracker"
+      );
     }
     return `${value.trackerIds.length} trackers`;
   })();
@@ -260,9 +262,7 @@ export function FilterBar({
           <ChipButton
             icon={IconClock}
             label={durationLabel}
-            active={
-              value.durationMinMs != null || value.durationMaxMs != null
-            }
+            active={value.durationMinMs != null || value.durationMaxMs != null}
             onClear={
               value.durationMinMs != null || value.durationMaxMs != null
                 ? () =>
@@ -293,8 +293,7 @@ export function FilterBar({
               onChange({
                 ...value,
                 durationMinMs: lo > 0 ? minutesToMs(lo) : null,
-                durationMaxMs:
-                  hi < DURATION_MAX_MIN ? minutesToMs(hi) : null,
+                durationMaxMs: hi < DURATION_MAX_MIN ? minutesToMs(hi) : null,
               });
             }}
           />
@@ -445,9 +444,7 @@ export function FilterBar({
               <button
                 key={s}
                 type="button"
-                onClick={() =>
-                  set("source", value.source === s ? null : s)
-                }
+                onClick={() => set("source", value.source === s ? null : s)}
                 className={cn(
                   "flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-accent",
                   value.source === s && "bg-accent",
@@ -631,9 +628,7 @@ function ParticipantPicker({
               )}
             >
               <Avatar className="h-6 w-6">
-                {p.avatarUrl ? (
-                  <AvatarImage src={p.avatarUrl} alt="" />
-                ) : null}
+                {p.avatarUrl ? <AvatarImage src={p.avatarUrl} alt="" /> : null}
                 <AvatarFallback className="text-[9px] bg-muted text-muted-foreground">
                   {(p.displayName || p.email).slice(0, 2).toUpperCase()}
                 </AvatarFallback>

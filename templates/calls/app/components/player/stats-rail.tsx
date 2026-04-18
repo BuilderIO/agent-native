@@ -101,9 +101,7 @@ export function StatsRail(props: StatsRailProps) {
       <Stat
         label="Longest monologue"
         value={
-          monologue && monologue.ms > 0
-            ? `${formatMs(monologue.ms)}`
-            : "—"
+          monologue && monologue.ms > 0 ? `${formatMs(monologue.ms)}` : "—"
         }
         secondary={monologue && monologue.ms > 0 ? monologue.name : undefined}
       />

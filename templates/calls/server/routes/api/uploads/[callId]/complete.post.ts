@@ -51,8 +51,7 @@ export default defineEventHandler(async (event: H3Event) => {
         typeof body?.durationMs === "number" ? body.durationMs : undefined,
       width: typeof body?.width === "number" ? body.width : undefined,
       height: typeof body?.height === "number" ? body.height : undefined,
-      mimeType:
-        typeof body?.mimeType === "string" ? body.mimeType : undefined,
+      mimeType: typeof body?.mimeType === "string" ? body.mimeType : undefined,
     });
     return { ok: true, finalized: true, ...result };
   } catch (err) {

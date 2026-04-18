@@ -90,7 +90,9 @@ export default defineAction({
     };
 
     const video = (payload.recording_files ?? []).find(
-      (f) => f.file_type === "MP4" || f.recording_type === "shared_screen_with_speaker_view",
+      (f) =>
+        f.file_type === "MP4" ||
+        f.recording_type === "shared_screen_with_speaker_view",
     );
     const audio = (payload.recording_files ?? []).find(
       (f) => f.file_type === "M4A",
@@ -104,7 +106,9 @@ export default defineAction({
     const mediaFormat = video ? "mp4" : "m4a";
     const mediaUrl =
       `${primary.download_url ?? primary.play_url}` +
-      (primary.download_url ? `?access_token=${encodeURIComponent(accessToken)}` : "");
+      (primary.download_url
+        ? `?access_token=${encodeURIComponent(accessToken)}`
+        : "");
 
     const id = nanoid();
     const now = new Date().toISOString();
@@ -144,7 +148,9 @@ export default defineAction({
     await writeAppState("refresh-signal", { ts: Date.now() });
 
     try {
-      const mod: any = await import("./request-transcript.js").catch(() => null);
+      const mod: any = await import("./request-transcript.js").catch(
+        () => null,
+      );
       const action = mod?.default;
       if (action && typeof action.run === "function") {
         await action.run({ callId: id });

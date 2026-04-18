@@ -52,9 +52,7 @@ export default function ArchiveRoute() {
             <IconArchive className="h-6 w-6 text-[#625DF5]" />
             Archive
           </h1>
-          <p className="text-xs text-muted-foreground">
-            Calls you've archived
-          </p>
+          <p className="text-xs text-muted-foreground">Calls you've archived</p>
         </div>
       </header>
 
