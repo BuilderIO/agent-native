@@ -360,6 +360,12 @@ export function App() {
       cameraOn,
       micOn,
     });
+    // Tell Rust we're entering the recording flow NOW, not after the
+    // handle arrives. The macOS screen-picker dialog steals focus from
+    // the popover, which would otherwise trigger the blur-auto-hide
+    // mid-setup — so the countdown and toolbar render behind a hidden
+    // popover and the user sees nothing happen.
+    invoke("set_recording_state", { active: true }).catch(() => {});
     try {
       const handle = await startNativeRecording({
         serverUrl,
@@ -371,13 +377,10 @@ export function App() {
       });
       console.log("[clips-popover] recorder handle received");
       setRecorder(handle);
-      // Tell Rust so the tray icon can act as a stop-recording button.
-      invoke("set_recording_state", { active: true }).catch(() => {});
-      // IMPORTANT: do NOT hide the popover here. The left-rail toolbar is
-      // best-effort; if something goes wrong with the overlay window the
-      // user needs SOMETHING to click to stop. Keeping the popover visible
-      // with a Stop button means the control surface is never missing.
     } catch (err) {
+      // Recording didn't actually start — clear the flag so the popover
+      // can auto-hide normally again.
+      invoke("set_recording_state", { active: false }).catch(() => {});
       const message = err instanceof Error ? err.message : String(err);
       console.error("[clips-popover] startRecording failed:", err);
       if (

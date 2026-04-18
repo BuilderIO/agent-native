@@ -281,10 +281,6 @@ fn mark_popover_shown(app: &AppHandle) {
     }
 }
 
-fn primary_monitor_size(app: &AppHandle) -> Option<(u32, u32)> {
-    primary_monitor_physical_size(app)
-}
-
 fn primary_monitor_physical_size(app: &AppHandle) -> Option<(u32, u32)> {
     let window = app.get_webview_window("popover")?;
     let monitor = window
@@ -574,16 +570,24 @@ pub fn run() {
                 // Element if they need devtools.
                 window.on_window_event(move |event| {
                     if let tauri::WindowEvent::Focused(false) = event {
+                        // Don't auto-hide while a recording is active or
+                        // mid-setup — the macOS screen-picker, devtools,
+                        // and other transient windows all steal focus
+                        // from the popover during that flow. Hiding
+                        // would also kill the RecordingRow UI the user
+                        // is relying on to stop.
+                        if is_recording_active(&app_handle) {
+                            eprintln!(
+                                "[clips-tray] popover blur ignored — recording active"
+                            );
+                            return;
+                        }
                         let shown_at = app_handle
                             .try_state::<PopoverShownAt>()
                             .and_then(|s| s.0.lock().ok().and_then(|g| *g));
                         let elapsed_ms = shown_at
                             .map(|t| t.elapsed().as_millis())
                             .unwrap_or(u128::MAX);
-                        // 1500ms guard — macOS's tray-click focus shuffle
-                        // can take ~500-800ms on slower systems. 250ms
-                        // wasn't enough and the popover kept snapping
-                        // shut before the user could interact with it.
                         eprintln!(
                             "[clips-tray] popover blur, elapsed_ms={}",
                             elapsed_ms
