@@ -19,6 +19,12 @@ import {
 import { nanoid } from "nanoid";
 import { toast } from "sonner";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
+import { useZoomStatus, useConnectZoom } from "@/hooks/use-zoom-auth";
+import {
+  ConferencingSelector,
+  CustomFieldsEditor as SharedCustomFieldsEditor,
+  SlugEditor,
+} from "@agent-native/scheduling/react/components";
 import {
   startOfMonth,
   endOfMonth,
@@ -240,6 +246,8 @@ export default function BookingLinksPage({
   const { isLocal } = useDbStatus();
   const [showCloudUpgrade, setShowCloudUpgrade] = useState(false);
   const googleStatus = useGoogleAuthStatus();
+  const zoomStatus = useZoomStatus();
+  const connectZoom = useConnectZoom();
 
   // Derive a default username from the Google email (e.g. "steve" from "steve@builder.io")
   const suggestedUsername = useMemo(() => {
@@ -619,17 +627,22 @@ export default function BookingLinksPage({
                   />
                 </div>
 
-                {/* Editable URL parts (username / slug) */}
-                <EditableBookingUrl
+                {/* Editable URL parts (username / slug) — shared package component */}
+                <SlugEditor
+                  host={
+                    typeof window !== "undefined" &&
+                    window.location.hostname !== "localhost"
+                      ? window.location.host
+                      : PRODUCTION_DOMAIN
+                  }
+                  pathPrefix="/meet"
                   username={
                     bookingUsername || usernameInput || suggestedUsername || ""
                   }
                   slug={draft.slug}
                   onUsernameChange={(val) => {
-                    const clean = val.toLowerCase().replace(/[^a-z0-9-]/g, "");
-                    setUsernameInput(clean);
-                    // Persist username to availability config
-                    if (clean) {
+                    setUsernameInput(val);
+                    if (val) {
                       updateAvailability.mutate({
                         timezone,
                         weeklySchedule: schedule,
@@ -638,31 +651,40 @@ export default function BookingLinksPage({
                         maxAdvanceDays,
                         slotDurationMinutes: slotDuration,
                         bookingPageSlug: bookingSlug,
-                        bookingUsername: clean,
+                        bookingUsername: val,
                       });
                     }
                   }}
                   onSlugChange={(val) => {
-                    const clean = slugify(val);
                     setDraft((prev) => ({
                       ...prev,
-                      slug: clean,
+                      slug: val,
                       slugManuallyEdited: true,
                     }));
                   }}
                 />
 
-                {/* Conferencing */}
-                <ConferencingEditor
-                  config={draft.conferencing}
+                {/* Conferencing — shared package component, Zoom uses real OAuth */}
+                <ConferencingSelector
+                  value={draft.conferencing}
                   onChange={(conferencing) =>
                     setDraft((prev) => ({ ...prev, conferencing }))
                   }
-                  googleConnected={googleStatus.data?.connected ?? false}
+                  zoomStatus={
+                    zoomStatus.data?.connected
+                      ? "connected"
+                      : zoomStatus.data?.configured === false
+                        ? "not-configured"
+                        : "disconnected"
+                  }
+                  googleStatus={
+                    googleStatus.data?.connected ? "connected" : "disconnected"
+                  }
+                  onConnectZoom={() => connectZoom.mutate()}
                 />
 
-                {/* Custom fields editor */}
-                <CustomFieldsEditor
+                {/* Custom fields editor — shared package component */}
+                <SharedCustomFieldsEditor
                   fields={draft.customFields}
                   onChange={(fields) =>
                     setDraft((prev) => ({ ...prev, customFields: fields }))
