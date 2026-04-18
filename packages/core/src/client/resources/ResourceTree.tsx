@@ -391,7 +391,10 @@ export function ResourceTree({
 
   return (
     <div
-      className={cn("p-1", dragOver && !readOnly && "ring-1 ring-inset ring-accent")}
+      className={cn(
+        "p-1",
+        dragOver && !readOnly && "ring-1 ring-inset ring-accent",
+      )}
       onDragOver={readOnly ? undefined : handleDragOver}
       onDragLeave={readOnly ? undefined : handleDragLeave}
       onDrop={readOnly ? undefined : handleDrop}
