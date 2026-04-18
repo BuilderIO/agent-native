@@ -5,10 +5,12 @@
 //! is served by the Vite-built React UI (see `../dist`).
 
 use std::sync::Mutex;
+use std::time::Instant;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager, PhysicalPosition, PhysicalSize, Rect, WebviewWindow,
+    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Rect, WebviewUrl,
+    WebviewWindow, WebviewWindowBuilder,
 };
 
 /// Last-known tray icon rect, updated on every tray event. Used to anchor the
@@ -16,7 +18,285 @@ use tauri::{
 /// top-right corner of the screen.
 #[derive(Default)]
 struct TrayAnchor(Mutex<Option<Rect>>);
+
+/// Timestamp of the most-recent popover show. The blur-to-hide handler checks
+/// this — macOS briefly steals focus during the tray click itself, so without
+/// this guard the popover would be hidden the instant it's shown.
+#[derive(Default)]
+struct PopoverShownAt(Mutex<Option<Instant>>);
+
+/// Whether a recording is currently in progress. Set from JS via
+/// `set_recording_state`. Used to re-purpose the tray icon click as a
+/// stop-recording shortcut while recording, matching Loom.
+#[derive(Default)]
+struct RecordingActive(Mutex<bool>);
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+
+/// Native overlay windows for the recording experience. These render the same
+/// React bundle with a hash route that `main.tsx` uses to pick the component.
+const COUNTDOWN_LABEL: &str = "countdown";
+const TOOLBAR_LABEL: &str = "toolbar";
+const BUBBLE_LABEL: &str = "bubble";
+
+fn build_overlay_url(path: &str) -> WebviewUrl {
+    // tauri dev serves the Vite dev server; prod builds resolve relative to
+    // the bundled index.html. WebviewUrl::App handles both transparently —
+    // we pass an index + hash route.
+    WebviewUrl::App(format!("index.html#{path}").into())
+}
+
+/// Full-screen transparent overlay that runs the 3-2-1 countdown. It ignores
+/// cursor events so the user can still click into whatever they're about to
+/// record, and closes itself when the countdown finishes.
+#[tauri::command]
+async fn show_countdown(app: AppHandle) -> Result<(), String> {
+    eprintln!("[clips-tray] show_countdown invoked");
+    if let Some(existing) = app.get_webview_window(COUNTDOWN_LABEL) {
+        let _ = existing.close();
+    }
+    let (mw, mh) = primary_monitor_physical_size(&app).unwrap_or((2880, 1800));
+    eprintln!("[clips-tray] countdown target size {}x{} physical", mw, mh);
+    let win = WebviewWindowBuilder::new(
+        &app,
+        COUNTDOWN_LABEL,
+        build_overlay_url("countdown"),
+    )
+    .title("Countdown")
+    .decorations(false)
+    .transparent(true)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .shadow(false)
+    .visible(false)
+    // Don't steal focus from the popover when the overlay opens —
+    // otherwise macOS fires Focused(false) on the popover, which
+    // kicks off a cascade of blur-related React re-renders and
+    // eventually (past the 1500ms guard) auto-hides the popover.
+    .focused(false)
+    .build()
+    .map_err(|e| {
+        eprintln!("[clips-tray] countdown build failed: {}", e);
+        e.to_string()
+    })?;
+    let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(mw, mh)));
+    let _ = win.set_position(PhysicalPosition::new(0, 0));
+    let _ = win.set_ignore_cursor_events(true);
+    let _ = win.show();
+    eprintln!("[clips-tray] countdown shown");
+    Ok(())
+}
+
+/// Vertical recording pill anchored to the left edge. Stop + timer + pause,
+/// matching Loom's left-rail placement. Draggable, always on top.
+#[tauri::command]
+async fn show_toolbar(app: AppHandle) -> Result<(), String> {
+    eprintln!("[clips-tray] show_toolbar invoked");
+    if let Some(existing) = app.get_webview_window(TOOLBAR_LABEL) {
+        let _ = existing.show();
+        let _ = existing.set_focus();
+        return Ok(());
+    }
+    let (_mw, mh) = primary_monitor_physical_size(&app).unwrap_or((2880, 1800));
+    // 72x180 logical → 144x360 physical on 2x, but we're working in pure
+    // physical here so pick values that look right at retina scale.
+    let w: u32 = 144;
+    let h: u32 = 360;
+    // Flush-left with a small margin; vertically centered on the screen.
+    let x: i32 = 48;
+    let y: i32 = (mh as i32 - h as i32) / 2;
+    eprintln!("[clips-tray] toolbar pos=({},{}) size={}x{}", x, y, w, h);
+    let win = WebviewWindowBuilder::new(
+        &app,
+        TOOLBAR_LABEL,
+        build_overlay_url("toolbar"),
+    )
+    .title("Clips Recorder")
+    .decorations(false)
+    .transparent(true)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .resizable(false)
+    .shadow(true)
+    .visible(false)
+    .focused(false)
+    .build()
+    .map_err(|e| {
+        eprintln!("[clips-tray] toolbar build failed: {}", e);
+        e.to_string()
+    })?;
+    let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
+    let _ = win.set_position(PhysicalPosition::new(x, y));
+    let _ = win.show();
+    eprintln!("[clips-tray] toolbar shown");
+    Ok(())
+}
+
+/// Circular, draggable webcam bubble — small always-on-top window that hosts
+/// its own getUserMedia stream and floats over everything the user captures.
+#[tauri::command]
+async fn show_bubble(app: AppHandle) -> Result<(), String> {
+    eprintln!("[clips-tray] show_bubble invoked");
+    if let Some(existing) = app.get_webview_window(BUBBLE_LABEL) {
+        let _ = existing.show();
+        eprintln!("[clips-tray] bubble reused");
+        return Ok(());
+    }
+    let (mw, mh) = primary_monitor_physical_size(&app).unwrap_or((2880, 1800));
+    let size: u32 = 360; // physical (= 180 logical on retina)
+    let x: i32 = 48;
+    let y: i32 = mh as i32 - size as i32 - 192;
+    eprintln!("[clips-tray] bubble pos=({},{}) size={} monitor={}x{}", x, y, size, mw, mh);
+    let win = WebviewWindowBuilder::new(
+        &app,
+        BUBBLE_LABEL,
+        build_overlay_url("bubble"),
+    )
+    .title("Clips Camera")
+    .decorations(false)
+    .transparent(true)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .resizable(false)
+    .shadow(false)
+    .visible(false)
+    .focused(false)
+    .build()
+    .map_err(|e| {
+        eprintln!("[clips-tray] bubble build failed: {}", e);
+        e.to_string()
+    })?;
+    let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(size, size)));
+    let _ = win.set_position(PhysicalPosition::new(x, y));
+    let _ = win.show();
+    eprintln!("[clips-tray] bubble shown at ({},{}) size {}", x, y, size);
+    Ok(())
+}
+
+#[tauri::command]
+async fn hide_overlays(app: AppHandle) -> Result<(), String> {
+    for label in [COUNTDOWN_LABEL, TOOLBAR_LABEL, BUBBLE_LABEL] {
+        if let Some(w) = app.get_webview_window(label) {
+            let _ = w.close();
+        }
+    }
+    Ok(())
+}
+
+/// Show the popover window without toggling, and keep it shown even if it
+/// loses focus (popover hides on blur by default, but during post-recording
+/// review we want it sticky while the user reads the "Recording saved" copy).
+/// Resize the popover window to match the rendered React app height. The
+/// React side measures its own shell with a ResizeObserver and calls this
+/// whenever the height changes — gives us auto-sizing without having to
+/// pick a fixed popover size that fits every state.
+#[tauri::command]
+async fn resize_popover(app: AppHandle, height: f64) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("popover") {
+        let clamped = height.clamp(200.0, 820.0);
+        let _ = w.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
+            360.0, clamped,
+        )));
+        // Re-anchor to the tray icon so the window doesn't drift below the
+        // bottom of the monitor after a growth.
+        position_popover(&app, &w);
+    }
+    Ok(())
+}
+
+/// Open a login window pointed at the Clips server's /login route. The
+/// WebView has its own persistent cookie jar, so once the user signs in
+/// here the session cookie is available to every subsequent fetch from
+/// the popover (localhost:1420 and localhost:8094 are same-site — ports
+/// aren't part of the site check — so SameSite=Lax cookies cross-send
+/// correctly with credentials: "include").
+#[tauri::command]
+async fn show_signin(app: AppHandle, url: String) -> Result<(), String> {
+    const LABEL: &str = "signin";
+    if let Some(existing) = app.get_webview_window(LABEL) {
+        let _ = existing.show();
+        let _ = existing.set_focus();
+        return Ok(());
+    }
+    let parsed = url::Url::parse(&url).map_err(|e| e.to_string())?;
+    let win = WebviewWindowBuilder::new(&app, LABEL, WebviewUrl::External(parsed))
+        .title("Sign in to Clips")
+        .inner_size(520.0, 720.0)
+        .resizable(true)
+        .always_on_top(false)
+        .focused(true)
+        .build()
+        .map_err(|e| e.to_string())?;
+    let _ = win.show();
+    let _ = win.set_focus();
+    Ok(())
+}
+
+#[tauri::command]
+async fn close_signin(app: AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("signin") {
+        let _ = w.close();
+    }
+    Ok(())
+}
+
+/// Record the popover's current recording state. When active, clicking the
+/// tray icon emits a stop event instead of toggling the popover — so the
+/// user can stop a recording from anywhere with one click.
+#[tauri::command]
+async fn set_recording_state(
+    app: AppHandle,
+    active: bool,
+) -> Result<(), String> {
+    if let Some(state) = app.try_state::<RecordingActive>() {
+        if let Ok(mut g) = state.0.lock() {
+            *g = active;
+        }
+    }
+    Ok(())
+}
+
+fn is_recording_active(app: &AppHandle) -> bool {
+    app.try_state::<RecordingActive>()
+        .and_then(|s| s.0.lock().ok().map(|g| *g))
+        .unwrap_or(false)
+}
+
+#[tauri::command]
+async fn show_popover(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("popover") {
+        position_popover(&app, &window);
+        mark_popover_shown(&app);
+        let _ = window.show();
+        let _ = window.set_focus();
+        let _ = app.emit("clips:popover-visible", true);
+    }
+    Ok(())
+}
+
+fn mark_popover_shown(app: &AppHandle) {
+    if let Some(state) = app.try_state::<PopoverShownAt>() {
+        if let Ok(mut g) = state.0.lock() {
+            *g = Some(Instant::now());
+        }
+    }
+}
+
+fn primary_monitor_physical_size(app: &AppHandle) -> Option<(u32, u32)> {
+    let window = app.get_webview_window("popover")?;
+    let monitor = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.primary_monitor().ok().flatten())
+        .or_else(|| {
+            window
+                .available_monitors()
+                .ok()
+                .and_then(|m| m.into_iter().next())
+        })?;
+    let size = monitor.size();
+    Some((size.width, size.height))
+}
 
 fn toggle_popover(app: &AppHandle) {
     let Some(window) = app.get_webview_window("popover") else {
@@ -24,10 +304,13 @@ fn toggle_popover(app: &AppHandle) {
     };
     if window.is_visible().unwrap_or(false) {
         let _ = window.hide();
+        let _ = app.emit("clips:popover-visible", false);
     } else {
         position_popover(app, &window);
+        mark_popover_shown(app);
         let _ = window.show();
         let _ = window.set_focus();
+        let _ = app.emit("clips:popover-visible", true);
     }
 }
 
@@ -40,7 +323,21 @@ fn position_popover(app: &AppHandle, window: &WebviewWindow) {
 
     let win_size: PhysicalSize<u32> =
         window.outer_size().unwrap_or(PhysicalSize::new(360, 440));
-    let Ok(Some(monitor)) = window.current_monitor() else {
+    // IMPORTANT: `current_monitor()` returns None when the window is offscreen
+    // (we park it at 99999,99999 on boot to hide the initial flash). Fall back
+    // to the primary monitor so we can still position correctly on first show.
+    let monitor = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.primary_monitor().ok().flatten())
+        .or_else(|| {
+            window
+                .available_monitors()
+                .ok()
+                .and_then(|m| m.into_iter().next())
+        });
+    let Some(monitor) = monitor else {
         return;
     };
     let mon_size = monitor.size();
@@ -99,6 +396,27 @@ fn position_popover(app: &AppHandle, window: &WebviewWindow) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            // Second launch just focuses the popover of the already-running
+            // instance. Prevents the "two tray icons" UX where clicks fight
+            // over focus and neither popover shows.
+            if let Some(window) = app.get_webview_window("popover") {
+                position_popover(app, &window);
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
+        .invoke_handler(tauri::generate_handler![
+            show_countdown,
+            show_toolbar,
+            show_bubble,
+            hide_overlays,
+            show_popover,
+            resize_popover,
+            show_signin,
+            close_signin,
+            set_recording_state,
+        ])
         .plugin(tauri_plugin_shell::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
@@ -117,6 +435,8 @@ pub fn run() {
                 .build(),
         )
         .manage(TrayAnchor::default())
+        .manage(PopoverShownAt::default())
+        .manage(RecordingActive::default())
         .setup(|app| {
             // NOTE: we intentionally do NOT call set_activation_policy(Accessory)
             // in dev here. In unbundled dev runs, Accessory mode sometimes
@@ -131,8 +451,16 @@ pub fn run() {
             // Simple tray menu — right-click reveals it.
             let show_item =
                 MenuItem::with_id(app, "show", "Show popover", true, None::<&str>)?;
+            let devtools_item = MenuItem::with_id(
+                app,
+                "devtools",
+                "Toggle DevTools",
+                true,
+                Some("Cmd+Alt+I"),
+            )?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit Clips", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+            let menu =
+                Menu::with_items(app, &[&show_item, &devtools_item, &quit_item])?;
 
             // Load the tray icon from embedded bytes so the binary is
             // self-contained. `icons/tray.png` ships with the source and is
@@ -147,10 +475,24 @@ pub fn run() {
                 .tooltip("Clips")
                 .menu(&menu)
                 .icon(tray_icon)
+                // Colored rounded-square brand icon (not a template) —
+                // stays purple in both light and dark menu bars.
                 .icon_as_template(false)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => toggle_popover(app),
+                    "devtools" => {
+                        #[cfg(debug_assertions)]
+                        {
+                            if let Some(w) = app.get_webview_window("popover") {
+                                if w.is_devtools_open() {
+                                    w.close_devtools();
+                                } else {
+                                    w.open_devtools();
+                                }
+                            }
+                        }
+                    }
                     "quit" => {
                         app.exit(0);
                     }
@@ -184,7 +526,13 @@ pub fn run() {
                         ..
                     } = event
                     {
-                        toggle_popover(tray.app_handle());
+                        let app = tray.app_handle();
+                        if is_recording_active(app) {
+                            // Loom-style: tray click while recording stops it.
+                            let _ = app.emit("clips:recorder-stop", ());
+                        } else {
+                            toggle_popover(app);
+                        }
                     }
                 })
                 .build(app)?;
@@ -208,11 +556,46 @@ pub fn run() {
             }
 
             // Hide the popover on blur so it feels like a real menu-bar popover.
+            // The 250ms guard is the important bit — during the tray-click
+            // itself macOS briefly steals focus from the popover, which would
+            // fire Focused(false) and hide the window we literally just showed.
             if let Some(window) = app.get_webview_window("popover") {
                 let handle = window.clone();
+                let app_handle = app.handle().clone();
+                // NOTE: Intentionally NOT calling window.open_devtools()
+                // here. An auto-opened devtools window steals focus from
+                // the popover on every render, which flaps onFocusChanged
+                // constantly and creates an infinite show_bubble/hide loop
+                // in the React effect. Users can right-click → Inspect
+                // Element if they need devtools.
                 window.on_window_event(move |event| {
                     if let tauri::WindowEvent::Focused(false) = event {
-                        let _ = handle.hide();
+                        // Don't auto-hide while a recording is active or
+                        // mid-setup — the macOS screen-picker, devtools,
+                        // and other transient windows all steal focus
+                        // from the popover during that flow. Hiding
+                        // would also kill the RecordingRow UI the user
+                        // is relying on to stop.
+                        if is_recording_active(&app_handle) {
+                            eprintln!(
+                                "[clips-tray] popover blur ignored — recording active"
+                            );
+                            return;
+                        }
+                        let shown_at = app_handle
+                            .try_state::<PopoverShownAt>()
+                            .and_then(|s| s.0.lock().ok().and_then(|g| *g));
+                        let elapsed_ms = shown_at
+                            .map(|t| t.elapsed().as_millis())
+                            .unwrap_or(u128::MAX);
+                        eprintln!(
+                            "[clips-tray] popover blur, elapsed_ms={}",
+                            elapsed_ms
+                        );
+                        if elapsed_ms >= 1500 {
+                            let _ = handle.hide();
+                            let _ = app_handle.emit("clips:popover-visible", false);
+                        }
                     }
                 });
             }

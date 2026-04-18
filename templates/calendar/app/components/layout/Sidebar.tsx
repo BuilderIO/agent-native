@@ -502,7 +502,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
 
         {/* Org switcher */}
         <div className="border-t border-border px-3 py-2">
-          <OrgSwitcher hideWhenSingle />
+          <OrgSwitcher />
         </div>
 
         {/* Nav */}

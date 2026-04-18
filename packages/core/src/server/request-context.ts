@@ -20,6 +20,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 export interface RequestContext {
   userEmail?: string;
   orgId?: string;
+  timezone?: string;
 }
 
 const als = new AsyncLocalStorage<RequestContext>();
@@ -49,4 +50,15 @@ export function getRequestUserEmail(): string | undefined {
  */
 export function getRequestOrgId(): string | undefined {
   return als.getStore()?.orgId ?? process.env.AGENT_ORG_ID;
+}
+
+/**
+ * Get the current request's IANA timezone (e.g. "America/Los_Angeles").
+ * The UI sends this via the `x-user-timezone` header on every action call, and
+ * the agent chat plugin propagates it into the request context so that
+ * agent-initiated tool calls also see the user's timezone. Falls back to
+ * `process.env.AGENT_USER_TIMEZONE` for CLI scripts, and undefined if unset.
+ */
+export function getRequestTimezone(): string | undefined {
+  return als.getStore()?.timezone ?? process.env.AGENT_USER_TIMEZONE;
 }

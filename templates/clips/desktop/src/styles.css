@@ -53,18 +53,22 @@
   box-sizing: border-box;
 }
 
+/* Tauri window is `transparent: true` + `decorations: false`, so the HTML
+   paints the visible shape. A padded transparent outer, with a rounded
+   inner panel that carries the actual background + shadow, gives us the
+   round-cornered chromeless popover. */
 html,
 body {
   margin: 0;
   padding: 0;
-  background: var(--bg);
+  background: transparent;
   color: var(--fg);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 body {
-  overflow: hidden;
+  overflow: visible;
 }
 
 button {
@@ -75,7 +79,7 @@ button {
 
 #root {
   width: 100vw;
-  min-height: 100vh;
+  background: transparent;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -83,20 +87,34 @@ button {
 /* ------------------------------------------------------------------------- */
 
 .app {
+  margin: 0;
   padding: 14px;
   display: flex;
   flex-direction: column;
   gap: 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  /* Subtle drop shadow so the popover visually detaches from the menu bar. */
+  box-shadow: var(--shadow-md);
+  /* No fixed height — the Tauri window is resized to match the rendered
+     content via resize_popover, so the shell just flows naturally. */
 }
 
 /* Header — logo + mode toggle + close */
 
 .header {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: 1fr auto;
   align-items: center;
   gap: 10px;
   padding: 0 2px;
+}
+
+/* Mode toggle lives in the first column — center it horizontally so the
+   close button on the right doesn't make the layout look lopsided. */
+.header .mode-toggle {
+  justify-self: center;
 }
 
 .logo {
@@ -242,6 +260,112 @@ button {
   border-radius: 4px;
 }
 
+/* Custom device picker — button + popover menu (replaces native <select>). */
+.row-button {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  outline: none;
+  text-align: left;
+}
+
+.row-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.row-button:focus-visible {
+  box-shadow: 0 0 0 2px var(--brand-ring);
+  border-radius: 4px;
+}
+
+.row-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-chev {
+  display: inline-flex;
+  color: var(--fg-muted);
+  flex-shrink: 0;
+}
+
+/* Popover menu rendered below a device row. */
+.row-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  padding: 4px;
+  z-index: 10;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.row-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.row-menu-item:hover {
+  background: var(--surface-hover);
+}
+
+.row-menu-item.selected {
+  color: var(--fg);
+  font-weight: 600;
+  background: var(--surface-hover);
+}
+
+.row-menu-check {
+  width: 16px;
+  display: inline-flex;
+  justify-content: center;
+  color: var(--fg);
+  flex-shrink: 0;
+}
+
+.row-menu-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-menu-empty {
+  padding: 10px 12px;
+  color: var(--fg-muted);
+  font-size: 13px;
+}
+
 /* Toggle chip — mirrors Loom's On/Off pill. Green when on, subtle when off. */
 .toggle {
   border: none;
@@ -370,6 +494,32 @@ button {
   border-radius: 50%;
   background: white;
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.3);
+}
+
+/* Active-recording state on the primary button: red fill, white square
+   icon, live pulsing dot in the label. */
+.primary.start.rec-active {
+  background: #ef4444;
+}
+.primary.start.rec-active:hover {
+  background: #dc2626;
+}
+
+.rec-dot-live {
+  background: white;
+  animation: rec-live-pulse 1.2s ease-out infinite;
+}
+
+@keyframes rec-live-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.6);
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgba(255, 255, 255, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0);
+  }
 }
 
 /* ------------------------------------------------------------------------- */
@@ -548,6 +698,7 @@ button {
   position: fixed;
   inset: 0;
   background: var(--bg);
+  border-radius: 14px;
   padding: 16px;
   display: flex;
   flex-direction: column;
@@ -597,4 +748,328 @@ button {
 
 .link-button:hover {
   background: var(--surface-hover);
+}
+
+.error-banner {
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .error-banner {
+    background: rgba(185, 28, 28, 0.14);
+    border-color: rgba(239, 68, 68, 0.5);
+    color: #fca5a5;
+  }
+}
+
+/* ------------------------------------------------------------------------- */
+/* Overlay: countdown                                                         */
+/* ------------------------------------------------------------------------- */
+
+.countdown-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  pointer-events: none;
+}
+
+.countdown-number {
+  font-size: 240px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: #ffffff;
+  text-shadow:
+    0 0 60px rgba(98, 93, 245, 0.9),
+    0 0 30px rgba(0, 0, 0, 0.55);
+  animation: cd-pop 0.85s ease-out forwards;
+  line-height: 1;
+}
+
+@keyframes cd-pop {
+  0% {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+  25% {
+    transform: scale(1.1);
+    opacity: 1;
+  }
+  80% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.8);
+    opacity: 0;
+  }
+}
+
+/* ------------------------------------------------------------------------- */
+/* Overlay: toolbar                                                           */
+/* ------------------------------------------------------------------------- */
+
+.toolbar-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  background: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.toolbar-inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(20, 22, 28, 0.94);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 10px 30px rgba(0, 0, 0, 0.35),
+    0 2px 6px rgba(0, 0, 0, 0.3);
+  color: white;
+  cursor: grab;
+}
+
+.toolbar-inner:active {
+  cursor: grabbing;
+}
+
+.toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  color: white;
+  cursor: pointer;
+  transition:
+    background 120ms,
+    transform 80ms;
+}
+
+.toolbar-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.toolbar-btn:active {
+  transform: scale(0.94);
+}
+
+.toolbar-stop {
+  background: #ef4444;
+  color: white;
+}
+
+.toolbar-stop:hover {
+  background: #dc2626;
+}
+
+.stop-square {
+  width: 10px;
+  height: 10px;
+  background: currentColor;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.toolbar-cancel {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.toolbar-cancel:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+.toolbar-timer {
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: white;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px;
+  min-width: 56px;
+  justify-content: center;
+}
+
+.rec-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6);
+  animation: rec-pulse 1.4s ease-out infinite;
+}
+
+.rec-pulse-paused {
+  background: #f59e0b;
+  animation: none;
+  box-shadow: none;
+}
+
+@keyframes rec-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 7px rgba(239, 68, 68, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+  }
+}
+
+.toolbar-paused .toolbar-inner {
+  background: rgba(60, 45, 15, 0.94);
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+/* ------------------------------------------------------------------------- */
+/* Vertical Loom-style recording pill                                         */
+/* ------------------------------------------------------------------------- */
+
+.toolbar-v {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 18px 0;
+  border-radius: 28px;
+  background: rgba(20, 22, 28, 0.94);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: grab;
+}
+
+.toolbar-v:active {
+  cursor: grabbing;
+}
+
+.toolbar-v-stop {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: none;
+  background: #f97055;
+  color: white;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.toolbar-v-stop:hover {
+  background: #f85a37;
+}
+
+.toolbar-v-stop:active {
+  transform: scale(0.94);
+}
+
+.toolbar-v-stop-square {
+  width: 14px;
+  height: 14px;
+  background: currentColor;
+  border-radius: 3px;
+  display: inline-block;
+}
+
+.toolbar-v-time {
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  font-weight: 600;
+  color: white;
+  letter-spacing: 0.3px;
+}
+
+.toolbar-v-pause {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.85);
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.toolbar-v-pause:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+.toolbar-v-paused {
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+/* ------------------------------------------------------------------------- */
+/* Overlay: camera bubble                                                     */
+/* ------------------------------------------------------------------------- */
+
+.bubble-root {
+  position: fixed;
+  inset: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  background: #000;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  /* Drop shadow only — no brand ring. The bubble is the user's face;
+     a bright purple halo competes with what matters visually. */
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
+}
+
+.bubble-root:active {
+  cursor: grabbing;
+}
+
+.bubble-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1); /* Mirror — feels more natural for selfie view. */
+}
+
+.bubble-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 11px;
+  text-align: center;
+  padding: 12px;
 }

@@ -116,8 +116,10 @@ export {
   runWithRequestContext,
   getRequestUserEmail,
   getRequestOrgId,
+  getRequestTimezone,
   type RequestContext,
 } from "./request-context.js";
+export { formatDateInTimezone, todayInTimezone } from "./date-utils.js";
 
 export {
   createOnboardingPlugin,

@@ -1,5 +1,8 @@
 import { defineAction } from "@agent-native/core";
-import { getRequestUserEmail } from "@agent-native/core/server";
+import {
+  getRequestUserEmail,
+  todayInTimezone,
+} from "@agent-native/core/server";
 import { db, schema } from "../server/db/index.js";
 import { z } from "zod";
 
@@ -17,10 +20,7 @@ export default defineAction({
       .describe("Date in YYYY-MM-DD format (defaults to today)"),
   }),
   run: async (args) => {
-    const today = new Date();
-    const date =
-      args.date ||
-      `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    const date = args.date || todayInTimezone();
 
     const result = await db()
       .insert(schema.meals)

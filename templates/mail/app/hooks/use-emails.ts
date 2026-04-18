@@ -268,8 +268,12 @@ export function useEmails(
     // Gmail's per-user quota is tight (250 units/sec). Each list call costs
     // ~255 units (messages.list + 50 × messages.get). Aggressive polling
     // easily trips quota on multi-account users — keep refetches conservative
-    // and rely on mutation invalidations for the hot edits.
-    staleTime: 2 * 60_000,
+    // and rely on mutation invalidations for the hot edits. Search queries
+    // get a zero staleTime so a fresh search always re-fetches — the user
+    // expects the results to reflect their latest mailbox state.
+    // refetchOnWindowFocus stays off: with useInfiniteQuery it replays every
+    // cached page (50+ Gmail calls each) on tab focus and trips the quota.
+    staleTime: search ? 0 : 2 * 60_000,
     refetchInterval: (query: { state: { status: string } }) =>
       query.state.status === "error" ? false : 5 * 60_000,
     refetchOnWindowFocus: false,

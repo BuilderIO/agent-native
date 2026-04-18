@@ -10,21 +10,24 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
         "label": "popover",
         "title": "Clips",
         "width": 360,
-        "height": 440,
+        "height": 520,
         "resizable": false,
         "decorations": false,
-        "transparent": false,
+        "transparent": true,
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "visible": false,
         "focus": true,
         "shadow": true,
-        "center": false
+        "center": false,
+        "x": 99999,
+        "y": 99999
       }
     ],
     "security": {

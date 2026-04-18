@@ -38,6 +38,7 @@ import {
   setResponseHeader,
   getMethod,
   getQuery,
+  getHeader,
 } from "h3";
 import { agentEnv } from "../shared/agent-env.js";
 import { getSession } from "./auth.js";
@@ -3320,8 +3321,20 @@ export function createAgentChatPlugin(
           delete process.env.AGENT_ORG_ID;
         }
 
+        // Propagate the caller's IANA timezone from `x-user-timezone` so that
+        // tool calls made by the agent (e.g. log-meal with no explicit date)
+        // resolve "today" in the user's local timezone instead of server UTC.
+        const tzRaw = getHeader(event, "x-user-timezone");
+        const timezone =
+          typeof tzRaw === "string" &&
+          tzRaw.trim().length > 0 &&
+          tzRaw.trim().length < 64
+            ? tzRaw.trim()
+            : undefined;
+        if (timezone) process.env.AGENT_USER_TIMEZONE = timezone;
+
         return runWithRequestContext(
-          { userEmail: owner, orgId: resolvedOrgId },
+          { userEmail: owner, orgId: resolvedOrgId, timezone },
           () => {
             const handler =
               currentDevMode && devHandler ? devHandler : prodHandler;

@@ -106,6 +106,53 @@ export function createCoreRoutesPlugin(
 
     const P = FRAMEWORK_ROUTE_PREFIX;
 
+    // CORS for framework routes. Desktop tray apps (Tauri/Electron) run on
+    // their own dev origin (e.g. localhost:1420) and make credentialed
+    // requests against the template's server at a different port. We echo
+    // the exact origin + Allow-Credentials so same-site localhost ports
+    // can cross-send cookies.
+    const allowlist = (process.env.CORS_ALLOWED_ORIGINS ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    getH3App(nitroApp).use(
+      defineEventHandler((event) => {
+        const url = event.node?.req?.url ?? event.path ?? "/";
+        if (!url.startsWith(P) && !url.startsWith("/api/")) return;
+        const reqHeaders = (event.node?.req?.headers ?? {}) as Record<
+          string,
+          string | string[] | undefined
+        >;
+        const originRaw = reqHeaders["origin"];
+        const origin = Array.isArray(originRaw) ? originRaw[0] : originRaw;
+        if (!origin) return;
+        const allowed =
+          allowlist.length === 0 ||
+          allowlist.includes(origin) ||
+          // Dev convenience: allow any localhost origin (tray windows,
+          // frame, docs) without requiring an explicit allowlist.
+          /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+        if (!allowed) return;
+        setResponseHeader(event, "Access-Control-Allow-Origin", origin);
+        setResponseHeader(event, "Vary", "Origin");
+        setResponseHeader(event, "Access-Control-Allow-Credentials", "true");
+        setResponseHeader(
+          event,
+          "Access-Control-Allow-Methods",
+          "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+        );
+        setResponseHeader(
+          event,
+          "Access-Control-Allow-Headers",
+          "Content-Type,Authorization,X-Requested-With",
+        );
+        if (getMethod(event) === "OPTIONS") {
+          setResponseStatus(event, 204);
+          return "";
+        }
+      }),
+    );
+
     // Polling
     getH3App(nitroApp).use(`${P}/poll`, createPollHandler());
 

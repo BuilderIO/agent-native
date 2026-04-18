@@ -104,6 +104,35 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const [searchParams] = useSearchParams();
   const activeSearchQuery = searchParams.get("q");
   const activeLabel = searchParams.get("label");
+  // Remember which view (and label tab) the user was in before searching —
+  // SearchBar always routes searches through /inbox?q=..., so on clear we'd
+  // otherwise drop a user searching from Starred/Sent/Archive or from a
+  // label-filtered tab back into plain Inbox.
+  const preSearchViewRef = useRef<{ view: string; label: string | null }>({
+    view,
+    label: activeLabel,
+  });
+  useEffect(() => {
+    if (!activeSearchQuery) {
+      preSearchViewRef.current = { view, label: activeLabel };
+    }
+  }, [view, activeLabel, activeSearchQuery]);
+  const restorePreSearchPath = useCallback(() => {
+    const { view: v, label: l } = preSearchViewRef.current;
+    return `/${v}${l ? `?label=${encodeURIComponent(l)}` : ""}`;
+  }, []);
+  // When the search param is cleared externally (browser back/forward,
+  // agent navigation), drop the searchFocused flag — otherwise the bar
+  // stays mounted with an empty input and no focus, since nothing fires
+  // onBlur after the input was already blurred by a prior Enter.
+  const prevSearchQueryRef = useRef(activeSearchQuery);
+  useEffect(() => {
+    if (prevSearchQueryRef.current && !activeSearchQuery) {
+      setSearchFocused(false);
+      setSearchQuery("");
+    }
+    prevSearchQueryRef.current = activeSearchQuery;
+  }, [activeSearchQuery]);
   const { data: labels = [], isLoading: labelsLoading } = useLabels();
   const { data: settings, isLoading: settingsLoading } = useSettings();
   useContacts(); // Prefetch contacts so composer autocomplete is instant
@@ -612,6 +641,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         setSearchQuery("");
         setSearchFocused(false);
         (document.getElementById("mail-search") as HTMLInputElement)?.blur();
+        if (activeSearchQuery) {
+          navigate(restorePreSearchPath());
+        }
       },
     },
   ]);
@@ -805,12 +837,19 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
               <div className="flex-1" />
 
-              {/* Search */}
-              {searchFocused ? (
+              {/* Search — stays visible while a search is active so the
+                  user always knows what they searched */}
+              {searchFocused || activeSearchQuery ? (
                 <SearchBar
+                  initialQuery={activeSearchQuery ?? ""}
+                  autoFocus={searchFocused && !activeSearchQuery}
+                  hasActiveSearch={!!activeSearchQuery}
                   onClose={() => {
                     setSearchFocused(false);
                     setSearchQuery("");
+                    if (activeSearchQuery) {
+                      navigate(restorePreSearchPath());
+                    }
                   }}
                 />
               ) : (
@@ -824,7 +863,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
               )}
 
               {/* Hidden input for keyboard shortcut target */}
-              {!searchFocused && (
+              {!searchFocused && !activeSearchQuery && (
                 <input
                   id="mail-search"
                   className="sr-only"
@@ -930,7 +969,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 </div>
               )}
 
-              <OrgSwitcher hideWhenSingle />
               <AgentToggleButton />
             </header>
 
@@ -1049,6 +1087,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                         </Link>
                         <div className="mt-1">
                           <FeedbackButton />
+                        </div>
+                        <div className="mt-2 px-1">
+                          <OrgSwitcher />
                         </div>
                       </div>
                     </div>
