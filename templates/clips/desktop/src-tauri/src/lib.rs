@@ -207,6 +207,20 @@ async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Physical-pixel bubble sizes. Logical px on retina = physical / 2, so these
+/// map to ~96 (small) and ~180 (medium) logical px — matching Loom's camera
+/// bubble sizes exactly. Medium is the default (and matches the previous
+/// hardcoded 360 value so existing users see no change on upgrade).
+const BUBBLE_SIZE_SMALL: u32 = 192;
+const BUBBLE_SIZE_MEDIUM: u32 = 360;
+
+fn bubble_size_for_name(name: &str) -> u32 {
+    match name {
+        "small" => BUBBLE_SIZE_SMALL,
+        _ => BUBBLE_SIZE_MEDIUM,
+    }
+}
+
 /// Path to the JSON blob that stores the last-known bubble position on disk.
 /// Lives in the Tauri app-data dir (platform-specific — `~/Library/Application
 /// Support/<bundle-id>/` on macOS). Returns None if the app-data dir cannot be
@@ -222,6 +236,106 @@ fn bubble_position_path(app: &AppHandle) -> Option<PathBuf> {
         return None;
     }
     Some(dir.join("bubble-position.json"))
+}
+
+/// Path to the JSON blob that stores the last-chosen bubble size ("small" or
+/// "medium"). Same storage pattern as `bubble-position.json`.
+fn bubble_size_path(app: &AppHandle) -> Option<PathBuf> {
+    let dir = app.path().app_data_dir().ok()?;
+    if let Err(err) = std::fs::create_dir_all(&dir) {
+        eprintln!(
+            "[clips-tray] bubble_size_path mkdir failed: {} ({})",
+            err,
+            dir.display()
+        );
+        return None;
+    }
+    Some(dir.join("bubble-size.json"))
+}
+
+/// Load the last-saved bubble size name, default "medium" if nothing is saved
+/// or parsing fails.
+fn load_bubble_size_name(app: &AppHandle) -> String {
+    let Some(path) = bubble_size_path(app) else {
+        return "medium".to_string();
+    };
+    let Ok(bytes) = std::fs::read(&path) else {
+        return "medium".to_string();
+    };
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+        return "medium".to_string();
+    };
+    match value.get("size").and_then(|v| v.as_str()) {
+        Some("small") => "small".to_string(),
+        Some("medium") => "medium".to_string(),
+        _ => "medium".to_string(),
+    }
+}
+
+/// Persist the chosen bubble size to disk (atomic write via temp + rename).
+fn save_bubble_size_name(app: &AppHandle, name: &str) {
+    let Some(path) = bubble_size_path(app) else {
+        return;
+    };
+    let body = match serde_json::to_vec(&serde_json::json!({ "size": name })) {
+        Ok(b) => b,
+        Err(err) => {
+            eprintln!("[clips-tray] save_bubble_size_name serialize failed: {err}");
+            return;
+        }
+    };
+    let tmp = path.with_extension("json.tmp");
+    if let Err(err) = std::fs::write(&tmp, &body) {
+        eprintln!("[clips-tray] save_bubble_size_name write tmp failed: {err}");
+        return;
+    }
+    if let Err(err) = std::fs::rename(&tmp, &path) {
+        eprintln!("[clips-tray] save_bubble_size_name rename failed: {err}");
+        let _ = std::fs::remove_file(&tmp);
+    }
+}
+
+/// Load the saved bubble size and return it to the frontend. Default is
+/// "medium". Exposed to JS via `invoke("load_bubble_size")`.
+#[tauri::command]
+async fn load_bubble_size(app: AppHandle) -> Result<String, String> {
+    Ok(load_bubble_size_name(&app))
+}
+
+/// Resize the bubble window to match the named size ("small" | "medium") and
+/// persist the choice. Clamps to valid names silently — unknown values fall
+/// back to medium so a typo in the frontend doesn't brick persistence.
+#[tauri::command]
+async fn set_bubble_size(app: AppHandle, size: String) -> Result<(), String> {
+    let name = match size.as_str() {
+        "small" => "small",
+        _ => "medium",
+    };
+    let px = bubble_size_for_name(name);
+    if let Some(win) = app.get_webview_window(BUBBLE_LABEL) {
+        // Re-center the resize around the current position's center so the
+        // bubble visually grows / shrinks around its current spot instead of
+        // jumping toward the top-left corner (Tauri resizes from the window's
+        // origin by default).
+        let current_pos = win
+            .outer_position()
+            .ok()
+            .map(|p| (p.x, p.y))
+            .unwrap_or((0, 0));
+        let current_size = win
+            .outer_size()
+            .ok()
+            .map(|s| s.width as i32)
+            .unwrap_or(BUBBLE_SIZE_MEDIUM as i32);
+        let new_px = px as i32;
+        let delta = (current_size - new_px) / 2;
+        let new_x = current_pos.0 + delta;
+        let new_y = current_pos.1 + delta;
+        let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(px, px)));
+        let _ = win.set_position(PhysicalPosition::new(new_x, new_y));
+    }
+    save_bubble_size_name(&app, name);
+    Ok(())
 }
 
 /// Load the last-saved bubble position, if any. Returns (x, y) in physical
@@ -274,10 +388,14 @@ async fn show_bubble(app: AppHandle) -> Result<(), String> {
         return Ok(());
     }
     let (mw, mh) = primary_monitor_physical_size(&app).unwrap_or((2880, 1800));
-    let size: u32 = 360; // physical (= 180 logical on retina)
-                         // Default Loom-style anchor: flush-left with a small margin, a hair
-                         // above the bottom edge of the primary display. On Retina the 60
-                         // physical-px offset maps to ~30 logical px.
+    // Honor the user's last-chosen size. Default is "medium" (360 physical =
+    // 180 logical), which matches the original hardcoded value — existing
+    // users see no visual change on upgrade.
+    let size_name = load_bubble_size_name(&app);
+    let size: u32 = bubble_size_for_name(&size_name);
+    // Default Loom-style anchor: flush-left with a small margin, a hair
+    // above the bottom edge of the primary display. On Retina the 60
+    // physical-px offset maps to ~30 logical px.
     let default_x: i32 = 48;
     let default_y: i32 = mh as i32 - size as i32 - 60;
     // Prefer the last-known position, clamped to the primary monitor so a
@@ -631,6 +749,8 @@ pub fn run() {
             set_recording_state,
             reset_state,
             save_bubble_position,
+            set_bubble_size,
+            load_bubble_size,
         ])
         .plugin(tauri_plugin_shell::init())
         .plugin(
