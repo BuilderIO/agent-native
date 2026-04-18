@@ -644,33 +644,39 @@ function TimeSeriesRenderer({
     );
   }
 
+  // With multiple series, filled areas stack and obscure lines behind them,
+  // so only draw the gradient fill when there's a single series.
+  const showFill = yKeys.length === 1;
+
   return (
     <div className="h-[250px] w-full">
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={rows}>
-          <defs>
-            {yKeys.map((key, i) => (
-              <linearGradient
-                key={key}
-                id={`sql-gradient-${key}`}
-                x1="0"
-                y1="0"
-                x2="0"
-                y2="1"
-              >
-                <stop
-                  offset="5%"
-                  stopColor={colors[i % colors.length]}
-                  stopOpacity={yKeys.length > 1 ? 0.12 : 0.3}
-                />
-                <stop
-                  offset="95%"
-                  stopColor={colors[i % colors.length]}
-                  stopOpacity={0}
-                />
-              </linearGradient>
-            ))}
-          </defs>
+          {showFill && (
+            <defs>
+              {yKeys.map((key, i) => (
+                <linearGradient
+                  key={key}
+                  id={`sql-gradient-${key}`}
+                  x1="0"
+                  y1="0"
+                  x2="0"
+                  y2="1"
+                >
+                  <stop
+                    offset="5%"
+                    stopColor={colors[i % colors.length]}
+                    stopOpacity={0.3}
+                  />
+                  <stop
+                    offset="95%"
+                    stopColor={colors[i % colors.length]}
+                    stopOpacity={0}
+                  />
+                </linearGradient>
+              ))}
+            </defs>
+          )}
           <XAxis
             dataKey={xKey}
             stroke="hsl(var(--muted-foreground))"
@@ -709,8 +715,8 @@ function TimeSeriesRenderer({
               dataKey={key}
               stroke={colors[i % colors.length]}
               strokeWidth={2}
-              fillOpacity={1}
-              fill={`url(#sql-gradient-${key})`}
+              fillOpacity={showFill ? 1 : 0}
+              fill={showFill ? `url(#sql-gradient-${key})` : "none"}
             />
           ))}
         </AreaChart>

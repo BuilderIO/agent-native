@@ -164,3 +164,19 @@ can _manage_ a resource, not who can book against it.
 - **Optimistic UI by default** — never `await` a server round-trip before
   updating the screen for routine mutations. See the framework `AGENTS.md`
   for the full pattern.
+
+## Shared booking-link components
+
+Event-type editor UI (Setup tab conferencing row, URL slug editor, custom
+fields, duration picker, create dialog) is supplied by the scheduling
+package — see `@agent-native/scheduling/react/components`. Prefer editing
+the package component over forking. Current exports:
+
+- `ConferencingSelector` — no-conf / Google Meet / Zoom / Custom grid. Zoom
+  uses real OAuth (`connect-video` action).
+- `SlugEditor` — inline-editable URL preview.
+- `CustomFieldsEditor` — add/edit/reorder booking-form fields.
+- `DurationPicker` — multi-select duration pills.
+- `BookingLinkCreateDialog` — title/URL/duration modal.
+
+Details in `packages/scheduling/docs/UI_UNIFICATION.md`.
