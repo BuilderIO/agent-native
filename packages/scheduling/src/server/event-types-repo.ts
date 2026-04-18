@@ -88,9 +88,10 @@ export async function listEventTypes(params: {
   const db = getDb();
   let rows: any[];
   if (params.teamId) {
-    // Team-scoped listings still admit anyone with access on the team
-    // resource itself; for now we keep the simple teamId equality. A future
-    // iteration can layer accessFilter on the team table.
+    // Team-scoped listings. Callers are responsible for asserting team
+    // membership before invoking — the repo does not (it runs without a
+    // request context in some paths, e.g. public booking pages that
+    // explicitly pass a teamId).
     rows = await db
       .select()
       .from(schema.eventTypes)
@@ -106,7 +107,9 @@ export async function listEventTypes(params: {
       .from(schema.eventTypes)
       .where(eq(schema.eventTypes.ownerEmail, params.ownerEmail));
   } else {
-    rows = await db.select().from(schema.eventTypes);
+    // Refuse to return unscoped results. Callers must supply at least
+    // one of: teamId, useAccessFilter, or ownerEmail.
+    return [];
   }
   return rows
     .filter((r: any) => (params.includeHidden ? true : !r.hidden))

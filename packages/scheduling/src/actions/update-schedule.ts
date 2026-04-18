@@ -4,7 +4,8 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { updateSchedule } from "../server/schedules-repo.js";
 
 export default defineAction({
-  description: "Update a schedule's name, timezone, or weekly availability",
+  description:
+    "Update a schedule's name, timezone, weekly availability, or date overrides",
   schema: z.object({
     id: z.string(),
     name: z.string().optional(),
@@ -23,6 +24,19 @@ export default defineAction({
         }),
       )
       .optional(),
+    dateOverrides: z
+      .array(
+        z.object({
+          date: z.string(),
+          intervals: z.array(
+            z.object({
+              startTime: z.string(),
+              endTime: z.string(),
+            }),
+          ),
+        }),
+      )
+      .optional(),
   }),
   run: async (args) => {
     await assertAccess("schedule", args.id, "editor");
@@ -32,6 +46,7 @@ export default defineAction({
         timezone: args.timezone,
         isDefault: args.isDefault,
         weeklyAvailability: args.weeklyAvailability as any,
+        dateOverrides: args.dateOverrides as any,
       }),
     };
   },

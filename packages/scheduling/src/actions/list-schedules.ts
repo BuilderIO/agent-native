@@ -8,12 +8,9 @@ export default defineAction({
     "List availability schedules visible to the current user — owned, shared, or matching org visibility",
   schema: z.object({}),
   run: async () => {
-    const email = currentUserEmailOrNull();
+    if (!currentUserEmailOrNull()) return { schedules: [] };
     return {
-      schedules: await listSchedules({
-        useAccessFilter: !!email,
-        ownerEmail: email ?? undefined,
-      }),
+      schedules: await listSchedules({ useAccessFilter: true }),
     };
   },
 });

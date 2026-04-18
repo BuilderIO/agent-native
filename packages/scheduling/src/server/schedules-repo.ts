@@ -114,6 +114,7 @@ export async function updateSchedule(
     name?: string;
     timezone?: string;
     weeklyAvailability?: WeeklyAvailability[];
+    dateOverrides?: DateOverride[];
     isDefault?: boolean;
   },
 ): Promise<Schedule> {
@@ -144,6 +145,20 @@ export async function updateSchedule(
           createdAt: now,
         });
       }
+    }
+  }
+  if (patch.dateOverrides) {
+    await db
+      .delete(schema.dateOverrides)
+      .where(eq(schema.dateOverrides.scheduleId, id));
+    for (const o of patch.dateOverrides) {
+      await db.insert(schema.dateOverrides).values({
+        id: nanoid(),
+        scheduleId: id,
+        date: o.date,
+        intervals: JSON.stringify(o.intervals),
+        createdAt: now,
+      });
     }
   }
   const updated = await getScheduleById(id);

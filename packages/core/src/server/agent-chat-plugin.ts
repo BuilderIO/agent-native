@@ -1158,9 +1158,13 @@ export interface AgentChatPluginOptions {
    * inventory. Intended for minimal or voice-first apps where a long,
    * generic preamble adds latency and iteration noise without adding value.
    *
-   * When set, the same lean prompt is used in both dev and prod modes —
-   * dev-only tools (shell, db-exec, etc.) are still registered if you're
-   * in dev mode; the lean flag only affects the system prompt composition.
+   * When set, the same lean prompt is used in both dev and prod modes. In
+   * dev mode the tool registry is ALSO swapped to the template's actions
+   * (same set as prod) — the dev-only shell/db-exec/file-system tools
+   * and the resource/docs/chat/team/job/browser scripts are dropped. The
+   * lean system prompt has no shell-usage guidance, so routing actions
+   * through shell would break. If you need the full dev tool surface,
+   * leave this off.
    */
   leanPrompt?: boolean;
 }
