@@ -198,13 +198,20 @@ export async function startNativeRecording(
 
   // 3. Countdown overlay. The popover can hide (or even blur) during the
   //    countdown — the overlay is a standalone window.
-  console.log("[clips-recorder] show_countdown");
-  await invoke("show_countdown");
+  console.log("[clips-recorder] invoking show_countdown");
   try {
-    await waitForEvent("clips:countdown-done", 8000);
+    await invoke("show_countdown");
+    console.log("[clips-recorder] show_countdown returned");
+  } catch (err) {
+    console.error("[clips-recorder] show_countdown failed:", err);
+  }
+  try {
+    await waitForEvent("clips:countdown-done", 4000);
+    console.log("[clips-recorder] countdown-done received");
   } catch {
-    // If the countdown never fired (user closed the window) — proceed
-    // anyway. Recording still works; we just lose the 3-2-1 beat.
+    console.log(
+      "[clips-recorder] countdown-done not received within 4s — proceeding",
+    );
   }
 
   // 4. Start MediaRecorder with a 2-second timeslice — each `ondataavailable`
@@ -288,15 +295,26 @@ export async function startNativeRecording(
   stateUnlistens = toolbarUnlistens;
 
   recorder.start(2_000);
+  console.log("[clips-recorder] MediaRecorder started");
 
   // 6. Show the floating toolbar + camera bubble.
-  await invoke("show_toolbar");
+  try {
+    await invoke("show_toolbar");
+    console.log("[clips-recorder] show_toolbar ok");
+  } catch (err) {
+    console.error("[clips-recorder] show_toolbar failed:", err);
+  }
   if (wantsCamera) {
-    await invoke("show_bubble");
+    try {
+      await invoke("show_bubble");
+      console.log("[clips-recorder] show_bubble ok");
+    } catch (err) {
+      console.error("[clips-recorder] show_bubble failed:", err);
+    }
     // Tell the bubble which device to use (if any). It grabs its own stream.
     setTimeout(() => {
-      emit("clips:bubble-config", { deviceId: params.cameraId }).catch(
-        () => {},
+      emit("clips:bubble-config", { deviceId: params.cameraId }).catch((err) =>
+        console.error("[clips-recorder] bubble-config emit failed:", err),
       );
     }, 300);
   }

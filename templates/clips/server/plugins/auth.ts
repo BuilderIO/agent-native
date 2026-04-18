@@ -1,8 +1,8 @@
-import { createGoogleAuthPlugin } from "@agent-native/core/server";
+import { createAuthPlugin } from "@agent-native/core/server";
 
 // Clips has public share pages, embeds, and view-event tracking that must
 // reach unauthenticated viewers. Everything else sits behind auth.
-export default createGoogleAuthPlugin({
+export default createAuthPlugin({
   publicPaths: [
     "/share",
     "/embed",

@@ -219,16 +219,27 @@ export function App() {
   const showBubblePreview = mode !== "screen" && cameraOn && !isRecording;
 
   useEffect(() => {
+    console.log("[clips-popover] wantsBubble", showBubblePreview, {
+      mode,
+      cameraOn,
+      isRecording,
+    });
     if (!showBubblePreview) {
-      invoke("hide_overlays").catch(() => {});
+      invoke("hide_overlays").catch((e) =>
+        console.error("[clips-popover] hide_overlays failed", e),
+      );
       return;
     }
-    invoke("show_bubble").catch(() => {});
+    invoke("show_bubble")
+      .then(() => console.log("[clips-popover] show_bubble ok"))
+      .catch((e) => console.error("[clips-popover] show_bubble failed", e));
     const t = setTimeout(() => {
-      emit("clips:bubble-config", { deviceId: cameraId }).catch(() => {});
+      emit("clips:bubble-config", { deviceId: cameraId }).catch((e) =>
+        console.error("[clips-popover] bubble-config emit failed", e),
+      );
     }, 250);
     return () => clearTimeout(t);
-  }, [showBubblePreview, cameraId]);
+  }, [showBubblePreview, cameraId, mode, cameraOn, isRecording]);
 
   // ---- auto-size popover to content --------------------------------------
   // The Tauri window is fixed-size via tauri.conf.json, but our content
@@ -301,6 +312,12 @@ export function App() {
   async function startRecording() {
     if (recorder) return;
     setRecError(null);
+    console.log("[clips-popover] startRecording clicked", {
+      serverUrl,
+      mode,
+      cameraOn,
+      micOn,
+    });
     try {
       const handle = await startNativeRecording({
         serverUrl,
@@ -310,17 +327,22 @@ export function App() {
         cameraOn,
         micOn,
       });
+      console.log("[clips-popover] recorder handle received");
       setRecorder(handle);
-      // Quietly hide the popover — the toolbar + bubble + countdown
-      // overlays are the user-facing surface from this point on.
-      getCurrentWindow()
-        .hide()
-        .catch(() => {});
+      // Popover stays visible while recording so the user can see the
+      // current state / any errors. The floating toolbar is the primary
+      // control surface but the popover is kept as a fallback.
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      // getDisplayMedia throws `NotAllowedError` when the user cancels the
-      // system picker. That's expected, not an error to show.
-      if (!/NotAllowed|dismissed/i.test(message)) setRecError(message);
+      console.error("[clips-popover] startRecording failed:", err);
+      // Dismissed-picker is the one case we actually want to swallow; any
+      // real error should always be visible to the user so they know why
+      // recording didn't start.
+      if (!/NotAllowedError|permission denied by system|was cancelled|dismissed/i.test(
+        message,
+      )) {
+        setRecError(message);
+      }
     }
   }
 

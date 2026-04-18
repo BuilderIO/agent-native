@@ -382,6 +382,18 @@ async function createBetterAuthInstance(
       },
     },
     socialProviders,
+    account: {
+      // Merge accounts when a user signs in with a social provider using an
+      // email that already has a local email/password account (or vice versa).
+      // Only providers listed in `trustedProviders` auto-link — these are the
+      // ones that verify emails at the identity layer. Never add a provider
+      // here that lets users claim an unverified email; that would be an
+      // account-takeover vector.
+      accountLinking: {
+        enabled: true,
+        trustedProviders: ["google", "github"],
+      },
+    },
     databaseHooks: {
       user: {
         create: {

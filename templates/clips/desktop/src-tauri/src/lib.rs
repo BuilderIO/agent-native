@@ -44,18 +44,18 @@ fn build_overlay_url(path: &str) -> WebviewUrl {
 /// record, and closes itself when the countdown finishes.
 #[tauri::command]
 async fn show_countdown(app: AppHandle) -> Result<(), String> {
+    eprintln!("[clips-tray] show_countdown invoked");
     if let Some(existing) = app.get_webview_window(COUNTDOWN_LABEL) {
         let _ = existing.close();
     }
-    let monitor = primary_monitor_size(&app).unwrap_or((1440, 900));
+    let (mw, mh) = primary_monitor_physical_size(&app).unwrap_or((2880, 1800));
+    eprintln!("[clips-tray] countdown target size {}x{} physical", mw, mh);
     let win = WebviewWindowBuilder::new(
         &app,
         COUNTDOWN_LABEL,
         build_overlay_url("countdown"),
     )
     .title("Countdown")
-    .inner_size(monitor.0 as f64, monitor.1 as f64)
-    .position(0.0, 0.0)
     .decorations(false)
     .transparent(true)
     .always_on_top(true)
@@ -63,34 +63,39 @@ async fn show_countdown(app: AppHandle) -> Result<(), String> {
     .shadow(false)
     .visible(false)
     .build()
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| {
+        eprintln!("[clips-tray] countdown build failed: {}", e);
+        e.to_string()
+    })?;
+    let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(mw, mh)));
+    let _ = win.set_position(PhysicalPosition::new(0, 0));
     let _ = win.set_ignore_cursor_events(true);
     let _ = win.show();
+    eprintln!("[clips-tray] countdown shown");
     Ok(())
 }
 
 /// Floating pill with play/pause/stop + live timer. Draggable, always on top.
 #[tauri::command]
 async fn show_toolbar(app: AppHandle) -> Result<(), String> {
+    eprintln!("[clips-tray] show_toolbar invoked");
     if let Some(existing) = app.get_webview_window(TOOLBAR_LABEL) {
         let _ = existing.show();
         let _ = existing.set_focus();
         return Ok(());
     }
-    let (mw, mh) = primary_monitor_size(&app).unwrap_or((1440, 900));
-    let w = 260.0_f64;
-    let h = 52.0_f64;
-    // Bottom-center: where Loom floats its toolbar.
-    let x = (mw as f64 / 2.0) - (w / 2.0);
-    let y = mh as f64 - h - 48.0;
+    let (mw, mh) = primary_monitor_physical_size(&app).unwrap_or((2880, 1800));
+    let w: u32 = 520; // physical
+    let h: u32 = 104; // physical
+    let x = (mw as i32 / 2) - (w as i32 / 2);
+    let y = mh as i32 - h as i32 - 96;
+    eprintln!("[clips-tray] toolbar pos=({},{}) size={}x{}", x, y, w, h);
     let win = WebviewWindowBuilder::new(
         &app,
         TOOLBAR_LABEL,
         build_overlay_url("toolbar"),
     )
     .title("Clips Recorder")
-    .inner_size(w, h)
-    .position(x, y)
     .decorations(false)
     .transparent(true)
     .always_on_top(true)
@@ -99,8 +104,14 @@ async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     .shadow(true)
     .visible(false)
     .build()
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| {
+        eprintln!("[clips-tray] toolbar build failed: {}", e);
+        e.to_string()
+    })?;
+    let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
+    let _ = win.set_position(PhysicalPosition::new(x, y));
     let _ = win.show();
+    eprintln!("[clips-tray] toolbar shown");
     Ok(())
 }
 
@@ -108,23 +119,23 @@ async fn show_toolbar(app: AppHandle) -> Result<(), String> {
 /// its own getUserMedia stream and floats over everything the user captures.
 #[tauri::command]
 async fn show_bubble(app: AppHandle) -> Result<(), String> {
+    eprintln!("[clips-tray] show_bubble invoked");
     if let Some(existing) = app.get_webview_window(BUBBLE_LABEL) {
         let _ = existing.show();
+        eprintln!("[clips-tray] bubble reused");
         return Ok(());
     }
-    let (mw, mh) = primary_monitor_size(&app).unwrap_or((1440, 900));
-    let size = 180.0_f64;
-    // Bottom-left — matches Loom and our recorder's default bubble corner.
-    let x = 24.0;
-    let y = mh as f64 - size - 96.0;
+    let (mw, mh) = primary_monitor_physical_size(&app).unwrap_or((2880, 1800));
+    let size: u32 = 360; // physical (= 180 logical on retina)
+    let x: i32 = 48;
+    let y: i32 = mh as i32 - size as i32 - 192;
+    eprintln!("[clips-tray] bubble pos=({},{}) size={} monitor={}x{}", x, y, size, mw, mh);
     let win = WebviewWindowBuilder::new(
         &app,
         BUBBLE_LABEL,
         build_overlay_url("bubble"),
     )
     .title("Clips Camera")
-    .inner_size(size, size)
-    .position(x, y)
     .decorations(false)
     .transparent(true)
     .always_on_top(true)
@@ -133,8 +144,14 @@ async fn show_bubble(app: AppHandle) -> Result<(), String> {
     .shadow(false)
     .visible(false)
     .build()
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| {
+        eprintln!("[clips-tray] bubble build failed: {}", e);
+        e.to_string()
+    })?;
+    let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(size, size)));
+    let _ = win.set_position(PhysicalPosition::new(x, y));
     let _ = win.show();
+    eprintln!("[clips-tray] bubble shown at ({},{}) size {}", x, y, size);
     Ok(())
 }
 
@@ -225,6 +242,10 @@ fn mark_popover_shown(app: &AppHandle) {
 }
 
 fn primary_monitor_size(app: &AppHandle) -> Option<(u32, u32)> {
+    primary_monitor_physical_size(app)
+}
+
+fn primary_monitor_physical_size(app: &AppHandle) -> Option<(u32, u32)> {
     let window = app.get_webview_window("popover")?;
     let monitor = window
         .current_monitor()

@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Permissions the Clips tray app needs.",
-  "windows": ["popover"],
+  "windows": ["popover", "countdown", "toolbar", "bubble", "signin"],
   "permissions": [
     "core:default",
     "core:window:allow-show",
