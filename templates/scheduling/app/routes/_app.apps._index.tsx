@@ -164,8 +164,12 @@ function IntegrationCard({
   const connect = async () => {
     setConnecting(true);
     try {
-      const redirectUri = `${location.origin}/_agent-native/oauth/${integration.kind}/callback`;
-      const res = await callAction<{ authUrl?: string }>("connect-calendar", {
+      const redirectUri = `${location.origin}/_agent-native/oauth/${integration.kind.replace(/_video$/, "")}/callback`;
+      // Video providers go through connect-video; calendar providers go
+      // through connect-calendar. The action shape is the same.
+      const action =
+        integration.category === "video" ? "connect-video" : "connect-calendar";
+      const res = await callAction<{ authUrl?: string }>(action, {
         kind: integration.kind,
         redirectUri,
       });
