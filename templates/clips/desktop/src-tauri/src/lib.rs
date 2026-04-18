@@ -9,7 +9,7 @@ use std::time::Instant;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager, PhysicalPosition, PhysicalSize, Rect, WebviewUrl,
+    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Rect, WebviewUrl,
     WebviewWindow, WebviewWindowBuilder,
 };
 
@@ -24,6 +24,12 @@ struct TrayAnchor(Mutex<Option<Rect>>);
 /// this guard the popover would be hidden the instant it's shown.
 #[derive(Default)]
 struct PopoverShownAt(Mutex<Option<Instant>>);
+
+/// Whether a recording is currently in progress. Set from JS via
+/// `set_recording_state`. Used to re-purpose the tray icon click as a
+/// stop-recording shortcut while recording, matching Loom.
+#[derive(Default)]
+struct RecordingActive(Mutex<bool>);
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 /// Native overlay windows for the recording experience. These render the same
@@ -75,7 +81,8 @@ async fn show_countdown(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Floating pill with play/pause/stop + live timer. Draggable, always on top.
+/// Vertical recording pill anchored to the left edge. Stop + timer + pause,
+/// matching Loom's left-rail placement. Draggable, always on top.
 #[tauri::command]
 async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     eprintln!("[clips-tray] show_toolbar invoked");
@@ -84,11 +91,14 @@ async fn show_toolbar(app: AppHandle) -> Result<(), String> {
         let _ = existing.set_focus();
         return Ok(());
     }
-    let (mw, mh) = primary_monitor_physical_size(&app).unwrap_or((2880, 1800));
-    let w: u32 = 520; // physical
-    let h: u32 = 104; // physical
-    let x = (mw as i32 / 2) - (w as i32 / 2);
-    let y = mh as i32 - h as i32 - 96;
+    let (_mw, mh) = primary_monitor_physical_size(&app).unwrap_or((2880, 1800));
+    // 72x180 logical → 144x360 physical on 2x, but we're working in pure
+    // physical here so pick values that look right at retina scale.
+    let w: u32 = 144;
+    let h: u32 = 360;
+    // Flush-left with a small margin; vertically centered on the screen.
+    let x: i32 = 48;
+    let y: i32 = (mh as i32 - h as i32) / 2;
     eprintln!("[clips-tray] toolbar pos=({},{}) size={}x{}", x, y, w, h);
     let win = WebviewWindowBuilder::new(
         &app,
@@ -220,6 +230,28 @@ async fn close_signin(app: AppHandle) -> Result<(), String> {
         let _ = w.close();
     }
     Ok(())
+}
+
+/// Record the popover's current recording state. When active, clicking the
+/// tray icon emits a stop event instead of toggling the popover — so the
+/// user can stop a recording from anywhere with one click.
+#[tauri::command]
+async fn set_recording_state(
+    app: AppHandle,
+    active: bool,
+) -> Result<(), String> {
+    if let Some(state) = app.try_state::<RecordingActive>() {
+        if let Ok(mut g) = state.0.lock() {
+            *g = active;
+        }
+    }
+    Ok(())
+}
+
+fn is_recording_active(app: &AppHandle) -> bool {
+    app.try_state::<RecordingActive>()
+        .and_then(|s| s.0.lock().ok().map(|g| *g))
+        .unwrap_or(false)
 }
 
 #[tauri::command]
@@ -377,6 +409,7 @@ pub fn run() {
             resize_popover,
             show_signin,
             close_signin,
+            set_recording_state,
         ])
         .plugin(tauri_plugin_shell::init())
         .plugin(
@@ -397,6 +430,7 @@ pub fn run() {
         )
         .manage(TrayAnchor::default())
         .manage(PopoverShownAt::default())
+        .manage(RecordingActive::default())
         .setup(|app| {
             // NOTE: we intentionally do NOT call set_activation_policy(Accessory)
             // in dev here. In unbundled dev runs, Accessory mode sometimes
@@ -466,7 +500,13 @@ pub fn run() {
                         ..
                     } = event
                     {
-                        toggle_popover(tray.app_handle());
+                        let app = tray.app_handle();
+                        if is_recording_active(app) {
+                            // Loom-style: tray click while recording stops it.
+                            let _ = app.emit("clips:recorder-stop", ());
+                        } else {
+                            toggle_popover(app);
+                        }
                     }
                 })
                 .build(app)?;

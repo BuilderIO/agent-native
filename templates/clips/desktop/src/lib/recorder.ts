@@ -187,32 +187,35 @@ export async function startNativeRecording(
     displayStream.getAudioTracks().forEach((t) => combined.addTrack(t));
   }
 
-  // 2. Create the recording row up-front so we have an id to stream chunks
-  //    against even before the first dataavailable fires.
-  const { id } = await createRecording(
+  // 2+3. Countdown + create-recording happen IN PARALLEL. The countdown is
+  // pure visual feedback — gating it on a network round-trip makes the
+  // 3-2-1 feel laggy after the user picks a screen. Kick both off and
+  // wait at the end before starting the MediaRecorder.
+  console.log("[clips-recorder] invoking show_countdown + createRecording");
+  const countdownPromise = (async () => {
+    try {
+      await invoke("show_countdown");
+    } catch (err) {
+      console.error("[clips-recorder] show_countdown failed:", err);
+    }
+    try {
+      await waitForEvent("clips:countdown-done", 4000);
+      console.log("[clips-recorder] countdown-done received");
+    } catch {
+      console.log("[clips-recorder] countdown-done timed out — proceeding");
+    }
+  })();
+  const recordingPromise = createRecording(
     params.serverUrl,
     wantsCamera,
     wantsAudio,
   );
+  const [, createRes] = await Promise.all([
+    countdownPromise,
+    recordingPromise,
+  ]);
+  const { id } = createRes;
   console.log("[clips-recorder] recording row created", { id });
-
-  // 3. Countdown overlay. The popover can hide (or even blur) during the
-  //    countdown — the overlay is a standalone window.
-  console.log("[clips-recorder] invoking show_countdown");
-  try {
-    await invoke("show_countdown");
-    console.log("[clips-recorder] show_countdown returned");
-  } catch (err) {
-    console.error("[clips-recorder] show_countdown failed:", err);
-  }
-  try {
-    await waitForEvent("clips:countdown-done", 4000);
-    console.log("[clips-recorder] countdown-done received");
-  } catch {
-    console.log(
-      "[clips-recorder] countdown-done not received within 4s — proceeding",
-    );
-  }
 
   // 4. Start MediaRecorder with a 2-second timeslice — each `ondataavailable`
   //    streams a chunk to the server, so we don't hold 5-min buffers in memory.

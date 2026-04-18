@@ -3,20 +3,20 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 /**
- * Floating recording toolbar. Mirrors Loom's bottom-center pill: pause/resume,
- * stop, live mm:ss timer. Pure command emitter — the popover owns the
- * MediaRecorder and handles the actual stream lifecycle.
+ * Floating recording toolbar — vertical pill anchored to the LEFT edge of
+ * the screen (Loom's placement). Big orange Stop at the top, elapsed time
+ * below, pause underneath. Pure command emitter — the popover owns the
+ * MediaRecorder.
  *
  * IPC contract:
- *   receives   → `clips:recorder-state` { paused, elapsedMs }
- *   emits      → `clips:recorder-pause`, `:resume`, `:stop`, `:cancel`
+ *   receives → `clips:recorder-state` { paused, elapsedMs }
+ *   emits    → `clips:recorder-stop`, `:pause`, `:resume`, `:cancel`
  */
 export function Toolbar() {
   const [paused, setPaused] = useState(false);
   const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
-    // Make the toolbar window draggable by its own chrome.
     const unlistens: Array<() => void> = [];
     listen<{ paused: boolean; elapsedMs: number }>(
       "clips:recorder-state",
@@ -25,9 +25,7 @@ export function Toolbar() {
         setElapsed(ev.payload.elapsedMs ?? 0);
       },
     ).then((u) => unlistens.push(u));
-    return () => {
-      unlistens.forEach((u) => u());
-    };
+    return () => unlistens.forEach((u) => u());
   }, []);
 
   function stop() {
@@ -38,48 +36,35 @@ export function Toolbar() {
     });
   }
   function togglePause() {
-    emit(paused ? "clips:recorder-resume" : "clips:recorder-pause");
-  }
-  function cancel() {
-    emit("clips:recorder-cancel").finally(() => {
-      getCurrentWindow()
-        .close()
-        .catch(() => {});
-    });
+    emit(paused ? "clips:recorder-resume" : "clips:recorder-pause").catch(
+      () => {},
+    );
   }
 
   return (
-    <div className={`toolbar-root ${paused ? "toolbar-paused" : ""}`}>
-      <div className="toolbar-inner" data-tauri-drag-region>
-        <button
-          className="toolbar-btn toolbar-stop"
-          onClick={stop}
-          aria-label="Stop recording"
-          title="Stop recording"
-        >
-          <span className="stop-square" />
-        </button>
-        <div className="toolbar-timer" data-tauri-drag-region>
-          <span className={`rec-pulse ${paused ? "rec-pulse-paused" : ""}`} />
-          {formatTime(elapsed)}
-        </div>
-        <button
-          className="toolbar-btn"
-          onClick={togglePause}
-          aria-label={paused ? "Resume" : "Pause"}
-          title={paused ? "Resume (⌥⇧P)" : "Pause (⌥⇧P)"}
-        >
-          {paused ? <PlayGlyph /> : <PauseGlyph />}
-        </button>
-        <button
-          className="toolbar-btn toolbar-cancel"
-          onClick={cancel}
-          aria-label="Cancel"
-          title="Cancel (⌥⇧C)"
-        >
-          <XGlyph />
-        </button>
+    <div
+      className={`toolbar-v ${paused ? "toolbar-v-paused" : ""}`}
+      data-tauri-drag-region
+    >
+      <button
+        className="toolbar-v-stop"
+        onClick={stop}
+        aria-label="Stop recording"
+        title="Stop recording"
+      >
+        <span className="toolbar-v-stop-square" />
+      </button>
+      <div className="toolbar-v-time" data-tauri-drag-region>
+        {formatTime(elapsed)}
       </div>
+      <button
+        className="toolbar-v-pause"
+        onClick={togglePause}
+        aria-label={paused ? "Resume" : "Pause"}
+        title={paused ? "Resume" : "Pause"}
+      >
+        {paused ? <PlayGlyph /> : <PauseGlyph />}
+      </button>
     </div>
   );
 }
@@ -93,28 +78,23 @@ function formatTime(ms: number): string {
 
 function PauseGlyph() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-      <rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor" />
-      <rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor" />
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+      <rect x="7" y="5" width="3.5" height="14" rx="1.5" fill="currentColor" />
+      <rect
+        x="13.5"
+        y="5"
+        width="3.5"
+        height="14"
+        rx="1.5"
+        fill="currentColor"
+      />
     </svg>
   );
 }
 function PlayGlyph() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
       <path d="M7 5l13 7-13 7z" fill="currentColor" />
-    </svg>
-  );
-}
-function XGlyph() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M6 6l12 12M18 6L6 18"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
     </svg>
   );
 }

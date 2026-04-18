@@ -915,6 +915,93 @@ button {
 }
 
 /* ------------------------------------------------------------------------- */
+/* Vertical Loom-style recording pill                                         */
+/* ------------------------------------------------------------------------- */
+
+.toolbar-v {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 18px 0;
+  border-radius: 28px;
+  background: rgba(20, 22, 28, 0.94);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: grab;
+}
+
+.toolbar-v:active {
+  cursor: grabbing;
+}
+
+.toolbar-v-stop {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: none;
+  background: #f97055;
+  color: white;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.toolbar-v-stop:hover {
+  background: #f85a37;
+}
+
+.toolbar-v-stop:active {
+  transform: scale(0.94);
+}
+
+.toolbar-v-stop-square {
+  width: 14px;
+  height: 14px;
+  background: currentColor;
+  border-radius: 3px;
+  display: inline-block;
+}
+
+.toolbar-v-time {
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  font-weight: 600;
+  color: white;
+  letter-spacing: 0.3px;
+}
+
+.toolbar-v-pause {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.85);
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.toolbar-v-pause:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+.toolbar-v-paused {
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+/* ------------------------------------------------------------------------- */
 /* Overlay: camera bubble                                                     */
 /* ------------------------------------------------------------------------- */
 

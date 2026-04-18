@@ -186,21 +186,17 @@ export function App() {
   }, []);
 
   const unlockDeviceLabels = useCallback(async () => {
-    // Probe mic + camera to unlock labels. Stream is stopped immediately —
-    // we only needed the permission grant.
+    // Audio-only probe to unlock mic labels. We INTENTIONALLY skip video —
+    // the on-screen camera bubble window owns the camera, and probing
+    // video here would race for the hardware and knock the bubble's
+    // stream offline (macOS can't reliably share a camera across two
+    // WebViews in the same process). Camera-label text is low-value
+    // anyway; most machines have one.
     try {
-      const s = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: true,
-      });
+      const s = await navigator.mediaDevices.getUserMedia({ audio: true });
       s.getTracks().forEach((t) => t.stop());
     } catch {
-      try {
-        const s = await navigator.mediaDevices.getUserMedia({ audio: true });
-        s.getTracks().forEach((t) => t.stop());
-      } catch {
-        // permission denied — labels will stay empty until user grants
-      }
+      // permission denied — labels stay empty until the user grants
     }
     await loadDevices();
   }, [loadDevices]);
@@ -210,13 +206,28 @@ export function App() {
     unlockDeviceLabels();
   }, [loadDevices, unlockDeviceLabels]);
 
-  // ---- pre-record camera bubble overlay -----------------------------------
-  // As soon as the popover has a camera configured we drop the bubble into
-  // the bottom-left of the screen so the user can drag it into place before
-  // hitting record. Nothing renders inside the popover itself — the popover
-  // is config, not capture.
+  // ---- popover visibility tracking ----------------------------------------
+  // Tied to Tauri's focus events. The bubble overlay should only be on
+  // screen when the user can actually see it — either the popover is open
+  // (they're configuring the shot) or a recording is in progress.
+  const [popoverVisible, setPopoverVisible] = useState(true);
+  useEffect(() => {
+    const win = getCurrentWindow();
+    const unlistens: Array<() => void> = [];
+    win
+      .onFocusChanged(({ payload: focused }) => setPopoverVisible(focused))
+      .then((u) => unlistens.push(u));
+    return () => unlistens.forEach((u) => u());
+  }, []);
 
-  const showBubblePreview = mode !== "screen" && cameraOn && !isRecording;
+  // ---- pre-record camera bubble overlay -----------------------------------
+  // Show the on-screen circular bubble ONLY when the user can see the
+  // popover OR a recording is in progress. Closing the popover hides it
+  // (so the bubble isn't hovering over everything while the user is
+  // working in another app).
+
+  const showBubblePreview =
+    mode !== "screen" && cameraOn && (popoverVisible || isRecording);
 
   useEffect(() => {
     console.log("[clips-popover] wantsBubble", showBubblePreview, {
@@ -329,15 +340,17 @@ export function App() {
       });
       console.log("[clips-popover] recorder handle received");
       setRecorder(handle);
-      // Popover stays visible while recording so the user can see the
-      // current state / any errors. The floating toolbar is the primary
-      // control surface but the popover is kept as a fallback.
+      // Tell Rust so the tray icon can act as a stop-recording button.
+      invoke("set_recording_state", { active: true }).catch(() => {});
+      // Hide the popover — the left-rail toolbar + bubble are the
+      // user-facing surface during recording. When recording stops we'll
+      // re-show the popover via the stop-handler effect.
+      getCurrentWindow()
+        .hide()
+        .catch(() => {});
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error("[clips-popover] startRecording failed:", err);
-      // Dismissed-picker is the one case we actually want to swallow; any
-      // real error should always be visible to the user so they know why
-      // recording didn't start.
       if (
         !/NotAllowedError|permission denied by system|was cancelled|dismissed/i.test(
           message,
@@ -366,6 +379,7 @@ export function App() {
         } finally {
           if (!cancelled) {
             setRecorder(null);
+            invoke("set_recording_state", { active: false }).catch(() => {});
             invoke("show_popover").catch(() => {});
             fetchRecent();
           }
@@ -377,6 +391,7 @@ export function App() {
         } finally {
           if (!cancelled) {
             setRecorder(null);
+            invoke("set_recording_state", { active: false }).catch(() => {});
             invoke("show_popover").catch(() => {});
           }
         }
