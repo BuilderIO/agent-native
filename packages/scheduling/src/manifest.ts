@@ -65,6 +65,7 @@ export const MANIFEST: SchedulingManifest = {
     // Integrations
     "list-calendar-integrations",
     "connect-calendar",
+    "connect-video",
     "disconnect-calendar",
     "list-selected-calendars",
     "toggle-selected-calendar",

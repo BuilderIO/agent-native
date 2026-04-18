@@ -46,31 +46,42 @@ use tauri::{
 // correctly, and on 15.4+ the majority of capture apps still honour it.
 #[cfg(target_os = "macos")]
 fn set_capture_excluded(window: &WebviewWindow) {
-    let label = window.label().to_string();
-    let ns_window_ptr = match window.ns_window() {
-        Ok(p) => p,
-        Err(err) => {
-            eprintln!("[clips-tray] set_capture_excluded({label}): ns_window() failed: {err}");
+    // AppKit's `-[NSWindow setSharingType:]` is strictly main-thread-only, and
+    // macOS 15.5+ hard-asserts it (the process crashes in
+    // `-[NSWMWindowCoordinator performTransactionUsingBlock:]` otherwise).
+    // Most of our callers are `async fn #[tauri::command]`s, which run on a
+    // tokio worker thread — so we always hop back to the main runloop before
+    // poking AppKit. If we're already on the main thread (e.g. the setup
+    // handler path), `run_on_main_thread` just runs the closure inline.
+    let win = window.clone();
+    if let Err(err) = win.clone().run_on_main_thread(move || {
+        let label = win.label().to_string();
+        let ns_window_ptr = match win.ns_window() {
+            Ok(p) => p,
+            Err(err) => {
+                eprintln!("[clips-tray] set_capture_excluded({label}): ns_window() failed: {err}");
+                return;
+            }
+        };
+        if ns_window_ptr.is_null() {
+            eprintln!("[clips-tray] set_capture_excluded({label}): ns_window is null");
             return;
         }
-    };
-    if ns_window_ptr.is_null() {
-        eprintln!("[clips-tray] set_capture_excluded({label}): ns_window is null");
-        return;
+        // 0 == NSWindowSharingNone, 1 == NSWindowSharingReadOnly (default). We
+        // want 0. Pass as NSUInteger (usize) to match the Objective-C selector
+        // signature.
+        // SAFETY: ns_window() returns a live NSWindow* owned by Tauri. We're
+        // guaranteed to be on the main thread here (run_on_main_thread), which
+        // is what AppKit's setSharingType: requires. The setter is idempotent
+        // and has no return value.
+        unsafe {
+            let obj = ns_window_ptr as *mut objc2::runtime::AnyObject;
+            let _: () = objc2::msg_send![&*obj, setSharingType: 0usize];
+        }
+        eprintln!("[clips-tray] set_capture_excluded({label}): NSWindowSharingNone applied");
+    }) {
+        eprintln!("[clips-tray] set_capture_excluded: run_on_main_thread failed: {err}");
     }
-    // 0 == NSWindowSharingNone, 1 == NSWindowSharingReadOnly (default). We want
-    // 0. Pass as NSUInteger (usize) to match the Objective-C selector signature.
-    // SAFETY: ns_window() returns a live NSWindow* owned by Tauri. The sharing
-    // type setter is idempotent, thread-unsafe (AppKit main-thread only, and
-    // Tauri invokes us from the main thread during setup/show commands), and
-    // has no return value. The worst case if we pass a stale pointer is a
-    // crash — but the window is still alive on this code path because we're
-    // holding the `&WebviewWindow` reference.
-    unsafe {
-        let obj = ns_window_ptr as *mut objc2::runtime::AnyObject;
-        let _: () = objc2::msg_send![&*obj, setSharingType: 0usize];
-    }
-    eprintln!("[clips-tray] set_capture_excluded({label}): NSWindowSharingNone applied");
 }
 
 #[cfg(not(target_os = "macos"))]
