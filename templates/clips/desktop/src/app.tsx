@@ -255,6 +255,13 @@ export function App() {
       console.log("[clips-popover] popover-visible =", ev.payload);
       setPopoverVisible(!!ev.payload);
     }).then((u) => unlistens.push(u));
+    // The bubble window emits `clips:bubble-closed` when the user clicks
+    // the X on the hover controls. Treat that as "camera off" — the
+    // bubble-session effect then tears down the stream + pump.
+    listen("clips:bubble-closed", () => {
+      console.log("[clips-popover] bubble-closed received — clearing cameraOn");
+      setCameraOn(false);
+    }).then((u) => unlistens.push(u));
     // Query the CURRENT visibility on mount in case the event already
     // fired before React subscribed.
     getCurrentWindow()

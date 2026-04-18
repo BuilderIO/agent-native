@@ -1122,6 +1122,127 @@ button {
   padding: 12px;
 }
 
+/* Hover controls — close X + size-toggle pill. The bubble window itself is
+   sized to match the full physical bubble diameter, so we paint the controls
+   inside it and escape the round clipping with nested absolute positioning.
+   The canvas clips to the circle, the controls sit above the clipping layer
+   via their own z-index. */
+
+.bubble-root {
+  /* Let the controls overflow the circular root for the pill-under-bubble
+     look. `overflow: hidden` is re-applied on the canvas wrapper via the
+     border-radius on `.bubble-video`. */
+  overflow: visible;
+}
+
+.bubble-root .bubble-video {
+  border-radius: 50%;
+}
+
+.bubble-close,
+.bubble-controls {
+  /* Snappy fade — per Steve's 150ms-max rule for decorative transitions. */
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease-out;
+}
+
+.bubble-close.is-visible,
+.bubble-controls.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Top-right X close button. Small circle with a subtle dark backdrop so it
+   reads against any camera feed (light or dark subjects). */
+.bubble-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(20, 20, 20, 0.7);
+  color: rgba(255, 255, 255, 0.92);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  z-index: 3;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
+.bubble-close:hover {
+  background: rgba(60, 60, 60, 0.85);
+  color: white;
+}
+
+/* Size-control pill — positioned below the bubble's visible circle.
+   Centered horizontally, fades in on hover, matches Loom's visual weight. */
+.bubble-controls {
+  position: absolute;
+  left: 50%;
+  bottom: -30px;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(20, 20, 20, 0.85);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  z-index: 3;
+  /* Cursor over the pill should not be a grab cursor (we're not dragging
+     the bubble when clicking its controls). */
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Dot buttons — filled circles sized to convey Small vs Medium at a glance,
+   matching Loom's tiny / slightly-larger dots. Active dot gets a white ring
+   so the current size is always legible. */
+.bubble-dot {
+  border: none;
+  background: rgba(255, 255, 255, 0.55);
+  padding: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 50%;
+  transition:
+    background 120ms,
+    box-shadow 120ms;
+}
+
+.bubble-dot:hover {
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.bubble-dot.is-active {
+  background: white;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25);
+}
+
+.bubble-dot-small {
+  width: 10px;
+  height: 10px;
+}
+
+.bubble-dot-medium {
+  width: 16px;
+  height: 16px;
+}
+
 /* ------------------------------------------------------------------------- */
 /* Inline sign-in form                                                        */
 /* ------------------------------------------------------------------------- */
