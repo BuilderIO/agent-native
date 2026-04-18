@@ -16,25 +16,25 @@ import { listen } from "@tauri-apps/api/event";
  * arriving, readyState stays "live"). The `<video>` element happily reports
  * `paused=false` and renders a solid black frame from the last muted track.
  *
- * Recovery strategy:
- *   1. Listen for `onmute` in addition to `onended` — `onmute` is the
- *      common case for intra-process capture collisions on macOS WebKit.
- *      When it fires we tear down and re-acquire (`onunmute` by itself
- *      does NOT bring the frame pump back for these muted tracks).
- *   2. Watchdog: poll once a second. If the active track is `muted` OR
- *      the <video> has `readyState < 2` while we think we have a stream,
- *      force a restart.
- *   3. Also listen for `clips:recording-started` — emitted by the
- *      recorder driver right after MediaRecorder.start() — and schedule
- *      a refresh ~600ms later. That's the known hot-spot where the media
- *      session renegotiates; proactively reacquiring is faster than
- *      waiting for the watchdog to notice a black frame.
- *   4. Track the live stream on a ref so cleanup ALWAYS stops the old
- *      tracks before a new getUserMedia runs. Letting them linger keeps
- *      the camera "busy" as far as macOS is concerned and the new stream
- *      comes back black.
- *   5. Ignore redundant bubble-config emits with the same deviceId to
- *      avoid gratuitous cleanup→restart churn.
+ * Primary mitigation (robust): in `recorder.ts` we DESTROY this webview
+ * entirely right before the popover acquires display + mic, and re-spawn
+ * it only AFTER MediaRecorder is running (at which point MediaRecorder
+ * no longer touches the camera, so there's no cross-webview contention
+ * when we call getUserMedia here). This sidesteps the whole
+ * webkit-mutes-the-bubble issue: by the time this component runs, the
+ * camera is uncontended.
+ *
+ * Secondary mitigations (safety nets — kept in case some other app or
+ * an OS-level event briefly grabs the camera):
+ *   1. Listen for `onmute` in addition to `onended` and re-acquire.
+ *   2. 2s watchdog: STATE check (readyState / paused) + CONTENT probe
+ *      (draw a 2x2 sample into a canvas and look at luma — a muted
+ *      track stays `readyState=live` but the video element renders
+ *      black, which pure state inspection misses).
+ *   3. Cleanup always stops the previous stream's tracks before a
+ *      new getUserMedia, so macOS doesn't see the camera as "busy".
+ *   4. Redundant bubble-config emits with the same deviceId are
+ *      ignored to avoid gratuitous cleanup→restart churn.
  */
 export function Bubble() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -51,16 +51,15 @@ export function Bubble() {
       if (!next) return;
       setDeviceId((prev) => (prev === next ? prev : next));
     }).then((u) => unlistens.push(u));
-    // The popover emits this after MediaRecorder.start() — the known hot
-    // spot where WKWebView tends to mute our camera track. Proactively
-    // reacquire ~600ms later so we're back to live frames before the user
-    // has a chance to notice the black circle.
-    listen("clips:recording-started", () => {
-      console.log(
-        "[bubble] recording-started received; scheduling refresh in 600ms",
-      );
-      setTimeout(() => restartRef.current("recording-started"), 600);
-    }).then((u) => unlistens.push(u));
+    // NOTE: we used to listen for `clips:recording-started` here and
+    // proactively re-acquire the camera after MediaRecorder.start() —
+    // that never worked reliably because the cross-webview contention
+    // with the popover's display/mic acquisition kept re-muting our
+    // new track. The current fix lives in `recorder.ts`: it destroys
+    // this whole webview before acquiring display/mic, then re-spawns
+    // it after MediaRecorder is running. By the time this component
+    // mounts in the "re-spawned" case, there's no contention to recover
+    // from — so no listener is needed here.
     return () => unlistens.forEach((u) => u());
   }, []);
 
