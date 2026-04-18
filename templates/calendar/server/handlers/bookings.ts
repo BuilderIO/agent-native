@@ -20,6 +20,7 @@ import type {
 import { getSetting } from "@agent-native/core/settings";
 import { getDb, schema } from "../db/index.js";
 import * as googleCalendar from "../lib/google-calendar.js";
+import { createZoomMeeting } from "../lib/zoom.js";
 
 export const listBookings = defineEventHandler(async (_event: H3Event) => {
   try {
@@ -194,12 +195,8 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     }
     let meetingLink: string | undefined;
 
-    // For zoom/custom, use the static URL — only allow http(s) schemes
-    if (
-      conferencing &&
-      (conferencing.type === "zoom" || conferencing.type === "custom") &&
-      conferencing.url
-    ) {
+    // For custom-URL conferencing, use the static URL — only http(s).
+    if (conferencing?.type === "custom" && conferencing.url) {
       try {
         const parsed = new URL(conferencing.url);
         if (parsed.protocol === "https:" || parsed.protocol === "http:") {
@@ -207,6 +204,35 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         }
       } catch {
         // Invalid URL — skip
+      }
+    }
+
+    // For Zoom, create a real meeting via the host's connected OAuth
+    // account. The booking link's owner_email is the host.
+    if (conferencing?.type === "zoom") {
+      const hostEmail =
+        (bookingLink as any)?.ownerEmail ||
+        (bookingLink as any)?.owner_email ||
+        "local@localhost";
+      try {
+        const zoomResult = await createZoomMeeting({
+          hostEmail,
+          title:
+            body.eventTitle ||
+            bookingLink?.title ||
+            `Booking with ${body.name}`,
+          startTime: body.start,
+          endTime: body.end,
+          timezone:
+            (body.timezone as string | undefined) ??
+            Intl.DateTimeFormat().resolvedOptions().timeZone ??
+            "UTC",
+        });
+        if (zoomResult?.meetingUrl) {
+          meetingLink = zoomResult.meetingUrl;
+        }
+      } catch {
+        // Fall through — booking still succeeds without a Zoom link.
       }
     }
 
