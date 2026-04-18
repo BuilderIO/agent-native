@@ -261,6 +261,7 @@ async fn show_popover(app: AppHandle) -> Result<(), String> {
         mark_popover_shown(&app);
         let _ = window.show();
         let _ = window.set_focus();
+        let _ = app.emit("clips:popover-visible", true);
     }
     Ok(())
 }
@@ -300,11 +301,13 @@ fn toggle_popover(app: &AppHandle) {
     };
     if window.is_visible().unwrap_or(false) {
         let _ = window.hide();
+        let _ = app.emit("clips:popover-visible", false);
     } else {
         position_popover(app, &window);
         mark_popover_shown(app);
         let _ = window.show();
         let _ = window.set_focus();
+        let _ = app.emit("clips:popover-visible", true);
     }
 }
 
@@ -545,6 +548,7 @@ pub fn run() {
                             .unwrap_or(false);
                         if !recent {
                             let _ = handle.hide();
+                            let _ = app_handle.emit("clips:popover-visible", false);
                         }
                     }
                 });

@@ -490,6 +490,32 @@ button {
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.3);
 }
 
+/* Active-recording state on the primary button: red fill, white square
+   icon, live pulsing dot in the label. */
+.primary.start.rec-active {
+  background: #ef4444;
+}
+.primary.start.rec-active:hover {
+  background: #dc2626;
+}
+
+.rec-dot-live {
+  background: white;
+  animation: rec-live-pulse 1.2s ease-out infinite;
+}
+
+@keyframes rec-live-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.6);
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgba(255, 255, 255, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0);
+  }
+}
+
 /* ------------------------------------------------------------------------- */
 /* Bottom quick-actions row                                                   */
 /* ------------------------------------------------------------------------- */

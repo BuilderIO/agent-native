@@ -207,16 +207,37 @@ export function App() {
   }, [loadDevices, unlockDeviceLabels]);
 
   // ---- popover visibility tracking ----------------------------------------
-  // Tied to Tauri's focus events. The bubble overlay should only be on
-  // screen when the user can actually see it — either the popover is open
-  // (they're configuring the shot) or a recording is in progress.
-  const [popoverVisible, setPopoverVisible] = useState(true);
+  // The popover window is hidden at boot (parked off-screen to avoid flash)
+  // and only becomes visible when the user clicks the tray icon. Start at
+  // `false` and flip on focus. This is what gates the on-screen camera
+  // bubble so it only appears when the user can actually see it.
+  const [popoverVisible, setPopoverVisible] = useState(false);
   useEffect(() => {
     const win = getCurrentWindow();
     const unlistens: Array<() => void> = [];
+    // Set initial state based on CURRENT focus (not the React default) so
+    // we don't flash the bubble open while the popover is parked off-screen.
     win
-      .onFocusChanged(({ payload: focused }) => setPopoverVisible(focused))
+      .isFocused()
+      .then((f) => {
+        console.log("[clips-popover] initial isFocused =", f);
+        setPopoverVisible(f);
+      })
+      .catch(() => {});
+    win
+      .onFocusChanged(({ payload: focused }) => {
+        console.log("[clips-popover] focus changed =", focused);
+        setPopoverVisible(focused);
+      })
       .then((u) => unlistens.push(u));
+    // Also listen for an explicit event from Rust when visibility flips.
+    // Rust emits this whenever it shows or hides the popover, which is
+    // more reliable than relying on focus events alone (transparent
+    // chromeless windows on macOS sometimes don't fire blur reliably).
+    listen<boolean>("clips:popover-visible", (ev) => {
+      console.log("[clips-popover] Rust event: visible =", ev.payload);
+      setPopoverVisible(!!ev.payload);
+    }).then((u) => unlistens.push(u));
     return () => unlistens.forEach((u) => u());
   }, []);
 
@@ -342,12 +363,10 @@ export function App() {
       setRecorder(handle);
       // Tell Rust so the tray icon can act as a stop-recording button.
       invoke("set_recording_state", { active: true }).catch(() => {});
-      // Hide the popover — the left-rail toolbar + bubble are the
-      // user-facing surface during recording. When recording stops we'll
-      // re-show the popover via the stop-handler effect.
-      getCurrentWindow()
-        .hide()
-        .catch(() => {});
+      // IMPORTANT: do NOT hide the popover here. The left-rail toolbar is
+      // best-effort; if something goes wrong with the overlay window the
+      // user needs SOMETHING to click to stop. Keeping the popover visible
+      // with a Stop button means the control surface is never missing.
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error("[clips-popover] startRecording failed:", err);
@@ -442,7 +461,9 @@ export function App() {
         <button className="primary start" onClick={signIn}>
           Sign in to Clips
         </button>
-      ) : lastRecordingId && !isRecording ? (
+      ) : isRecording ? (
+        <RecordingRow onStop={() => emit("clips:recorder-stop")} />
+      ) : lastRecordingId ? (
         <button
           className="primary start"
           onClick={() => openInBrowser(`/r/${lastRecordingId}`)}
@@ -451,13 +472,9 @@ export function App() {
           View last recording
         </button>
       ) : (
-        <button
-          className="primary start"
-          onClick={startRecording}
-          disabled={isRecording}
-        >
+        <button className="primary start" onClick={startRecording}>
           <span className="rec-dot" aria-hidden />
-          {isRecording ? "Recording…" : "Start recording"}
+          Start recording
         </button>
       )}
       {recError ? <div className="error-banner">{recError}</div> : null}
@@ -725,6 +742,30 @@ function DeviceRow({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function RecordingRow({ onStop }: { onStop: () => void }) {
+  // Live timer driven by the `clips:recorder-state` events already emitted
+  // by the recorder driver. Falls back to 0:00 if the driver hasn't
+  // started pinging yet.
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    const unlistens: Array<() => void> = [];
+    listen<{ paused: boolean; elapsedMs: number }>(
+      "clips:recorder-state",
+      (ev) => setElapsed(ev.payload?.elapsedMs ?? 0),
+    ).then((u) => unlistens.push(u));
+    return () => unlistens.forEach((u) => u());
+  }, []);
+  const total = Math.max(0, Math.floor(elapsed / 1000));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return (
+    <button className="primary start rec-active" onClick={onStop}>
+      <span className="rec-dot rec-dot-live" aria-hidden />
+      Stop recording · {m}:{s.toString().padStart(2, "0")}
+    </button>
   );
 }
 
