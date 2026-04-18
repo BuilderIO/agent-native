@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
@@ -11,10 +11,23 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
  * IPC contract:
  *   receives → `clips:recorder-state` { paused, elapsedMs }
  *   emits    → `clips:recorder-stop`, `:pause`, `:resume`, `:cancel`
+ *
+ * IMPORTANT: The Stop button MUST NOT close its own window. The popover's
+ * recorder listener is what drives the stop flow, and it invokes
+ * `hide_overlays` from the Rust side once the MediaRecorder has been
+ * flushed. Closing the toolbar window synchronously here races the
+ * IPC delivery: Tauri's `emit()` promise resolves when the event is
+ * queued on the wire, not when listeners have run — if we immediately
+ * `.close()` the emitting window, the popover listener can miss the
+ * event entirely (observed as: toolbar disappears, nothing else
+ * happens, user has to hit the tray icon to actually stop the
+ * recording). Let the recorder own the close.
  */
 export function Toolbar() {
   const [paused, setPaused] = useState(false);
   const [elapsed, setElapsed] = useState(0);
+  const [stopping, setStopping] = useState(false);
+  const fallbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const unlistens: Array<() => void> = [];
@@ -25,15 +38,33 @@ export function Toolbar() {
         setElapsed(ev.payload.elapsedMs ?? 0);
       },
     ).then((u) => unlistens.push(u));
-    return () => unlistens.forEach((u) => u());
+    return () => {
+      unlistens.forEach((u) => u());
+      if (fallbackTimer.current) clearTimeout(fallbackTimer.current);
+    };
   }, []);
 
   function stop() {
-    emit("clips:recorder-stop").finally(() => {
+    if (stopping) return;
+    setStopping(true);
+    console.log("[clips-toolbar] stop clicked — emitting clips:recorder-stop");
+    emit("clips:recorder-stop").catch((err) => {
+      console.error("[clips-toolbar] emit clips:recorder-stop failed:", err);
+    });
+    // Defensive fallback: the recorder normally closes us via
+    // `hide_overlays` within a second or two. If for any reason the
+    // popover listener never fires (popover window closed, listener
+    // torn down mid-emit, etc.), self-close after 3s so the user isn't
+    // left with a zombie pill floating over their screen. The recorder
+    // closing us first is a no-op on the already-closed window.
+    fallbackTimer.current = setTimeout(() => {
+      console.warn(
+        "[clips-toolbar] recorder did not close toolbar within 3s — self-closing",
+      );
       getCurrentWindow()
         .close()
         .catch(() => {});
-    });
+    }, 3_000);
   }
   function togglePause() {
     emit(paused ? "clips:recorder-resume" : "clips:recorder-pause").catch(

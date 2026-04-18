@@ -308,10 +308,16 @@ export async function startNativeRecording(
       }
     }),
     listen("clips:recorder-stop", () => {
-      void handle.stop();
+      console.log("[clips-recorder] stop event received");
+      handle.stop().catch((err) => {
+        console.error("[clips-recorder] handle.stop() threw:", err);
+      });
     }),
     listen("clips:recorder-cancel", () => {
-      void handle.cancel();
+      console.log("[clips-recorder] cancel event received");
+      handle.cancel().catch((err) => {
+        console.error("[clips-recorder] handle.cancel() threw:", err);
+      });
     }),
   ]);
   stateUnlistens = toolbarUnlistens;

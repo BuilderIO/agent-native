@@ -965,8 +965,9 @@ button {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 14px;
-  padding: 18px 0;
+  gap: 12px;
+  /* Equal inset on all four sides from the pill edge to the buttons. */
+  padding: 16px;
   border-radius: 28px;
   background: rgba(20, 22, 28, 0.94);
   backdrop-filter: blur(20px);
@@ -983,8 +984,8 @@ button {
 }
 
 .toolbar-v-stop {
-  width: 48px;
-  height: 48px;
+  width: 42px;
+  height: 42px;
   border-radius: 50%;
   border: none;
   /* orange-500 — a touch softer than the red-orange we had before. */
@@ -1021,8 +1022,8 @@ button {
 }
 
 .toolbar-v-pause {
-  width: 36px;
-  height: 36px;
+  width: 42px;
+  height: 42px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.08);
   color: rgba(255, 255, 255, 0.9);

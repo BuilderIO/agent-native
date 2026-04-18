@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import { cn } from "@/lib/utils";
+import { Spinner } from "@/components/ui/spinner";
 import { PlayerControls } from "./player-controls";
 import { CaptionsOverlay } from "./captions-overlay";
 import { CtaButton } from "./cta-button";
@@ -122,6 +123,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     // Whether we've already applied the Infinity-duration work-around so we
     // don't seek to 1e10 on every loadedmetadata fire (autoplay + iOS replay).
     const durationProbedRef = useRef(false);
+    // "Preparing your clip…" overlay — shown while the browser buffers the
+    // first frame of a freshly-finalized clip so the user doesn't see a blank
+    // black rectangle. Hidden on loadeddata / canplay / currentTime > 0, or
+    // after a 10s safety timeout.
+    const [isPreparing, setIsPreparing] = useState<boolean>(!!videoUrl);
 
     // Imperative handle for parent
     useImperativeHandle(
@@ -231,6 +237,25 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         v.removeEventListener("loadedmetadata", onLoadedMetadata);
         v.removeEventListener("durationchange", onDurationChange);
       };
+    }, [videoUrl]);
+
+    // Reset the "Preparing your clip…" overlay whenever the video source
+    // changes, and start a 10s safety timeout so the overlay can never stick.
+    useEffect(() => {
+      if (!videoUrl) {
+        setIsPreparing(false);
+        return;
+      }
+      const v = videoRef.current;
+      // If the video already has a frame ready (cached playback, re-render),
+      // skip the overlay entirely.
+      if (v && (v.readyState >= 2 || v.currentTime > 0)) {
+        setIsPreparing(false);
+        return;
+      }
+      setIsPreparing(true);
+      const t = setTimeout(() => setIsPreparing(false), 10000);
+      return () => clearTimeout(t);
     }, [videoUrl]);
 
     // Hide controls after 2s of idle movement.
