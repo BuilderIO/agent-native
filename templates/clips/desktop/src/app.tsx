@@ -293,7 +293,23 @@ export function App() {
   //   - User switches camera / turns camera off / closes popover (not
   //     recording) → cleanup fires, bubble disappears.
   const bubbleStreamRef = useRef<MediaStream | null>(null);
+  // Set to true the instant startRecording hands `bubbleStreamRef.current`
+  // to `startNativeRecording` as `preAcquiredCameraStream`. The recorder
+  // then owns the track lifecycle — this effect's cleanup MUST NOT stop
+  // the tracks or the MediaRecorder ends up with `readyState: "ended"`
+  // tracks (which causes the laggy / black / silently-failing recording
+  // symptoms). Reset to false once the recording is fully torn down.
+  const bubbleStreamTransferredToRecorder = useRef(false);
   const wantsCamera = mode !== "screen" && cameraOn;
+  // Ref mirror of `isRecording || recordingFlowActive` so cleanup (which
+  // captures the dep-snapshot value) can still see the CURRENT flow state
+  // at the moment it actually runs. Without this, if `recordingFlowActive`
+  // briefly flips false on a re-render mid-flow (e.g. finally-block
+  // recovery path), the cleanup function snapshots `bubbleActive=false`
+  // from THAT render and stops the camera stream even though recording is
+  // still in flight.
+  const recordingFlowGateRef = useRef(false);
+  recordingFlowGateRef.current = isRecording || recordingFlowActive;
   const bubbleActive =
     wantsCamera && (popoverVisible || isRecording || recordingFlowActive);
 
@@ -340,22 +356,34 @@ export function App() {
 
     return () => {
       cancelled = true;
+      const transferred = bubbleStreamTransferredToRecorder.current;
+      const recordingInFlight = recordingFlowGateRef.current;
       console.log(
-        "[clips-popover] bubble session end — stopping pump + tracks + hiding bubble",
+        "[clips-popover] bubble session end — transferred=%o recordingInFlight=%o",
+        transferred,
+        recordingInFlight,
       );
       if (stopPump) stopPump();
-      // Only stop the stream if it still matches the ref. If the recorder
-      // already borrowed the track and we're handing off to a new effect
-      // run, the new run will acquire its own.
-      if (stream) {
+      // Critical: if the recorder borrowed this stream, it now owns the
+      // track lifecycle. Stopping tracks here would end them out from
+      // under `MediaRecorder`, producing the laggy-bubble / dead-track
+      // bug. The recorder will stop them on `stop()` / `cancel()`.
+      if (stream && !transferred) {
         stream.getTracks().forEach((t) => t.stop());
       }
-      bubbleStreamRef.current = null;
-      // Close the bubble window. The recorder leaves the bubble alone
-      // when the popover owns the camera (calls `hide_recording_chrome`
-      // instead of `hide_overlays`) — so this effect is the one
-      // responsible for actually closing it when the session ends.
-      invoke("hide_overlays").catch(() => {});
+      // If the recorder owns the stream, keep `bubbleStreamRef` pointed
+      // at it so the next re-entry of this effect (if any) doesn't try
+      // to re-acquire while the recorder is still using it.
+      if (!transferred) {
+        bubbleStreamRef.current = null;
+      }
+      // Don't tear down overlays if a recording is still in flight (the
+      // recorder's stop flow calls `hide_recording_chrome` which handles
+      // the bubble correctly). Hiding here mid-flow would kill the
+      // on-screen bubble window the user sees during the recording.
+      if (!recordingInFlight) {
+        invoke("hide_overlays").catch(() => {});
+      }
     };
   }, [bubbleActive, cameraId]);
 
@@ -457,19 +485,35 @@ export function App() {
     // + pump stay alive for the entire recording.
     const preAcquiredCameraStream =
       mode !== "screen" && cameraOn ? bubbleStreamRef.current : null;
+    // Flip the ownership flag BEFORE kicking off the recorder. Any
+    // bubble-session cleanup that fires after this point must leave the
+    // tracks alone — the recorder now owns them. Cleared in the stop /
+    // cancel / failure paths below.
+    if (preAcquiredCameraStream) {
+      bubbleStreamTransferredToRecorder.current = true;
+    }
 
     let handle: RecorderHandle | null = null;
     let startError: unknown = null;
     try {
-      // CRITICAL: call startNativeRecording() FIRST (synchronously kicks off
-      // getDisplayMedia / getUserMedia on the same user-activation stack),
-      // THEN hide the popover. JS function calls are synchronous up to the
-      // first await, so `getDisplayMedia` has already been initiated by the
-      // time control returns here. Hiding the popover afterward can't
-      // retroactively invalidate activation for an already-initiated
-      // capture request — and we avoid any theoretical race where
-      // `getCurrentWindow().hide()` could consume activation before
-      // `getDisplayMedia` runs.
+      // Kick off the native recording. We used to hide the popover here
+      // (before awaiting getDisplayMedia) so it wouldn't appear in the
+      // screen picker — but hiding the popover's webview mid-navigator-
+      // .mediaDevices.getDisplayMedia() suspends its JS execution in
+      // WebKit and the promise never resolves. Symptom: tray dead,
+      // recorder hangs forever, allSettled stuck.
+      //
+      // The fix is on the Rust side: every Clips-owned window (popover,
+      // bubble, toolbar, countdown, signin) is marked NSWindowSharingNone
+      // at build time, so macOS's screen picker CAN'T pick the popover
+      // as a capture target AND the popover doesn't show up in full-
+      // screen recordings either. We keep the popover visible during the
+      // screen picker and the popover's JS keeps running — same approach
+      // Loom / 1Password / CleanShot take.
+      //
+      // The popover gets hidden later, AFTER we receive the recorder
+      // handle (i.e. after the countdown has started), which matches
+      // Loom's UX.
       const recordingPromise = startNativeRecording({
         serverUrl,
         mode,
@@ -480,34 +524,24 @@ export function App() {
         preAcquiredCameraStream,
       });
 
-      // Now hide the popover so the macOS screen picker doesn't list it
-      // as a capture target. Fire-and-forget — the already-initiated
-      // recording promise isn't affected.
+      // No watchdog — the macOS screen picker can stay open indefinitely
+      // (a user deciding which window to capture may take 20, 60, 180
+      // seconds). A false-positive timeout here fires recovery mid-setup,
+      // which flips `recordingFlowActive` back to false → the bubble
+      // session effect's cleanup runs and stops the popover-owned camera
+      // stream → the recorder ends up with a dead track when the screen
+      // picker finally resolves. If the user actually wants to abort,
+      // canceling the picker throws NotAllowedError and we recover through
+      // the normal error path.
+      handle = await recordingPromise;
+      console.log("[clips-popover] recorder handle received");
+      // Hide the popover now that the recorder is live. Safe to do after
+      // the promise resolved — WebKit JS was never suspended because we
+      // didn't hide it during getDisplayMedia.
       getCurrentWindow()
         .hide()
         .catch(() => {});
       emit("clips:popover-visible", false).catch(() => {});
-
-      // Watchdog: if the recorder promise takes longer than 30s to
-      // settle, treat as hung and bail. Steve would otherwise be
-      // staring at a silently-hung promise with no countdown / toolbar.
-      const WATCHDOG_MS = 30_000;
-      let watchdogTimer: ReturnType<typeof setTimeout> | null = null;
-      const watchdogPromise = new Promise<never>((_, reject) => {
-        watchdogTimer = setTimeout(() => {
-          reject(
-            new Error(
-              `startNativeRecording watchdog timeout after ${WATCHDOG_MS}ms`,
-            ),
-          );
-        }, WATCHDOG_MS);
-      });
-      try {
-        handle = await Promise.race([recordingPromise, watchdogPromise]);
-        console.log("[clips-popover] recorder handle received");
-      } finally {
-        if (watchdogTimer) clearTimeout(watchdogTimer);
-      }
     } catch (err) {
       startError = err;
     } finally {
@@ -521,6 +555,11 @@ export function App() {
         console.warn(
           "[clips-popover] startRecording finally: no handle — running recovery",
         );
+        // Hand the stream back to the popover session. The recorder
+        // never got far enough to take ownership of the tracks, so the
+        // bubble-session effect must be allowed to stop them again on
+        // its next cleanup (e.g. if the user closes the popover).
+        bubbleStreamTransferredToRecorder.current = false;
         setRecordingFlowActive(false);
         try {
           await invoke("set_recording_state", { active: false });
@@ -585,6 +624,10 @@ export function App() {
             setRecError(err instanceof Error ? err.message : String(err));
         } finally {
           if (!cancelled) {
+            // Recorder has stopped its tracks; next popover session can
+            // acquire the camera cleanly again.
+            bubbleStreamTransferredToRecorder.current = false;
+            bubbleStreamRef.current = null;
             setRecorder(null);
             setRecordingFlowActive(false);
             invoke("set_recording_state", { active: false }).catch(() => {});
@@ -604,6 +647,8 @@ export function App() {
           await recorder.cancel();
         } finally {
           if (!cancelled) {
+            bubbleStreamTransferredToRecorder.current = false;
+            bubbleStreamRef.current = null;
             setRecorder(null);
             setRecordingFlowActive(false);
             invoke("set_recording_state", { active: false }).catch(() => {});

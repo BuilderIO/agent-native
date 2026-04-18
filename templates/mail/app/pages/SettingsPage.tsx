@@ -836,7 +836,7 @@ function TrackingSection() {
   const { data: settings, isLoading } = useSettings();
   const updateSettings = useUpdateSettings();
 
-  const tracking = settings?.tracking ?? { opens: true, clicks: true };
+  const tracking = settings?.tracking ?? { opens: true, clicks: false };
 
   const update = (patch: Partial<{ opens: boolean; clicks: boolean }>) => {
     updateSettings.mutate({

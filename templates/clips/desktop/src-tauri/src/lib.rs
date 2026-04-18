@@ -14,6 +14,71 @@ use tauri::{
     WebviewWindowBuilder,
 };
 
+// ---------------------------------------------------------------------------
+// Exclude-from-capture helper (macOS only)
+// ---------------------------------------------------------------------------
+//
+// Every Clips-owned overlay window (popover / bubble / toolbar / countdown /
+// signin) gets `NSWindow.sharingType = NSWindowSharingNone` flipped on right
+// after build. This has two effects on macOS:
+//
+//   1. **Screen pickers don't list it.** When the user clicks "Start Recording"
+//      the popover stays open on screen while macOS shows the screen / window
+//      picker. Because the popover is marked non-sharable, the picker doesn't
+//      enumerate it as a potential capture source — the user can't accidentally
+//      record the Clips UI itself.
+//
+//   2. **Full-screen captures omit it.** Even when the user picks a full
+//      display, the compositor doesn't composite the overlay windows into the
+//      captured frame. The final recording shows the screen content beneath
+//      the popover / bubble / toolbar / countdown, not the overlays.
+//
+// This is the same mechanism Loom, 1Password, and CleanShot use to keep their
+// own chrome out of captures. It also sidesteps a nasty WebKit bug we hit
+// earlier: hiding the popover's webview mid-`getDisplayMedia` suspends JS
+// execution and the recorder promise never resolves — freezing the tray.
+// By leaving the popover VISIBLE (but non-sharable) during the screen picker,
+// JS keeps running and the promise resolves cleanly.
+//
+// Caveat: on macOS 15.4+ (Sequoia), ScreenCaptureKit-based apps can sometimes
+// still capture `NSWindowSharingNone` windows — Apple has acknowledged this as
+// a platform bug with no public workaround. Everything up to macOS 14 works
+// correctly, and on 15.4+ the majority of capture apps still honour it.
+#[cfg(target_os = "macos")]
+fn set_capture_excluded(window: &WebviewWindow) {
+    let label = window.label().to_string();
+    let ns_window_ptr = match window.ns_window() {
+        Ok(p) => p,
+        Err(err) => {
+            eprintln!("[clips-tray] set_capture_excluded({label}): ns_window() failed: {err}");
+            return;
+        }
+    };
+    if ns_window_ptr.is_null() {
+        eprintln!("[clips-tray] set_capture_excluded({label}): ns_window is null");
+        return;
+    }
+    // 0 == NSWindowSharingNone, 1 == NSWindowSharingReadOnly (default). We want
+    // 0. Pass as NSUInteger (usize) to match the Objective-C selector signature.
+    // SAFETY: ns_window() returns a live NSWindow* owned by Tauri. The sharing
+    // type setter is idempotent, thread-unsafe (AppKit main-thread only, and
+    // Tauri invokes us from the main thread during setup/show commands), and
+    // has no return value. The worst case if we pass a stale pointer is a
+    // crash — but the window is still alive on this code path because we're
+    // holding the `&WebviewWindow` reference.
+    unsafe {
+        let obj = ns_window_ptr as *mut objc2::runtime::AnyObject;
+        let _: () = objc2::msg_send![&*obj, setSharingType: 0usize];
+    }
+    eprintln!("[clips-tray] set_capture_excluded({label}): NSWindowSharingNone applied");
+}
+
+#[cfg(not(target_os = "macos"))]
+fn set_capture_excluded(_window: &WebviewWindow) {
+    // No-op on non-macOS platforms. Screen-capture exclusion isn't a public
+    // Windows API; Linux doesn't even have a universal screen-capture API.
+}
+
 /// Last-known tray icon rect, updated on every tray event. Used to anchor the
 /// popover directly under the icon (Loom-style) instead of floating in the
 /// top-right corner of the screen.
@@ -78,6 +143,7 @@ async fn show_countdown(app: AppHandle) -> Result<(), String> {
     let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(mw, mh)));
     let _ = win.set_position(PhysicalPosition::new(0, 0));
     let _ = win.set_ignore_cursor_events(true);
+    set_capture_excluded(&win);
     let _ = win.show();
     eprintln!("[clips-tray] countdown shown");
     Ok(())
@@ -94,10 +160,12 @@ async fn show_toolbar(app: AppHandle) -> Result<(), String> {
         return Ok(());
     }
     let (_mw, mh) = primary_monitor_physical_size(&app).unwrap_or((2880, 1800));
-    // 72x180 logical → 144x360 physical on 2x, but we're working in pure
-    // physical here so pick values that look right at retina scale.
-    let w: u32 = 144;
-    let h: u32 = 360;
+    // Tighter pill: buttons are 30px, padding is 10px, gap is 10px. The
+    // window is sized so the pill fills it with only ~4-6 px of slack per
+    // side for the CSS drop shadow to bleed into. Values are physical px,
+    // so ~2x the logical pill dimensions on retina.
+    let w: u32 = 110;
+    let h: u32 = 260;
     // Flush-left with a small margin; vertically centered on the screen.
     let x: i32 = 48;
     let y: i32 = (mh as i32 - h as i32) / 2;
@@ -133,6 +201,7 @@ async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     })?;
     let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
     let _ = win.set_position(PhysicalPosition::new(x, y));
+    set_capture_excluded(&win);
     let _ = win.show();
     eprintln!("[clips-tray] toolbar shown");
     Ok(())
@@ -249,6 +318,7 @@ async fn show_bubble(app: AppHandle) -> Result<(), String> {
     })?;
     let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(size, size)));
     let _ = win.set_position(PhysicalPosition::new(x, y));
+    set_capture_excluded(&win);
     let _ = win.show();
     eprintln!("[clips-tray] bubble shown at ({},{}) size {}", x, y, size);
     Ok(())
@@ -347,6 +417,7 @@ async fn show_signin(app: AppHandle, url: String) -> Result<(), String> {
         .focused(true)
         .build()
         .map_err(|e| e.to_string())?;
+    set_capture_excluded(&win);
     let _ = win.show();
     let _ = win.set_focus();
     Ok(())
@@ -705,6 +776,12 @@ pub fn run() {
             // itself macOS briefly steals focus from the popover, which would
             // fire Focused(false) and hide the window we literally just showed.
             if let Some(window) = app.get_webview_window("popover") {
+                // Exclude the popover from screen recordings and from the macOS
+                // screen / window picker. See `set_capture_excluded` docs. This
+                // is what lets us keep the popover visible (and its JS alive)
+                // during `getDisplayMedia` without the popover leaking into the
+                // recorded video.
+                set_capture_excluded(&window);
                 let handle = window.clone();
                 let app_handle = app.handle().clone();
                 // NOTE: Intentionally NOT calling window.open_devtools()

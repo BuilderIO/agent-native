@@ -28,12 +28,16 @@ async function seedWorkspaceIfNeeded(workspaceId: string): Promise<void> {
 
 async function seedAllWorkspaces(): Promise<void> {
   if (bootSeeded) return;
-  bootSeeded = true;
   try {
     const db = getDb();
     const rows = await db
       .select({ id: schema.workspaces.id })
       .from(schema.workspaces);
+    // Only flip bootSeeded once we've successfully scanned at least one
+    // workspace. Otherwise a boot before any workspace exists would skip
+    // seeding forever.
+    if (rows.length === 0) return;
+    bootSeeded = true;
     for (const row of rows) {
       await seedWorkspaceIfNeeded(row.id);
     }

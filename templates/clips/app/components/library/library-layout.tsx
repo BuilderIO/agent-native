@@ -26,6 +26,7 @@ import {
   useOrganizations,
   useCreateFolder,
 } from "@/hooks/use-library";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { FolderTree, type FolderNode } from "./folder-tree";
 import { SearchBar } from "./search-bar";
 import { OrganizationSwitcher } from "./organization-switcher";
@@ -37,6 +38,7 @@ interface LibraryLayoutProps {
 
 export function LibraryLayout({ children }: LibraryLayoutProps) {
   const location = useLocation();
+  const isMobile = useIsMobile();
   const { folderId, spaceId } = useParams<{
     folderId?: string;
     spaceId?: string;
@@ -104,6 +106,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
     <div className="flex h-screen overflow-hidden bg-background">
       <AgentSidebar
         position="right"
+        defaultOpen={!isMobile}
         emptyStateText="How can I help with your recordings?"
         suggestions={[
           "Summarize my last recording",
