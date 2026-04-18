@@ -22,7 +22,7 @@ const NAV = [
   { to: "/teams", label: "Teams", icon: IconUsersGroup },
   { to: "/routing-forms", label: "Routing Forms", icon: IconRoute },
   { to: "/workflows", label: "Workflows", icon: IconBolt },
-  { to: "/apps", label: "Apps", icon: IconApps },
+  { to: "/apps", label: "Integrations", icon: IconApps },
   { to: "/settings/my-account/profile", label: "Settings", icon: IconSettings },
 ];
 

@@ -1,35 +1,36 @@
 import { useMemo, useState } from "react";
 import { callAction } from "@/lib/api";
+import { useSendToAgentChat } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import {
   IconBrandGoogle,
   IconBrandZoom,
   IconBrandTeams,
   IconCalendar,
-  IconCreditCard,
-  IconMessage,
+  IconPlus,
   IconSearch,
   IconVideo,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 
-type Category =
-  | "all"
-  | "calendars"
-  | "video"
-  | "payments"
-  | "crm"
-  | "messaging";
+type Category = "all" | "calendars" | "video";
 
-interface AppCardData {
+interface IntegrationCardData {
   kind: string;
   name: string;
   tagline: string;
   category: Exclude<Category, "all">;
   Icon: any;
-  installable: boolean;
   installed?: boolean;
 }
 
@@ -37,19 +38,18 @@ const CATEGORIES: { id: Category; label: string }[] = [
   { id: "all", label: "All" },
   { id: "calendars", label: "Calendars" },
   { id: "video", label: "Conferencing" },
-  { id: "payments", label: "Payments" },
-  { id: "crm", label: "CRM" },
-  { id: "messaging", label: "Messaging" },
 ];
 
-const APPS: AppCardData[] = [
+// Only integrations that are actually wired up and installable right now.
+// More sources are added by delegating to the agent (see the CTA at the
+// bottom of the page) — the framework's standard "add a connector" pattern.
+const INTEGRATIONS: IntegrationCardData[] = [
   {
     kind: "google_calendar",
     name: "Google Calendar",
     tagline: "Sync bookings with your Google Calendar.",
     category: "calendars",
     Icon: IconBrandGoogle,
-    installable: true,
   },
   {
     kind: "office365_calendar",
@@ -57,15 +57,6 @@ const APPS: AppCardData[] = [
     tagline: "Sync bookings with Outlook.",
     category: "calendars",
     Icon: IconCalendar,
-    installable: true,
-  },
-  {
-    kind: "apple_calendar",
-    name: "Apple Calendar",
-    tagline: "Two-way sync with iCloud.",
-    category: "calendars",
-    Icon: IconCalendar,
-    installable: false,
   },
   {
     kind: "cal_video",
@@ -73,16 +64,14 @@ const APPS: AppCardData[] = [
     tagline: "Free, built-in video conferencing.",
     category: "video",
     Icon: IconVideo,
-    installable: true,
     installed: true,
   },
   {
     kind: "google_meet",
     name: "Google Meet",
-    tagline: "Auto-generate Meet links.",
+    tagline: "Auto-generate Meet links on new bookings.",
     category: "video",
     Icon: IconBrandGoogle,
-    installable: true,
   },
   {
     kind: "zoom_video",
@@ -90,7 +79,6 @@ const APPS: AppCardData[] = [
     tagline: "Auto-generate Zoom meeting URLs.",
     category: "video",
     Icon: IconBrandZoom,
-    installable: true,
   },
   {
     kind: "teams",
@@ -98,40 +86,15 @@ const APPS: AppCardData[] = [
     tagline: "Create a Teams meeting per booking.",
     category: "video",
     Icon: IconBrandTeams,
-    installable: true,
-  },
-  {
-    kind: "stripe",
-    name: "Stripe",
-    tagline: "Collect payment when someone books.",
-    category: "payments",
-    Icon: IconCreditCard,
-    installable: false,
-  },
-  {
-    kind: "hubspot",
-    name: "HubSpot",
-    tagline: "Send booking data to your CRM.",
-    category: "crm",
-    Icon: IconCalendar,
-    installable: false,
-  },
-  {
-    kind: "slack",
-    name: "Slack",
-    tagline: "Post notifications to a channel.",
-    category: "messaging",
-    Icon: IconMessage,
-    installable: false,
   },
 ];
 
-export default function AppsPage() {
+export default function IntegrationsPage() {
   const [filter, setFilter] = useState<Category>("all");
   const [q, setQ] = useState("");
 
   const visible = useMemo(() => {
-    return APPS.filter(
+    return INTEGRATIONS.filter(
       (a) =>
         (filter === "all" || a.category === filter) &&
         (!q.trim() ||
@@ -144,16 +107,19 @@ export default function AppsPage() {
     <div className="mx-auto max-w-5xl p-6 lg:p-8">
       <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">App Store</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            Integrations
+          </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Discover apps to connect with your Scheduling account.
+            Connect calendars, conferencing, and other services to your
+            Scheduling account.
           </p>
         </div>
         <div className="relative">
           <IconSearch className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             type="search"
-            placeholder="Search apps"
+            placeholder="Search integrations"
             value={q}
             onChange={(e) => setQ(e.currentTarget.value)}
             className="w-64 pl-9"
@@ -180,29 +146,36 @@ export default function AppsPage() {
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {visible.map((a) => (
-          <AppCard key={a.kind} app={a} />
+          <IntegrationCard key={a.kind} integration={a} />
         ))}
       </div>
 
       {visible.length === 0 && (
         <div className="mt-6 rounded-md border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
-          No apps match your filter.
+          No integrations match your filter.
         </div>
       )}
+
+      <div className="mt-8">
+        <AddIntegrationCTA />
+      </div>
     </div>
   );
 }
 
-function AppCard({ app }: { app: AppCardData }) {
+function IntegrationCard({
+  integration,
+}: {
+  integration: IntegrationCardData;
+}) {
   const [connecting, setConnecting] = useState(false);
 
   const connect = async () => {
-    if (!app.installable) return;
     setConnecting(true);
     try {
-      const redirectUri = `${location.origin}/_agent-native/oauth/${app.kind}/callback`;
-      const res = await callAction("connect-calendar", {
-        kind: app.kind,
+      const redirectUri = `${location.origin}/_agent-native/oauth/${integration.kind}/callback`;
+      const res = await callAction<{ authUrl?: string }>("connect-calendar", {
+        kind: integration.kind,
         redirectUri,
       });
       if (res?.authUrl) location.href = res.authUrl;
@@ -211,7 +184,7 @@ function AppCard({ app }: { app: AppCardData }) {
     }
   };
 
-  const Icon = app.Icon;
+  const Icon = integration.Icon;
   return (
     <div className="flex flex-col gap-3 rounded-md border border-border bg-card p-4 hover:border-foreground/30">
       <div className="flex items-start gap-3">
@@ -220,27 +193,27 @@ function AppCard({ app }: { app: AppCardData }) {
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h3 className="truncate font-semibold">{app.name}</h3>
-            {app.installed && (
+            <h3 className="truncate font-semibold">{integration.name}</h3>
+            {integration.installed && (
               <Badge variant="secondary" className="text-[10px]">
                 Installed
               </Badge>
             )}
           </div>
           <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-            {app.tagline}
+            {integration.tagline}
           </p>
         </div>
       </div>
       <div className="mt-auto flex items-center justify-between">
         <span className="text-[11px] capitalize text-muted-foreground">
-          {app.category}
+          {integration.category}
         </span>
-        {app.installed ? (
+        {integration.installed ? (
           <Button size="sm" variant="ghost">
             Manage
           </Button>
-        ) : app.installable ? (
+        ) : (
           <Button
             size="sm"
             variant="outline"
@@ -249,12 +222,70 @@ function AppCard({ app }: { app: AppCardData }) {
           >
             {connecting ? "Connecting…" : "Connect"}
           </Button>
-        ) : (
-          <Button size="sm" variant="outline" disabled>
-            Coming soon
-          </Button>
         )}
       </div>
     </div>
+  );
+}
+
+function AddIntegrationCTA() {
+  const [prompt, setPrompt] = useState("");
+  const { send, isGenerating } = useSendToAgentChat();
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!prompt.trim() || isGenerating) return;
+
+    send({
+      message: prompt.trim(),
+      context:
+        "The user wants to add a new integration to the scheduling app. " +
+        "Help them add it by: creating a new provider in `@agent-native/scheduling/server/providers/` (if it's a calendar or video integration), " +
+        "registering it from `server/plugins/scheduling.ts`, declaring any required secrets via `registerRequiredSecret(...)`, " +
+        "adding an entry to `app/routes/_app.apps._index.tsx` so it shows up on the Integrations page, " +
+        "and updating the relevant skill docs. Ask clarifying questions if you need to know which service or what capability they need.",
+      submit: true,
+    });
+
+    setPrompt("");
+  }
+
+  return (
+    <Card className="border-dashed bg-card">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <IconPlus className="h-4 w-4" />
+          Add an integration
+        </CardTitle>
+        <CardDescription>
+          Don't see the service you need? Describe it and the agent will add it.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <Textarea
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            placeholder='e.g. "Add Cronofy so we can sync with Exchange on-prem calendars"'
+            className="min-h-[80px] resize-y"
+            onKeyDown={(e) => {
+              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                e.preventDefault();
+                if (prompt.trim()) handleSubmit(e);
+              }
+            }}
+          />
+          <div className="flex justify-end">
+            <Button
+              type="submit"
+              size="sm"
+              disabled={!prompt.trim() || isGenerating}
+            >
+              {isGenerating ? "Sending…" : "Add integration"}
+            </Button>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
   );
 }
