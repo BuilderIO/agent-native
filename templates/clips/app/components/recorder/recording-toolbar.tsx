@@ -175,7 +175,9 @@ export function RecordingToolbar({
         onClick={onToggleDrawing}
         className={
           "flex h-9 w-9 items-center justify-center rounded-full " +
-          (isDrawing ? "bg-[#625DF5] text-white" : "hover:bg-white/15")
+          (isDrawing
+            ? "bg-primary text-primary-foreground"
+            : "hover:bg-white/15")
         }
         aria-label="Toggle drawing"
         aria-pressed={isDrawing}

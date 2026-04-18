@@ -69,7 +69,7 @@ const migrations = runMigrations([
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL DEFAULT 'My Workspace',
       slug TEXT NOT NULL,
-      brand_color TEXT NOT NULL DEFAULT '#625DF5',
+      brand_color TEXT NOT NULL DEFAULT '#18181B',
       brand_logo_url TEXT,
       default_visibility TEXT NOT NULL DEFAULT 'private',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -113,7 +113,7 @@ const migrations = runMigrations([
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL,
       name TEXT NOT NULL,
-      color TEXT NOT NULL DEFAULT '#625DF5',
+      color TEXT NOT NULL DEFAULT '#18181B',
       icon_emoji TEXT,
       is_all_company BOOLEAN NOT NULL DEFAULT FALSE,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -229,7 +229,7 @@ const migrations = runMigrations([
       recording_id TEXT NOT NULL,
       label TEXT NOT NULL,
       url TEXT NOT NULL,
-      color TEXT NOT NULL DEFAULT '#625DF5',
+      color TEXT NOT NULL DEFAULT '#18181B',
       placement TEXT NOT NULL DEFAULT 'throughout',
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
@@ -297,9 +297,332 @@ const migrations = runMigrations([
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
   },
+  // ---------------------------------------------------------------------------
+  // Organization settings — Clips-specific sidecar to better-auth `organization`
+  //
+  // One row per organization. Brand color + logo + default visibility live
+  // here; membership and invitations live in better-auth's tables. This
+  // replaces `workspaces.brand_color` / `.brand_logo_url` / `.default_visibility`
+  // once callsites migrate.
+  // ---------------------------------------------------------------------------
+  {
+    version: 16,
+    sql: `CREATE TABLE IF NOT EXISTS organization_settings (
+      organization_id TEXT PRIMARY KEY,
+      brand_color TEXT NOT NULL DEFAULT '#18181B',
+      brand_logo_url TEXT,
+      default_visibility TEXT NOT NULL DEFAULT 'private',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+  },
 ]);
+
+/**
+ * Idempotent sync: for every Clips `workspaces` row, ensure there's a
+ * matching better-auth `organization` row (same id), an
+ * `organization_settings` row, and — where the email resolves to a known
+ * `user` — a `member` row. Invites are copied into `invitation`.
+ *
+ * Runs on every startup after the schema migrations. Safe to re-run: all
+ * inserts are guarded with WHERE-NOT-EXISTS / ON CONFLICT DO NOTHING so it
+ * only writes rows that aren't there yet.
+ *
+ * This is the one-way bridge that lets actions + UI switch from the old
+ * `workspaces` / `workspace_members` / `invites` tables to the framework's
+ * `organization` / `member` / `invitation` tables without a separate
+ * migration script.
+ */
+async function syncWorkspacesToOrganizations(): Promise<void> {
+  const exec = getDbExec();
+  const pg = isPostgres();
+
+  // 0) Skip cleanly if either source or dest tables don't exist yet. The
+  //    source may be missing on fresh installs after the workspace tables
+  //    are eventually dropped; the dest `organization` is owned by
+  //    better-auth and created at auth init, which may race with this
+  //    plugin on very first boot.
+  const hasTable = async (name: string): Promise<boolean> => {
+    try {
+      if (pg) {
+        const r = await exec.execute({
+          sql: `SELECT 1 FROM information_schema.tables WHERE table_name = $1 LIMIT 1`,
+          args: [name],
+        });
+        return (r.rows?.length ?? 0) > 0;
+      }
+      const r = await exec.execute({
+        sql: `SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?`,
+        args: [name],
+      });
+      return (r.rows?.length ?? 0) > 0;
+    } catch {
+      return false;
+    }
+  };
+
+  if (
+    !(await hasTable("workspaces")) ||
+    !(await hasTable("organization")) ||
+    !(await hasTable("organization_settings"))
+  ) {
+    return;
+  }
+
+  // 1) Copy workspaces → organization. Use the workspace id as the org id
+  //    so every downstream FK (`spaces.workspace_id`, `recordings.workspace_id`,
+  //    etc.) already points at the right org without a remap. Slug
+  //    collisions inside `organization.slug` (UNIQUE) are handled by
+  //    appending the workspace id — works because ids are unique.
+  try {
+    if (pg) {
+      await exec.execute(`
+        INSERT INTO "organization" (id, name, slug, logo, metadata, created_at, updated_at)
+        SELECT
+          w.id,
+          w.name,
+          CASE
+            WHEN EXISTS (SELECT 1 FROM "organization" o WHERE o.slug = w.slug AND o.id <> w.id)
+            THEN w.slug || '-' || substring(w.id from 1 for 8)
+            ELSE w.slug
+          END,
+          w.brand_logo_url,
+          '{}',
+          NOW(),
+          NOW()
+        FROM workspaces w
+        WHERE NOT EXISTS (SELECT 1 FROM "organization" o2 WHERE o2.id = w.id)
+      `);
+    } else {
+      await exec.execute(`
+        INSERT INTO organization (id, name, slug, logo, metadata, created_at, updated_at)
+        SELECT
+          w.id,
+          w.name,
+          CASE
+            WHEN EXISTS (SELECT 1 FROM organization o WHERE o.slug = w.slug AND o.id <> w.id)
+            THEN w.slug || '-' || substr(w.id, 1, 8)
+            ELSE w.slug
+          END,
+          w.brand_logo_url,
+          '{}',
+          strftime('%s','now') * 1000,
+          strftime('%s','now') * 1000
+        FROM workspaces w
+        WHERE NOT EXISTS (SELECT 1 FROM organization o2 WHERE o2.id = w.id)
+      `);
+    }
+  } catch (err) {
+    console.warn(
+      `[db] workspaces → organization sync failed:`,
+      (err as Error)?.message ?? err,
+    );
+  }
+
+  // 2) Copy workspaces → organization_settings (brand fields sidecar).
+  try {
+    await exec.execute(`
+      INSERT INTO organization_settings (organization_id, brand_color, brand_logo_url, default_visibility, created_at, updated_at)
+      SELECT w.id, w.brand_color, w.brand_logo_url, w.default_visibility, w.created_at, w.updated_at
+      FROM workspaces w
+      WHERE NOT EXISTS (
+        SELECT 1 FROM organization_settings os WHERE os.organization_id = w.id
+      )
+    `);
+  } catch (err) {
+    console.warn(
+      `[db] workspaces → organization_settings sync failed:`,
+      (err as Error)?.message ?? err,
+    );
+  }
+
+  // 3a) Seed each workspace's owner as an admin `member` row. The old Clips
+  //     workspace model didn't require owners to also live in
+  //     `workspace_members` (the owner's membership was implicit), so this
+  //     is the step that actually lands the current user inside their
+  //     new better-auth org. Skip if the owner email doesn't yet have a
+  //     `user` row (they'll be joined on next login).
+  try {
+    if (pg) {
+      await exec.execute(`
+        INSERT INTO "member" (id, organization_id, user_id, role, created_at, updated_at)
+        SELECT
+          'ownr-' || w.id,
+          w.id,
+          u.id,
+          'admin',
+          NOW(),
+          NOW()
+        FROM workspaces w
+        JOIN "user" u ON u.email = w.owner_email
+        WHERE NOT EXISTS (
+          SELECT 1 FROM "member" m
+          WHERE m.organization_id = w.id AND m.user_id = u.id
+        )
+      `);
+    } else {
+      await exec.execute(`
+        INSERT INTO member (id, organization_id, user_id, role, created_at, updated_at)
+        SELECT
+          'ownr-' || w.id,
+          w.id,
+          u.id,
+          'admin',
+          strftime('%s','now') * 1000,
+          strftime('%s','now') * 1000
+        FROM workspaces w
+        JOIN user u ON u.email = w.owner_email
+        WHERE NOT EXISTS (
+          SELECT 1 FROM member m
+          WHERE m.organization_id = w.id AND m.user_id = u.id
+        )
+      `);
+    }
+  } catch (err) {
+    console.warn(
+      `[db] workspace owners → member sync failed:`,
+      (err as Error)?.message ?? err,
+    );
+  }
+
+  // 3b) Copy workspace_members → member where the email resolves to a known
+  //    user. Role mapping: clips `admin` → better-auth `admin`, everything
+  //    else (`creator`, `creator-lite`, `viewer`) → `member`. Finer
+  //    distinctions (if we reintroduce them) can go in a sidecar table.
+  try {
+    if (pg) {
+      await exec.execute(`
+        INSERT INTO "member" (id, organization_id, user_id, role, created_at, updated_at)
+        SELECT
+          wm.id,
+          wm.workspace_id,
+          u.id,
+          CASE WHEN wm.role = 'admin' THEN 'admin' ELSE 'member' END,
+          NOW(),
+          NOW()
+        FROM workspace_members wm
+        JOIN "user" u ON u.email = wm.email
+        WHERE NOT EXISTS (
+          SELECT 1 FROM "member" m
+          WHERE m.organization_id = wm.workspace_id AND m.user_id = u.id
+        )
+      `);
+    } else {
+      await exec.execute(`
+        INSERT INTO member (id, organization_id, user_id, role, created_at, updated_at)
+        SELECT
+          wm.id,
+          wm.workspace_id,
+          u.id,
+          CASE WHEN wm.role = 'admin' THEN 'admin' ELSE 'member' END,
+          strftime('%s','now') * 1000,
+          strftime('%s','now') * 1000
+        FROM workspace_members wm
+        JOIN user u ON u.email = wm.email
+        WHERE NOT EXISTS (
+          SELECT 1 FROM member m
+          WHERE m.organization_id = wm.workspace_id AND m.user_id = u.id
+        )
+      `);
+    }
+  } catch (err) {
+    console.warn(
+      `[db] workspace_members → member sync failed:`,
+      (err as Error)?.message ?? err,
+    );
+  }
+
+  // 3c) Set `session.active_organization_id` for any active session that
+  //     doesn't have one yet, picking the user's newest org membership.
+  //     Without this, the UI would render "No organization" on first boot
+  //     after the migration even though the user IS in an org — better-auth
+  //     only auto-activates an org on login, not for pre-existing sessions.
+  try {
+    if (pg) {
+      await exec.execute(`
+        UPDATE "session" s
+        SET active_organization_id = sub.organization_id
+        FROM (
+          SELECT DISTINCT ON (user_id) user_id, organization_id
+          FROM "member"
+          ORDER BY user_id, created_at DESC
+        ) sub
+        WHERE s.user_id = sub.user_id
+          AND s.active_organization_id IS NULL
+      `);
+    } else {
+      await exec.execute(`
+        UPDATE session
+        SET active_organization_id = (
+          SELECT m.organization_id
+          FROM member m
+          WHERE m.user_id = session.user_id
+          ORDER BY m.created_at DESC
+          LIMIT 1
+        )
+        WHERE active_organization_id IS NULL
+          AND EXISTS (SELECT 1 FROM member m2 WHERE m2.user_id = session.user_id)
+      `);
+    }
+  } catch (err) {
+    console.warn(
+      `[db] session.active_organization_id backfill failed:`,
+      (err as Error)?.message ?? err,
+    );
+  }
+
+  // 4) Copy invites → invitation (pending only). Inviter has to resolve to
+  //    a known user — if not, skip (invitation.inviter_id is NOT NULL).
+  try {
+    if (pg) {
+      await exec.execute(`
+        INSERT INTO "invitation" (id, organization_id, email, role, status, expires_at, inviter_id, created_at, updated_at)
+        SELECT
+          i.id,
+          i.workspace_id,
+          i.email,
+          CASE WHEN i.role = 'admin' THEN 'admin' ELSE 'member' END,
+          CASE WHEN i.accepted_at IS NOT NULL THEN 'accepted' ELSE 'pending' END,
+          COALESCE(i.expires_at::TIMESTAMPTZ, NOW() + INTERVAL '30 days'),
+          inv.id,
+          NOW(),
+          NOW()
+        FROM invites i
+        JOIN "user" inv ON inv.email = i.invited_by
+        WHERE NOT EXISTS (
+          SELECT 1 FROM "invitation" x WHERE x.id = i.id
+        )
+      `);
+    } else {
+      await exec.execute(`
+        INSERT INTO invitation (id, organization_id, email, role, status, expires_at, inviter_id, created_at, updated_at)
+        SELECT
+          i.id,
+          i.workspace_id,
+          i.email,
+          CASE WHEN i.role = 'admin' THEN 'admin' ELSE 'member' END,
+          CASE WHEN i.accepted_at IS NOT NULL THEN 'accepted' ELSE 'pending' END,
+          COALESCE(CAST(i.expires_at AS INTEGER), strftime('%s','now') * 1000 + 2592000000),
+          inv.id,
+          strftime('%s','now') * 1000,
+          strftime('%s','now') * 1000
+        FROM invites i
+        JOIN user inv ON inv.email = i.invited_by
+        WHERE NOT EXISTS (
+          SELECT 1 FROM invitation x WHERE x.id = i.id
+        )
+      `);
+    }
+  } catch (err) {
+    console.warn(
+      `[db] invites → invitation sync failed:`,
+      (err as Error)?.message ?? err,
+    );
+  }
+}
 
 export default async (nitroApp: any): Promise<void> => {
   await migrations(nitroApp);
   await retypeBooleanColumnsOnPostgres();
+  await syncWorkspacesToOrganizations();
 };

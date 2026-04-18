@@ -297,26 +297,19 @@ export async function startNativeRecording(
   recorder.start(2_000);
   console.log("[clips-recorder] MediaRecorder started");
 
-  // 6. Show the floating toolbar + camera bubble.
+  // 6. Show the floating toolbar. The camera bubble is already on-screen
+  // from the popover's pre-record preview effect (which also owns the
+  // bubble-config emit). Re-invoking show_bubble here used to fire a
+  // second bubble-config right as MediaRecorder started — and that
+  // redundant config flip caused the bubble's useEffect to tear down
+  // and re-acquire the camera, racing with the live stream and ending
+  // up black on macOS. The popover keeps the bubble alive via
+  // `recordingFlowActive`, so we only need to own the toolbar here.
   try {
     await invoke("show_toolbar");
     console.log("[clips-recorder] show_toolbar ok");
   } catch (err) {
     console.error("[clips-recorder] show_toolbar failed:", err);
-  }
-  if (wantsCamera) {
-    try {
-      await invoke("show_bubble");
-      console.log("[clips-recorder] show_bubble ok");
-    } catch (err) {
-      console.error("[clips-recorder] show_bubble failed:", err);
-    }
-    // Tell the bubble which device to use (if any). It grabs its own stream.
-    setTimeout(() => {
-      emit("clips:bubble-config", { deviceId: params.cameraId }).catch((err) =>
-        console.error("[clips-recorder] bubble-config emit failed:", err),
-      );
-    }, 300);
   }
 
   const handle: RecorderHandle = {
@@ -357,51 +350,51 @@ export async function startNativeRecording(
         s?.getTracks().forEach((t) => t.stop()),
       );
 
-      // Tear down all overlays and open the playback URL IMMEDIATELY. The
-      // finalize roundtrip can take seconds (and sometimes the dev server
-      // stalls) — we don't want the UI to sit there doing nothing while
-      // the user waits for the network. The recording is safe server-side
-      // as long as the chunks have streamed; finalize just assembles them.
-      const viewUrl = `/r/${id}`;
-      console.log("[clips-recorder] hiding overlays + opening browser");
+      // Hide overlays right away so the user sees the chrome disappear, but
+      // keep the popover alive until finalize completes — otherwise closing
+      // the Tauri webview cancels the in-flight fetch and the recording
+      // gets stuck in "processing" forever. Popover hide happens AFTER
+      // we've gotten the server's finalize response.
+      console.log("[clips-recorder] hiding overlay chrome");
       await invoke("hide_overlays").catch((err) =>
         console.error("[clips-recorder] hide_overlays failed:", err),
       );
+
+      // Wait for any in-flight chunk uploads to settle before sending the
+      // final chunk. Otherwise the server could finalize before the last
+      // few bytes land.
+      await Promise.allSettled(uploadQueue);
+      if (failed)
+        console.error("[clips-recorder] chunk upload failed:", failed);
+
+      const finalizeUrl = chunkUrl(params.serverUrl, id, chunkIndex, true, {
+        mimeType: mimeType || "video/webm",
+      });
+      try {
+        const finalRes = await fetch(finalizeUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/octet-stream" },
+          credentials: "include",
+          body: new Blob([], { type: mimeType || "video/webm" }),
+        });
+        if (!finalRes.ok) {
+          const body = await finalRes.text().catch(() => "");
+          console.error(
+            `[clips-recorder] finalize ${finalRes.status}: ${body.slice(0, 200)}`,
+          );
+        } else {
+          console.log("[clips-recorder] finalize ok");
+        }
+      } catch (err) {
+        console.error("[clips-recorder] finalize fetch failed:", err);
+      }
+
+      // Finalize done (or tried and failed — the player page shows a clear
+      // error state in either case). Open the browser to the playback URL.
+      const viewUrl = `/r/${id}`;
       openExternal(`${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`).catch(
         (err) => console.error("[clips-recorder] openExternal failed:", err),
       );
-
-      // Best-effort finalize in the background. Log failures, but don't
-      // block or throw — the browser tab is already opening and the user
-      // will see whatever state the server landed on.
-      (async () => {
-        await Promise.allSettled(uploadQueue);
-        if (failed) {
-          console.error("[clips-recorder] chunk upload failed:", failed);
-          return;
-        }
-        const finalizeUrl = chunkUrl(params.serverUrl, id, chunkIndex, true, {
-          mimeType: mimeType || "video/webm",
-        });
-        try {
-          const finalRes = await fetch(finalizeUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/octet-stream" },
-            credentials: "include",
-            body: new Blob([], { type: mimeType || "video/webm" }),
-          });
-          if (!finalRes.ok) {
-            const body = await finalRes.text().catch(() => "");
-            console.error(
-              `[clips-recorder] finalize ${finalRes.status}: ${body.slice(0, 200)}`,
-            );
-          } else {
-            console.log("[clips-recorder] finalize ok");
-          }
-        } catch (err) {
-          console.error("[clips-recorder] finalize fetch failed:", err);
-        }
-      })();
 
       return { recordingId: id, viewUrl };
     },

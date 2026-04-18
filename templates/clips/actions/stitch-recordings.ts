@@ -98,7 +98,7 @@ export default defineAction({
 
     const byId = new Map(sources.map((s) => [s.id, s]));
     const ordered = ids.map((id) => byId.get(id)!);
-    const workspaceId = ordered[0].workspaceId;
+    const organizationId = ordered[0].organizationId;
 
     const totalDuration =
       args.durationMs ??
@@ -119,7 +119,7 @@ export default defineAction({
 
     await db.insert(schema.recordings).values({
       id,
-      workspaceId,
+      organizationId,
       folderId: args.folderId ?? null,
       title: args.title?.trim() || "Stitched recording",
       status: args.videoUrl ? "ready" : "processing",

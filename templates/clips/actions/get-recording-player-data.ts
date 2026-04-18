@@ -120,7 +120,7 @@ export default defineAction({
       role: access.role,
       recording: {
         id: rec.id,
-        workspaceId: rec.workspaceId,
+        organizationId: rec.organizationId,
         title: rec.title,
         description: rec.description,
         thumbnailUrl: rec.thumbnailUrl,
@@ -133,6 +133,8 @@ export default defineAction({
         hasAudio: Boolean(rec.hasAudio),
         hasCamera: Boolean(rec.hasCamera),
         status: rec.status,
+        uploadProgress: rec.uploadProgress,
+        failureReason: rec.failureReason,
         password: rec.password,
         expiresAt: rec.expiresAt,
         enableComments: Boolean(rec.enableComments),

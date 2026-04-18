@@ -76,13 +76,13 @@ Key rules:
 - **`submit: true`** — auto-submit. These are routine, user-approved operations.
 - **Never `await` the agent's response from an action.** Fire and forget. The agent will write results back via other actions (`update-recording`, `apply-edit`), and `refresh-signal` will push them to the UI.
 
-For UI-triggered AI (a sparkle button next to the title — **wait, no sparkle icons**, use something like `IconWand` or `IconBolt`), call the same action via `useActionMutation`:
+For UI-triggered AI — **no wand, no sparkles, no robot icons** (all three are overplayed clichés for AI). Prefer plain text with a caret (`IconChevronDown`) on a dropdown, or a neutral verb icon like `IconBolt` only if an icon is truly needed. Call the same action via `useActionMutation`:
 
 ```tsx
 const generate = useActionMutation("generate-ai-metadata");
 <Button onClick={() => generate.mutate({ id: rec.id, kind: "title,summary" })}>
-  <IconWand className="mr-2" />
   Suggest
+  <IconChevronDown className="ml-2 h-4 w-4" />
 </Button>
 ```
 
@@ -143,7 +143,7 @@ This pushes a card into the onboarding checklist so the user is prompted before 
 - Don't `import OpenAI from "openai"` anywhere except `actions/transcribe-recording.ts`.
 - Don't `import Anthropic from "@anthropic-ai/sdk"` — the agent is already Claude.
 - Don't build a "Clips AI" dialog that duplicates the agent chat. Use the agent chat.
-- Don't render a robot or sparkle icon for AI affordances — use Tabler's `IconWand`, `IconBolt`, or `IconSparkles` — actually, **no** `IconSparkles` either. Pick `IconWand` or `IconBolt`.
+- Don't render a robot, sparkle, or wand icon for AI affordances — all three are overplayed. Prefer plain text (or a neutral verb icon like `IconBolt`) for AI buttons.
 - Don't dump entire transcripts into `sendToAgentChat` context. Pass the id; let the agent fetch.
 - Don't `await` the agent's response from an action. Fire and forget; results arrive via other actions.
 

@@ -1,8 +1,9 @@
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import type { H3Event } from "h3";
-import { getDb, schema } from "../db/index.js";
+import { getDb, getDbExec, schema } from "../db/index.js";
 import { getSession } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { readAppState } from "@agent-native/core/application-state";
 
 export function getCurrentOwnerEmail(): string {
   return getRequestUserEmail() || "local@localhost";
@@ -11,6 +12,108 @@ export function getCurrentOwnerEmail(): string {
 export async function getEventOwnerEmail(event: H3Event): Promise<string> {
   const session = await getSession(event);
   return session?.email ?? "local@localhost";
+}
+
+/**
+ * Resolve the caller's active organization id.
+ *
+ * Order of resolution:
+ *   1. The current better-auth session's `activeOrganizationId` (when an
+ *      H3Event is available — e.g. inside an HTTP action).
+ *   2. A single org that the caller belongs to (convenience for dev /
+ *      solo-mode where there's no session to read).
+ *   3. The most-recently-created organization in the DB (fallback for the
+ *      agent CLI, which doesn't have a request context).
+ *   4. The legacy `current-workspace` application-state key (kept so the
+ *      old UI's writes continue to work during the workspace → org transition).
+ *
+ * Returns `null` when no org exists at all.
+ */
+export async function getActiveOrganizationId(
+  event?: H3Event,
+): Promise<string | null> {
+  if (event) {
+    try {
+      const session = await getSession(event);
+      const orgId = (session as any)?.orgId ?? null;
+      if (orgId) return orgId;
+    } catch {
+      // fall through
+    }
+  }
+
+  const email = getRequestUserEmail();
+  const exec = getDbExec();
+
+  if (email) {
+    try {
+      const res = await exec.execute({
+        sql: `SELECT m.organization_id AS id FROM member m JOIN "user" u ON u.id = m.user_id WHERE u.email = $1 ORDER BY m.created_at DESC LIMIT 1`,
+        args: [email],
+      });
+      const row = (res.rows as Array<{ id?: string }>)[0];
+      if (row?.id) return row.id;
+    } catch {
+      // SQLite — try again without the quoted identifier
+      try {
+        const res = await exec.execute({
+          sql: `SELECT m.organization_id AS id FROM member m JOIN user u ON u.id = m.user_id WHERE u.email = ? ORDER BY m.created_at DESC LIMIT 1`,
+          args: [email],
+        });
+        const row = (res.rows as Array<{ id?: string }>)[0];
+        if (row?.id) return row.id;
+      } catch {
+        // fall through
+      }
+    }
+  }
+
+  try {
+    const res = await exec.execute(
+      `SELECT id FROM organization ORDER BY created_at DESC LIMIT 1`,
+    );
+    const row = (res.rows as Array<{ id?: string }>)[0];
+    if (row?.id) return row.id;
+  } catch {
+    // fall through
+  }
+
+  // Legacy fallback: the old workspace UI wrote `current-workspace` to app
+  // state. Keep reading it so in-flight sessions don't lose their context
+  // between the workspace → org deploy.
+  try {
+    const legacy = (await readAppState("current-workspace")) as {
+      id?: string;
+    } | null;
+    if (legacy?.id) return legacy.id;
+  } catch {
+    // fall through
+  }
+
+  try {
+    const [row] = await getDb()
+      .select({ id: schema.workspaces.id })
+      .from(schema.workspaces)
+      .orderBy(desc(schema.workspaces.createdAt))
+      .limit(1);
+    if (row?.id) return row.id;
+  } catch {
+    // fall through
+  }
+
+  return null;
+}
+
+/**
+ * Like `getActiveOrganizationId` but throws if there's no active org — use
+ * in mutations where a null org id should never reach the SQL layer.
+ */
+export async function requireActiveOrganizationId(
+  event?: H3Event,
+): Promise<string> {
+  const id = await getActiveOrganizationId(event);
+  if (!id) throw new Error("No active organization");
+  return id;
 }
 
 export function nanoid(size = 12): string {

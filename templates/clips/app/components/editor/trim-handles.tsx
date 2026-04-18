@@ -20,7 +20,22 @@ export interface TrimHandlesProps {
 type DragMode = "start" | "end" | "range" | null;
 
 const HANDLE_WIDTH = 12;
-const BRAND = "#625DF5";
+
+const getBrandColor = () => {
+  if (typeof window === "undefined") return "#0f172a";
+  const v = getComputedStyle(document.documentElement)
+    .getPropertyValue("--primary")
+    .trim();
+  return v ? `hsl(${v})` : "#0f172a";
+};
+
+const getBrandColorAlpha = (alpha: number) => {
+  if (typeof window === "undefined") return `rgba(15, 23, 42, ${alpha})`;
+  const v = getComputedStyle(document.documentElement)
+    .getPropertyValue("--primary")
+    .trim();
+  return v ? `hsl(${v} / ${alpha})` : `rgba(15, 23, 42, ${alpha})`;
+};
 
 /** Drag handles for marking a trim range over the waveform. */
 export function TrimHandles({
@@ -111,9 +126,9 @@ export function TrimHandles({
         style={{
           left: startX,
           width: Math.max(2, endX - startX),
-          background: "rgba(98,93,245,0.18)",
-          borderTop: `1px solid ${BRAND}`,
-          borderBottom: `1px solid ${BRAND}`,
+          background: getBrandColorAlpha(0.18),
+          borderTop: `1px solid ${getBrandColor()}`,
+          borderBottom: `1px solid ${getBrandColor()}`,
         }}
         onPointerDown={startDrag("range")}
       >
@@ -128,7 +143,7 @@ export function TrimHandles({
         style={{
           left: startX - HANDLE_WIDTH / 2,
           width: HANDLE_WIDTH,
-          background: BRAND,
+          background: getBrandColor(),
           borderRadius: "2px 0 0 2px",
         }}
         onPointerDown={startDrag("start")}
@@ -142,7 +157,7 @@ export function TrimHandles({
         style={{
           left: endX - HANDLE_WIDTH / 2,
           width: HANDLE_WIDTH,
-          background: BRAND,
+          background: getBrandColor(),
           borderRadius: "0 2px 2px 0",
         }}
         onPointerDown={startDrag("end")}

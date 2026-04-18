@@ -104,6 +104,14 @@ export function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [recorder, setRecorder] = useState<RecorderHandle | null>(null);
   const [recError, setRecError] = useState<string | null>(null);
+  // Latched true the moment the user clicks Start Recording and cleared
+  // when the recorder fully stops/cancels. We use this to keep the camera
+  // bubble alive across the brief popover-visibility transitions during
+  // recording setup (the macOS screen-picker steals focus and can briefly
+  // flip `popoverVisible` to false — without this latch, the bubble
+  // window would be destroyed + recreated, and the second getUserMedia
+  // would race the first and come back black).
+  const [recordingFlowActive, setRecordingFlowActive] = useState(false);
   const [lastRecordingId, setLastRecordingId] = useState<string | null>(null);
   const [authStatus, setAuthStatus] = useState<"unknown" | "authed" | "anon">(
     "unknown",
@@ -257,13 +265,16 @@ export function App() {
   // working in another app).
 
   const showBubblePreview =
-    mode !== "screen" && cameraOn && (popoverVisible || isRecording);
+    mode !== "screen" &&
+    cameraOn &&
+    (popoverVisible || isRecording || recordingFlowActive);
 
   useEffect(() => {
     console.log("[clips-popover] wantsBubble", showBubblePreview, {
       mode,
       cameraOn,
       isRecording,
+      recordingFlowActive,
     });
     if (!showBubblePreview) {
       invoke("hide_overlays").catch((e) =>
@@ -280,7 +291,14 @@ export function App() {
       );
     }, 250);
     return () => clearTimeout(t);
-  }, [showBubblePreview, cameraId, mode, cameraOn, isRecording]);
+  }, [
+    showBubblePreview,
+    cameraId,
+    mode,
+    cameraOn,
+    isRecording,
+    recordingFlowActive,
+  ]);
 
   // ---- auto-size popover to content --------------------------------------
   // The Tauri window is fixed-size via tauri.conf.json, but our content
@@ -360,6 +378,11 @@ export function App() {
       cameraOn,
       micOn,
     });
+    // Latch BEFORE the async work so the bubble-preview effect keeps the
+    // bubble window alive even if `popoverVisible` briefly flips during
+    // the macOS screen-picker dance — rebuilding the bubble mid-startup
+    // is what left it black when MediaRecorder acquired its streams.
+    setRecordingFlowActive(true);
     // Tell Rust we're entering the recording flow NOW, not after the
     // handle arrives. The macOS screen-picker dialog steals focus from
     // the popover, which would otherwise trigger the blur-auto-hide
@@ -380,6 +403,7 @@ export function App() {
     } catch (err) {
       // Recording didn't actually start — clear the flag so the popover
       // can auto-hide normally again.
+      setRecordingFlowActive(false);
       invoke("set_recording_state", { active: false }).catch(() => {});
       const message = err instanceof Error ? err.message : String(err);
       console.error("[clips-popover] startRecording failed:", err);
@@ -411,6 +435,7 @@ export function App() {
         } finally {
           if (!cancelled) {
             setRecorder(null);
+            setRecordingFlowActive(false);
             invoke("set_recording_state", { active: false }).catch(() => {});
             // Close the popover — recorder.stop() already opened the
             // recording's page in the default browser. The popover doesn't
@@ -429,6 +454,7 @@ export function App() {
         } finally {
           if (!cancelled) {
             setRecorder(null);
+            setRecordingFlowActive(false);
             invoke("set_recording_state", { active: false }).catch(() => {});
             invoke("show_popover").catch(() => {});
           }

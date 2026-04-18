@@ -1,0 +1,89 @@
+# @agent-native/scheduling
+
+Scheduling primitives for agent-native apps — event types, availability,
+bookings, team scheduling, workflows, routing forms. A thorough, locally-
+owned Cal.com clone, not an API wrapper.
+
+## What this package provides
+
+- **Drizzle schemas** (`/schema`) — event_types, schedules, availability,
+  date_overrides, bookings, booking_attendees, booking_references, teams,
+  team_members, credentials, calendar_cache, selected_calendars,
+  destination_calendars, hashed_links, workflows, workflow_steps,
+  scheduled_reminders, webhooks, routing_forms, routing_form_responses,
+  api_keys, out_of_office_entries, travel_schedules.
+- **Pure helpers** (`/core`) — DST-safe slot computation, timezone math,
+  availability rule evaluation, round-robin host selection, buffer
+  application, booking-limit bucketing, recurring-event expansion.
+- **Server layer** (`/server`) — DB repos, availability engine, booking
+  service, pluggable calendar + video providers (Google Calendar, Outlook,
+  Zoom, Google Meet, Cal Video), iCal generator, lifecycle hooks →
+  workflows.
+- **Actions** (`/actions/*`) — ~55 `defineAction` modules covering every
+  operation in the product (event type CRUD, availability edit, booking
+  lifecycle, calendar connect, team ops, round-robin, workflows, routing
+  forms). Re-export from a consumer template's `actions/` folder for
+  zero-boilerplate adoption.
+- **React primitives** (`/react`, `/react/components`) — headless hooks for
+  timezone, slots, booking flow; minimal unstyled primitives (SlotPicker,
+  TimezoneSelect).
+- **Skill docs** (`/skills/*`) — drop-in agent skills for scheduling
+  concepts: `scheduling-basics`, `event-types`, `availability`, `bookings`,
+  `booker`, `slot-engine`, `team-scheduling`, `integrations`, `embeds`,
+  `workflows`, `routing-forms`.
+
+## Quick start
+
+```ts
+// server/db/schema.ts
+export * from "@agent-native/scheduling/schema";
+
+// server/bootstrap.ts
+import { setSchedulingContext } from "@agent-native/scheduling/server";
+import {
+  registerCalendarProvider,
+  registerVideoProvider,
+  createGoogleCalendarProvider,
+  createDailyVideoProvider,
+} from "@agent-native/scheduling/server/providers";
+import { getDb, schema } from "./db/index.js";
+
+setSchedulingContext({
+  getDb,
+  schema,
+  getCurrentUserEmail: () => getRequestUserEmail(),
+  getCurrentOrgId: () => getRequestOrgId(),
+  publicBaseUrl: process.env.PUBLIC_URL,
+});
+
+registerCalendarProvider(createGoogleCalendarProvider({
+  clientId: process.env.GOOGLE_CLIENT_ID!,
+  clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+  getAccessToken: fetchGoogleToken, // your implementation
+}));
+
+registerVideoProvider(createDailyVideoProvider({
+  apiKey: process.env.DAILY_API_KEY!,
+}));
+```
+
+## Full documentation
+
+For the full bundled docs (every .md file concatenated), see
+`llms-full.txt` in this folder.
+
+## Individual skills
+
+- skills/scheduling-basics/SKILL.md — Core concepts, terminology.
+- skills/event-types/SKILL.md — Event type model, tabs, scheduling types.
+- skills/availability/SKILL.md — Schedules, date overrides, timezone rules.
+- skills/bookings/SKILL.md — Lifecycle, reschedule, cancel, no-show.
+- skills/booker/SKILL.md — Public booking flow, state machine.
+- skills/slot-engine/SKILL.md — The pure slot-computation function and
+  invariants.
+- skills/team-scheduling/SKILL.md — Team event types, round-robin,
+  collective.
+- skills/integrations/SKILL.md — Calendar + video provider integrations.
+- skills/embeds/SKILL.md — Inline/popup/floating-button embeds.
+- skills/workflows/SKILL.md — Trigger-based automations.
+- skills/routing-forms/SKILL.md — Pre-booking routing forms.

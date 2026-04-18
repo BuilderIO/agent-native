@@ -64,6 +64,17 @@ export const TEMPLATES: TemplateMeta[] = [
     defaultMode: "prod",
   },
   {
+    name: "scheduling",
+    label: "Scheduling",
+    hint: "Cal.com / Calendly clone — event types, team round-robin, routing forms, workflows",
+    icon: "CalendarTime",
+    color: "#7C3AED",
+    colorRgb: "124 58 237",
+    devPort: 8098,
+    prodUrl: "https://scheduling.agent-native.com",
+    defaultMode: "prod",
+  },
+  {
     name: "content",
     label: "Content",
     hint: "AI-native Notion/Google Docs — write and organize with agent assistance",

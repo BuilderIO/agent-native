@@ -121,13 +121,12 @@ export default function AnalyticsTemplate() {
             </div>
 
             <h1 className="mb-4 text-4xl font-bold tracking-tight md:text-5xl">
-              Agent-Native Analytics
+              The open-source alternative to Amplitude, Mixpanel &amp; Looker
             </h1>
 
             <p className="mb-6 text-lg leading-relaxed text-[var(--fg-secondary)]">
-              A full BI platform you own. Connect any data source, ask for any
-              chart, build reusable dashboards — all with an AI agent that
-              writes queries and evolves the app.
+              Connect any data source, prompt for any chart, build reusable
+              dashboards — the AI agent writes the SQL.
             </p>
 
             <div className="mb-8 flex flex-wrap items-center gap-3">

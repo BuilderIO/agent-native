@@ -52,9 +52,9 @@ export default defineAction({
     const authorEmail = getRequestUserEmail() ?? "local@localhost";
     const now = new Date().toISOString();
 
-    // Look up recording's workspace so the comment denormalizes it.
+    // Look up recording's organization so the comment denormalizes it.
     const [rec] = await db
-      .select({ workspaceId: schema.recordings.workspaceId })
+      .select({ organizationId: schema.recordings.organizationId })
       .from(schema.recordings)
       .where(eq(schema.recordings.id, args.recordingId))
       .limit(1);
@@ -64,7 +64,7 @@ export default defineAction({
     await db.insert(schema.recordingComments).values({
       id,
       recordingId: args.recordingId,
-      workspaceId: rec.workspaceId,
+      organizationId: rec.organizationId,
       threadId,
       parentId,
       authorEmail,

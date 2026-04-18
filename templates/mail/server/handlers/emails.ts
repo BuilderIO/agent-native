@@ -47,6 +47,15 @@ import {
   getContactFrequencyMap,
 } from "../lib/contact-frequency.js";
 import { getSyntheticEmailsForView, getSnoozedThreadIds } from "../lib/jobs.js";
+import {
+  collectLinks,
+  injectTrackingIntoHtml,
+  newClickToken,
+  newPixelToken,
+  persistTracking,
+  type TrackingContext,
+} from "../lib/email-tracking.js";
+import { getAppProductionUrl } from "@agent-native/core/server";
 
 // ---------------------------------------------------------------------------
 // Label map cache — avoids re-fetching label names from Gmail on every request
@@ -242,6 +251,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   previewPane: "right",
   sendAndArchive: false,
   undoSendDelay: 5,
+  tracking: { opens: true, clicks: true },
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -1294,6 +1304,8 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
           }
         }
 
+        const tracking = buildTrackingContext(event, body || "", settings);
+
         const raw = buildRawEmail({
           from: fromHeader,
           to: to || "",
@@ -1303,6 +1315,7 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
           body: body || "",
           inReplyTo,
           references,
+          tracking,
         });
 
         const sendBody: any = { raw };
@@ -1317,6 +1330,18 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
             body: JSON.stringify(sendBody),
           },
         );
+
+        if (tracking && sent?.id) {
+          persistTracking({
+            pixelToken: tracking.pixelToken,
+            messageId: sent.id,
+            ownerEmail: selectedEmail,
+            sentAt: Date.now(),
+            linkTokens: tracking.linkTokens,
+          }).catch((err) =>
+            console.error("[sendEmail] persistTracking failed:", err),
+          );
+        }
 
         // Bust the server-side thread cache so the next fetch shows the new
         // message. Without this, replies sent within the 5-min TTL don't
@@ -1540,10 +1565,11 @@ function buildRawEmail(opts: {
   body: string;
   inReplyTo?: string;
   references?: string;
+  tracking?: TrackingContext;
 }): string {
   const boundary = `agent-native-${nanoid(12)}`;
   const textBody = markdownToPlainText(opts.body);
-  const htmlBody = bodyToHtml(opts.body);
+  const htmlBody = bodyToHtml(opts.body, opts.tracking);
   const lines = [
     `From: ${opts.from}`,
     `To: ${opts.to}`,
@@ -1705,14 +1731,50 @@ function quotedContentToHtml(attribution: string, quotedBody: string): string {
  * Convert a compose body to HTML, properly formatting reply/forward quotes
  * with Gmail-compatible blockquote structure so email clients can clip them.
  */
-function bodyToHtml(body: string): string {
+/**
+ * Build a tracking context for an outgoing message. Returns undefined when
+ * both open- and click-tracking are disabled so the caller skips injection
+ * entirely.
+ */
+function buildTrackingContext(
+  event: H3Event,
+  body: string,
+  settings: UserSettings,
+): TrackingContext | undefined {
+  const trackOpens = settings.tracking?.opens !== false;
+  const trackClicks = settings.tracking?.clicks !== false;
+  if (!trackOpens && !trackClicks) return undefined;
+
+  const linkTokens = new Map<string, string>();
+  if (trackClicks) {
+    const split = splitReplyQuote(body);
+    const portion = split ? split.newContent : body;
+    for (const url of collectLinks(portion)) {
+      linkTokens.set(url, newClickToken());
+    }
+  }
+
+  return {
+    pixelToken: newPixelToken(),
+    linkTokens,
+    trackOpens,
+    trackClicks,
+    appUrl: getAppProductionUrl(event),
+  };
+}
+
+function bodyToHtml(body: string, tracking?: TrackingContext): string {
   const split = splitReplyQuote(body);
   if (split) {
     const newHtml = markdownToHtml(split.newContent);
+    const injected = tracking
+      ? injectTrackingIntoHtml(newHtml, tracking)
+      : newHtml;
     const quoteHtml = quotedContentToHtml(split.attribution, split.quotedBody);
-    return newHtml + quoteHtml;
+    return injected + quoteHtml;
   }
-  return markdownToHtml(body);
+  const html = markdownToHtml(body);
+  return tracking ? injectTrackingIntoHtml(html, tracking) : html;
 }
 
 // ─── Delete draft ─────────────────────────────────────────────────────────────

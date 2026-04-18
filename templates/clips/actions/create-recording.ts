@@ -11,9 +11,12 @@
 
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
-import { getCurrentOwnerEmail, nanoid } from "../server/lib/recordings.js";
+import {
+  getCurrentOwnerEmail,
+  nanoid,
+  requireActiveOrganizationId,
+} from "../server/lib/recordings.js";
 import { writeAppState } from "@agent-native/core/application-state";
 
 export default defineAction({
@@ -29,10 +32,12 @@ export default defineAction({
       .optional()
       .describe("Recording title (defaults to 'Untitled recording')"),
     folderId: z.string().nullish().describe("Optional folder ID"),
-    workspaceId: z
+    organizationId: z
       .string()
       .optional()
-      .describe("Workspace the recording belongs to (defaults to first)"),
+      .describe(
+        "Organization the recording belongs to (defaults to the caller's active org)",
+      ),
     hasCamera: z
       .boolean()
       .optional()
@@ -56,33 +61,12 @@ export default defineAction({
     const id = args.id || nanoid();
     const now = new Date().toISOString();
 
-    // Resolve workspace id (fall back to first workspace owned by this user,
-    // or create an implicit one if none exists yet).
-    let workspaceId = args.workspaceId || null;
-    if (!workspaceId) {
-      const [existing] = await db
-        .select({ id: schema.workspaces.id })
-        .from(schema.workspaces)
-        .where(eq(schema.workspaces.ownerEmail, ownerEmail))
-        .limit(1);
-      if (existing) {
-        workspaceId = existing.id;
-      } else {
-        workspaceId = nanoid();
-        await db.insert(schema.workspaces).values({
-          id: workspaceId,
-          name: "My Workspace",
-          slug: `ws-${workspaceId.slice(0, 6).toLowerCase()}`,
-          ownerEmail,
-          createdAt: now,
-          updatedAt: now,
-        });
-      }
-    }
+    const organizationId =
+      args.organizationId || (await requireActiveOrganizationId());
 
     await db.insert(schema.recordings).values({
       id,
-      workspaceId,
+      organizationId,
       folderId: args.folderId ?? null,
       title: args.title?.trim() || "Untitled recording",
       status: "uploading",
@@ -110,7 +94,7 @@ export default defineAction({
 
     return {
       id,
-      workspaceId,
+      organizationId,
       status: "uploading" as const,
       uploadChunkUrl: `/api/uploads/${id}/chunk`,
       abortUrl: `/api/uploads/${id}/abort`,

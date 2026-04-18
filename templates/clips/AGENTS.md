@@ -65,23 +65,28 @@ Resources are SQL-backed persistent files for notes, learnings, and context.
 
 All structured data lives in SQL via Drizzle ORM — **dialect-agnostic** (Neon Postgres in production, SQLite for local). See `server/db/schema.ts` for full column definitions. This is the summary:
 
-| Table                   | Holds                                                                     |
-| ----------------------- | ------------------------------------------------------------------------- |
-| `workspaces`            | One row per workspace. Brand color, default visibility, logo.             |
-| `workspace_members`     | Who belongs to each workspace and their role.                             |
-| `invites`               | Pending workspace invites (email, role, token).                           |
-| `spaces`                | Topic spaces inside a workspace (engineering, design, etc.).              |
-| `space_members`         | Who can see/post to each space.                                           |
-| `folders`               | Library folders (nest via `parent_id`, scoped to space or personal).      |
-| `recordings`            | The core resource. Title, video URL, duration, status, edits JSON, etc.   |
-| `recording_shares`      | Per-user / per-org share grants via framework `sharing`.                  |
-| `recording_tags`        | Free-form tags.                                                           |
-| `recording_transcripts` | Whisper output — segments JSON + fullText + status.                       |
-| `recording_ctas`        | Call-to-action buttons (label, URL, placement).                           |
-| `recording_comments`    | Threaded comments with `video_timestamp_ms` + emoji reactions JSON.       |
-| `recording_reactions`   | Emoji reactions tied to a video timestamp.                                |
-| `recording_viewers`     | One row per viewer: watch total, completed %, whether the view counted.   |
-| `recording_events`      | Granular events: view-start, watch-progress, seek, pause, cta-click, etc. |
+Team / tenant data lives in the framework's better-auth `organization` tables. Clips-specific data (spaces, folders, recordings, etc.) hangs off `organization_id` FKs.
+
+| Table                        | Holds                                                                                                             |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `organization` (better-auth) | Team. Name, slug, logo. Managed by the framework — created via better-auth (or the `create-organization` action). |
+| `member` (better-auth)       | Who belongs to each org and their role (`owner` / `admin` / `member`).                                            |
+| `invitation` (better-auth)   | Pending org invites.                                                                                              |
+| `organization_settings`      | Clips-specific org sidecar: `brand_color`, `brand_logo_url`, `default_visibility`. Keyed by `organization.id`.    |
+| `spaces`                     | Topic spaces inside an org (engineering, design, etc.). FK: `organization_id`.                                    |
+| `space_members`              | Who can see/post to each space.                                                                                   |
+| `folders`                    | Library folders (nest via `parent_id`, scoped to space or personal). FK: `organization_id`.                       |
+| `recordings`                 | The core resource. Title, video URL, duration, status, edits JSON, etc. FK: `organization_id`.                    |
+| `recording_shares`           | Per-user / per-org share grants via framework `sharing`.                                                          |
+| `recording_tags`             | Free-form tags. FK: `organization_id`.                                                                            |
+| `recording_transcripts`      | Whisper output — segments JSON + fullText + status.                                                               |
+| `recording_ctas`             | Call-to-action buttons (label, URL, placement).                                                                   |
+| `recording_comments`         | Threaded comments with `video_timestamp_ms` + emoji reactions JSON. FK: `organization_id`.                        |
+| `recording_reactions`        | Emoji reactions tied to a video timestamp.                                                                        |
+| `recording_viewers`          | One row per viewer: watch total, completed %, whether the view counted.                                           |
+| `recording_events`           | Granular events: view-start, watch-progress, seek, pause, cta-click, etc.                                         |
+
+> Older schemas had Clips-specific `workspaces` / `workspace_members` / `invites` tables. Those have been **replaced** by better-auth's `organization` / `member` / `invitation` tables — any references you see to "workspace" in older code or data are deprecated aliases for "organization".
 
 Visibility and sharing use the framework `sharing` system — recordings are registered as a shareable resource in `server/db/index.ts` via `registerShareableResource({ type: "recording", ... })`. Use the auto-mounted `share-resource` / `set-resource-visibility` / `list-resource-shares` actions (see Sharing below). Password and `expiresAt` are **extra** privacy controls on top of framework visibility — they're in the `recordings` table.
 
@@ -89,16 +94,17 @@ Visibility and sharing use the framework `sharing` system — recordings are reg
 
 Ephemeral UI state lives in `application_state`, accessed via `readAppState(key)` / `writeAppState(key, value)` from `@agent-native/core/application-state`. The UI syncs here so the agent always knows what's on screen.
 
-| State Key           | Purpose                                                               | Direction               |
-| ------------------- | --------------------------------------------------------------------- | ----------------------- |
-| `navigation`        | Current view + selected IDs (see shape below)                         | UI -> Agent (read-only) |
-| `navigate`          | One-shot navigation command (auto-deleted after UI reads)             | Agent -> UI             |
-| `refresh-signal`    | Bump timestamp — invalidates lists (recordings, comments, etc.)       | Agent -> UI             |
-| `current-workspace` | Active workspace id (which roster / spaces / library the user sees)   | Bidirectional           |
-| `record-intent`     | Request that the UI start a new recording (mode: `screen` / `camera`) | Agent -> UI             |
-| `player-state`      | Current video time, playing, speed — set by the player                | UI -> Agent (read-only) |
-| `editor-draft`      | In-progress non-destructive edits for the recording being edited      | Bidirectional           |
-| `selection`         | User's current text selection inside transcript or comment            | UI -> Agent (read-only) |
+| State Key        | Purpose                                                               | Direction               |
+| ---------------- | --------------------------------------------------------------------- | ----------------------- |
+| `navigation`     | Current view + selected IDs (see shape below)                         | UI -> Agent (read-only) |
+| `navigate`       | One-shot navigation command (auto-deleted after UI reads)             | Agent -> UI             |
+| `refresh-signal` | Bump timestamp — invalidates lists (recordings, comments, etc.)       | Agent -> UI             |
+| `record-intent`  | Request that the UI start a new recording (mode: `screen` / `camera`) | Agent -> UI             |
+| `player-state`   | Current video time, playing, speed — set by the player                | UI -> Agent (read-only) |
+| `editor-draft`   | In-progress non-destructive edits for the recording being edited      | Bidirectional           |
+| `selection`      | User's current text selection inside transcript or comment            | UI -> Agent (read-only) |
+
+> Active organization lives in the better-auth session (`session.activeOrganizationId`), **not** in application state. An older `current-workspace` app-state key is deprecated. To switch orgs, use `useSwitchOrg()` on the client or better-auth's `setActiveOrganization` API. The previous session's active org is restored automatically on login.
 
 ### Navigation state shape
 
@@ -119,32 +125,33 @@ Views: `library`, `spaces`, `space`, `archive`, `trash`, `record`, `recording`, 
 
 ## Common Tasks
 
-| User request                                        | What to do                                                                                                                                                         |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| "What am I looking at?"                             | `pnpm action view-screen`                                                                                                                                          |
-| "Start a screen recording"                          | `pnpm action navigate --view=record` — then the user picks a mode and hits Start. Recording is a UI gesture (MediaRecorder needs user consent) — see Rule 10.      |
-| "Stop recording"                                    | Stop is a UI gesture. Users press the stop button in the recording toolbar.                                                                                        |
-| "Rename this recording to 'Onboarding walkthrough'" | `pnpm action update-recording --id=<id> --title="Onboarding walkthrough"`                                                                                          |
-| "Write me a title"                                  | Read transcript via `get-recording-player-data --recordingId=<id>`, then `update-recording --id=<id> --title="..."`                                                |
-| "Write me a description/summary"                    | Read transcript via `get-recording-player-data --recordingId=<id>`, then `update-recording --id=<id> --description="..."`                                          |
-| "Add chapters to this video"                        | Read transcript, then `set-chapters --recordingId=<id> --chapters='[{"startMs":0,"title":"Intro"},...]'`                                                           |
-| "Remove the filler words"                           | `pnpm action remove-filler-words --recordingId=<id>` (appends proposed trims into `editsJson`)                                                                     |
-| "Remove silences"                                   | `pnpm action remove-silences --recordingId=<id> [--thresholdMs=500]`                                                                                               |
-| "Find the part where I talk about pricing"          | Read `get-recording-player-data --recordingId=<id>` and grep the transcript segments for the term.                                                                 |
-| "Share this with alice@example.com as viewer"       | `pnpm action share-resource --resourceType=recording --resourceId=<id> --principalType=user --principalId=alice@example.com --role=viewer`                         |
-| "Make this public"                                  | `pnpm action set-resource-visibility --resourceType=recording --resourceId=<id> --visibility=public`                                                               |
-| "Add a password to this share"                      | `pnpm action update-recording --id=<id> --password=<pw>`                                                                                                           |
-| "Set this to expire in 7 days"                      | `pnpm action update-recording --id=<id> --expiresAt=<iso>`                                                                                                         |
-| "Trim the first 30 seconds"                         | `pnpm action trim-recording --recordingId=<id> --startMs=0 --endMs=30000`                                                                                          |
-| "Split this at the current playhead"                | Read `player-state` for `currentMs`, then `split-recording --recordingId=<id> --atMs=<currentMs>`                                                                  |
-| "Move this recording to my 'Design Reviews' folder" | Look up folder id via `list-workspace-state`, then `update-recording --id=<id> --folderId=<fid>` (or `move-recording --id=<id> --folderId=<fid>`)                  |
-| "Archive this"                                      | `pnpm action archive-recording --id=<id>`                                                                                                                          |
-| "Delete this"                                       | `pnpm action trash-recording --id=<id>`                                                                                                                            |
-| "Show me my most-watched recordings"                | `pnpm action list-recordings --sort=views --limit=10`                                                                                                              |
-| "Who watched this?"                                 | `pnpm action list-viewers --recordingId=<id>`                                                                                                                      |
-| "Reply to the comment at 1:23"                      | Use `list-comments --recordingId=<id>` to find the thread, then `add-comment --recordingId=<id> --threadId=<tid> --content="..."`                                  |
-| "Give me a share link"                              | The public share link is `/share/<recordingId>` and the embed is `/embed/<recordingId>`. Make sure visibility is `public` via `set-resource-visibility` if needed. |
-| "Switch to the Product workspace"                   | `pnpm action set-current-workspace --id=<workspaceId>`                                                                                                             |
+| User request                                        | What to do                                                                                                                                                                                                            |
+| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "What am I looking at?"                             | `pnpm action view-screen`                                                                                                                                                                                             |
+| "Start a screen recording"                          | `pnpm action navigate --view=record` — then the user picks a mode and hits Start. Recording is a UI gesture (MediaRecorder needs user consent) — see Rule 10.                                                         |
+| "Stop recording"                                    | Stop is a UI gesture. Users press the stop button in the recording toolbar.                                                                                                                                           |
+| "Rename this recording to 'Onboarding walkthrough'" | `pnpm action update-recording --id=<id> --title="Onboarding walkthrough"`                                                                                                                                             |
+| "Write me a title"                                  | Read transcript via `get-recording-player-data --recordingId=<id>`, then `update-recording --id=<id> --title="..."`                                                                                                   |
+| "Write me a description/summary"                    | Read transcript via `get-recording-player-data --recordingId=<id>`, then `update-recording --id=<id> --description="..."`                                                                                             |
+| "Add chapters to this video"                        | Read transcript, then `set-chapters --recordingId=<id> --chapters='[{"startMs":0,"title":"Intro"},...]'`                                                                                                              |
+| "Remove the filler words"                           | `pnpm action remove-filler-words --recordingId=<id>` (appends proposed trims into `editsJson`)                                                                                                                        |
+| "Remove silences"                                   | `pnpm action remove-silences --recordingId=<id> [--thresholdMs=500]`                                                                                                                                                  |
+| "Find the part where I talk about pricing"          | Read `get-recording-player-data --recordingId=<id>` and grep the transcript segments for the term.                                                                                                                    |
+| "Share this with alice@example.com as viewer"       | `pnpm action share-resource --resourceType=recording --resourceId=<id> --principalType=user --principalId=alice@example.com --role=viewer`                                                                            |
+| "Make this public"                                  | `pnpm action set-resource-visibility --resourceType=recording --resourceId=<id> --visibility=public`                                                                                                                  |
+| "Add a password to this share"                      | `pnpm action update-recording --id=<id> --password=<pw>`                                                                                                                                                              |
+| "Set this to expire in 7 days"                      | `pnpm action update-recording --id=<id> --expiresAt=<iso>`                                                                                                                                                            |
+| "Trim the first 30 seconds"                         | `pnpm action trim-recording --recordingId=<id> --startMs=0 --endMs=30000`                                                                                                                                             |
+| "Split this at the current playhead"                | Read `player-state` for `currentMs`, then `split-recording --recordingId=<id> --atMs=<currentMs>`                                                                                                                     |
+| "Move this recording to my 'Design Reviews' folder" | Look up folder id via `list-organization-state`, then `update-recording --id=<id> --folderId=<fid>` (or `move-recording --id=<id> --folderId=<fid>`)                                                                  |
+| "Archive this"                                      | `pnpm action archive-recording --id=<id>`                                                                                                                                                                             |
+| "Delete this"                                       | `pnpm action trash-recording --id=<id>`                                                                                                                                                                               |
+| "Show me my most-watched recordings"                | `pnpm action list-recordings --sort=views --limit=10`                                                                                                                                                                 |
+| "Who watched this?"                                 | `pnpm action list-viewers --recordingId=<id>`                                                                                                                                                                         |
+| "Reply to the comment at 1:23"                      | Use `list-comments --recordingId=<id>` to find the thread, then `add-comment --recordingId=<id> --threadId=<tid> --content="..."`                                                                                     |
+| "Give me a share link"                              | The public share link is `/share/<recordingId>` and the embed is `/embed/<recordingId>`. Make sure visibility is `public` via `set-resource-visibility` if needed.                                                    |
+| "Switch to the Product organization"                | Use `list-organization-state` to find the org id, then on the client call `useSwitchOrg().mutate({ organizationId })` (or better-auth's `setActiveOrganization`). There is no `set-current-workspace` action anymore. |
+| "Rename this organization"                          | Use better-auth's organization-update API, or `pnpm action set-organization-branding` for brand color / logo tweaks.                                                                                                  |
 
 After any recording mutation (rename, move, edit, archive, delete, add comment, etc.) the actions trigger a UI refresh automatically via `refresh-signal`.
 
@@ -166,10 +173,10 @@ cd templates/clips && pnpm action <name> [args]
 
 Start / stop / pause are **UI gestures** — there is no server action. MediaRecorder needs an explicit user click (permission + user-activation). The agent sends the user to `/record` via `navigate --view=record`, the user picks the mode and hits Start.
 
-| Action               | Args                                                              | Purpose                                                                             |
-| -------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `create-recording`   | `--title [--folderId] [--workspaceId] [--hasCamera] [--hasAudio]` | Insert a recording row in `uploading` status. Called from the frontend upload flow. |
-| `finalize-recording` | `--id <id>`                                                       | Internal — assembles chunks, uploads the blob, flips status to `ready`.             |
+| Action               | Args                                                                 | Purpose                                                                             |
+| -------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `create-recording`   | `--title [--folderId] [--organizationId] [--hasCamera] [--hasAudio]` | Insert a recording row in `uploading` status. Called from the frontend upload flow. |
+| `finalize-recording` | `--id <id>`                                                          | Internal — assembles chunks, uploads the blob, flips status to `ready`.             |
 
 ### Library + CRUD
 
@@ -190,17 +197,17 @@ Start / stop / pause are **UI gestures** — there is no server action. MediaRec
 
 ### Folders + spaces
 
-| Action                 | Args                                                         | Purpose                                                                                              |
-| ---------------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
-| `list-workspace-state` |                                                              | Members + spaces + folders for the current workspace (use instead of `list-folders` / `list-spaces`) |
-| `create-folder`        | `--name <name> --workspaceId <wid> [--parentId] [--spaceId]` | Create a folder (workspaceId is required)                                                            |
-| `rename-folder`        | `--id <fid> --name <name>`                                   | Rename a folder                                                                                      |
-| `delete-folder`        | `--id <fid>`                                                 | Delete an empty folder                                                                               |
-| `create-space`         | `--name <name> [--description] [--icon] [--color]`           | Create a topic space                                                                                 |
-| `rename-space`         | `--id <sid> --name <name>`                                   | Rename a space                                                                                       |
-| `delete-space`         | `--id <sid>`                                                 | Delete a space                                                                                       |
-| `add-space-member`     | `--spaceId <sid> --email <e> [--role]`                       | Add a member to a space                                                                              |
-| `remove-space-member`  | `--spaceId <sid> --email <e>`                                | Remove a member from a space                                                                         |
+| Action                    | Args                                                            | Purpose                                                                                                 |
+| ------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `list-organization-state` |                                                                 | Members + spaces + folders for the active organization (use instead of `list-folders` / `list-spaces`). |
+| `create-folder`           | `--name <name> --organizationId <oid> [--parentId] [--spaceId]` | Create a folder (organizationId is required).                                                           |
+| `rename-folder`           | `--id <fid> --name <name>`                                      | Rename a folder.                                                                                        |
+| `delete-folder`           | `--id <fid>`                                                    | Delete an empty folder.                                                                                 |
+| `create-space`            | `--name <name> [--description] [--icon] [--color]`              | Create a topic space.                                                                                   |
+| `rename-space`            | `--id <sid> --name <name>`                                      | Rename a space.                                                                                         |
+| `delete-space`            | `--id <sid>`                                                    | Delete a space.                                                                                         |
+| `add-space-member`        | `--spaceId <sid> --email <e> [--role]`                          | Add a member to a space.                                                                                |
+| `remove-space-member`     | `--spaceId <sid> --email <e>`                                   | Remove a member from a space.                                                                           |
 
 ### Transcript + AI
 
@@ -251,29 +258,32 @@ Public share link: `/share/<recordingId>`. Embed: `/embed/<recordingId>`. Both r
 
 ### Analytics
 
-| Action                   | Args                           | Purpose                                                 |
-| ------------------------ | ------------------------------ | ------------------------------------------------------- |
-| `list-viewers`           | `--recordingId <id> [--limit]` | Viewers + watch totals + whether their view counted     |
-| `get-recording-insights` | `--recordingId <id>`           | Aggregate: views, completion %, drop-off curve, CTA CTR |
-| `get-workspace-insights` |                                | Aggregate analytics for the current workspace           |
-| `export-insights-csv`    | `--recordingId <id>`           | Download insights for a recording as CSV                |
+| Action                      | Args                           | Purpose                                                  |
+| --------------------------- | ------------------------------ | -------------------------------------------------------- |
+| `list-viewers`              | `--recordingId <id> [--limit]` | Viewers + watch totals + whether their view counted.     |
+| `get-recording-insights`    | `--recordingId <id>`           | Aggregate: views, completion %, drop-off curve, CTA CTR. |
+| `get-organization-insights` |                                | Aggregate analytics for the active organization.         |
+| `export-insights-csv`       | `--recordingId <id>`           | Download insights for a recording as CSV.                |
 
 Granular per-event recording (view-start / watch-progress / seek / pause / cta-click) is a custom HTTP route at `POST /api/view-event`, not an action — the player hits it directly.
 
-### Workspace + invites
+### Organization + invites
 
-| Action                   | Args                                                        | Purpose                                                     |
-| ------------------------ | ----------------------------------------------------------- | ----------------------------------------------------------- |
-| `list-workspace-state`   |                                                             | Roster + spaces + folders summary for the current workspace |
-| `set-current-workspace`  | `--id <workspaceId>`                                        | Set which workspace is active                               |
-| `create-workspace`       | `--name <name> [--brandColor]`                              | Create a new workspace                                      |
-| `set-workspace-branding` | `--brandColor <hex> [--brandLogoUrl]`                       | Update the current workspace's brand color / logo           |
-| `invite-member`          | `--email <e> [--role viewer\|creator-lite\|creator\|admin]` | Send a workspace invite                                     |
-| `update-member-role`     | `--email <e> --role <r>`                                    | Change an existing member's role                            |
-| `remove-member`          | `--email <e>`                                               | Remove a member from the workspace                          |
-| `get-invite`             | `--token <t>`                                               | Look up a pending invite                                    |
-| `accept-invite`          | `--token <t>`                                               | Accept a pending invite                                     |
-| `decline-invite`         | `--token <t>`                                               | Decline a pending invite                                    |
+Teams in Clips are better-auth organizations. Membership, roles, and invitations live on the framework `organization` / `member` / `invitation` tables. The actions below are thin Clips-specific wrappers that operate on those tables.
+
+| Action                      | Args                                        | Purpose                                                                                                                                                                        |
+| --------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `list-organization-state`   |                                             | Roster + spaces + folders summary for the active organization.                                                                                                                 |
+| `create-organization`       | `--name <name> [--slug] [--brandColor]`     | Create a new organization (delegates to better-auth, seeds `organization_settings`).                                                                                           |
+| `set-organization-branding` | `--brandColor <hex> [--brandLogoUrl]`       | Update the active organization's `organization_settings` row (brand color / logo).                                                                                             |
+| `invite-member`             | `--email <e> [--role owner\|admin\|member]` | Send an invite. Roles are the better-auth standard three: `owner`, `admin`, `member`. The previous 4-role system (viewer / creator-lite / creator / admin) has been flattened. |
+| `update-member-role`        | `--email <e> --role <r>`                    | Change an existing member's role.                                                                                                                                              |
+| `remove-member`             | `--email <e>`                               | Remove a member from the organization.                                                                                                                                         |
+| `get-invite`                | `--token <t>`                               | Look up a pending invite.                                                                                                                                                      |
+| `accept-invite`             | `--token <t>`                               | Accept a pending invite.                                                                                                                                                       |
+| `decline-invite`            | `--token <t>`                               | Decline a pending invite.                                                                                                                                                      |
+
+> **Switching orgs.** There is no `set-current-workspace` action — the active org lives in the better-auth session. From the client use `useSwitchOrg().mutate({ organizationId })`; server-side use better-auth's `setActiveOrganization` API.
 
 ### Navigation + context
 
@@ -334,7 +344,7 @@ All standard CRUD (list, get, create, update) goes through `/_agent-native/actio
 - **Tabler Icons only** (`@tabler/icons-react`). No other icon libraries. Do **not** use robot or sparkle icons to represent the agent / AI.
 - **Never** use `window.confirm`, `window.alert`, or `window.prompt`. Use shadcn `AlertDialog`.
 - **Inter font** for all UI.
-- **Purple `#625DF5`** is the Clips primary brand color. It maps to `--brand` in the Tailwind config and is the default `workspaces.brand_color`.
+- **Monochrome aesthetic.** Default space/folder/org color is `#18181B` (neutral zinc-900). Brand color is user-customizable via `set-organization-branding` (stored in `organization_settings`).
 - **1.2x** is the default playback speed for every recording (stored in `recordings.default_speed`).
 - **No decorative CSS transitions.** Keep the UI snappy.
 

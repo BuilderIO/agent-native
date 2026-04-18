@@ -1,0 +1,11 @@
+@import "@agent-native/core/global.css";
+
+:root {
+  --brand-accent: #7c3aed;
+  --brand-accent-emphasis: #6d28d9;
+}
+
+[data-theme="dark"] {
+  --brand-accent: #a78bfa;
+  --brand-accent-emphasis: #8b5cf6;
+}

@@ -49,6 +49,17 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Creating Templates", to: "/docs/creating-templates" as const },
     ],
   },
+  {
+    title: "Templates",
+    items: [
+      { label: "Mail", to: "/docs/template-mail" as const },
+      { label: "Calendar", to: "/docs/template-calendar" as const },
+      { label: "Content", to: "/docs/template-content" as const },
+      { label: "Slides", to: "/docs/template-slides" as const },
+      { label: "Video", to: "/docs/template-video" as const },
+      { label: "Analytics", to: "/docs/template-analytics" as const },
+    ],
+  },
 ];
 
 // Flat list for prev/next navigation and current-item lookups

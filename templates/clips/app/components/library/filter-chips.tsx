@@ -26,7 +26,7 @@ export function FilterChips({ chips, className }: FilterChipsProps) {
           className={cn(
             "inline-flex items-center gap-1 h-7 px-2.5 rounded-full text-xs border",
             chip.active
-              ? "bg-[#625DF5] text-white border-[#625DF5]"
+              ? "bg-primary text-primary-foreground border-primary"
               : "bg-background text-foreground border-border hover:bg-accent",
           )}
         >

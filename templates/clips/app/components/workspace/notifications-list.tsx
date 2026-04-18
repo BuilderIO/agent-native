@@ -51,8 +51,7 @@ function KindIcon({ kind }: { kind: NotificationKind }) {
     return <IconMessage className={`${base} text-blue-500`} />;
   if (kind === "reaction")
     return <IconMoodSmile className={`${base} text-amber-500`} />;
-  if (kind === "mention")
-    return <IconAt className={`${base} text-[#625DF5]`} />;
+  if (kind === "mention") return <IconAt className={`${base} text-primary`} />;
   if (kind === "share")
     return <IconShare className={`${base} text-green-500`} />;
   return <IconBell className={`${base} text-muted-foreground`} />;
@@ -73,7 +72,7 @@ export function NotificationsList({ items, onReply }: NotificationsListProps) {
       {items.map((item) => (
         <li key={item.id} className="py-3 flex items-start gap-3">
           <Avatar className="h-9 w-9 flex-shrink-0">
-            <AvatarFallback className="text-xs bg-[#625DF5] text-white">
+            <AvatarFallback className="text-xs bg-primary text-primary-foreground">
               {initials(item.authorEmail)}
             </AvatarFallback>
           </Avatar>
@@ -101,13 +100,13 @@ export function NotificationsList({ items, onReply }: NotificationsListProps) {
             <div className="mt-1.5 flex items-center gap-3 text-xs">
               <Link
                 to={`/r/${item.recordingId}`}
-                className="text-[#625DF5] hover:underline"
+                className="text-primary hover:underline"
               >
                 View
               </Link>
               {item.kind === "comment" && onReply ? (
                 <button
-                  className="text-[#625DF5] hover:underline"
+                  className="text-primary hover:underline"
                   onClick={() => onReply(item)}
                 >
                   Reply

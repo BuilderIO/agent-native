@@ -17,14 +17,14 @@ import {
 } from "@/components/ui/alert-dialog";
 
 export function meta() {
-  return [{ title: "Join workspace · Clips" }];
+  return [{ title: "Join team · Clips" }];
 }
 
 interface InvitePayload {
   id: string;
-  workspaceId: string;
-  workspaceName: string;
-  workspaceBrandColor: string;
+  organizationId: string;
+  organizationName: string;
+  organizationBrandColor: string;
   email: string;
   role: string;
   invitedBy: string;
@@ -92,7 +92,7 @@ export default function InviteAcceptRoute() {
         const json = await res.json().catch(() => ({}));
         throw new Error(json.error ?? `Accept failed (${res.status})`);
       }
-      toast.success(`Joined ${invite?.workspaceName ?? "the workspace"}`);
+      toast.success(`Joined ${invite?.organizationName ?? "the team"}`);
       navigate("/library", { replace: true });
     } catch (err) {
       toast.error(
@@ -122,14 +122,14 @@ export default function InviteAcceptRoute() {
 
   if (!session?.email) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-6 bg-gradient-to-br from-[#625DF5]/5 to-background">
+      <div className="min-h-screen flex items-center justify-center p-6 bg-gradient-to-br from-primary/5 to-background">
         <Card className="max-w-md w-full">
           <CardHeader>
             <CardTitle>Sign in required</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground mb-4">
-              You need to sign in before you can accept a workspace invite.
+              You need to sign in before you can accept an invite.
             </p>
             <Button
               onClick={() =>
@@ -137,7 +137,7 @@ export default function InviteAcceptRoute() {
                   `/login?next=${encodeURIComponent(`/invite/${token}`)}`,
                 )
               }
-              className="bg-[#625DF5] hover:bg-[#5049d9]"
+              className="bg-primary hover:bg-primary/90"
             >
               Sign in
             </Button>
@@ -148,12 +148,12 @@ export default function InviteAcceptRoute() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6 bg-gradient-to-br from-[#625DF5]/5 to-background">
+    <div className="min-h-screen flex items-center justify-center p-6 bg-gradient-to-br from-primary/5 to-background">
       <Card className="max-w-md w-full">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <IconMailFast className="size-5 text-[#625DF5]" />
-            Workspace invite
+            <IconMailFast className="size-5 text-primary" />
+            You've been invited
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -167,16 +167,16 @@ export default function InviteAcceptRoute() {
             <div className="space-y-4">
               <div
                 className="rounded-md p-4 text-white flex items-center gap-3"
-                style={{ background: invite.workspaceBrandColor }}
+                style={{ background: invite.organizationBrandColor }}
               >
                 <div
                   className="h-10 w-10 rounded bg-white/90 flex items-center justify-center font-semibold"
-                  style={{ color: invite.workspaceBrandColor }}
+                  style={{ color: invite.organizationBrandColor }}
                 >
-                  {invite.workspaceName.slice(0, 1).toUpperCase()}
+                  {invite.organizationName.slice(0, 1).toUpperCase()}
                 </div>
                 <div>
-                  <div className="font-medium">{invite.workspaceName}</div>
+                  <div className="font-medium">{invite.organizationName}</div>
                   <div className="text-xs opacity-90">
                     Role:{" "}
                     <span className="capitalize">
@@ -189,7 +189,7 @@ export default function InviteAcceptRoute() {
                 <strong className="text-foreground">{invite.invitedBy}</strong>{" "}
                 invited you to join{" "}
                 <strong className="text-foreground">
-                  {invite.workspaceName}
+                  {invite.organizationName}
                 </strong>{" "}
                 on Clips.
               </p>
@@ -213,7 +213,7 @@ export default function InviteAcceptRoute() {
                 <Button
                   onClick={handleAccept}
                   disabled={accepting}
-                  className="bg-[#625DF5] hover:bg-[#5049d9]"
+                  className="bg-primary hover:bg-primary/90"
                 >
                   <IconCheck className="size-4 mr-1.5" />
                   {accepting ? "Joining…" : "Accept invite"}

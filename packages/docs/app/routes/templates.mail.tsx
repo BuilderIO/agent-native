@@ -119,13 +119,13 @@ export default function MailTemplate() {
             </div>
 
             <h1 className="mb-4 text-4xl font-bold tracking-tight md:text-5xl">
-              Agent-Native Mail
+              The open-source alternative to Superhuman and Gmail
             </h1>
 
             <p className="mb-6 text-lg leading-relaxed text-[var(--fg-secondary)]">
-              A Superhuman-style email client with keyboard shortcuts,
-              AI-powered triage, smart search, and multi-account support. Own
-              your inbox workflow — no subscription fees, no vendor lock-in.
+              Superhuman-style keyboard shortcuts, AI triage, smart search, and
+              multi-account support — built on an agent you own. No subscription
+              fees, no vendor lock-in.
             </p>
 
             <div className="mb-8 flex flex-wrap items-center gap-3">

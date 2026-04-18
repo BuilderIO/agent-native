@@ -7,8 +7,7 @@ import {
   IconFileText,
   IconChartLine,
   IconArrowLeft,
-  IconSparkles,
-  IconWand,
+  IconChevronDown,
 } from "@tabler/icons-react";
 import {
   useActionQuery,
@@ -16,6 +15,7 @@ import {
   sendToAgentChat,
 } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   DropdownMenu,
@@ -46,7 +46,7 @@ export function meta({ params }: { params: { recordingId?: string } }) {
 export function HydrateFallback() {
   return (
     <div className="flex items-center justify-center h-screen w-full bg-background">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-foreground" />
+      <Spinner className="h-8 w-8" />
     </div>
   );
 }
@@ -70,7 +70,18 @@ export default function RecordingPage() {
     {
       recordingId: recordingId ?? "",
     },
-    { enabled: !!recordingId },
+    {
+      enabled: !!recordingId,
+      refetchInterval: (q) => {
+        const rec = (q.state.data as any)?.recording;
+        if (!rec) return false;
+        // Poll while the recording is still being assembled / transcoded so
+        // the page auto-upgrades from "Processing" to the real player the
+        // moment the server flips status to 'ready' and writes videoUrl.
+        if (rec.status !== "ready" || !rec.videoUrl) return 1000;
+        return false;
+      },
+    },
   );
 
   const recording = playerDataQ.data?.recording;
@@ -130,7 +141,7 @@ export default function RecordingPage() {
   if (playerDataQ.isLoading) {
     return (
       <div className="flex items-center justify-center h-screen w-full bg-background">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-foreground" />
+        <Spinner className="h-8 w-8" />
       </div>
     );
   }
@@ -146,6 +157,52 @@ export default function RecordingPage() {
         <Button onClick={() => navigate("/")} variant="outline">
           Back to library
         </Button>
+      </div>
+    );
+  }
+
+  // Desktop app opens this page the moment stop is pressed — finalize runs
+  // in the background. Show a dedicated "still processing" state and let the
+  // refetch-interval above upgrade it to the full player as soon as the
+  // server writes videoUrl + flips status to 'ready'.
+  if (recording.status !== "ready" || !recording.videoUrl) {
+    const progress = Number(recording.uploadProgress ?? 0);
+    const label =
+      recording.status === "failed"
+        ? "Something went wrong while saving this clip."
+        : "Finishing up your clip…";
+    return (
+      <div className="flex flex-col items-center justify-center h-screen w-full bg-background px-6">
+        {recording.status !== "failed" ? (
+          <Spinner className="h-8 w-8 mb-4" />
+        ) : null}
+        <h1 className="text-lg font-semibold mb-1">{label}</h1>
+        <p className="text-sm text-muted-foreground mb-4">
+          {recording.status === "failed"
+            ? ((recording as any).failureReason ??
+              "You can retry from the library.")
+            : "Uploading and assembling your video — this usually takes just a few seconds."}
+        </p>
+        {recording.status !== "failed" && progress > 0 ? (
+          <div className="w-64 h-1.5 rounded-full bg-muted overflow-hidden mb-4">
+            <div
+              className="h-full bg-foreground transition-all"
+              style={{ width: `${Math.min(100, Math.max(0, progress))}%` }}
+            />
+          </div>
+        ) : null}
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={() => playerDataQ.refetch()}
+            variant="outline"
+            size="sm"
+          >
+            Check again
+          </Button>
+          <Button onClick={() => navigate("/")} variant="ghost" size="sm">
+            Back to library
+          </Button>
+        </div>
       </div>
     );
   }
@@ -177,8 +234,8 @@ export default function RecordingPage() {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="sm" className="gap-1.5">
-                  <IconWand className="h-4 w-4" />
                   AI tools
+                  <IconChevronDown className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-60">
@@ -282,7 +339,7 @@ export default function RecordingPage() {
 
           <Button
             onClick={() => setShareOpen(true)}
-            className="bg-[#625DF5] hover:bg-[#5751e5] text-white gap-1.5"
+            className="bg-primary hover:bg-primary/90 text-primary-foreground gap-1.5"
             size="sm"
           >
             <IconShare3 className="h-4 w-4" />
@@ -364,18 +421,17 @@ export default function RecordingPage() {
               onValueChange={(v) => setPanel(v as SidePanel)}
               className="flex flex-col h-full"
             >
-              <TabsList className="w-full rounded-none border-b border-border bg-background h-auto p-0">
-                <TabsTrigger
-                  value="transcript"
-                  className="flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-[#625DF5] data-[state=active]:bg-transparent py-3 gap-1.5"
-                >
+              <TabsList
+                className={cn(
+                  "mx-3 mt-3 grid w-auto",
+                  canEdit ? "grid-cols-3" : "grid-cols-2",
+                )}
+              >
+                <TabsTrigger value="transcript" className="gap-1.5">
                   <IconFileText className="h-4 w-4" />
                   Transcript
                 </TabsTrigger>
-                <TabsTrigger
-                  value="comments"
-                  className="flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-[#625DF5] data-[state=active]:bg-transparent py-3 gap-1.5"
-                >
+                <TabsTrigger value="comments" className="gap-1.5">
                   <IconMessage className="h-4 w-4" />
                   Comments
                   {comments.length > 0 ? (
@@ -385,10 +441,7 @@ export default function RecordingPage() {
                   ) : null}
                 </TabsTrigger>
                 {canEdit ? (
-                  <TabsTrigger
-                    value="insights"
-                    className="flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-[#625DF5] data-[state=active]:bg-transparent py-3 gap-1.5"
-                  >
+                  <TabsTrigger value="insights" className="gap-1.5">
                     <IconChartLine className="h-4 w-4" />
                     Insights
                   </TabsTrigger>
@@ -397,7 +450,7 @@ export default function RecordingPage() {
 
               <TabsContent
                 value="transcript"
-                className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden"
+                className="flex-1 min-h-0 mt-3 data-[state=inactive]:hidden"
               >
                 <TranscriptPanel
                   segments={transcriptSegments}
@@ -409,7 +462,7 @@ export default function RecordingPage() {
               </TabsContent>
               <TabsContent
                 value="comments"
-                className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden"
+                className="flex-1 min-h-0 mt-3 data-[state=inactive]:hidden"
               >
                 <CommentsPanel
                   recordingId={recording.id}
@@ -424,7 +477,7 @@ export default function RecordingPage() {
               {canEdit ? (
                 <TabsContent
                   value="insights"
-                  className="flex-1 min-h-0 mt-0 overflow-y-auto data-[state=inactive]:hidden"
+                  className="flex-1 min-h-0 mt-3 overflow-y-auto data-[state=inactive]:hidden"
                 >
                   <InsightsPanel
                     recordingId={recording.id}
@@ -469,4 +522,3 @@ function capitalize(s: string) {
 
 // Silence unused-import warnings where applicable.
 void cn;
-void IconSparkles;

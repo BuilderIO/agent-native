@@ -60,7 +60,7 @@ function buildTree(folders: FolderNode[]): FolderNode[] {
 
 interface FolderTreeProps {
   folders: FolderNode[];
-  workspaceId?: string;
+  organizationId?: string;
   spaceId?: string | null;
   /** Build the URL for a folder — allows library or space-scoped trees. */
   buildPath: (folderId: string) => string;
@@ -69,7 +69,7 @@ interface FolderTreeProps {
 
 export function FolderTree({
   folders,
-  workspaceId,
+  organizationId,
   spaceId = null,
   buildPath,
   activeFolderId,
@@ -93,7 +93,7 @@ export function FolderTree({
           depth={0}
           buildPath={buildPath}
           activeFolderId={activeFolderId}
-          workspaceId={workspaceId}
+          organizationId={organizationId}
           spaceId={spaceId}
         />
       ))}
@@ -106,7 +106,7 @@ interface FolderItemProps {
   depth: number;
   buildPath: (folderId: string) => string;
   activeFolderId?: string | null;
-  workspaceId?: string;
+  organizationId?: string;
   spaceId?: string | null;
 }
 
@@ -115,7 +115,7 @@ function FolderItem({
   depth,
   buildPath,
   activeFolderId,
-  workspaceId,
+  organizationId,
   spaceId,
 }: FolderItemProps) {
   const [open, setOpen] = useState(true);
@@ -140,7 +140,7 @@ function FolderItem({
             className={cn(
               "group flex items-center gap-1 rounded px-1.5 py-1 text-xs",
               isActive
-                ? "bg-[#625DF5]/10 text-[#625DF5]"
+                ? "bg-primary/10 text-primary"
                 : "text-foreground hover:bg-accent/60",
             )}
             style={{ paddingLeft: 6 + depth * 12 }}
@@ -212,7 +212,7 @@ function FolderItem({
               depth={depth + 1}
               buildPath={buildPath}
               activeFolderId={activeFolderId}
-              workspaceId={workspaceId}
+              organizationId={organizationId}
               spaceId={spaceId}
             />
           ))}
@@ -229,7 +229,7 @@ function FolderItem({
             autoFocus
             value={renameValue}
             onChange={(e) => setRenameValue(e.target.value)}
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#625DF5]/30"
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30"
           />
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
@@ -268,14 +268,14 @@ function FolderItem({
             value={newValue}
             onChange={(e) => setNewValue(e.target.value)}
             placeholder="Folder name"
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#625DF5]/30"
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30"
           />
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
-                if (!workspaceId) {
-                  toast.error("Workspace not ready");
+                if (!organizationId) {
+                  toast.error("Organization not ready");
                   return;
                 }
                 const name = newValue.trim();
@@ -283,7 +283,7 @@ function FolderItem({
                 createFolder.mutate(
                   {
                     name,
-                    workspaceId,
+                    organizationId,
                     spaceId: spaceId ?? undefined,
                     parentId: node.id,
                   },

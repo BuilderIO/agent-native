@@ -26,6 +26,7 @@
         "focus": true,
         "shadow": true,
         "center": false,
+        "acceptFirstMouse": true,
         "x": 99999,
         "y": 99999
       }

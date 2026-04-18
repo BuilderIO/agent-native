@@ -7,7 +7,6 @@ import {
   IconUsersGroup,
   IconFolderPlus,
   IconPlayerRecord,
-  IconBolt,
 } from "@tabler/icons-react";
 import { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
@@ -24,12 +23,12 @@ import {
 import {
   useFolders,
   useSpaces,
-  useWorkspaces,
+  useOrganizations,
   useCreateFolder,
 } from "@/hooks/use-library";
 import { FolderTree, type FolderNode } from "./folder-tree";
 import { SearchBar } from "./search-bar";
-import { WorkspaceSwitcher } from "./workspace-switcher";
+import { OrganizationSwitcher } from "./organization-switcher";
 import { toast } from "sonner";
 
 interface LibraryLayoutProps {
@@ -43,13 +42,13 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
     spaceId?: string;
   }>();
 
-  const { data: workspaces } = useWorkspaces();
-  const currentWorkspaceId =
-    workspaces?.currentId ?? workspaces?.workspaces?.[0]?.id;
+  const { data: organizations } = useOrganizations();
+  const currentOrganizationId =
+    organizations?.currentId ?? organizations?.organizations?.[0]?.id;
 
-  const { data: spaces } = useSpaces(currentWorkspaceId);
+  const { data: spaces } = useSpaces(currentOrganizationId);
   const { data: libFolders } = useFolders({
-    workspaceId: currentWorkspaceId,
+    organizationId: currentOrganizationId,
   });
 
   const libFolderList: FolderNode[] = useMemo(
@@ -116,19 +115,12 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
           {/* Left sidebar */}
           <aside className="flex h-full w-[260px] shrink-0 flex-col border-r border-border bg-sidebar">
             <div className="px-3 py-3">
-              <WorkspaceSwitcher
-                workspaces={(workspaces?.workspaces ?? []).map((w: any) => ({
-                  id: w.id,
-                  name: w.name,
-                  brandColor: w.brandColor,
-                }))}
-                currentId={currentWorkspaceId}
-              />
+              <OrganizationSwitcher />
             </div>
 
             <div className="px-3">
               <Button
-                className="w-full gap-1.5 bg-[#625DF5] text-white hover:bg-[#554FE5] shadow-sm"
+                className="w-full gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
                 size="sm"
                 asChild
               >
@@ -149,7 +141,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                     className={cn(
                       "flex items-center gap-2 rounded px-2 py-1.5 text-xs",
                       active
-                        ? "bg-[#625DF5]/10 text-[#625DF5] font-medium"
+                        ? "bg-primary/10 text-primary font-medium"
                         : "text-foreground hover:bg-accent/60",
                     )}
                   >
@@ -177,7 +169,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                 </div>
                 <FolderTree
                   folders={libFolderList}
-                  workspaceId={currentWorkspaceId}
+                  organizationId={currentOrganizationId}
                   spaceId={null}
                   buildPath={(id) => `/library/folder/${id}`}
                   activeFolderId={folderId ?? null}
@@ -200,14 +192,14 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                           className={cn(
                             "flex items-center gap-2 rounded px-2 py-1 text-xs",
                             active
-                              ? "bg-[#625DF5]/10 text-[#625DF5]"
+                              ? "bg-primary/10 text-primary"
                               : "text-foreground hover:bg-accent/60",
                           )}
                         >
                           <div
                             className="h-4 w-4 rounded flex items-center justify-center text-[10px]"
                             style={{
-                              background: s.color ?? "#625DF5",
+                              background: s.color ?? "hsl(var(--primary))",
                               color: "white",
                             }}
                           >
@@ -225,16 +217,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                   )}
                 </ul>
               </div>
-            </div>
-
-            <div className="border-t border-border p-2">
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
-              >
-                <IconBolt className="h-3.5 w-3.5" />
-                What's new
-              </button>
             </div>
           </aside>
 
@@ -264,7 +246,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
             value={newFolderName}
             onChange={(e) => setNewFolderName(e.target.value)}
             placeholder="Folder name"
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#625DF5]/30"
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30"
           />
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
@@ -272,14 +254,14 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
               onClick={() => {
                 const name = newFolderName.trim();
                 if (!name) return;
-                if (!currentWorkspaceId) {
-                  toast.error("Workspace not ready");
+                if (!currentOrganizationId) {
+                  toast.error("Organization not ready");
                   return;
                 }
                 createFolder.mutate(
                   {
                     name,
-                    workspaceId: currentWorkspaceId,
+                    organizationId: currentOrganizationId,
                     parentId: null,
                   },
                   {

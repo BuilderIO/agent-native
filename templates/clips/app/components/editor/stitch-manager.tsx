@@ -164,7 +164,7 @@ export function StitchManager({
       <DialogContent className="max-w-3xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <IconPuzzle className="w-4 h-4 text-[#625DF5]" />
+            <IconPuzzle className="w-4 h-4 text-primary" />
             Stitch recordings
           </DialogTitle>
         </DialogHeader>

@@ -26,9 +26,24 @@ export interface WaveformProps {
   className?: string;
 }
 
-const BRAND = "#625DF5";
-const WAVE_COLOR = "rgba(98, 93, 245, 0.55)";
-const WAVE_BG = "rgba(98, 93, 245, 0.12)";
+const getBrandColor = () => {
+  if (typeof window === "undefined") return "#0f172a";
+  const v = getComputedStyle(document.documentElement)
+    .getPropertyValue("--primary")
+    .trim();
+  return v ? `hsl(${v})` : "#0f172a";
+};
+
+const getBrandColorAlpha = (alpha: number) => {
+  if (typeof window === "undefined") return `rgba(15, 23, 42, ${alpha})`;
+  const v = getComputedStyle(document.documentElement)
+    .getPropertyValue("--primary")
+    .trim();
+  return v ? `hsl(${v} / ${alpha})` : `rgba(15, 23, 42, ${alpha})`;
+};
+
+const getWaveColor = () => getBrandColorAlpha(0.55);
+const getWaveBg = () => getBrandColorAlpha(0.12);
 const EXCLUDED_FILL = "rgba(15, 23, 42, 0.72)";
 const EXCLUDED_STROKE = "rgba(148, 163, 184, 0.45)";
 
@@ -67,7 +82,7 @@ export function Waveform({
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     // Background
-    ctx.fillStyle = WAVE_BG;
+    ctx.fillStyle = getWaveBg();
     ctx.fillRect(0, 0, totalWidth, height);
 
     if (!peaks || peaks.bucketCount === 0) {
@@ -79,7 +94,7 @@ export function Waveform({
 
     // Map each x pixel to a bucket range. Use max abs so silent gaps stay visible.
     const mid = height / 2;
-    ctx.strokeStyle = WAVE_COLOR;
+    ctx.strokeStyle = getWaveColor();
     ctx.lineWidth = 1;
     ctx.beginPath();
     const bucketsPerPx = peaks.bucketCount / totalWidth;
@@ -137,9 +152,9 @@ export function Waveform({
         (Math.max(selectionRange.startMs, selectionRange.endMs) /
           Math.max(durationMs, 1)) *
         totalWidth;
-      ctx.fillStyle = "rgba(98,93,245,0.28)";
+      ctx.fillStyle = getBrandColorAlpha(0.28);
       ctx.fillRect(xStart, 0, xEnd - xStart, height);
-      ctx.strokeStyle = BRAND;
+      ctx.strokeStyle = getBrandColor();
       ctx.lineWidth = 1;
       ctx.strokeRect(xStart + 0.5, 0.5, xEnd - xStart - 1, height - 1);
     }
@@ -186,8 +201,8 @@ export function Waveform({
           className="absolute top-0 h-full w-[2px] pointer-events-none"
           style={{
             left: playheadX,
-            background: BRAND,
-            boxShadow: "0 0 0 1px rgba(98,93,245,0.25)",
+            background: getBrandColor(),
+            boxShadow: `0 0 0 1px ${getBrandColorAlpha(0.25)}`,
           }}
         />
       </div>

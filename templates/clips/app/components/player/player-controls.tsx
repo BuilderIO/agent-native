@@ -126,7 +126,7 @@ export function PlayerControls(props: PlayerControlsProps) {
               step={0.05}
               value={muted ? 0 : volume}
               onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
-              className="w-full accent-[#625DF5] cursor-pointer"
+              className="w-full accent-primary cursor-pointer"
             />
           </div>
         </div>

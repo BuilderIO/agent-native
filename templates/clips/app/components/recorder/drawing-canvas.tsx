@@ -20,7 +20,7 @@ interface Stroke {
 }
 
 const COLORS = [
-  "#625DF5",
+  "#1f2937",
   "#EF4444",
   "#F59E0B",
   "#10B981",
@@ -194,7 +194,7 @@ export function DrawingCanvas({
                 className={
                   "flex h-7 w-7 items-center justify-center rounded-full " +
                   (thickness === t
-                    ? "bg-[#625DF5] text-white"
+                    ? "bg-primary text-primary-foreground"
                     : "hover:bg-accent")
                 }
                 aria-label={`Thickness ${t}`}

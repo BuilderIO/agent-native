@@ -144,7 +144,7 @@ export default defineEventHandler(async (event) => {
   return {
     recording: {
       id: rec.id,
-      workspaceId: rec.workspaceId,
+      organizationId: rec.organizationId,
       title: rec.title,
       description: rec.description,
       thumbnailUrl: rec.thumbnailUrl,

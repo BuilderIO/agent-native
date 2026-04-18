@@ -125,6 +125,21 @@ export type UserSettings = {
   trustedSenders?: string[];
   /** Actions shown in the mobile bottom action bar (detail view). Order matters. */
   mobileActions?: MobileActionId[];
+  /** Email tracking preferences — opens and link clicks on sent messages */
+  tracking?: { opens: boolean; clicks: boolean };
+};
+
+export type EmailTrackingStats = {
+  opens: number;
+  firstOpenedAt?: number;
+  lastOpenedAt?: number;
+  linkClicks: {
+    url: string;
+    count: number;
+    firstClickedAt?: number;
+    lastClickedAt?: number;
+  }[];
+  totalClicks: number;
 };
 
 /** Identifiers for actions available in the mobile bottom bar */

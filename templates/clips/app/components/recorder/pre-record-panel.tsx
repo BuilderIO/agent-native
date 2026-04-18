@@ -124,7 +124,7 @@ export function PreRecordPanel({
               className={
                 "flex flex-col items-center gap-1.5 rounded-xl border px-2 py-3 text-center " +
                 (active
-                  ? "border-[#625DF5] bg-[#625DF5]/10 text-foreground"
+                  ? "border-primary bg-primary/10 text-foreground"
                   : "border-border bg-background text-muted-foreground hover:border-foreground/40")
               }
               aria-pressed={active}
@@ -196,7 +196,7 @@ export function PreRecordPanel({
               cameraDeviceId: cameraId === "default" ? null : cameraId,
             })
           }
-          className="bg-[#625DF5] text-white hover:bg-[#4F4BD6] focus-visible:ring-[#625DF5]"
+          className="bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:ring-primary"
         >
           Start recording
         </Button>

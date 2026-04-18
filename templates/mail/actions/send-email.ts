@@ -7,6 +7,16 @@ import {
   googleFetch,
 } from "../server/lib/google-api.js";
 import { getSetting } from "@agent-native/core/settings";
+import {
+  collectLinks,
+  injectTrackingIntoHtml,
+  newClickToken,
+  newPixelToken,
+  persistTracking,
+  type TrackingContext,
+} from "../server/lib/email-tracking.js";
+import { getAppProductionUrl } from "@agent-native/core/server";
+import type { UserSettings } from "../shared/types.js";
 
 function escapeHtml(value: string): string {
   return value
@@ -103,10 +113,13 @@ function splitReplyQuote(body: string): {
   return { newContent, attribution, quotedBody: afterSeparator };
 }
 
-function bodyToHtml(body: string): string {
+function bodyToHtml(body: string, tracking?: TrackingContext): string {
   const split = splitReplyQuote(body);
   if (split) {
     const newHtml = markdownToHtml(split.newContent);
+    const injectedNew = tracking
+      ? injectTrackingIntoHtml(newHtml, tracking)
+      : newHtml;
     const stripped = split.quotedBody
       .split("\n")
       .map((line) => {
@@ -122,9 +135,10 @@ function bodyToHtml(body: string): string {
       `<blockquote class="gmail_quote" style="margin:0 0 0 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex">` +
       innerHtml +
       `</blockquote></div>`;
-    return newHtml + quoteHtml;
+    return injectedNew + quoteHtml;
   }
-  return markdownToHtml(body);
+  const html = markdownToHtml(body);
+  return tracking ? injectTrackingIntoHtml(html, tracking) : html;
 }
 
 function buildRawEmail(opts: {
@@ -136,10 +150,11 @@ function buildRawEmail(opts: {
   body: string;
   inReplyTo?: string;
   references?: string;
+  tracking?: TrackingContext;
 }): string {
   const boundary = `agent-native-${Date.now()}`;
   const textBody = markdownToPlainText(opts.body);
-  const htmlBody = bodyToHtml(opts.body);
+  const htmlBody = bodyToHtml(opts.body, opts.tracking);
   const lines = [
     `From: ${opts.from}`,
     `To: ${opts.to}`,
@@ -170,12 +185,46 @@ function buildRawEmail(opts: {
     .replace(/=+$/, "");
 }
 
-async function readSettings(): Promise<{ name: string; email: string }> {
+async function readSettings(): Promise<{
+  name: string;
+  email: string;
+  tracking?: UserSettings["tracking"];
+}> {
   const data = await getSetting("mail-settings");
   if (data && typeof (data as any).name === "string") {
-    return { name: (data as any).name ?? "", email: (data as any).email ?? "" };
+    return {
+      name: (data as any).name ?? "",
+      email: (data as any).email ?? "",
+      tracking: (data as any).tracking,
+    };
   }
   return { name: "", email: "" };
+}
+
+function buildTrackingContext(
+  body: string,
+  tracking: UserSettings["tracking"],
+): TrackingContext | undefined {
+  const trackOpens = tracking?.opens !== false;
+  const trackClicks = tracking?.clicks !== false;
+  if (!trackOpens && !trackClicks) return undefined;
+
+  const linkTokens = new Map<string, string>();
+  if (trackClicks) {
+    const split = splitReplyQuote(body);
+    const portion = split ? split.newContent : body;
+    for (const url of collectLinks(portion)) {
+      linkTokens.set(url, newClickToken());
+    }
+  }
+
+  return {
+    pixelToken: newPixelToken(),
+    linkTokens,
+    trackOpens,
+    trackClicks,
+    appUrl: getAppProductionUrl(),
+  };
 }
 
 export default defineAction({
@@ -281,6 +330,8 @@ export default defineAction({
       }
     }
 
+    const tracking = buildTrackingContext(args.body, settings.tracking);
+
     const raw = buildRawEmail({
       from: fromHeader,
       to: args.to,
@@ -290,10 +341,22 @@ export default defineAction({
       body: args.body,
       inReplyTo,
       references,
+      tracking,
     });
 
     try {
       const sent = await gmailSendMessage(selectedToken, raw, threadId);
+      if (tracking && sent?.id) {
+        await persistTracking({
+          pixelToken: tracking.pixelToken,
+          messageId: sent.id,
+          ownerEmail: selectedEmail,
+          sentAt: Date.now(),
+          linkTokens: tracking.linkTokens,
+        }).catch((err) =>
+          console.error("[send-email] persistTracking failed:", err),
+        );
+      }
       return `Email sent successfully (id: ${sent.id})`;
     } catch (err: any) {
       return `Error sending email: ${err?.message}`;
