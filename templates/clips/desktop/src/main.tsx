@@ -27,7 +27,12 @@ function pickRoute(): React.ReactElement {
 
 const rootEl = document.getElementById("root");
 if (rootEl) {
-  ReactDOM.createRoot(rootEl).render(
-    <React.StrictMode>{pickRoute()}</React.StrictMode>,
-  );
+  // NOTE: intentionally NOT wrapping in React.StrictMode. StrictMode
+  // double-mounts effects in development, which means every useEffect
+  // that invokes a Tauri command runs twice (show_bubble / resize_popover
+  // / etc.), producing the rapid-fire flicker we were seeing where the
+  // camera bubble re-created itself ~30 times a second. Tauri windows
+  // are real OS resources — not an environment where double-mount is
+  // harmless.
+  ReactDOM.createRoot(rootEl).render(pickRoute());
 }

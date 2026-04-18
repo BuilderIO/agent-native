@@ -68,6 +68,11 @@ async fn show_countdown(app: AppHandle) -> Result<(), String> {
     .skip_taskbar(true)
     .shadow(false)
     .visible(false)
+    // Don't steal focus from the popover when the overlay opens —
+    // otherwise macOS fires Focused(false) on the popover, which
+    // kicks off a cascade of blur-related React re-renders and
+    // eventually (past the 1500ms guard) auto-hides the popover.
+    .focused(false)
     .build()
     .map_err(|e| {
         eprintln!("[clips-tray] countdown build failed: {}", e);
@@ -113,6 +118,7 @@ async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     .resizable(false)
     .shadow(true)
     .visible(false)
+    .focused(false)
     .build()
     .map_err(|e| {
         eprintln!("[clips-tray] toolbar build failed: {}", e);
@@ -153,6 +159,7 @@ async fn show_bubble(app: AppHandle) -> Result<(), String> {
     .resizable(false)
     .shadow(false)
     .visible(false)
+    .focused(false)
     .build()
     .map_err(|e| {
         eprintln!("[clips-tray] bubble build failed: {}", e);

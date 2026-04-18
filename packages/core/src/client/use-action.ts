@@ -62,15 +62,33 @@ type ActionParams<T extends string> = T extends keyof ActionRegistry
 // Fetch helper
 // ---------------------------------------------------------------------------
 
+/**
+ * Resolve the browser's IANA timezone (e.g. "America/Los_Angeles"). This is
+ * sent on every action request as `x-user-timezone` so server-side defaults
+ * like "today" honor the user's local day rather than the server's UTC clock.
+ */
+function resolveUserTimezone(): string | undefined {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function actionFetch<T>(
   name: string,
   method: string,
   params?: Record<string, any>,
 ): Promise<T> {
   let url = `${ACTION_PREFIX}/${name}`;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  const tz = resolveUserTimezone();
+  if (tz) headers["x-user-timezone"] = tz;
   const init: RequestInit = {
     method,
-    headers: { "Content-Type": "application/json" },
+    headers,
   };
 
   if (method === "GET" && params && Object.keys(params).length > 0) {

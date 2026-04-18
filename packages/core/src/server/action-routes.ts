@@ -5,13 +5,35 @@
  * defineAction to expose as GET. Use `http: false` to mark as agent-only.
  */
 import { getH3App } from "./framework-request-handler.js";
-import { defineEventHandler, setResponseStatus, getMethod, getQuery } from "h3";
+import {
+  defineEventHandler,
+  setResponseStatus,
+  getMethod,
+  getQuery,
+  getHeader,
+} from "h3";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { readBody } from "../server/h3-helpers.js";
 import { runWithRequestContext } from "./request-context.js";
 import { recordChange } from "./poll.js";
 
 const ROUTE_PREFIX = "/_agent-native/actions";
+
+/**
+ * Read the caller's IANA timezone from the `x-user-timezone` header. The core
+ * client sends this on every action request so server-side "today" fallbacks
+ * can honor the user's local day.
+ */
+function readTimezoneHeader(event: any): string | undefined {
+  try {
+    const raw = getHeader(event, "x-user-timezone");
+    if (!raw || typeof raw !== "string") return undefined;
+    const trimmed = raw.trim();
+    return trimmed.length > 0 && trimmed.length < 64 ? trimmed : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export interface MountActionRoutesOptions {
   /** Resolve owner email from the H3 event (for data scoping). */
@@ -59,6 +81,7 @@ export function mountActionRoutes(
         const orgId = options?.resolveOrgId
           ? ((await options.resolveOrgId(event)) ?? undefined)
           : undefined;
+        const timezone = readTimezoneHeader(event);
 
         // Also set process.env for backwards compat with scripts that
         // read it directly (CLI invocations, legacy code paths).
@@ -68,8 +91,11 @@ export function mountActionRoutes(
         } else {
           delete process.env.AGENT_ORG_ID;
         }
+        if (timezone) process.env.AGENT_USER_TIMEZONE = timezone;
 
-        return runWithRequestContext({ userEmail, orgId }, async () => {
+        return runWithRequestContext(
+          { userEmail, orgId, timezone },
+          async () => {
           // Parse params based on method. On web-standard runtimes (Netlify
           // Functions, CF Workers), event.req IS the web Request — use .json()
           // directly. H3's readBody fails on those runtimes because it expects
