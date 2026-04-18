@@ -155,104 +155,102 @@ export function Booker(props: BookerProps) {
       </header>
 
       <div className="relative min-h-[480px]">
-        <AnimatePresence mode="wait">
-          {flow.state.stage === "pick-date" && (
-            <motion.div
-              key="pick-date"
-              {...stage}
-              className="grid grid-cols-1 gap-6 md:grid-cols-2"
-            >
-              <DatePicker
-                slots={slots}
-                timezone={tz}
-                month={viewMonth}
-                onSelectDate={flow.selectDate}
-                isLoading={isLoading}
-              />
-            </motion.div>
-          )}
-          {flow.state.stage === "pick-slot" && flow.state.selectedDate && (
-            <motion.div
-              key="pick-slot"
-              {...stage}
-              className="grid grid-cols-1 gap-6 md:grid-cols-[1fr_360px]"
-            >
-              <DatePicker
-                slots={slots}
-                timezone={tz}
-                month={viewMonth}
-                selectedDate={flow.state.selectedDate}
-                onSelectDate={flow.selectDate}
-                isLoading={isLoading}
-              />
-              <div>
-                <div className="mb-3 flex items-center gap-2">
-                  <Button variant="ghost" size="icon" onClick={flow.backToDate}>
-                    <IconChevronLeft className="h-4 w-4" />
-                  </Button>
-                  <h2 className="text-sm font-medium">
-                    {format(
-                      new TZDate(`${flow.state.selectedDate}T12:00:00Z`, tz),
-                      "EEEE, MMMM d",
-                    )}
-                  </h2>
-                </div>
-                <SlotPicker
-                  slots={slots.filter((s: Slot) =>
-                    s.start.startsWith(flow.state.selectedDate!),
-                  )}
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={flow.state.stage}
+            {...stage}
+            transition={{ duration: 0.18 }}
+          >
+            {flow.state.stage === "pick-date" && (
+              <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+                <DatePicker
+                  slots={slots}
                   timezone={tz}
-                  onSelect={flow.selectSlot}
+                  month={viewMonth}
+                  onSelectDate={flow.selectDate}
+                  isLoading={isLoading}
                 />
               </div>
-            </motion.div>
-          )}
-          {flow.state.stage === "fill-form" && flow.state.selectedSlot && (
-            <motion.div key="fill-form" {...stage}>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={flow.backToSlot}
-                className="mb-2"
-              >
-                <IconChevronLeft className="mr-1 h-4 w-4" />
-                Pick a different time
-              </Button>
-              <BookingForm
-                eventType={props.eventType}
-                slot={flow.state.selectedSlot}
-                timezone={tz}
-                onSubmit={onSubmit}
-              />
-            </motion.div>
-          )}
-          {flow.state.stage === "submitting" && (
-            <motion.div key="submitting" {...stage} className="p-6">
-              <p className="text-sm text-muted-foreground">
+            )}
+            {flow.state.stage === "pick-slot" && flow.state.selectedDate && (
+              <div className="grid grid-cols-1 gap-6 md:grid-cols-[1fr_360px]">
+                <DatePicker
+                  slots={slots}
+                  timezone={tz}
+                  month={viewMonth}
+                  selectedDate={flow.state.selectedDate}
+                  onSelectDate={flow.selectDate}
+                  isLoading={isLoading}
+                />
+                <div>
+                  <div className="mb-3 flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={flow.backToDate}
+                    >
+                      <IconChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <h2 className="text-sm font-medium">
+                      {format(
+                        new TZDate(`${flow.state.selectedDate}T12:00:00Z`, tz),
+                        "EEEE, MMMM d",
+                      )}
+                    </h2>
+                  </div>
+                  <SlotPicker
+                    slots={slots.filter((s: Slot) =>
+                      s.start.startsWith(flow.state.selectedDate!),
+                    )}
+                    timezone={tz}
+                    onSelect={flow.selectSlot}
+                  />
+                </div>
+              </div>
+            )}
+            {flow.state.stage === "fill-form" && flow.state.selectedSlot && (
+              <div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={flow.backToSlot}
+                  className="mb-2"
+                >
+                  <IconChevronLeft className="mr-1 h-4 w-4" />
+                  Pick a different time
+                </Button>
+                <BookingForm
+                  eventType={props.eventType}
+                  slot={flow.state.selectedSlot}
+                  timezone={tz}
+                  onSubmit={onSubmit}
+                />
+              </div>
+            )}
+            {flow.state.stage === "submitting" && (
+              <p className="p-6 text-sm text-muted-foreground">
                 {props.rescheduleUid ? "Rescheduling…" : "Creating booking…"}
               </p>
-            </motion.div>
-          )}
-          {flow.state.stage === "success" && flow.state.resultBookingUid && (
-            <motion.div key="success" {...stage}>
+            )}
+            {flow.state.stage === "success" && flow.state.resultBookingUid && (
               <SuccessCard
                 bookingUid={flow.state.resultBookingUid}
                 eventType={props.eventType}
                 slot={flow.state.selectedSlot!}
                 timezone={tz}
               />
-            </motion.div>
-          )}
-          {flow.state.stage === "error" && (
-            <motion.div key="error" {...stage} className="p-6">
-              <p className="text-sm text-destructive">
-                Something went wrong: {flow.state.error}
-              </p>
-              <Button onClick={flow.backToSlot} className="mt-4">
-                Try again
-              </Button>
-            </motion.div>
-          )}
+            )}
+            {flow.state.stage === "error" && (
+              <div className="p-6">
+                <p className="text-sm text-destructive">
+                  Something went wrong: {flow.state.error}
+                </p>
+                <Button onClick={flow.backToSlot} className="mt-4">
+                  Try again
+                </Button>
+              </div>
+            )}
+          </motion.div>
         </AnimatePresence>
       </div>
     </div>
