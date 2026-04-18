@@ -1085,18 +1085,54 @@ button {
 /* Overlay: camera bubble                                                     */
 /* ------------------------------------------------------------------------- */
 
-.bubble-root {
+/*
+ * The Tauri bubble window is sized (in Rust) to exactly the circle diameter
+ * PLUS a `--bubble-controls-budget` strip at the bottom, so the hover pill
+ * has real window real-estate to render into. Everything outside window
+ * bounds is invisible no matter the CSS `overflow` — you can't paint where
+ * the OS hasn't given you pixels — so we build in the budget up front.
+ *
+ *   ┌──────────────┐
+ *   │ .bubble-root │  ← circle (drag region, data-tauri-drag-region)
+ *   │     ◯        │    Canvas lives here with pointer-events: none so
+ *   │              │    drags reach the drag-region parent.
+ *   └──────────────┘
+ *   ┌──────────────┐
+ *   │  ·  ●        │  ← .bubble-controls pill (hover-faded)
+ *   └──────────────┘
+ */
+.bubble-wrapper {
   position: fixed;
   inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* Transparent background — the Tauri window is `transparent: true`,
+     so the shadow + circle below paint through. */
+  background: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.bubble-root {
+  /* Circle fills the top of the wrapper. We use `flex: 0 0 auto` + a
+     1:1 aspect-ratio so the circle is always square regardless of the
+     actual window height (which includes the controls budget). */
+  flex: 0 0 auto;
+  aspect-ratio: 1 / 1;
+  /* Width = 100% of wrapper → the wrapper is exactly bubble-diameter
+     wide (Rust sizes the window that way). */
+  width: 100%;
   border-radius: 50%;
   overflow: hidden;
   background: #000;
-  cursor: grab;
-  user-select: none;
-  -webkit-user-select: none;
   /* Drop shadow only — no brand ring. The bubble is the user's face;
      a bright purple halo competes with what matters visually. */
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
+  /* Position context for absolute children (close X, canvas). */
+  position: relative;
+  /* Cursor hint — the drag region is here. */
+  cursor: grab;
 }
 
 .bubble-root:active {
@@ -1107,7 +1143,13 @@ button {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  border-radius: 50%;
   transform: scaleX(-1); /* Mirror — feels more natural for selfie view. */
+  /* CRITICAL: clicks MUST pass through the canvas to the
+     `data-tauri-drag-region` parent. Without this, the canvas swallows
+     mousedown and the bubble can't be dragged — cursor shows the grab
+     affordance but the window never moves. */
+  pointer-events: none;
 }
 
 .bubble-error {
@@ -1122,22 +1164,7 @@ button {
   padding: 12px;
 }
 
-/* Hover controls — close X + size-toggle pill. The bubble window itself is
-   sized to match the full physical bubble diameter, so we paint the controls
-   inside it and escape the round clipping with nested absolute positioning.
-   The canvas clips to the circle, the controls sit above the clipping layer
-   via their own z-index. */
-
-.bubble-root {
-  /* Let the controls overflow the circular root for the pill-under-bubble
-     look. `overflow: hidden` is re-applied on the canvas wrapper via the
-     border-radius on `.bubble-video`. */
-  overflow: visible;
-}
-
-.bubble-root .bubble-video {
-  border-radius: 50%;
-}
+/* Hover controls — close X + size-toggle pill. */
 
 .bubble-close,
 .bubble-controls {
@@ -1150,6 +1177,9 @@ button {
 .bubble-close.is-visible,
 .bubble-controls.is-visible {
   opacity: 1;
+  /* Close button and pill MUST receive clicks — they sit over the
+     drag region / inside the hover wrapper but must not be treated as
+     drag surfaces. */
   pointer-events: auto;
 }
 
@@ -1181,13 +1211,15 @@ button {
   color: white;
 }
 
-/* Size-control pill — positioned below the bubble's visible circle.
-   Centered horizontally, fades in on hover, matches Loom's visual weight. */
+/* Size-control pill — lives in the bottom strip of the wrapper (beneath
+   the circle). Centered horizontally, fades in on hover, matches Loom's
+   visual weight. Because it's a sibling of `.bubble-root` (not a child),
+   the border-radius clipping on the circle can't eat it. */
 .bubble-controls {
-  position: absolute;
-  left: 50%;
-  bottom: -30px;
-  transform: translateX(-50%);
+  /* `flex: 0 0 auto` + margin-top creates the small gap between the
+     circle and the pill. */
+  flex: 0 0 auto;
+  margin-top: 8px;
   display: inline-flex;
   align-items: center;
   gap: 8px;

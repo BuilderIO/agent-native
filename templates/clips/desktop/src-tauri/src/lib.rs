@@ -225,11 +225,29 @@ async fn show_toolbar(app: AppHandle) -> Result<(), String> {
 const BUBBLE_SIZE_SMALL: u32 = 192;
 const BUBBLE_SIZE_MEDIUM: u32 = 360;
 
+/// Extra vertical real-estate reserved beneath the circular bubble for the
+/// hover-controls pill (small-dot + medium-dot). The Tauri window is
+/// `transparent: true`, so the budget paints through as empty space until the
+/// user hovers the bubble and the pill fades in. We'd otherwise have no pixels
+/// to paint the pill into — WebKit can't render outside its window bounds, no
+/// matter what CSS `overflow` says.
+///
+/// 80 physical px ≈ 40 logical px on retina — enough for the ~28px pill plus
+/// an 8px gap from the circle, with a small cushion so the pill's drop-shadow
+/// doesn't clip at the window bottom.
+const BUBBLE_CONTROLS_BUDGET_PX: u32 = 80;
+
 fn bubble_size_for_name(name: &str) -> u32 {
     match name {
         "small" => BUBBLE_SIZE_SMALL,
         _ => BUBBLE_SIZE_MEDIUM,
     }
+}
+
+/// Total window height for a bubble of the given diameter — includes the
+/// controls-budget strip beneath the circle.
+fn bubble_window_height_for(size: u32) -> u32 {
+    size + BUBBLE_CONTROLS_BUDGET_PX
 }
 
 /// Path to the JSON blob that stores the last-known bubble position on disk.
@@ -323,11 +341,14 @@ async fn set_bubble_size(app: AppHandle, size: String) -> Result<(), String> {
         _ => "medium",
     };
     let px = bubble_size_for_name(name);
+    let win_h = bubble_window_height_for(px);
     if let Some(win) = app.get_webview_window(BUBBLE_LABEL) {
-        // Re-center the resize around the current position's center so the
+        // Re-center the resize around the current circle's center so the
         // bubble visually grows / shrinks around its current spot instead of
         // jumping toward the top-left corner (Tauri resizes from the window's
-        // origin by default).
+        // origin by default). We center on the CIRCLE's center — not the
+        // window center — since the controls budget strip is always beneath
+        // the circle, not around it.
         let current_pos = win
             .outer_position()
             .ok()
@@ -342,7 +363,7 @@ async fn set_bubble_size(app: AppHandle, size: String) -> Result<(), String> {
         let delta = (current_size - new_px) / 2;
         let new_x = current_pos.0 + delta;
         let new_y = current_pos.1 + delta;
-        let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(px, px)));
+        let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(px, win_h)));
         let _ = win.set_position(PhysicalPosition::new(new_x, new_y));
     }
     save_bubble_size_name(&app, name);
@@ -404,23 +425,28 @@ async fn show_bubble(app: AppHandle) -> Result<(), String> {
     // users see no visual change on upgrade.
     let size_name = load_bubble_size_name(&app);
     let size: u32 = bubble_size_for_name(&size_name);
+    // The actual window is TALLER than the circle — see
+    // `BUBBLE_CONTROLS_BUDGET_PX` — to give the hover controls pill room.
+    let win_h: u32 = bubble_window_height_for(size);
     // Default Loom-style anchor: flush-left with a small margin, a hair
     // above the bottom edge of the primary display. On Retina the 60
-    // physical-px offset maps to ~30 logical px.
+    // physical-px offset maps to ~30 logical px. Account for the extra
+    // height below the circle so the circle (not the controls strip) sits
+    // at the same visual position as before.
     let default_x: i32 = 48;
-    let default_y: i32 = mh as i32 - size as i32 - 60;
+    let default_y: i32 = mh as i32 - win_h as i32 - 60;
     // Prefer the last-known position, clamped to the primary monitor so a
     // position saved on a now-disconnected external display can't leave
     // the bubble off-screen.
     let max_x = (mw as i32 - size as i32).max(0);
-    let max_y = (mh as i32 - size as i32).max(0);
+    let max_y = (mh as i32 - win_h as i32).max(0);
     let (x, y, source) = match load_bubble_position(&app) {
         Some((sx, sy)) => (sx.clamp(0, max_x), sy.clamp(0, max_y), "saved"),
         None => (default_x, default_y, "default"),
     };
     eprintln!(
-        "[clips-tray] bubble pos=({},{}) source={} size={} monitor={}x{}",
-        x, y, source, size, mw, mh
+        "[clips-tray] bubble pos=({},{}) source={} size={}x{} monitor={}x{}",
+        x, y, source, size, win_h, mw, mh
     );
     let mut builder = WebviewWindowBuilder::new(&app, BUBBLE_LABEL, build_overlay_url("bubble"))
         .title("Clips Camera")
@@ -445,7 +471,7 @@ async fn show_bubble(app: AppHandle) -> Result<(), String> {
         eprintln!("[clips-tray] bubble build failed: {}", e);
         e.to_string()
     })?;
-    let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(size, size)));
+    let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(size, win_h)));
     let _ = win.set_position(PhysicalPosition::new(x, y));
     // NOTE: intentionally NOT calling `set_capture_excluded` on the bubble.
     // The bubble is the user's face — Loom's behavior is that the camera
