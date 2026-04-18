@@ -136,6 +136,11 @@ export function ConferencingSelector(props: ConferencingSelectorProps) {
                 })
               }
               disabled={isUnavailable}
+              title={
+                isUnavailable
+                  ? `${opt.label} is not configured on this server.`
+                  : undefined
+              }
               className={cls(
                 "flex flex-col gap-1 rounded-lg border px-3 py-2.5 text-left text-xs transition-colors",
                 isSelected
@@ -151,35 +156,20 @@ export function ConferencingSelector(props: ConferencingSelectorProps) {
                 >
                   {opt.label}
                 </span>
-                {isSelected && (
+                {isSelected && status === "connected" && (
+                  <Badge
+                    variant="secondary"
+                    className="ml-auto h-5 gap-1 text-[10px] font-normal"
+                  >
+                    <IconCheck className="h-3 w-3" />
+                    Connected
+                  </Badge>
+                )}
+                {isSelected && status !== "connected" && (
                   <IconCheck className="ml-auto h-3.5 w-3.5 text-primary" />
                 )}
               </div>
               <p className="text-muted-foreground">{opt.description}</p>
-              {opt.type === "zoom" && status === "disconnected" && (
-                <p className="text-[10px] text-amber-600 dark:text-amber-400">
-                  Not connected — you'll be asked to connect on save.
-                </p>
-              )}
-              {opt.type === "zoom" && status === "connected" && (
-                <Badge
-                  variant="secondary"
-                  className="w-fit text-[10px] font-normal"
-                >
-                  <IconCheck className="mr-1 h-3 w-3" />
-                  Connected
-                </Badge>
-              )}
-              {opt.type === "google_meet" && status === "disconnected" && (
-                <p className="text-[10px] text-amber-600 dark:text-amber-400">
-                  Connect Google Calendar to enable Meet.
-                </p>
-              )}
-              {isUnavailable && (
-                <p className="text-[10px] text-muted-foreground">
-                  Not configured on this server.
-                </p>
-              )}
             </button>
           );
         })}

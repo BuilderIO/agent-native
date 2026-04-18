@@ -233,40 +233,48 @@ export function Bubble() {
 
   return (
     <div
-      className={`bubble-root bubble-${size}`}
-      data-tauri-drag-region
+      className={`bubble-wrapper bubble-${size}`}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
-      <canvas ref={canvasRef} className="bubble-video" />
-      {/* Close X — top-right of bubble, only visible on hover. */}
-      <button
-        type="button"
-        className={`bubble-close ${showControls ? "is-visible" : ""}`}
-        onClick={onClose}
-        aria-label="Close camera"
-        title="Close camera"
-      >
-        <svg
-          width="10"
-          height="10"
-          viewBox="0 0 10 10"
-          fill="none"
-          aria-hidden="true"
+      {/*
+       * `data-tauri-drag-region` MUST live on this circular root and NOT
+       * on a parent wrapper — Tauri only treats clicks directly on the
+       * attributed element as drag-initiation. The <canvas> below has
+       * `pointer-events: none` so clicks fall through to this drag region.
+       * The control pill sits OUTSIDE this div (in the wrapper) so its
+       * buttons keep their own pointer events and don't trigger a drag.
+       */}
+      <div className="bubble-root" data-tauri-drag-region>
+        <canvas ref={canvasRef} className="bubble-video" />
+        {/* Close X — top-right of bubble, only visible on hover. */}
+        <button
+          type="button"
+          className={`bubble-close ${showControls ? "is-visible" : ""}`}
+          onClick={onClose}
+          aria-label="Close camera"
+          title="Close camera"
         >
-          <path
-            d="M1 1L9 9M9 1L1 9"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-          />
-        </svg>
-      </button>
-      {/* Size control pill — fades in under the bubble on hover. */}
-      <div
-        className={`bubble-controls ${showControls ? "is-visible" : ""}`}
-        onMouseEnter={handleMouseEnter}
-      >
+          <svg
+            width="10"
+            height="10"
+            viewBox="0 0 10 10"
+            fill="none"
+            aria-hidden="true"
+          >
+            <path
+              d="M1 1L9 9M9 1L1 9"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+            />
+          </svg>
+        </button>
+      </div>
+      {/* Size control pill — fades in under the bubble on hover. Sits in
+          the wrapper (outside the drag-region circle) so its buttons
+          receive pointer events normally without triggering a drag. */}
+      <div className={`bubble-controls ${showControls ? "is-visible" : ""}`}>
         <button
           type="button"
           className={`bubble-dot bubble-dot-small ${size === "small" ? "is-active" : ""}`}
