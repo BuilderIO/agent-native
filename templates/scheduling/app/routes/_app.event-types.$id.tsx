@@ -29,8 +29,8 @@ import { toast } from "sonner";
 import {
   IconArrowLeft,
   IconBrandGoogle,
-  IconBrandZoom,
   IconBrandTeams,
+  IconBrandZoom,
   IconCopy,
   IconExternalLink,
   IconLink,
@@ -42,6 +42,13 @@ import {
   IconVideo,
   IconX,
 } from "@tabler/icons-react";
+import {
+  ConferencingSelector,
+  type ConferencingValue,
+  CustomFieldsEditor,
+  DurationPicker,
+  SlugEditor,
+} from "@agent-native/scheduling/react/components";
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const eventType = await getEventTypeById(params.id!);
@@ -124,7 +131,6 @@ export default function EventTypeEditor() {
             <TabsTrigger value="availability">Availability</TabsTrigger>
             <TabsTrigger value="limits">Limits</TabsTrigger>
             <TabsTrigger value="advanced">Advanced</TabsTrigger>
-            <TabsTrigger value="apps">Apps</TabsTrigger>
             <TabsTrigger value="workflows">Workflows</TabsTrigger>
           </TabsList>
 
@@ -152,26 +158,22 @@ export default function EventTypeEditor() {
                 </TwoCol>
                 <TwoCol
                   label="URL"
-                  hint="The unique URL that visitors will use to book."
+                  hint="Click to edit — changes apply immediately."
                 >
-                  <div className="flex rounded-md border border-input focus-within:ring-2 focus-within:ring-ring">
-                    <span className="flex items-center rounded-l-md bg-muted px-3 text-xs text-muted-foreground">
-                      /{eventType.ownerEmail}/
-                    </span>
-                    <Input
-                      value={form.slug}
-                      className="border-0 rounded-l-none focus-visible:ring-0 focus-visible:ring-offset-0"
-                      onChange={(e) =>
-                        setForm({
-                          ...form,
-                          slug: e.currentTarget.value
-                            .toLowerCase()
-                            .replace(/\s+/g, "-"),
-                        })
-                      }
-                      onBlur={() => save({ slug: form.slug })}
-                    />
-                  </div>
+                  <SlugEditor
+                    host={
+                      typeof window !== "undefined"
+                        ? window.location.host
+                        : "scheduling.app"
+                    }
+                    username={eventType.ownerEmail}
+                    slug={form.slug}
+                    onSlugChange={(slug) => {
+                      setForm({ ...form, slug });
+                      save({ slug });
+                    }}
+                    hideLabel
+                  />
                 </TwoCol>
                 <TwoCol
                   label="Description"
@@ -194,9 +196,17 @@ export default function EventTypeEditor() {
                   label="Duration"
                   hint="How long is this event? Add more for the visitor to pick."
                 >
-                  <DurationsEditor
-                    value={form}
-                    onChange={(patch) => {
+                  <DurationPicker
+                    value={
+                      Array.isArray(form.durations) && form.durations.length
+                        ? form.durations
+                        : [form.length ?? 30]
+                    }
+                    onChange={(durations) => {
+                      const patch = {
+                        durations,
+                        length: durations[0],
+                      };
                       setForm({ ...form, ...patch });
                       save(patch);
                     }}
@@ -204,15 +214,17 @@ export default function EventTypeEditor() {
                 </TwoCol>
                 <Separator />
                 <TwoCol
-                  label="Location"
-                  hint="Where this event will take place. Visitors will see this."
+                  label="Conferencing"
+                  hint="How you'll meet attendees. Zoom auto-creates a meeting per booking."
                 >
-                  <LocationEditor
-                    value={form}
-                    onChange={(patch) => {
-                      setForm({ ...form, ...patch });
-                      save(patch);
+                  <ConferencingSelector
+                    value={locationToConferencing(form.locations?.[0]?.kind)}
+                    onChange={(next) => {
+                      const locations = [conferencingToLocation(next)];
+                      setForm({ ...form, locations });
+                      save({ locations });
                     }}
+                    hideLabel
                   />
                 </TwoCol>
               </CardContent>
@@ -447,6 +459,22 @@ export default function EventTypeEditor() {
                 />
                 <Separator />
                 <TwoCol
+                  label="Booking form"
+                  hint="Custom fields shown to the booker on the booking page."
+                >
+                  <CustomFieldsEditor
+                    fields={
+                      Array.isArray(form.customFields) ? form.customFields : []
+                    }
+                    onChange={(fields) => {
+                      setForm({ ...form, customFields: fields });
+                      save({ customFields: fields });
+                    }}
+                    hideLabel
+                  />
+                </TwoCol>
+                <Separator />
+                <TwoCol
                   label="Private links"
                   hint="Single-use or expiring URLs."
                 >
@@ -464,29 +492,6 @@ export default function EventTypeEditor() {
                     }}
                   />
                 </TwoCol>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* ============================ APPS ============================ */}
-          <TabsContent value="apps" className="pt-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Apps</CardTitle>
-                <CardDescription>
-                  Change the default location and connect extra apps for this
-                  event.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <AppsGrid
-                  selected={form.locations?.[0]?.kind}
-                  onPick={(kind) => {
-                    const locations = [{ kind }];
-                    setForm({ ...form, locations });
-                    save({ locations });
-                  }}
-                />
               </CardContent>
             </Card>
           </TabsContent>
@@ -533,6 +538,28 @@ export default function EventTypeEditor() {
   );
 }
 
+/**
+ * Map scheduling's `locations: [{kind}]` representation to the shared
+ * ConferencingSelector's `{type, url?}` shape. Kinds outside the four
+ * canonical conferencing options collapse to "none".
+ */
+function locationToConferencing(kind?: string): ConferencingValue {
+  if (kind === "google-meet") return { type: "google_meet" };
+  if (kind === "zoom") return { type: "zoom" };
+  if (kind === "link") return { type: "custom" };
+  return { type: "none" };
+}
+
+function conferencingToLocation(v: ConferencingValue): {
+  kind: string;
+  url?: string;
+} {
+  if (v.type === "google_meet") return { kind: "google-meet" };
+  if (v.type === "zoom") return { kind: "zoom" };
+  if (v.type === "custom") return { kind: "link", url: v.url };
+  return { kind: "in-person" };
+}
+
 function TwoCol({
   label,
   hint,
@@ -574,113 +601,6 @@ function SwitchRow({
       </div>
       <Switch checked={checked} onCheckedChange={onChange} className="mt-0.5" />
     </div>
-  );
-}
-
-function DurationsEditor({
-  value,
-  onChange,
-}: {
-  value: any;
-  onChange: (patch: any) => void;
-}) {
-  const durations: number[] = useMemo(() => {
-    if (Array.isArray(value.durations) && value.durations.length > 0) {
-      return value.durations;
-    }
-    return [value.length ?? 30];
-  }, [value.durations, value.length]);
-  const [inputMinutes, setInputMinutes] = useState(15);
-
-  const addDuration = () => {
-    if (!inputMinutes || inputMinutes <= 0) return;
-    if (durations.includes(inputMinutes)) return;
-    const next = [...durations, inputMinutes].sort((a, b) => a - b);
-    onChange({ durations: next, length: next[0] });
-  };
-
-  const removeDuration = (mins: number) => {
-    const next = durations.filter((d) => d !== mins);
-    if (next.length === 0) return;
-    onChange({ durations: next, length: next[0] });
-  };
-
-  return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-1.5">
-        {durations.map((d) => (
-          <span
-            key={d}
-            className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-0.5 text-xs font-medium"
-          >
-            {d}m
-            {durations.length > 1 && (
-              <button
-                type="button"
-                onClick={() => removeDuration(d)}
-                className="rounded hover:bg-background"
-                aria-label={`Remove ${d} minutes`}
-              >
-                <IconX className="h-3 w-3" />
-              </button>
-            )}
-          </span>
-        ))}
-      </div>
-      <div className="flex items-center gap-2">
-        <Input
-          type="number"
-          className="w-24"
-          value={inputMinutes}
-          onChange={(e) => setInputMinutes(Number(e.currentTarget.value))}
-        />
-        <span className="text-sm text-muted-foreground">minutes</span>
-        <Button size="sm" variant="outline" onClick={addDuration}>
-          <IconPlus className="mr-1 h-3.5 w-3.5" />
-          Add
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-function LocationEditor({
-  value,
-  onChange,
-}: {
-  value: any;
-  onChange: (patch: any) => void;
-}) {
-  const current: string = value.locations?.[0]?.kind ?? "cal-video";
-  const options = [
-    { kind: "cal-video", label: "Cal Video", Icon: IconVideo },
-    { kind: "google-meet", label: "Google Meet", Icon: IconBrandGoogle },
-    { kind: "zoom", label: "Zoom", Icon: IconBrandZoom },
-    { kind: "teams", label: "Microsoft Teams", Icon: IconBrandTeams },
-    { kind: "phone", label: "Phone call", Icon: IconPhone },
-    { kind: "in-person", label: "In person", Icon: IconMapPin },
-    { kind: "attendee-phone", label: "Attendee phone", Icon: IconUser },
-    { kind: "link", label: "Custom link", Icon: IconLink },
-  ];
-  return (
-    <Select
-      value={current}
-      onValueChange={(kind) => onChange({ locations: [{ kind }] })}
-    >
-      <SelectTrigger className="max-w-xs">
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        {options.map((o) => (
-          <SelectItem key={o.kind} value={o.kind}>
-            <span className="flex items-center gap-2">
-              <o.Icon className="h-4 w-4" />
-              {o.label}
-            </span>
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
   );
 }
 
