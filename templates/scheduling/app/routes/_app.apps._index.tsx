@@ -19,7 +19,6 @@ import {
   IconCalendar,
   IconPlus,
   IconSearch,
-  IconVideo,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 
@@ -57,14 +56,6 @@ const INTEGRATIONS: IntegrationCardData[] = [
     tagline: "Sync bookings with Outlook.",
     category: "calendars",
     Icon: IconCalendar,
-  },
-  {
-    kind: "cal_video",
-    name: "Cal Video",
-    tagline: "Free, built-in video conferencing.",
-    category: "video",
-    Icon: IconVideo,
-    installed: true,
   },
   {
     kind: "google_meet",

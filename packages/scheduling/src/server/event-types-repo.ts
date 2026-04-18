@@ -178,6 +178,12 @@ export async function createEventType(input: {
   const db = getDb();
   const now = new Date().toISOString();
   const id = nanoid();
+  // Default location: the user's `isDefault` conferencing credential if they
+  // have one installed (Zoom, Meet, Teams), otherwise no location — the
+  // editor will prompt them to pick.
+  const defaultLocations: Location[] =
+    input.locations ??
+    (input.ownerEmail ? await resolveDefaultLocation(input.ownerEmail) : []);
   await db.insert(schema.eventTypes).values({
     id,
     title: input.title,
@@ -190,9 +196,7 @@ export async function createEventType(input: {
     ownerEmail: input.ownerEmail ?? null,
     teamId: input.teamId ?? null,
     scheduleId: input.scheduleId ?? null,
-    locations: input.locations
-      ? JSON.stringify(input.locations)
-      : JSON.stringify([{ kind: "cal-video" }]),
+    locations: JSON.stringify(defaultLocations),
     customFields: input.customFields
       ? JSON.stringify(input.customFields)
       : JSON.stringify([]),
@@ -321,6 +325,31 @@ export async function updateEventType(
 export async function deleteEventType(id: string): Promise<void> {
   const { getDb, schema } = getSchedulingContext();
   await getDb().delete(schema.eventTypes).where(eq(schema.eventTypes.id, id));
+}
+
+/**
+ * Return a sensible default location for a freshly-created event type.
+ * Priority: the user's `isDefault` video conferencing credential → the
+ * first installed video credential → an empty list (editor prompts user).
+ */
+async function resolveDefaultLocation(ownerEmail: string): Promise<Location[]> {
+  const { getDb, schema } = getSchedulingContext();
+  const rows = await getDb()
+    .select()
+    .from(schema.schedulingCredentials)
+    .where(eq(schema.schedulingCredentials.userEmail, ownerEmail));
+  const videoKinds = new Set(["zoom_video", "google_meet", "teams_video"]);
+  const video = rows.filter((r: any) => videoKinds.has(r.type) && !r.invalid);
+  const preferred = video.find((r: any) => r.isDefault) ?? video[0];
+  if (!preferred) return [];
+  const kindMap: Record<string, Location["kind"]> = {
+    zoom_video: "zoom",
+    google_meet: "google-meet",
+    teams_video: "teams",
+  };
+  const kind = kindMap[preferred.type];
+  if (!kind) return [];
+  return [{ kind, credentialId: preferred.id }];
 }
 
 export async function resolveEventTypeSlug(params: {

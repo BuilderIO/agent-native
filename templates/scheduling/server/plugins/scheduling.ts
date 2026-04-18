@@ -12,7 +12,6 @@ import {
   createGoogleCalendarProvider,
   createOffice365Provider,
   createZoomProvider,
-  createDailyVideoProvider,
   googleMeetProvider,
 } from "@agent-native/scheduling/server/providers";
 import {
@@ -80,12 +79,6 @@ export default () => {
     );
   }
 
-  if (process.env.DAILY_API_KEY) {
-    registerVideoProvider(
-      createDailyVideoProvider({ apiKey: process.env.DAILY_API_KEY }),
-    );
-  }
-
   // Declare required secrets so the onboarding checklist lists them.
   registerRequiredSecret({
     key: "GOOGLE_CLIENT_ID",
@@ -108,12 +101,6 @@ export default () => {
   registerRequiredSecret({
     key: "ZOOM_CLIENT_SECRET",
     label: "Zoom OAuth Client Secret",
-    scope: "workspace",
-    kind: "api-key",
-  });
-  registerRequiredSecret({
-    key: "DAILY_API_KEY",
-    label: "Daily.co API Key (Cal Video)",
     scope: "workspace",
     kind: "api-key",
   });
