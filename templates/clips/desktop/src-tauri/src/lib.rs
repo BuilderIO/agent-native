@@ -206,9 +206,9 @@ async fn show_bubble(app: AppHandle) -> Result<(), String> {
     }
     let (mw, mh) = primary_monitor_physical_size(&app).unwrap_or((2880, 1800));
     let size: u32 = 360; // physical (= 180 logical on retina)
-    // Default Loom-style anchor: flush-left with a small margin, a hair
-    // above the bottom edge of the primary display. On Retina the 60
-    // physical-px offset maps to ~30 logical px.
+                         // Default Loom-style anchor: flush-left with a small margin, a hair
+                         // above the bottom edge of the primary display. On Retina the 60
+                         // physical-px offset maps to ~30 logical px.
     let default_x: i32 = 48;
     let default_y: i32 = mh as i32 - size as i32 - 60;
     // Prefer the last-known position, clamped to the primary monitor so a
