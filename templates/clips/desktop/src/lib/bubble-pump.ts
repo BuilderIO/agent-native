@@ -67,6 +67,13 @@ export function startBubbleFramePump(stream: MediaStream): () => void {
   video.srcObject = stream;
   video.muted = true;
   video.playsInline = true;
+  // `autoplay` in addition to the explicit .play() below — WKWebView has
+  // been observed to pause MediaStream-backed <video> elements when the
+  // owning window loses visible area (e.g. shrunk during recording). The
+  // autoplay attribute nudges WebKit to resume on its own once the window
+  // is visible again; the heartbeat interval below catches any remaining
+  // cases.
+  video.autoplay = true;
   // Keep these elements off-screen and unrendered but still attached so
   // WebKit keeps decoding the track. `display: none` stops decoding in
   // some WebKit versions — a 1px offscreen layer is the safe pattern.
@@ -97,6 +104,19 @@ export function startBubbleFramePump(stream: MediaStream): () => void {
   let lastEmitMs = 0;
   let rafHandle: number | null = null;
   let rvfcHandle: number | null = null;
+
+  // Defensive heartbeat: every 2s, if the video got paused (WKWebView can
+  // do this when its window briefly has no on-screen pixels, or after a
+  // visibility flap) nudge it back into play. Cheap when it's already
+  // playing — `play()` is a no-op when the element is already playing.
+  const heartbeat = setInterval(() => {
+    if (stopped) return;
+    if (video.paused) {
+      video.play().catch(() => {
+        // ignore — next tick will try again
+      });
+    }
+  }, 2000);
 
   async function encodeAndEmit(): Promise<void> {
     if (!ctx || busy || stopped) return;
@@ -180,6 +200,7 @@ export function startBubbleFramePump(stream: MediaStream): () => void {
 
   return () => {
     stopped = true;
+    clearInterval(heartbeat);
     if (rafHandle !== null) {
       cancelAnimationFrame(rafHandle);
       rafHandle = null;

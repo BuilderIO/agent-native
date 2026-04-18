@@ -48,7 +48,11 @@ type BubbleSize = "small" | "medium";
 export function Bubble() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const firstFrameAtRef = useRef<number | null>(null);
-  const [size, setSize] = useState<BubbleSize>("medium");
+  // Small is the default bubble size — matches the Rust-side default in
+  // `load_bubble_size_name`. On mount we `invoke("load_bubble_size")` to
+  // read the persisted choice and override this if the user previously
+  // picked medium.
+  const [size, setSize] = useState<BubbleSize>("small");
   const [showControls, setShowControls] = useState(false);
   const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -61,7 +65,10 @@ export function Bubble() {
     invoke<string>("load_bubble_size")
       .then((value) => {
         if (cancelled) return;
-        setSize(value === "small" ? "small" : "medium");
+        // Default is "small" — mirrors the Rust-side fallback. Only a
+        // stored "medium" flips us to the larger circle; anything else
+        // (including a corrupted JSON blob) stays small.
+        setSize(value === "medium" ? "medium" : "small");
       })
       .catch((err) => {
         console.warn("[bubble] load_bubble_size failed", err);
