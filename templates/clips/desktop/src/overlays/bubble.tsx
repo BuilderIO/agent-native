@@ -23,25 +23,27 @@ type BubbleSize = "small" | "medium";
  *
  * The robust fix is architectural: the POPOVER owns the camera (it
  * also owns the display-capture session, so "same page" applies), and
- * streams JPEG frames to this overlay via Tauri events. This
- * component just listens for `clips:bubble-frame`, decodes each
- * payload to an ImageBitmap, and blits it onto a `<canvas>`. No
- * getUserMedia, no track lifecycle, no watchdog.
+ * streams video to this overlay. Two transport paths are supported:
  *
- * Frame format (emitted by `bubble-pump.ts`):
- *   {
- *     dataUrl: string   // "data:image/jpeg;base64,..." (base64 JPEG)
- *     w:       number   // source width  (192 preview / 144 recording)
- *     h:       number   // source height (always equals w — square crop)
- *   }
+ *   1. **WebRTC loopback (preferred)** — the popover runs an
+ *      `RTCPeerConnection`, adds the camera video track, creates an
+ *      offer, and shuttles SDP + ICE through Tauri events. This
+ *      bubble creates a receiving `RTCPeerConnection`, gets the
+ *      track via `ontrack`, and plays it in a `<video>` element.
+ *      Zero main-thread encode cost. Hardware-accelerated decode.
+ *      See `bubble-webrtc.ts` for the full protocol.
  *
- * The pump previously sent `bytes: number[]` (a raw JS number array of
- * JPEG bytes), which was slow to JSON-stringify on the sender and
- * required a Blob → createImageBitmap round trip on the receiver. The
- * data-URL path cuts both costs: Tauri serializes one string in O(n),
- * and decoding via an `<img>` element lets WebKit decode off-main-
- * thread. A `bytes` fallback branch is kept below so a stale popover
- * build can still drive this bubble.
+ *   2. **Canvas frame stream (fallback)** — legacy path. The popover
+ *      runs `bubble-pump.ts`, encodes each frame as a JPEG data-URL,
+ *      and emits `clips:bubble-frame`. This bubble decodes each
+ *      payload via an `<img>` and blits onto a canvas. Kept so the
+ *      feature degrades gracefully if the WebRTC handshake fails.
+ *
+ * The bubble always sets up BOTH receivers on mount. Whichever path
+ * delivers video first wins — the other stays passive. If the
+ * popover's WebRTC handshake fails (ICE timeout / failed state), it
+ * stops trying and the popover starts the canvas pump instead, at
+ * which point the canvas path takes over seamlessly.
  *
  * # Hover controls (Loom-style)
  *
@@ -54,8 +56,21 @@ type BubbleSize = "small" | "medium";
  * the controls away mid-reach.
  */
 export function Bubble() {
+  // Dual-path rendering: <video> for WebRTC, <canvas> for the legacy
+  // JPEG stream. CSS stacks them in the same circle — whichever has a
+  // stream / frames visible fills the same space. Starts with canvas
+  // hidden via `data-path="webrtc"` on the root; once a WebRTC track
+  // arrives we set it to "webrtc", and if WebRTC fails and canvas
+  // frames start arriving we flip to "canvas".
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const firstFrameAtRef = useRef<number | null>(null);
+  // Which transport delivered the most recent usable frame. Starts as
+  // "none" — we flip to "webrtc" on ontrack, or "canvas" on the first
+  // JPEG frame, whichever lands first.
+  const [activePath, setActivePath] = useState<"none" | "webrtc" | "canvas">(
+    "none",
+  );
   // Small is the default bubble size — matches the Rust-side default in
   // `load_bubble_size_name`. On mount we `invoke("load_bubble_size")` to
   // read the persisted choice and override this if the user previously
@@ -137,25 +152,200 @@ export function Bubble() {
     }
   };
 
-  // ---- frame sink ---------------------------------------------------------
+  // ---- WebRTC receiver ----------------------------------------------------
+  // Sets up a fresh RTCPeerConnection on mount, emits `bubble-ready`
+  // so the popover knows to start the handshake, and renegotiates on
+  // every fresh offer. Fully self-contained — survives popover
+  // restarts, stream swaps, and size changes.
+  useEffect(() => {
+    const unlistens: Array<() => void> = [];
+    let stopped = false;
+    let pc: RTCPeerConnection | null = null;
+    // Tracks the handshake id the popover stamped on the most recent
+    // offer we processed. ICE candidates arriving for a stale id are
+    // ignored (the popover sometimes re-negotiates if it reboots).
+    let currentHandshakeId: number | null = null;
+
+    function teardownPeer() {
+      if (pc) {
+        try {
+          pc.close();
+        } catch {
+          // ignore
+        }
+        pc = null;
+      }
+    }
+
+    async function handleOffer(
+      incomingId: number,
+      sdp: string,
+      type: string,
+    ): Promise<void> {
+      if (stopped) return;
+      // Always restart on a new offer — the popover rebuilds its peer
+      // on every bubble re-mount, so we do too.
+      teardownPeer();
+      currentHandshakeId = incomingId;
+
+      // Same config as the sender — empty iceServers, all transports
+      // allowed (see bubble-webrtc.ts). Receiver doesn't need to call
+      // getUserMedia; WebKit's host-candidate restriction only means
+      // WE don't expose host candidates, but we connect to the
+      // sender's host candidate, which is all we need.
+      const localPc = new RTCPeerConnection({
+        iceServers: [],
+        iceTransportPolicy: "all",
+      });
+      pc = localPc;
+
+      localPc.onicecandidate = (ev) => {
+        if (!ev.candidate) return;
+        if (stopped || currentHandshakeId !== incomingId) return;
+        emit("clips:webrtc-ice-from-bubble", {
+          handshakeId: incomingId,
+          candidate: ev.candidate.candidate,
+          sdpMid: ev.candidate.sdpMid,
+          sdpMLineIndex: ev.candidate.sdpMLineIndex,
+        }).catch(() => {});
+      };
+
+      localPc.oniceconnectionstatechange = () => {
+        if (stopped) return;
+        console.log(
+          "[bubble] ice state =",
+          localPc.iceConnectionState,
+          "signal =",
+          localPc.signalingState,
+        );
+      };
+
+      localPc.ontrack = (ev) => {
+        if (stopped) return;
+        const videoEl = videoRef.current;
+        if (!videoEl) return;
+        const incomingStream = ev.streams[0];
+        if (!incomingStream) return;
+        videoEl.srcObject = incomingStream;
+        videoEl.play().catch((err) => {
+          // Autoplay might be blocked in some WebKit corners —
+          // `muted` + `playsInline` in JSX should be enough, but log
+          // if it trips so we know to investigate.
+          console.warn("[bubble] video.play() rejected", err);
+        });
+        if (firstFrameAtRef.current == null) {
+          firstFrameAtRef.current = Date.now();
+          console.log("[bubble] first webrtc track received");
+        }
+        setActivePath("webrtc");
+      };
+
+      try {
+        await localPc.setRemoteDescription({ type: type as RTCSdpType, sdp });
+      } catch (err) {
+        console.warn("[bubble] setRemoteDescription(offer) failed", err);
+        teardownPeer();
+        return;
+      }
+      if (stopped || currentHandshakeId !== incomingId) return;
+      let answer: RTCSessionDescriptionInit;
+      try {
+        answer = await localPc.createAnswer();
+        await localPc.setLocalDescription(answer);
+      } catch (err) {
+        console.warn("[bubble] createAnswer / setLocalDescription failed", err);
+        teardownPeer();
+        return;
+      }
+      if (stopped || currentHandshakeId !== incomingId) return;
+      try {
+        await emit("clips:webrtc-answer", {
+          handshakeId: incomingId,
+          sdp: localPc.localDescription?.sdp ?? answer.sdp,
+          type: "answer",
+        });
+      } catch (err) {
+        console.warn("[bubble] emit answer failed", err);
+      }
+    }
+
+    listen<{
+      handshakeId: number;
+      sdp: string;
+      type: string;
+    }>("clips:webrtc-offer", (ev) => {
+      const { handshakeId, sdp, type } = ev.payload;
+      handleOffer(handshakeId, sdp, type).catch((err) => {
+        console.warn("[bubble] handleOffer threw", err);
+      });
+    })
+      .then((u) => unlistens.push(u))
+      .catch((err) => {
+        console.warn("[bubble] listen offer failed", err);
+      });
+
+    listen<{
+      handshakeId: number;
+      candidate: string;
+      sdpMid: string | null;
+      sdpMLineIndex: number | null;
+    }>("clips:webrtc-ice-from-popover", async (ev) => {
+      if (stopped) return;
+      const {
+        handshakeId: incomingId,
+        candidate,
+        sdpMid,
+        sdpMLineIndex,
+      } = ev.payload;
+      if (incomingId !== currentHandshakeId) return;
+      if (!pc) return;
+      try {
+        await pc.addIceCandidate({
+          candidate,
+          sdpMid: sdpMid ?? undefined,
+          sdpMLineIndex: sdpMLineIndex ?? undefined,
+        });
+      } catch (err) {
+        console.warn("[bubble] addIceCandidate failed", err);
+      }
+    })
+      .then((u) => unlistens.push(u))
+      .catch((err) => {
+        console.warn("[bubble] listen ice failed", err);
+      });
+
+    // The popover may ping us if it thinks we missed the first
+    // bubble-ready emit (e.g. popover restart with an already-mounted
+    // bubble). Re-emit on demand.
+    listen("clips:bubble-handshake-request", () => {
+      if (stopped) return;
+      emit("clips:bubble-ready", {}).catch(() => {});
+    })
+      .then((u) => unlistens.push(u))
+      .catch(() => {});
+
+    // Announce readiness once the listeners are all wired.
+    emit("clips:bubble-ready", {}).catch((err) => {
+      console.warn("[bubble] emit bubble-ready failed", err);
+    });
+
+    return () => {
+      stopped = true;
+      teardownPeer();
+      unlistens.forEach((u) => u());
+    };
+  }, []);
+
+  // ---- canvas fallback sink ----------------------------------------------
+  // Legacy path — the popover's canvas pump emits JPEG data URLs. Only
+  // drives display when WebRTC hasn't taken over (activePath != webrtc).
+  // Kept so a popover that falls back to the canvas pump (or a stale
+  // build) still drives the bubble.
   useEffect(() => {
     const unlistens: Array<() => void> = [];
 
-    // Two-slot `<img>` pool. The previous implementation used a single
-    // `<img>` and reassigned `.src` each frame — which CANCELS the in-
-    // flight decode in WebKit when the new .src lands. Under load, that
-    // meant we often threw away half the decoded frames because the
-    // next one arrived before the previous finished decoding.
-    //
-    // With two slots we alternate: slot A decodes → render → slot A is
-    // free; slot B decodes next → render. Each decode gets to finish,
-    // even when frames arrive close together. The useful work done by
-    // one decode is no longer invalidated by the following frame.
-    //
-    // `.decoding = "async"` + `.decode()` (on Safari since ~15) pushes
-    // JPEG decode off the main thread entirely. Using the returned
-    // Promise also makes this more robust than `.onload` — a decode
-    // error rejects rather than silently dropping the frame.
+    // Two-slot `<img>` pool — see the extensive rationale comment below.
+    // Same pattern as the old implementation.
     type ImgSlot = {
       img: HTMLImageElement;
       busy: boolean;
@@ -168,12 +358,6 @@ export function Bubble() {
       s.img.decoding = "async";
     }
 
-    // Keep only the most recent pending dataUrl. If a frame arrives
-    // while both slots are busy (rare, but possible when the sender
-    // bursts a frame right as a previous one is still decoding), we
-    // just remember the latest and dispatch it when a slot frees up.
-    // We always want the NEWEST frame — an older queued frame would
-    // be stale by the time it renders.
     let latestPending: { dataUrl: string; w: number; h: number } | null = null;
 
     function drawFromSlot(slot: ImgSlot, w: number, h: number) {
@@ -198,10 +382,6 @@ export function Bubble() {
       latestPending = null;
       freeSlot.busy = true;
       freeSlot.img.src = dataUrl;
-      // `img.decode()` returns a Promise that resolves once the image
-      // is fully decoded and ready to draw. On Safari this work
-      // happens on a background thread, so awaiting it here doesn't
-      // block the main thread beyond the actual drawImage call.
       const decodePromise = freeSlot.img.decode
         ? freeSlot.img.decode()
         : new Promise<void>((resolve, reject) => {
@@ -217,7 +397,6 @@ export function Bubble() {
         })
         .finally(() => {
           freeSlot.busy = false;
-          // Drain any frame that arrived mid-decode.
           if (latestPending) dispatchPending();
         });
     }
@@ -236,20 +415,14 @@ export function Bubble() {
           "[bubble] first frame received path=",
           dataUrl ? "dataUrl" : "bytes",
         );
-      } else {
-        // Log every ~3s so we can confirm frames are landing without
-        // spamming the console.
-        const age = Date.now() - firstFrameAtRef.current;
-        if (age % 3000 < 60) {
-          console.log(
-            "[bubble] frame received path=",
-            dataUrl ? "dataUrl" : "bytes",
-          );
-        }
       }
 
-      // Fast path — data URL. WebKit decodes <img> off the main
-      // thread and drawImage is a cheap GPU blit.
+      // Flip the active path on first canvas frame — only if WebRTC
+      // hasn't already taken over. If WebRTC is live the canvas frames
+      // still arrive (the popover may send a few overlap frames during
+      // handover) but we ignore them for display.
+      setActivePath((prev) => (prev === "webrtc" ? prev : "canvas"));
+
       if (dataUrl) {
         latestPending = { dataUrl, w, h };
         dispatchPending();
@@ -257,8 +430,7 @@ export function Bubble() {
       }
 
       // Legacy fallback — bytes array. Kept so that a stale popover
-      // build can still drive this bubble. Can be removed once every
-      // shipping build of the popover emits dataUrl.
+      // build can still drive this bubble.
       if (!bytes || !bytes.length) return;
       const canvas = canvasRef.current;
       if (!canvas) return;
@@ -281,9 +453,7 @@ export function Bubble() {
     }).then((u) => unlistens.push(u));
 
     // Keep `clips:bubble-config` as a no-op legacy listener so emits
-    // from older code paths don't blow up. The popover now picks the
-    // device itself before calling getUserMedia, so there's nothing for
-    // the bubble to configure.
+    // from older code paths don't blow up.
     listen("clips:bubble-config", (ev) => {
       console.log("[bubble] bubble-config (legacy, ignored)", ev.payload);
     }).then((u) => unlistens.push(u));
@@ -308,8 +478,6 @@ export function Bubble() {
       timer = setTimeout(() => {
         timer = null;
         if (cancelled) return;
-        // Dedupe — onMoved fires on show() too, no sense rewriting the
-        // same JSON blob every launch.
         if (lastSaved && lastSaved.x === x && lastSaved.y === y) return;
         lastSaved = { x, y };
         void invoke("save_bubble_position", { x, y }).catch((err) => {
@@ -377,13 +545,41 @@ export function Bubble() {
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       onMouseDown={handleBubbleMouseDown}
+      data-path={activePath}
     >
       <div className="bubble-root">
         {/*
-         * <canvas> has `pointer-events: none` in CSS so mousedown falls
-         * through to the drag-handler wrapper.
+         * <video> is the WebRTC receiver. <canvas> is the legacy JPEG
+         * sink. They're stacked in the same circle; whichever has a
+         * live source dominates visually. Both have `pointer-events:
+         * none` (bubble-video class) so mousedown falls through to the
+         * wrapper's drag handler.
+         *
+         * `autoPlay playsInline muted` matches what the srcObject
+         * requires for WebKit to start playing without a user gesture
+         * (the video track arrives via WebRTC, not from autoplay
+         * policy's perspective a "navigated" media resource, but muted
+         * + inline is the safe combination).
          */}
-        <canvas ref={canvasRef} className="bubble-video" />
+        <video
+          ref={videoRef}
+          className="bubble-video"
+          autoPlay
+          playsInline
+          muted
+          style={activePath === "canvas" ? { display: "none" } : undefined}
+        />
+        <canvas
+          ref={canvasRef}
+          className="bubble-video"
+          style={
+            activePath === "webrtc"
+              ? { display: "none" }
+              : // Canvas stays visible during the "none" state so we show
+                // a (black) circle rather than blank while handshake runs.
+                undefined
+          }
+        />
         {/* Close X — top-right of bubble, only visible on hover. Marked
             `data-no-drag` so mousedown here does NOT call startDragging;
             onClick fires normally. */}

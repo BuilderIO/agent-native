@@ -4,6 +4,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { startBubbleFramePump } from "./lib/bubble-pump";
+import {
+  startBubbleWebrtc,
+  type BubbleWebrtcHandle,
+} from "./lib/bubble-webrtc";
 import { startNativeRecording, type RecorderHandle } from "./lib/recorder";
 
 interface RecordingSummary {
@@ -355,7 +359,12 @@ export function App() {
     if (!bubbleActive) return;
 
     let cancelled = false;
+    // Dual-transport bookkeeping. We try WebRTC first; if it fails or
+    // times out, we fall back to the canvas pump. Only one should be
+    // active at a time — the ref below guarantees we never double-start.
+    let webrtcHandle: BubbleWebrtcHandle | null = null;
     let stopPump: (() => void) | null = null;
+    let fellBackToPump = false;
     let stream: MediaStream | null = null;
 
     console.log(
@@ -374,8 +383,11 @@ export function App() {
         }
         stream = s;
         bubbleStreamRef.current = s;
-        // Open the bubble window. It's a pure renderer — no getUserMedia
-        // on that side, just receives JPEG frames via `clips:bubble-frame`.
+        // Open the bubble window. It's a pure renderer — the bubble
+        // itself creates an RTCPeerConnection receiver and emits
+        // `clips:bubble-ready` once it's listening. We also keep the
+        // legacy canvas-frame sink around so a WebRTC failure can
+        // fall back to JPEG frames without a bubble reload.
         try {
           await invoke("show_bubble");
         } catch (err) {
@@ -385,7 +397,33 @@ export function App() {
           s.getTracks().forEach((t) => t.stop());
           return;
         }
-        stopPump = startBubbleFramePump(s);
+        // Preferred path: WebRTC. Starts listening for bubble-ready,
+        // then kicks off an offer/answer/ICE dance. If ICE doesn't
+        // connect within the timeout (or fails later) we start the
+        // canvas pump in its place. The pump is our safety net —
+        // proven to work, just slower.
+        const startCanvasFallback = (reason: string) => {
+          if (cancelled || fellBackToPump) return;
+          fellBackToPump = true;
+          console.warn(
+            "[clips-popover] WebRTC bubble failed (%s) — starting canvas pump fallback",
+            reason,
+          );
+          webrtcHandle?.stop();
+          webrtcHandle = null;
+          if (stream) {
+            stopPump = startBubbleFramePump(stream);
+          }
+        };
+        webrtcHandle = startBubbleWebrtc({
+          stream: s,
+          onConnected: () => {
+            console.log(
+              "[clips-popover] bubble WebRTC connected — video is live",
+            );
+          },
+          onFailure: startCanvasFallback,
+        });
       })
       .catch((err) => {
         if (cancelled) return;
@@ -401,6 +439,7 @@ export function App() {
         transferred,
         recordingInFlight,
       );
+      if (webrtcHandle) webrtcHandle.stop();
       if (stopPump) stopPump();
       // Critical: if the recorder borrowed this stream, it now owns the
       // track lifecycle. Stopping tracks here would end them out from
