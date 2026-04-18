@@ -479,14 +479,6 @@ export function App() {
         </button>
       ) : isRecording ? (
         <RecordingRow onStop={() => emit("clips:recorder-stop")} />
-      ) : lastRecordingId ? (
-        <button
-          className="primary start"
-          onClick={() => openInBrowser(`/r/${lastRecordingId}`)}
-        >
-          <span className="rec-dot" aria-hidden />
-          View last recording
-        </button>
       ) : (
         <button className="primary start" onClick={startRecording}>
           <span className="rec-dot" aria-hidden />
