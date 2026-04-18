@@ -164,7 +164,13 @@ export function App() {
       const ok = await checkAuth();
       if (ok || Date.now() - start > 120_000) {
         clearInterval(interval);
-        if (ok) invoke("close_signin").catch(() => {});
+        if (ok) {
+          // Session is live — close the signin window AND re-show the
+          // popover so the user lands back in the config UI (not a
+          // mysterious empty screen).
+          invoke("close_signin").catch(() => {});
+          invoke("show_popover").catch(() => {});
+        }
       }
     }, 1500);
   }
@@ -403,7 +409,13 @@ export function App() {
           if (!cancelled) {
             setRecorder(null);
             invoke("set_recording_state", { active: false }).catch(() => {});
-            invoke("show_popover").catch(() => {});
+            // Close the popover — recorder.stop() already opened the
+            // recording's page in the default browser. The popover doesn't
+            // need to hang around.
+            getCurrentWindow()
+              .hide()
+              .catch(() => {});
+            emit("clips:popover-visible", false).catch(() => {});
             fetchRecent();
           }
         }
@@ -574,7 +586,6 @@ function Header({
 }) {
   return (
     <div className="header">
-      <div className="logo">C</div>
       <div
         className="mode-toggle"
         role="radiogroup"

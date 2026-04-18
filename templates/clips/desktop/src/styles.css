@@ -105,10 +105,16 @@ button {
 
 .header {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: 1fr auto;
   align-items: center;
   gap: 10px;
   padding: 0 2px;
+}
+
+/* Mode toggle lives in the first column — center it horizontally so the
+   close button on the right doesn't make the layout look lopsided. */
+.header .mode-toggle {
+  justify-self: center;
 }
 
 .logo {

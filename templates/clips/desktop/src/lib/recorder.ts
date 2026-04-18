@@ -323,6 +323,7 @@ export async function startNativeRecording(
     async stop() {
       if (stopped) return { recordingId: id, viewUrl: `/r/${id}` };
       stopped = true;
+      console.log("[clips-recorder] stop requested");
       clearInterval(tickHandle);
       stateUnlistens.forEach((u) => u());
 
@@ -356,34 +357,52 @@ export async function startNativeRecording(
         s?.getTracks().forEach((t) => t.stop()),
       );
 
-      // Drain pending chunk uploads, then send the isFinal marker.
-      await Promise.allSettled(uploadQueue);
-      if (failed) throw failed;
-
-      const finalizeUrl = chunkUrl(params.serverUrl, id, chunkIndex, true, {
-        mimeType: mimeType || "video/webm",
-      });
-      const finalRes = await fetch(finalizeUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/octet-stream" },
-        // Tauri webview runs on localhost:1420 (dev) or tauri://localhost (prod);
-        // the clips server is a different origin. The framework's dev CORS is
-        // permissive for "*" but won't accept credentialed requests without
-        // Allow-Credentials — and in dev auth is bypassed anyway, so we don't
-        // need cookies.
-        credentials: "include",
-        body: new Blob([], { type: mimeType || "video/webm" }),
-      });
-      if (!finalRes.ok) {
-        const body = await finalRes.text().catch(() => "");
-        throw new Error(`finalize ${finalRes.status}: ${body.slice(0, 200)}`);
-      }
-
-      await invoke("hide_overlays").catch(() => {});
+      // Tear down all overlays and open the playback URL IMMEDIATELY. The
+      // finalize roundtrip can take seconds (and sometimes the dev server
+      // stalls) — we don't want the UI to sit there doing nothing while
+      // the user waits for the network. The recording is safe server-side
+      // as long as the chunks have streamed; finalize just assembles them.
       const viewUrl = `/r/${id}`;
-      openExternal(`${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`).catch(
-        () => {},
+      console.log("[clips-recorder] hiding overlays + opening browser");
+      await invoke("hide_overlays").catch((err) =>
+        console.error("[clips-recorder] hide_overlays failed:", err),
       );
+      openExternal(`${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`).catch(
+        (err) => console.error("[clips-recorder] openExternal failed:", err),
+      );
+
+      // Best-effort finalize in the background. Log failures, but don't
+      // block or throw — the browser tab is already opening and the user
+      // will see whatever state the server landed on.
+      (async () => {
+        await Promise.allSettled(uploadQueue);
+        if (failed) {
+          console.error("[clips-recorder] chunk upload failed:", failed);
+          return;
+        }
+        const finalizeUrl = chunkUrl(params.serverUrl, id, chunkIndex, true, {
+          mimeType: mimeType || "video/webm",
+        });
+        try {
+          const finalRes = await fetch(finalizeUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/octet-stream" },
+            credentials: "include",
+            body: new Blob([], { type: mimeType || "video/webm" }),
+          });
+          if (!finalRes.ok) {
+            const body = await finalRes.text().catch(() => "");
+            console.error(
+              `[clips-recorder] finalize ${finalRes.status}: ${body.slice(0, 200)}`,
+            );
+          } else {
+            console.log("[clips-recorder] finalize ok");
+          }
+        } catch (err) {
+          console.error("[clips-recorder] finalize fetch failed:", err);
+        }
+      })();
+
       return { recordingId: id, viewUrl };
     },
 
