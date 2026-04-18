@@ -198,6 +198,29 @@ async fn hide_overlays(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// DESTROY the bubble webview (not just hide it). This is the critical
+/// difference from `hide_overlays`: we need the WebKit webview gone so the
+/// macOS camera hardware is fully released. When the popover then calls
+/// `getDisplayMedia` / `getUserMedia({audio})` for MediaRecorder, WebKit
+/// doesn't try to renegotiate a capture graph that has a live camera in
+/// another webview — the camera is simply not held by anyone.
+///
+/// The recorder driver calls this right before acquiring screen + mic,
+/// and then calls `show_bubble` again once MediaRecorder is running +
+/// stable. At that point the bubble webview is freshly spawned, acquires
+/// the camera cleanly, and there's no cross-webview contention because
+/// MediaRecorder doesn't touch the camera after start.
+#[tauri::command]
+async fn close_bubble(app: AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window(BUBBLE_LABEL) {
+        eprintln!("[clips-tray] close_bubble — destroying bubble webview");
+        let _ = w.close();
+    } else {
+        eprintln!("[clips-tray] close_bubble — no bubble window to close");
+    }
+    Ok(())
+}
+
 /// Show the popover window without toggling, and keep it shown even if it
 /// loses focus (popover hides on blur by default, but during post-recording
 /// review we want it sticky while the user reads the "Recording saved" copy).
@@ -423,6 +446,7 @@ pub fn run() {
             show_toolbar,
             show_bubble,
             hide_overlays,
+            close_bubble,
             show_popover,
             resize_popover,
             show_signin,

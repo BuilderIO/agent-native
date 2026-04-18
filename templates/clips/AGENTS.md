@@ -211,14 +211,14 @@ Start / stop / pause are **UI gestures** — there is no server action. MediaRec
 
 ### Transcript + AI
 
-| Action                | Args                                     | Purpose                                                                                                                                                                                             |
-| --------------------- | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Action                | Args                                     | Purpose                                                                                                                                                                                                |
+| --------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `request-transcript`  | `--recordingId <id>`                     | Run Whisper now. Prefers Groq `whisper-large-v3-turbo` (`GROQ_API_KEY`, fast), falls back to OpenAI `whisper-1` (`OPENAI_API_KEY`). See Rule 2. Writes segments + fullText to `recording_transcripts`. |
-| `regenerate-title`    | `--recordingId <id>`                     | Queue a delegation for the agent chat to regenerate the title. **Only useful via agent chat** — CLI invocation just writes the request; the agent (in the open chat window) actually does the work. |
-| `regenerate-summary`  | `--recordingId <id>`                     | Same pattern as `regenerate-title` — delegation queue for the agent.                                                                                                                                |
-| `regenerate-chapters` | `--recordingId <id>`                     | Same pattern — delegation queue for the agent.                                                                                                                                                      |
-| `set-chapters`        | `--recordingId <id> --chapters '<json>'` | Directly set `chaptersJson`. Shape: `[{"startMs":0,"title":"Intro"},...]`.                                                                                                                          |
-| `generate-workflow`   | `--recordingId <id>`                     | Delegate: agent extracts the repeatable workflow from the transcript.                                                                                                                               |
+| `regenerate-title`    | `--recordingId <id>`                     | Queue a delegation for the agent chat to regenerate the title. **Only useful via agent chat** — CLI invocation just writes the request; the agent (in the open chat window) actually does the work.    |
+| `regenerate-summary`  | `--recordingId <id>`                     | Same pattern as `regenerate-title` — delegation queue for the agent.                                                                                                                                   |
+| `regenerate-chapters` | `--recordingId <id>`                     | Same pattern — delegation queue for the agent.                                                                                                                                                         |
+| `set-chapters`        | `--recordingId <id> --chapters '<json>'` | Directly set `chaptersJson`. Shape: `[{"startMs":0,"title":"Intro"},...]`.                                                                                                                             |
+| `generate-workflow`   | `--recordingId <id>`                     | Delegate: agent extracts the repeatable workflow from the transcript.                                                                                                                                  |
 
 ### Editor (non-destructive — writes into `editsJson`)
 
