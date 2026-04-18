@@ -260,9 +260,29 @@ export function App() {
   // (so the bubble isn't hovering over everything while the user is
   // working in another app).
 
+  // The recorder driver needs to DESTROY and re-spawn the bubble during
+  // the startup handshake (to release the camera hardware before we
+  // acquire display + mic — see recorder.ts for the full explanation).
+  // While that handshake is mid-flight it emits `clips:bubble-suppress`
+  // with `true` so this effect doesn't race to re-open the bubble; it
+  // flips back to `false` once MediaRecorder is running and we want the
+  // bubble back. Keep this as a ref-like piece of state so toggles
+  // propagate through the effect cleanly.
+  const [bubbleSuppressed, setBubbleSuppressed] = useState(false);
+  useEffect(() => {
+    const unlistens: Array<() => void> = [];
+    listen<{ suppressed?: boolean }>("clips:bubble-suppress", (ev) => {
+      const next = !!ev.payload.suppressed;
+      console.log("[clips-popover] bubble-suppress =", next);
+      setBubbleSuppressed(next);
+    }).then((u) => unlistens.push(u));
+    return () => unlistens.forEach((u) => u());
+  }, []);
+
   const showBubblePreview =
     mode !== "screen" &&
     cameraOn &&
+    !bubbleSuppressed &&
     (popoverVisible || isRecording || recordingFlowActive);
 
   useEffect(() => {
@@ -271,10 +291,17 @@ export function App() {
       cameraOn,
       isRecording,
       recordingFlowActive,
+      bubbleSuppressed,
     });
     if (!showBubblePreview) {
-      invoke("hide_overlays").catch((e) =>
-        console.error("[clips-popover] hide_overlays failed", e),
+      // Don't call hide_overlays here — that would also close the
+      // countdown / toolbar mid-recording. If we want the bubble gone
+      // (either because suppression is on, or the popover closed
+      // pre-recording), close JUST the bubble via close_bubble. The
+      // recorder driver is the only other caller, and it uses the
+      // same command.
+      invoke("close_bubble").catch((e) =>
+        console.error("[clips-popover] close_bubble failed", e),
       );
       return;
     }
@@ -294,6 +321,7 @@ export function App() {
     cameraOn,
     isRecording,
     recordingFlowActive,
+    bubbleSuppressed,
   ]);
 
   // ---- auto-size popover to content --------------------------------------

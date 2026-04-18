@@ -149,6 +149,46 @@ export async function startNativeRecording(
     wantsAudio,
   });
 
+  // CRITICAL: before any getDisplayMedia / getUserMedia call in this
+  // (popover) webview, TEAR DOWN the bubble webview if it's alive. On
+  // macOS all Tauri webviews share a single WebKit process and a single
+  // media-session arbiter. If the bubble holds a live camera track
+  // when we call getDisplayMedia or getUserMedia({audio}), WebKit
+  // renegotiates the process's capture graph in a way that mutes the
+  // bubble's camera track (readyState stays "live" but frames stop
+  // arriving → black circle).
+  //
+  // Previous fixes tried to recover AFTER the mute (onmute handler,
+  // watchdog, proactive re-acquire). None held up consistently because
+  // the cross-webview contention keeps re-firing as long as BOTH
+  // webviews are touching capture hardware. The only robust fix is to
+  // completely release the bubble's camera before we acquire ours, and
+  // re-spawn the bubble after MediaRecorder is running (MediaRecorder
+  // doesn't touch the camera after start, so there's no contention at
+  // that point).
+  if (wantsCamera) {
+    console.log(
+      "[clips-recorder] closing bubble webview BEFORE screen/mic acquisition to release camera",
+    );
+    // Tell the popover's React effect to stop trying to keep the
+    // bubble open until we say otherwise. Without this the effect
+    // would immediately race us and re-invoke show_bubble while the
+    // camera is still transitioning back to free.
+    await emit("clips:bubble-suppress", { suppressed: true }).catch((err) =>
+      console.error("[clips-recorder] bubble-suppress emit failed:", err),
+    );
+    try {
+      await invoke("close_bubble");
+    } catch (err) {
+      console.error("[clips-recorder] close_bubble failed:", err);
+    }
+    // Wait long enough for macOS to release the camera hardware and
+    // for WebKit to tear down the bubble's capture session. 400ms is
+    // comfortably above the observed settle time.
+    console.log("[clips-recorder] waiting 400ms for camera hardware release");
+    await new Promise((r) => setTimeout(r, 400));
+  }
+
   // 1. Acquire streams BEFORE the countdown so the user gets the permission
   //    prompts out of the way while the popover is still focused.
   let displayStream: MediaStream | null = null;
@@ -325,31 +365,59 @@ export async function startNativeRecording(
   recorder.start(2_000);
   console.log("[clips-recorder] MediaRecorder started");
 
-  // Tell the bubble we just started recording so it can proactively
-  // re-acquire its camera stream ~600ms from now. On macOS WebKit the
-  // bubble's video track often gets flipped to `muted` the instant
-  // MediaRecorder starts in another webview of the same process —
-  // rather than wait for the bubble's watchdog to notice a black frame,
-  // kick it back into life directly.
-  if (wantsCamera) {
-    emit("clips:recording-started", {}).catch((err) =>
-      console.error("[clips-recorder] recording-started emit failed:", err),
-    );
-  }
-
-  // 6. Show the floating toolbar. The camera bubble is already on-screen
-  // from the popover's pre-record preview effect (which also owns the
-  // bubble-config emit). Re-invoking show_bubble here used to fire a
-  // second bubble-config right as MediaRecorder started — and that
-  // redundant config flip caused the bubble's useEffect to tear down
-  // and re-acquire the camera, racing with the live stream and ending
-  // up black on macOS. The popover keeps the bubble alive via
-  // `recordingFlowActive`, so we only need to own the toolbar here.
+  // 6. Show the floating toolbar.
   try {
     await invoke("show_toolbar");
     console.log("[clips-recorder] show_toolbar ok");
   } catch (err) {
     console.error("[clips-recorder] show_toolbar failed:", err);
+  }
+
+  // 7. Re-spawn the camera bubble NOW that MediaRecorder is running and
+  // we've closed the bubble window before acquiring display/mic. The
+  // bubble webview starts fresh, calls getUserMedia in isolation, and
+  // since MediaRecorder doesn't touch the camera after start, there's
+  // no cross-webview contention this time. We give the capture graph
+  // ~500ms to stabilize after MediaRecorder.start() before the bubble
+  // reaches for the camera — empirically macOS fully releases the
+  // last-held capture arbiter within a few frames of the new
+  // MediaRecorder hitting steady state.
+  if (wantsCamera) {
+    console.log(
+      "[clips-recorder] waiting 500ms for MediaRecorder to stabilize before re-spawning bubble",
+    );
+    setTimeout(() => {
+      console.log(
+        "[clips-recorder] re-spawning bubble webview (post-MediaRecorder)",
+      );
+      // Clear the suppression flag first so the popover's bubble
+      // effect stops tearing the bubble back down the moment Rust
+      // opens it.
+      emit("clips:bubble-suppress", { suppressed: false }).catch((err) =>
+        console.error(
+          "[clips-recorder] bubble-suppress(false) emit failed:",
+          err,
+        ),
+      );
+      invoke("show_bubble")
+        .then(() => {
+          console.log("[clips-recorder] show_bubble (post-MR) ok");
+          // Give the new bubble webview a beat to mount its listener,
+          // then push the camera deviceId so it picks the right device.
+          setTimeout(() => {
+            emit("clips:bubble-config", { deviceId: params.cameraId }).catch(
+              (err) =>
+                console.error(
+                  "[clips-recorder] bubble-config (post-MR) emit failed:",
+                  err,
+                ),
+            );
+          }, 300);
+        })
+        .catch((err) =>
+          console.error("[clips-recorder] show_bubble (post-MR) failed:", err),
+        );
+    }, 500);
   }
 
   const handle: RecorderHandle = {
