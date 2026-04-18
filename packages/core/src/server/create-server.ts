@@ -168,6 +168,12 @@ export function createServer(
         setResponseHeader(event, "Access-Control-Allow-Origin", origin);
         if (origin !== "*") {
           setResponseHeader(event, "Vary", "Origin");
+          // A specific origin means we can honor credentialed requests
+          // (fetch with `credentials: "include"` — used by desktop tray
+          // apps that share a same-site cookie with the web app). The
+          // wildcard `*` is spec-incompatible with credentials, so only
+          // set this when we're echoing a concrete origin.
+          setResponseHeader(event, "Access-Control-Allow-Credentials", "true");
         }
         setResponseHeader(
           event,

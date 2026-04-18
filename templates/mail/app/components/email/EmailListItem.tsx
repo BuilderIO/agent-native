@@ -18,6 +18,28 @@ interface EmailListItemProps {
   onSwipeArchive?: () => void;
   /** Called after a right-swipe past the threshold (snooze). */
   onSwipeSnooze?: () => void;
+  /** Optional search term to highlight in subject and snippet. */
+  highlight?: string;
+}
+
+function renderWithHighlight(text: string, term?: string) {
+  if (!term) return text;
+  const needle = term.trim();
+  if (!needle) return text;
+  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const parts = text.split(new RegExp(`(${escaped})`, "gi"));
+  return parts.map((part, i) =>
+    i % 2 === 1 ? (
+      <mark
+        key={i}
+        className="rounded-sm bg-amber-400/40 text-foreground px-0.5"
+      >
+        {part}
+      </mark>
+    ) : (
+      part
+    ),
+  );
 }
 
 // Minimum horizontal distance before we lock into a swipe gesture.
@@ -103,6 +125,7 @@ export const EmailListItem = memo(function EmailListItem({
   onHover,
   onSwipeArchive,
   onSwipeSnooze,
+  highlight,
 }: EmailListItemProps) {
   const { allAccounts } = useAccountFilter();
   const isMultiAccount = allAccounts.length > 1;
@@ -434,10 +457,10 @@ export const EmailListItem = memo(function EmailListItem({
                 : "font-normal text-foreground/90",
             )}
           >
-            {email.subject}
+            {renderWithHighlight(email.subject, highlight)}
           </span>
           <span className="text-sm sm:text-[13px] text-muted-foreground/80 truncate">
-            {email.snippet}
+            {renderWithHighlight(email.snippet, highlight)}
           </span>
         </div>
 

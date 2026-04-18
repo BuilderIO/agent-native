@@ -116,9 +116,18 @@ export function createAgentChatAdapter(options?: {
       let lastSeq = -1;
 
       try {
+        const headers: Record<string, string> = {
+          "Content-Type": "application/json",
+        };
+        try {
+          const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+          if (tz) headers["x-user-timezone"] = tz;
+        } catch {
+          // Non-browser or Intl unavailable — tool calls will fall back to UTC.
+        }
         const res = await fetch(apiUrl, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers,
           body: JSON.stringify({
             message: messageText.replace(/@\[([^\]|]+)\|[^\]]+\]/g, "@$1"),
             history,

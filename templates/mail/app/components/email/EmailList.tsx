@@ -571,15 +571,34 @@ export function EmailList({
 
   // Warm only the first few visible threads — prefetching the entire list on
   // every load was hammering Gmail's per-user quota (50 threads × 10 units =
-  // 500 units per list render) and tripping 403s. ensureThread runs on hover
-  // and j/k navigation, so on-demand warming covers the common cases.
+  // 500 units per list render) and tripping 403s. The first row is what the
+  // user opens first, and the next few cover a burst of j-key navigation —
+  // warm those, but stop short of bulk-prefetching the whole page.
   useEffect(() => {
     if (threads.length === 0) return;
     const ids = threads
-      .slice(0, 3)
+      .slice(0, 5)
       .map((t) => t.latestMessage.threadId || t.latestMessage.id);
     warmThreads(ids);
   }, [threads]);
+
+  // When focus moves (j/k, click, or swipe), prefetch a small window around
+  // the focused row so the next open — or the next j — is instant. Bounded
+  // tightly to stay under Gmail's per-user quota.
+  useEffect(() => {
+    if (!focusedId || threads.length === 0) return;
+    const idx = threads.findIndex((t) => t.latestMessage.id === focusedId);
+    if (idx === -1) return;
+    // focused row + next 2 (the direction j/k navigation typically moves) and
+    // the previous row so k after a j-sequence is also warm.
+    const windowIdx = [idx, idx + 1, idx + 2, idx - 1].filter(
+      (i) => i >= 0 && i < threads.length,
+    );
+    const ids = windowIdx.map(
+      (i) => threads[i].latestMessage.threadId || threads[i].latestMessage.id,
+    );
+    warmThreads(ids);
+  }, [focusedId, threads]);
 
   // Infinite scroll — fetch next page when the sentinel enters the viewport
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -860,6 +879,7 @@ export function EmailList({
             }}
             onSwipeArchive={() => handleSwipeArchive(thread)}
             onSwipeSnooze={() => handleSwipeSnooze(thread)}
+            highlight={searchQuery}
           />
         ))}
         {/* Sentinel for infinite scroll + loading indicator */}

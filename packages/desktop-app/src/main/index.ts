@@ -347,7 +347,7 @@ ipcMain.on(
   },
 );
 
-function toggleWebviewDevTools() {
+function getActiveWebviewContents() {
   const allContents = webContents.getAllWebContents();
   const webviewContents = allContents.filter(
     (wc) => wc.getType() === "webview",
@@ -360,7 +360,7 @@ function toggleWebviewDevTools() {
       : undefined;
 
   // Fall back to the currently focused guest, then to the active app by URL.
-  const target =
+  return (
     activeTarget ||
     webviewContents.find((wc) => wc.isFocused()) ||
     (activeAppId &&
@@ -372,15 +372,42 @@ function toggleWebviewDevTools() {
           return false;
         }
       })) ||
-    webviewContents[0];
+    webviewContents[0]
+  );
+}
 
-  if (target) {
-    if (target.isDevToolsOpened()) {
-      target.closeDevTools();
-    } else {
-      target.openDevTools({ mode: "detach" });
-    }
+function toggleWebviewDevTools() {
+  const target = getActiveWebviewContents();
+  if (!target) return;
+  if (target.isDevToolsOpened()) {
+    target.closeDevTools();
+  } else {
+    target.openDevTools({ mode: "detach" });
   }
+}
+
+// Electron's built-in zoomIn/zoomOut/resetZoom menu roles act on the focused
+// webContents, which is the shell renderer (the chrome around the apps), not
+// the webview guest where the actual app content lives. So the user sees no
+// effect. Apply zoom directly to the active webview's webContents instead.
+const ZOOM_STEP = 0.5;
+const ZOOM_MIN = -3;
+const ZOOM_MAX = 3;
+
+function zoomActiveWebview(delta: number) {
+  const target = getActiveWebviewContents();
+  if (!target) return;
+  const next = Math.max(
+    ZOOM_MIN,
+    Math.min(ZOOM_MAX, target.getZoomLevel() + delta),
+  );
+  target.setZoomLevel(next);
+}
+
+function resetActiveWebviewZoom() {
+  const target = getActiveWebviewContents();
+  if (!target) return;
+  target.setZoomLevel(0);
 }
 
 // ---------- IPC: Window controls ----------
@@ -746,9 +773,21 @@ app.whenReady().then(() => {
           click: () => toggleWebviewDevTools(),
         },
         { type: "separator" as const },
-        { role: "resetZoom" as const },
-        { role: "zoomIn" as const },
-        { role: "zoomOut" as const },
+        {
+          label: "Actual Size",
+          accelerator: "CmdOrCtrl+0",
+          click: () => resetActiveWebviewZoom(),
+        },
+        {
+          label: "Zoom In",
+          accelerator: "CmdOrCtrl+Plus",
+          click: () => zoomActiveWebview(ZOOM_STEP),
+        },
+        {
+          label: "Zoom Out",
+          accelerator: "CmdOrCtrl+-",
+          click: () => zoomActiveWebview(-ZOOM_STEP),
+        },
         { type: "separator" as const },
         { role: "togglefullscreen" as const },
       ],

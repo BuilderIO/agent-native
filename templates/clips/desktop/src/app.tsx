@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
+import { invoke } from "@tauri-apps/api/core";
+import { emit, listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { startNativeRecording, type RecorderHandle } from "./lib/recorder";
 
 interface RecordingSummary {
   id: string;
@@ -23,8 +27,10 @@ const MIC_ON_KEY = "clips:mic-on";
 // Sensible defaults so the user never has to type a URL on first launch.
 // Dev builds point at the local dev server; production builds point at the
 // hosted Clips instance. The user can still override from Settings.
+// Dev points at the Clips dev server (shared-app-config says 8094).
+// Prod points at the hosted Clips instance. User can override from Settings.
 const DEFAULT_URL = import.meta.env.DEV
-  ? "http://localhost:8080"
+  ? "http://localhost:8094"
   : "https://clips.agent-native.com";
 
 function loadString(key: string, fallback: string): string {
@@ -96,9 +102,84 @@ export function App() {
   const [recordings, setRecordings] = useState<RecordingSummary[]>([]);
   const [showRecent, setShowRecent] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [recorder, setRecorder] = useState<RecorderHandle | null>(null);
+  const [recError, setRecError] = useState<string | null>(null);
+  const [lastRecordingId, setLastRecordingId] = useState<string | null>(null);
+  const [authStatus, setAuthStatus] = useState<"unknown" | "authed" | "anon">(
+    "unknown",
+  );
+  const [signedInAs, setSignedInAs] = useState<string | null>(null);
+  const isRecording = recorder !== null;
+
+  // ---- auth status --------------------------------------------------------
+  // The Tauri WebView has its own cookie jar (separate from the user's
+  // browser). Before anything else, check whether we have a session cookie
+  // for the Clips server; if not, surface a Sign in button.
+  const checkAuth = useCallback(async () => {
+    try {
+      const res = await fetch(
+        `${serverUrl.replace(/\/+$/, "")}/_agent-native/auth/session`,
+        { credentials: "include" },
+      );
+      if (!res.ok) {
+        setAuthStatus("anon");
+        setSignedInAs(null);
+        return false;
+      }
+      const json = (await res.json().catch(() => null)) as {
+        email?: string;
+        error?: string;
+      } | null;
+      if (json?.email) {
+        setAuthStatus("authed");
+        setSignedInAs(json.email);
+        return true;
+      }
+      setAuthStatus("anon");
+      setSignedInAs(null);
+      return false;
+    } catch {
+      setAuthStatus("anon");
+      setSignedInAs(null);
+      return false;
+    }
+  }, [serverUrl]);
+
+  useEffect(() => {
+    checkAuth();
+  }, [checkAuth]);
+
+  async function signIn() {
+    // The framework's auth guard serves the login HTML at any protected
+    // path — there is no dedicated `/login` route in the template router.
+    // Opening `/` means: (a) if already signed in, land on the library;
+    // (b) if anon, the guard intercepts and serves the login form. After
+    // a successful sign-in, the cookie is set even if the post-login
+    // redirect target 404s (as it currently does in this dev build).
+    await invoke("show_signin", {
+      url: `${serverUrl.replace(/\/+$/, "")}/`,
+    }).catch(() => {});
+    const start = Date.now();
+    const interval = setInterval(async () => {
+      const ok = await checkAuth();
+      if (ok || Date.now() - start > 120_000) {
+        clearInterval(interval);
+        if (ok) {
+          // Session is live — close the signin window AND re-show the
+          // popover so the user lands back in the config UI (not a
+          // mysterious empty screen).
+          invoke("close_signin").catch(() => {});
+          invoke("show_popover").catch(() => {});
+        }
+      }
+    }, 1500);
+  }
 
   // ---- device enumeration -------------------------------------------------
-
+  // WebKit only returns full device labels after getUserMedia() has granted
+  // access once. So we do a one-shot mic + camera probe when the popover
+  // first loads (if permissions are already granted, this is silent; if
+  // not, the OS prompts once and we get the full list on the next render).
   const loadDevices = useCallback(async () => {
     try {
       if (!navigator.mediaDevices?.enumerateDevices) return;
@@ -106,22 +187,131 @@ export function App() {
       setCameras(list.filter((d) => d.kind === "videoinput"));
       setMics(list.filter((d) => d.kind === "audioinput"));
     } catch {
-      // Permission not granted yet — labels will be empty until the user
-      // grants access once on /record. We still render the row with a
-      // fallback label so the tray UI isn't broken.
+      // ignore
     }
   }, []);
 
+  const unlockDeviceLabels = useCallback(async () => {
+    // Audio-only probe to unlock mic labels. We INTENTIONALLY skip video —
+    // the on-screen camera bubble window owns the camera, and probing
+    // video here would race for the hardware and knock the bubble's
+    // stream offline (macOS can't reliably share a camera across two
+    // WebViews in the same process). Camera-label text is low-value
+    // anyway; most machines have one.
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+      s.getTracks().forEach((t) => t.stop());
+    } catch {
+      // permission denied — labels stay empty until the user grants
+    }
+    await loadDevices();
+  }, [loadDevices]);
+
   useEffect(() => {
     loadDevices();
-  }, [loadDevices]);
+    unlockDeviceLabels();
+  }, [loadDevices, unlockDeviceLabels]);
+
+  // ---- Esc closes the popover --------------------------------------------
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        // Don't close mid-recording — user would lose the recorder handle.
+        if (isRecording) return;
+        hidePopover();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isRecording]);
+
+  // ---- popover visibility tracking ----------------------------------------
+  // ONLY source of truth: explicit `clips:popover-visible` events from Rust,
+  // which fire on every show/hide (including the blur-auto-hide path).
+  // Focus events are NOT reliable here — opening devtools steals focus,
+  // clicking inside the popover re-gains it, etc., which caused an
+  // infinite show_bubble/hide flap when we listened to onFocusChanged.
+  const [popoverVisible, setPopoverVisible] = useState(false);
+  useEffect(() => {
+    const unlistens: Array<() => void> = [];
+    listen<boolean>("clips:popover-visible", (ev) => {
+      console.log("[clips-popover] popover-visible =", ev.payload);
+      setPopoverVisible(!!ev.payload);
+    }).then((u) => unlistens.push(u));
+    // Query the CURRENT visibility on mount in case the event already
+    // fired before React subscribed.
+    getCurrentWindow()
+      .isVisible()
+      .then((v) => {
+        console.log("[clips-popover] initial isVisible =", v);
+        setPopoverVisible(!!v);
+      })
+      .catch(() => {});
+    return () => unlistens.forEach((u) => u());
+  }, []);
+
+  // ---- pre-record camera bubble overlay -----------------------------------
+  // Show the on-screen circular bubble ONLY when the user can see the
+  // popover OR a recording is in progress. Closing the popover hides it
+  // (so the bubble isn't hovering over everything while the user is
+  // working in another app).
+
+  const showBubblePreview =
+    mode !== "screen" && cameraOn && (popoverVisible || isRecording);
+
+  useEffect(() => {
+    console.log("[clips-popover] wantsBubble", showBubblePreview, {
+      mode,
+      cameraOn,
+      isRecording,
+    });
+    if (!showBubblePreview) {
+      invoke("hide_overlays").catch((e) =>
+        console.error("[clips-popover] hide_overlays failed", e),
+      );
+      return;
+    }
+    invoke("show_bubble")
+      .then(() => console.log("[clips-popover] show_bubble ok"))
+      .catch((e) => console.error("[clips-popover] show_bubble failed", e));
+    const t = setTimeout(() => {
+      emit("clips:bubble-config", { deviceId: cameraId }).catch((e) =>
+        console.error("[clips-popover] bubble-config emit failed", e),
+      );
+    }, 250);
+    return () => clearTimeout(t);
+  }, [showBubblePreview, cameraId, mode, cameraOn, isRecording]);
+
+  // ---- auto-size popover to content --------------------------------------
+  // The Tauri window is fixed-size via tauri.conf.json, but our content
+  // height varies (more rows when a camera is on, Recent list toggle, etc.).
+  // A ResizeObserver on the app shell tells Rust what the current
+  // content height is and we call `resize_popover` to match.
+  const appRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = appRef.current;
+    if (!el) return;
+    let last = 0;
+    const push = () => {
+      const h = Math.ceil(el.getBoundingClientRect().height);
+      if (h && Math.abs(h - last) >= 2) {
+        last = h;
+        invoke("resize_popover", { height: h }).catch(() => {});
+      }
+    };
+    push();
+    const ro = new ResizeObserver(push);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   // ---- recent list --------------------------------------------------------
 
   const fetchRecent = useCallback(async () => {
+    if (authStatus !== "authed") return; // don't bother; would just 401
     try {
       const url = `${serverUrl.replace(/\/+$/, "")}/_agent-native/actions/list-recordings?limit=3&sort=recent`;
-      const res = await fetch(url);
+      const res = await fetch(url, { credentials: "include" });
       if (!res.ok) return;
       const json = await res.json();
       const list = Array.isArray(json?.recordings) ? json.recordings : [];
@@ -137,7 +327,7 @@ export function App() {
     } catch {
       // ignore — server may be unreachable, we still render the chrome
     }
-  }, [serverUrl]);
+  }, [serverUrl, authStatus]);
 
   useEffect(() => {
     fetchRecent();
@@ -161,18 +351,95 @@ export function App() {
     });
   }
 
-  function startRecording() {
-    const params = new URLSearchParams({
-      auto: "1",
+  async function startRecording() {
+    if (recorder) return;
+    setRecError(null);
+    console.log("[clips-popover] startRecording clicked", {
+      serverUrl,
       mode,
-      source,
-      cam: cameraOn ? "on" : "off",
-      mic: micOn ? "on" : "off",
+      cameraOn,
+      micOn,
     });
-    if (cameraId) params.set("camId", cameraId);
-    if (micId) params.set("micId", micId);
-    openInBrowser(`/record?${params.toString()}`);
+    // Tell Rust we're entering the recording flow NOW, not after the
+    // handle arrives. The macOS screen-picker dialog steals focus from
+    // the popover, which would otherwise trigger the blur-auto-hide
+    // mid-setup — so the countdown and toolbar render behind a hidden
+    // popover and the user sees nothing happen.
+    invoke("set_recording_state", { active: true }).catch(() => {});
+    try {
+      const handle = await startNativeRecording({
+        serverUrl,
+        mode,
+        cameraId,
+        micId,
+        cameraOn,
+        micOn,
+      });
+      console.log("[clips-popover] recorder handle received");
+      setRecorder(handle);
+    } catch (err) {
+      // Recording didn't actually start — clear the flag so the popover
+      // can auto-hide normally again.
+      invoke("set_recording_state", { active: false }).catch(() => {});
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[clips-popover] startRecording failed:", err);
+      if (
+        !/NotAllowedError|permission denied by system|was cancelled|dismissed/i.test(
+          message,
+        )
+      ) {
+        setRecError(message);
+      }
+    }
   }
+
+  // When the toolbar or countdown triggers stop/cancel the popover auto-
+  // rehydrates into a "last recording" state so the user has a single-click
+  // path to the playback page + knows the upload landed.
+  useEffect(() => {
+    if (!recorder) return;
+    let cancelled = false;
+    const unlisteners: Array<Promise<() => void>> = [
+      listen("clips:recorder-stop", async () => {
+        try {
+          const { recordingId } = await recorder.stop();
+          if (cancelled) return;
+          setLastRecordingId(recordingId);
+        } catch (err) {
+          if (!cancelled)
+            setRecError(err instanceof Error ? err.message : String(err));
+        } finally {
+          if (!cancelled) {
+            setRecorder(null);
+            invoke("set_recording_state", { active: false }).catch(() => {});
+            // Close the popover — recorder.stop() already opened the
+            // recording's page in the default browser. The popover doesn't
+            // need to hang around.
+            getCurrentWindow()
+              .hide()
+              .catch(() => {});
+            emit("clips:popover-visible", false).catch(() => {});
+            fetchRecent();
+          }
+        }
+      }),
+      listen("clips:recorder-cancel", async () => {
+        try {
+          await recorder.cancel();
+        } finally {
+          if (!cancelled) {
+            setRecorder(null);
+            invoke("set_recording_state", { active: false }).catch(() => {});
+            invoke("show_popover").catch(() => {});
+          }
+        }
+      }),
+    ];
+    return () => {
+      cancelled = true;
+      unlisteners.forEach((p) => p.then((un) => un()).catch(() => {}));
+    };
+  }, [recorder, fetchRecent]);
 
   // Auto-hide on blur is handled on the Rust side (tauri::WindowEvent::Focused).
 
@@ -180,7 +447,7 @@ export function App() {
   const showSourceRow = mode !== "camera"; // camera-only has no screen source
 
   return (
-    <div className="app">
+    <div className="app" ref={appRef}>
       <Header mode={mode} onModeChange={setMode} />
 
       <div className="panel">
@@ -209,10 +476,19 @@ export function App() {
         />
       </div>
 
-      <button className="primary start" onClick={startRecording}>
-        <span className="rec-dot" aria-hidden />
-        Start recording
-      </button>
+      {authStatus === "anon" ? (
+        <button className="primary start" onClick={signIn}>
+          Sign in to Clips
+        </button>
+      ) : isRecording ? (
+        <RecordingRow onStop={() => emit("clips:recorder-stop")} />
+      ) : (
+        <button className="primary start" onClick={startRecording}>
+          <span className="rec-dot" aria-hidden />
+          Start recording
+        </button>
+      )}
+      {recError ? <div className="error-banner">{recError}</div> : null}
 
       <div className="bottom-row">
         <BottomButton
@@ -287,6 +563,15 @@ export function App() {
 
 // ---------------------------------------------------------------------------
 
+function hidePopover() {
+  // Hide the Tauri window + tell Rust so it can broadcast the
+  // popover-visible=false event (which in turn tears down the bubble).
+  getCurrentWindow()
+    .hide()
+    .catch(() => {});
+  emit("clips:popover-visible", false).catch(() => {});
+}
+
 function Header({
   mode,
   onModeChange,
@@ -296,7 +581,6 @@ function Header({
 }) {
   return (
     <div className="header">
-      <div className="logo">C</div>
       <div
         className="mode-toggle"
         role="radiogroup"
@@ -329,7 +613,7 @@ function Header({
       </div>
       <button
         className="icon-button"
-        onClick={() => window.close?.()}
+        onClick={hidePopover}
         aria-label="Close"
         title="Close"
       >
@@ -391,38 +675,116 @@ function DeviceRow({
     () => devices.find((d) => d.deviceId === selectedId) ?? devices[0],
     [devices, selectedId],
   );
-  const label = truncate(
-    current?.label || (kind === "camera" ? "Default camera" : "Default mic"),
-    22,
-  );
+  const label =
+    current?.label || (kind === "camera" ? "Default camera" : "Default mic");
   const Icon = kind === "camera" ? CameraIcon : MicIcon;
 
+  const [open, setOpen] = useState(false);
+  const rowRef = useRef<HTMLDivElement | null>(null);
+
+  // Close on outside click — native-feeling popover behavior.
+  useEffect(() => {
+    if (!open) return;
+    function onDoc(ev: MouseEvent) {
+      const el = rowRef.current;
+      if (!el) return;
+      if (!el.contains(ev.target as Node)) setOpen(false);
+    }
+    function onKey(ev: KeyboardEvent) {
+      if (ev.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const disabled = !on || devices.length === 0;
   return (
-    <div className={`row ${on ? "row-on" : "row-off"}`}>
+    <div className={`row ${on ? "row-on" : "row-off"}`} ref={rowRef}>
       <span className="row-icon">
         <Icon />
       </span>
-      <select
-        className="row-select"
-        value={current?.deviceId ?? ""}
-        onChange={(e) => onSelect(e.target.value)}
-        disabled={!on || devices.length === 0}
-        title={current?.label ?? ""}
+      <button
+        type="button"
+        className="row-button"
+        onClick={() => {
+          if (!disabled) setOpen((v) => !v);
+        }}
+        disabled={disabled}
+        title={label}
       >
-        {devices.length === 0 ? <option value="">{label}</option> : null}
-        {devices.map((d) => (
-          <option key={d.deviceId} value={d.deviceId}>
-            {d.label || (kind === "camera" ? "Camera" : "Microphone")}
-          </option>
-        ))}
-      </select>
+        <span className="row-label">{label}</span>
+        <span className="row-chev" aria-hidden>
+          <ChevronDown />
+        </span>
+      </button>
       <Toggle
         on={on}
         onChange={onToggle}
         label={kind === "camera" ? "Camera" : "Microphone"}
       />
       {kind === "mic" && on ? <MicWave /> : null}
+      {open ? (
+        <div className="row-menu" role="menu">
+          {devices.length === 0 ? (
+            <div className="row-menu-empty">
+              {kind === "camera" ? "No cameras found" : "No microphones found"}
+            </div>
+          ) : (
+            devices.map((d) => {
+              const isSelected = d.deviceId === (current?.deviceId ?? "");
+              return (
+                <button
+                  key={d.deviceId}
+                  type="button"
+                  className={`row-menu-item ${isSelected ? "selected" : ""}`}
+                  role="menuitemradio"
+                  aria-checked={isSelected}
+                  onClick={() => {
+                    onSelect(d.deviceId);
+                    setOpen(false);
+                  }}
+                >
+                  <span className="row-menu-check" aria-hidden>
+                    {isSelected ? <CheckIcon /> : null}
+                  </span>
+                  <span className="row-menu-label">
+                    {d.label || (kind === "camera" ? "Camera" : "Microphone")}
+                  </span>
+                </button>
+              );
+            })
+          )}
+        </div>
+      ) : null}
     </div>
+  );
+}
+
+function RecordingRow({ onStop }: { onStop: () => void }) {
+  // Live timer driven by the `clips:recorder-state` events already emitted
+  // by the recorder driver. Falls back to 0:00 if the driver hasn't
+  // started pinging yet.
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    const unlistens: Array<() => void> = [];
+    listen<{ paused: boolean; elapsedMs: number }>(
+      "clips:recorder-state",
+      (ev) => setElapsed(ev.payload?.elapsedMs ?? 0),
+    ).then((u) => unlistens.push(u));
+    return () => unlistens.forEach((u) => u());
+  }, []);
+  const total = Math.max(0, Math.floor(elapsed / 1000));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return (
+    <button className="primary start rec-active" onClick={onStop}>
+      <span className="rec-dot rec-dot-live" aria-hidden />
+      Stop recording · {m}:{s.toString().padStart(2, "0")}
+    </button>
   );
 }
 
@@ -639,6 +1001,34 @@ function MicIcon() {
         stroke="currentColor"
         strokeWidth="1.75"
         strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function ChevronDown() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+      <path
+        d="M6 9l6 6 6-6"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+      <path
+        d="M5 12l5 5 9-11"
+        stroke="currentColor"
+        strokeWidth="2.25"
+        strokeLinecap="round"
+        strokeLinejoin="round"
       />
     </svg>
   );

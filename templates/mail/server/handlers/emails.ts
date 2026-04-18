@@ -362,21 +362,50 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
       };
       let searchQuery: string;
       if (q) {
-        // Search across all mail — include explicit from/to/cc matching
-        // so searching "joe" finds emails from/to someone named Joe,
-        // not just emails with "joe" in the body text
-        searchQuery = `{from:(${q}) to:(${q}) cc:(${q}) ${q}}`;
+        // Gmail's plain search already matches subject, body, sender name,
+        // sender address, recipient, and Cc. A prior `{from:(q) to:(q) cc:(q) q}`
+        // wrapper silently dropped results (e.g. the user's own "SPMB Status
+        // Update 4/17" thread) — Gmail parses the braces in surprising ways
+        // when mixed with field qualifiers and bare terms.
+        searchQuery = q;
       } else {
         searchQuery = gmailQuery[view] ?? `label:${view}`;
       }
       // If a specific label filter is active (e.g. a pinned label tab), scope
-      // the Gmail query server-side. Gmail's `label:` operator wants the label
-      // name with spaces replaced by hyphens; nested labels use `/`.
+      // the Gmail query server-side. gmailToEmailMessage normalizes Gmail's
+      // CATEGORY_* labels into friendly IDs like "updates"/"promotions" and
+      // synthesizes virtual IDs like "note-to-self" (self-sent mail). Translate
+      // those back into the right Gmail search operator — plain `label:updates`
+      // doesn't match the Updates category.
       if (label) {
-        const gmailLabel = label.replace(/\s+/g, "-");
+        let labelClause = "";
+        const id = label.toLowerCase();
+        const categoryIds = new Set([
+          "personal",
+          "social",
+          "updates",
+          "promotions",
+          "forums",
+        ]);
+        if (categoryIds.has(id)) {
+          // Gmail normalizes CATEGORY_PERSONAL → "personal" on the client, but
+          // its search operator for the Primary tab is `category:primary`.
+          labelClause = `category:${id === "personal" ? "primary" : id}`;
+        } else if (id === "important") {
+          labelClause = "is:important";
+        } else if (id === "note-to-self") {
+          // "Note to self" is synthesized client-side for self-sent mail that
+          // still landed in the inbox. Gmail has no such label — match by
+          // sender (each account's `from:me` resolves per-account).
+          labelClause = "from:me";
+        } else {
+          // User-created label: Gmail's `label:` operator wants the display
+          // name with spaces replaced by hyphens; nested labels use `/`.
+          labelClause = `label:${label.replace(/\s+/g, "-")}`;
+        }
         searchQuery = searchQuery
-          ? `${searchQuery} label:${gmailLabel}`
-          : `label:${gmailLabel}`;
+          ? `${searchQuery} ${labelClause}`
+          : labelClause;
       }
 
       // Fetch label name mapping from all accounts (cached)
@@ -399,8 +428,9 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
           new Date(b.date).getTime() - new Date(a.date).getTime(),
       );
 
-      // Filter out snoozed emails (they may linger in Gmail due to eventual consistency)
-      if (view === "inbox" || view === "unread") {
+      // Filter out snoozed emails (they may linger in Gmail due to eventual consistency).
+      // Skip when searching — the user wants to find snoozed emails too.
+      if (!q && (view === "inbox" || view === "unread")) {
         const snoozedIds = await getSnoozedThreadIds(email);
         if (snoozedIds.size > 0) {
           emails = emails.filter(
@@ -488,8 +518,8 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
     );
   }
 
-  // Filter out snoozed emails
-  if (view === "inbox" || view === "unread") {
+  // Filter out snoozed emails. Skip when searching so snoozed hits surface too.
+  if (!q && (view === "inbox" || view === "unread")) {
     const snoozedIds = await getSnoozedThreadIds(email);
     if (snoozedIds.size > 0) {
       emails = emails.filter(
