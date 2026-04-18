@@ -4,10 +4,6 @@ import { toast } from "sonner";
 import {
   IconShare3,
   IconSettings,
-  IconMessage,
-  IconMessageChatbot,
-  IconFileText,
-  IconChartLine,
   IconArrowLeft,
   IconChevronDown,
 } from "@tabler/icons-react";
@@ -18,8 +14,10 @@ import {
   AgentPanel,
 } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { isDefaultTitle } from "@/hooks/use-auto-title";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -283,7 +281,20 @@ export default function RecordingPage() {
             <IconArrowLeft className="h-4 w-4" />
           </Button>
           <div className="flex-1 min-w-0">
-            <h1 className="text-sm font-medium truncate">{recording.title}</h1>
+            {isDefaultTitle(recording.title) ? (
+              // Placeholder while the agent drafts a title. The
+              // useAutoTitleBridge in `_app.tsx` queues the delegation the
+              // moment the transcript is ready; polling then swaps the
+              // skeleton for the real title.
+              <Skeleton
+                aria-label="Generating title"
+                className="h-4 w-56 max-w-full"
+              />
+            ) : (
+              <h1 className="text-sm font-medium truncate">
+                {recording.title}
+              </h1>
+            )}
             <p className="text-xs text-muted-foreground truncate">
               {recording.ownerEmail}
               {recording.visibility !== "private" ? (
@@ -441,9 +452,16 @@ export default function RecordingPage() {
           {/* Title + reactions row */}
           <div className="flex items-start gap-3 shrink-0">
             <div className="flex-1 min-w-0">
-              <h2 className="text-base font-semibold truncate">
-                {recording.title}
-              </h2>
+              {isDefaultTitle(recording.title) ? (
+                <Skeleton
+                  aria-label="Generating title"
+                  className="h-5 w-72 max-w-full"
+                />
+              ) : (
+                <h2 className="text-base font-semibold truncate">
+                  {recording.title}
+                </h2>
+              )}
               {recording.description ? (
                 <p className="text-sm text-muted-foreground line-clamp-2">
                   {recording.description}
@@ -496,28 +514,24 @@ export default function RecordingPage() {
                   canEdit ? "grid-cols-4" : "grid-cols-2",
                 )}
               >
-                <TabsTrigger value="transcript" className="gap-1.5">
-                  <IconFileText className="h-4 w-4" />
+                <TabsTrigger value="transcript" className="text-xs">
                   Transcript
                 </TabsTrigger>
-                <TabsTrigger value="comments" className="gap-1.5">
-                  <IconMessage className="h-4 w-4" />
+                <TabsTrigger value="comments" className="text-xs gap-1">
                   Comments
                   {comments.length > 0 ? (
-                    <span className="ml-0.5 text-xs rounded-full bg-accent px-1.5 tabular-nums">
+                    <span className="ml-0.5 text-[10px] rounded-full bg-accent px-1.5 tabular-nums">
                       {comments.length}
                     </span>
                   ) : null}
                 </TabsTrigger>
                 {canEdit ? (
-                  <TabsTrigger value="insights" className="gap-1.5">
-                    <IconChartLine className="h-4 w-4" />
+                  <TabsTrigger value="insights" className="text-xs">
                     Insights
                   </TabsTrigger>
                 ) : null}
                 {canEdit ? (
-                  <TabsTrigger value="agent" className="gap-1.5">
-                    <IconMessageChatbot className="h-4 w-4" />
+                  <TabsTrigger value="agent" className="text-xs">
                     Agent
                   </TabsTrigger>
                 ) : null}

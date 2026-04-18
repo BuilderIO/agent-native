@@ -18,7 +18,6 @@ import GeneratingOverlay from "@/components/editor/GeneratingOverlay";
 import AssetLibraryPanel from "@/components/editor/AssetLibraryPanel";
 import ImageSearchPanel from "@/components/editor/ImageSearchPanel";
 import LogoSearchPanel from "@/components/editor/LogoSearchPanel";
-import ShareDialog from "@/components/editor/ShareDialog";
 import HistoryPanel from "@/components/editor/HistoryPanel";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import {
@@ -66,7 +65,6 @@ export default function DeckEditor() {
   const [assetLibraryOpen, setAssetLibraryOpen] = useState(false);
   const [imageSearchOpen, setImageSearchOpen] = useState(false);
   const [logoSearchOpen, setLogoSearchOpen] = useState(false);
-  const [shareOpen, setShareOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const historyButtonRef = useRef<HTMLButtonElement>(null);
   const [commentsOpen, setCommentsOpen] = useState(false);
@@ -361,6 +359,7 @@ export default function DeckEditor() {
   return (
     <div className="h-screen flex flex-col bg-[hsl(240,5%,5%)]">
       <EditorToolbar
+        deck={deck}
         deckId={id}
         deckTitle={deck.title}
         onTitleChange={(title) => updateDeck(id, { title })}
@@ -377,7 +376,6 @@ export default function DeckEditor() {
         }}
         imageGenButtonRef={imageGenButtonRef}
         assetsButtonRef={assetsButtonRef}
-        onShare={() => setShareOpen(true)}
         historyOpen={historyOpen}
         onShowHistory={() => setHistoryOpen(!historyOpen)}
         historyButtonRef={historyButtonRef}
@@ -566,9 +564,6 @@ export default function DeckEditor() {
             : undefined
         }
       />
-      {deck && (
-        <ShareDialog open={shareOpen} onOpenChange={setShareOpen} deck={deck} />
-      )}
       <HistoryPanel
         open={historyOpen}
         onOpenChange={setHistoryOpen}

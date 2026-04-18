@@ -533,7 +533,6 @@ export function CallPlayer({
         open={snippetOpen}
         onOpenChange={setSnippetOpen}
       />
-
     </div>
   );
 }
