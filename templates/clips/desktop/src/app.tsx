@@ -413,6 +413,15 @@ export function App() {
     // mid-setup — so the countdown and toolbar render behind a hidden
     // popover and the user sees nothing happen.
     invoke("set_recording_state", { active: true }).catch(() => {});
+    // Hide the popover BEFORE `getDisplayMedia` runs so the macOS screen
+    // picker doesn't list the popover as a capture target (otherwise a
+    // stray click down selects the popover itself as the "window" to
+    // record). The popover stays hidden during recording anyway; on
+    // cancel/error we show it again below.
+    getCurrentWindow()
+      .hide()
+      .catch(() => {});
+    emit("clips:popover-visible", false).catch(() => {});
     try {
       const handle = await startNativeRecording({
         serverUrl,
@@ -429,6 +438,9 @@ export function App() {
       // can auto-hide normally again.
       setRecordingFlowActive(false);
       invoke("set_recording_state", { active: false }).catch(() => {});
+      // Bring the popover back so the user can see we returned to the
+      // pre-record state instead of disappearing silently.
+      invoke("show_popover").catch(() => {});
       console.error("[clips-popover] startRecording failed:", err);
       // User cancelled the macOS screen-picker (or denied permission).
       // WebKit throws DOMException `NotAllowedError` for BOTH cancel and
