@@ -394,6 +394,7 @@ export default function RecordingPage() {
               videoUrl={recording.videoUrl}
               durationMs={recording.durationMs}
               thumbnailUrl={recording.thumbnailUrl}
+              role={role}
               defaultSpeed={speed}
               comments={comments}
               chapters={chapters}

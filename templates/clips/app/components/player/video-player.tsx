@@ -439,8 +439,14 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               setIsPlaying(false);
               onPause?.();
             }}
-            onLoadedData={() => setIsPreparing(false)}
-            onCanPlay={() => setIsPreparing(false)}
+            onLoadedData={() => {
+              setIsPreparing(false);
+              captureThumbnail();
+            }}
+            onCanPlay={() => {
+              setIsPreparing(false);
+              captureThumbnail();
+            }}
             onTimeUpdate={(e) => {
               const v = e.currentTarget;
               // Chrome occasionally emits a timeupdate with currentTime=1e10
