@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 /**
  * Draggable, circular camera bubble. Grabs its own webcam stream so the
@@ -61,6 +63,56 @@ export function Bubble() {
     // mounts in the "re-spawned" case, there's no contention to recover
     // from — so no listener is needed here.
     return () => unlistens.forEach((u) => u());
+  }, []);
+
+  // Persist the bubble's position whenever the user drags it. Tauri fires
+  // `onMoved` during the drag AND during OS-level window animations (the
+  // window server interpolates position changes), so we debounce by 400ms —
+  // long enough to coalesce a drag-gesture's worth of events into a single
+  // disk write, short enough that a quick drop+quit still saves.
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let lastSaved: { x: number; y: number } | null = null;
+
+    const scheduleSave = (x: number, y: number) => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        if (cancelled) return;
+        // Dedupe — onMoved fires on show() too, no sense rewriting the
+        // same JSON blob every launch.
+        if (lastSaved && lastSaved.x === x && lastSaved.y === y) return;
+        lastSaved = { x, y };
+        void invoke("save_bubble_position", { x, y }).catch((err) => {
+          console.warn("[bubble] save_bubble_position failed", err);
+        });
+      }, 400);
+    };
+
+    const win = getCurrentWindow();
+    win
+      .onMoved((e) => {
+        const { x, y } = e.payload;
+        scheduleSave(x, y);
+      })
+      .then((u) => {
+        if (cancelled) {
+          u();
+        } else {
+          unlisten = u;
+        }
+      })
+      .catch((err) => {
+        console.warn("[bubble] onMoved listener failed", err);
+      });
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      if (unlisten) unlisten();
+    };
   }, []);
 
   useEffect(() => {

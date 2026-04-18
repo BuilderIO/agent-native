@@ -4,6 +4,7 @@
 //! toggles it. Pressing Cmd/Ctrl+Shift+L also toggles it. The popover itself
 //! is served by the Vite-built React UI (see `../dist`).
 
+use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::Instant;
 use tauri::{
@@ -137,6 +138,62 @@ async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Path to the JSON blob that stores the last-known bubble position on disk.
+/// Lives in the Tauri app-data dir (platform-specific — `~/Library/Application
+/// Support/<bundle-id>/` on macOS). Returns None if the app-data dir cannot be
+/// resolved.
+fn bubble_position_path(app: &AppHandle) -> Option<PathBuf> {
+    let dir = app.path().app_data_dir().ok()?;
+    if let Err(err) = std::fs::create_dir_all(&dir) {
+        eprintln!(
+            "[clips-tray] bubble_position_path mkdir failed: {} ({})",
+            err,
+            dir.display()
+        );
+        return None;
+    }
+    Some(dir.join("bubble-position.json"))
+}
+
+/// Load the last-saved bubble position, if any. Returns (x, y) in physical
+/// pixels. Any IO or parse failure is treated as "no saved position" — the
+/// caller will fall back to the default Loom-style anchor.
+fn load_bubble_position(app: &AppHandle) -> Option<(i32, i32)> {
+    let path = bubble_position_path(app)?;
+    let bytes = std::fs::read(&path).ok()?;
+    let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    let x = value.get("x")?.as_i64()? as i32;
+    let y = value.get("y")?.as_i64()? as i32;
+    Some((x, y))
+}
+
+/// Persist the bubble position so it survives restarts. Exposed to JS via
+/// `invoke("save_bubble_position", { x, y })`. Writes atomically (temp file +
+/// rename) so a crash mid-write can't corrupt the JSON blob.
+#[tauri::command]
+async fn save_bubble_position(app: AppHandle, x: i32, y: i32) -> Result<(), String> {
+    let Some(path) = bubble_position_path(&app) else {
+        // No writable app-data dir — log and swallow so the UI doesn't
+        // treat this as a fatal error.
+        eprintln!("[clips-tray] save_bubble_position: no app_data_dir, skipping");
+        return Ok(());
+    };
+    let body = serde_json::to_vec(&serde_json::json!({ "x": x, "y": y }))
+        .map_err(|e| format!("serialize: {e}"))?;
+    let tmp = path.with_extension("json.tmp");
+    if let Err(err) = std::fs::write(&tmp, &body) {
+        eprintln!("[clips-tray] save_bubble_position write tmp failed: {err}");
+        return Ok(());
+    }
+    if let Err(err) = std::fs::rename(&tmp, &path) {
+        eprintln!("[clips-tray] save_bubble_position rename failed: {err}");
+        // Best-effort cleanup of the tmp file so it doesn't linger.
+        let _ = std::fs::remove_file(&tmp);
+        return Ok(());
+    }
+    Ok(())
+}
+
 /// Circular, draggable webcam bubble — small always-on-top window that hosts
 /// its own getUserMedia stream and floats over everything the user captures.
 #[tauri::command]
@@ -149,14 +206,23 @@ async fn show_bubble(app: AppHandle) -> Result<(), String> {
     }
     let (mw, mh) = primary_monitor_physical_size(&app).unwrap_or((2880, 1800));
     let size: u32 = 360; // physical (= 180 logical on retina)
-    let x: i32 = 48;
-    // Loom-style: bubble anchored ~30 logical px above the bottom edge of
-    // the primary display. On Retina that's 60 physical px — the previous
-    // 192 offset was leaving the bubble ~100 logical px up from the bottom.
-    let y: i32 = mh as i32 - size as i32 - 60;
+    // Default Loom-style anchor: flush-left with a small margin, a hair
+    // above the bottom edge of the primary display. On Retina the 60
+    // physical-px offset maps to ~30 logical px.
+    let default_x: i32 = 48;
+    let default_y: i32 = mh as i32 - size as i32 - 60;
+    // Prefer the last-known position, clamped to the primary monitor so a
+    // position saved on a now-disconnected external display can't leave
+    // the bubble off-screen.
+    let max_x = (mw as i32 - size as i32).max(0);
+    let max_y = (mh as i32 - size as i32).max(0);
+    let (x, y, source) = match load_bubble_position(&app) {
+        Some((sx, sy)) => (sx.clamp(0, max_x), sy.clamp(0, max_y), "saved"),
+        None => (default_x, default_y, "default"),
+    };
     eprintln!(
-        "[clips-tray] bubble pos=({},{}) size={} monitor={}x{}",
-        x, y, size, mw, mh
+        "[clips-tray] bubble pos=({},{}) source={} size={} monitor={}x{}",
+        x, y, source, size, mw, mh
     );
     let mut builder = WebviewWindowBuilder::new(&app, BUBBLE_LABEL, build_overlay_url("bubble"))
         .title("Clips Camera")
@@ -452,6 +518,7 @@ pub fn run() {
             show_signin,
             close_signin,
             set_recording_state,
+            save_bubble_position,
         ])
         .plugin(tauri_plugin_shell::init())
         .plugin(
