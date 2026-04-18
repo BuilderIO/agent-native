@@ -405,15 +405,25 @@ export function App() {
       // can auto-hide normally again.
       setRecordingFlowActive(false);
       invoke("set_recording_state", { active: false }).catch(() => {});
-      const message = err instanceof Error ? err.message : String(err);
       console.error("[clips-popover] startRecording failed:", err);
+      // User cancelled the macOS screen-picker (or denied permission).
+      // WebKit throws DOMException `NotAllowedError` for BOTH cancel and
+      // deny with the same message string, so we can't reliably tell them
+      // apart — treat both as a silent no-op and return to pre-record
+      // state. Some browsers throw `AbortError` on user abort instead.
+      const errName =
+        err instanceof DOMException || err instanceof Error ? err.name : "";
+      const message = err instanceof Error ? err.message : String(err);
       if (
-        !/NotAllowedError|permission denied by system|was cancelled|dismissed/i.test(
+        errName === "NotAllowedError" ||
+        errName === "AbortError" ||
+        /NotAllowedError|permission denied by system|was cancelled|dismissed/i.test(
           message,
         )
       ) {
-        setRecError(message);
+        return;
       }
+      setRecError(message);
     }
   }
 

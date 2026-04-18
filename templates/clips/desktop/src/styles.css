@@ -496,8 +496,8 @@ button {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: white;
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.3);
+  background: #ef4444;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.3);
 }
 
 /* Active-recording state on the primary button: red fill, white square
