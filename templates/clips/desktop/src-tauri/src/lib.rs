@@ -440,7 +440,15 @@ pub fn run() {
                     let is_ctrl =
                         shortcut.matches(Modifiers::CONTROL | Modifiers::SHIFT, Code::KeyL);
                     if is_cmd || is_ctrl {
-                        toggle_popover(app);
+                        // Loom-style: if a recording is already active, the
+                        // global shortcut stops it rather than re-opening the
+                        // popover. Keeps parity with the tray-icon click
+                        // behaviour in `on_tray_icon_event`.
+                        if is_recording_active(app) {
+                            let _ = app.emit("clips:recorder-stop", ());
+                        } else {
+                            toggle_popover(app);
+                        }
                     }
                 })
                 .build(),

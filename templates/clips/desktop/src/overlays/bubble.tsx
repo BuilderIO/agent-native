@@ -137,8 +137,21 @@ export function Bubble() {
     }
 
     let restarting = false;
+    let lastRestartAt = 0;
     async function restart(reason: string) {
       if (cancelled || restarting) return;
+      // Cooldown: a fresh track re-acquired during WebKit's renegotiation
+      // sometimes fires `onmute` synchronously on arrival. Without a
+      // guard, that triggers another restart, which fires another
+      // onmute — infinite loop, bubble stays black. A 2.5s cooldown is
+      // long enough for WebKit to stabilize one acquisition before we
+      // consider trying another.
+      const now = Date.now();
+      if (now - lastRestartAt < 2500) {
+        console.log("[bubble] restart() skipped — cooldown", { reason });
+        return;
+      }
+      lastRestartAt = now;
       restarting = true;
       console.log("[bubble] restart()", { reason });
       const current = streamRef.current;
@@ -164,12 +177,32 @@ export function Bubble() {
     };
   }, [deviceId]);
 
-  // Watchdog: every second, check the track + <video> state. If the track
-  // went `muted` without firing onmute, or the video is stuck with no
-  // decoded frames (readyState < 2) while we think we have a live stream,
-  // force a restart. Belt-and-suspenders for the WebKit mute case.
+  // Watchdog: every 2 seconds, do two independent checks:
+  //
+  //   A) STATE check — track ended / stuck below HAVE_CURRENT_DATA.
+  //   B) CONTENT check — draw the current video frame into a tiny
+  //      offscreen canvas and read its average luminance. A freshly
+  //      re-acquired track after MediaRecorder.start() can come back
+  //      with readyState="live" and muted=false but still push ONLY
+  //      black pixels — WebKit's capture graph is alive, but the
+  //      camera pipeline is starved. Pure state inspection misses
+  //      this case entirely; pixel inspection catches it cleanly.
+  //
+  // To avoid tight restart loops when WebKit takes a few tries to
+  // actually give us frames, we require THREE consecutive all-black
+  // samples AND a 3-second cooldown between restarts.
   useEffect(() => {
     let stopped = false;
+    let blackHits = 0;
+    let lastRestartAt = 0;
+    // 1x2 sample grid — 2 pixels is enough to notice any non-black
+    // frame and still cheap. Lives outside the tick so we don't
+    // reallocate every 2s.
+    const canvas = document.createElement("canvas");
+    canvas.width = 2;
+    canvas.height = 2;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+
     const tick = () => {
       if (stopped) return;
       const v = videoRef.current;
@@ -178,27 +211,70 @@ export function Bubble() {
       if (v && v.srcObject && v.paused && !v.ended) {
         v.play().catch(() => {});
       }
-      if (track) {
-        // Keep this log cheap but visible — the watchdog prints once a
-        // second and is the single most useful signal when debugging
-        // "why is the bubble black?" reports.
-        console.log("[bubble] watchdog", {
-          trackReadyState: track.readyState,
-          trackMuted: track.muted,
-          videoPaused: v?.paused,
-          videoReadyState: v?.readyState,
-        });
-        if (
-          track.muted ||
-          track.readyState === "ended" ||
-          (v && v.readyState < 2 && !v.paused)
-        ) {
-          console.log("[bubble] watchdog sees dead stream — restarting");
-          restartRef.current("watchdog");
+      if (!track) return;
+
+      // ---- content probe ---------------------------------------------------
+      // Only meaningful once the video has decoded at least one frame.
+      let avgLuma: number | null = null;
+      let frameAllBlack = false;
+      if (v && v.readyState >= 2 && ctx) {
+        try {
+          ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+          const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          // Rough luma: max channel across all sample pixels. A genuinely
+          // black frame gives 0; even a dimly lit face is >5 somewhere.
+          let max = 0;
+          for (let i = 0; i < data.length; i += 4) {
+            const r = data[i];
+            const g = data[i + 1];
+            const b = data[i + 2];
+            if (r > max) max = r;
+            if (g > max) max = g;
+            if (b > max) max = b;
+          }
+          avgLuma = max;
+          frameAllBlack = max < 4;
+        } catch (err) {
+          // SecurityError / NS_ERROR_NOT_AVAILABLE can happen briefly
+          // during re-acquisition. Not a black-frame signal — skip this
+          // tick's content check.
+          console.log("[bubble] watchdog drawImage failed", err);
         }
       }
+
+      if (frameAllBlack) {
+        blackHits += 1;
+      } else {
+        blackHits = 0;
+      }
+
+      console.log("[bubble] watchdog", {
+        trackReadyState: track.readyState,
+        trackMuted: track.muted,
+        videoPaused: v?.paused,
+        videoReadyState: v?.readyState,
+        avgLuma,
+        blackHits,
+      });
+
+      const stateDead =
+        track.readyState === "ended" ||
+        (v && v.readyState < 2 && !v.paused && !v.ended);
+      const contentDead = blackHits >= 3;
+      const now = Date.now();
+      if ((stateDead || contentDead) && now - lastRestartAt > 3000) {
+        console.log("[bubble] watchdog sees dead stream — restarting", {
+          stateDead,
+          contentDead,
+          blackHits,
+          avgLuma,
+        });
+        lastRestartAt = now;
+        blackHits = 0;
+        restartRef.current(contentDead ? "watchdog-black" : "watchdog-state");
+      }
     };
-    const iv = setInterval(tick, 1000);
+    const iv = setInterval(tick, 2000);
     return () => {
       stopped = true;
       clearInterval(iv);

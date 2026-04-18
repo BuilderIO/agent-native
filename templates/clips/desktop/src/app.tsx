@@ -482,6 +482,22 @@ export function App() {
   const showCameraRow = mode !== "screen"; // screen-only has no camera
   const showSourceRow = mode !== "camera"; // camera-only has no screen source
 
+  // While a recording is active we collapse the popover to JUST the stop
+  // button — the primary path to stop is the tray-icon click (see
+  // `on_tray_icon_event` in src-tauri/src/lib.rs), but if the popover
+  // somehow does become visible (dock reopen, global shortcut race, etc.)
+  // the user should see a single affordance, not the full pre-record
+  // configuration UI. Anything configurable here (camera/mic/source) is
+  // locked in once the recorder starts, so showing those rows would be
+  // misleading.
+  if (isRecording) {
+    return (
+      <div className="app app-recording" ref={appRef}>
+        <RecordingRow onStop={() => emit("clips:recorder-stop")} />
+      </div>
+    );
+  }
+
   return (
     <div className="app" ref={appRef}>
       <Header mode={mode} onModeChange={setMode} />
@@ -516,8 +532,6 @@ export function App() {
         <button className="primary start" onClick={signIn}>
           Sign in to Clips
         </button>
-      ) : isRecording ? (
-        <RecordingRow onStop={() => emit("clips:recorder-stop")} />
       ) : (
         <button className="primary start" onClick={startRecording}>
           <span className="rec-dot" aria-hidden />

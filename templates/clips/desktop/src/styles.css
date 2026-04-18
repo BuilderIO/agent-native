@@ -500,13 +500,17 @@ button {
   box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.3);
 }
 
-/* Active-recording state on the primary button: red fill, white square
-   icon, live pulsing dot in the label. */
+/* Active-recording state on the primary button: softened orange-red
+   (Tailwind orange-700) — semantic "recording is live" without the harsh
+   pure-red assault. White square icon + live pulsing dot still read as
+   "stop". Hover stays the same shade (no brighten-on-hover) to keep the
+   affordance calm. */
 .primary.start.rec-active {
-  background: #ef4444;
+  background: #c2410c;
+  color: #fff;
 }
 .primary.start.rec-active:hover {
-  background: #dc2626;
+  background: #9a3412;
 }
 
 .rec-dot-live {
