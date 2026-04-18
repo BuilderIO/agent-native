@@ -96,85 +96,86 @@ export function mountActionRoutes(
         return runWithRequestContext(
           { userEmail, orgId, timezone },
           async () => {
-          // Parse params based on method. On web-standard runtimes (Netlify
-          // Functions, CF Workers), event.req IS the web Request — use .json()
-          // directly. H3's readBody fails on those runtimes because it expects
-          // a Node.js stream on event.node.req.
-          let params: Record<string, any>;
-          try {
-            if (method === "GET") {
-              // H3 v2: prefer web Request URL, fallback to getQuery
-              const webReq = (event as any).req;
-              if (webReq?.url) {
-                const url = new URL(webReq.url);
-                params = Object.fromEntries(url.searchParams);
+            // Parse params based on method. On web-standard runtimes (Netlify
+            // Functions, CF Workers), event.req IS the web Request — use .json()
+            // directly. H3's readBody fails on those runtimes because it expects
+            // a Node.js stream on event.node.req.
+            let params: Record<string, any>;
+            try {
+              if (method === "GET") {
+                // H3 v2: prefer web Request URL, fallback to getQuery
+                const webReq = (event as any).req;
+                if (webReq?.url) {
+                  const url = new URL(webReq.url);
+                  params = Object.fromEntries(url.searchParams);
+                } else {
+                  params = getQuery(event) as Record<string, any>;
+                }
               } else {
-                params = getQuery(event) as Record<string, any>;
+                const webReq = (event as any).req;
+                if (webReq && typeof webReq.json === "function") {
+                  // H3 v2: event.req is the web Request — use .json() directly
+                  params = (await webReq.json().catch(() => null)) ?? {};
+                } else {
+                  // Fallback: H3's readBody (Node.js dev)
+                  params = (await readBody(event)) ?? {};
+                }
               }
-            } else {
-              const webReq = (event as any).req;
-              if (webReq && typeof webReq.json === "function") {
-                // H3 v2: event.req is the web Request — use .json() directly
-                params = (await webReq.json().catch(() => null)) ?? {};
-              } else {
-                // Fallback: H3's readBody (Node.js dev)
-                params = (await readBody(event)) ?? {};
-              }
-            }
-          } catch {
-            params = {};
-          }
-
-          // Run the action
-          try {
-            const result = await entry.run(params);
-
-            // Auto-refresh the UI after a successful mutating action. GET
-            // actions and actions explicitly flagged readOnly are skipped.
-            // Other tabs' useDbSync will see source:"action" and invalidate
-            // their action queries. The calling tab already refetches via
-            // useActionMutation's onSuccess, so this is mainly cross-tab
-            // sync (and parity with the agent's tool-call path).
-            // Explicit entry.readOnly (true OR false) wins over the method
-            // heuristic. defineAction already auto-infers GET → readOnly=true,
-            // so for actions registered through that path entry.readOnly is
-            // always set and the fallback just guards legacy wrap paths.
-            const isReadOnly =
-              typeof entry.readOnly === "boolean"
-                ? entry.readOnly
-                : method === "GET";
-            if (!isReadOnly) {
-              try {
-                recordChange({
-                  source: "action",
-                  type: "change",
-                  key: name,
-                });
-              } catch {
-                // ignore
-              }
+            } catch {
+              params = {};
             }
 
-            // If the action returned a string, try to parse as JSON for a clean response
-            if (typeof result === "string") {
-              try {
-                return JSON.parse(result);
-              } catch {
-                return result;
-              }
-            }
+            // Run the action
+            try {
+              const result = await entry.run(params);
 
-            return result;
-          } catch (err: any) {
-            const msg = err?.message ?? String(err);
-            // Return 400 for validation errors, 500 for everything else
-            setResponseStatus(
-              event,
-              msg.startsWith("Invalid action parameters:") ? 400 : 500,
-            );
-            return { error: msg };
-          }
-        }); // end runWithRequestContext
+              // Auto-refresh the UI after a successful mutating action. GET
+              // actions and actions explicitly flagged readOnly are skipped.
+              // Other tabs' useDbSync will see source:"action" and invalidate
+              // their action queries. The calling tab already refetches via
+              // useActionMutation's onSuccess, so this is mainly cross-tab
+              // sync (and parity with the agent's tool-call path).
+              // Explicit entry.readOnly (true OR false) wins over the method
+              // heuristic. defineAction already auto-infers GET → readOnly=true,
+              // so for actions registered through that path entry.readOnly is
+              // always set and the fallback just guards legacy wrap paths.
+              const isReadOnly =
+                typeof entry.readOnly === "boolean"
+                  ? entry.readOnly
+                  : method === "GET";
+              if (!isReadOnly) {
+                try {
+                  recordChange({
+                    source: "action",
+                    type: "change",
+                    key: name,
+                  });
+                } catch {
+                  // ignore
+                }
+              }
+
+              // If the action returned a string, try to parse as JSON for a clean response
+              if (typeof result === "string") {
+                try {
+                  return JSON.parse(result);
+                } catch {
+                  return result;
+                }
+              }
+
+              return result;
+            } catch (err: any) {
+              const msg = err?.message ?? String(err);
+              // Return 400 for validation errors, 500 for everything else
+              setResponseStatus(
+                event,
+                msg.startsWith("Invalid action parameters:") ? 400 : 500,
+              );
+              return { error: msg };
+            }
+          },
+        ); // end runWithRequestContext
       }),
     );
 
