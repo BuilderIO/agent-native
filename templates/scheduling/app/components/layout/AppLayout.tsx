@@ -8,7 +8,7 @@ import {
   IconClock,
   IconUsersGroup,
   IconRoute,
-  IconRobot,
+  IconBolt,
   IconApps,
   IconSettings,
 } from "@tabler/icons-react";
@@ -20,7 +20,7 @@ const NAV = [
   { to: "/availability", label: "Availability", icon: IconClock },
   { to: "/teams", label: "Teams", icon: IconUsersGroup },
   { to: "/routing-forms", label: "Routing Forms", icon: IconRoute },
-  { to: "/workflows", label: "Workflows", icon: IconRobot },
+  { to: "/workflows", label: "Workflows", icon: IconBolt },
   { to: "/apps", label: "Apps", icon: IconApps },
   { to: "/settings/my-account/profile", label: "Settings", icon: IconSettings },
 ];

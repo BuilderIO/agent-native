@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { getSchedulingContext } from "../server/context.js";
+import { assertTeamAdmin } from "./_helpers.js";
 
 export default defineAction({
   description: "Update a team's branding (name, logo, colors, bio)",
@@ -15,6 +16,7 @@ export default defineAction({
     hideBranding: z.boolean().optional(),
   }),
   run: async (args) => {
+    await assertTeamAdmin(args.id);
     const { getDb, schema } = getSchedulingContext();
     const { id, ...set } = args;
     await getDb()

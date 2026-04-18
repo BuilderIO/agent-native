@@ -166,8 +166,15 @@ export async function startNativeRecording(
   let audioStream: MediaStream | null = null;
   if (wantsAudio) {
     console.log("[clips-recorder] acquiring audioStream (mic only)");
+    // IMPORTANT: `video: false` is EXPLICIT here. WebKit on macOS has been
+    // observed to treat `{ audio: ... }` with no `video` key as "caller
+    // hasn't expressed a video preference" and — when another webview in
+    // the same process has a live camera track — renegotiate the media
+    // session in a way that MUTES the bubble's camera track. Spelling
+    // out `video: false` blocks that renegotiation path entirely.
     audioStream = await navigator.mediaDevices.getUserMedia({
       audio: params.micId ? { deviceId: { exact: params.micId } } : true,
+      video: false,
     });
     console.log(
       "[clips-recorder] audioStream acquired",

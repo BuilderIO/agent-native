@@ -108,7 +108,12 @@ async fn show_toolbar(app: AppHandle) -> Result<(), String> {
         .always_on_top(true)
         .skip_taskbar(true)
         .resizable(false)
-        .shadow(true)
+        // IMPORTANT: native window shadow MUST stay off — macOS draws it
+        // based on the rectangular window bounds, not the rounded React
+        // content, so it shows up as a hard-edged black rectangle around
+        // the rounded pill. CSS box-shadow on `.toolbar-v` provides the
+        // soft drop shadow instead, shaped to the visible content.
+        .shadow(false)
         .visible(false)
         .focused(false);
     // macOS: without this, the first click on an unfocused window is

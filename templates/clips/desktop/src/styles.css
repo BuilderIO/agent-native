@@ -790,9 +790,9 @@ button {
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   color: #ffffff;
-  text-shadow:
-    0 0 60px rgba(255, 255, 255, 0.6),
-    0 0 30px rgba(0, 0, 0, 0.55);
+  /* No glow — the bare white numeral is crisper on camera than a
+     haloed one, which tends to bloom and lose edge detail in the
+     recorded output. */
   animation: cd-pop 0.85s ease-out forwards;
   line-height: 1;
 }
@@ -979,11 +979,12 @@ button {
 }
 
 .toolbar-v-stop {
-  width: 42px;
-  height: 42px;
+  width: 48px;
+  height: 48px;
   border-radius: 50%;
   border: none;
-  background: #f97055;
+  /* orange-500 — a touch softer than the red-orange we had before. */
+  background: #f97316;
   color: white;
   cursor: pointer;
   display: inline-flex;
@@ -992,7 +993,7 @@ button {
 }
 
 .toolbar-v-stop:hover {
-  background: #f85a37;
+  background: #ea580c;
 }
 
 .toolbar-v-stop:active {
@@ -1003,7 +1004,7 @@ button {
   width: 14px;
   height: 14px;
   background: currentColor;
-  border-radius: 3px;
+  border-radius: 2px;
   display: inline-block;
 }
 
@@ -1016,11 +1017,11 @@ button {
 }
 
 .toolbar-v-pause {
-  width: 28px;
-  height: 28px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
-  background: transparent;
-  color: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.9);
   border: none;
   cursor: pointer;
   display: inline-flex;
