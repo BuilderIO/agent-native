@@ -338,9 +338,11 @@ export function App() {
       // Dismissed-picker is the one case we actually want to swallow; any
       // real error should always be visible to the user so they know why
       // recording didn't start.
-      if (!/NotAllowedError|permission denied by system|was cancelled|dismissed/i.test(
-        message,
-      )) {
+      if (
+        !/NotAllowedError|permission denied by system|was cancelled|dismissed/i.test(
+          message,
+        )
+      ) {
         setRecError(message);
       }
     }
