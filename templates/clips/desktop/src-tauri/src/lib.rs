@@ -622,9 +622,7 @@ async fn reset_state(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("popover") {
         // Restore normal size in case the window was shrunk to a pinhole
         // during recording — otherwise it would reappear as a 2×2 dot.
-        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
-            360.0, 520.0,
-        )));
+        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(360.0, 520.0)));
         position_popover(&app, &window);
         mark_popover_shown(&app);
         let _ = window.show();
@@ -649,9 +647,7 @@ async fn show_popover(app: AppHandle) -> Result<(), String> {
         // ResizeObserver will call `resize_popover` on the next render to
         // fine-tune the height, but we need a sensible starting size so
         // `position_popover` can anchor correctly.
-        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
-            360.0, 520.0,
-        )));
+        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(360.0, 520.0)));
         position_popover(&app, &window);
         mark_popover_shown(&app);
         let _ = window.show();
@@ -732,9 +728,7 @@ fn toggle_popover(app: &AppHandle) {
     } else {
         // Restore normal size in case the window was shrunk to a pinhole
         // during recording — otherwise it would reappear as a 2×2 dot.
-        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
-            360.0, 520.0,
-        )));
+        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(360.0, 520.0)));
         position_popover(app, &window);
         mark_popover_shown(app);
         let _ = window.show();
