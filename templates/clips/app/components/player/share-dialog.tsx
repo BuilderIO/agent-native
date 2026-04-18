@@ -219,18 +219,13 @@ function LinkTab({
               onValueChange={handleVisibility}
               disabled={!canManage}
             >
-              <SelectTrigger className="h-8 border-0 -ml-2 bg-transparent px-2 shadow-none focus:ring-0">
+              <SelectTrigger className="h-8 border-0 -ml-2 bg-transparent px-2 shadow-none focus:ring-0 [&>span]:text-left">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 {(Object.keys(VIS_META) as Visibility[]).map((k) => (
                   <SelectItem key={k} value={k}>
-                    <div className="flex flex-col">
-                      <span>{VIS_META[k].label}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {VIS_META[k].description}
-                      </span>
-                    </div>
+                    {VIS_META[k].label}
                   </SelectItem>
                 ))}
               </SelectContent>

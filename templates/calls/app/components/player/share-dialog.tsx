@@ -1,16 +1,13 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 import {
   Collapsible,
@@ -54,12 +51,15 @@ export interface ShareDialogProps {
   resourceType: ResourceType;
   resourceId: string;
   title?: string;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
   password?: string | null;
   expiresAt?: string | null;
   shareIncludesSummary?: boolean;
   shareIncludesTranscript?: boolean;
+  /** Trigger element rendered as the popover anchor (usually the Share button). */
+  children: ReactNode;
+  /** Optional controlled open state. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 export function ShareDialog(props: ShareDialogProps) {
@@ -67,12 +67,13 @@ export function ShareDialog(props: ShareDialogProps) {
     resourceType,
     resourceId,
     title,
-    open,
-    onOpenChange,
     password,
     expiresAt,
     shareIncludesSummary,
     shareIncludesTranscript,
+    children,
+    open,
+    onOpenChange,
   } = props;
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
@@ -134,14 +135,20 @@ export function ShareDialog(props: ShareDialogProps) {
   const shares = sharesQuery.data?.shares ?? [];
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Share {title ? `"${title}"` : resourceType}</DialogTitle>
-          <DialogDescription>
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverTrigger asChild>{children}</PopoverTrigger>
+      <PopoverContent
+        align="end"
+        className="w-[440px] max-h-[min(calc(100vh-6rem),640px)] overflow-y-auto p-4"
+      >
+        <div className="mb-3">
+          <div className="text-sm font-semibold truncate">
+            Share {title ? `"${title}"` : resourceType}
+          </div>
+          <div className="text-xs text-muted-foreground">
             Control who can watch, invite people, and embed this call.
-          </DialogDescription>
-        </DialogHeader>
+          </div>
+        </div>
 
         <div className="space-y-5">
           <section className="space-y-2">
@@ -375,8 +382,8 @@ export function ShareDialog(props: ShareDialogProps) {
             />
           </section>
         </div>
-      </DialogContent>
-    </Dialog>
+      </PopoverContent>
+    </Popover>
   );
 }
 

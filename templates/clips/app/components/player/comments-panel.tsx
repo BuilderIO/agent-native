@@ -22,7 +22,20 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useActionMutation } from "@agent-native/core/client";
+import { useQueryClient } from "@tanstack/react-query";
 import { msToClock } from "./scrubber";
+
+function makeTempId() {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
+    return `temp_${crypto.randomUUID()}`;
+  }
+  return `temp_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+}
+
+type PlayerData = { comments?: Comment[]; [k: string]: unknown };
 
 const COMMENT_EMOJIS = ["👍", "❤️", "🔥", "👏", "🎉", "😂"];
 
@@ -47,7 +60,6 @@ export interface CommentsPanelProps {
   currentUserEmail?: string;
   enableComments: boolean;
   onSeek: (ms: number) => void;
-  onRefetch?: () => void;
 }
 
 export function CommentsPanel(props: CommentsPanelProps) {
@@ -58,16 +70,104 @@ export function CommentsPanel(props: CommentsPanelProps) {
     currentUserEmail,
     enableComments,
     onSeek,
-    onRefetch,
   } = props;
   const [draft, setDraft] = useState("");
   const [replyTo, setReplyTo] = useState<Comment | null>(null);
 
+  const queryClient = useQueryClient();
+  const playerDataKey = useMemo(
+    () => ["action", "get-recording-player-data", { recordingId }],
+    [recordingId],
+  );
+
+  const patchComments = (updater: (prev: Comment[]) => Comment[]) => {
+    queryClient.setQueryData<PlayerData>(playerDataKey, (old) => {
+      if (!old) return old;
+      return { ...old, comments: updater(old.comments ?? []) };
+    });
+  };
+
   const addComment = useActionMutation("add-comment", {
-    onSuccess: () => {
-      setDraft("");
-      setReplyTo(null);
-      onRefetch?.();
+    onMutate: async (vars: any) => {
+      await queryClient.cancelQueries({ queryKey: playerDataKey });
+      const prev = queryClient.getQueryData<PlayerData>(playerDataKey);
+      const tempId = makeTempId();
+      const now = new Date().toISOString();
+      const optimistic: Comment = {
+        id: tempId,
+        threadId: vars.threadId ?? tempId,
+        parentId: vars.parentId ?? null,
+        authorEmail: currentUserEmail ?? "",
+        authorName: null,
+        content: vars.content,
+        videoTimestampMs: vars.videoTimestampMs ?? 0,
+        emojiReactionsJson: "{}",
+        resolved: false,
+        createdAt: now,
+        updatedAt: now,
+      };
+      patchComments((list) => [...list, optimistic]);
+      return { prev, tempId };
+    },
+    onError: (_err, _vars, ctx: any) => {
+      if (ctx?.prev) queryClient.setQueryData(playerDataKey, ctx.prev);
+    },
+    onSuccess: (data: any, _vars, ctx: any) => {
+      if (!ctx?.tempId || !data?.id) return;
+      patchComments((list) =>
+        list.map((c) =>
+          c.id === ctx.tempId
+            ? { ...c, id: data.id, threadId: data.threadId ?? c.threadId }
+            : c,
+        ),
+      );
+    },
+  });
+
+  const resolve = useActionMutation("resolve-comment", {
+    onMutate: async (vars: any) => {
+      await queryClient.cancelQueries({ queryKey: playerDataKey });
+      const prev = queryClient.getQueryData<PlayerData>(playerDataKey);
+      patchComments((list) =>
+        list.map((c) =>
+          c.id === vars.id
+            ? {
+                ...c,
+                resolved:
+                  typeof vars.resolved === "boolean"
+                    ? vars.resolved
+                    : !c.resolved,
+              }
+            : c,
+        ),
+      );
+      return { prev };
+    },
+    onError: (_err, _vars, ctx: any) => {
+      if (ctx?.prev) queryClient.setQueryData(playerDataKey, ctx.prev);
+    },
+  });
+
+  const remove = useActionMutation("delete-comment", {
+    onMutate: async (vars: any) => {
+      await queryClient.cancelQueries({ queryKey: playerDataKey });
+      const prev = queryClient.getQueryData<PlayerData>(playerDataKey);
+      // Deleting a root comment cascades to its replies server-side, so mirror
+      // that here: drop the target comment and any descendants in the same
+      // thread whose parent chain leads back to it.
+      patchComments((list) => {
+        const target = list.find((c) => c.id === vars.id);
+        if (!target) return list;
+        const isRoot = target.parentId == null;
+        if (isRoot) {
+          return list.filter((c) => c.threadId !== target.threadId);
+        }
+        return list.filter((c) => c.id !== vars.id);
+      });
+      return { prev };
+    },
+    onError: (_err, _vars, ctx: any) => {
+      if (ctx?.prev) queryClient.setQueryData(playerDataKey, ctx.prev);
     },
   });
 
@@ -97,21 +197,20 @@ export function CommentsPanel(props: CommentsPanelProps) {
   function submit() {
     const text = draft.trim();
     if (!text) return;
-    if (replyTo) {
-      addComment.mutate({
-        recordingId,
-        content: text,
-        videoTimestampMs: replyTo.videoTimestampMs,
-        threadId: replyTo.threadId,
-        parentId: replyTo.id,
-      } as any);
-    } else {
-      addComment.mutate({
-        recordingId,
-        content: text,
-        videoTimestampMs: currentMs,
-      } as any);
-    }
+    const vars = replyTo
+      ? {
+          recordingId,
+          content: text,
+          videoTimestampMs: replyTo.videoTimestampMs,
+          threadId: replyTo.threadId,
+          parentId: replyTo.id,
+        }
+      : { recordingId, content: text, videoTimestampMs: currentMs };
+    // Clear composer state before firing the mutation so the UI feels instant —
+    // the optimistic cache patch in onMutate puts the comment in the list.
+    setDraft("");
+    setReplyTo(null);
+    addComment.mutate(vars as any);
   }
 
   return (
@@ -133,7 +232,10 @@ export function CommentsPanel(props: CommentsPanelProps) {
                     currentUserEmail={currentUserEmail}
                     onSeek={onSeek}
                     onReply={() => setReplyTo(root)}
-                    onRefetch={onRefetch}
+                    onResolve={(id, resolved) =>
+                      resolve.mutate({ id, resolved } as any)
+                    }
+                    onDelete={(id) => remove.mutate({ id } as any)}
                   />
                   {replies.length ? (
                     <ul className="pl-8 space-y-2 border-l-2 border-border ml-3">
@@ -144,7 +246,10 @@ export function CommentsPanel(props: CommentsPanelProps) {
                             currentUserEmail={currentUserEmail}
                             onSeek={onSeek}
                             onReply={() => setReplyTo(root)}
-                            onRefetch={onRefetch}
+                            onResolve={(id, resolved) =>
+                              resolve.mutate({ id, resolved } as any)
+                            }
+                            onDelete={(id) => remove.mutate({ id } as any)}
                             isReply
                           />
                         </li>
@@ -196,7 +301,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
             />
             <Button
               onClick={submit}
-              disabled={!draft.trim() || addComment.isPending}
+              disabled={!draft.trim()}
               size="icon"
               className="bg-primary hover:bg-primary/90 text-primary-foreground shrink-0"
             >
@@ -218,23 +323,18 @@ function CommentCard({
   currentUserEmail,
   onSeek,
   onReply,
-  onRefetch,
+  onResolve,
+  onDelete,
   isReply,
 }: {
   comment: Comment;
   currentUserEmail?: string;
   onSeek: (ms: number) => void;
   onReply: () => void;
-  onRefetch?: () => void;
+  onResolve: (id: string, resolved: boolean) => void;
+  onDelete: (id: string) => void;
   isReply?: boolean;
 }) {
-  const resolve = useActionMutation("resolve-comment", {
-    onSuccess: () => onRefetch?.(),
-  });
-  const remove = useActionMutation("delete-comment", {
-    onSuccess: () => onRefetch?.(),
-  });
-
   const reactions = parseReactions(comment.emojiReactionsJson);
   const isOwner = currentUserEmail && comment.authorEmail === currentUserEmail;
 
@@ -328,12 +428,7 @@ function CommentCard({
           </Popover>
 
           <button
-            onClick={() =>
-              resolve.mutate({
-                id: comment.id,
-                resolved: !comment.resolved,
-              } as any)
-            }
+            onClick={() => onResolve(comment.id, !comment.resolved)}
             className="hover:text-foreground"
           >
             {comment.resolved ? "Unresolve" : "Resolve"}
@@ -349,7 +444,7 @@ function CommentCard({
               <DropdownMenuContent align="end">
                 <DropdownMenuItem
                   className="text-red-600"
-                  onSelect={() => remove.mutate({ id: comment.id } as any)}
+                  onSelect={() => onDelete(comment.id)}
                 >
                   Delete
                 </DropdownMenuItem>

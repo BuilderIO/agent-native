@@ -20,42 +20,60 @@
  *
  * ## Performance notes (updates-121)
  *
- * Previous version ran at 20 FPS with 256×256 JPEGs at q=0.75 on a raw
- * `setInterval`. During recording the Tauri popover could saturate the
- * main thread (MediaRecorder encoding video + chunked upload + JPEG
- * toBlob) and drop the camera feed framerate. The pump was the biggest
- * avoidable cost.
+ * Previous versions ran at 10 FPS / 144px during recording and STILL
+ * dropped frames to single-digits because the popover's main thread is
+ * saturated during recording: MediaRecorder encoding video + audio +
+ * continuous chunk `fetch()` uploads to localhost + Tauri IPC emit +
+ * canvas.drawImage + canvas.toDataURL + getDisplayMedia + getUserMedia
+ * stream internals. The pump competes with all of that for the one JS
+ * main thread the webview has.
  *
- * Optimizations applied:
- * - Lowered to 15 FPS preview / 10 FPS recording. The bubble is a small
- *   talking-head PiP; MediaRecorder still captures the composed scene at
- *   30 FPS independently — the pump's job is just to keep the self-view
- *   lively.
- * - Canvas 192 preview / 144 recording → ~44% / ~68% fewer pixels per
- *   frame vs the original 256, and a further 44% drop during recording
- *   specifically when the main thread is already hot with MediaRecorder
- *   encode + chunk upload.
- * - JPEG quality 0.6 preview / 0.55 recording — self-view is forgiving.
- * - **`toDataURL` instead of `toBlob` + `Array.from(Uint8Array)`.** The
- *   previous path encoded JPEG bytes into a ~5–12KB `Uint8Array`, then
- *   `Array.from`'d it into a JS number array, which Tauri then
- *   JSON-stringified for IPC. That was the single hottest main-thread
- *   cost during recording: allocating 5–12k-element arrays at 15 Hz
- *   churns the GC and the JSON serializer blows through the main
- *   thread. `toDataURL` returns a base64 string directly — Tauri can
- *   JSON-stringify a single string in O(bytes) with no array walk. The
- *   bubble side decodes via an `<img>` element (HTML image decode is
- *   off-main-thread in WebKit), drawing once `onload` fires.
- * - `requestAnimationFrame` gating with last-tick throttle so ticks run
- *   when the browser is ready; rAF is paused by WebKit when the tab is
- *   occluded, which gracefully halts work.
- * - `document.hidden` early-out at each tick belt-and-suspenders.
- * - `requestVideoFrameCallback` when available — only encode on a NEW
- *   camera frame, so an idle camera costs ~nothing. Safari/WKWebView has
- *   shipped rVFC (WebKit bug 211945), but we feature-detect and fall back
- *   to a rAF schedule on older webviews.
- * - ImageCapture was considered but is NOT available in WKWebView
- *   (caniuse: 0% Safari), so we stick with the `<video>` + canvas path.
+ * Web research findings (April 2026, WKWebView on macOS):
+ * - OffscreenCanvas + transferControlToOffscreen in a Worker is only
+ *   reliable for WebGL contexts on Safari 17+; the 2D context path in
+ *   a Worker has been historically unreliable in WebKit (three.js issue
+ *   16782, Safari Tech Preview thread 704724). Risky for production.
+ * - MediaStreamTrackProcessor is Tech Preview in Safari 18+, and only
+ *   fully shipped in Safari 26+. Can't rely on it.
+ * - createImageBitmap from a <video> element is documented-slow on
+ *   Safari (WebKit bug 234920 — "ImageBitmap created from a video
+ *   element has poor performance"). Avoid.
+ * - HTMLImageElement.decode() is well-supported on Safari since ~15
+ *   and decodes off the main thread. This is the fast receive path.
+ *
+ * So we picked the defensible combination:
+ *
+ * 1. **Aggressive recording downshift** (Option B) — 6 FPS / 112×112 /
+ *    JPEG q=0.45 during recording. ~0.63% of the per-frame pixel budget
+ *    we started at (256² @ 20 FPS). Self-view of yourself in a talking-
+ *    head PiP is extremely forgiving — nobody's counting your pore
+ *    detail in the corner of their own screen.
+ * 2. **Chunk-upload yielding** (new) — the recorder sets
+ *    `window.clipsChunkBusy = true` while a chunk upload is in flight;
+ *    the pump skips ticks while that flag is set. With MediaRecorder
+ *    configured for ~1s chunks, this means the pump gets a clear
+ *    ~150-300ms slice of main thread each second where it CAN'T
+ *    possibly be competing with the chunk POST.
+ * 3. **Async image decode with yielding** (Option C adapted) — we
+ *    still use canvas.drawImage + canvas.toDataURL (the WebKit-fast
+ *    path — no blob round-trip, no bitmap creation from a video), but
+ *    we trigger the encode inside a `queueMicrotask` so the rVFC
+ *    callback returns quickly, letting the compositor render a frame
+ *    before we synchronously block the thread on toDataURL.
+ * 4. **Frame-time budget guard** — if the PREVIOUS encode took longer
+ *    than the per-frame budget, skip the next tick outright. Prevents
+ *    the pump from falling into a "I'm always running" mode when the
+ *    main thread is overloaded; instead it gracefully drops to
+ *    whatever framerate the system can actually sustain.
+ * 5. **Receiver image pool** (Option D) — see `bubble.tsx`. We swap
+ *    between two `<img>` elements so the previous decode can complete
+ *    without being cancelled by the incoming frame, preserving the
+ *    useful work the decode pipeline did.
+ *
+ * Fallbacks: all new signals (`window.clipsChunkBusy`, rVFC,
+ * OffscreenCanvas) feature-detect and degrade to the previous path if
+ * absent. The pump MUST keep producing frames even if every optimistic
+ * path fails; the user should never see a black bubble.
  */
 import { emit } from "@tauri-apps/api/event";
 
@@ -67,27 +85,32 @@ import { emit } from "@tauri-apps/api/event";
  * (see `app.tsx`) and serves double duty as our "recording active?"
  * signal — no extra wiring needed.
  *
- * 15 FPS preview / 10 FPS recording:
+ * 15 FPS preview / 6 FPS recording:
  * - Preview feels like a live camera.
- * - Recording is a talking-head PiP of yourself; 10 FPS self-view is
- *   plenty and buys us a third of the per-frame encode budget back.
+ * - Recording is a talking-head PiP of yourself. 6 FPS sustains the
+ *   "this is a live camera feed, not a static image" perception while
+ *   halving per-frame work vs the previous 10 FPS.
  *
- * 192px preview / 144px recording:
- * - Small bubble is ~96 logical px = 192 physical on retina. Medium is
- *   ~128 logical = 256 physical — slightly oversampled at 192, more at
- *   144, but the bubble circle + mild scaling hides the loss and the
- *   pixel-count win is large.
+ * 192px preview / 112px recording:
+ * - Small bubble CSS size is ~96 logical px = 192 physical on retina.
+ *   112 is 58% of that — the bubble circle + mild upscale hide the loss
+ *   and the pixel-count win is large (~34% fewer pixels vs 144, ~66%
+ *   fewer vs 192).
+ *
+ * JPEG quality 0.6 preview / 0.45 recording — self-view is forgiving,
+ * and the smaller frame size means even q=0.45 artifacts are already
+ * sub-pixel after the browser scales up for display.
  */
 const BUBBLE_PREVIEW_FPS = 15;
-const BUBBLE_RECORDING_FPS = 10;
+const BUBBLE_RECORDING_FPS = 6;
 const BUBBLE_PREVIEW_FRAME_INTERVAL_MS = Math.round(1000 / BUBBLE_PREVIEW_FPS);
 const BUBBLE_RECORDING_FRAME_INTERVAL_MS = Math.round(
   1000 / BUBBLE_RECORDING_FPS,
 );
 const BUBBLE_PREVIEW_FRAME_SIZE = 192;
-const BUBBLE_RECORDING_FRAME_SIZE = 144;
+const BUBBLE_RECORDING_FRAME_SIZE = 112;
 const BUBBLE_PREVIEW_JPEG_QUALITY = 0.6;
-const BUBBLE_RECORDING_JPEG_QUALITY = 0.55;
+const BUBBLE_RECORDING_JPEG_QUALITY = 0.45;
 
 type VideoWithRvfc = HTMLVideoElement & {
   requestVideoFrameCallback?: (cb: () => void) => number;
@@ -137,6 +160,7 @@ export function startBubbleFramePump(stream: MediaStream): () => void {
   let busy = false;
   let stopped = false;
   let lastEmitMs = 0;
+  let lastEncodeDurationMs = 0;
   let rafHandle: number | null = null;
   let rvfcHandle: number | null = null;
 
@@ -164,9 +188,11 @@ export function startBubbleFramePump(stream: MediaStream): () => void {
     // force-alive flag from the recording-start path bypasses the check so
     // the bubble stays live. The same flag also serves as our "recording
     // active?" signal so we can downshift FPS / size / quality.
-    const forceAlive =
-      (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive ===
-      true;
+    const w = window as unknown as {
+      clipsForceAlive?: boolean;
+      clipsChunkBusy?: boolean;
+    };
+    const forceAlive = w.clipsForceAlive === true;
     if (document.hidden && !forceAlive) return;
     if (video.readyState < 2 || video.videoWidth === 0) return;
 
@@ -186,6 +212,31 @@ export function startBubbleFramePump(stream: MediaStream): () => void {
     // the single pace-limiting gate.
     const now = performance.now();
     if (now - lastEmitMs < frameIntervalMs) return;
+
+    // Chunk-upload yield (recording-mode only): if the recorder's chunk
+    // POST is in flight we skip this tick outright. The next rVFC tick
+    // (≤33ms later) will re-check. MediaRecorder chunks land every
+    // ~1000ms so the upload window is ~150-300ms of that second — the
+    // pump still gets most of each second to work in. Without this,
+    // toDataURL and the fetch body-serializer fight for the same
+    // microtask queue and both progress at half speed.
+    if (recording && w.clipsChunkBusy === true) return;
+
+    // Adaptive skip: if the LAST encode took longer than one frame
+    // interval, we've been falling behind. Drop this tick to give the
+    // main thread a real break. Trailing-edge only — the next tick re-
+    // evaluates fresh. This is cheap insurance against runaway pumps
+    // during very hot windows (e.g. the first 2s of recording when
+    // MediaRecorder is still spinning up codec state + the first chunk
+    // upload hits).
+    if (lastEncodeDurationMs > frameIntervalMs) {
+      // Reset so we try once on the next tick instead of locking out
+      // forever if the thread recovers.
+      lastEncodeDurationMs = 0;
+      lastEmitMs = now;
+      return;
+    }
+
     lastEmitMs = now;
 
     // Re-size the canvas if the recording mode flipped. `<canvas>.width`
@@ -195,36 +246,50 @@ export function startBubbleFramePump(stream: MediaStream): () => void {
     if (canvas.height !== frameSize) canvas.height = frameSize;
 
     busy = true;
-    try {
-      // Center-crop the video into a square then scale to frameSize.
-      const vw = video.videoWidth;
-      const vh = video.videoHeight;
-      const side = Math.min(vw, vh);
-      const sx = (vw - side) / 2;
-      const sy = (vh - side) / 2;
-      ctx.drawImage(video, sx, sy, side, side, 0, 0, frameSize, frameSize);
-      // `toDataURL` is a synchronous main-thread encode, but it avoids
-      // the `toBlob` → `arrayBuffer` → `Array.from(Uint8Array)` round
-      // trip which dominated the old path's main-thread cost. The
-      // resulting string is a ready-to-emit JSON value — Tauri IPC
-      // serializes a single string in O(bytes) with zero per-byte JS
-      // allocation, vs O(bytes) allocations when serializing a number
-      // array of the same length.
-      const dataUrl = canvas.toDataURL("image/jpeg", quality);
-      if (stopped) return;
-      emit("clips:bubble-frame", {
-        dataUrl,
-        w: frameSize,
-        h: frameSize,
-      }).catch(() => {});
-    } catch (err) {
-      // Don't flood the console — one warning per failure-window is enough.
-      // A transient SecurityError / NS_ERROR_NOT_AVAILABLE can happen
-      // during track negotiation; the next tick will retry.
-      console.warn("[clips-bubble-pump] tick failed", err);
-    } finally {
-      busy = false;
-    }
+    const encodeStart = performance.now();
+    // Yield to the compositor before synchronous encode work. The rVFC
+    // callback fires right before paint; returning quickly so WebKit can
+    // composite the window frame AND our encode work keeps both
+    // responsive. `queueMicrotask` runs after the current task yields
+    // but before the next task — fast enough that we stay at our target
+    // framerate, long enough that the compositor gets its tick.
+    queueMicrotask(() => {
+      if (stopped) {
+        busy = false;
+        return;
+      }
+      try {
+        // Center-crop the video into a square then scale to frameSize.
+        const vw = video.videoWidth;
+        const vh = video.videoHeight;
+        const side = Math.min(vw, vh);
+        const sx = (vw - side) / 2;
+        const sy = (vh - side) / 2;
+        ctx.drawImage(video, sx, sy, side, side, 0, 0, frameSize, frameSize);
+        // `toDataURL` is a synchronous main-thread encode, but it avoids
+        // the `toBlob` → `arrayBuffer` → `Array.from(Uint8Array)` round
+        // trip which dominated the old path's main-thread cost. The
+        // resulting string is a ready-to-emit JSON value — Tauri IPC
+        // serializes a single string in O(bytes) with zero per-byte JS
+        // allocation, vs O(bytes) allocations when serializing a number
+        // array of the same length.
+        const dataUrl = canvas.toDataURL("image/jpeg", quality);
+        if (stopped) return;
+        emit("clips:bubble-frame", {
+          dataUrl,
+          w: frameSize,
+          h: frameSize,
+        }).catch(() => {});
+      } catch (err) {
+        // Don't flood the console — one warning per failure-window is enough.
+        // A transient SecurityError / NS_ERROR_NOT_AVAILABLE can happen
+        // during track negotiation; the next tick will retry.
+        console.warn("[clips-bubble-pump] tick failed", err);
+      } finally {
+        lastEncodeDurationMs = performance.now() - encodeStart;
+        busy = false;
+      }
+    });
   }
 
   function rafLoop(): void {

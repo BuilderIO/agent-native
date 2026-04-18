@@ -5,6 +5,7 @@ import {
   IconShare3,
   IconSettings,
   IconMessage,
+  IconMessageChatbot,
   IconFileText,
   IconChartLine,
   IconArrowLeft,
@@ -14,6 +15,7 @@ import {
   useActionQuery,
   useSession,
   sendToAgentChat,
+  AgentPanel,
 } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -52,7 +54,7 @@ export function HydrateFallback() {
   );
 }
 
-type SidePanel = "transcript" | "comments" | "insights" | "settings";
+type SidePanel = "transcript" | "comments" | "insights" | "agent" | "settings";
 
 export default function RecordingPage() {
   const { recordingId } = useParams<{ recordingId: string }>();
@@ -491,7 +493,7 @@ export default function RecordingPage() {
               <TabsList
                 className={cn(
                   "mx-3 mt-3 grid w-auto",
-                  canEdit ? "grid-cols-3" : "grid-cols-2",
+                  canEdit ? "grid-cols-4" : "grid-cols-2",
                 )}
               >
                 <TabsTrigger value="transcript" className="gap-1.5">
@@ -511,6 +513,12 @@ export default function RecordingPage() {
                   <TabsTrigger value="insights" className="gap-1.5">
                     <IconChartLine className="h-4 w-4" />
                     Insights
+                  </TabsTrigger>
+                ) : null}
+                {canEdit ? (
+                  <TabsTrigger value="agent" className="gap-1.5">
+                    <IconMessageChatbot className="h-4 w-4" />
+                    Agent
                   </TabsTrigger>
                 ) : null}
               </TabsList>
@@ -559,7 +567,6 @@ export default function RecordingPage() {
                   currentUserEmail={session?.email}
                   enableComments={recording.enableComments}
                   onSeek={(ms) => playerRef.current?.seek(ms)}
-                  onRefetch={() => playerDataQ.refetch()}
                 />
               </TabsContent>
               {canEdit ? (
@@ -570,6 +577,22 @@ export default function RecordingPage() {
                   <InsightsPanel
                     recordingId={recording.id}
                     durationMs={recording.durationMs}
+                  />
+                </TabsContent>
+              ) : null}
+              {canEdit ? (
+                <TabsContent
+                  value="agent"
+                  className="flex-1 min-h-0 mt-3 data-[state=inactive]:hidden flex flex-col"
+                >
+                  <AgentPanel
+                    emptyStateText="Ask about this clip…"
+                    suggestions={[
+                      "Summarize this clip",
+                      "Suggest a better title",
+                      "Generate chapters from the transcript",
+                    ]}
+                    showHeader={false}
                   />
                 </TabsContent>
               ) : null}

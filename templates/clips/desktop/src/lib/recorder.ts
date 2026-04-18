@@ -134,18 +134,53 @@ async function createRecording(
   return (await res.json()) as { id: string };
 }
 
+/**
+ * Counter of in-flight chunk POSTs. The bubble frame pump reads
+ * `window.clipsChunkBusy` and SKIPS frame encoding while it's truthy,
+ * so the pump and the chunk fetch don't fight for the same microtask
+ * queue. Using a counter (rather than a boolean) handles overlapping
+ * uploads correctly — WebKit's fetch can pipeline the last chunk's
+ * body serializer with the next chunk's request, so the flag must
+ * stay true until ALL chunks settle.
+ *
+ * The flag is attached to `window` so the pump can read it without
+ * an import cycle (the pump lives in a separate module that must not
+ * depend on the recorder).
+ */
+let inFlightChunks = 0;
+function incChunkBusy(): void {
+  inFlightChunks += 1;
+  (window as unknown as { clipsChunkBusy?: boolean }).clipsChunkBusy = true;
+}
+function decChunkBusy(): void {
+  inFlightChunks = Math.max(0, inFlightChunks - 1);
+  if (inFlightChunks === 0) {
+    (window as unknown as { clipsChunkBusy?: boolean }).clipsChunkBusy = false;
+  }
+}
+
 async function uploadChunk(url: string, blob: Blob): Promise<void> {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": blob.type || "application/octet-stream" },
-    // Tauri webview runs on localhost:1420 (dev) or tauri://localhost (prod);
-    // the clips server is a different origin. The framework's dev CORS is
-    // permissive for "*" but won't accept credentialed requests without
-    // Allow-Credentials — and in dev auth is bypassed anyway, so we don't
-    // need cookies.
-    credentials: "include",
-    body: blob,
-  });
+  // Signal to the bubble frame pump that a chunk is being uploaded.
+  // The pump's tick loop checks this flag and yields its slot to the
+  // fetch for the ~150-300ms the POST takes to serialize and land.
+  // Cleared in `finally` below so a throw still releases the pump.
+  incChunkBusy();
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": blob.type || "application/octet-stream" },
+      // Tauri webview runs on localhost:1420 (dev) or tauri://localhost (prod);
+      // the clips server is a different origin. The framework's dev CORS is
+      // permissive for "*" but won't accept credentialed requests without
+      // Allow-Credentials — and in dev auth is bypassed anyway, so we don't
+      // need cookies.
+      credentials: "include",
+      body: blob,
+    });
+  } finally {
+    decChunkBusy();
+  }
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     console.error(

@@ -273,8 +273,8 @@ async fn show_toolbar(app: AppHandle) -> Result<(), String> {
 /// bubble sizes exactly. Small is the default so the bubble feels like a
 /// quiet PiP rather than a giant circle the user has to shrink on every
 /// launch — this matches Loom's out-of-the-box behavior.
-const BUBBLE_SIZE_SMALL: u32 = 192;
-const BUBBLE_SIZE_MEDIUM: u32 = 360;
+const BUBBLE_SIZE_SMALL: u32 = 360;
+const BUBBLE_SIZE_MEDIUM: u32 = 504;
 
 /// Extra vertical real-estate reserved beneath the circular bubble for the
 /// hover-controls pill (small-dot + medium-dot). The Tauri window is

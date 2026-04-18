@@ -318,15 +318,22 @@ export function CallPlayer({
               {formatMs(call.durationMs)}
             </span>
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setShareOpen(true)}
-            className="gap-2"
+          <ShareDialog
+            resourceType="call"
+            resourceId={call.id}
+            title={call.title}
+            open={shareOpen}
+            onOpenChange={setShareOpen}
+            password={call.password}
+            expiresAt={call.expiresAt}
+            shareIncludesSummary={call.shareIncludesSummary}
+            shareIncludesTranscript={call.shareIncludesTranscript}
           >
-            <IconShare className="h-4 w-4" />
-            Share
-          </Button>
+            <Button size="sm" variant="outline" className="gap-2">
+              <IconShare className="h-4 w-4" />
+              Share
+            </Button>
+          </ShareDialog>
           <Button
             size="sm"
             variant="ghost"
@@ -527,17 +534,6 @@ export function CallPlayer({
         onOpenChange={setSnippetOpen}
       />
 
-      <ShareDialog
-        resourceType="call"
-        resourceId={call.id}
-        title={call.title}
-        open={shareOpen}
-        onOpenChange={setShareOpen}
-        password={call.password}
-        expiresAt={call.expiresAt}
-        shareIncludesSummary={call.shareIncludesSummary}
-        shareIncludesTranscript={call.shareIncludesTranscript}
-      />
     </div>
   );
 }

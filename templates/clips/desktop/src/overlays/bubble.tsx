@@ -141,34 +141,86 @@ export function Bubble() {
   useEffect(() => {
     const unlistens: Array<() => void> = [];
 
-    // Reusable `<img>` for the dataUrl path. Setting `img.src` kicks the
-    // decode off-main-thread in WebKit — once `onload` fires the image
-    // is ready to draw. Reusing a single element avoids per-frame DOM
-    // allocation and lets the browser reuse its decode pipeline.
-    const decodeImg = new Image();
-    // `img.decoding = 'async'` is a hint to WebKit to decode off the
-    // main thread; even without it Safari has done async decode for
-    // <img> since 2017 but the hint removes any ambiguity.
-    decodeImg.decoding = "async";
-    let pendingDraw: { w: number; h: number } | null = null;
-    decodeImg.onload = () => {
-      if (!pendingDraw) return;
+    // Two-slot `<img>` pool. The previous implementation used a single
+    // `<img>` and reassigned `.src` each frame — which CANCELS the in-
+    // flight decode in WebKit when the new .src lands. Under load, that
+    // meant we often threw away half the decoded frames because the
+    // next one arrived before the previous finished decoding.
+    //
+    // With two slots we alternate: slot A decodes → render → slot A is
+    // free; slot B decodes next → render. Each decode gets to finish,
+    // even when frames arrive close together. The useful work done by
+    // one decode is no longer invalidated by the following frame.
+    //
+    // `.decoding = "async"` + `.decode()` (on Safari since ~15) pushes
+    // JPEG decode off the main thread entirely. Using the returned
+    // Promise also makes this more robust than `.onload` — a decode
+    // error rejects rather than silently dropping the frame.
+    type ImgSlot = {
+      img: HTMLImageElement;
+      busy: boolean;
+    };
+    const slots: ImgSlot[] = [
+      { img: new Image(), busy: false },
+      { img: new Image(), busy: false },
+    ];
+    for (const s of slots) {
+      s.img.decoding = "async";
+    }
+
+    // Keep only the most recent pending dataUrl. If a frame arrives
+    // while both slots are busy (rare, but possible when the sender
+    // bursts a frame right as a previous one is still decoding), we
+    // just remember the latest and dispatch it when a slot frees up.
+    // We always want the NEWEST frame — an older queued frame would
+    // be stale by the time it renders.
+    let latestPending: { dataUrl: string; w: number; h: number } | null = null;
+
+    function drawFromSlot(slot: ImgSlot, w: number, h: number) {
       const canvas = canvasRef.current;
       if (!canvas) return;
-      const { w, h } = pendingDraw;
       if (canvas.width !== w) canvas.width = w;
       if (canvas.height !== h) canvas.height = h;
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
       try {
-        ctx.drawImage(decodeImg, 0, 0, canvas.width, canvas.height);
+        ctx.drawImage(slot.img, 0, 0, canvas.width, canvas.height);
       } catch (err) {
         console.warn("[bubble] frame drawImage failed", err);
       }
-    };
-    decodeImg.onerror = (err) => {
-      console.warn("[bubble] frame img decode failed", err);
-    };
+    }
+
+    function dispatchPending() {
+      if (!latestPending) return;
+      const freeSlot = slots.find((s) => !s.busy);
+      if (!freeSlot) return;
+      const { dataUrl, w, h } = latestPending;
+      latestPending = null;
+      freeSlot.busy = true;
+      freeSlot.img.src = dataUrl;
+      // `img.decode()` returns a Promise that resolves once the image
+      // is fully decoded and ready to draw. On Safari this work
+      // happens on a background thread, so awaiting it here doesn't
+      // block the main thread beyond the actual drawImage call.
+      const decodePromise = freeSlot.img.decode
+        ? freeSlot.img.decode()
+        : new Promise<void>((resolve, reject) => {
+            freeSlot.img.onload = () => resolve();
+            freeSlot.img.onerror = (err) => reject(err);
+          });
+      decodePromise
+        .then(() => {
+          drawFromSlot(freeSlot, w, h);
+        })
+        .catch((err) => {
+          console.warn("[bubble] frame img decode failed", err);
+        })
+        .finally(() => {
+          freeSlot.busy = false;
+          // Drain any frame that arrived mid-decode.
+          if (latestPending) dispatchPending();
+        });
+    }
 
     listen<{
       dataUrl?: string;
@@ -199,11 +251,8 @@ export function Bubble() {
       // Fast path — data URL. WebKit decodes <img> off the main
       // thread and drawImage is a cheap GPU blit.
       if (dataUrl) {
-        pendingDraw = { w, h };
-        // Setting .src triggers decode; onload handler above does the
-        // drawImage. Overwriting .src mid-decode is safe — the in-
-        // flight decode is dropped.
-        decodeImg.src = dataUrl;
+        latestPending = { dataUrl, w, h };
+        dispatchPending();
         return;
       }
 
