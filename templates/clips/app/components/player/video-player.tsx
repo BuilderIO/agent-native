@@ -377,6 +377,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               setIsPlaying(false);
               onPause?.();
             }}
+            onLoadedData={() => setIsPreparing(false)}
+            onCanPlay={() => setIsPreparing(false)}
             onTimeUpdate={(e) => {
               const v = e.currentTarget;
               // Chrome occasionally emits a timeupdate with currentTime=1e10
@@ -387,6 +389,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 Number.isFinite(raw) && raw >= 0 && raw < 1e7 ? raw : 0;
               const ms = Math.floor(ct * 1000);
               setCurrentMs(ms);
+              if (ms > 0) setIsPreparing(false);
               onTimeUpdate?.(ms, resolvedDurationMs);
             }}
             onEnded={() => {
@@ -403,6 +406,18 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             No video available
           </div>
         )}
+
+        {/* Preparing overlay — shown while the browser buffers the first
+            playable frame so the user doesn't stare at a black rectangle. */}
+        {videoUrl && isPreparing ? (
+          <div
+            data-player-ui
+            className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black text-white/80 pointer-events-none"
+          >
+            <Spinner className="h-8 w-8 text-white/70" />
+            <p className="text-sm font-medium">Preparing your clip…</p>
+          </div>
+        ) : null}
 
         {/* Captions */}
         {!hideCaptions && captionsOn && currentSegment ? (

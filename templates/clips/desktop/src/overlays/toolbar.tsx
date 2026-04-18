@@ -80,6 +80,7 @@ export function Toolbar() {
       <button
         className="toolbar-v-stop"
         onClick={stop}
+        disabled={stopping}
         aria-label="Stop recording"
         title="Stop recording"
       >

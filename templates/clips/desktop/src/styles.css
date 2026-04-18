@@ -121,6 +121,26 @@ button {
   justify-self: center;
 }
 
+/* Variant: truly-centered mode-toggle with an absolutely positioned close X.
+   Using a grid column for the close button nudges the mode tabs left by the
+   close button's width, which read as "off center" in Steve's screenshot.
+   Absolute positioning keeps the X in the top-right corner while the tabs
+   occupy the visual center of the popover. */
+.header.header-centered {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 28px;
+}
+
+.header.header-centered .header-close {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
 .logo {
   width: 28px;
   height: 28px;
@@ -1082,4 +1102,57 @@ button {
   font-size: 11px;
   text-align: center;
   padding: 12px;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Inline sign-in form                                                        */
+/* ------------------------------------------------------------------------- */
+
+.signin {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 2px 0;
+}
+
+.signin-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+  text-align: center;
+  margin-bottom: 2px;
+}
+
+.signin input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 13px;
+  outline: none;
+}
+
+.signin input:focus {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px var(--brand-ring);
+}
+
+.signin .primary {
+  margin-top: 2px;
+}
+
+.signin .primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.signin-alt {
+  background: transparent;
+  border: none;
+  padding: 4px 0 0;
+  font-size: 11px;
+  text-align: center;
+  cursor: pointer;
 }
