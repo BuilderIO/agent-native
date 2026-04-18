@@ -298,6 +298,39 @@ const SelectAllBlock = Extension.create({
   },
 });
 
+/**
+ * Tab / Shift-Tab indents any block (paragraph, heading, blockquote, etc.)
+ * by wrapping it in a blockquote — which the NFM pipeline already serializes
+ * as tab indentation and renders without a border bar.
+ *
+ * Runs at lower priority than ListItem/TaskItem (which bind Tab to sinkListItem),
+ * so list sinking still works and we only kick in for non-list blocks.
+ */
+const NotionBlockIndent = Extension.create({
+  name: "notionBlockIndent",
+  priority: 50,
+  addKeyboardShortcuts() {
+    const inHandled = (editor: any) =>
+      editor.isActive("listItem") ||
+      editor.isActive("taskItem") ||
+      editor.isActive("tableCell") ||
+      editor.isActive("tableHeader") ||
+      editor.isActive("codeBlock");
+
+    return {
+      Tab: ({ editor }) => {
+        if (inHandled(editor)) return false;
+        return editor.chain().focus().wrapIn("blockquote").run();
+      },
+      "Shift-Tab": ({ editor }) => {
+        if (inHandled(editor)) return false;
+        if (!editor.isActive("blockquote")) return false;
+        return editor.chain().focus().lift("blockquote").run();
+      },
+    };
+  },
+});
+
 const CustomTable = BaseTable.extend({
   addStorage() {
     return {
@@ -470,6 +503,7 @@ export function VisualEditor({
       TypographyReplacements,
       MarkdownPasteDetection,
       SelectAllBlock,
+      NotionBlockIndent,
       Markdown.configure({
         html: true,
         transformPastedText: true,

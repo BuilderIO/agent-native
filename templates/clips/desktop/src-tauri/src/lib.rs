@@ -455,8 +455,16 @@ pub fn run() {
             // Simple tray menu — right-click reveals it.
             let show_item =
                 MenuItem::with_id(app, "show", "Show popover", true, None::<&str>)?;
+            let devtools_item = MenuItem::with_id(
+                app,
+                "devtools",
+                "Toggle DevTools",
+                true,
+                Some("Cmd+Alt+I"),
+            )?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit Clips", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+            let menu =
+                Menu::with_items(app, &[&show_item, &devtools_item, &quit_item])?;
 
             // Load the tray icon from embedded bytes so the binary is
             // self-contained. `icons/tray.png` ships with the source and is
@@ -477,6 +485,18 @@ pub fn run() {
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => toggle_popover(app),
+                    "devtools" => {
+                        #[cfg(debug_assertions)]
+                        {
+                            if let Some(w) = app.get_webview_window("popover") {
+                                if w.is_devtools_open() {
+                                    w.close_devtools();
+                                } else {
+                                    w.open_devtools();
+                                }
+                            }
+                        }
+                    }
                     "quit" => {
                         app.exit(0);
                     }

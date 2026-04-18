@@ -206,6 +206,19 @@ export function App() {
     unlockDeviceLabels();
   }, [loadDevices, unlockDeviceLabels]);
 
+  // ---- Esc closes the popover --------------------------------------------
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        // Don't close mid-recording — user would lose the recorder handle.
+        if (isRecording) return;
+        hidePopover();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isRecording]);
+
   // ---- popover visibility tracking ----------------------------------------
   // ONLY source of truth: explicit `clips:popover-visible` events from Rust,
   // which fire on every show/hide (including the blur-auto-hide path).
@@ -543,6 +556,15 @@ export function App() {
 
 // ---------------------------------------------------------------------------
 
+function hidePopover() {
+  // Hide the Tauri window + tell Rust so it can broadcast the
+  // popover-visible=false event (which in turn tears down the bubble).
+  getCurrentWindow()
+    .hide()
+    .catch(() => {});
+  emit("clips:popover-visible", false).catch(() => {});
+}
+
 function Header({
   mode,
   onModeChange,
@@ -585,7 +607,7 @@ function Header({
       </div>
       <button
         className="icon-button"
-        onClick={() => window.close?.()}
+        onClick={hidePopover}
         aria-label="Close"
         title="Close"
       >
