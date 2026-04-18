@@ -319,6 +319,30 @@ export function App() {
   recordingFlowGateRef.current = isRecording || recordingFlowActive;
   const bubbleActive =
     wantsCamera && (popoverVisible || isRecording || recordingFlowActive);
+  // The toolbar is shown whenever the user is in the pre-record or
+  // recording phase, regardless of camera mode — screen-only recordings
+  // still need the Stop / Pause buttons on-screen.
+  const toolbarActive = popoverVisible || isRecording || recordingFlowActive;
+
+  useEffect(() => {
+    if (!toolbarActive) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        await invoke("show_toolbar");
+        if (cancelled) return;
+        // Seed disabled — previous recordings may have latched it on in
+        // the toolbar's React state (the window is destroyed on
+        // `hide_overlays`, so this is mostly defensive, but free).
+        emit("clips:toolbar-enabled", false).catch(() => {});
+      } catch (err) {
+        console.error("[clips-popover] show_toolbar failed:", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [toolbarActive]);
 
   useEffect(() => {
     if (!bubbleActive) return;
@@ -349,22 +373,6 @@ export function App() {
           await invoke("show_bubble");
         } catch (err) {
           console.error("[clips-popover] show_bubble failed:", err);
-        }
-        // Also open the toolbar in its pre-record disabled state so the
-        // user can drag both the bubble AND the toolbar around and
-        // position them BEFORE hitting Start. The Stop / Pause buttons
-        // are greyed out + click-as-no-op until MediaRecorder actually
-        // begins, at which point `recorder.ts` emits `toolbar-enabled:
-        // true` and the buttons go live.
-        try {
-          await invoke("show_toolbar");
-          // Explicitly seed disabled — in case a previous recording
-          // left the flag latched true in the toolbar's React state
-          // (the window is destroyed on `hide_overlays`, so this is
-          // mostly defensive, but free).
-          emit("clips:toolbar-enabled", false).catch(() => {});
-        } catch (err) {
-          console.error("[clips-popover] show_toolbar failed:", err);
         }
         if (cancelled) {
           s.getTracks().forEach((t) => t.stop());
