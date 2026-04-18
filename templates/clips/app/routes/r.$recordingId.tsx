@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router";
+import { toast } from "sonner";
 import {
   IconShare3,
   IconSettings,
@@ -507,8 +508,15 @@ export default function RecordingPage() {
                       headers: { "Content-Type": "application/json" },
                       body: JSON.stringify({ recordingId: recording.id }),
                     })
-                      .then(() => playerDataQ.refetch())
-                      .catch(() => {});
+                      .then((res) => {
+                        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                      })
+                      .catch((err) =>
+                        toast.error(
+                          `Retry failed: ${err?.message ?? "network error"}`,
+                        ),
+                      )
+                      .finally(() => playerDataQ.refetch());
                   }}
                 />
               </TabsContent>
