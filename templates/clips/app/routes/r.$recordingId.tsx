@@ -36,7 +36,7 @@ import { CommentsPanel } from "@/components/player/comments-panel";
 import { ReactionsTray } from "@/components/player/reactions-tray";
 import { SettingsPanel } from "@/components/player/settings-panel";
 import { InsightsPanel } from "@/components/player/insights-panel";
-import { ShareRecordingDialog } from "@/components/player/share-dialog";
+import { ShareRecordingPopover } from "@/components/player/share-dialog";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 
@@ -62,7 +62,6 @@ export default function RecordingPage() {
 
   const [panel, setPanel] = useState<SidePanel>("transcript");
   const [theaterMode, setTheaterMode] = useState(false);
-  const [shareOpen, setShareOpen] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
   const [speed, setSpeed] = useState(1.2);
   // When the recording lands in the processing state but never flips to
@@ -376,14 +375,20 @@ export default function RecordingPage() {
             </DropdownMenu>
           ) : null}
 
-          <Button
-            onClick={() => setShareOpen(true)}
-            className="bg-primary hover:bg-primary/90 text-primary-foreground gap-1.5"
-            size="sm"
+          <ShareRecordingPopover
+            recordingId={recording.id}
+            recordingTitle={recording.title}
+            videoUrl={recording.videoUrl}
+            animatedThumbnailUrl={recording.animatedThumbnailUrl}
           >
-            <IconShare3 className="h-4 w-4" />
-            Share
-          </Button>
+            <Button
+              className="bg-primary hover:bg-primary/90 text-primary-foreground gap-1.5"
+              size="sm"
+            >
+              <IconShare3 className="h-4 w-4" />
+              Share
+            </Button>
+          </ShareRecordingPopover>
         </header>
 
         <div className="flex-1 flex flex-col overflow-hidden p-4 gap-4">
@@ -564,15 +569,6 @@ export default function RecordingPage() {
           </>
         )}
       </aside>
-
-      <ShareRecordingDialog
-        recordingId={recording.id}
-        recordingTitle={recording.title}
-        videoUrl={recording.videoUrl}
-        animatedThumbnailUrl={recording.animatedThumbnailUrl}
-        open={shareOpen}
-        onOpenChange={setShareOpen}
-      />
     </div>
   );
 }
