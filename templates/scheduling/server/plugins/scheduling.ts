@@ -44,8 +44,8 @@ export default () => {
         clientId: process.env.GOOGLE_CLIENT_ID,
         clientSecret: process.env.GOOGLE_CLIENT_SECRET,
         getAccessToken: async (credentialId) => {
-          const t: any = await (getOAuthTokens as any)?.(credentialId);
-          const token = t?.accessToken;
+          const t = await getOAuthTokens("google_calendar", credentialId);
+          const token = (t as any)?.accessToken;
           if (!token) throw new Error("Missing Google token");
           return token;
         },
@@ -60,8 +60,8 @@ export default () => {
         clientId: process.env.MICROSOFT_CLIENT_ID,
         clientSecret: process.env.MICROSOFT_CLIENT_SECRET,
         getAccessToken: async (credentialId) => {
-          const t: any = await (getOAuthTokens as any)?.(credentialId);
-          const token = t?.accessToken;
+          const t = await getOAuthTokens("office365", credentialId);
+          const token = (t as any)?.accessToken;
           if (!token) throw new Error("Missing MS token");
           return token;
         },

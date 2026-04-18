@@ -341,6 +341,13 @@ export function App() {
     })();
     return () => {
       cancelled = true;
+      // In screen-only mode the bubble effect never runs, so its
+      // cleanup (which normally hides overlays) never fires either.
+      // Hide them from here instead. Guard on !recordingInFlight so
+      // we don't rip the toolbar out from under an active recording.
+      if (!recordingFlowGateRef.current) {
+        invoke("hide_overlays").catch(() => {});
+      }
     };
   }, [toolbarActive]);
 
