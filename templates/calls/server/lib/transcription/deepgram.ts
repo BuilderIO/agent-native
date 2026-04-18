@@ -137,7 +137,10 @@ export function parseDeepgramResponse(raw: unknown): TranscribeResult {
     .map((u) => toSegment(u))
     .filter((s): s is TranscriptSegment => s !== null);
 
-  let fullText = segments.map((s) => s.text).join(" ").trim();
+  let fullText = segments
+    .map((s) => s.text)
+    .join(" ")
+    .trim();
   if (!fullText) {
     const alt = json.results?.channels?.[0]?.alternatives?.[0];
     if (alt?.transcript) fullText = alt.transcript.trim();

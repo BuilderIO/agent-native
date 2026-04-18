@@ -1,5 +1,4 @@
-const EMAIL_RE =
-  /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
+const EMAIL_RE = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
 
 // Phone numbers: US and international. Handles optional +, country code, and
 // separators (spaces, dots, dashes, parentheses). Requires at least 7 digits

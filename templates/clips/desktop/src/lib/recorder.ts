@@ -210,10 +210,7 @@ export async function startNativeRecording(
     wantsCamera,
     wantsAudio,
   );
-  const [, createRes] = await Promise.all([
-    countdownPromise,
-    recordingPromise,
-  ]);
+  const [, createRes] = await Promise.all([countdownPromise, recordingPromise]);
   const { id } = createRes;
   console.log("[clips-recorder] recording row created", { id });
 

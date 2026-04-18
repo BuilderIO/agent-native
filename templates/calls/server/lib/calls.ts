@@ -179,7 +179,9 @@ export function colorForSpeaker(label: string): string {
 /**
  * Fetch a single call row, throwing if not found.
  */
-export async function getCallOrThrow(id: string): Promise<typeof schema.calls.$inferSelect> {
+export async function getCallOrThrow(
+  id: string,
+): Promise<typeof schema.calls.$inferSelect> {
   const db = getDb();
   const [row] = await db
     .select()
