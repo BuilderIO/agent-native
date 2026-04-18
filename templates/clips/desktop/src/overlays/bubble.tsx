@@ -1,7 +1,9 @@
-import { useEffect, useRef } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { useEffect, useRef, useState } from "react";
+import { emit, listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+
+type BubbleSize = "small" | "medium";
 
 /**
  * Draggable, circular camera bubble — a PURE RENDERER.
@@ -32,10 +34,93 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
  *     w:     number     // source width  (e.g. 256)
  *     h:     number     // source height (e.g. 256)
  *   }
+ *
+ * # Hover controls (Loom-style)
+ *
+ * On pointerenter, a small horizontal pill fades in under the bubble
+ * with two size-dot buttons (small / medium) and an X close button.
+ * Clicking a dot calls `set_bubble_size` on the Rust side, which
+ * resizes this window and persists the choice to disk. On
+ * pointerleave the pill fades back out after ~400ms — matches Loom's
+ * dwell timing so a brief cursor wander off the bubble doesn't yank
+ * the controls away mid-reach.
  */
 export function Bubble() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const firstFrameAtRef = useRef<number | null>(null);
+  const [size, setSize] = useState<BubbleSize>("medium");
+  const [showControls, setShowControls] = useState(false);
+  const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ---- initial size fetch -------------------------------------------------
+  // Rust already sized the Tauri window on spawn based on the saved size;
+  // we just need to mirror that choice into React state so the canvas +
+  // control pill render at the matching CSS dimensions.
+  useEffect(() => {
+    let cancelled = false;
+    invoke<string>("load_bubble_size")
+      .then((value) => {
+        if (cancelled) return;
+        setSize(value === "small" ? "small" : "medium");
+      })
+      .catch((err) => {
+        console.warn("[bubble] load_bubble_size failed", err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // ---- hover controls -----------------------------------------------------
+  const handleMouseEnter = () => {
+    if (leaveTimerRef.current) {
+      clearTimeout(leaveTimerRef.current);
+      leaveTimerRef.current = null;
+    }
+    setShowControls(true);
+  };
+  const handleMouseLeave = () => {
+    if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current);
+    // ~400ms dwell matches Loom — short enough to feel responsive, long
+    // enough that a quick cursor detour doesn't yank the controls away.
+    leaveTimerRef.current = setTimeout(() => {
+      leaveTimerRef.current = null;
+      setShowControls(false);
+    }, 400);
+  };
+  useEffect(() => {
+    return () => {
+      if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current);
+    };
+  }, []);
+
+  // ---- size change --------------------------------------------------------
+  const pickSize = async (next: BubbleSize) => {
+    if (next === size) return;
+    try {
+      await invoke("set_bubble_size", { size: next });
+      setSize(next);
+    } catch (err) {
+      console.warn("[bubble] set_bubble_size failed", err);
+    }
+  };
+
+  // ---- close --------------------------------------------------------------
+  const onClose = async () => {
+    // Let the popover clear its `cameraOn` state — the session effect
+    // then tears down the stream + pump cleanly. Emit first so the
+    // popover gets the signal before the webview is destroyed.
+    try {
+      await emit("clips:bubble-closed");
+    } catch (err) {
+      console.warn("[bubble] emit bubble-closed failed", err);
+    }
+    try {
+      await invoke("close_bubble");
+    } catch (err) {
+      console.warn("[bubble] close_bubble failed", err);
+    }
+  };
 
   // ---- frame sink ---------------------------------------------------------
   useEffect(() => {
@@ -147,8 +232,56 @@ export function Bubble() {
   }, []);
 
   return (
-    <div className="bubble-root" data-tauri-drag-region>
+    <div
+      className={`bubble-root bubble-${size}`}
+      data-tauri-drag-region
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+    >
       <canvas ref={canvasRef} className="bubble-video" />
+      {/* Close X — top-right of bubble, only visible on hover. */}
+      <button
+        type="button"
+        className={`bubble-close ${showControls ? "is-visible" : ""}`}
+        onClick={onClose}
+        aria-label="Close camera"
+        title="Close camera"
+      >
+        <svg
+          width="10"
+          height="10"
+          viewBox="0 0 10 10"
+          fill="none"
+          aria-hidden="true"
+        >
+          <path
+            d="M1 1L9 9M9 1L1 9"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
+        </svg>
+      </button>
+      {/* Size control pill — fades in under the bubble on hover. */}
+      <div
+        className={`bubble-controls ${showControls ? "is-visible" : ""}`}
+        onMouseEnter={handleMouseEnter}
+      >
+        <button
+          type="button"
+          className={`bubble-dot bubble-dot-small ${size === "small" ? "is-active" : ""}`}
+          onClick={() => pickSize("small")}
+          aria-label="Small camera"
+          title="Small"
+        />
+        <button
+          type="button"
+          className={`bubble-dot bubble-dot-medium ${size === "medium" ? "is-active" : ""}`}
+          onClick={() => pickSize("medium")}
+          aria-label="Medium camera"
+          title="Medium"
+        />
+      </div>
     </div>
   );
 }
