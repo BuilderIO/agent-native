@@ -64,6 +64,7 @@ export default function RecordingPage() {
   const [theaterMode, setTheaterMode] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
   const [speed, setSpeed] = useState(1.2);
+  const transcriptKickedRef = useRef<string | null>(null);
   // When the recording lands in the processing state but never flips to
   // 'ready', stop spinning forever and surface an error banner so the user
   // can retry or report the issue instead of staring at a spinner.
@@ -115,6 +116,27 @@ export default function RecordingPage() {
     const s = parseFloat(recording.defaultSpeed || "1.2");
     if (!Number.isNaN(s)) setSpeed(s);
   }, [recording?.defaultSpeed]);
+
+  // Self-heal stuck transcripts. Older recordings (before finalize-recording
+  // learned to auto-trigger Whisper) can sit in `pending` forever with no
+  // worker to pick them up. When the owner opens one, kick off a transcript
+  // once per page mount — the upsert inside request-transcript is idempotent
+  // so a second "real" run would just overwrite the pending row.
+  useEffect(() => {
+    if (!recording) return;
+    if (role !== "owner" && role !== "admin" && role !== "editor") return;
+    if (recording.status !== "ready") return;
+    if (transcriptStatus !== "pending") return;
+    if (transcriptKickedRef.current === recording.id) return;
+    transcriptKickedRef.current = recording.id;
+    fetch("/_agent-native/actions/request-transcript", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ recordingId: recording.id }),
+    })
+      .catch(() => {})
+      .finally(() => playerDataQ.refetch());
+  }, [recording?.id, recording?.status, transcriptStatus, role, playerDataQ]);
 
   // After 30 seconds of non-ready status (without an explicit failure), flip
   // a local flag so we can stop pretending this is normal and show an error.
