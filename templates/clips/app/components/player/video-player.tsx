@@ -109,6 +109,19 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const [captionsOn, setCaptionsOn] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [isPip, setIsPip] = useState(false);
+    // MediaRecorder-created WebM files report `video.duration === Infinity`
+    // until the browser has actually scrubbed to the end. When that happens
+    // the scrubber's percentage math breaks (anything / Infinity = 0) and
+    // Chrome refuses to honor `currentTime = X` seeks. We therefore track the
+    // duration ourselves, starting from the durationMs prop (which comes from
+    // the recorder's elapsed-time counter and is always a real number) and
+    // upgrading it once `loadedmetadata` tells us the real value.
+    const [resolvedDurationMs, setResolvedDurationMs] = useState<number>(
+      Number.isFinite(durationMs) && durationMs > 0 ? durationMs : 0,
+    );
+    // Whether we've already applied the Infinity-duration work-around so we
+    // don't seek to 1e10 on every loadedmetadata fire (autoplay + iOS replay).
+    const durationProbedRef = useRef(false);
 
     // Imperative handle for parent
     useImperativeHandle(
@@ -120,11 +133,12 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         play: () => videoRef.current?.play(),
         pause: () => videoRef.current?.pause(),
         seek: (ms: number) => {
-          if (videoRef.current) {
-            videoRef.current.currentTime = ms / 1000;
-            setCurrentMs(ms);
-            onSeek?.(ms);
-          }
+          const v = videoRef.current;
+          if (!v) return;
+          const clamped = clampSeek(ms, v, resolvedDurationMs);
+          v.currentTime = clamped / 1000;
+          setCurrentMs(clamped);
+          onSeek?.(clamped);
         },
         setSpeed: (rate: number) => {
           if (videoRef.current) videoRef.current.playbackRate = rate;
@@ -140,7 +154,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         toggleFullscreen: () => void toggleFullscreenInternal(),
         togglePip: () => togglePipInternal(),
       }),
-      [onSeek],
+      [onSeek, resolvedDurationMs],
     );
 
     // Apply initial playbackRate and start position.
@@ -154,6 +168,70 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         setCurrentMs(startMs);
       }
     }, [defaultSpeed, startMs, videoUrl]);
+
+    // Keep the resolved duration in sync with the prop when it changes (new
+    // recording loaded, etc.) — only bump it if the prop is a real number.
+    useEffect(() => {
+      if (Number.isFinite(durationMs) && durationMs > 0) {
+        setResolvedDurationMs(durationMs);
+      }
+      durationProbedRef.current = false;
+    }, [durationMs, videoUrl]);
+
+    // Resolve the WebM-duration-is-Infinity Chrome quirk: when a video created
+    // by MediaRecorder doesn't have a Duration element in the container, the
+    // <video> element reports `duration === Infinity` until we scrub to the
+    // very end. Once we do, `durationchange` fires with the real duration.
+    // Without this, scrubber clicks/drags silently no-op (Chrome ignores
+    // `currentTime = X` when duration is Infinity) and the percent fill stays
+    // at 0 because `currentMs / Infinity = 0`.
+    useEffect(() => {
+      const v = videoRef.current;
+      if (!v) return;
+
+      const onLoadedMetadata = () => {
+        if (durationProbedRef.current) return;
+        if (!Number.isFinite(v.duration) || v.duration === 0) {
+          // Poke the browser into computing the real duration.
+          durationProbedRef.current = true;
+          try {
+            v.currentTime = 1e10;
+          } catch {
+            // Safari occasionally throws — the durationchange fallback
+            // handler below still picks up the real duration.
+          }
+        } else {
+          durationProbedRef.current = true;
+          setResolvedDurationMs(Math.round(v.duration * 1000));
+        }
+      };
+
+      const onDurationChange = () => {
+        if (Number.isFinite(v.duration) && v.duration > 0) {
+          setResolvedDurationMs(Math.round(v.duration * 1000));
+          // After we've resolved the real duration, rewind back to 0 so the
+          // user isn't sitting at the end of the clip.
+          if (durationProbedRef.current && v.currentTime > v.duration) {
+            try {
+              v.currentTime = 0;
+              setCurrentMs(0);
+            } catch {
+              // ignore
+            }
+          }
+        }
+      };
+
+      v.addEventListener("loadedmetadata", onLoadedMetadata);
+      v.addEventListener("durationchange", onDurationChange);
+      // If metadata is already loaded by the time this effect runs, trigger it.
+      if (v.readyState >= 1) onLoadedMetadata();
+
+      return () => {
+        v.removeEventListener("loadedmetadata", onLoadedMetadata);
+        v.removeEventListener("durationchange", onDurationChange);
+      };
+    }, [videoUrl]);
 
     // Hide controls after 2s of idle movement.
     const bumpControls = useCallback(() => {
@@ -230,8 +308,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const showEndCta =
       cta &&
       cta.placement === "end" &&
-      durationMs > 0 &&
-      currentMs >= durationMs - 200;
+      resolvedDurationMs > 0 &&
+      currentMs >= resolvedDurationMs - 200;
 
     const showThroughoutCta = cta && cta.placement === "throughout";
 
@@ -275,9 +353,16 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               onPause?.();
             }}
             onTimeUpdate={(e) => {
-              const ms = Math.floor(e.currentTarget.currentTime * 1000);
+              const v = e.currentTarget;
+              // Chrome occasionally emits a timeupdate with currentTime=1e10
+              // while we're probing the real duration. Clamp anything beyond
+              // a plausible ceiling so the scrubber doesn't yank to the end.
+              const raw = v.currentTime;
+              const ct =
+                Number.isFinite(raw) && raw >= 0 && raw < 1e7 ? raw : 0;
+              const ms = Math.floor(ct * 1000);
               setCurrentMs(ms);
-              onTimeUpdate?.(ms, durationMs);
+              onTimeUpdate?.(ms, resolvedDurationMs);
             }}
             onEnded={() => {
               setIsPlaying(false);
@@ -338,7 +423,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           >
             <PlayerControls
               isPlaying={isPlaying}
-              durationMs={durationMs}
+              durationMs={resolvedDurationMs}
               currentMs={currentMs}
               volume={volume}
               muted={muted}
@@ -359,11 +444,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               }}
               onSeek={(ms) => {
                 const v = videoRef.current;
-                if (v) {
-                  v.currentTime = ms / 1000;
-                  setCurrentMs(ms);
-                  onSeek?.(ms);
-                }
+                if (!v) return;
+                const clamped = clampSeek(ms, v, resolvedDurationMs);
+                v.currentTime = clamped / 1000;
+                setCurrentMs(clamped);
+                onSeek?.(clamped);
               }}
               onVolumeChange={(vol) => {
                 const v = videoRef.current;
@@ -397,3 +482,29 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     );
   },
 );
+
+/**
+ * Clamp a millisecond seek target to a value the browser will actually accept.
+ *
+ * Chrome silently ignores `video.currentTime = X` when the media's duration is
+ * `Infinity` (MediaRecorder-created WebM files without a Duration element in
+ * their container). To work around that we upper-bound the seek by the most
+ * trustworthy finite number we have — preferring the resolved duration from
+ * the player, then falling back to `video.duration`, then the seekable range.
+ */
+function clampSeek(
+  ms: number,
+  v: HTMLVideoElement,
+  resolvedDurationMs: number,
+): number {
+  let maxSec = Number.POSITIVE_INFINITY;
+  if (resolvedDurationMs > 0) {
+    maxSec = resolvedDurationMs / 1000;
+  } else if (Number.isFinite(v.duration) && v.duration > 0) {
+    maxSec = v.duration;
+  } else if (v.seekable && v.seekable.length > 0) {
+    maxSec = v.seekable.end(v.seekable.length - 1);
+  }
+  const sec = Math.max(0, Math.min(maxSec, ms / 1000));
+  return Math.floor(sec * 1000);
+}

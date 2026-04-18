@@ -4,7 +4,7 @@
  * Stages (pick-date → pick-slot → fill-form → success) flow with
  * framer-motion width+fade animations.
  */
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { TZDate } from "@date-fns/tz";
 import { format, startOfMonth, endOfMonth, addMonths } from "date-fns";
@@ -49,13 +49,19 @@ export function Booker(props: BookerProps) {
     return startOfMonth(new TZDate(base.getTime(), tz));
   }, [flow.state.selectedDate, tz]);
 
+  const fetchSlots = useCallback(
+    (params: Parameters<typeof callAction>[1]) =>
+      callAction("check-availability", params) as Promise<{ slots: Slot[] }>,
+    [],
+  );
+
   const { slots, isLoading } = useSlots({
     eventTypeId: props.eventType.id,
     from: viewMonth.toISOString(),
     to: endOfMonth(addMonths(viewMonth, 0)).toISOString(),
     timezone: tz,
     enabled: flow.state.stage !== "success",
-    fetchSlots: (params) => callAction("check-availability", params),
+    fetchSlots,
   });
 
   // Mirror state to application-state so the agent can see it.

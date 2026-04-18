@@ -77,12 +77,16 @@ export default function RecordingPage() {
     {
       enabled: !!recordingId,
       refetchInterval: (q) => {
-        const rec = (q.state.data as any)?.recording;
+        const data = q.state.data as any;
+        const rec = data?.recording;
         if (!rec) return false;
         // Poll while the recording is still being assembled / transcoded so
         // the page auto-upgrades from "Processing" to the real player the
         // moment the server flips status to 'ready' and writes videoUrl.
         if (rec.status !== "ready" || !rec.videoUrl) return 1000;
+        // Also keep polling while a transcript is pending so "Transcribing…"
+        // auto-flips to the ready transcript (or to the failure card).
+        if (data?.transcript?.status === "pending") return 3000;
         return false;
       },
     },
@@ -100,6 +104,7 @@ export default function RecordingPage() {
   const chapters = playerDataQ.data?.chapters ?? [];
   const transcriptSegments = playerDataQ.data?.transcript?.segments ?? [];
   const transcriptStatus = playerDataQ.data?.transcript?.status;
+  const transcriptFailureReason = playerDataQ.data?.transcript?.failureReason;
   const ctas = playerDataQ.data?.ctas ?? [];
 
   const canEdit = role === "owner" || role === "admin" || role === "editor";
@@ -490,7 +495,21 @@ export default function RecordingPage() {
                   currentMs={currentMs}
                   onSeek={(ms) => playerRef.current?.seek(ms)}
                   status={transcriptStatus}
+                  failureReason={transcriptFailureReason}
                   recordingTitle={recording.title}
+                  onRetry={() => {
+                    // Re-run the Whisper transcription now that the user may
+                    // have set their OPENAI_API_KEY (or after a one-off
+                    // network error). The action flips the row to 'pending'
+                    // first, so the UI will swap back to "Transcribing…".
+                    fetch("/_agent-native/actions/request-transcript", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ recordingId: recording.id }),
+                    })
+                      .then(() => playerDataQ.refetch())
+                      .catch(() => {});
+                  }}
                 />
               </TabsContent>
               <TabsContent
