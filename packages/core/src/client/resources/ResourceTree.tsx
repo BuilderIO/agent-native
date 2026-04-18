@@ -72,6 +72,10 @@ export interface ResourceTreeProps {
   isLoading?: boolean;
   /** Resource id currently being deleted (shows spinner + muted row) */
   deletingId?: string | null;
+  /** When true, hide create/delete/rename/upload affordances. Files stay readable. */
+  readOnly?: boolean;
+  /** Optional hint shown next to the heading (e.g. "Read only") */
+  headingHint?: React.ReactNode;
 }
 
 interface CreatingState {
@@ -128,6 +132,7 @@ function TreeNodeRow({
   expanded,
   selectedId,
   deletingId,
+  readOnly,
   onToggle,
   onSelect,
   onDelete,
@@ -138,6 +143,7 @@ function TreeNodeRow({
   expanded: Set<string>;
   selectedId: string | null;
   deletingId?: string | null;
+  readOnly?: boolean;
   onToggle: (path: string) => void;
   onSelect: (resource: ResourceMeta) => void;
   onDelete: (id: string) => void;
@@ -186,40 +192,42 @@ function TreeNodeRow({
           {node.name}
         </span>
         {node.jobMeta && <JobStatusDot meta={node.jobMeta} />}
-        <div className="ml-auto flex shrink-0 items-center gap-0.5 opacity-0 group-hover/row:opacity-100">
-          {isFolder && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onStartCreate(node.path, "file");
-              }}
-              className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
-              title="New file"
-            >
-              <IconPlus className="h-3 w-3" />
-            </button>
-          )}
-          {node.resource &&
-            (isDeleting ? (
-              <span
-                className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground"
-                title="Deleting..."
-              >
-                <IconLoader2 className="h-3 w-3 animate-spin" />
-              </span>
-            ) : (
+        {!readOnly && (
+          <div className="ml-auto flex shrink-0 items-center gap-0.5 opacity-0 group-hover/row:opacity-100">
+            {isFolder && (
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  onDelete(node.resource!.id);
+                  onStartCreate(node.path, "file");
                 }}
-                className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-accent/50"
-                title="Delete"
+                className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                title="New file"
               >
-                <IconTrash className="h-3 w-3" />
+                <IconPlus className="h-3 w-3" />
               </button>
-            ))}
-        </div>
+            )}
+            {node.resource &&
+              (isDeleting ? (
+                <span
+                  className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground"
+                  title="Deleting..."
+                >
+                  <IconLoader2 className="h-3 w-3 animate-spin" />
+                </span>
+              ) : (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete(node.resource!.id);
+                  }}
+                  className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-accent/50"
+                  title="Delete"
+                >
+                  <IconTrash className="h-3 w-3" />
+                </button>
+              ))}
+          </div>
+        )}
       </div>
       {isFolder && isExpanded && node.children && (
         <div>
@@ -231,6 +239,7 @@ function TreeNodeRow({
               expanded={expanded}
               selectedId={selectedId}
               deletingId={deletingId}
+              readOnly={readOnly}
               onToggle={onToggle}
               onSelect={onSelect}
               onDelete={onDelete}
@@ -306,6 +315,8 @@ export function ResourceTree({
   titleTooltip,
   isLoading = false,
   deletingId = null,
+  readOnly = false,
+  headingHint,
 }: ResourceTreeProps) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [creating, setCreating] = useState<CreatingState | null>(null);
@@ -370,35 +381,43 @@ export function ResourceTree({
       e.preventDefault();
       e.stopPropagation();
       setDragOver(false);
+      if (readOnly) return;
       if (e.dataTransfer.files.length > 0) {
         onDrop(e.dataTransfer.files);
       }
     },
-    [onDrop],
+    [onDrop, readOnly],
   );
 
   return (
     <div
-      className={cn("p-1", dragOver && "ring-1 ring-inset ring-accent")}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
+      className={cn("p-1", dragOver && !readOnly && "ring-1 ring-inset ring-accent")}
+      onDragOver={readOnly ? undefined : handleDragOver}
+      onDragLeave={readOnly ? undefined : handleDragLeave}
+      onDrop={readOnly ? undefined : handleDrop}
     >
       {/* Section heading */}
       <div className="group/root flex items-center justify-between px-1.5 py-1">
         <span
-          className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60"
+          className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60"
           title={titleTooltip}
         >
           {title}
+          {headingHint && (
+            <span className="text-[10px] font-normal normal-case tracking-normal text-muted-foreground/50">
+              {headingHint}
+            </span>
+          )}
         </span>
-        <button
-          onClick={() => handleStartCreate("", "file")}
-          className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground/50 opacity-0 group-hover/root:opacity-100 hover:text-foreground hover:bg-accent/50"
-          title="New file"
-        >
-          <IconPlus className="h-3 w-3" />
-        </button>
+        {!readOnly && (
+          <button
+            onClick={() => handleStartCreate("", "file")}
+            className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground/50 opacity-0 group-hover/root:opacity-100 hover:text-foreground hover:bg-accent/50"
+            title="New file"
+          >
+            <IconPlus className="h-3 w-3" />
+          </button>
+        )}
       </div>
 
       {tree.map((node) => (
@@ -409,6 +428,7 @@ export function ResourceTree({
           expanded={expanded}
           selectedId={selectedId}
           deletingId={deletingId}
+          readOnly={readOnly}
           onToggle={toggleExpand}
           onSelect={onSelect}
           onDelete={onDelete}

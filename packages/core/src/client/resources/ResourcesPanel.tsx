@@ -31,6 +31,7 @@ import {
   type ResourceScope,
   type ResourceMeta,
 } from "./use-resources.js";
+import { useOrg } from "../org/hooks.js";
 
 // ─── Create Menu (unified + button) ────────────────────────────────────────
 
