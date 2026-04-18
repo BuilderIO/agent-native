@@ -88,6 +88,10 @@ export default function RecordingPage() {
         // Also keep polling while a transcript is pending so "Transcribing…"
         // auto-flips to the ready transcript (or to the failure card).
         if (data?.transcript?.status === "pending") return 3000;
+        // And keep polling while the title is still the server-seeded
+        // default — the agent will land a generated title via
+        // `update-recording` and we want the skeleton to swap in promptly.
+        if (isDefaultTitle(rec.title)) return 3000;
         return false;
       },
     },
