@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
+import { assertAccess } from "@agent-native/core/sharing";
 import { updateSchedule } from "../server/schedules-repo.js";
 
 export default defineAction({
@@ -23,12 +24,15 @@ export default defineAction({
       )
       .optional(),
   }),
-  run: async (args) => ({
-    schedule: await updateSchedule(args.id, {
-      name: args.name,
-      timezone: args.timezone,
-      isDefault: args.isDefault,
-      weeklyAvailability: args.weeklyAvailability as any,
-    }),
-  }),
+  run: async (args) => {
+    await assertAccess("schedule", args.id, "editor");
+    return {
+      schedule: await updateSchedule(args.id, {
+        name: args.name,
+        timezone: args.timezone,
+        isDefault: args.isDefault,
+        weeklyAvailability: args.weeklyAvailability as any,
+      }),
+    };
+  },
 });

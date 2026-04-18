@@ -264,6 +264,22 @@ async fn hide_overlays(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Close just the recording-specific overlays (countdown + toolbar),
+/// leaving the bubble alone. Used on recording stop/cancel when the
+/// popover owns the camera bubble for the entire session — we don't
+/// want to rip the bubble away mid-session; its lifecycle is governed
+/// by the popover's session effect (show on popover-open, hide on
+/// popover-close).
+#[tauri::command]
+async fn hide_recording_chrome(app: AppHandle) -> Result<(), String> {
+    for label in [COUNTDOWN_LABEL, TOOLBAR_LABEL] {
+        if let Some(w) = app.get_webview_window(label) {
+            let _ = w.close();
+        }
+    }
+    Ok(())
+}
+
 /// DESTROY the bubble webview (not just hide it). This is the critical
 /// difference from `hide_overlays`: we need the WebKit webview gone so the
 /// macOS camera hardware is fully released. When the popover then calls
@@ -349,10 +365,33 @@ async fn close_signin(app: AppHandle) -> Result<(), String> {
 /// user can stop a recording from anywhere with one click.
 #[tauri::command]
 async fn set_recording_state(app: AppHandle, active: bool) -> Result<(), String> {
+    eprintln!("[clips-tray] set_recording_state active={}", active);
     if let Some(state) = app.try_state::<RecordingActive>() {
         if let Ok(mut g) = state.0.lock() {
             *g = active;
         }
+    }
+    Ok(())
+}
+
+/// Last-resort recovery command: clear `is_recording_active` and show the
+/// popover. Not wired to any UI by default — available for debugging when
+/// the recording-flow side-effects wedge the tray in a dead state.
+/// Invoke from the webview via `invoke("reset_state")`.
+#[tauri::command]
+async fn reset_state(app: AppHandle) -> Result<(), String> {
+    eprintln!("[clips-tray] reset_state invoked — clearing recording flag + showing popover");
+    if let Some(state) = app.try_state::<RecordingActive>() {
+        if let Ok(mut g) = state.0.lock() {
+            *g = false;
+        }
+    }
+    if let Some(window) = app.get_webview_window("popover") {
+        position_popover(&app, &window);
+        mark_popover_shown(&app);
+        let _ = window.show();
+        let _ = window.set_focus();
+        let _ = app.emit("clips:popover-visible", true);
     }
     Ok(())
 }
@@ -512,12 +551,14 @@ pub fn run() {
             show_toolbar,
             show_bubble,
             hide_overlays,
+            hide_recording_chrome,
             close_bubble,
             show_popover,
             resize_popover,
             show_signin,
             close_signin,
             set_recording_state,
+            reset_state,
             save_bubble_position,
         ])
         .plugin(tauri_plugin_shell::init())
@@ -630,7 +671,9 @@ pub fn run() {
                     } = event
                     {
                         let app = tray.app_handle();
-                        if is_recording_active(app) {
+                        let active = is_recording_active(app);
+                        eprintln!("[clips-tray] tray click — is_recording_active={}", active);
+                        if active {
                             // Loom-style: tray click while recording stops it.
                             let _ = app.emit("clips:recorder-stop", ());
                         } else {

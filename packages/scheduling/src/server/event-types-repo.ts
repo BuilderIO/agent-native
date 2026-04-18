@@ -4,8 +4,9 @@
  * All write paths funnel through here so ownership, slug uniqueness, and
  * redirect history are handled consistently.
  */
-import { eq, and } from "drizzle-orm";
+import { eq, and, or, type SQL } from "drizzle-orm";
 import { nanoid } from "nanoid";
+import { accessFilter } from "@agent-native/core/sharing";
 import type { EventType, Location, CustomField } from "../shared/index.js";
 import { getSchedulingContext } from "./context.js";
 
@@ -68,18 +69,37 @@ function parseJson<T = any>(str: string | null | undefined): T | undefined {
 }
 
 export async function listEventTypes(params: {
+  /**
+   * If provided and `useAccessFilter` is not true, narrow rows to this owner.
+   * For org-aware list calls, prefer `useAccessFilter: true` instead.
+   */
   ownerEmail?: string;
   teamId?: string;
   includeHidden?: boolean;
+  /**
+   * When true, apply the framework `accessFilter` (owner OR shared OR
+   * org-visibility OR public) instead of plain ownerEmail equality. This is
+   * the right mode for any UI/agent listing, since it admits org-shared and
+   * explicitly-shared event types in addition to the user's own.
+   */
+  useAccessFilter?: boolean;
 }): Promise<EventType[]> {
   const { getDb, schema } = getSchedulingContext();
   const db = getDb();
   let rows: any[];
   if (params.teamId) {
+    // Team-scoped listings still admit anyone with access on the team
+    // resource itself; for now we keep the simple teamId equality. A future
+    // iteration can layer accessFilter on the team table.
     rows = await db
       .select()
       .from(schema.eventTypes)
       .where(eq(schema.eventTypes.teamId, params.teamId));
+  } else if (params.useAccessFilter) {
+    rows = await db
+      .select()
+      .from(schema.eventTypes)
+      .where(accessFilter(schema.eventTypes, schema.eventTypeShares));
   } else if (params.ownerEmail) {
     rows = await db
       .select()

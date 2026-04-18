@@ -372,22 +372,36 @@ export default function BookingLinksPage({
 
   const previewUrl = getBookingUrl(draft.slug);
 
-  async function handleCreate() {
+  function handleCreate() {
     const n = bookingLinks.length + 1;
     const baseTitle = n > 1 ? `Meeting ${n}` : "Meeting";
     const baseSlug = slugify(baseTitle);
-    try {
-      const created = await createBookingLink.mutateAsync({
+    // Pre-generate an optimistic id so we can navigate instantly; the mutation
+    // inserts the row into the list cache synchronously via onMutate.
+    const optimisticId = `optimistic_${nanoid()}`;
+    createBookingLink.mutate(
+      {
         title: baseTitle,
         slug: baseSlug,
         duration: 30,
         isActive: true,
-      });
-      navigate(`/booking-links/${created.id}`);
-      toast.success("Booking link created");
-    } catch {
-      toast.error("Failed to create booking link");
-    }
+        optimisticId,
+      },
+      {
+        onSuccess: (created) => {
+          // Swap URL from optimistic id to the real one without a back-stack entry.
+          navigate(`/booking-links/${created.id}`, { replace: true });
+        },
+        onError: () => {
+          // Cache was rolled back by the hook's onError. Bring the user back.
+          navigate("/booking-links", { replace: true });
+          toast.error("Failed to create booking link");
+        },
+      },
+    );
+    // Navigate *immediately* — the optimistic row is already in the list cache.
+    navigate(`/booking-links/${optimisticId}`);
+    toast.success("Booking link created");
   }
 
   async function handleSave() {

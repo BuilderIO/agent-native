@@ -114,6 +114,39 @@ directory (framework root cwd won't find them).
 | "Remind attendees 1 hour before"                      | `create-workflow --trigger before-event --steps '[{action:"email-attendee",offsetMinutes:60,...}]'` |
 | "Show me my booking page"                             | `navigate --view event-types` (or `/:user`)                                                         |
 
+## Multi-tenancy — orgs, teams, sharing
+
+This template uses the framework's standard **organization** primitive
+(`@agent-native/core/org`) as the top-level multi-tenant boundary, plus
+Cal.com-style **teams** as a sub-grouping inside an org. See `ORG_MODEL.md`
+in the template root for the full picture.
+
+- **Organization** = framework tenant. Tables: `organizations`,
+  `org_members`, `org_invitations`. Switched via the sidebar `OrgSwitcher`.
+- **Team** = Cal.com team within an org. Owns team event types, team
+  workflows, the public `/team/:slug` page. Lives at `team_id` on event
+  types / workflows / forms, with `org_id` on the team itself.
+- **Resource visibility** — every user-authored resource (event type,
+  schedule, booking, workflow, routing form) carries `owner_email`, `org_id`,
+  and `visibility ∈ {private, org, public}` via `ownableColumns()`. Companion
+  `{resource}_shares` tables hold per-user / per-org grants
+  (`viewer | editor | admin`).
+- **List actions** use `accessFilter(table, sharesTable)` to admit rows the
+  current user owns, has been shared on, or that match
+  org/public visibility within the active org.
+- **Mutations** call `assertAccess(type, id, role)` before writing —
+  `editor` for updates, `admin` for deletes, owner always satisfies.
+- **Sharing actions** (auto-mounted, framework-wide):
+  - `share-resource --resourceType <event-type|schedule|workflow|routing-form|booking|team> --resourceId <id> --principalType user|org --principalId <email-or-orgId> --role viewer|editor|admin`
+  - `unshare-resource ...`
+  - `list-resource-shares --resourceType <type> --resourceId <id>`
+  - `set-resource-visibility --resourceType <type> --resourceId <id> --visibility private|org|public`
+
+Public booking links (`/:user/:slug`, `/team/:slug`, `/d/:hash/:slug`,
+`/forms/:formId`) intentionally bypass `accessFilter` — they serve
+unauthenticated visitors who need to _book_. The sharing system gates who
+can _manage_ a resource, not who can book against it.
+
 ## Conventions
 
 - **Use shadcn/ui** from `app/components/ui/`. Never roll your own Dialog /
@@ -128,3 +161,6 @@ directory (framework root cwd won't find them).
   MUI-style underline tabs.
 - **Call view-screen first** when the user's request is ambiguous about
   what they're looking at.
+- **Optimistic UI by default** — never `await` a server round-trip before
+  updating the screen for routine mutations. See the framework `AGENTS.md`
+  for the full pattern.

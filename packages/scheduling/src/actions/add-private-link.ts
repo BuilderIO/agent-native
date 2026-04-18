@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import { nanoid } from "nanoid";
+import { assertAccess } from "@agent-native/core/sharing";
 import { getSchedulingContext } from "../server/context.js";
 
 export default defineAction({
@@ -11,6 +12,7 @@ export default defineAction({
     isSingleUse: z.boolean().optional().default(false),
   }),
   run: async (args) => {
+    await assertAccess("event-type", args.eventTypeId, "editor");
     const { getDb, schema } = getSchedulingContext();
     const id = nanoid();
     const hash = nanoid(24);

@@ -3,8 +3,8 @@ import { useEffect } from "react";
 import { writeAppState } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
-  IconCalendarTime,
   IconCalendarEvent,
+  IconCalendarTime,
   IconClock,
   IconUsersGroup,
   IconRoute,
@@ -12,6 +12,7 @@ import {
   IconApps,
   IconSettings,
 } from "@tabler/icons-react";
+import { OrgSwitcher } from "@agent-native/core/client/org";
 import { ThemeToggle } from "./ThemeToggle";
 
 const NAV = [
@@ -29,18 +30,25 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
 
   useEffect(() => {
-    // Mirror route → application_state.navigation so the agent can see the view.
     const view = inferView(location.pathname);
     writeAppState("navigation", { view, path: location.pathname });
   }, [location.pathname]);
 
   return (
     <div className="flex min-h-screen bg-background">
-      <aside className="flex w-60 flex-col border-r border-border bg-card/30 p-3">
-        <Link to="/" className="mb-4 flex items-center gap-2 px-2 py-1">
-          <IconCalendarTime className="h-5 w-5 text-[color:var(--brand-accent,#7c3aed)]" />
-          <span className="text-sm font-semibold">Scheduling</span>
+      <aside className="flex w-56 shrink-0 flex-col border-r border-border bg-sidebar-background/50 px-2 py-3">
+        <Link
+          to="/"
+          className="mx-1 mb-3 flex items-center gap-2 rounded-md px-2 py-1.5 text-sm font-semibold hover:bg-muted/60"
+        >
+          <span className="flex h-6 w-6 items-center justify-center rounded-md bg-foreground text-background">
+            <IconCalendarTime className="h-3.5 w-3.5" />
+          </span>
+          Scheduling
         </Link>
+        <div className="mx-1 mb-3">
+          <OrgSwitcher />
+        </div>
         <nav className="flex flex-1 flex-col gap-0.5">
           {NAV.map((item) => {
             const Icon = item.icon;
@@ -50,21 +58,24 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 to={item.to}
                 className={({ isActive }) =>
                   cn(
-                    "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm",
+                    "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm",
                     isActive
-                      ? "bg-muted font-medium"
+                      ? "bg-accent font-medium text-accent-foreground"
                       : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
                   )
                 }
               >
-                <Icon className="h-4 w-4" />
-                {item.label}
+                <Icon className="h-4 w-4 shrink-0" />
+                <span className="truncate">{item.label}</span>
               </NavLink>
             );
           })}
         </nav>
-        <div className="mt-auto flex items-center justify-between border-t border-border/60 pt-2">
-          <ThemeToggle />
+        <div className="mt-auto border-t border-border/60 pt-2">
+          <div className="flex items-center justify-between px-1">
+            <span className="text-xs text-muted-foreground">Theme</span>
+            <ThemeToggle />
+          </div>
         </div>
       </aside>
       <main className="flex-1 overflow-auto">{children}</main>

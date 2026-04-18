@@ -7,69 +7,71 @@
 @layer base {
   :root {
     --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
+    --foreground: 220 10% 10%;
     --card: 0 0% 100%;
-    --card-foreground: 240 10% 3.9%;
+    --card-foreground: 220 10% 10%;
     --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 3.9%;
-    --primary: 262 83% 58%;
+    --popover-foreground: 220 10% 10%;
+    --primary: 220 10% 15%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 240 4.8% 95.9%;
-    --secondary-foreground: 240 5.9% 10%;
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
-    --accent: 240 4.8% 95.9%;
-    --accent-foreground: 240 5.9% 10%;
+    --secondary: 220 10% 95%;
+    --secondary-foreground: 220 10% 15%;
+    --muted: 220 10% 95%;
+    --muted-foreground: 220 5% 45%;
+    --accent: 220 10% 95%;
+    --accent-foreground: 220 10% 15%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 5.9% 90%;
-    --input: 240 5.9% 90%;
-    --ring: 262 83% 58%;
+    --border: 220 10% 90%;
+    --input: 220 10% 90%;
+    --ring: 220 10% 40%;
     --radius: 0.5rem;
-    --sidebar-background: 240 5% 97%;
-    --sidebar-foreground: 240 4% 40%;
-    --sidebar-primary: 262 83% 58%;
+    --sidebar-background: 220 10% 97%;
+    --sidebar-foreground: 220 5% 45%;
+    --sidebar-primary: 220 10% 15%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 4.8% 95.9%;
-    --sidebar-accent-foreground: 240 5.9% 10%;
-    --sidebar-border: 240 5.9% 90%;
-    --sidebar-ring: 262 83% 58%;
+    --sidebar-accent: 220 10% 95%;
+    --sidebar-accent-foreground: 220 10% 15%;
+    --sidebar-border: 220 10% 90%;
+    --sidebar-ring: 220 10% 40%;
 
-    --brand-accent: #7c3aed;
-    --brand-accent-emphasis: #6d28d9;
+    /* Default event-type accent — Cal.com-style brand blue (#007EE5).
+       Individual event types may override via --brand-accent on their scope. */
+    --brand-accent: 209 100% 45%;
+    --brand-accent-foreground: 0 0% 100%;
   }
 
   .dark {
-    --background: 240 10% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 240 10% 5%;
-    --card-foreground: 0 0% 98%;
-    --popover: 240 10% 5%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 262 83% 65%;
-    --primary-foreground: 240 10% 3.9%;
-    --secondary: 240 3.7% 15.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 240 3.7% 15.9%;
-    --accent-foreground: 0 0% 98%;
+    --background: 220 6% 6%;
+    --foreground: 0 0% 90%;
+    --card: 220 5% 6%;
+    --card-foreground: 0 0% 90%;
+    --popover: 220 5% 6%;
+    --popover-foreground: 0 0% 90%;
+    --primary: 0 0% 75%;
+    --primary-foreground: 220 6% 6%;
+    --secondary: 220 4% 12%;
+    --secondary-foreground: 0 0% 90%;
+    --muted: 220 4% 10%;
+    --muted-foreground: 220 4% 60%;
+    --accent: 220 4% 13%;
+    --accent-foreground: 0 0% 90%;
     --destructive: 0 63% 51%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 262 83% 65%;
-    --sidebar-background: 240 10% 4%;
-    --sidebar-foreground: 240 5% 64.9%;
-    --sidebar-primary: 262 83% 65%;
-    --sidebar-primary-foreground: 240 10% 3.9%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 0 0% 98%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 262 83% 65%;
+    --border: 220 4% 14%;
+    --input: 220 4% 14%;
+    --ring: 0 0% 60%;
+    --sidebar-background: 220 6% 4%;
+    --sidebar-foreground: 220 4% 60%;
+    --sidebar-primary: 0 0% 75%;
+    --sidebar-primary-foreground: 220 6% 6%;
+    --sidebar-accent: 220 4% 10%;
+    --sidebar-accent-foreground: 0 0% 90%;
+    --sidebar-border: 220 4% 10%;
+    --sidebar-ring: 0 0% 60%;
 
-    --brand-accent: #a78bfa;
-    --brand-accent-emphasis: #8b5cf6;
+    --brand-accent: 209 100% 55%;
+    --brand-accent-foreground: 0 0% 100%;
   }
 }
 
@@ -99,4 +101,58 @@
 }
 ::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--muted-foreground) / 0.4);
+}
+
+/* Sonner toast sizing to match mail/calendar */
+[data-sonner-toaster] {
+  --width: fit-content !important;
+}
+[data-sonner-toast] {
+  width: fit-content !important;
+  min-width: 14rem !important;
+  max-width: 24rem !important;
+}
+.dark [data-sonner-toast] {
+  border-color: hsl(220 4% 22%) !important;
+}
+
+/* Booker per-event-type accent — CSS var is set on the Booker root element
+   and consumed by slot buttons + success checkmark only. Everything else uses
+   standard shadcn tokens. */
+.slot-btn:hover {
+  background: hsl(var(--brand-accent));
+  color: hsl(var(--brand-accent-foreground));
+  border-color: hsl(var(--brand-accent));
+}
+.booker-accent {
+  color: hsl(var(--brand-accent));
+}
+.booker-accent-bg {
+  background: hsl(var(--brand-accent));
+  color: hsl(var(--brand-accent-foreground));
+}
+.booker-accent-bg:hover {
+  background: hsl(var(--brand-accent) / 0.9);
+}
+.booker-accent-border {
+  border-color: hsl(var(--brand-accent) / 0.3);
+}
+
+/* Cal-style date-header sticky label for bookings list */
+.bookings-date-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: hsl(var(--background));
+  backdrop-filter: saturate(1.2) blur(2px);
+}
+
+/* Booking row hover-reveal actions */
+.booking-row .hover-actions {
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.booking-row:hover .hover-actions,
+.booking-row:focus-within .hover-actions {
+  opacity: 1;
 }

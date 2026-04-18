@@ -89,6 +89,13 @@ Run `agent-native setup-agents` to create all symlinks (done automatically by `a
 - **shadcn/ui components** for standard UI. Check `app/components/ui/` before building custom.
 - **Tabler Icons** (`@tabler/icons-react`) for all icons. **Never use emojis as icons** — not in buttons, not in avatars, not in labels, not in toasts/notifications, not in outbound messages (Slack, email). No other icon libraries, no inline SVGs. Emojis are fine when they are _user-authored content_ (a document title emoji picker, a reaction the user chose, a user-picked space icon) — the rule is about icons the UI picks, not data the user picks.
 - **No browser dialogs** — use shadcn AlertDialog instead of `window.confirm/alert/prompt`.
+- **Optimistic UI by default** — the UI must feel instant. NEVER `await` a server round-trip before updating the screen or navigating. Default pattern for any mutation:
+  1. Generate a client-side id (nanoid) if the new entity needs one.
+  2. Update the React Query cache optimistically via `queryClient.setQueryData(...)` (or the mutation's `onMutate`).
+  3. Navigate / close the dialog / show the new row **immediately**.
+  4. Fire the mutation in the background; in `onError` roll back the cache + toast, in `onSuccess` replace optimistic entry with server value.
+  5. Never block a click with a spinner unless the user is performing a destructive/irreversible action (payment, delete, publish).
+     Same for navigation: a link click must navigate on press — never `await` a fetch before `navigate()`. Preload data into the cache first (via `queryClient.prefetchQuery` on hover/focus) if the target page depends on it. Treat any "loading spinner after click" as a bug to fix, not a feature.
 
 ## Auto-Memory
 

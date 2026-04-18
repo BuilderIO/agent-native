@@ -253,7 +253,7 @@ export default function Home() {
             </div>
 
             <h1 className="mx-auto max-w-3xl">
-              Agent Applications{" "}
+              Agentic Applications <br className="hidden md:inline" />
               <span className="hero-gradient-text">You Own</span>
             </h1>
 

@@ -2,8 +2,9 @@
  * Data access for schedules — the weekly-hours + date-override definitions
  * that event types reference.
  */
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, type SQL } from "drizzle-orm";
 import { nanoid } from "nanoid";
+import { accessFilter } from "@agent-native/core/sharing";
 import type {
   Schedule,
   WeeklyAvailability,
@@ -12,13 +13,27 @@ import type {
 } from "../shared/index.js";
 import { getSchedulingContext } from "./context.js";
 
-export async function listSchedules(ownerEmail: string): Promise<Schedule[]> {
+export async function listSchedules(
+  ownerEmailOrParams:
+    | string
+    | {
+        ownerEmail?: string;
+        useAccessFilter?: boolean;
+      },
+): Promise<Schedule[]> {
+  const params =
+    typeof ownerEmailOrParams === "string"
+      ? { ownerEmail: ownerEmailOrParams }
+      : ownerEmailOrParams;
   const { getDb, schema } = getSchedulingContext();
   const db = getDb();
-  const scheduleRows = await db
-    .select()
-    .from(schema.schedules)
-    .where(eq(schema.schedules.ownerEmail, ownerEmail));
+  let where: SQL | undefined;
+  if (params.useAccessFilter) {
+    where = accessFilter(schema.schedules, schema.scheduleShares);
+  } else if (params.ownerEmail) {
+    where = eq(schema.schedules.ownerEmail, params.ownerEmail);
+  }
+  const scheduleRows = await db.select().from(schema.schedules).where(where);
   if (scheduleRows.length === 0) return [];
   const ids = scheduleRows.map((r: any) => r.id);
   const availabilityRows = await db
