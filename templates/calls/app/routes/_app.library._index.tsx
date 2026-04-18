@@ -19,7 +19,11 @@ import {
 } from "@/components/ui/select";
 import { CallCard } from "@/components/library/call-card";
 import { CallRow } from "@/components/library/call-row";
-import { FilterBar } from "@/components/library/filter-bar";
+import {
+  FilterBar,
+  EMPTY_FILTER,
+  type FilterState,
+} from "@/components/library/filter-bar";
 
 export function meta() {
   return [{ title: "Library · Calls" }];
@@ -43,7 +47,7 @@ export default function LibraryIndexRoute() {
   const navigate = useNavigate();
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [sort, setSort] = useState<SortKey>("recent");
-  const [filters, setFilters] = useState<Record<string, unknown>>({});
+  const [filters, setFilters] = useState<FilterState>(EMPTY_FILTER);
 
   const query = useMemo(
     () => ({ view: "library" as const, sort, ...filters }),
@@ -68,11 +72,11 @@ export default function LibraryIndexRoute() {
         </div>
         <Button
           onClick={() => navigate("/upload")}
-          className="bg-[#625DF5] hover:bg-[#5049d9] text-white gap-1.5"
+          className="gap-1.5"
           size="sm"
         >
           <IconUpload className="h-4 w-4" />
-          Upload
+          New call
         </Button>
       </header>
 
@@ -170,18 +174,20 @@ function LibrarySkeleton({ viewMode }: { viewMode: ViewMode }) {
 function EmptyState({ onUpload }: { onUpload: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center py-20 text-center">
-      <div className="h-16 w-16 rounded-full bg-[#625DF5]/10 flex items-center justify-center mb-4">
-        <IconVideo className="h-8 w-8 text-[#625DF5]" />
+      <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center mb-4">
+        <IconVideo className="h-8 w-8 text-muted-foreground" />
       </div>
       <h2 className="text-lg font-semibold mb-1">No calls yet</h2>
-      <p className="text-sm text-muted-foreground max-w-sm mb-6">
-        Upload a recording or connect Zoom / a meeting bot to get started.
+      <p className="text-sm text-muted-foreground max-w-sm mb-1">
+        Upload a recording, record one in the browser, or invite a bot to your
+        next Zoom / Meet / Teams call.
+      </p>
+      <p className="text-xs text-muted-foreground max-w-sm mb-6">
+        First-time setup: paste a Deepgram key in Settings — that unlocks
+        transcription, summaries, and trackers.
       </p>
       <div className="flex gap-2">
-        <Button
-          onClick={onUpload}
-          className="bg-[#625DF5] hover:bg-[#5049d9] text-white gap-1.5"
-        >
+        <Button onClick={onUpload} className="gap-1.5">
           <IconUpload className="h-4 w-4" />
           Upload a call
         </Button>

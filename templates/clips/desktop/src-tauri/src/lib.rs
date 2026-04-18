@@ -539,14 +539,30 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("popover") {
                 let handle = window.clone();
                 let app_handle = app.handle().clone();
+                // Auto-open devtools in dev so users can see console logs
+                // without needing to find the right key combo. In release
+                // builds this is a no-op.
+                #[cfg(debug_assertions)]
+                {
+                    window.open_devtools();
+                }
                 window.on_window_event(move |event| {
                     if let tauri::WindowEvent::Focused(false) = event {
-                        let recent = app_handle
+                        let shown_at = app_handle
                             .try_state::<PopoverShownAt>()
-                            .and_then(|s| s.0.lock().ok().and_then(|g| *g))
-                            .map(|t| t.elapsed().as_millis() < 250)
-                            .unwrap_or(false);
-                        if !recent {
+                            .and_then(|s| s.0.lock().ok().and_then(|g| *g));
+                        let elapsed_ms = shown_at
+                            .map(|t| t.elapsed().as_millis())
+                            .unwrap_or(u128::MAX);
+                        // 1500ms guard — macOS's tray-click focus shuffle
+                        // can take ~500-800ms on slower systems. 250ms
+                        // wasn't enough and the popover kept snapping
+                        // shut before the user could interact with it.
+                        eprintln!(
+                            "[clips-tray] popover blur, elapsed_ms={}",
+                            elapsed_ms
+                        );
+                        if elapsed_ms >= 1500 {
                             let _ = handle.hide();
                             let _ = app_handle.emit("clips:popover-visible", false);
                         }

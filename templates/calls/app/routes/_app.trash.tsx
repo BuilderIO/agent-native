@@ -14,7 +14,11 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { FilterBar } from "@/components/library/filter-bar";
+import {
+  FilterBar,
+  EMPTY_FILTER,
+  type FilterState,
+} from "@/components/library/filter-bar";
 
 export function meta() {
   return [{ title: "Trash · Calls" }];
@@ -30,7 +34,7 @@ interface CallSummary {
 }
 
 export default function TrashRoute() {
-  const [filters, setFilters] = useState<Record<string, unknown>>({});
+  const [filters, setFilters] = useState<FilterState>(EMPTY_FILTER);
   const [pendingDelete, setPendingDelete] = useState<CallSummary | null>(null);
 
   const query = useMemo(

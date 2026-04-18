@@ -19,7 +19,11 @@ import {
 } from "@/components/ui/select";
 import { CallCard } from "@/components/library/call-card";
 import { CallRow } from "@/components/library/call-row";
-import { FilterBar } from "@/components/library/filter-bar";
+import {
+  FilterBar,
+  EMPTY_FILTER,
+  type FilterState,
+} from "@/components/library/filter-bar";
 
 export function meta() {
   return [{ title: "Folder · Calls" }];
@@ -47,7 +51,7 @@ export default function LibraryFolderRoute() {
   const navigate = useNavigate();
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [sort, setSort] = useState<SortKey>("recent");
-  const [filters, setFilters] = useState<Record<string, unknown>>({});
+  const [filters, setFilters] = useState<FilterState>(EMPTY_FILTER);
 
   const query = useMemo(
     () => ({ view: "library" as const, folderId, sort, ...filters }),

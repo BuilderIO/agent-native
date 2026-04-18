@@ -108,6 +108,17 @@ export const TEMPLATES: TemplateMeta[] = [
     defaultMode: "prod",
   },
   {
+    name: "calls",
+    label: "Calls",
+    hint: "AI-native Gong — record, transcribe, and analyze sales calls",
+    icon: "Phone",
+    color: "#111111",
+    colorRgb: "17 17 17",
+    devPort: 8095,
+    prodUrl: "https://calls.agent-native.com",
+    defaultMode: "prod",
+  },
+  {
     name: "analytics",
     label: "Analytics",
     hint: "AI-native Amplitude/Mixpanel — connect data sources, prompt for charts",

@@ -8,8 +8,6 @@ import {
   IconBookmark,
   IconX,
   IconCheck,
-  IconPlus,
-  IconFilter,
   IconDeviceDesktop,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
@@ -18,7 +16,6 @@ import { Calendar } from "@/components/ui/calendar";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
-import { Switch } from "@/components/ui/switch";
 import {
   Popover,
   PopoverContent,
@@ -34,13 +31,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useActionMutation } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
@@ -93,9 +83,9 @@ export interface TrackerOption {
 interface FilterBarProps {
   value: FilterState;
   onChange: (next: FilterState) => void;
-  participants: ParticipantOption[];
-  accounts: AccountOption[];
-  trackers: TrackerOption[];
+  participants?: ParticipantOption[];
+  accounts?: AccountOption[];
+  trackers?: TrackerOption[];
   workspaceId?: string;
   className?: string;
 }
@@ -121,9 +111,9 @@ const DURATION_MAX_MIN = 180;
 export function FilterBar({
   value,
   onChange,
-  participants,
-  accounts,
-  trackers,
+  participants = [],
+  accounts = [],
+  trackers = [],
   workspaceId,
   className,
 }: FilterBarProps) {

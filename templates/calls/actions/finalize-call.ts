@@ -11,22 +11,17 @@ import {
 } from "@agent-native/core/application-state";
 
 async function tryUploadFile(
-  data: Uint8Array,
-  filename: string,
-  mimeType: string,
-  ownerEmail: string,
+  _data: Uint8Array,
+  _filename: string,
+  _mimeType: string,
+  _ownerEmail: string,
 ): Promise<{ url: string } | null> {
-  try {
-    const mod: any = await import("@agent-native/core/storage").catch(
-      () => null,
-    );
-    const uploadFile = mod?.uploadFile;
-    if (typeof uploadFile !== "function") return null;
-    const res = await uploadFile({ data, filename, mimeType, ownerEmail });
-    return res?.url ? { url: res.url } : null;
-  } catch {
-    return null;
-  }
+  // The framework does not yet expose a dialect-agnostic storage subpath.
+  // Until it does, calls are served via the dev fallback: we stash the
+  // assembled bytes in application_state under `call-blob-:callId` and the
+  // `/api/call-media/:callId` route streams them back. Swap this in once
+  // `@agent-native/core/storage` exports `uploadFile`.
+  return null;
 }
 
 function b64ToBytes(b64: string): Uint8Array {

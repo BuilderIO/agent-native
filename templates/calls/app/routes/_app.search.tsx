@@ -4,7 +4,11 @@ import { IconSearch, IconClock } from "@tabler/icons-react";
 import { useActionQuery } from "@agent-native/core/client";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { FilterBar } from "@/components/library/filter-bar";
+import {
+  FilterBar,
+  EMPTY_FILTER,
+  type FilterState,
+} from "@/components/library/filter-bar";
 
 export function meta() {
   return [{ title: "Search · Calls" }];
@@ -46,7 +50,7 @@ export default function SearchRoute() {
   const initial = searchParams.get("q") ?? "";
   const [query, setQuery] = useState(initial);
   const [debounced, setDebounced] = useState(initial);
-  const [filters, setFilters] = useState<Record<string, unknown>>({});
+  const [filters, setFilters] = useState<FilterState>(EMPTY_FILTER);
   const [recent, setRecent] = useState<string[]>(() => loadRecent());
   const inputRef = useRef<HTMLInputElement | null>(null);
 

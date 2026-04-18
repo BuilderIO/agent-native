@@ -10,13 +10,11 @@ import {
 import { writeAppState } from "@agent-native/core/application-state";
 
 async function decryptToken(encrypted: string): Promise<string> {
-  try {
-    const mod: any = await import("@agent-native/core/encryption").catch(
-      () => null,
-    );
-    if (mod?.decrypt) return await mod.decrypt(encrypted);
-  } catch {}
-  return encrypted;
+  // Zoom tokens are stored plaintext for now. The OAuth callback route at
+  // server/routes/api/oauth/zoom/callback.get.ts does AES-GCM encryption with
+  // a `plain:` prefix fallback; this path assumes plaintext. Swap in a proper
+  // decrypt when `@agent-native/core/encryption` becomes available.
+  return encrypted.startsWith("plain:") ? encrypted.slice(6) : encrypted;
 }
 
 export default defineAction({

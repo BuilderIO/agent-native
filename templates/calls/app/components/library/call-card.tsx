@@ -41,12 +41,12 @@ export interface CallCardData {
   id: string;
   title: string;
   durationMs: number;
-  recordedAt: string | null;
+  recordedAt?: string | null;
   createdAt: string;
   accountName?: string | null;
   accountLogoUrl?: string | null;
-  participants: CallCardParticipant[];
-  topTrackers: CallCardTracker[];
+  participants?: CallCardParticipant[];
+  topTrackers?: CallCardTracker[];
   status: string;
 }
 
