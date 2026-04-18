@@ -539,13 +539,12 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("popover") {
                 let handle = window.clone();
                 let app_handle = app.handle().clone();
-                // Auto-open devtools in dev so users can see console logs
-                // without needing to find the right key combo. In release
-                // builds this is a no-op.
-                #[cfg(debug_assertions)]
-                {
-                    window.open_devtools();
-                }
+                // NOTE: Intentionally NOT calling window.open_devtools()
+                // here. An auto-opened devtools window steals focus from
+                // the popover on every render, which flaps onFocusChanged
+                // constantly and creates an infinite show_bubble/hide loop
+                // in the React effect. Users can right-click → Inspect
+                // Element if they need devtools.
                 window.on_window_event(move |event| {
                     if let tauri::WindowEvent::Focused(false) = event {
                         let shown_at = app_handle

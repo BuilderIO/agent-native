@@ -207,37 +207,27 @@ export function App() {
   }, [loadDevices, unlockDeviceLabels]);
 
   // ---- popover visibility tracking ----------------------------------------
-  // The popover window is hidden at boot (parked off-screen to avoid flash)
-  // and only becomes visible when the user clicks the tray icon. Start at
-  // `false` and flip on focus. This is what gates the on-screen camera
-  // bubble so it only appears when the user can actually see it.
+  // ONLY source of truth: explicit `clips:popover-visible` events from Rust,
+  // which fire on every show/hide (including the blur-auto-hide path).
+  // Focus events are NOT reliable here — opening devtools steals focus,
+  // clicking inside the popover re-gains it, etc., which caused an
+  // infinite show_bubble/hide flap when we listened to onFocusChanged.
   const [popoverVisible, setPopoverVisible] = useState(false);
   useEffect(() => {
-    const win = getCurrentWindow();
     const unlistens: Array<() => void> = [];
-    // Set initial state based on CURRENT focus (not the React default) so
-    // we don't flash the bubble open while the popover is parked off-screen.
-    win
-      .isFocused()
-      .then((f) => {
-        console.log("[clips-popover] initial isFocused =", f);
-        setPopoverVisible(f);
-      })
-      .catch(() => {});
-    win
-      .onFocusChanged(({ payload: focused }) => {
-        console.log("[clips-popover] focus changed =", focused);
-        setPopoverVisible(focused);
-      })
-      .then((u) => unlistens.push(u));
-    // Also listen for an explicit event from Rust when visibility flips.
-    // Rust emits this whenever it shows or hides the popover, which is
-    // more reliable than relying on focus events alone (transparent
-    // chromeless windows on macOS sometimes don't fire blur reliably).
     listen<boolean>("clips:popover-visible", (ev) => {
-      console.log("[clips-popover] Rust event: visible =", ev.payload);
+      console.log("[clips-popover] popover-visible =", ev.payload);
       setPopoverVisible(!!ev.payload);
     }).then((u) => unlistens.push(u));
+    // Query the CURRENT visibility on mount in case the event already
+    // fired before React subscribed.
+    getCurrentWindow()
+      .isVisible()
+      .then((v) => {
+        console.log("[clips-popover] initial isVisible =", v);
+        setPopoverVisible(!!v);
+      })
+      .catch(() => {});
     return () => unlistens.forEach((u) => u());
   }, []);
 
@@ -299,9 +289,10 @@ export function App() {
   // ---- recent list --------------------------------------------------------
 
   const fetchRecent = useCallback(async () => {
+    if (authStatus !== "authed") return; // don't bother; would just 401
     try {
       const url = `${serverUrl.replace(/\/+$/, "")}/_agent-native/actions/list-recordings?limit=3&sort=recent`;
-      const res = await fetch(url);
+      const res = await fetch(url, { credentials: "include" });
       if (!res.ok) return;
       const json = await res.json();
       const list = Array.isArray(json?.recordings) ? json.recordings : [];
@@ -317,7 +308,7 @@ export function App() {
     } catch {
       // ignore — server may be unreachable, we still render the chrome
     }
-  }, [serverUrl]);
+  }, [serverUrl, authStatus]);
 
   useEffect(() => {
     fetchRecent();
