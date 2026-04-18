@@ -97,7 +97,7 @@ export function TranscriptEditor({
           onClick={() => onSeek?.(s.startMs)}
           className={cn(
             "inline cursor-pointer px-0.5 rounded",
-            active && "bg-[#625DF5]/20 text-foreground",
+            active && "bg-primary/20 text-foreground",
             excluded && "line-through text-muted-foreground/70",
           )}
           title={`${formatMs(s.startMs)} – ${formatMs(s.endMs)}`}

@@ -33,7 +33,7 @@ export function CountdownOverlay({
         className="flex h-48 w-48 items-center justify-center rounded-full text-[120px] font-bold text-white shadow-2xl"
         style={{
           background:
-            "radial-gradient(circle at 30% 30%, rgba(255,255,255,0.15), transparent 60%), #625DF5",
+            "radial-gradient(circle at 30% 30%, rgba(255,255,255,0.15), transparent 60%), hsl(var(--primary))",
         }}
       >
         {remaining > 0 ? remaining : "Go"}

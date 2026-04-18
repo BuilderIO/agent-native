@@ -109,7 +109,7 @@ export function InsightsPanel({ recordingId, durationMs }: InsightsPanelProps) {
               <Line
                 type="monotone"
                 dataKey="watching"
-                stroke="#625DF5"
+                stroke="hsl(var(--primary))"
                 strokeWidth={2}
                 dot={false}
               />
@@ -133,7 +133,7 @@ export function InsightsPanel({ recordingId, durationMs }: InsightsPanelProps) {
                 title={v.viewerEmail ?? "Anonymous"}
               >
                 <Avatar className="h-6 w-6">
-                  <AvatarFallback className="text-[10px] bg-[#625DF5] text-white">
+                  <AvatarFallback className="text-[10px] bg-primary text-primary-foreground">
                     {initials(v.viewerName || v.viewerEmail || "?")}
                   </AvatarFallback>
                 </Avatar>

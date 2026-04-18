@@ -93,7 +93,7 @@ export function Scrubber(props: ScrubberProps) {
       {/* Tooltip (comment / chapter) */}
       {tooltip ? (
         <div
-          className="absolute -top-10 -translate-x-1/2 max-w-[240px] rounded bg-[#625DF5] px-2 py-1 text-[11px] text-white"
+          className="absolute -top-10 -translate-x-1/2 max-w-[240px] rounded bg-primary px-2 py-1 text-[11px] text-primary-foreground"
           style={{ left: (tooltip.ms / Math.max(1, durationMs)) * 100 + "%" }}
         >
           {tooltip.kind === "comment" ? tooltip.content : tooltip.title}
@@ -109,7 +109,7 @@ export function Scrubber(props: ScrubberProps) {
       >
         {/* Filled portion */}
         <div
-          className="absolute inset-y-0 left-0 bg-[#625DF5] rounded-full"
+          className="absolute inset-y-0 left-0 bg-primary rounded-full"
           style={{ width: pct + "%" }}
         />
 

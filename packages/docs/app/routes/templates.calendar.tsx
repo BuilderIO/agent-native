@@ -121,14 +121,13 @@ export default function CalendarTemplate() {
             </div>
 
             <h1 className="mb-4 text-4xl font-bold tracking-tight md:text-5xl">
-              Agent-Native Calendar
+              The open-source Google Calendar &amp; Calendly alternative
             </h1>
 
             <p className="mb-6 text-lg leading-relaxed text-[var(--fg-secondary)]">
-              A full calendar app with multi-account Google Calendar sync,
-              configurable availability, and customizable Calendly-style booking
-              links. Let the agent manage your schedule, find open slots, and
-              handle bookings.
+              Multi-account Google Calendar sync, configurable availability, and
+              customizable Calendly-style booking links — with an AI agent that
+              schedules on your behalf.
             </p>
 
             <div className="mb-8 flex flex-wrap items-center gap-3">

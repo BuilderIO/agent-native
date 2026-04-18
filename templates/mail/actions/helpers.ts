@@ -109,7 +109,7 @@ import { getRequestUserEmail } from "@agent-native/core/server";
  * Never cached at module scope — concurrent requests on a Node.js process
  * would otherwise share one user's identity.
  */
-async function resolveOwnerEmail(): Promise<string> {
+export async function resolveOwnerEmail(): Promise<string> {
   const fromRequest = getRequestUserEmail();
   if (fromRequest) return fromRequest;
 

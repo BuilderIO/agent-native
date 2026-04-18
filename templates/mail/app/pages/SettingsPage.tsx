@@ -9,6 +9,7 @@ import {
   IconLoader2,
   IconBolt,
   IconX,
+  IconChartBar,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -45,6 +46,7 @@ import {
   useUpdateAutomation,
   useDeleteAutomation,
 } from "@/hooks/use-automations";
+import { useSettings, useUpdateSettings } from "@/hooks/use-emails";
 import type { Alias, AutomationAction, AutomationRule } from "@shared/types";
 import { TeamPage } from "@agent-native/core/client/org";
 
@@ -798,9 +800,90 @@ function AutomationsSection() {
   );
 }
 
+// ─── Tracking Section ────────────────────────────────────────────────────────
+
+function TrackingRow({
+  title,
+  description,
+  checked,
+  disabled,
+  onCheckedChange,
+}: {
+  title: string;
+  description: string;
+  checked: boolean;
+  disabled?: boolean;
+  onCheckedChange: (value: boolean) => void;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4 rounded-lg border border-border/20 bg-card/50 px-4 py-3">
+      <div className="min-w-0">
+        <div className="text-[13px] font-semibold text-foreground">{title}</div>
+        <p className="text-[12px] text-muted-foreground mt-0.5">
+          {description}
+        </p>
+      </div>
+      <Switch
+        checked={checked}
+        disabled={disabled}
+        onCheckedChange={onCheckedChange}
+      />
+    </div>
+  );
+}
+
+function TrackingSection() {
+  const { data: settings, isLoading } = useSettings();
+  const updateSettings = useUpdateSettings();
+
+  const tracking = settings?.tracking ?? { opens: true, clicks: true };
+
+  const update = (patch: Partial<{ opens: boolean; clicks: boolean }>) => {
+    updateSettings.mutate({
+      tracking: { ...tracking, ...patch },
+    });
+  };
+
+  return (
+    <div className="flex-1 p-4 sm:p-8 overflow-y-auto">
+      <div className="mb-6">
+        <h2 className="text-[16px] font-semibold text-foreground">Tracking</h2>
+        <p className="text-[13px] text-muted-foreground mt-0.5">
+          Know when recipients open your sent emails and click links. Stats
+          appear under each sent message.
+        </p>
+      </div>
+
+      <div className="max-w-2xl space-y-2">
+        {isLoading ? (
+          <>
+            <Skeleton className="h-16 w-full" />
+            <Skeleton className="h-16 w-full" />
+          </>
+        ) : (
+          <>
+            <TrackingRow
+              title="Track email opens"
+              description="Inject a 1×1 pixel into outgoing emails so you can see when recipients open them."
+              checked={tracking.opens}
+              onCheckedChange={(v) => update({ opens: v })}
+            />
+            <TrackingRow
+              title="Track link clicks"
+              description="Rewrite external links in outgoing emails to count when recipients click them."
+              checked={tracking.clicks}
+              onCheckedChange={(v) => update({ clicks: v })}
+            />
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Settings Page ────────────────────────────────────────────────────────────
 
-type SettingsSection = "automations" | "aliases" | "team";
+type SettingsSection = "automations" | "aliases" | "tracking" | "team";
 
 const navItems: {
   id: SettingsSection;
@@ -809,6 +892,7 @@ const navItems: {
 }[] = [
   { id: "automations", label: "Automations", icon: IconBolt },
   { id: "aliases", label: "Aliases", icon: IconUsers },
+  { id: "tracking", label: "Tracking", icon: IconChartBar },
   { id: "team", label: "Team", icon: IconUsers },
 ];
 
@@ -853,6 +937,7 @@ export function SettingsPage() {
       <div className="flex flex-1 overflow-hidden bg-background">
         {activeSection === "automations" && <AutomationsSection />}
         {activeSection === "aliases" && <AliasesSection />}
+        {activeSection === "tracking" && <TrackingSection />}
         {activeSection === "team" && (
           <div className="flex-1 overflow-y-auto">
             <TeamPage createOrgDescription="Set up a team to share email automations and settings with your colleagues." />

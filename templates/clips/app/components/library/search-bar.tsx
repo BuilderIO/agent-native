@@ -90,7 +90,7 @@ export function SearchBar({ className }: SearchBarProps) {
           }}
           onFocus={() => setOpen(true)}
           placeholder="Search recordings and transcripts…"
-          className="w-full h-9 rounded-md border border-border bg-background pl-9 pr-16 text-sm outline-none focus:ring-2 focus:ring-[#625DF5]/30"
+          className="w-full h-9 rounded-md border border-border bg-background pl-9 pr-16 text-sm outline-none focus:ring-2 focus:ring-primary/30"
         />
         {query ? (
           <button

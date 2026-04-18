@@ -119,13 +119,12 @@ export default function VideoTemplate() {
             </div>
 
             <h1 className="mb-4 text-4xl font-bold tracking-tight md:text-5xl">
-              Agent-Native Video Generation
+              An open-source, AI-native video editor
             </h1>
 
             <p className="mb-6 text-lg leading-relaxed text-[var(--fg-secondary)]">
-              A full video composition studio built on Remotion. Describe what
-              you want, the agent builds it. Tweak in the timeline or let the
-              agent iterate.
+              A full composition studio built on Remotion — keyframe animation,
+              30+ easing curves, and an agent that edits with you.
             </p>
 
             <div className="mb-8 flex flex-wrap items-center gap-3">

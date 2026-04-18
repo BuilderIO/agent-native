@@ -121,13 +121,12 @@ export default function ContentTemplate() {
             </div>
 
             <h1 className="mb-4 text-4xl font-bold tracking-tight md:text-5xl">
-              Agent-Native Content Generation
+              The open-source AI Notion alternative
             </h1>
 
             <p className="mb-6 text-lg leading-relaxed text-[var(--fg-secondary)]">
-              A content workspace with an AI agent that knows your brand voice.
-              Write, organize, and publish — the agent drafts, rewrites, and can
-              even modify the app itself.
+              Write, organize, and publish with an AI agent that knows your
+              brand voice — and can modify the app itself.
             </p>
 
             <div className="mb-8 flex flex-wrap items-center gap-3">

@@ -102,7 +102,7 @@ export function ChaptersEditor({
     <div className={cn("flex flex-col h-full min-h-0", className)}>
       <div className="flex items-center justify-between px-3 py-2 border-b border-border">
         <div className="flex items-center gap-1.5 text-sm font-medium">
-          <IconBookmarks className="w-4 h-4 text-[#625DF5]" />
+          <IconBookmarks className="w-4 h-4 text-primary" />
           Chapters
         </div>
         <Button size="sm" variant="secondary" onClick={addAtCurrent}>

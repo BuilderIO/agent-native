@@ -42,7 +42,7 @@ export default defineAction({
     await db.insert(schema.recordingComments).values({
       id,
       recordingId: parent.recordingId,
-      workspaceId: parent.workspaceId,
+      organizationId: parent.organizationId,
       threadId: parent.threadId,
       parentId: parent.id,
       authorEmail,

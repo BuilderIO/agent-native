@@ -22,7 +22,14 @@ export interface TimelineProps {
 }
 
 const RULER_HEIGHT = 26;
-const BRAND = "#625DF5";
+
+const getBrandColor = () => {
+  if (typeof window === "undefined") return "#0f172a";
+  const v = getComputedStyle(document.documentElement)
+    .getPropertyValue("--primary")
+    .trim();
+  return v ? `hsl(${v})` : "#0f172a";
+};
 
 /** Timestamp ruler + playhead + chapter markers + excluded overlays. */
 export function Timeline({
@@ -128,12 +135,12 @@ export function Timeline({
           style={{
             left: playheadX - 1,
             width: 2,
-            background: BRAND,
+            background: getBrandColor(),
           }}
         >
           <div
             className="absolute top-0 -left-[3px] w-2 h-2 rounded-full"
-            style={{ background: BRAND }}
+            style={{ background: getBrandColor() }}
           />
         </div>
       </div>

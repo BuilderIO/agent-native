@@ -1,0 +1,7 @@
+[build]
+  command = "pnpm install && NITRO_PRESET=netlify pnpm --filter scheduling build"
+  publish = "templates/scheduling/dist"
+  functions = "templates/scheduling/.netlify/functions-internal"
+
+[build.environment]
+  NITRO_PRESET = "netlify"

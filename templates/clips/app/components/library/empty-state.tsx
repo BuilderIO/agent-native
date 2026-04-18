@@ -76,15 +76,8 @@ export function EmptyState({ kind, onCtaClick }: EmptyStateProps) {
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center py-20 px-8 text-center">
-      <div
-        className="relative mb-6 flex h-20 w-20 items-center justify-center rounded-2xl"
-        style={{
-          background:
-            "linear-gradient(135deg, rgba(98,93,245,0.15), rgba(98,93,245,0.05))",
-          boxShadow: "0 1px 2px rgba(98,93,245,0.1)",
-        }}
-      >
-        <Icon className="h-10 w-10 text-[#625DF5]" />
+      <div className="relative mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/15 to-primary/5 shadow-md">
+        <Icon className="h-10 w-10 text-primary" />
       </div>
       <h2 className="text-base font-semibold text-foreground mb-1">
         {copy.title}
@@ -93,7 +86,7 @@ export function EmptyState({ kind, onCtaClick }: EmptyStateProps) {
       {copy.cta && (
         <Button
           onClick={handleCta}
-          className="bg-[#625DF5] text-white hover:bg-[#554FE5] gap-1.5"
+          className="bg-primary text-primary-foreground hover:bg-primary/90 gap-1.5"
           size="sm"
         >
           <IconPlayerRecord className="h-4 w-4" />

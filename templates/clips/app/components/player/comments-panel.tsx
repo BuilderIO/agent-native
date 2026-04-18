@@ -198,7 +198,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
               onClick={submit}
               disabled={!draft.trim() || addComment.isPending}
               size="icon"
-              className="bg-[#625DF5] hover:bg-[#5751e5] text-white shrink-0"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground shrink-0"
             >
               <IconSend className="h-4 w-4" />
             </Button>
@@ -241,7 +241,7 @@ function CommentCard({
   return (
     <div className={cn("flex gap-2", comment.resolved && "opacity-60")}>
       <Avatar className="h-7 w-7 shrink-0">
-        <AvatarFallback className="text-[10px] bg-[#625DF5] text-white">
+        <AvatarFallback className="text-[10px] bg-primary text-primary-foreground">
           {initials(displayName(comment))}
         </AvatarFallback>
       </Avatar>
@@ -253,7 +253,7 @@ function CommentCard({
           {!isReply ? (
             <button
               onClick={() => onSeek(comment.videoTimestampMs)}
-              className="font-mono text-[11px] text-[#625DF5] hover:underline"
+              className="font-mono text-[11px] text-primary hover:underline"
             >
               {msToClock(comment.videoTimestampMs)}
             </button>

@@ -1,7 +1,7 @@
 import { IconPlus, IconUsersGroup } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { SpaceCard, type SpaceCardData } from "@/components/library/space-card";
-import { useSpaces, useWorkspaces } from "@/hooks/use-library";
+import { useSpaces, useOrganizations } from "@/hooks/use-library";
 import { EmptyState } from "@/components/library/empty-state";
 import { toast } from "sonner";
 import { sendToAgentChat } from "@agent-native/core/client";
@@ -23,10 +23,10 @@ function Skeleton() {
 }
 
 export default function SpacesIndexRoute() {
-  const { data: workspaces } = useWorkspaces();
-  const currentWorkspaceId =
-    workspaces?.currentId ?? workspaces?.workspaces?.[0]?.id;
-  const { data, isLoading } = useSpaces(currentWorkspaceId);
+  const { data: organizations } = useOrganizations();
+  const currentOrganizationId =
+    organizations?.currentId ?? organizations?.organizations?.[0]?.id;
+  const { data, isLoading } = useSpaces(currentOrganizationId);
 
   const spaces: SpaceCardData[] = (data?.spaces ?? []).map((s: any) => ({
     id: s.id,
@@ -42,7 +42,7 @@ export default function SpacesIndexRoute() {
     <div className="flex flex-1 flex-col min-h-0">
       <div className="flex items-center gap-3 border-b border-border px-5 py-3">
         <div className="flex items-center gap-2">
-          <IconUsersGroup className="h-4 w-4 text-[#625DF5]" />
+          <IconUsersGroup className="h-4 w-4 text-primary" />
           <h1 className="text-base font-semibold text-foreground">Spaces</h1>
         </div>
         <p className="text-xs text-muted-foreground">
@@ -51,7 +51,7 @@ export default function SpacesIndexRoute() {
         <div className="ml-auto">
           <Button
             size="sm"
-            className="gap-1.5 bg-[#625DF5] text-white hover:bg-[#554FE5]"
+            className="gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90"
             onClick={() => {
               sendToAgentChat({
                 message: "Create a new space for the team",

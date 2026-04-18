@@ -239,6 +239,13 @@ switch (command) {
     break;
   }
 
+  case "info": {
+    // Print read-only info about an installable package (e.g. @agent-native/scheduling).
+    // Lists subpath exports, source paths in node_modules, and docs pointers.
+    import("./info.js").then((m) => m.runInfo(args[0]));
+    break;
+  }
+
   case "--version":
   case "-v": {
     console.log(_version);
@@ -264,6 +271,8 @@ Usage:
   agent-native deploy           Build & deploy every app in the workspace to
                                 a single origin (your-agents.com/<app>/*)
   agent-native setup-agents     Create symlinks for all agent tools
+  agent-native info <pkg>       Print info about an installed package:
+                                exports, source paths, and docs links.
 
 Options:
   -h, --help                    Show this help message

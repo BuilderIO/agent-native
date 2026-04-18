@@ -19,7 +19,7 @@ interface SpaceCardProps {
 
 export function SpaceCard({ space, className }: SpaceCardProps) {
   const navigate = useNavigate();
-  const color = space.color || "#625DF5";
+  const color = space.color || "hsl(var(--primary))";
   const members = space.memberEmails ?? [];
 
   return (
@@ -28,8 +28,8 @@ export function SpaceCard({ space, className }: SpaceCardProps) {
       onClick={() => navigate(`/spaces/${space.id}`)}
       className={cn(
         "group flex flex-col overflow-hidden rounded-lg border border-border bg-card text-left",
-        "hover:border-[#625DF5]/40 hover:-translate-y-0.5 transition-transform duration-100 ease-out",
-        "shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:shadow-[0_8px_22px_-6px_rgba(98,93,245,0.22)]",
+        "hover:border-primary/40 hover:-translate-y-0.5 transition-transform duration-100 ease-out",
+        "shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:shadow-md",
         className,
       )}
     >
@@ -72,7 +72,7 @@ export function SpaceCard({ space, className }: SpaceCardProps) {
                 <div
                   key={email}
                   title={email}
-                  className="flex h-5 w-5 items-center justify-center rounded-full border border-background bg-[#625DF5]/15 text-[9px] font-medium text-[#625DF5]"
+                  className="flex h-5 w-5 items-center justify-center rounded-full border border-background bg-primary/15 text-[9px] font-medium text-primary"
                 >
                   {initials}
                 </div>

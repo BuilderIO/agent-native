@@ -16,7 +16,10 @@ import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { accessFilter } from "@agent-native/core/sharing";
-import { parseSpaceIds } from "../server/lib/recordings.js";
+import {
+  getActiveOrganizationId,
+  parseSpaceIds,
+} from "../server/lib/recordings.js";
 
 interface NavigationState {
   view?: string;
@@ -157,13 +160,13 @@ async function fetchFoldersForSpace(spaceId: string | null) {
   }));
 }
 
-async function fetchSpaces(workspaceId: string | null) {
+async function fetchSpaces(organizationId: string | null) {
   const db = getDb();
-  const rows = workspaceId
+  const rows = organizationId
     ? await db
         .select()
         .from(schema.spaces)
-        .where(eq(schema.spaces.workspaceId, workspaceId))
+        .where(eq(schema.spaces.organizationId, organizationId))
         .orderBy(asc(schema.spaces.name))
     : await db.select().from(schema.spaces).orderBy(asc(schema.spaces.name));
   return rows.map((s) => ({
@@ -172,7 +175,7 @@ async function fetchSpaces(workspaceId: string | null) {
     color: s.color,
     iconEmoji: s.iconEmoji,
     isAllCompany: Boolean(s.isAllCompany),
-    workspaceId: s.workspaceId,
+    organizationId: s.organizationId,
   }));
 }
 
@@ -197,21 +200,18 @@ export default defineAction({
     const playerState = await readAppState("player-state");
     const editorDraft = await readAppState("editor-draft");
     const selection = await readAppState("selection");
-    const currentWorkspace = (await readAppState("current-workspace")) as {
-      id?: string;
-    } | null;
+    const organizationId = await getActiveOrganizationId();
     const recordIntent = await readAppState("record-intent");
 
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
-    if (currentWorkspace) screen.currentWorkspace = currentWorkspace;
+    if (organizationId) screen.organizationId = organizationId;
     if (playerState) screen.playerState = playerState;
     if (editorDraft) screen.editorDraft = editorDraft;
     if (selection) screen.selection = selection;
     if (recordIntent) screen.recordIntent = recordIntent;
 
     const nav = navigation ?? {};
-    const workspaceId = currentWorkspace?.id ?? null;
 
     switch (nav.view) {
       case "recording":
@@ -243,14 +243,14 @@ export default defineAction({
         break;
       }
       case "spaces": {
-        screen.spaces = await fetchSpaces(workspaceId);
+        screen.spaces = await fetchSpaces(organizationId);
         break;
       }
       case "space": {
         if (nav.spaceId) {
           const [folders, spaces] = await Promise.all([
             fetchFoldersForSpace(nav.spaceId),
-            fetchSpaces(workspaceId),
+            fetchSpaces(organizationId),
           ]);
           const space = spaces.find((s) => s.id === nav.spaceId) ?? null;
           screen.space = { space, folders };

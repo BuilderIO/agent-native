@@ -5,11 +5,23 @@
  * data pipeline, not reasoning). Everything else — titles, summaries, chapters,
  * workflow docs — delegates to the agent chat.
  *
- * Fetches the recording's videoUrl, POSTs to OpenAI's Whisper endpoint with
+ * Provider selection:
+ *   1. `GROQ_API_KEY` → Groq's `whisper-large-v3-turbo` (OpenAI-compatible API,
+ *      typically 10-30x faster than OpenAI Whisper, ~$0.04/hour). **Preferred.**
+ *   2. `OPENAI_API_KEY` → OpenAI's `whisper-1` (fallback, slower).
+ *   3. Neither → fail with a clear reason.
+ *
+ * Both providers accept the same multipart form-data shape, so the only
+ * differences are the endpoint URL and the `model` field.
+ *
+ * TODO: real-time transcription. A follow-up pass can stream audio from the
+ * MediaRecorder into Deepgram / AssemblyAI via WebSocket during recording so
+ * interim text is available before the user stops. That lets the agent
+ * generate titles / summaries much sooner. See the `ai-video-tools` skill.
+ *
+ * Fetches the recording's videoUrl, POSTs to the provider with
  * response_format=verbose_json and timestamp_granularities[]=segment, and
  * writes the result to `recording_transcripts` with status='ready'.
- *
- * If `OPENAI_API_KEY` is missing, sets status='failed' with a helpful reason.
  *
  * Usage:
  *   pnpm action request-transcript --recordingId=<id>
@@ -40,9 +52,67 @@ interface WhisperResponse {
   segments?: WhisperSegment[];
 }
 
+type TranscriptionProvider = {
+  name: "groq" | "openai";
+  endpoint: string;
+  model: string;
+  apiKey: string;
+};
+
+const GROQ_ENDPOINT = "https://api.groq.com/openai/v1/audio/transcriptions";
+const GROQ_MODEL = "whisper-large-v3-turbo";
+const OPENAI_ENDPOINT = "https://api.openai.com/v1/audio/transcriptions";
+const OPENAI_MODEL = "whisper-1";
+
+/**
+ * Resolve a secret from (in order):
+ *   1. Per-user secret store (sidebar settings UI, encrypted at rest)
+ *   2. `resolveCredential` (env + legacy settings prefix)
+ */
+async function resolveKey(
+  key: string,
+  userEmail: string | null,
+): Promise<string | undefined> {
+  if (userEmail) {
+    const userSecret = await readAppSecret({
+      key,
+      scope: "user",
+      scopeId: userEmail,
+    }).catch(() => null);
+    if (userSecret?.value) return userSecret.value;
+  }
+  const fromCreds = await resolveCredential(key);
+  return fromCreds ?? undefined;
+}
+
+async function pickProvider(
+  userEmail: string | null,
+): Promise<TranscriptionProvider | null> {
+  // Prefer Groq — same Whisper model family, ~10x faster, OpenAI-compatible.
+  const groqKey = await resolveKey("GROQ_API_KEY", userEmail);
+  if (groqKey) {
+    return {
+      name: "groq",
+      endpoint: GROQ_ENDPOINT,
+      model: GROQ_MODEL,
+      apiKey: groqKey,
+    };
+  }
+  const openaiKey = await resolveKey("OPENAI_API_KEY", userEmail);
+  if (openaiKey) {
+    return {
+      name: "openai",
+      endpoint: OPENAI_ENDPOINT,
+      model: OPENAI_MODEL,
+      apiKey: openaiKey,
+    };
+  }
+  return null;
+}
+
 export default defineAction({
   description:
-    "Generate a Whisper transcription for a recording. Fetches videoUrl, calls OpenAI Whisper API, and writes segments + fullText to recording_transcripts.",
+    "Generate a Whisper transcription for a recording. Prefers Groq whisper-large-v3-turbo (fast), falls back to OpenAI whisper-1. Fetches videoUrl, posts audio, writes segments + fullText to recording_transcripts.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
   }),
@@ -62,40 +132,25 @@ export default defineAction({
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    // Resolve the API key. Prefer the `@agent-native/core/secrets` registry
-    // (user-scoped, encrypted at rest, set via the sidebar settings UI), then
-    // fall back to `resolveCredential` which checks env + the legacy settings
-    // key prefix. That covers all three setups: local dev with .env, user
-    // settings via the sidebar, and deployed environments with env vars.
-    let apiKey: string | undefined;
+    // Resolve the provider — Groq first (faster), then OpenAI as fallback.
     const userEmail = getRequestUserEmail() ?? ownerEmail;
-    if (userEmail) {
-      const userSecret = await readAppSecret({
-        key: "OPENAI_API_KEY",
-        scope: "user",
-        scopeId: userEmail,
-      }).catch(() => null);
-      if (userSecret?.value) apiKey = userSecret.value;
-    }
-    if (!apiKey) {
-      apiKey = await resolveCredential("OPENAI_API_KEY");
-    }
-    if (!apiKey) {
+    const provider = await pickProvider(userEmail);
+    if (!provider) {
+      const reason =
+        "No transcription key configured. Set GROQ_API_KEY (fast) or OPENAI_API_KEY.";
       await upsertTranscriptRow(db, {
         recordingId: args.recordingId,
         ownerEmail,
         status: "failed",
-        failureReason: "OPENAI_API_KEY not configured",
+        failureReason: reason,
         now,
       });
       await writeAppState("refresh-signal", { ts: Date.now() });
-      console.error(
-        "[clips] OPENAI_API_KEY not configured; transcript skipped.",
-      );
+      console.error(`[clips] ${reason}`);
       return {
         recordingId: args.recordingId,
         status: "failed" as const,
-        failureReason: "OPENAI_API_KEY not configured",
+        failureReason: reason,
       };
     }
 
@@ -174,30 +229,28 @@ export default defineAction({
       throw new Error(reason);
     }
 
-    // Post to Whisper.
+    // Post to the provider. Groq and OpenAI accept the same form shape.
     const form = new FormData();
     form.append(
       "file",
       videoBlob,
       `${args.recordingId}.${videoBlob.type.includes("mp4") ? "mp4" : "webm"}`,
     );
-    form.append("model", "whisper-1");
+    form.append("model", provider.model);
     form.append("response_format", "verbose_json");
     form.append("timestamp_granularities[]", "segment");
 
     try {
-      const res = await fetch(
-        "https://api.openai.com/v1/audio/transcriptions",
-        {
-          method: "POST",
-          headers: { Authorization: `Bearer ${apiKey}` },
-          body: form,
-        },
-      );
+      const startedAt = Date.now();
+      const res = await fetch(provider.endpoint, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${provider.apiKey}` },
+        body: form,
+      });
       if (!res.ok) {
         const text = await res.text().catch(() => "");
         throw new Error(
-          `Whisper API error ${res.status}: ${text.slice(0, 300)}`,
+          `${provider.name} transcription error ${res.status}: ${text.slice(0, 300)}`,
         );
       }
       const data = (await res.json()) as WhisperResponse;
@@ -221,13 +274,15 @@ export default defineAction({
 
       await writeAppState("refresh-signal", { ts: Date.now() });
 
+      const elapsedMs = Date.now() - startedAt;
       console.log(
-        `Transcribed recording ${args.recordingId} (${segments.length} segments)`,
+        `Transcribed recording ${args.recordingId} via ${provider.name} (${provider.model}) in ${elapsedMs}ms (${segments.length} segments)`,
       );
       return {
         recordingId: args.recordingId,
         status: "ready" as const,
         segments: segments.length,
+        provider: provider.name,
       };
     } catch (err) {
       const reason = (err as Error).message;

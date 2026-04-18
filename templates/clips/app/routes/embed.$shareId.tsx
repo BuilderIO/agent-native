@@ -6,6 +6,7 @@ import {
   type VideoPlayerHandle,
 } from "@/components/player/video-player";
 import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
+import { Spinner } from "@/components/ui/spinner";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 
 export function meta() {
@@ -15,7 +16,7 @@ export function meta() {
 export function HydrateFallback() {
   return (
     <div className="flex items-center justify-center h-screen w-full bg-black">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white" />
+      <Spinner className="h-8 w-8 text-white/70" />
     </div>
   );
 }
@@ -132,7 +133,7 @@ export default function EmbedRoute() {
   if (dataQ.isLoading) {
     return (
       <div className="flex items-center justify-center h-screen w-full bg-black">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white" />
+        <Spinner className="h-8 w-8 text-white/70" />
       </div>
     );
   }

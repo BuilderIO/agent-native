@@ -148,7 +148,7 @@ export function CameraBubble({
         left: pos.left,
         top: pos.top,
         touchAction: "none",
-        boxShadow: "0 10px 40px rgba(0,0,0,0.4), 0 0 0 2px rgba(98,93,245,0.6)",
+        boxShadow: "0 10px 40px rgba(0,0,0,0.4), 0 0 0 2px rgba(0,0,0,0.22)",
         visibility: hidden ? "hidden" : "visible",
       }}
     >

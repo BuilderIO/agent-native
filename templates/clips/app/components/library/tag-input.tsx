@@ -66,12 +66,12 @@ export function TagInput({
         {value.map((tag) => (
           <span
             key={tag}
-            className="inline-flex items-center gap-1 rounded-full bg-[#625DF5]/10 text-[#625DF5] text-xs pl-2 pr-1 py-0.5"
+            className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary text-xs pl-2 pr-1 py-0.5"
           >
             {tag}
             <button
               type="button"
-              className="rounded-full hover:bg-[#625DF5]/20 p-0.5"
+              className="rounded-full hover:bg-primary/20 p-0.5"
               onClick={(e) => {
                 e.stopPropagation();
                 removeTag(tag);

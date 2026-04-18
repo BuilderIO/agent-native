@@ -26,7 +26,7 @@ import { Textarea } from "@/components/ui/textarea";
 export type InviteRole = "viewer" | "creator-lite" | "creator" | "admin";
 
 interface InviteDialogProps {
-  workspaceId: string;
+  organizationId: string;
   disabled?: boolean;
 }
 
@@ -41,13 +41,13 @@ function isValidEmail(s: string): boolean {
   return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s);
 }
 
-export function InviteDialog({ workspaceId, disabled }: InviteDialogProps) {
+export function InviteDialog({ organizationId, disabled }: InviteDialogProps) {
   const [open, setOpen] = useState(false);
   const [emailsRaw, setEmailsRaw] = useState("");
   const [role, setRole] = useState<InviteRole>("creator");
   const invite = useActionMutation<
     any,
-    { workspaceId: string; email: string; role: InviteRole }
+    { organizationId: string; email: string; role: InviteRole }
   >("invite-member");
   const qc = useQueryClient();
 
@@ -69,7 +69,7 @@ export function InviteDialog({ workspaceId, disabled }: InviteDialogProps) {
     let fail = 0;
     for (const email of emails) {
       try {
-        await invite.mutateAsync({ workspaceId, email, role });
+        await invite.mutateAsync({ organizationId, email, role });
         ok += 1;
       } catch (err) {
         fail += 1;
@@ -83,7 +83,9 @@ export function InviteDialog({ workspaceId, disabled }: InviteDialogProps) {
       toast.success(
         `Sent ${ok} invite${ok === 1 ? "" : "s"}${fail ? `, ${fail} failed` : ""}.`,
       );
-      qc.invalidateQueries({ queryKey: ["action", "list-workspace-state"] });
+      qc.invalidateQueries({
+        queryKey: ["action", "list-organization-state"],
+      });
     }
     if (fail === 0) {
       setEmailsRaw("");
@@ -94,7 +96,10 @@ export function InviteDialog({ workspaceId, disabled }: InviteDialogProps) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button disabled={disabled} className="bg-[#625DF5] hover:bg-[#5049d9]">
+        <Button
+          disabled={disabled}
+          className="bg-primary hover:bg-primary/90 text-primary-foreground"
+        >
           <IconUserPlus className="size-4 mr-1.5" />
           Invite members
         </Button>
@@ -154,7 +159,7 @@ export function InviteDialog({ workspaceId, disabled }: InviteDialogProps) {
             <Button
               type="submit"
               disabled={invite.isPending}
-              className="bg-[#625DF5] hover:bg-[#5049d9]"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground"
             >
               <IconMailFast className="size-4 mr-1.5" />
               {invite.isPending ? "Sending…" : "Send invites"}

@@ -22,6 +22,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
 
 import { PreRecordPanel } from "@/components/recorder/pre-record-panel";
@@ -404,7 +405,7 @@ export default function RecordRoute() {
       {/* Idle / pre-record panel */}
       {uiState === "idle" && (
         <div className="flex min-h-screen flex-col items-center justify-center px-4">
-          <div className="mb-6 flex items-center gap-2 text-[#625DF5]">
+          <div className="mb-6 flex items-center gap-2 text-primary">
             <IconVideo className="h-6 w-6" />
             <span className="text-sm font-medium uppercase tracking-wide">
               Clips recorder
@@ -491,7 +492,7 @@ export default function RecordRoute() {
       {/* Uploading overlay */}
       {uiState === "uploading" && (
         <div className="fixed inset-0 z-[120] flex flex-col items-center justify-center gap-3 bg-black/70 text-white backdrop-blur">
-          <div className="h-10 w-10 animate-spin rounded-full border-2 border-white/30 border-t-[#625DF5]" />
+          <Spinner className="h-10 w-10 text-white/70" />
           <div className="text-sm">Saving your recording…</div>
         </div>
       )}
@@ -548,7 +549,7 @@ export default function RecordRoute() {
                 setShowStopConfirm(false);
                 void doStop();
               }}
-              className="bg-[#625DF5] text-white hover:bg-[#4F4BD6]"
+              className="bg-primary text-primary-foreground hover:bg-primary/90"
             >
               Stop and save
             </AlertDialogAction>

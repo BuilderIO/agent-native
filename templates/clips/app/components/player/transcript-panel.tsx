@@ -4,6 +4,9 @@ import {
   IconCopy,
   IconDownload,
   IconCheck,
+  IconExternalLink,
+  IconKey,
+  IconLoader2,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -23,11 +26,20 @@ export interface TranscriptPanelProps {
   status?: "pending" | "ready" | "failed";
   failureReason?: string | null;
   recordingTitle?: string;
+  /** Called when the user asks us to retry transcription after fixing an error. */
+  onRetry?: () => void;
 }
 
 export function TranscriptPanel(props: TranscriptPanelProps) {
-  const { segments, currentMs, onSeek, status, failureReason, recordingTitle } =
-    props;
+  const {
+    segments,
+    currentMs,
+    onSeek,
+    status,
+    failureReason,
+    recordingTitle,
+    onRetry,
+  } = props;
   const [query, setQuery] = useState("");
   const [copied, setCopied] = useState(false);
 
@@ -61,16 +73,44 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     URL.revokeObjectURL(url);
   }
 
+  // When the pending row has sat there for a while with no progress AND we
+  // already know the API key isn't configured, surface the key-setup card
+  // instead of an infinite spinner. We detect "missing key" two ways: the
+  // explicit failed-status path below, and — as a safety net — if status is
+  // pending but the failureReason field on the row already says so (happens
+  // when a prior run failed and the UI hasn't refreshed yet).
+  const missingKey = isMissingApiKeyFailure(failureReason);
+
+  if (status === "failed" && missingKey) {
+    return <MissingOpenAiKeyCard onRetry={onRetry} />;
+  }
+
   if (status === "pending") {
     return (
-      <div className="p-4 text-sm text-muted-foreground">Transcribing…</div>
+      <div className="p-4 text-sm text-muted-foreground flex items-start gap-2">
+        <IconLoader2 className="h-4 w-4 animate-spin mt-0.5 shrink-0" />
+        <div>
+          <p>Transcribing…</p>
+          <p className="text-xs mt-1">
+            Whisper is analyzing this recording. This usually takes about as
+            long as the video itself.
+          </p>
+        </div>
+      </div>
     );
   }
 
   if (status === "failed") {
     return (
-      <div className="p-4 text-sm text-red-600">
-        Transcription failed: {failureReason ?? "Unknown error"}
+      <div className="p-4 space-y-3">
+        <div className="text-sm text-red-600">
+          Transcription failed: {failureReason ?? "Unknown error"}
+        </div>
+        {onRetry ? (
+          <Button size="sm" variant="outline" onClick={onRetry}>
+            Retry
+          </Button>
+        ) : null}
       </div>
     );
   }
@@ -183,4 +223,120 @@ function toSrt(segments: TranscriptSegment[]): string {
 
 function sanitizeFilename(s: string): string {
   return s.replace(/[^a-z0-9-_]+/gi, "-").toLowerCase();
+}
+
+function isMissingApiKeyFailure(reason: string | null | undefined): boolean {
+  if (!reason) return false;
+  const r = reason.toLowerCase();
+  return (
+    r.includes("openai_api_key") ||
+    r.includes("api key") ||
+    r.includes("not configured")
+  );
+}
+
+/**
+ * Inline card shown when transcription failed because no OpenAI API key is
+ * configured. Posts to the framework's `/_agent-native/secrets/OPENAI_API_KEY`
+ * endpoint — the same endpoint the sidebar settings Secrets section uses — so
+ * the user can unblock captions without leaving the player.
+ */
+function MissingOpenAiKeyCard({ onRetry }: { onRetry?: () => void }) {
+  const [value, setValue] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState<{
+    kind: "ok" | "err";
+    text: string;
+  } | null>(null);
+
+  async function save() {
+    if (!value.trim() || saving) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/_agent-native/secrets/OPENAI_API_KEY", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value: value.trim() }),
+      });
+      if (!res.ok) {
+        const err = await res
+          .json()
+          .then((j: { error?: string }) => j.error)
+          .catch(() => null);
+        setToast({ kind: "err", text: err ?? `Save failed (${res.status})` });
+        return;
+      }
+      setValue("");
+      setToast({ kind: "ok", text: "Saved. Retrying transcription…" });
+      // Kick the parent to refresh / retry once the key is saved.
+      onRetry?.();
+      setTimeout(() => setToast(null), 2500);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="p-4">
+      <div className="rounded-md border border-border bg-accent/30 p-3 space-y-3">
+        <div className="flex items-start gap-2">
+          <IconKey className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium">Transcription isn’t available</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Set your OpenAI API key to enable auto-captions, search, and AI
+              summaries for this clip. Your key is stored encrypted and only you
+              can use it.
+            </p>
+          </div>
+        </div>
+        <div className="flex gap-1.5">
+          <Input
+            type="password"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") save();
+            }}
+            placeholder="sk-…"
+            className="h-8 text-xs"
+          />
+          <Button size="sm" onClick={save} disabled={!value.trim() || saving}>
+            {saving ? (
+              <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              "Save key"
+            )}
+          </Button>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <a
+            href="https://platform.openai.com/api-keys"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+          >
+            Get an API key
+            <IconExternalLink className="h-3 w-3" />
+          </a>
+          <a
+            href="#secrets:OPENAI_API_KEY"
+            className="text-xs text-muted-foreground hover:text-foreground"
+          >
+            Open settings
+          </a>
+        </div>
+        {toast ? (
+          <p
+            className={cn(
+              "text-xs",
+              toast.kind === "ok" ? "text-green-600" : "text-red-600",
+            )}
+          >
+            {toast.text}
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
 }

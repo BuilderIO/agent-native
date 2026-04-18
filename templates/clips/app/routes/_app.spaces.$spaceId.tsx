@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useParams } from "react-router";
 import { LibraryGrid } from "@/components/library/library-grid";
 import { FolderTree, type FolderNode } from "@/components/library/folder-tree";
-import { useFolders, useSpaces, useWorkspaces } from "@/hooks/use-library";
+import { useFolders, useSpaces, useOrganizations } from "@/hooks/use-library";
 
 export function meta() {
   return [{ title: "Space · Clips" }];
@@ -10,14 +10,14 @@ export function meta() {
 
 export default function SpaceRoute() {
   const { spaceId } = useParams<{ spaceId: string }>();
-  const { data: workspaces } = useWorkspaces();
-  const currentWorkspaceId =
-    workspaces?.currentId ?? workspaces?.workspaces?.[0]?.id;
-  const { data: spacesData } = useSpaces(currentWorkspaceId);
+  const { data: organizations } = useOrganizations();
+  const currentOrganizationId =
+    organizations?.currentId ?? organizations?.organizations?.[0]?.id;
+  const { data: spacesData } = useSpaces(currentOrganizationId);
   const space = (spacesData?.spaces ?? []).find((s: any) => s.id === spaceId);
 
   const { data: folders } = useFolders({
-    workspaceId: currentWorkspaceId,
+    organizationId: currentOrganizationId,
     spaceId,
   });
   const folderList: FolderNode[] = useMemo(
@@ -41,7 +41,7 @@ export default function SpaceRoute() {
           <div className="flex items-center gap-2">
             <div
               className="h-5 w-5 rounded flex items-center justify-center text-[10px] text-white"
-              style={{ background: (space as any)?.color ?? "#625DF5" }}
+              style={{ background: (space as any)?.color ?? "#18181B" }}
             >
               {(space as any)?.iconEmoji ??
                 (space as any)?.name?.slice(0, 1).toUpperCase() ??
@@ -58,7 +58,7 @@ export default function SpaceRoute() {
           </div>
           <FolderTree
             folders={folderList}
-            workspaceId={currentWorkspaceId}
+            organizationId={currentOrganizationId}
             spaceId={spaceId ?? null}
             buildPath={(id) => `/spaces/${spaceId}/folder/${id}`}
           />

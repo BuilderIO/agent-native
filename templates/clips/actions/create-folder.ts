@@ -3,14 +3,23 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { writeAppState } from "@agent-native/core/application-state";
-import { getCurrentOwnerEmail, nanoid } from "../server/lib/recordings.js";
+import {
+  getCurrentOwnerEmail,
+  nanoid,
+  requireActiveOrganizationId,
+} from "../server/lib/recordings.js";
 
 export default defineAction({
   description:
     "Create a new folder in the library or a space. Supports nesting via parentId.",
   schema: z.object({
     name: z.string().min(1).describe("Folder name"),
-    workspaceId: z.string().min(1).describe("Workspace id the folder lives in"),
+    organizationId: z
+      .string()
+      .optional()
+      .describe(
+        "Organization id the folder lives in (defaults to the caller's active org)",
+      ),
     spaceId: z
       .string()
       .nullish()
@@ -25,10 +34,12 @@ export default defineAction({
     const ownerEmail = getCurrentOwnerEmail();
     const id = nanoid();
     const now = new Date().toISOString();
+    const organizationId =
+      args.organizationId || (await requireActiveOrganizationId());
 
     // Next position within siblings
     const whereClauses = [
-      eq(schema.folders.workspaceId, args.workspaceId),
+      eq(schema.folders.organizationId, organizationId),
       eq(schema.folders.ownerEmail, ownerEmail),
     ];
     whereClauses.push(
@@ -50,7 +61,7 @@ export default defineAction({
 
     await db.insert(schema.folders).values({
       id,
-      workspaceId: args.workspaceId,
+      organizationId,
       parentId: args.parentId ?? null,
       spaceId: args.spaceId ?? null,
       ownerEmail,
@@ -63,7 +74,7 @@ export default defineAction({
 
     return {
       id,
-      workspaceId: args.workspaceId,
+      organizationId,
       parentId: args.parentId ?? null,
       spaceId: args.spaceId ?? null,
       ownerEmail,

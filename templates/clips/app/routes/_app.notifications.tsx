@@ -143,7 +143,7 @@ export default function NotificationsRoute() {
       <div className="flex items-center justify-between gap-4 mb-4">
         <div>
           <h1 className="text-2xl font-semibold flex items-center gap-2">
-            <IconBell className="size-6 text-[#625DF5]" />
+            <IconBell className="size-6 text-primary" />
             Notifications
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
@@ -197,7 +197,7 @@ export default function NotificationsRoute() {
             <Button
               onClick={handleSendReply}
               disabled={!replyText.trim() || addComment.isPending}
-              className="bg-[#625DF5] hover:bg-[#5049d9]"
+              className="bg-primary hover:bg-primary/90"
             >
               <IconSend className="size-4" />
             </Button>

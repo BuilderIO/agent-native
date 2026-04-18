@@ -136,10 +136,10 @@ export function RecordingCard({
       onMouseLeave={() => setHovered(false)}
       className={cn(
         "group relative flex flex-col rounded-lg border bg-card overflow-hidden cursor-pointer",
-        "border-border/80 hover:border-[#625DF5]/40",
-        "shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:shadow-[0_6px_16px_-4px_rgba(98,93,245,0.18)]",
+        "border-border/80 hover:border-primary/40",
+        "shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:shadow-md",
         "transition-transform duration-100 ease-out hover:-translate-y-0.5",
-        selected && "ring-2 ring-[#625DF5] border-[#625DF5]",
+        selected && "ring-2 ring-primary border-primary",
       )}
     >
       {/* Thumbnail */}
@@ -152,8 +152,8 @@ export function RecordingCard({
             draggable={false}
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[#625DF5]/10 to-[#625DF5]/5">
-            <IconPlayerPlay className="h-10 w-10 text-[#625DF5]/40" />
+          <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/10 to-primary/5">
+            <IconPlayerPlay className="h-10 w-10 text-primary/40" />
           </div>
         )}
 
@@ -164,7 +164,7 @@ export function RecordingCard({
             "opacity-0 group-hover:opacity-100",
           )}
         >
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/95 text-[#625DF5] shadow-lg">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/95 text-primary shadow-lg">
             <IconPlayerPlay className="h-5 w-5 fill-current" />
           </div>
         </div>
@@ -271,7 +271,7 @@ export function RecordingCard({
         <div className="flex items-center gap-2">
           <Avatar className="h-5 w-5">
             <AvatarImage src="" alt={recording.ownerEmail} />
-            <AvatarFallback className="text-[9px] bg-[#625DF5]/15 text-[#625DF5]">
+            <AvatarFallback className="text-[9px] bg-primary/15 text-primary">
               {ownerInitials}
             </AvatarFallback>
           </Avatar>
@@ -283,7 +283,7 @@ export function RecordingCard({
               {recording.tags.slice(0, 2).map((t) => (
                 <span
                   key={t}
-                  className="rounded-full bg-[#625DF5]/10 text-[#625DF5] text-[10px] px-1.5 py-0.5"
+                  className="rounded-full bg-primary/10 text-primary text-[10px] px-1.5 py-0.5"
                 >
                   {t}
                 </span>

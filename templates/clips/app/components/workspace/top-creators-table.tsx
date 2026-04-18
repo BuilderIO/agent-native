@@ -50,7 +50,7 @@ export function TopCreatorsTable({ rows }: TopCreatorsTableProps) {
               <TableCell>
                 <div className="flex items-center gap-2 min-w-0">
                   <Avatar className="h-7 w-7 flex-shrink-0">
-                    <AvatarFallback className="text-xs bg-[#625DF5] text-white">
+                    <AvatarFallback className="text-xs bg-primary text-primary-foreground">
                       {initials(row.email)}
                     </AvatarFallback>
                   </Avatar>

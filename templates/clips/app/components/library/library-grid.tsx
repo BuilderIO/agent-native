@@ -128,7 +128,8 @@ export function LibraryGrid({
             size="sm"
             className={cn(
               "h-8 gap-1.5",
-              selectionMode && "bg-[#625DF5] text-white hover:bg-[#554FE5]",
+              selectionMode &&
+                "bg-primary text-primary-foreground hover:bg-primary/90",
             )}
             onClick={() => {
               setSelectionMode((v) => !v);

@@ -51,4 +51,36 @@ export default runMigrations([
     last_contacted_at ${intType()} NOT NULL
   )`,
   },
+  {
+    version: 7,
+    sql: `CREATE TABLE IF NOT EXISTS email_tracking (
+    pixel_token TEXT PRIMARY KEY,
+    message_id TEXT NOT NULL,
+    owner_email TEXT NOT NULL,
+    sent_at ${intType()} NOT NULL,
+    opens_count ${intType()} NOT NULL DEFAULT 0,
+    first_opened_at ${intType()},
+    last_opened_at ${intType()},
+    last_user_agent TEXT
+  )`,
+  },
+  {
+    version: 8,
+    sql: `CREATE INDEX IF NOT EXISTS idx_email_tracking_message_id ON email_tracking(message_id)`,
+  },
+  {
+    version: 9,
+    sql: `CREATE TABLE IF NOT EXISTS email_link_tracking (
+    click_token TEXT PRIMARY KEY,
+    pixel_token TEXT NOT NULL,
+    url TEXT NOT NULL,
+    clicks_count ${intType()} NOT NULL DEFAULT 0,
+    first_clicked_at ${intType()},
+    last_clicked_at ${intType()}
+  )`,
+  },
+  {
+    version: 10,
+    sql: `CREATE INDEX IF NOT EXISTS idx_email_link_tracking_pixel_token ON email_link_tracking(pixel_token)`,
+  },
 ]);

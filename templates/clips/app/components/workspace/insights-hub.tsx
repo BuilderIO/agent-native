@@ -22,7 +22,7 @@ import { TopVideosTable } from "./top-videos-table";
 import { TopCreatorsTable } from "./top-creators-table";
 
 interface InsightsResponse {
-  workspaceId: string | null;
+  organizationId: string | null;
   period: { days: number; start: string | null; end: string | null };
   totals: {
     views: number;
@@ -52,7 +52,7 @@ interface InsightsResponse {
 export function InsightsHub() {
   const [days, setDays] = useState("30");
   const { data, isLoading } = useActionQuery<InsightsResponse>(
-    "get-workspace-insights",
+    "get-organization-insights",
     { days: Number(days) } as any,
   );
 
@@ -64,20 +64,20 @@ export function InsightsHub() {
   };
 
   const csvUrl = useMemo(() => {
-    if (!data?.workspaceId) return "/api/insights/export";
-    return `/api/insights/export?workspaceId=${encodeURIComponent(data.workspaceId)}`;
-  }, [data?.workspaceId]);
+    if (!data?.organizationId) return "/api/insights/export";
+    return `/api/insights/export?organizationId=${encodeURIComponent(data.organizationId)}`;
+  }, [data?.organizationId]);
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-semibold flex items-center gap-2">
-            <IconChartBar className="size-6 text-[#625DF5]" />
+            <IconChartBar className="size-6 text-primary" />
             Insights
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Engagement across your workspace over the last {days} days.
+            Engagement across your organization over the last {days} days.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -123,7 +123,7 @@ export function InsightsHub() {
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2">
-            <IconChartLine className="size-4 text-[#625DF5]" />
+            <IconChartLine className="size-4 text-primary" />
             Engagement trend
           </CardTitle>
         </CardHeader>
@@ -173,7 +173,7 @@ export function InsightsHub() {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
-              <IconUsers className="size-4 text-[#625DF5]" />
+              <IconUsers className="size-4 text-primary" />
               Top creators
             </CardTitle>
           </CardHeader>

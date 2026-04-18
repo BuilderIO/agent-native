@@ -19,7 +19,7 @@ export function AccessPasswordPrompt({
   return (
     <div className="flex items-center justify-center min-h-screen p-6 bg-[#0a0a0a]">
       <div className="max-w-sm w-full rounded-2xl bg-card border border-border p-6 space-y-4 shadow-xl">
-        <div className="flex items-center gap-2 text-[#625DF5]">
+        <div className="flex items-center gap-2 text-primary">
           <IconLock className="h-5 w-5" />
           <h1 className="text-lg font-semibold">
             {title ?? "Password required"}
@@ -45,7 +45,7 @@ export function AccessPasswordPrompt({
           {error ? <p className="text-xs text-red-500">{error}</p> : null}
           <Button
             type="submit"
-            className="w-full bg-[#625DF5] hover:bg-[#5751e5] text-white"
+            className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
             disabled={!value}
           >
             Unlock

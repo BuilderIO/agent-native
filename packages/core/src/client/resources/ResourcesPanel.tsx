@@ -31,6 +31,7 @@ import {
   type ResourceScope,
   type ResourceMeta,
 } from "./use-resources.js";
+import { useOrg } from "../org/hooks.js";
 
 // ─── Create Menu (unified + button) ────────────────────────────────────────
 
@@ -713,7 +714,15 @@ Create skill files under \`skills/\` to give the agent specialized knowledge. Re
 // BuilderBrowserCard moved to settings/BrowserSection.tsx
 
 export function ResourcesPanel() {
-  const [activeScope, setActiveScope] = useState<ResourceScope>("shared");
+  const { data: org } = useOrg();
+  // Non-admin org members get read-only access to organization resources.
+  // Solo deployments (no orgId) behave as owner — users can edit their own.
+  const canEditOrg =
+    !org?.orgId || org.role === "owner" || org.role === "admin";
+
+  const [activeScope, setActiveScope] = useState<ResourceScope>(
+    canEditOrg ? "shared" : "personal",
+  );
   const [selectedResourceId, setSelectedResourceId] = useState<string | null>(
     null,
   );
@@ -732,17 +741,26 @@ export function ResourcesPanel() {
 
   const sharedTreeQuery = useResourceTree("shared");
   const personalTreeQuery = useResourceTree("personal");
+
+  // Sync activeScope once the org role arrives (canEditOrg is resolved async).
+  useEffect(() => {
+    if (!canEditOrg && activeScope === "shared") {
+      setActiveScope("personal");
+    }
+  }, [canEditOrg, activeScope]);
   const resourceQuery = useResource(selectedResourceId);
   const createResource = useCreateResource();
   const updateResource = useUpdateResource();
   const deleteResource = useDeleteResource();
   const uploadResource = useUploadResource();
 
-  // Ensure AGENTS.md exists in shared scope when panel opens.
-  // Uses the server's /_agent-native/resources endpoint which handles dedup via INSERT OR IGNORE.
+  // Ensure AGENTS.md exists in the organization scope when the panel opens.
+  // The server also seeds it on table init; this is a safety net. Only attempt
+  // for users who can write to organization resources — non-admins would just
+  // get a 403.
   const seededRef = useRef(false);
   useEffect(() => {
-    if (seededRef.current) return;
+    if (seededRef.current || !canEditOrg) return;
     seededRef.current = true;
     fetch("/_agent-native/resources", {
       method: "POST",
@@ -754,7 +772,7 @@ export function ResourcesPanel() {
         ifNotExists: true,
       }),
     }).catch(() => {});
-  }, []);
+  }, [canEditOrg]);
 
   // Are we viewing a file (editor) or the tree?
   const isEditing = selectedResourceId !== null;
@@ -1034,8 +1052,10 @@ export function ResourcesPanel() {
                   </p>
                   <p className="mb-2 leading-snug">
                     <span className="text-foreground">Personal</span> is just
-                    for you. <span className="text-foreground">Shared</span> is
-                    visible across your team.
+                    for you.{" "}
+                    <span className="text-foreground">Organization</span> is
+                    visible to everyone in your organization
+                    {org?.orgId ? " — only admins can edit." : "."}
                   </p>
                   <a
                     href="https://www.builder.io/c/docs/agent-native-resources"
@@ -1089,8 +1109,14 @@ export function ResourcesPanel() {
               onDelete={handleDelete}
               onRename={handleRename}
               onDrop={handleUploadFiles}
-              title="Shared"
-              titleTooltip="Files shared across the organization"
+              title="Organization"
+              titleTooltip={
+                canEditOrg
+                  ? "Files visible to everyone in your organization"
+                  : "Files visible to everyone in your organization. Read-only — only admins can edit."
+              }
+              readOnly={!canEditOrg}
+              headingHint={!canEditOrg ? "Read only" : undefined}
             />
           </div>
         )}

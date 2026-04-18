@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 interface BrandingEditorProps {
-  workspaceId: string;
+  organizationId: string;
   initialName: string;
   initialBrandColor: string;
   initialBrandLogoUrl: string | null;
@@ -17,7 +17,7 @@ interface BrandingEditorProps {
 }
 
 const PRESETS = [
-  "#625DF5",
+  "#18181B",
   "#22C55E",
   "#F97316",
   "#EC4899",
@@ -45,7 +45,7 @@ async function uploadLogo(file: File): Promise<string> {
 }
 
 export function BrandingEditor({
-  workspaceId,
+  organizationId,
   initialName,
   initialBrandColor,
   initialBrandLogoUrl,
@@ -63,12 +63,12 @@ export function BrandingEditor({
   const save = useActionMutation<
     any,
     {
-      workspaceId: string;
+      organizationId: string;
       name?: string;
       brandColor?: string;
       brandLogoUrl?: string | null;
     }
-  >("set-workspace-branding");
+  >("set-organization-branding");
 
   async function handleFile(file: File) {
     if (!file.type.startsWith("image/")) {
@@ -91,13 +91,15 @@ export function BrandingEditor({
     e.preventDefault();
     try {
       await save.mutateAsync({
-        workspaceId,
+        organizationId,
         name: name.trim() || undefined,
         brandColor,
         brandLogoUrl,
       });
       toast.success("Branding updated");
-      qc.invalidateQueries({ queryKey: ["action", "list-workspace-state"] });
+      qc.invalidateQueries({
+        queryKey: ["action", "list-organization-state"],
+      });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save");
     }
@@ -107,14 +109,14 @@ export function BrandingEditor({
     <Card>
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
-          <IconPalette className="size-4 text-[#625DF5]" />
+          <IconPalette className="size-4 text-primary" />
           Branding
         </CardTitle>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSave} className="space-y-5">
           <div className="space-y-1.5">
-            <Label htmlFor="ws-name">Workspace name</Label>
+            <Label htmlFor="ws-name">Organization name</Label>
             <Input
               id="ws-name"
               value={name}
@@ -160,7 +162,7 @@ export function BrandingEditor({
             <Label>Logo</Label>
             <div
               className={`rounded-md border border-dashed p-4 flex items-center gap-4 ${
-                dragging ? "bg-[#625DF5]/5 border-[#625DF5]" : ""
+                dragging ? "bg-primary/5 border-primary" : ""
               }`}
               onDragOver={(e) => {
                 e.preventDefault();
@@ -252,7 +254,9 @@ export function BrandingEditor({
                   {name.slice(0, 1).toUpperCase() || "C"}
                 </div>
               )}
-              <div className="font-medium truncate">{name || "Workspace"}</div>
+              <div className="font-medium truncate">
+                {name || "Organization"}
+              </div>
             </div>
           </div>
 
@@ -260,7 +264,7 @@ export function BrandingEditor({
             <Button
               type="submit"
               disabled={disabled || save.isPending}
-              className="bg-[#625DF5] hover:bg-[#5049d9]"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground"
             >
               {save.isPending ? "Saving…" : "Save"}
             </Button>

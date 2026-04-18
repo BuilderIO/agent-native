@@ -14,6 +14,7 @@ import { AccessPasswordPrompt } from "@/components/player/access-password-prompt
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 export function meta() {
@@ -23,7 +24,7 @@ export function meta() {
 export function HydrateFallback() {
   return (
     <div className="flex items-center justify-center h-screen w-full bg-black">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white" />
+      <Spinner className="h-8 w-8 text-white/70" />
     </div>
   );
 }
@@ -114,7 +115,7 @@ export default function ShareRoute() {
   if (dataQ.isLoading) {
     return (
       <div className="flex items-center justify-center h-screen w-full bg-black">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white" />
+        <Spinner className="h-8 w-8 text-white/70" />
       </div>
     );
   }
@@ -160,7 +161,7 @@ export default function ShareRoute() {
     <div className="min-h-screen bg-[#0a0a0a] text-white">
       <div className="mx-auto max-w-6xl px-4 py-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className="h-8 w-8 rounded-md bg-[#625DF5] flex items-center justify-center text-white font-bold text-sm">
+          <div className="h-8 w-8 rounded-md bg-primary flex items-center justify-center text-primary-foreground font-bold text-sm">
             C
           </div>
           <span className="font-medium">Clips</span>
@@ -288,7 +289,7 @@ function EndState({ title, message }: { title: string; message: string }) {
     <div className="flex flex-col items-center justify-center min-h-screen bg-[#0a0a0a] text-white px-6">
       <h1 className="text-2xl font-semibold mb-2">{title}</h1>
       <p className="text-sm text-white/60 mb-6">{message}</p>
-      <a href="/" className="text-sm text-[#625DF5] hover:underline">
+      <a href="/" className="text-sm text-primary hover:underline">
         Go home
       </a>
     </div>

@@ -76,6 +76,7 @@ export default defineAction({
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
     const id = args.id;
+    console.log("[finalize] starting", { id, ownerEmail });
 
     const [existing] = await db
       .select()
@@ -88,6 +89,7 @@ export default defineAction({
       );
 
     if (!existing) {
+      console.warn("[finalize] recording not found", { id, ownerEmail });
       throw new Error(`Recording not found: ${id}`);
     }
 
@@ -123,6 +125,10 @@ export default defineAction({
       const ai = Number(a.key.split("-").pop() || 0);
       const bi = Number(b.key.split("-").pop() || 0);
       return ai - bi;
+    });
+    console.log("[finalize] chunks found", {
+      id,
+      count: chunkEntries.length,
     });
 
     if (chunkEntries.length === 0) {
@@ -255,7 +261,11 @@ export default defineAction({
       createdAt: new Date().toISOString(),
     });
 
-    console.log(`Finalized recording ${id} → ${videoUrl}`);
+    console.log("[finalize] done", {
+      id,
+      videoUrl,
+      bytes: assembled.byteLength,
+    });
 
     return {
       id,

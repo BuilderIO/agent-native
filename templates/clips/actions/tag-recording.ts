@@ -4,7 +4,6 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { nanoid } from "../server/lib/recordings.js";
 
 export default defineAction({
@@ -21,7 +20,7 @@ export default defineAction({
     const db = getDb();
 
     const [rec] = await db
-      .select({ workspaceId: schema.recordings.workspaceId })
+      .select({ organizationId: schema.recordings.organizationId })
       .from(schema.recordings)
       .where(eq(schema.recordings.id, args.recordingId));
     if (!rec) {
@@ -43,7 +42,7 @@ export default defineAction({
         await db.insert(schema.recordingTags).values({
           id: nanoid(),
           recordingId: args.recordingId,
-          workspaceId: rec.workspaceId,
+          organizationId: rec.organizationId,
           tag: args.tag,
         });
       }

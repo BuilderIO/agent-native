@@ -19,8 +19,6 @@ export function VisibilityBadge({
   const Icon =
     v === "public" ? IconWorld : v === "org" ? IconBuilding : IconLock;
   const label = v === "public" ? "Public" : v === "org" ? "Org" : "Private";
-  const color =
-    v === "public" ? "#2563eb" : v === "org" ? "#7c3aed" : "#6b7280";
   return (
     <span
       className={className}
@@ -29,7 +27,7 @@ export function VisibilityBadge({
         alignItems: "center",
         gap: 4,
         fontSize: size,
-        color,
+        color: "hsl(var(--muted-foreground))",
       }}
     >
       <Icon size={size + 2} />

@@ -231,7 +231,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
                   recordingId: recording.id,
                   label: "Learn more",
                   url: "https://example.com",
-                  color: "#625DF5",
+                  color: "hsl(var(--primary))",
                   placement: "throughout",
                 } as any)
               }
@@ -341,7 +341,7 @@ function CtaEditor({
       <div className="flex gap-2">
         <Button
           size="sm"
-          className="bg-[#625DF5] hover:bg-[#5751e5] text-white"
+          className="bg-primary hover:bg-primary/90 text-primary-foreground"
           onClick={() => onSave({ label, url, color, placement })}
         >
           Save

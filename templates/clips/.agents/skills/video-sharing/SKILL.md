@@ -40,28 +40,44 @@ Read this skill before:
 
 ## Dropping in the share UI
 
-```tsx
-import { ShareButton } from "@agent-native/core/client";
+Clips' `app/components/player/share-dialog.tsx` is a **thin wrapper around the framework `ShareDialog`** from `@agent-native/core/client`. The framework component handles per-user / per-org grants, visibility, and tabbed copy-link / embed UI — Clips just composes it with recording-specific extras.
 
-<ShareButton
+```tsx
+import { ShareDialog } from "@agent-native/core/client";
+
+<ShareDialog
   resourceType="recording"
   resourceId={recording.id}
   resourceTitle={recording.title}
->
-  {/* Clips-specific extras slot inside the dialog */}
-  <PasswordField recordingId={recording.id} />
-  <ExpiryField recordingId={recording.id} />
-</ShareButton>
+  shareUrl={`${origin}/share/${recording.id}`}
+  embedUrl={`${origin}/embed/${recording.id}`}
+  linkTabExtras={
+    <>
+      {/* Password + expiry render in the Link tab, below the share URL. */}
+      <PasswordField recordingId={recording.id} />
+      <ExpiryField recordingId={recording.id} />
+    </>
+  }
+  embedTabContent={<EmbedSnippetAndOptions recordingId={recording.id} />}
+/>
 ```
 
-The password and expiry fields call `update-recording --password=...` / `--expiresAt=...`. They render below the framework grants list.
+- `shareUrl` / `embedUrl` — the copy-link and embed URLs the framework renders in its tabs.
+- `linkTabExtras` — Clips-specific controls (password, expiry) shown beneath the link.
+- `embedTabContent` — full replacement for the Embed tab body (embed code, params like `?t=`, `?autoplay=`).
+
+The password and expiry fields call `update-recording --password=...` / `--expiresAt=...`. Keep Clips' share-dialog wrapper minimal — any new generic sharing feature belongs in the framework component, not here.
 
 ## Access resolution
 
 The player and `/api/video/:id` route check access in this exact order:
 
 ```ts
-async function canAccess(recordingId: string, requester: Session | null, providedPassword?: string) {
+async function canAccess(
+  recordingId: string,
+  requester: Session | null,
+  providedPassword?: string,
+) {
   // 1. Framework check — owner, shared, or meets visibility.
   const access = await resolveAccess("recording", recordingId, requester);
   if (!access.allowed) return false;
@@ -89,12 +105,12 @@ Framework first, Clips additions second. Don't invert this — the framework own
 
 Embeds live at `/embed/:shareId` (a share-scoped anonymous route). Supported query params:
 
-| Param          | Meaning                                                         |
-| -------------- | --------------------------------------------------------------- |
-| `?t=80`        | Start playback at 80 seconds                                    |
-| `?autoplay=1`  | Autoplay (muted — browsers block unmuted autoplay)              |
-| `?hideControls=1` | Hide the player chrome                                       |
-| `?loop=1`      | Loop playback                                                   |
+| Param             | Meaning                                            |
+| ----------------- | -------------------------------------------------- |
+| `?t=80`           | Start playback at 80 seconds                       |
+| `?autoplay=1`     | Autoplay (muted — browsers block unmuted autoplay) |
+| `?hideControls=1` | Hide the player chrome                             |
+| `?loop=1`         | Loop playback                                      |
 
 Build embed URLs via the `build-embed-url` action:
 
@@ -120,8 +136,12 @@ The canonical predicate is `shouldCountView(totalWatchMs, completedPct, scrubbed
 ```ts
 import { shouldCountView } from "../server/lib/recordings.js";
 
-if (!viewer.countedView && shouldCountView(viewer.totalWatchMs, viewer.completedPct, scrubbedToEnd)) {
-  await db.update(schema.recordingViewers)
+if (
+  !viewer.countedView &&
+  shouldCountView(viewer.totalWatchMs, viewer.completedPct, scrubbedToEnd)
+) {
+  await db
+    .update(schema.recordingViewers)
     .set({ countedView: true })
     .where(eq(schema.recordingViewers.id, viewer.id));
 }

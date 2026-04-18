@@ -162,7 +162,7 @@ export function ThumbnailPicker({
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <IconPhotoEdit className="w-4 h-4 text-[#625DF5]" />
+            <IconPhotoEdit className="w-4 h-4 text-primary" />
             Thumbnail
           </DialogTitle>
         </DialogHeader>

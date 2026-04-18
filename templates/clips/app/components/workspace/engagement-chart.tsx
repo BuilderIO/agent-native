@@ -34,7 +34,7 @@ function formatDate(iso: string): string {
 
 export function EngagementChart({
   data,
-  brandColor = "#625DF5",
+  brandColor = "hsl(var(--primary))",
 }: EngagementChartProps) {
   if (!data || data.length === 0) {
     return (

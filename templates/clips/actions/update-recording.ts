@@ -91,7 +91,7 @@ export default defineAction({
         await db.insert(schema.recordingTags).values({
           id: nanoid(),
           recordingId: args.id,
-          workspaceId: existing.workspaceId,
+          organizationId: existing.organizationId,
           tag: clean,
         });
       }

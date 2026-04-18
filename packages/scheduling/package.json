@@ -1,0 +1,79 @@
+{
+  "name": "@agent-native/scheduling",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Scheduling primitives for agent-native apps — event types, availability, bookings, team scheduling, workflows, routing forms. Powers the scheduling and calendar templates.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BuilderIO/agent-native",
+    "directory": "packages/scheduling"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./schema": "./dist/schema/index.js",
+    "./schema/event-types": "./dist/schema/event-types.js",
+    "./schema/schedules": "./dist/schema/schedules.js",
+    "./schema/bookings": "./dist/schema/bookings.js",
+    "./schema/teams": "./dist/schema/teams.js",
+    "./schema/credentials": "./dist/schema/credentials.js",
+    "./schema/calendar-cache": "./dist/schema/calendar-cache.js",
+    "./schema/workflows": "./dist/schema/workflows.js",
+    "./schema/routing-forms": "./dist/schema/routing-forms.js",
+    "./core": "./dist/core/index.js",
+    "./server": "./dist/server/index.js",
+    "./server/providers": "./dist/server/providers/index.js",
+    "./actions/*": "./dist/actions/*.js",
+    "./react": "./dist/react/index.js",
+    "./react/components": "./dist/react/components/index.js",
+    "./shared": "./dist/shared/index.js",
+    "./manifest": "./dist/manifest.js",
+    "./docs/llms.txt": "./docs/llms.txt",
+    "./docs/llms-full.txt": "./docs/llms-full.txt",
+    "./docs/*": "./docs/*",
+    "./skills/*": "./docs/skills/*"
+  },
+  "files": [
+    "dist",
+    "docs",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc && node scripts/build-llms-full.mjs",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest --run",
+    "prepublishOnly": "npm run build",
+    "release": "npm version patch && npm publish --access public"
+  },
+  "dependencies": {
+    "@date-fns/tz": "^1.2.0",
+    "date-fns": "^4.1.0",
+    "nanoid": "^4.0.2",
+    "rrule": "^2.8.1",
+    "zod": "^3.24.0"
+  },
+  "peerDependencies": {
+    "@agent-native/core": ">=0.7",
+    "drizzle-orm": ">=0.45",
+    "react": ">=18",
+    "react-dom": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@agent-native/core": "workspace:*",
+    "@types/node": "^24.2.1",
+    "@types/react": "^18.3.23",
+    "drizzle-orm": "^0.45.2",
+    "react": "^18.3.1",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

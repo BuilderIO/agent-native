@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@agent-native/core": "workspace:*",
+    "@agent-native/scheduling": "workspace:*",
     "@libsql/client": "^0.15.0",
     "@tabler/icons-react": "^3.40.0",
     "dotenv": "^17.2.1",

@@ -137,6 +137,16 @@ All data is stored in SQL via Drizzle ORM (SQLite, Postgres, Turso, etc. via `DA
 
 Google OAuth tokens are stored via `@agent-native/core/oauth-tokens` (provider: "google").
 
+### Email tracking
+
+Sent emails get open + link-click tracking injected automatically. Stats appear under each sent message in the thread view.
+
+- Settings live under `getSetting("mail-settings").tracking`:
+  - `tracking.opens` (default `true`) — inject a 1×1 pixel so opens can be counted
+  - `tracking.clicks` (default `true`) — rewrite external links through `/api/tracking/click/:token` so clicks can be counted
+- Events are stored in the `email_tracking` + `email_link_tracking` SQL tables. Quoted content in replies/forwards is NOT rewritten — only links in the new portion of the message.
+- Use `pnpm action get-tracking --id=<message-id>` to fetch open + click stats for any sent message, or `GET /api/emails/:id/tracking` from the frontend.
+
 ### Compose Drafts (Application State)
 
 Each draft is stored as a separate application state entry: `writeAppState("compose-{id}", draft)`. Multiple drafts can exist simultaneously — they appear as tabs in the compose panel. Write an entry to open a new draft tab; update it to edit a draft in progress; delete it to close that tab.
@@ -346,6 +356,7 @@ Scripts use `readAppState()` / `writeAppState()` from `@agent-native/core/applic
 | `mark-read`     | `--id <id>[,id2,id3] [--unread]`                       | Mark emails as read (or unread with --unread) |
 | `star-email`    | `--id <id>[,id2,id3]`                                  | Toggle star on emails                         |
 | `send-email`    | `--to <email> --subject <s> --body <b> [--cc] [--bcc]` | Send an email                                 |
+| `get-tracking`  | `--id <message-id>`                                    | Open + link-click stats for a sent email      |
 
 ### Drafts & Navigation
 
@@ -381,6 +392,7 @@ Scripts use `readAppState()` / `writeAppState()` from `@agent-native/core/applic
 | "Draft an email to Alice about X"   | `pnpm action manage-draft --action=create --to=alice@example.com --subject="X" --body="..."`        |
 | "Make this draft more formal"       | `pnpm action view-composer`, then `pnpm action manage-draft --action=update --id=<id> --body="..."` |
 | "Send this email"                   | `pnpm action send-email --to=<email> --subject="..." --body="..."`                                  |
+| "Did they open my email?"           | `pnpm action get-tracking --id=<message-id>`                                                        |
 | "What thread am I looking at?"      | `pnpm action view-screen --full`                                                                    |
 | "Archive old emails"                | `pnpm action bulk-archive --older-than=30`                                                          |
 
