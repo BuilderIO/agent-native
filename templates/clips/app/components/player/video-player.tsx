@@ -67,6 +67,14 @@ export interface VideoPlayerProps {
   hideCaptions?: boolean;
   /** Optional poster/thumbnail styling. */
   cover?: boolean;
+  /**
+   * Viewer role for this recording. When `owner` (and `thumbnailUrl` is not
+   * already set) we opportunistically capture the first rendered frame and
+   * POST it to `/api/recordings/:id/thumbnail` so the library grid has a
+   * real thumbnail on future loads — fixes clips recorded before the
+   * thumbnail-capture feature shipped.
+   */
+  role?: "owner" | "admin" | "editor" | "viewer";
 }
 
 export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
@@ -96,6 +104,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       hideChrome,
       hideCaptions,
       cover,
+      recordingId,
+      role,
     } = props;
 
     const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -123,6 +133,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     // Whether we've already applied the Infinity-duration work-around so we
     // don't seek to 1e10 on every loadedmetadata fire (autoplay + iOS replay).
     const durationProbedRef = useRef(false);
+    // Whether we've already captured-and-uploaded a still-frame thumbnail for
+    // this clip. Owner-only, once per player lifecycle, skipped if the row
+    // already has a thumbnailUrl — see the capture effect below for why.
+    const thumbnailCapturedRef = useRef(false);
     // "Preparing your clip…" overlay — shown while the browser buffers the
     // first frame of a freshly-finalized clip so the user doesn't see a blank
     // black rectangle. Hidden on loadeddata / canplay / currentTime > 0, or
@@ -238,6 +252,54 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         v.removeEventListener("durationchange", onDurationChange);
       };
     }, [videoUrl]);
+
+    // Reset the thumbnail-capture flag when the source changes (e.g. the
+    // player is reused for a different recording via React Router).
+    useEffect(() => {
+      thumbnailCapturedRef.current = false;
+    }, [recordingId, videoUrl]);
+
+    // Opportunistically capture and upload a still-frame thumbnail for the
+    // owner as soon as the first frame is ready. We only do this once per
+    // clip, skip if the row already has a thumbnail, and silently no-op on
+    // failure — the fallback play-icon placeholder in the library grid is
+    // still fine. This backfills thumbnails for clips recorded before the
+    // capture feature shipped.
+    const captureThumbnail = useCallback(() => {
+      if (thumbnailCapturedRef.current) return;
+      if (role !== "owner") return;
+      if (thumbnailUrl) return;
+      if (!recordingId) return;
+      const v = videoRef.current;
+      if (!v || !v.videoWidth || !v.videoHeight) return;
+
+      thumbnailCapturedRef.current = true;
+
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = v.videoWidth;
+        canvas.height = v.videoHeight;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+        ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) return;
+            fetch(`/api/recordings/${recordingId}/thumbnail`, {
+              method: "POST",
+              headers: { "Content-Type": blob.type || "image/jpeg" },
+              body: blob,
+            }).catch((err) => {
+              console.warn("[clips] thumbnail upload failed", err);
+            });
+          },
+          "image/jpeg",
+          0.85,
+        );
+      } catch (err) {
+        console.warn("[clips] thumbnail capture failed", err);
+      }
+    }, [recordingId, role, thumbnailUrl]);
 
     // Reset the "Preparing your clip…" overlay whenever the video source
     // changes, and start a 10s safety timeout so the overlay can never stick.
