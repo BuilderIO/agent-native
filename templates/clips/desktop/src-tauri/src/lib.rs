@@ -447,7 +447,12 @@ async fn show_bubble(app: AppHandle) -> Result<(), String> {
     })?;
     let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(size, size)));
     let _ = win.set_position(PhysicalPosition::new(x, y));
-    set_capture_excluded(&win);
+    // NOTE: intentionally NOT calling `set_capture_excluded` on the bubble.
+    // The bubble is the user's face — Loom's behavior is that the camera
+    // PiP IS composited into the final recording (that's the whole point of
+    // the bubble). NSWindowSharingNone would make macOS exclude it from
+    // `getDisplayMedia`, which matches the other Clips chrome (popover,
+    // toolbar, countdown) but NOT what users want for the camera bubble.
     let _ = win.show();
     eprintln!("[clips-tray] bubble shown at ({},{}) size {}", x, y, size);
     Ok(())
@@ -614,6 +619,26 @@ async fn show_popover(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Move the popover far off-screen WITHOUT hiding it. Used during recording:
+/// fully hiding the popover suspends its JS (WKWebView stops `rAF` and
+/// `requestVideoFrameCallback` on hidden windows) which freezes the camera
+/// bubble frame pump. Parking the window off the right edge of the primary
+/// monitor keeps JS running (WKWebView only throttles, doesn't suspend) while
+/// the user doesn't see the popover. The popover is already
+/// `NSWindowSharingNone` so it can't appear in the recording.
+///
+/// Call this from the frontend instead of `getCurrentWindow().hide()` when
+/// you want the popover's JS to keep ticking.
+#[tauri::command]
+async fn park_popover_offscreen(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("popover") {
+        // 99999,99999 matches the boot-time parking trick already used in
+        // tauri.conf.json — far off any realistic display's bounds.
+        let _ = window.set_position(PhysicalPosition::new(99999_i32, 99999_i32));
+    }
+    Ok(())
+}
+
 fn mark_popover_shown(app: &AppHandle) {
     if let Some(state) = app.try_state::<PopoverShownAt>() {
         if let Ok(mut g) = state.0.lock() {
@@ -754,6 +779,7 @@ pub fn run() {
             hide_recording_chrome,
             close_bubble,
             show_popover,
+            park_popover_offscreen,
             resize_popover,
             show_signin,
             close_signin,

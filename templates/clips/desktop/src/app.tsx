@@ -542,12 +542,15 @@ export function App() {
       // the normal error path.
       handle = await recordingPromise;
       console.log("[clips-popover] recorder handle received");
-      // Hide the popover now that the recorder is live. Safe to do after
-      // the promise resolved — WebKit JS was never suspended because we
-      // didn't hide it during getDisplayMedia.
-      getCurrentWindow()
-        .hide()
-        .catch(() => {});
+      // Move the popover FAR off-screen instead of hiding it. Reason:
+      // `window.hide()` causes WKWebView to suspend JS on the hidden
+      // window (rAF + `requestVideoFrameCallback` stop firing), which
+      // freezes the bubble frame pump — so the bubble shows the last
+      // captured frame and stops updating while recording. Parking
+      // off-screen keeps the window visible to WebKit (JS stays active)
+      // while invisible to the user. The popover is already
+      // `NSWindowSharingNone`, so it can't leak into the recording.
+      invoke("park_popover_offscreen").catch(() => {});
       emit("clips:popover-visible", false).catch(() => {});
     } catch (err) {
       startError = err;

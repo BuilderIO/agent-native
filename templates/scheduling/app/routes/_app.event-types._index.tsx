@@ -2,18 +2,10 @@ import { useLoaderData, Link, useRevalidator } from "react-router";
 import { useState } from "react";
 import { listEventTypes } from "@agent-native/scheduling/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { BookingLinkCreateDialog } from "@agent-native/scheduling/react/components";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogTrigger,
-  DialogFooter,
-} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,9 +23,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
   TooltipContent,
@@ -68,22 +57,7 @@ export default function EventTypesPage() {
   const { eventTypes, ownerEmail } = useLoaderData<typeof loader>();
   const rv = useRevalidator();
   const [createOpen, setCreateOpen] = useState(false);
-  const [form, setForm] = useState({
-    title: "",
-    slug: "",
-    length: 30,
-    description: "",
-  });
   const [deleteTarget, setDeleteTarget] = useState<EventTypeRow | null>(null);
-
-  const create = async () => {
-    if (!form.title || !form.slug) return;
-    await callAction("create-event-type", form);
-    toast.success("Event type created");
-    setCreateOpen(false);
-    setForm({ title: "", slug: "", length: 30, description: "" });
-    rv.revalidate();
-  };
 
   const copyLink = (slug: string) => {
     const url = `${location.origin}/${ownerEmail}/${slug}`;
@@ -127,95 +101,22 @@ export default function EventTypesPage() {
             Create events to share for people to book on your calendar.
           </p>
         </div>
-        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <IconPlus className="mr-1.5 h-4 w-4" />
-              New
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Add a new event type</DialogTitle>
-              <DialogDescription>
-                Create a new event type for people to book.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="title">Title</Label>
-                <Input
-                  id="title"
-                  placeholder="Quick chat"
-                  value={form.title}
-                  onChange={(e) =>
-                    setForm({ ...form, title: e.currentTarget.value })
-                  }
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="slug">URL</Label>
-                <div className="flex rounded-md border border-input focus-within:ring-2 focus-within:ring-ring">
-                  <span className="flex items-center rounded-l-md bg-muted px-3 text-xs text-muted-foreground">
-                    /{ownerEmail}/
-                  </span>
-                  <Input
-                    id="slug"
-                    placeholder="quick-chat"
-                    className="border-0 rounded-l-none focus-visible:ring-0 focus-visible:ring-offset-0"
-                    value={form.slug}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        slug: e.currentTarget.value
-                          .toLowerCase()
-                          .replace(/\s+/g, "-"),
-                      })
-                    }
-                  />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="description">Description</Label>
-                <Textarea
-                  id="description"
-                  placeholder="A short description people will see."
-                  rows={2}
-                  value={form.description}
-                  onChange={(e) =>
-                    setForm({ ...form, description: e.currentTarget.value })
-                  }
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="length">Duration</Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="length"
-                    type="number"
-                    className="w-24"
-                    value={form.length}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        length: Number(e.currentTarget.value),
-                      })
-                    }
-                  />
-                  <span className="text-sm text-muted-foreground">minutes</span>
-                </div>
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setCreateOpen(false)}>
-                Cancel
-              </Button>
-              <Button onClick={create} disabled={!form.title || !form.slug}>
-                Continue
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <Button onClick={() => setCreateOpen(true)}>
+          <IconPlus className="mr-1.5 h-4 w-4" />
+          New
+        </Button>
+        <BookingLinkCreateDialog
+          open={createOpen}
+          onOpenChange={setCreateOpen}
+          slugPrefix={`/${ownerEmail}/`}
+          defaultLength={30}
+          onSubmit={async (draft) => {
+            await callAction("create-event-type", draft);
+            toast.success("Event type created");
+            setCreateOpen(false);
+            rv.revalidate();
+          }}
+        />
       </header>
 
       {eventTypes.length === 0 ? (
