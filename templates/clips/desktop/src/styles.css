@@ -927,10 +927,9 @@ button {
   cursor: grab;
   user-select: none;
   -webkit-user-select: none;
-  box-shadow:
-    0 10px 40px rgba(0, 0, 0, 0.45),
-    0 0 0 3px rgba(98, 93, 245, 0.8),
-    0 0 0 4px rgba(255, 255, 255, 0.15);
+  /* Drop shadow only — no brand ring. The bubble is the user's face;
+     a bright purple halo competes with what matters visually. */
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
 }
 
 .bubble-root:active {
