@@ -220,8 +220,9 @@ async fn show_toolbar(app: AppHandle) -> Result<(), String> {
 
 /// Physical-pixel bubble sizes. Logical px on retina = physical / 2, so these
 /// map to ~96 (small) and ~180 (medium) logical px — matching Loom's camera
-/// bubble sizes exactly. Medium is the default (and matches the previous
-/// hardcoded 360 value so existing users see no change on upgrade).
+/// bubble sizes exactly. Small is the default so the bubble feels like a
+/// quiet PiP rather than a giant circle the user has to shrink on every
+/// launch — this matches Loom's out-of-the-box behavior.
 const BUBBLE_SIZE_SMALL: u32 = 192;
 const BUBBLE_SIZE_MEDIUM: u32 = 360;
 
@@ -239,8 +240,8 @@ const BUBBLE_CONTROLS_BUDGET_PX: u32 = 80;
 
 fn bubble_size_for_name(name: &str) -> u32 {
     match name {
-        "small" => BUBBLE_SIZE_SMALL,
-        _ => BUBBLE_SIZE_MEDIUM,
+        "medium" => BUBBLE_SIZE_MEDIUM,
+        _ => BUBBLE_SIZE_SMALL,
     }
 }
 
@@ -282,22 +283,24 @@ fn bubble_size_path(app: &AppHandle) -> Option<PathBuf> {
     Some(dir.join("bubble-size.json"))
 }
 
-/// Load the last-saved bubble size name, default "medium" if nothing is saved
-/// or parsing fails.
+/// Load the last-saved bubble size name, default "small" if nothing is saved
+/// or parsing fails. Small is the out-of-the-box default so the bubble feels
+/// like a quiet PiP on first launch — users can bump it to medium from the
+/// hover-controls pill if they want it bigger.
 fn load_bubble_size_name(app: &AppHandle) -> String {
     let Some(path) = bubble_size_path(app) else {
-        return "medium".to_string();
+        return "small".to_string();
     };
     let Ok(bytes) = std::fs::read(&path) else {
-        return "medium".to_string();
+        return "small".to_string();
     };
     let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
-        return "medium".to_string();
+        return "small".to_string();
     };
     match value.get("size").and_then(|v| v.as_str()) {
         Some("small") => "small".to_string(),
         Some("medium") => "medium".to_string(),
-        _ => "medium".to_string(),
+        _ => "small".to_string(),
     }
 }
 
@@ -337,8 +340,8 @@ async fn load_bubble_size(app: AppHandle) -> Result<String, String> {
 #[tauri::command]
 async fn set_bubble_size(app: AppHandle, size: String) -> Result<(), String> {
     let name = match size.as_str() {
-        "small" => "small",
-        _ => "medium",
+        "medium" => "medium",
+        _ => "small",
     };
     let px = bubble_size_for_name(name);
     let win_h = bubble_window_height_for(px);
@@ -358,7 +361,7 @@ async fn set_bubble_size(app: AppHandle, size: String) -> Result<(), String> {
             .outer_size()
             .ok()
             .map(|s| s.width as i32)
-            .unwrap_or(BUBBLE_SIZE_MEDIUM as i32);
+            .unwrap_or(BUBBLE_SIZE_SMALL as i32);
         let new_px = px as i32;
         let delta = (current_size - new_px) / 2;
         let new_x = current_pos.0 + delta;
@@ -420,9 +423,8 @@ async fn show_bubble(app: AppHandle) -> Result<(), String> {
         return Ok(());
     }
     let (mw, mh) = primary_monitor_physical_size(&app).unwrap_or((2880, 1800));
-    // Honor the user's last-chosen size. Default is "medium" (360 physical =
-    // 180 logical), which matches the original hardcoded value — existing
-    // users see no visual change on upgrade.
+    // Honor the user's last-chosen size. Default is "small" (192 physical =
+    // 96 logical) so new users get a quiet PiP rather than a giant circle.
     let size_name = load_bubble_size_name(&app);
     let size: u32 = bubble_size_for_name(&size_name);
     // The actual window is TALLER than the circle — see
