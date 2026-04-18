@@ -64,6 +64,10 @@ export default function RecordingPage() {
   const [shareOpen, setShareOpen] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
   const [speed, setSpeed] = useState(1.2);
+  // When the recording lands in the processing state but never flips to
+  // 'ready', stop spinning forever and surface an error banner so the user
+  // can retry or report the issue instead of staring at a spinner.
+  const [processingTimeout, setProcessingTimeout] = useState(false);
 
   const playerDataQ = useActionQuery<any>(
     "get-recording-player-data",
@@ -106,6 +110,27 @@ export default function RecordingPage() {
     const s = parseFloat(recording.defaultSpeed || "1.2");
     if (!Number.isNaN(s)) setSpeed(s);
   }, [recording?.defaultSpeed]);
+
+  // After 30 seconds of non-ready status (without an explicit failure), flip
+  // a local flag so we can stop pretending this is normal and show an error.
+  // Even a 10-minute recording's finalize completes in a few seconds with
+  // the SQL fallback, so anything past 30s means something is wrong.
+  useEffect(() => {
+    if (!recording) {
+      setProcessingTimeout(false);
+      return;
+    }
+    if (recording.status === "ready" && recording.videoUrl) {
+      setProcessingTimeout(false);
+      return;
+    }
+    if (recording.status === "failed") {
+      setProcessingTimeout(false);
+      return;
+    }
+    const handle = setTimeout(() => setProcessingTimeout(true), 30_000);
+    return () => clearTimeout(handle);
+  }, [recording?.status, recording?.videoUrl, recordingId]);
 
   // Sync navigation state
   useEffect(() => {
@@ -167,33 +192,41 @@ export default function RecordingPage() {
   // server writes videoUrl + flips status to 'ready'.
   if (recording.status !== "ready" || !recording.videoUrl) {
     const progress = Number(recording.uploadProgress ?? 0);
-    const label =
-      recording.status === "failed"
-        ? "Something went wrong while saving this clip."
-        : "Finishing up your clip…";
+    const explicitFailure = recording.status === "failed";
+    // Treat "stuck on processing/uploading past the 30s mark" as a failure
+    // too — otherwise the user stares at a spinner forever when finalize
+    // silently dies (e.g. chunk route 401s, storage provider throws).
+    const stuckFailure = !explicitFailure && processingTimeout;
+    const isFailure = explicitFailure || stuckFailure;
+    const label = isFailure
+      ? "Something went wrong while saving this clip."
+      : "Finishing up your clip…";
+    const failureReason = explicitFailure
+      ? ((recording as any).failureReason ?? "You can retry from the library.")
+      : stuckFailure
+        ? `Processing hasn't completed after 30 seconds (status=${recording.status}). The clip may not have finished uploading — check the server logs for [chunk]/[finalize] messages.`
+        : "Uploading and assembling your video — this usually takes just a few seconds.";
     return (
       <div className="flex flex-col items-center justify-center h-screen w-full bg-background px-6">
-        {recording.status !== "failed" ? (
-          <Spinner className="h-8 w-8 mb-4" />
-        ) : null}
+        {!isFailure ? <Spinner className="h-8 w-8 mb-4" /> : null}
         <h1 className="text-lg font-semibold mb-1">{label}</h1>
-        <p className="text-sm text-muted-foreground mb-4">
-          {recording.status === "failed"
-            ? ((recording as any).failureReason ??
-              "You can retry from the library.")
-            : "Uploading and assembling your video — this usually takes just a few seconds."}
+        <p className="text-sm text-muted-foreground mb-4 max-w-md text-center">
+          {failureReason}
         </p>
-        {recording.status !== "failed" && progress > 0 ? (
+        {!isFailure && progress > 0 ? (
           <div className="w-64 h-1.5 rounded-full bg-muted overflow-hidden mb-4">
             <div
-              className="h-full bg-foreground transition-all"
+              className="h-full bg-foreground"
               style={{ width: `${Math.min(100, Math.max(0, progress))}%` }}
             />
           </div>
         ) : null}
         <div className="flex items-center gap-2">
           <Button
-            onClick={() => playerDataQ.refetch()}
+            onClick={() => {
+              setProcessingTimeout(false);
+              playerDataQ.refetch();
+            }}
             variant="outline"
             size="sm"
           >

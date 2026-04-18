@@ -105,8 +105,14 @@ async function uploadChunk(url: string, blob: Blob): Promise<void> {
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
+    console.error(
+      "[clips-recorder] chunk failed:",
+      res.status,
+      body.slice(0, 200),
+    );
     throw new Error(`chunk ${res.status}: ${body.slice(0, 200)}`);
   }
+  console.log("[clips-recorder] chunk ok:", res.status, blob.size, "bytes");
 }
 
 async function waitForEvent(name: string, timeoutMs = 15_000): Promise<void> {
@@ -159,15 +165,24 @@ export async function startNativeRecording(
   }
   let audioStream: MediaStream | null = null;
   if (wantsAudio) {
+    console.log("[clips-recorder] acquiring audioStream (mic only)");
     audioStream = await navigator.mediaDevices.getUserMedia({
       audio: params.micId ? { deviceId: { exact: params.micId } } : true,
     });
+    console.log(
+      "[clips-recorder] audioStream acquired",
+      audioStream.getAudioTracks().map((t) => ({
+        label: t.label,
+        readyState: t.readyState,
+      })),
+    );
   }
 
   // For the camera-only mode the bubble's own getUserMedia is the primary
   // video source. We don't need a second stream in the popover.
   let cameraStream: MediaStream | null = null;
   if (params.mode === "camera") {
+    console.log("[clips-recorder] acquiring cameraStream (mode=camera only)");
     cameraStream = await navigator.mediaDevices.getUserMedia({
       video: params.cameraId ? { deviceId: { exact: params.cameraId } } : true,
       audio: false,
@@ -297,6 +312,18 @@ export async function startNativeRecording(
   recorder.start(2_000);
   console.log("[clips-recorder] MediaRecorder started");
 
+  // Tell the bubble we just started recording so it can proactively
+  // re-acquire its camera stream ~600ms from now. On macOS WebKit the
+  // bubble's video track often gets flipped to `muted` the instant
+  // MediaRecorder starts in another webview of the same process —
+  // rather than wait for the bubble's watchdog to notice a black frame,
+  // kick it back into life directly.
+  if (wantsCamera) {
+    emit("clips:recording-started", {}).catch((err) =>
+      console.error("[clips-recorder] recording-started emit failed:", err),
+    );
+  }
+
   // 6. Show the floating toolbar. The camera bubble is already on-screen
   // from the popover's pre-record preview effect (which also owns the
   // bubble-config emit). Re-invoking show_bubble here used to fire a
@@ -370,6 +397,11 @@ export async function startNativeRecording(
       const finalizeUrl = chunkUrl(params.serverUrl, id, chunkIndex, true, {
         mimeType: mimeType || "video/webm",
       });
+      console.log("[clips-recorder] finalize POST", finalizeUrl, {
+        chunksSent: chunkIndex,
+        uploadQueueLen: uploadQueue.length,
+        anyFailed: !!failed,
+      });
       try {
         const finalRes = await fetch(finalizeUrl, {
           method: "POST",
@@ -377,14 +409,12 @@ export async function startNativeRecording(
           credentials: "include",
           body: new Blob([], { type: mimeType || "video/webm" }),
         });
-        if (!finalRes.ok) {
-          const body = await finalRes.text().catch(() => "");
-          console.error(
-            `[clips-recorder] finalize ${finalRes.status}: ${body.slice(0, 200)}`,
-          );
-        } else {
-          console.log("[clips-recorder] finalize ok");
-        }
+        const bodyText = await finalRes.text().catch(() => "");
+        console.log(
+          "[clips-recorder] finalize response:",
+          finalRes.status,
+          bodyText.slice(0, 500),
+        );
       } catch (err) {
         console.error("[clips-recorder] finalize fetch failed:", err);
       }

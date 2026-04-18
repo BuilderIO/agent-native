@@ -320,18 +320,21 @@ const migrations = runMigrations([
 
 /**
  * Idempotent sync: for every Clips `workspaces` row, ensure there's a
- * matching better-auth `organization` row (same id), an
- * `organization_settings` row, and — where the email resolves to a known
- * `user` — a `member` row. Invites are copied into `invitation`.
+ * matching framework `organizations` row (same id), an
+ * `organization_settings` row, and — where owner has not already been
+ * seeded — an admin `org_members` row. Invites are copied into
+ * `org_invitations`.
+ *
+ * The framework ships two parallel org systems — the simpler email-based
+ * one (`organizations` / `org_members` / `org_invitations`, which `/_agent-native/org/*`
+ * endpoints + `useOrg` read) and better-auth's own `organization` / `member` /
+ * `invitation` tables. Clips rides on the simpler system because the
+ * framework client hooks and the `share-resource` action both resolve
+ * membership there.
  *
  * Runs on every startup after the schema migrations. Safe to re-run: all
- * inserts are guarded with WHERE-NOT-EXISTS / ON CONFLICT DO NOTHING so it
- * only writes rows that aren't there yet.
- *
- * This is the one-way bridge that lets actions + UI switch from the old
- * `workspaces` / `workspace_members` / `invites` tables to the framework's
- * `organization` / `member` / `invitation` tables without a separate
- * migration script.
+ * inserts are guarded with WHERE-NOT-EXISTS so it only writes rows that
+ * aren't there yet.
  */
 async function syncWorkspacesToOrganizations(): Promise<void> {
   const exec = getDbExec();
@@ -339,9 +342,9 @@ async function syncWorkspacesToOrganizations(): Promise<void> {
 
   // 0) Skip cleanly if either source or dest tables don't exist yet. The
   //    source may be missing on fresh installs after the workspace tables
-  //    are eventually dropped; the dest `organization` is owned by
-  //    better-auth and created at auth init, which may race with this
-  //    plugin on very first boot.
+  //    are eventually dropped; the framework org tables are created via
+  //    their own migration bundle which may race with this plugin on
+  //    very first boot.
   const hasTable = async (name: string): Promise<boolean> => {
     try {
       if (pg) {
@@ -363,58 +366,44 @@ async function syncWorkspacesToOrganizations(): Promise<void> {
 
   if (
     !(await hasTable("workspaces")) ||
-    !(await hasTable("organization")) ||
+    !(await hasTable("organizations")) ||
+    !(await hasTable("org_members")) ||
     !(await hasTable("organization_settings"))
   ) {
     return;
   }
 
-  // 1) Copy workspaces → organization. Use the workspace id as the org id
+  // 1) Copy workspaces → organizations. Use the workspace id as the org id
   //    so every downstream FK (`spaces.workspace_id`, `recordings.workspace_id`,
-  //    etc.) already points at the right org without a remap. Slug
-  //    collisions inside `organization.slug` (UNIQUE) are handled by
-  //    appending the workspace id — works because ids are unique.
+  //    etc.) already points at the right org without a remap. The framework
+  //    `organizations` table has a simple shape: id, name, created_by, created_at.
   try {
     if (pg) {
       await exec.execute(`
-        INSERT INTO "organization" (id, name, slug, logo, metadata, created_at, updated_at)
+        INSERT INTO organizations (id, name, created_by, created_at)
         SELECT
           w.id,
           w.name,
-          CASE
-            WHEN EXISTS (SELECT 1 FROM "organization" o WHERE o.slug = w.slug AND o.id <> w.id)
-            THEN w.slug || '-' || substring(w.id from 1 for 8)
-            ELSE w.slug
-          END,
-          w.brand_logo_url,
-          '{}',
-          NOW(),
-          NOW()
+          w.owner_email,
+          EXTRACT(EPOCH FROM COALESCE(w.created_at::TIMESTAMPTZ, NOW())) * 1000
         FROM workspaces w
-        WHERE NOT EXISTS (SELECT 1 FROM "organization" o2 WHERE o2.id = w.id)
+        WHERE NOT EXISTS (SELECT 1 FROM organizations o WHERE o.id = w.id)
       `);
     } else {
       await exec.execute(`
-        INSERT INTO organization (id, name, slug, logo, metadata, created_at, updated_at)
+        INSERT INTO organizations (id, name, created_by, created_at)
         SELECT
           w.id,
           w.name,
-          CASE
-            WHEN EXISTS (SELECT 1 FROM organization o WHERE o.slug = w.slug AND o.id <> w.id)
-            THEN w.slug || '-' || substr(w.id, 1, 8)
-            ELSE w.slug
-          END,
-          w.brand_logo_url,
-          '{}',
-          strftime('%s','now') * 1000,
+          w.owner_email,
           strftime('%s','now') * 1000
         FROM workspaces w
-        WHERE NOT EXISTS (SELECT 1 FROM organization o2 WHERE o2.id = w.id)
+        WHERE NOT EXISTS (SELECT 1 FROM organizations o WHERE o.id = w.id)
       `);
     }
   } catch (err) {
     console.warn(
-      `[db] workspaces → organization sync failed:`,
+      `[db] workspaces → organizations sync failed:`,
       (err as Error)?.message ?? err,
     );
   }
@@ -436,186 +425,174 @@ async function syncWorkspacesToOrganizations(): Promise<void> {
     );
   }
 
-  // 3a) Seed each workspace's owner as an admin `member` row. The old Clips
-  //     workspace model didn't require owners to also live in
-  //     `workspace_members` (the owner's membership was implicit), so this
-  //     is the step that actually lands the current user inside their
-  //     new better-auth org. Skip if the owner email doesn't yet have a
-  //     `user` row (they'll be joined on next login).
+  // 3a) Seed each workspace owner as an admin `org_members` row. Owners
+  //     were implicitly members in the old Clips workspace model — this is
+  //     the step that lands the current user inside their new org.
   try {
     if (pg) {
       await exec.execute(`
-        INSERT INTO "member" (id, organization_id, user_id, role, created_at, updated_at)
+        INSERT INTO org_members (id, org_id, email, role, joined_at)
         SELECT
           'ownr-' || w.id,
           w.id,
-          u.id,
+          w.owner_email,
           'admin',
-          NOW(),
-          NOW()
+          EXTRACT(EPOCH FROM NOW()) * 1000
         FROM workspaces w
-        JOIN "user" u ON u.email = w.owner_email
         WHERE NOT EXISTS (
-          SELECT 1 FROM "member" m
-          WHERE m.organization_id = w.id AND m.user_id = u.id
+          SELECT 1 FROM org_members m
+          WHERE m.org_id = w.id AND LOWER(m.email) = LOWER(w.owner_email)
         )
       `);
     } else {
       await exec.execute(`
-        INSERT INTO member (id, organization_id, user_id, role, created_at, updated_at)
+        INSERT INTO org_members (id, org_id, email, role, joined_at)
         SELECT
           'ownr-' || w.id,
           w.id,
-          u.id,
+          w.owner_email,
           'admin',
-          strftime('%s','now') * 1000,
           strftime('%s','now') * 1000
         FROM workspaces w
-        JOIN user u ON u.email = w.owner_email
         WHERE NOT EXISTS (
-          SELECT 1 FROM member m
-          WHERE m.organization_id = w.id AND m.user_id = u.id
+          SELECT 1 FROM org_members m
+          WHERE m.org_id = w.id AND LOWER(m.email) = LOWER(w.owner_email)
         )
       `);
     }
   } catch (err) {
     console.warn(
-      `[db] workspace owners → member sync failed:`,
+      `[db] workspace owners → org_members sync failed:`,
       (err as Error)?.message ?? err,
     );
   }
 
-  // 3b) Copy workspace_members → member where the email resolves to a known
-  //    user. Role mapping: clips `admin` → better-auth `admin`, everything
-  //    else (`creator`, `creator-lite`, `viewer`) → `member`. Finer
-  //    distinctions (if we reintroduce them) can go in a sidecar table.
+  // 3b) Copy workspace_members → org_members. Role mapping: clips `admin` →
+  //     framework `admin`, everything else (`creator`, `creator-lite`,
+  //     `viewer`) → `member`.
   try {
     if (pg) {
       await exec.execute(`
-        INSERT INTO "member" (id, organization_id, user_id, role, created_at, updated_at)
+        INSERT INTO org_members (id, org_id, email, role, joined_at)
         SELECT
           wm.id,
           wm.workspace_id,
-          u.id,
+          wm.email,
           CASE WHEN wm.role = 'admin' THEN 'admin' ELSE 'member' END,
-          NOW(),
-          NOW()
+          EXTRACT(EPOCH FROM NOW()) * 1000
         FROM workspace_members wm
-        JOIN "user" u ON u.email = wm.email
         WHERE NOT EXISTS (
-          SELECT 1 FROM "member" m
-          WHERE m.organization_id = wm.workspace_id AND m.user_id = u.id
+          SELECT 1 FROM org_members m
+          WHERE m.org_id = wm.workspace_id AND LOWER(m.email) = LOWER(wm.email)
         )
       `);
     } else {
       await exec.execute(`
-        INSERT INTO member (id, organization_id, user_id, role, created_at, updated_at)
+        INSERT INTO org_members (id, org_id, email, role, joined_at)
         SELECT
           wm.id,
           wm.workspace_id,
-          u.id,
+          wm.email,
           CASE WHEN wm.role = 'admin' THEN 'admin' ELSE 'member' END,
-          strftime('%s','now') * 1000,
           strftime('%s','now') * 1000
         FROM workspace_members wm
-        JOIN user u ON u.email = wm.email
         WHERE NOT EXISTS (
-          SELECT 1 FROM member m
-          WHERE m.organization_id = wm.workspace_id AND m.user_id = u.id
+          SELECT 1 FROM org_members m
+          WHERE m.org_id = wm.workspace_id AND LOWER(m.email) = LOWER(wm.email)
         )
       `);
     }
   } catch (err) {
     console.warn(
-      `[db] workspace_members → member sync failed:`,
+      `[db] workspace_members → org_members sync failed:`,
       (err as Error)?.message ?? err,
     );
   }
 
-  // 3c) Set `session.active_organization_id` for any active session that
-  //     doesn't have one yet, picking the user's newest org membership.
-  //     Without this, the UI would render "No organization" on first boot
-  //     after the migration even though the user IS in an org — better-auth
-  //     only auto-activates an org on login, not for pre-existing sessions.
+  // 4) Copy invites → org_invitations (pending only).
   try {
     if (pg) {
       await exec.execute(`
-        UPDATE "session" s
-        SET active_organization_id = sub.organization_id
+        INSERT INTO org_invitations (id, org_id, email, invited_by, created_at, status)
+        SELECT
+          i.id,
+          i.workspace_id,
+          i.email,
+          i.invited_by,
+          EXTRACT(EPOCH FROM NOW()) * 1000,
+          CASE WHEN i.accepted_at IS NOT NULL THEN 'accepted' ELSE 'pending' END
+        FROM invites i
+        WHERE NOT EXISTS (
+          SELECT 1 FROM org_invitations x WHERE x.id = i.id
+        )
+      `);
+    } else {
+      await exec.execute(`
+        INSERT INTO org_invitations (id, org_id, email, invited_by, created_at, status)
+        SELECT
+          i.id,
+          i.workspace_id,
+          i.email,
+          i.invited_by,
+          strftime('%s','now') * 1000,
+          CASE WHEN i.accepted_at IS NOT NULL THEN 'accepted' ELSE 'pending' END
+        FROM invites i
+        WHERE NOT EXISTS (
+          SELECT 1 FROM org_invitations x WHERE x.id = i.id
+        )
+      `);
+    }
+  } catch (err) {
+    console.warn(
+      `[db] invites → org_invitations sync failed:`,
+      (err as Error)?.message ?? err,
+    );
+  }
+
+  // 5) Set each user's `active-org-id` user-setting so the framework's
+  //    `getOrgContext()` resolves to their newest org on first load. The
+  //    value is stored as JSON in the settings table under the key
+  //    `u:<email>:active-org-id`. `settings.updated_at` is NOT NULL so we
+  //    set it to now.
+  try {
+    if (pg) {
+      await exec.execute(`
+        INSERT INTO settings (key, value, updated_at)
+        SELECT
+          'u:' || LOWER(sub.email) || ':active-org-id',
+          '{"orgId":"' || sub.org_id || '"}',
+          EXTRACT(EPOCH FROM NOW()) * 1000
         FROM (
-          SELECT DISTINCT ON (user_id) user_id, organization_id
-          FROM "member"
-          ORDER BY user_id, created_at DESC
+          SELECT DISTINCT ON (LOWER(email)) email, org_id
+          FROM org_members
+          ORDER BY LOWER(email), joined_at DESC
         ) sub
-        WHERE s.user_id = sub.user_id
-          AND s.active_organization_id IS NULL
-      `);
-    } else {
-      await exec.execute(`
-        UPDATE session
-        SET active_organization_id = (
-          SELECT m.organization_id
-          FROM member m
-          WHERE m.user_id = session.user_id
-          ORDER BY m.created_at DESC
-          LIMIT 1
-        )
-        WHERE active_organization_id IS NULL
-          AND EXISTS (SELECT 1 FROM member m2 WHERE m2.user_id = session.user_id)
-      `);
-    }
-  } catch (err) {
-    console.warn(
-      `[db] session.active_organization_id backfill failed:`,
-      (err as Error)?.message ?? err,
-    );
-  }
-
-  // 4) Copy invites → invitation (pending only). Inviter has to resolve to
-  //    a known user — if not, skip (invitation.inviter_id is NOT NULL).
-  try {
-    if (pg) {
-      await exec.execute(`
-        INSERT INTO "invitation" (id, organization_id, email, role, status, expires_at, inviter_id, created_at, updated_at)
-        SELECT
-          i.id,
-          i.workspace_id,
-          i.email,
-          CASE WHEN i.role = 'admin' THEN 'admin' ELSE 'member' END,
-          CASE WHEN i.accepted_at IS NOT NULL THEN 'accepted' ELSE 'pending' END,
-          COALESCE(i.expires_at::TIMESTAMPTZ, NOW() + INTERVAL '30 days'),
-          inv.id,
-          NOW(),
-          NOW()
-        FROM invites i
-        JOIN "user" inv ON inv.email = i.invited_by
         WHERE NOT EXISTS (
-          SELECT 1 FROM "invitation" x WHERE x.id = i.id
+          SELECT 1 FROM settings s
+          WHERE s.key = 'u:' || LOWER(sub.email) || ':active-org-id'
         )
       `);
     } else {
       await exec.execute(`
-        INSERT INTO invitation (id, organization_id, email, role, status, expires_at, inviter_id, created_at, updated_at)
+        INSERT INTO settings (key, value, updated_at)
         SELECT
-          i.id,
-          i.workspace_id,
-          i.email,
-          CASE WHEN i.role = 'admin' THEN 'admin' ELSE 'member' END,
-          CASE WHEN i.accepted_at IS NOT NULL THEN 'accepted' ELSE 'pending' END,
-          COALESCE(CAST(i.expires_at AS INTEGER), strftime('%s','now') * 1000 + 2592000000),
-          inv.id,
-          strftime('%s','now') * 1000,
+          'u:' || LOWER(sub.email) || ':active-org-id',
+          '{"orgId":"' || sub.org_id || '"}',
           strftime('%s','now') * 1000
-        FROM invites i
-        JOIN user inv ON inv.email = i.invited_by
+        FROM (
+          SELECT email, org_id, MAX(joined_at) AS jmax
+          FROM org_members
+          GROUP BY LOWER(email)
+        ) sub
         WHERE NOT EXISTS (
-          SELECT 1 FROM invitation x WHERE x.id = i.id
+          SELECT 1 FROM settings s
+          WHERE s.key = 'u:' || LOWER(sub.email) || ':active-org-id'
         )
       `);
     }
   } catch (err) {
     console.warn(
-      `[db] invites → invitation sync failed:`,
+      `[db] active-org-id user-setting backfill failed:`,
       (err as Error)?.message ?? err,
     );
   }

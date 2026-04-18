@@ -4,6 +4,7 @@ import { getDb, getDbExec, schema } from "../db/index.js";
 import { getSession } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { readAppState } from "@agent-native/core/application-state";
+import { isPostgres } from "@agent-native/core/db";
 
 export function getCurrentOwnerEmail(): string {
   return getRequestUserEmail() || "local@localhost";
@@ -17,28 +18,26 @@ export async function getEventOwnerEmail(event: H3Event): Promise<string> {
 /**
  * Resolve the caller's active organization id.
  *
- * Order of resolution:
- *   1. The current better-auth session's `activeOrganizationId` (when an
- *      H3Event is available — e.g. inside an HTTP action).
- *   2. A single org that the caller belongs to (convenience for dev /
- *      solo-mode where there's no session to read).
- *   3. The most-recently-created organization in the DB (fallback for the
- *      agent CLI, which doesn't have a request context).
- *   4. The legacy `current-workspace` application-state key (kept so the
- *      old UI's writes continue to work during the workspace → org transition).
- *
- * Returns `null` when no org exists at all.
+ * Resolution order:
+ *   1. When an H3Event is available: the framework `getOrgContext()` resolves
+ *      the active org via `active-org-id` user-setting, with membership
+ *      cross-checked against `org_members`.
+ *   2. CLI / no-event: the caller's most recent `org_members` row for their
+ *      request email.
+ *   3. Any org in the DB (dev / solo fallback).
+ *   4. Legacy `current-workspace` app-state key or latest `workspaces` row
+ *      (back-compat for in-flight sessions spanning the migration).
  */
 export async function getActiveOrganizationId(
   event?: H3Event,
 ): Promise<string | null> {
   if (event) {
     try {
-      const session = await getSession(event);
-      const orgId = (session as any)?.orgId ?? null;
-      if (orgId) return orgId;
+      const { getOrgContext } = await import("@agent-native/core/org");
+      const ctx = await getOrgContext(event);
+      if (ctx?.orgId) return ctx.orgId;
     } catch {
-      // fall through
+      // framework helper not available in this context — fall through
     }
   }
 
@@ -47,30 +46,21 @@ export async function getActiveOrganizationId(
 
   if (email) {
     try {
+      const ph = isPostgres() ? "$1" : "?";
       const res = await exec.execute({
-        sql: `SELECT m.organization_id AS id FROM member m JOIN "user" u ON u.id = m.user_id WHERE u.email = $1 ORDER BY m.created_at DESC LIMIT 1`,
-        args: [email],
+        sql: `SELECT org_id AS id FROM org_members WHERE LOWER(email) = ${ph} ORDER BY joined_at DESC LIMIT 1`,
+        args: [email.toLowerCase()],
       });
       const row = (res.rows as Array<{ id?: string }>)[0];
       if (row?.id) return row.id;
     } catch {
-      // SQLite — try again without the quoted identifier
-      try {
-        const res = await exec.execute({
-          sql: `SELECT m.organization_id AS id FROM member m JOIN user u ON u.id = m.user_id WHERE u.email = ? ORDER BY m.created_at DESC LIMIT 1`,
-          args: [email],
-        });
-        const row = (res.rows as Array<{ id?: string }>)[0];
-        if (row?.id) return row.id;
-      } catch {
-        // fall through
-      }
+      // fall through
     }
   }
 
   try {
     const res = await exec.execute(
-      `SELECT id FROM organization ORDER BY created_at DESC LIMIT 1`,
+      `SELECT id FROM organizations ORDER BY created_at DESC LIMIT 1`,
     );
     const row = (res.rows as Array<{ id?: string }>)[0];
     if (row?.id) return row.id;
@@ -78,9 +68,8 @@ export async function getActiveOrganizationId(
     // fall through
   }
 
-  // Legacy fallback: the old workspace UI wrote `current-workspace` to app
-  // state. Keep reading it so in-flight sessions don't lose their context
-  // between the workspace → org deploy.
+  // Legacy fallback: old workspace UI's `current-workspace` app-state key,
+  // and the deprecated `workspaces` table.
   try {
     const legacy = (await readAppState("current-workspace")) as {
       id?: string;
