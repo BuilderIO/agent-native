@@ -113,6 +113,14 @@ function classifyAsset(
 let cache: { data: DownloadManifest; ts: number } | null = null;
 let inFlight: Promise<DownloadManifest> | null = null;
 
+class UpstreamError extends Error {
+  statusCode: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.statusCode = status;
+  }
+}
+
 async function fetchPage(page: number): Promise<GhRelease[]> {
   const url = `${RELEASES_URL_BASE}?per_page=${PER_PAGE}&page=${page}`;
   const res = await fetch(url, {
@@ -123,12 +131,25 @@ async function fetchPage(page: number): Promise<GhRelease[]> {
     signal: AbortSignal.timeout(10_000),
   });
   if (!res.ok) {
-    throw new Error(`Upstream releases fetch failed (${res.status})`);
+    // Preserve the upstream status code so 429 (rate limit) and 503
+    // (service unavailable) surface correctly to callers / monitors
+    // instead of being flattened to 502.
+    throw new UpstreamError(
+      res.status,
+      `Upstream releases fetch failed (${res.status})`,
+    );
   }
   return (await res.json()) as GhRelease[];
 }
 
 async function findLatestClipsRelease(): Promise<GhRelease | null> {
+  // Walk every page (up to MAX_PAGES) and track the release with the
+  // highest `published_at`. We do NOT early-exit on first match: while
+  // GitHub typically returns releases in created_at-descending order,
+  // that's an unstated sort key and it can diverge from published_at
+  // (e.g. a draft published later than a created-later draft). Scanning
+  // all pages bounds our worst-case GitHub calls to MAX_PAGES while
+  // eliminating the ordering assumption entirely.
   let best: GhRelease | null = null;
   for (let page = 1; page <= MAX_PAGES; page++) {
     const batch = await fetchPage(page);
@@ -144,10 +165,6 @@ async function findLatestClipsRelease(): Promise<GhRelease | null> {
         best = r;
       }
     }
-    // Releases are returned newest-first by GitHub. Once we've seen a
-    // clips-v* match on any page, subsequent pages can only hold older
-    // matches — safe to stop.
-    if (best) break;
     if (batch.length < PER_PAGE) break;
   }
   return best;
@@ -201,9 +218,14 @@ export default defineEventHandler(async (event) => {
   try {
     manifest = await getManifest();
   } catch (err) {
-    const e = err as { statusCode?: number; statusMessage?: string };
+    const e = err as {
+      statusCode?: number;
+      statusMessage?: string;
+      message?: string;
+    };
     const status = typeof e.statusCode === "number" ? e.statusCode : 502;
-    const msg = e.statusMessage ?? "Upstream releases fetch failed";
+    const msg =
+      e.statusMessage ?? e.message ?? "Upstream releases fetch failed";
     throw createError({ statusCode: status, statusMessage: msg });
   }
   setResponseHeaders(event, {
