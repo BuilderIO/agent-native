@@ -93,3 +93,12 @@ export async function installAndRestart(): Promise<void> {
   // downloadAndInstall already applied the bundle; relaunch completes it.
   await relaunch();
 }
+
+/**
+ * Manual retry entry point. Used by the UpdateBanner's error state to let
+ * users re-attempt after a signature-verification / download / network
+ * failure. Runs a full check + download pass, same as the periodic loop.
+ */
+export function retryUpdateCheck(): Promise<void> {
+  return runCheck();
+}

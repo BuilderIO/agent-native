@@ -1,5 +1,9 @@
 import { useState } from "react";
-import { useUpdateStatus, installAndRestart } from "../lib/updater";
+import {
+  useUpdateStatus,
+  installAndRestart,
+  retryUpdateCheck,
+} from "../lib/updater";
 
 /**
  * Compact banner that slots into the top of the popover whenever an update
@@ -9,11 +13,42 @@ import { useUpdateStatus, installAndRestart } from "../lib/updater";
 export function UpdateBanner() {
   const status = useUpdateStatus();
   const [dismissedVersion, setDismissedVersion] = useState<string | null>(null);
+  const [errorDismissed, setErrorDismissed] = useState(false);
 
   if (status.state === "idle") return null;
   if (status.state === "checking") return null;
   if (status.state === "not-available") return null;
-  if (status.state === "error") return null;
+
+  if (status.state === "error") {
+    if (errorDismissed) return null;
+    return (
+      <div className="update-banner update-banner--error">
+        <span className="update-banner-text">
+          Update check failed: {status.message}
+        </span>
+        <div className="update-banner-actions">
+          <button
+            type="button"
+            className="update-banner-btn update-banner-btn--ghost"
+            onClick={() => setErrorDismissed(true)}
+          >
+            Dismiss
+          </button>
+          <button
+            type="button"
+            className="update-banner-btn update-banner-btn--primary"
+            onClick={() => {
+              retryUpdateCheck().catch((err) => {
+                console.error("[clips-updater] retry failed:", err);
+              });
+            }}
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // User dismissed for this version — don't keep nagging.
   if (

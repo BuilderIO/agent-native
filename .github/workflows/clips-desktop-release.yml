@@ -48,6 +48,16 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      - name: Guard — refuse to release with placeholder updater pubkey
+        shell: bash
+        run: |
+          if grep -q 'REPLACE_WITH_TAURI_UPDATER_PUBKEY' "$TAURI_APP_PATH/src-tauri/tauri.conf.json"; then
+            echo "::error::tauri.conf.json still has the placeholder updater pubkey."
+            echo "::error::Generate a keypair with 'pnpm exec tauri signer generate' and commit the public key."
+            echo "::error::See templates/clips/desktop/README.md for the full setup."
+            exit 1
+          fi
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:

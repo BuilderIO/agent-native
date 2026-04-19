@@ -32,12 +32,17 @@ interface PlatformVariant {
   icon: typeof IconBrandApple;
 }
 
-// The `clips-latest` release is a movable pointer; its assets are overwritten
-// on every Clips Tauri release by .github/workflows/clips-desktop-release.yml.
-// Versioned bundles live on immutable `clips-v*` releases and are referenced
-// by absolute URL inside the manifest we fetch.
-const LATEST_JSON_URL =
-  "https://github.com/BuilderIO/agent-native/releases/download/clips-latest/clips-latest.json";
+// Same-origin proxy for the Tauri updater manifest. We can't hit the raw
+// GitHub release URL from a browser because GitHub's asset responses lack
+// CORS headers. See `server/routes/api/clips-latest.json.get.ts`.
+const LATEST_JSON_URL = "/api/clips-latest.json";
+
+// Fallback link when the manifest is unavailable — the public Releases
+// page for the `clips-latest` pointer, where users can pick an installer
+// by hand. This is a real, browsable URL (NOT the JSON manifest), so the
+// button never serves JSON by mistake.
+const RELEASE_PAGE_URL =
+  "https://github.com/BuilderIO/agent-native/releases/tag/clips-latest";
 
 const VARIANTS: PlatformVariant[] = [
   {
@@ -81,14 +86,16 @@ function detectPlatform(): PlatformId | null {
   if (typeof navigator === "undefined") return null;
   const ua = navigator.userAgent;
   if (/Mac/i.test(ua)) {
-    // `navigator.userAgentData.platform` is the canonical arch hint, but
-    // Safari doesn't expose it. Fall back to the heuristic that Apple
-    // Silicon is now the default on any Mac running a shipping macOS.
-    const ud = (
-      navigator as unknown as { userAgentData?: { platform?: string } }
-    ).userAgentData;
-    if (ud?.platform === "macOS") return "mac-apple-silicon";
-    return /Intel/i.test(ua) ? "mac-intel" : "mac-apple-silicon";
+    // Canonical arch signal (Chromium: "arm" | "x86"). Safari does not
+    // expose `userAgentData`, in which case we can't reliably tell Intel
+    // from Apple Silicon — default to Apple Silicon since it's the
+    // overwhelming majority on currently-shipping Macs.
+    const arch = (
+      navigator as unknown as { userAgentData?: { architecture?: string } }
+    ).userAgentData?.architecture;
+    if (arch === "arm") return "mac-apple-silicon";
+    if (arch === "x86") return "mac-intel";
+    return "mac-apple-silicon";
   }
   if (/Windows/i.test(ua)) return "windows";
   if (/Linux/i.test(ua)) return "linux";
@@ -108,17 +115,18 @@ function pickAsset(
 
 export default function DownloadPage() {
   const [manifest, setManifest] = useState<Manifest | null>(null);
+  const [manifestError, setManifestError] = useState(false);
   const detected = useMemo(() => detectPlatform(), []);
 
   useEffect(() => {
     let cancelled = false;
     fetch(LATEST_JSON_URL, { cache: "no-cache" })
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`${r.status}`))))
       .then((json) => {
-        if (!cancelled && json) setManifest(json as Manifest);
+        if (!cancelled) setManifest(json as Manifest);
       })
       .catch(() => {
-        // ignore — button falls back to the stable-pointer URL
+        if (!cancelled) setManifestError(true);
       });
     return () => {
       cancelled = true;
@@ -127,7 +135,7 @@ export default function DownloadPage() {
 
   const primary = VARIANTS.find((v) => v.id === detected) ?? VARIANTS[0];
   const others = VARIANTS.filter((v) => v.id !== primary.id);
-  const primaryUrl = pickAsset(manifest, primary) ?? LATEST_JSON_URL;
+  const primaryAsset = pickAsset(manifest, primary);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -164,12 +172,31 @@ export default function DownloadPage() {
           </p>
 
           <div className="mt-10 flex flex-col items-center gap-3">
-            <Button asChild size="lg" className="h-12 gap-2 px-6 text-base">
-              <a href={primaryUrl} download>
+            {primaryAsset ? (
+              <Button asChild size="lg" className="h-12 gap-2 px-6 text-base">
+                <a href={primaryAsset} download>
+                  <primary.icon className="h-5 w-5" />
+                  Download for {primary.label}
+                </a>
+              </Button>
+            ) : manifest === null && !manifestError ? (
+              <Button size="lg" className="h-12 gap-2 px-6 text-base" disabled>
                 <primary.icon className="h-5 w-5" />
-                Download for {primary.label}
-              </a>
-            </Button>
+                Loading latest release…
+              </Button>
+            ) : (
+              <Button
+                asChild
+                size="lg"
+                variant="outline"
+                className="h-12 gap-2 px-6 text-base"
+              >
+                <a href={RELEASE_PAGE_URL} rel="noreferrer">
+                  <primary.icon className="h-5 w-5" />
+                  Get the latest release
+                </a>
+              </Button>
+            )}
             <div className="text-xs text-muted-foreground">
               {manifest ? (
                 <>
@@ -177,6 +204,11 @@ export default function DownloadPage() {
                   {manifest.pub_date
                     ? ` — released ${new Date(manifest.pub_date).toLocaleDateString()}`
                     : null}
+                </>
+              ) : manifestError ? (
+                <>
+                  Could not load release manifest — pick an installer from the
+                  releases page.
                 </>
               ) : (
                 <>Loading latest release…</>

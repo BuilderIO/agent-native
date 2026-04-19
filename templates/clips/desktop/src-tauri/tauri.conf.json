@@ -60,7 +60,7 @@
       "active": true,
       "dialog": false,
       "endpoints": [
-        "https://github.com/BuilderIO/agent-native/releases/latest/download/clips-latest.json"
+        "https://github.com/BuilderIO/agent-native/releases/download/clips-latest/clips-latest.json"
       ],
       "pubkey": "REPLACE_WITH_TAURI_UPDATER_PUBKEY"
     }
