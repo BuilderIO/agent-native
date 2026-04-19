@@ -55,6 +55,14 @@
   "plugins": {
     "shell": {
       "open": true
+    },
+    "updater": {
+      "active": true,
+      "dialog": false,
+      "endpoints": [
+        "https://github.com/BuilderIO/agent-native/releases/latest/download/clips-latest.json"
+      ],
+      "pubkey": "REPLACE_WITH_TAURI_UPDATER_PUBKEY"
     }
   }
 }

@@ -7,6 +7,7 @@ import {
   IconUsersGroup,
   IconFolderPlus,
   IconPlayerRecord,
+  IconAppWindow,
 } from "@tabler/icons-react";
 import { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
@@ -154,6 +155,16 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                 );
               })}
             </nav>
+
+            <div className="mt-3 px-2">
+              <NavLink
+                to="/download"
+                className="flex items-center gap-2 rounded px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+              >
+                <IconAppWindow className="h-4 w-4" />
+                Get desktop app
+              </NavLink>
+            </div>
 
             <div className="mt-4 flex-1 overflow-y-auto px-2 pb-3 space-y-4">
               <div>

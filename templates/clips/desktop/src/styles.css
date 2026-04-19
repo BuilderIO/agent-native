@@ -1465,3 +1465,88 @@ button {
   background: var(--surface-hover, var(--surface));
   border-color: var(--border-strong, var(--border));
 }
+
+/* --- Update banner -------------------------------------------------------
+ * Slots into the top of the popover when an update is in flight or ready.
+ * Two visual states:
+ *  - pending: subtle inline row, just keeps the user informed.
+ *  - ready:   accent color + actions (Later / Restart) since clicking
+ *             Restart is the thing we actually want them to do.
+ */
+.update-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 12px 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.update-banner--pending {
+  background: var(--surface);
+  color: var(--fg-muted);
+  border: 1px solid var(--border);
+}
+
+.update-banner--ready {
+  background: var(--surface-strong);
+  color: var(--fg);
+  border: 1px solid var(--border-strong, var(--border));
+  flex-wrap: wrap;
+}
+
+.update-banner-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.update-banner-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.update-banner-btn {
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.update-banner-btn--ghost {
+  background: transparent;
+  color: var(--fg-muted);
+  border-color: var(--border);
+}
+
+.update-banner-btn--ghost:hover {
+  background: var(--surface-hover, var(--surface));
+  color: var(--fg);
+}
+
+.update-banner-btn--primary {
+  background: var(--brand);
+  color: var(--bg);
+}
+
+.update-banner-btn--primary:hover {
+  background: var(--brand-hover, var(--brand));
+}
+
+.update-spinner {
+  animation: update-spin 1s linear infinite;
+}
+
+@keyframes update-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}

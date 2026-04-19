@@ -33,3 +33,47 @@ On first launch the popover asks for the URL of your Clips server. This is store
 
 - Replace `src-tauri/icons/tray.png` with a real 16×16 (and 32×32 @2x) monochrome PNG. The default placeholder is a plain purple square so the app still compiles out of the box.
 - Add Apple Developer ID + Windows Authenticode signing config to `tauri.conf.json` — currently left blank.
+- Run the **Updater signing key** setup below before the first release. Without it, `tauri-action` will refuse to build a signed bundle and the in-app updater will reject whatever the workflow uploads.
+
+## Releases + auto-update
+
+Clips Desktop ships on its own release channel — tag prefix `clips-v*`, separate from the main `v*` tags used by `packages/desktop-app` (Electron). The in-app updater pulls its manifest from a stable pointer release (`clips-latest`) that the release workflow overwrites on every run.
+
+### Shipping a release
+
+1. Bump `templates/clips/desktop/package.json` version (or pass it via workflow input).
+2. Trigger **Clips Desktop Release** in GitHub Actions (`.github/workflows/clips-desktop-release.yml`). It builds on macOS (universal), Windows, and Linux in parallel, signs everything, and uploads to `clips-v{version}`.
+3. After all three platforms finish, the `publish-release` job flips the versioned release out of draft and refreshes the `clips-latest` pointer release with the new manifest. Within a few hours (next update check) every installed Clips starts auto-downloading in the background.
+
+### Auto-update flow (inside the app)
+
+- `src/lib/updater.ts` checks for updates 3s after launch and every 4 hours.
+- On `available` it auto-downloads; on `downloaded` the popover shows an "Update ready — Restart" banner.
+- Clicking Restart calls `@tauri-apps/plugin-process` `relaunch()`, which applies the already-staged bundle.
+- No banner is shown in idle / checking / not-available states — the popover stays focused on recording.
+
+### Updater signing key (one-time setup)
+
+Tauri's updater verifies every downloaded bundle against an ed25519 signature baked into `tauri.conf.json` under `plugins.updater.pubkey`. Without a matching private key on the CI side, nothing installs.
+
+```bash
+# Generate the keypair — run once, store the output in a password manager.
+pnpm tauri signer generate -w ~/.tauri/clips-updater.key
+
+# Print the public key to paste into tauri.conf.json → plugins.updater.pubkey
+cat ~/.tauri/clips-updater.key.pub
+```
+
+Then set these GitHub secrets on the repository:
+
+| Secret                                     | Source                                                  |
+| ------------------------------------------ | ------------------------------------------------------- |
+| `CLIPS_TAURI_SIGNING_PRIVATE_KEY`          | Contents of `~/.tauri/clips-updater.key` (full file)    |
+| `CLIPS_TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | The password you entered at `tauri signer generate`     |
+| `APPLE_CERTIFICATE`                        | Base64-encoded Developer ID .p12 (shared with Electron) |
+| `APPLE_CERTIFICATE_PASSWORD`               | .p12 password (shared with Electron)                    |
+| `APPLE_SIGNING_IDENTITY`                   | e.g. `Developer ID Application: Builder (W3PMF2T3MW)`   |
+| `APPLE_ID`                                 | Apple ID for notarization (shared with Electron)        |
+| `APPLE_APP_SPECIFIC_PASSWORD`              | App-specific password for notarization                  |
+
+Once the keys are in place and `tauri.conf.json` has the real `pubkey`, subsequent workflow runs produce bundles the updater will accept.
