@@ -13,14 +13,20 @@ import {
 export function UpdateBanner() {
   const status = useUpdateStatus();
   const [dismissedVersion, setDismissedVersion] = useState<string | null>(null);
-  const [errorDismissed, setErrorDismissed] = useState(false);
+  // Dismissal is scoped to the specific error message so a new,
+  // different failure still surfaces. Users shouldn't have to see the
+  // same message twice, but they should hear about a new kind of
+  // failure.
+  const [dismissedErrorMessage, setDismissedErrorMessage] = useState<
+    string | null
+  >(null);
 
   if (status.state === "idle") return null;
   if (status.state === "checking") return null;
   if (status.state === "not-available") return null;
 
   if (status.state === "error") {
-    if (errorDismissed) return null;
+    if (status.message === dismissedErrorMessage) return null;
     return (
       <div className="update-banner update-banner--error">
         <span className="update-banner-text">
@@ -30,7 +36,7 @@ export function UpdateBanner() {
           <button
             type="button"
             className="update-banner-btn update-banner-btn--ghost"
-            onClick={() => setErrorDismissed(true)}
+            onClick={() => setDismissedErrorMessage(status.message)}
           >
             Dismiss
           </button>

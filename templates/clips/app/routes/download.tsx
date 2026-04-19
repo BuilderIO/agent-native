@@ -37,12 +37,14 @@ interface PlatformVariant {
 // CORS headers. See `server/routes/api/clips-latest.json.get.ts`.
 const LATEST_JSON_URL = "/api/clips-latest.json";
 
-// Fallback link when the manifest is unavailable — the public Releases
-// page for the `clips-latest` pointer, where users can pick an installer
-// by hand. This is a real, browsable URL (NOT the JSON manifest), so the
-// button never serves JSON by mistake.
+// Fallback link when the manifest is unavailable — the all-releases
+// listing filtered to the `clips-v*` versioned releases, which is where
+// the actual DMG / MSI / AppImage assets live. The `clips-latest` tag
+// only holds the JSON manifest, so pointing users there would give them
+// a page with no installers. This is a real, browsable HTML URL (NOT
+// the JSON manifest), so the button never serves JSON by mistake.
 const RELEASE_PAGE_URL =
-  "https://github.com/BuilderIO/agent-native/releases/tag/clips-latest";
+  "https://github.com/BuilderIO/agent-native/releases?q=clips-v";
 
 const VARIANTS: PlatformVariant[] = [
   {
@@ -82,24 +84,48 @@ interface Manifest {
   platforms: Record<string, { url: string; signature: string }>;
 }
 
-function detectPlatform(): PlatformId | null {
+interface UserAgentData {
+  platform?: string;
+  getHighEntropyValues?: (
+    hints: string[],
+  ) => Promise<{ architecture?: string }>;
+}
+
+function syncPlatform(): PlatformId | null {
   if (typeof navigator === "undefined") return null;
   const ua = navigator.userAgent;
-  if (/Mac/i.test(ua)) {
-    // Canonical arch signal (Chromium: "arm" | "x86"). Safari does not
-    // expose `userAgentData`, in which case we can't reliably tell Intel
-    // from Apple Silicon — default to Apple Silicon since it's the
-    // overwhelming majority on currently-shipping Macs.
-    const arch = (
-      navigator as unknown as { userAgentData?: { architecture?: string } }
-    ).userAgentData?.architecture;
-    if (arch === "arm") return "mac-apple-silicon";
-    if (arch === "x86") return "mac-intel";
-    return "mac-apple-silicon";
-  }
   if (/Windows/i.test(ua)) return "windows";
   if (/Linux/i.test(ua)) return "linux";
+  if (/Mac/i.test(ua)) {
+    // Synchronous default for Mac. `navigator.userAgentData.architecture`
+    // is an *empty string* on low-entropy access — the real value is
+    // only available via the async `getHighEntropyValues()` call (see
+    // `refinePlatform` below). Safari doesn't expose `userAgentData` at
+    // all. Default to Apple Silicon since it's the overwhelming majority
+    // on currently-shipping Macs, and let `refinePlatform` correct to
+    // mac-intel when Chromium confirms it.
+    return "mac-apple-silicon";
+  }
   return null;
+}
+
+async function refinePlatform(
+  current: PlatformId | null,
+): Promise<PlatformId | null> {
+  if (current !== "mac-apple-silicon" && current !== "mac-intel")
+    return current;
+  if (typeof navigator === "undefined") return current;
+  const uad = (navigator as unknown as { userAgentData?: UserAgentData })
+    .userAgentData;
+  if (!uad?.getHighEntropyValues) return current;
+  try {
+    const high = await uad.getHighEntropyValues(["architecture"]);
+    if (high.architecture === "arm") return "mac-apple-silicon";
+    if (high.architecture === "x86") return "mac-intel";
+  } catch {
+    // Permissions / hint denied — keep the sync default.
+  }
+  return current;
 }
 
 function pickAsset(
@@ -116,7 +142,19 @@ function pickAsset(
 export default function DownloadPage() {
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [manifestError, setManifestError] = useState(false);
-  const detected = useMemo(() => detectPlatform(), []);
+  const initialPlatform = useMemo(() => syncPlatform(), []);
+  const [detected, setDetected] = useState<PlatformId | null>(initialPlatform);
+
+  useEffect(() => {
+    let cancelled = false;
+    refinePlatform(initialPlatform).then((refined) => {
+      if (!cancelled && refined !== detected) setDetected(refined);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialPlatform]);
 
   useEffect(() => {
     let cancelled = false;

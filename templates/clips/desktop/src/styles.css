@@ -1497,6 +1497,13 @@ button {
   flex-wrap: wrap;
 }
 
+.update-banner--error {
+  background: color-mix(in srgb, var(--error, #dc2626) 10%, transparent);
+  color: var(--error, #dc2626);
+  border: 1px solid color-mix(in srgb, var(--error, #dc2626) 40%, transparent);
+  flex-wrap: wrap;
+}
+
 .update-banner-text {
   flex: 1;
   min-width: 0;
