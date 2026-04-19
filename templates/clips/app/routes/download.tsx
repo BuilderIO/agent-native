@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
   IconBrandApple,
   IconBrandWindows,
-  IconBrandUbuntu,
   IconDownload,
   IconPlayerRecord,
   IconKeyboard,
@@ -17,124 +16,87 @@ export function meta() {
     {
       name: "description",
       content:
-        "Record your screen from the menu bar. Auto-updating desktop app for macOS, Windows, and Linux.",
+        "Record your screen from the menu bar. Auto-updating desktop app for macOS and Windows.",
     },
   ];
 }
 
-type PlatformId = "mac-apple-silicon" | "mac-intel" | "windows" | "linux";
+type PlatformId = "mac" | "windows";
 
 interface PlatformVariant {
   id: PlatformId;
   label: string;
   sublabel: string;
-  assetPattern: RegExp;
+  // Asset kinds (as classified by the server) that satisfy this variant.
+  // First match wins when picking the download URL.
+  assetKinds: readonly (
+    | "mac-universal"
+    | "mac-arm64"
+    | "mac-x64"
+    | "windows-msi"
+    | "windows-exe"
+  )[];
   icon: typeof IconBrandApple;
 }
 
-// Same-origin proxy for the Tauri updater manifest. We can't hit the raw
-// GitHub release URL from a browser because GitHub's asset responses lack
-// CORS headers. See `server/routes/api/clips-latest.json.get.ts`.
+// Same-origin endpoint that returns the latest `clips-v*` GitHub release
+// metadata with each asset classified as a specific installer kind. See
+// `server/routes/api/clips-latest.json.get.ts`.
 const LATEST_JSON_URL = "/api/clips-latest.json";
 
 // Fallback link when the manifest is unavailable — the all-releases
 // listing filtered to the `clips-v*` versioned releases, which is where
-// the actual DMG / MSI / AppImage assets live. The `clips-latest` tag
-// only holds the JSON manifest, so pointing users there would give them
-// a page with no installers. This is a real, browsable HTML URL (NOT
-// the JSON manifest), so the button never serves JSON by mistake.
+// the actual installer files live. This is a real, browsable HTML URL
+// (NOT the JSON manifest), so the button never serves JSON by mistake.
 const RELEASE_PAGE_URL =
   "https://github.com/BuilderIO/agent-native/releases?q=clips-v";
 
 const VARIANTS: PlatformVariant[] = [
   {
-    id: "mac-apple-silicon",
-    label: "macOS — Apple Silicon",
-    sublabel: "M1 / M2 / M3 / M4",
-    assetPattern: /aarch64.*\.dmg$|arm64.*\.dmg$/i,
-    icon: IconBrandApple,
-  },
-  {
-    id: "mac-intel",
-    label: "macOS — Intel",
-    sublabel: "x86_64",
-    assetPattern: /x64.*\.dmg$|x86_64.*\.dmg$/i,
+    id: "mac",
+    label: "macOS",
+    sublabel: "Universal (Apple Silicon + Intel)",
+    assetKinds: ["mac-universal", "mac-arm64", "mac-x64"],
     icon: IconBrandApple,
   },
   {
     id: "windows",
     label: "Windows",
     sublabel: "64-bit installer",
-    assetPattern: /\.msi$|\.exe$/i,
+    assetKinds: ["windows-msi", "windows-exe"],
     icon: IconBrandWindows,
-  },
-  {
-    id: "linux",
-    label: "Linux",
-    sublabel: "AppImage",
-    assetPattern: /\.AppImage$/i,
-    icon: IconBrandUbuntu,
   },
 ];
 
 interface Manifest {
   version: string;
+  tag: string;
+  pub_date: string | null;
   notes?: string;
-  pub_date?: string;
-  platforms: Record<string, { url: string; signature: string }>;
+  assets: {
+    name: string;
+    url: string;
+    size: number;
+    kind: string;
+  }[];
 }
 
-interface UserAgentData {
-  platform?: string;
-  getHighEntropyValues?: (
-    hints: string[],
-  ) => Promise<{ architecture?: string }>;
-}
-
-function syncPlatform(): PlatformId | null {
+function detectPlatform(): PlatformId | null {
   if (typeof navigator === "undefined") return null;
   const ua = navigator.userAgent;
   if (/Windows/i.test(ua)) return "windows";
-  if (/Linux/i.test(ua)) return "linux";
-  if (/Mac/i.test(ua)) {
-    // Synchronous default for Mac. `navigator.userAgentData.architecture`
-    // is an *empty string* on low-entropy access — the real value is
-    // only available via the async `getHighEntropyValues()` call (see
-    // `refinePlatform` below). Safari doesn't expose `userAgentData` at
-    // all. Default to Apple Silicon since it's the overwhelming majority
-    // on currently-shipping Macs, and let `refinePlatform` correct to
-    // mac-intel when Chromium confirms it.
-    return "mac-apple-silicon";
-  }
+  if (/Mac/i.test(ua)) return "mac";
   return null;
-}
-
-async function refinePlatform(
-  current: PlatformId | null,
-): Promise<PlatformId | null> {
-  if (current !== "mac-apple-silicon" && current !== "mac-intel")
-    return current;
-  if (typeof navigator === "undefined") return current;
-  const uad = (navigator as unknown as { userAgentData?: UserAgentData })
-    .userAgentData;
-  if (!uad?.getHighEntropyValues) return current;
-  try {
-    const high = await uad.getHighEntropyValues(["architecture"]);
-    if (high.architecture === "arm") return "mac-apple-silicon";
-    if (high.architecture === "x86") return "mac-intel";
-  } catch {
-    // Permissions / hint denied — keep the sync default.
-  }
-  return current;
 }
 
 function pickAsset(
   manifest: Manifest | null,
   variant: PlatformVariant,
-): string | null {
+): { url: string; name: string } | null {
   if (!manifest) return null;
-  for (const [, value] of Object.entries(manifest.platforms)) {
-    if (variant.assetPattern.test(value.url)) return value.url;
+  for (const kind of variant.assetKinds) {
+    const asset = manifest.assets.find((a) => a.kind === kind);
+    if (asset) return { url: asset.url, name: asset.name };
   }
   return null;
 }
@@ -142,19 +104,7 @@ function pickAsset(
 export default function DownloadPage() {
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [manifestError, setManifestError] = useState(false);
-  const initialPlatform = useMemo(() => syncPlatform(), []);
-  const [detected, setDetected] = useState<PlatformId | null>(initialPlatform);
-
-  useEffect(() => {
-    let cancelled = false;
-    refinePlatform(initialPlatform).then((refined) => {
-      if (!cancelled && refined !== detected) setDetected(refined);
-    });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialPlatform]);
+  const detected = useMemo(() => detectPlatform(), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -212,7 +162,7 @@ export default function DownloadPage() {
           <div className="mt-10 flex flex-col items-center gap-3">
             {primaryAsset ? (
               <Button asChild size="lg" className="h-12 gap-2 px-6 text-base">
-                <a href={primaryAsset} download>
+                <a href={primaryAsset.url} download>
                   <primary.icon className="h-5 w-5" />
                   Download for {primary.label}
                 </a>
@@ -255,9 +205,9 @@ export default function DownloadPage() {
           </div>
         </div>
 
-        <div className="mt-16 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="mt-16 grid grid-cols-1 gap-3 sm:grid-cols-2">
           {others.map((v) => {
-            const url = pickAsset(manifest, v);
+            const asset = pickAsset(manifest, v);
             const Icon = v.icon;
             return (
               <Card
@@ -273,9 +223,9 @@ export default function DownloadPage() {
                     {v.sublabel}
                   </div>
                 </div>
-                {url ? (
+                {asset ? (
                   <a
-                    href={url}
+                    href={asset.url}
                     download
                     className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
                   >
