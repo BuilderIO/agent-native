@@ -56,6 +56,35 @@ type UiState =
 const MAC_SCREEN_RECORDING_PREF_URL =
   "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture";
 
+function captureThumbnailFromPreview(
+  video: HTMLVideoElement | null,
+  recordingId: string,
+): void {
+  if (!video || !video.videoWidth || !video.videoHeight) return;
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) return;
+        fetch(`/api/recordings/${recordingId}/thumbnail`, {
+          method: "POST",
+          headers: { "Content-Type": blob.type || "image/jpeg" },
+          body: blob,
+        }).catch(() => {});
+      },
+      "image/jpeg",
+      0.85,
+    );
+  } catch {
+    // best effort — the player has a backfill path if this misses.
+  }
+}
+
 interface PendingRecording {
   id: string;
   uploadChunkUrl: string;
@@ -237,6 +266,11 @@ export default function RecordRoute() {
     if (!engine || !pending) return;
     setUiState("uploading");
     try {
+      // Capture a still-frame thumbnail from the preview while the stream is
+      // still live — otherwise the library would show a blank card until the
+      // owner opens the recording and triggers the player's backfill path.
+      captureThumbnailFromPreview(previewVideoRef.current, pending.id);
+
       await engine.stop();
       setCameraStream(null);
       setPreviewStream(null);

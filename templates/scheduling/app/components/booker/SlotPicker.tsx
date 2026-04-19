@@ -60,7 +60,7 @@ export function SlotPicker(props: SlotPickerProps) {
               <button
                 type="button"
                 onClick={() => props.onSelect(s)}
-                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-medium hover:border-[color:var(--brand-accent)] hover:bg-[color:var(--brand-accent)]/5 focus-visible:outline focus-visible:outline-2"
+                className="slot-btn w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
               >
                 {format(
                   new TZDate(new Date(s.start).getTime(), props.timezone),

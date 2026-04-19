@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import {
   IconShare2,
   IconCopy,
@@ -7,27 +7,22 @@ import {
   IconExternalLink,
 } from "@tabler/icons-react";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
 import { useDbStatus } from "@/hooks/use-db-status";
 import { CloudUpgrade } from "@/components/CloudUpgrade";
 import type { Deck } from "@/context/DeckContext";
 
 interface ShareDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
   deck: Deck;
+  /** Trigger element rendered as the popover anchor (usually the Share button). */
+  children: ReactNode;
 }
 
-export default function ShareDialog({
-  open,
-  onOpenChange,
-  deck,
-}: ShareDialogProps) {
+export default function ShareDialog({ deck, children }: ShareDialogProps) {
+  const [open, setOpen] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -69,49 +64,47 @@ export default function ShareDialog({
   };
 
   return (
-    <Dialog
+    <Popover
       open={open}
       onOpenChange={(v) => {
-        onOpenChange(v);
+        setOpen(v);
         if (!v) {
           setShareUrl(null);
           setError("");
         }
       }}
     >
-      <DialogContent className="bg-[hsl(240,5%,8%)] border-white/[0.08] max-w-md">
+      <PopoverTrigger asChild>{children}</PopoverTrigger>
+      <PopoverContent
+        align="end"
+        className="w-[420px] bg-[hsl(240,5%,8%)] border-white/[0.08] p-4"
+      >
         {showCloudUpgrade || isLocal ? (
-          <>
-            <DialogTitle className="sr-only">Share Presentation</DialogTitle>
-            <DialogDescription className="sr-only">
-              Connect a cloud database to share presentations.
-            </DialogDescription>
-            <CloudUpgrade
-              title="Share Presentation"
-              description="To share presentations publicly, connect a cloud database so your slides can be accessed from anywhere."
-              onClose={() => {
-                setShowCloudUpgrade(false);
-                onOpenChange(false);
-              }}
-            />
-          </>
+          <CloudUpgrade
+            title="Share Presentation"
+            description="To share presentations publicly, connect a cloud database so your slides can be accessed from anywhere."
+            onClose={() => {
+              setShowCloudUpgrade(false);
+              setOpen(false);
+            }}
+          />
         ) : (
           <>
-            <DialogHeader>
-              <DialogTitle className="text-white/90 flex items-center gap-2">
-                <IconShare2 className="w-5 h-5 text-[#609FF8]" />
+            <div className="mb-3">
+              <div className="text-white/90 flex items-center gap-2 text-sm font-semibold">
+                <IconShare2 className="w-4 h-4 text-[#609FF8]" />
                 Share Presentation
-              </DialogTitle>
-              <DialogDescription className="text-white/50">
+              </div>
+              <div className="text-white/50 text-xs mt-0.5">
                 Create a shareable link for "{deck.title}". Only this
                 presentation will be accessible — no other decks.
-              </DialogDescription>
-            </DialogHeader>
+              </div>
+            </div>
 
-            <div className="space-y-4 mt-2">
+            <div className="space-y-4">
               {!shareUrl ? (
                 <>
-                  <div className="bg-white/[0.03] rounded-lg p-4 border border-white/[0.06]">
+                  <div className="bg-white/[0.03] rounded-lg p-3 border border-white/[0.06]">
                     <h4 className="text-sm font-medium text-white/80 mb-2">
                       What gets shared:
                     </h4>
@@ -196,7 +189,7 @@ export default function ShareDialog({
             </div>
           </>
         )}
-      </DialogContent>
-    </Dialog>
+      </PopoverContent>
+    </Popover>
   );
 }

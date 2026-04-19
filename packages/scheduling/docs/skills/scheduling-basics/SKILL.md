@@ -5,7 +5,7 @@ description: Core concepts of the scheduling package — event types, schedules,
 
 # Scheduling basics
 
-This app is a Cal.com clone. The mental model:
+The mental model:
 
 - **Event Type** — a definition of "a bookable thing" (30-minute intro call,
   45-minute demo). Lives at `/:user/:slug` or `/team/:teamSlug/:slug`.
@@ -18,7 +18,7 @@ This app is a Cal.com clone. The mental model:
 - **Host** — a user assigned to an event type. Hosts have weights and
   priorities for round-robin.
 - **Team** — a group of users who can co-host event types.
-- **Location** — where the meeting happens. Video (Cal Video, Zoom, Meet,
+- **Location** — where the meeting happens. Video (built-in, Zoom, Meet,
   Teams), phone, in-person, or custom link.
 
 ## Workflows and routing forms

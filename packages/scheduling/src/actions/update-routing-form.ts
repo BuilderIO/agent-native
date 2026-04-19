@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
+import { assertAccess } from "@agent-native/core/sharing";
 import { getSchedulingContext } from "../server/context.js";
 
 export default defineAction({
@@ -15,6 +16,7 @@ export default defineAction({
     fallback: z.any().optional(),
   }),
   run: async (args) => {
+    await assertAccess("routing-form", args.id, "editor");
     const { getDb, schema } = getSchedulingContext();
     const set: any = { updatedAt: new Date().toISOString() };
     if (args.name != null) set.name = args.name;

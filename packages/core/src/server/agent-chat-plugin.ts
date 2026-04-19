@@ -1151,6 +1151,22 @@ export interface AgentChatPluginOptions {
     event: any,
     owner: string,
   ) => string | null | Promise<string | null>;
+  /**
+   * Use ONLY the template's `systemPrompt` and the actions list — skip the
+   * framework prompt wrapper, resource loading (AGENTS.md/LEARNINGS.md/
+   * memory), the SQL schema block, and the workspace files/skills/agents
+   * inventory. Intended for minimal or voice-first apps where a long,
+   * generic preamble adds latency and iteration noise without adding value.
+   *
+   * When set, the same lean prompt is used in both dev and prod modes. In
+   * dev mode the tool registry is ALSO swapped to the template's actions
+   * (same set as prod) — the dev-only shell/db-exec/file-system tools
+   * and the resource/docs/chat/team/job/browser scripts are dropped. The
+   * lean system prompt has no shell-usage guidance, so routing actions
+   * through shell would break. If you need the full dev tool surface,
+   * leave this off.
+   */
+  leanPrompt?: boolean;
 }
 
 /**
@@ -2419,6 +2435,12 @@ export function createAgentChatPlugin(
       }
     };
 
+    const leanPrompt = options?.leanPrompt === true;
+    // Lean mode: use only the template's systemPrompt + actions list.
+    // Skip resource loading, schema block, and extraContext — those add
+    // DB round-trips and tokens that minimal/voice apps don't need.
+    const leanBasePrompt = (options?.systemPrompt ?? "") + prodActionsPrompt;
+
     const prodHandler = createProductionAgentHandler({
       actions: prodActions,
       systemPrompt: async (event: any) => {
@@ -2428,6 +2450,10 @@ export function createAgentChatPlugin(
         const { getOwnerAnthropicApiKey } =
           await import("../agent/production-agent.js");
         _currentRunUserApiKey = await getOwnerAnthropicApiKey(owner);
+        if (leanPrompt) {
+          _currentRunSystemPrompt = leanBasePrompt;
+          return _currentRunSystemPrompt;
+        }
         const resources = await loadResourcesForPrompt(owner);
         const schemaBlock = await buildSchemaBlock(owner, false);
         const extra = await resolveExtraContext(event, owner);
@@ -2438,6 +2464,7 @@ export function createAgentChatPlugin(
         options?.model ??
         (isHostedProd ? "claude-haiku-4-5-20251001" : undefined),
       apiKey: options?.apiKey,
+      skipFilesContext: leanPrompt,
       onRunStart: (
         send: (event: import("../agent/types.js").AgentChatEvent) => void,
         threadId: string,
@@ -2466,17 +2493,22 @@ export function createAgentChatPlugin(
       // how Claude Code works locally and dramatically reduces the rate of
       // degenerate empty-object tool calls. The CLI syntax for each action is
       // listed in the dev system prompt's "Available Actions" section.
-      const devActions = {
-        ...resourceScripts,
-        ...docsScripts,
-        ...chatScripts,
-        ...callAgentScript,
-        ...teamTools,
-        ...jobTools,
-        ...browserTools,
-        ...mcpActionEntries,
-        ...(await createDevScriptRegistry()),
-      };
+      // In lean mode, expose the template's actions directly as native tools
+      // instead of routing through shell — the lean system prompt has no
+      // shell-usage guidance, so shell-based action invocation would break.
+      const devActions = leanPrompt
+        ? prodActions
+        : {
+            ...resourceScripts,
+            ...docsScripts,
+            ...chatScripts,
+            ...callAgentScript,
+            ...teamTools,
+            ...jobTools,
+            ...browserTools,
+            ...mcpActionEntries,
+            ...(await createDevScriptRegistry()),
+          };
       devHandler = createProductionAgentHandler({
         actions: devActions,
         systemPrompt: async (event: any) => {
@@ -2486,6 +2518,10 @@ export function createAgentChatPlugin(
           const { getOwnerAnthropicApiKey } =
             await import("../agent/production-agent.js");
           _currentRunUserApiKey = await getOwnerAnthropicApiKey(owner);
+          if (leanPrompt) {
+            _currentRunSystemPrompt = leanBasePrompt;
+            return _currentRunSystemPrompt;
+          }
           const resources = await loadResourcesForPrompt(owner);
           const schemaBlock = await buildSchemaBlock(owner, true);
           const extra = await resolveExtraContext(event, owner);
@@ -2494,6 +2530,7 @@ export function createAgentChatPlugin(
         },
         model: options?.model,
         apiKey: options?.apiKey,
+        skipFilesContext: leanPrompt,
         onRunStart: (
           send: (event: import("../agent/types.js").AgentChatEvent) => void,
           threadId: string,

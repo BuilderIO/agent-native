@@ -88,4 +88,19 @@ export default runMigrations([
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
   },
+  // v14: on Postgres, `is_active` was originally created as INTEGER (v2's
+  // `INTEGER NOT NULL DEFAULT 1` got adapted to BIGINT). The Drizzle schema
+  // maps `integer({mode: "boolean"})` to BOOLEAN on Postgres, so inserts pass
+  // `true`/`false`, which BIGINT rejects. Coerce to BOOLEAN on Postgres only;
+  // SQLite keeps is_active as INTEGER 0/1 and needs no migration.
+  {
+    version: 14,
+    sql: {
+      postgres: `
+        ALTER TABLE booking_links ALTER COLUMN is_active DROP DEFAULT;
+        ALTER TABLE booking_links ALTER COLUMN is_active TYPE boolean USING (is_active::int != 0);
+        ALTER TABLE booking_links ALTER COLUMN is_active SET DEFAULT true;
+      `,
+    },
+  },
 ]);

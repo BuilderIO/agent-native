@@ -206,7 +206,7 @@ function buildTrackingContext(
   tracking: UserSettings["tracking"],
 ): TrackingContext | undefined {
   const trackOpens = tracking?.opens !== false;
-  const trackClicks = tracking?.clicks !== false;
+  const trackClicks = tracking?.clicks === true;
   if (!trackOpens && !trackClicks) return undefined;
 
   const linkTokens = new Map<string, string>();

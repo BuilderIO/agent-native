@@ -213,3 +213,20 @@ The route fetches the event via the `get-event` action and displays title, time,
 **Always use Tabler Icons** (`@tabler/icons-react`) for all icons. Never use other icon libraries.
 
 **Never use browser dialogs** (`window.confirm`, `window.alert`, `window.prompt`) — use shadcn AlertDialog instead.
+
+## Shared booking-link components
+
+The edit panel on `/booking-links/:id` uses components from
+`@agent-native/scheduling/react/components`:
+
+- `ConferencingSelector` — conferencing grid (No conf / Google Meet / Zoom / Custom link). Zoom uses real OAuth — see `server/lib/zoom.ts` and the Connect Zoom button, not a pasted personal URL.
+- `SlugEditor` — inline-editable URL preview with click-to-edit username/slug.
+- `CustomFieldsEditor` — add/edit/reorder booking-form fields.
+
+Prefer editing the package component (`packages/scheduling/src/react/components/booking-links/`) over forking. See `packages/scheduling/docs/UI_UNIFICATION.md`.
+
+## Zoom integration
+
+- Required env: `ZOOM_CLIENT_ID`, `ZOOM_CLIENT_SECRET`. Redirect URI: `/_agent-native/zoom/callback`.
+- `server/lib/zoom.ts` wraps the scheduling package's Zoom provider and stores tokens in `oauth_tokens(provider="zoom_video", account_id=<zoom user id>, owner=<email>)`.
+- At booking time, `createZoomMeeting()` runs when `conferencing.type === "zoom"`; the returned URL lands on `bookings.meeting_link`.

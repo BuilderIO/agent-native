@@ -7,7 +7,8 @@
  *   1. request getDisplayMedia / getUserMedia (mic, optionally camera)
  *   2. spawn the countdown overlay window, wait for `clips:countdown-done`
  *   3. start MediaRecorder; POST each chunk to /api/uploads/:id/chunk
- *   4. spawn the toolbar + (optional) camera bubble overlays
+ *   4. spawn the toolbar overlay (bubble is already visible — owned by the
+ *      popover's session effect, not the recorder)
  *   5. relay pause/resume/stop from the toolbar to MediaRecorder, with
  *      live `clips:recorder-state` updates back to the toolbar for the
  *      timer + paused styling
@@ -18,6 +19,32 @@
  * Everything after step 1 happens off the tray popover: screen-only mode
  * never even needs the popover focused. This is what makes the UX feel
  * native instead of "app-in-a-tab".
+ *
+ * ## Camera bubble architecture (popover owns the full session)
+ *
+ * WebKit enforces a single-page capture-exclusion policy: when one page
+ * calls `getDisplayMedia`/`getUserMedia`, WebKit MUTES all capture sources
+ * in other pages in the same process (see WebKit bugs 179363, 237359,
+ * 212040, 238456; changeset 271154). Tauri v2's macOS backend shares one
+ * WebKit process across all webview windows. So if the bubble window
+ * called `getUserMedia` itself, its camera track would stay
+ * `readyState="live"` but frames would stop arriving — WebKit's documented
+ * behavior, not fixable with retry loops.
+ *
+ * Fix: the POPOVER owns the camera for the entire session — both before
+ * recording (so the user sees their face in the bubble the moment they
+ * open the popover) and during recording. A session-long effect in
+ * `app.tsx` calls `getUserMedia`, invokes `show_bubble`, and runs the
+ * frame pump (see `bubble-pump.ts`). When the user clicks Start
+ * Recording, the live `MediaStream` is handed to `startNativeRecording`
+ * via `preAcquiredCameraStream` so the recorder reuses it for
+ * MediaRecorder instead of calling `getUserMedia` a second time (which
+ * was the source of the "bubble goes black" bug — the 2nd acquire
+ * silently mutes the 1st under WebKit's capture-exclusion policy).
+ *
+ * The recorder does NOT start its own frame pump — the popover's pump
+ * keeps running throughout recording. This means a single pump instance
+ * survives the preview → recording transition with no handoff.
  */
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -32,6 +59,22 @@ export interface StartParams {
   micId?: string;
   micOn: boolean;
   cameraOn: boolean;
+  /**
+   * Pre-acquired camera stream owned by the popover's session effect. The
+   * popover keeps the camera open + the bubble visible + the frame pump
+   * running for the FULL camera session — we just borrow the video track
+   * for MediaRecorder. Re-acquiring the same device rapidly is the
+   * documented WebKit capture-exclusion footgun (the 2nd acquire can
+   * silently mute the 1st) — reusing the live stream sidesteps it and
+   * means the bubble never goes black during the preview → recording
+   * transition.
+   *
+   * Ownership stays with the popover. The recorder must NOT stop these
+   * tracks on stop/cancel — the popover's session effect decides when
+   * the stream lives and dies (it stops when the user closes the popover
+   * or turns the camera off).
+   */
+  preAcquiredCameraStream?: MediaStream | null;
 }
 
 export interface RecorderHandle {
@@ -91,18 +134,53 @@ async function createRecording(
   return (await res.json()) as { id: string };
 }
 
+/**
+ * Counter of in-flight chunk POSTs. The bubble frame pump reads
+ * `window.clipsChunkBusy` and SKIPS frame encoding while it's truthy,
+ * so the pump and the chunk fetch don't fight for the same microtask
+ * queue. Using a counter (rather than a boolean) handles overlapping
+ * uploads correctly — WebKit's fetch can pipeline the last chunk's
+ * body serializer with the next chunk's request, so the flag must
+ * stay true until ALL chunks settle.
+ *
+ * The flag is attached to `window` so the pump can read it without
+ * an import cycle (the pump lives in a separate module that must not
+ * depend on the recorder).
+ */
+let inFlightChunks = 0;
+function incChunkBusy(): void {
+  inFlightChunks += 1;
+  (window as unknown as { clipsChunkBusy?: boolean }).clipsChunkBusy = true;
+}
+function decChunkBusy(): void {
+  inFlightChunks = Math.max(0, inFlightChunks - 1);
+  if (inFlightChunks === 0) {
+    (window as unknown as { clipsChunkBusy?: boolean }).clipsChunkBusy = false;
+  }
+}
+
 async function uploadChunk(url: string, blob: Blob): Promise<void> {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": blob.type || "application/octet-stream" },
-    // Tauri webview runs on localhost:1420 (dev) or tauri://localhost (prod);
-    // the clips server is a different origin. The framework's dev CORS is
-    // permissive for "*" but won't accept credentialed requests without
-    // Allow-Credentials — and in dev auth is bypassed anyway, so we don't
-    // need cookies.
-    credentials: "include",
-    body: blob,
-  });
+  // Signal to the bubble frame pump that a chunk is being uploaded.
+  // The pump's tick loop checks this flag and yields its slot to the
+  // fetch for the ~150-300ms the POST takes to serialize and land.
+  // Cleared in `finally` below so a throw still releases the pump.
+  incChunkBusy();
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": blob.type || "application/octet-stream" },
+      // Tauri webview runs on localhost:1420 (dev) or tauri://localhost (prod);
+      // the clips server is a different origin. The framework's dev CORS is
+      // permissive for "*" but won't accept credentialed requests without
+      // Allow-Credentials — and in dev auth is bypassed anyway, so we don't
+      // need cookies.
+      credentials: "include",
+      body: blob,
+    });
+  } finally {
+    decChunkBusy();
+  }
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     console.error(
@@ -138,6 +216,23 @@ async function waitForEvent(name: string, timeoutMs = 15_000): Promise<void> {
 export async function startNativeRecording(
   params: StartParams,
 ): Promise<RecorderHandle> {
+  try {
+    return await startNativeRecordingInner(params);
+  } catch (err) {
+    const e = err as { name?: string; message?: string } | null;
+    console.error(
+      "[clips-recorder] startNativeRecording threw:",
+      e?.name,
+      e?.message,
+      err,
+    );
+    throw err;
+  }
+}
+
+async function startNativeRecordingInner(
+  params: StartParams,
+): Promise<RecorderHandle> {
   const wantsScreen = params.mode !== "camera";
   const wantsCamera = params.mode !== "screen" && params.cameraOn;
   const wantsAudio = params.micOn;
@@ -149,73 +244,143 @@ export async function startNativeRecording(
     wantsAudio,
   });
 
-  // CRITICAL: before any getDisplayMedia / getUserMedia call in this
-  // (popover) webview, TEAR DOWN the bubble webview if it's alive. On
-  // macOS all Tauri webviews share a single WebKit process and a single
-  // media-session arbiter. If the bubble holds a live camera track
-  // when we call getDisplayMedia or getUserMedia({audio}), WebKit
-  // renegotiates the process's capture graph in a way that mutes the
-  // bubble's camera track (readyState stays "live" but frames stop
-  // arriving → black circle).
-  //
-  // Previous fixes tried to recover AFTER the mute (onmute handler,
-  // watchdog, proactive re-acquire). None held up consistently because
-  // the cross-webview contention keeps re-firing as long as BOTH
-  // webviews are touching capture hardware. The only robust fix is to
-  // completely release the bubble's camera before we acquire ours, and
-  // re-spawn the bubble after MediaRecorder is running (MediaRecorder
-  // doesn't touch the camera after start, so there's no contention at
-  // that point).
-  if (wantsCamera) {
-    console.log(
-      "[clips-recorder] closing bubble webview BEFORE screen/mic acquisition to release camera",
-    );
-    // Tell the popover's React effect to stop trying to keep the
-    // bubble open until we say otherwise. Without this the effect
-    // would immediately race us and re-invoke show_bubble while the
-    // camera is still transitioning back to free.
-    await emit("clips:bubble-suppress", { suppressed: true }).catch((err) =>
-      console.error("[clips-recorder] bubble-suppress emit failed:", err),
-    );
-    try {
-      await invoke("close_bubble");
-    } catch (err) {
-      console.error("[clips-recorder] close_bubble failed:", err);
-    }
-    // Wait long enough for macOS to release the camera hardware and
-    // for WebKit to tear down the bubble's capture session. 400ms is
-    // comfortably above the observed settle time.
-    console.log("[clips-recorder] waiting 400ms for camera hardware release");
-    await new Promise((r) => setTimeout(r, 400));
-  }
-
   // 1. Acquire streams BEFORE the countdown so the user gets the permission
   //    prompts out of the way while the popover is still focused.
-  let displayStream: MediaStream | null = null;
+  //
+  // CRITICAL: WebKit requires `getDisplayMedia` to be called from a user
+  // gesture handler. The first `await` consumes the user activation, so if
+  // we awaited one stream before kicking off the next, the second call
+  // would throw `getDisplayMedia must be called from a user gesture
+  // handler.` To keep all three requests anchored to the same gesture, we
+  // INITIATE every promise synchronously (no await between them) and then
+  // Promise.all them together. The cross-page mute concern documented at
+  // the top of this file is about which *page* owns the camera (popover vs
+  // bubble window) — not the order of calls within this same page — so
+  // starting all three in parallel is safe.
+  // `video: false` on the audio getUserMedia is EXPLICIT — WebKit on macOS
+  // has been observed to treat `{ audio: ... }` with no `video` key as
+  // "caller hasn't expressed a video preference" and renegotiate the
+  // page's media session in unpredictable ways.
+  if (wantsCamera) {
+    console.log(
+      "[clips-recorder] acquiring camera in popover (owner for bubble overlay)",
+    );
+  }
   if (wantsScreen) {
     console.log("[clips-recorder] requesting display media");
-    displayStream = await navigator.mediaDevices.getDisplayMedia({
-      video: { frameRate: 30 },
-      audio: true,
-    });
+  }
+  if (wantsAudio) {
+    console.log("[clips-recorder] acquiring audioStream (mic only)");
+  }
+
+  const displayStreamPromise: Promise<MediaStream> | null = wantsScreen
+    ? navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: 30 },
+        audio: true,
+      })
+    : null;
+  // If the popover handed us a live camera stream from the pre-record
+  // preview we reuse it verbatim and SKIP getUserMedia — see the
+  // `preAcquiredCameraStream` field doc for the WebKit rationale. This
+  // also means the preview → recording transition is seamless (no black
+  // flash while the camera renegotiates).
+  const reusedCameraStream =
+    wantsCamera && params.preAcquiredCameraStream
+      ? params.preAcquiredCameraStream
+      : null;
+  if (reusedCameraStream) {
+    console.log(
+      "[clips-recorder] reusing pre-acquired camera stream from popover preview",
+    );
+  }
+  const bubbleCameraStreamPromise: Promise<MediaStream> | null =
+    wantsCamera && !reusedCameraStream
+      ? navigator.mediaDevices.getUserMedia({
+          video: params.cameraId
+            ? { deviceId: { exact: params.cameraId } }
+            : true,
+          audio: false,
+        })
+      : null;
+  const audioStreamPromise: Promise<MediaStream> | null = wantsAudio
+    ? navigator.mediaDevices.getUserMedia({
+        audio: params.micId ? { deviceId: { exact: params.micId } } : true,
+        video: false,
+      })
+    : null;
+
+  // Use allSettled so a single rejection (e.g. user cancels the macOS screen
+  // picker → `NotAllowedError`) doesn't leave the OTHER resolved streams
+  // orphaned with live tracks. If ANY of the three rejected, we stop every
+  // track that DID resolve, then re-throw the original error so the caller's
+  // catch still sees `NotAllowedError` / `AbortError` as before.
+  console.log("[clips-recorder] allSettled IN — streams dispatched");
+  const settled = await Promise.allSettled([
+    displayStreamPromise,
+    bubbleCameraStreamPromise,
+    audioStreamPromise,
+  ]);
+  console.log(
+    "[clips-recorder] allSettled OUT — settled statuses:",
+    settled.map((s) => s.status),
+  );
+  const firstRejection = settled.find(
+    (s): s is PromiseRejectedResult => s.status === "rejected",
+  );
+  if (firstRejection) {
+    for (const s of settled) {
+      if (s.status === "fulfilled" && s.value) {
+        try {
+          s.value.getTracks().forEach((t) => t.stop());
+        } catch {
+          // ignore — best-effort cleanup
+        }
+      }
+    }
+    // NOTE: we do NOT stop `reusedCameraStream` tracks here. The popover
+    // owns the camera for the entire session (see top-of-file comment +
+    // `preAcquiredCameraStream` doc) — it keeps the stream alive so the
+    // bubble stays live while the user retries.
+    const rejErr = firstRejection.reason;
+    console.error(
+      "[clips-recorder] stream acquisition failed:",
+      (rejErr as { name?: string })?.name,
+      (rejErr as { message?: string })?.message,
+      rejErr,
+    );
+    throw firstRejection.reason;
+  }
+  const [displayStream, freshlyAcquiredCameraStream, audioStream] = [
+    settled[0].status === "fulfilled"
+      ? (settled[0].value as MediaStream | null)
+      : null,
+    settled[1].status === "fulfilled"
+      ? (settled[1].value as MediaStream | null)
+      : null,
+    settled[2].status === "fulfilled"
+      ? (settled[2].value as MediaStream | null)
+      : null,
+  ];
+  // Reused (from preview) XOR freshly acquired — `bubbleCameraStreamPromise`
+  // was null when we reused, so only one of the two can be non-null.
+  const bubbleCameraStream =
+    reusedCameraStream ?? freshlyAcquiredCameraStream ?? null;
+
+  if (displayStream) {
     console.log(
       "[clips-recorder] display media acquired",
       displayStream.getTracks().map((t) => t.kind),
     );
   }
-  let audioStream: MediaStream | null = null;
-  if (wantsAudio) {
-    console.log("[clips-recorder] acquiring audioStream (mic only)");
-    // IMPORTANT: `video: false` is EXPLICIT here. WebKit on macOS has been
-    // observed to treat `{ audio: ... }` with no `video` key as "caller
-    // hasn't expressed a video preference" and — when another webview in
-    // the same process has a live camera track — renegotiate the media
-    // session in a way that MUTES the bubble's camera track. Spelling
-    // out `video: false` blocks that renegotiation path entirely.
-    audioStream = await navigator.mediaDevices.getUserMedia({
-      audio: params.micId ? { deviceId: { exact: params.micId } } : true,
-      video: false,
+  if (bubbleCameraStream) {
+    const vtrack = bubbleCameraStream.getVideoTracks()[0];
+    console.log("[clips-recorder] camera acquired", {
+      label: vtrack?.label,
+      readyState: vtrack?.readyState,
+      muted: vtrack?.muted,
     });
+  }
+  if (audioStream) {
     console.log(
       "[clips-recorder] audioStream acquired",
       audioStream.getAudioTracks().map((t) => ({
@@ -225,18 +390,12 @@ export async function startNativeRecording(
     );
   }
 
-  // For the camera-only mode the bubble's own getUserMedia is the primary
-  // video source. We don't need a second stream in the popover.
-  let cameraStream: MediaStream | null = null;
-  if (params.mode === "camera") {
-    console.log("[clips-recorder] acquiring cameraStream (mode=camera only)");
-    cameraStream = await navigator.mediaDevices.getUserMedia({
-      video: params.cameraId ? { deviceId: { exact: params.cameraId } } : true,
-      audio: false,
-    });
-  }
-
-  const primaryVideo = displayStream ?? cameraStream;
+  // Choose the primary video track for MediaRecorder:
+  //   - screen mode             → display
+  //   - screen-camera mode      → display (camera is bubble overlay only)
+  //   - camera mode             → camera
+  const primaryVideo =
+    displayStream ?? (params.mode === "camera" ? bubbleCameraStream : null);
   if (!primaryVideo) throw new Error("No video stream available");
 
   const combined = new MediaStream();
@@ -255,8 +414,10 @@ export async function startNativeRecording(
   // wait at the end before starting the MediaRecorder.
   console.log("[clips-recorder] invoking show_countdown + createRecording");
   const countdownPromise = (async () => {
+    console.log("[clips-recorder] invoking show_countdown");
     try {
       await invoke("show_countdown");
+      console.log("[clips-recorder] show_countdown invoked OK");
     } catch (err) {
       console.error("[clips-recorder] show_countdown failed:", err);
     }
@@ -267,13 +428,22 @@ export async function startNativeRecording(
       console.log("[clips-recorder] countdown-done timed out — proceeding");
     }
   })();
+  console.log("[clips-recorder] before createRecording fetch");
+  console.time("[clips-recorder] createRecording duration");
   const recordingPromise = createRecording(
     params.serverUrl,
     wantsCamera,
     wantsAudio,
-  );
+  ).finally(() => {
+    console.timeEnd("[clips-recorder] createRecording duration");
+  });
+  console.log("[clips-recorder] awaiting countdown + createRecording");
   const [, createRes] = await Promise.all([countdownPromise, recordingPromise]);
   const { id } = createRes;
+  console.log(
+    "[clips-recorder] countdown + createRecording both resolved, id=",
+    id,
+  );
   console.log("[clips-recorder] recording row created", { id });
 
   // 4. Start MediaRecorder with a 2-second timeslice — each `ondataavailable`
@@ -310,6 +480,13 @@ export async function startNativeRecording(
   let accumulatedPauseMs = 0;
   let stopped = false;
   let stateUnlistens: UnlistenFn[] = [];
+
+  // The popover owns the camera stream when we're reusing a pre-acquired
+  // one — its session effect decides when to close the stream + hide the
+  // bubble + stop the pump. The recorder must NOT stop those tracks on
+  // stop/cancel. For camera-only mode (rare path where popover didn't
+  // hand us a stream) we own it ourselves.
+  const popoverOwnsCamera = bubbleCameraStream === reusedCameraStream;
 
   function emitState(paused: boolean) {
     const now = Date.now();
@@ -364,61 +541,20 @@ export async function startNativeRecording(
 
   recorder.start(2_000);
   console.log("[clips-recorder] MediaRecorder started");
+  // The toolbar is already open (the popover's bubble-session effect
+  // spawns it alongside the bubble in its pre-record, disabled state).
+  // Now that MediaRecorder is actually ticking, flip the toolbar's
+  // Stop / Pause buttons to enabled so the user can drive the recorder.
+  emit("clips:toolbar-enabled", true).catch(() => {});
+  // Seed the initial recorder-state so the time / paused styling match
+  // MediaRecorder's real state (before the first 500ms tick).
+  emitState(false);
 
-  // 6. Show the floating toolbar.
-  try {
-    await invoke("show_toolbar");
-    console.log("[clips-recorder] show_toolbar ok");
-  } catch (err) {
-    console.error("[clips-recorder] show_toolbar failed:", err);
-  }
-
-  // 7. Re-spawn the camera bubble NOW that MediaRecorder is running and
-  // we've closed the bubble window before acquiring display/mic. The
-  // bubble webview starts fresh, calls getUserMedia in isolation, and
-  // since MediaRecorder doesn't touch the camera after start, there's
-  // no cross-webview contention this time. We give the capture graph
-  // ~500ms to stabilize after MediaRecorder.start() before the bubble
-  // reaches for the camera — empirically macOS fully releases the
-  // last-held capture arbiter within a few frames of the new
-  // MediaRecorder hitting steady state.
-  if (wantsCamera) {
-    console.log(
-      "[clips-recorder] waiting 500ms for MediaRecorder to stabilize before re-spawning bubble",
-    );
-    setTimeout(() => {
-      console.log(
-        "[clips-recorder] re-spawning bubble webview (post-MediaRecorder)",
-      );
-      // Clear the suppression flag first so the popover's bubble
-      // effect stops tearing the bubble back down the moment Rust
-      // opens it.
-      emit("clips:bubble-suppress", { suppressed: false }).catch((err) =>
-        console.error(
-          "[clips-recorder] bubble-suppress(false) emit failed:",
-          err,
-        ),
-      );
-      invoke("show_bubble")
-        .then(() => {
-          console.log("[clips-recorder] show_bubble (post-MR) ok");
-          // Give the new bubble webview a beat to mount its listener,
-          // then push the camera deviceId so it picks the right device.
-          setTimeout(() => {
-            emit("clips:bubble-config", { deviceId: params.cameraId }).catch(
-              (err) =>
-                console.error(
-                  "[clips-recorder] bubble-config (post-MR) emit failed:",
-                  err,
-                ),
-            );
-          }, 300);
-        })
-        .catch((err) =>
-          console.error("[clips-recorder] show_bubble (post-MR) failed:", err),
-        );
-    }, 500);
-  }
+  // 6. Bubble + toolbar visibility are owned by the popover's session
+  // effect (see app.tsx + bubble-pump.ts) — not the recorder. Both open
+  // as soon as the user opens the popover in screen-camera / camera mode
+  // with cameraOn. The recorder just borrows the video track for
+  // MediaRecorder and flips the toolbar from disabled → enabled above.
 
   const handle: RecorderHandle = {
     async stop() {
@@ -453,19 +589,39 @@ export async function startNativeRecording(
         }
       });
 
-      // Stop every track so OS permission indicators clear immediately.
-      [displayStream, audioStream, cameraStream].forEach((s) =>
+      // Stop the streams WE own so OS permission indicators clear. The
+      // camera stream is owned by the popover when reused — we leave it
+      // alone so the bubble stays live if the popover is still open.
+      [displayStream, audioStream].forEach((s) =>
         s?.getTracks().forEach((t) => t.stop()),
       );
+      if (!popoverOwnsCamera) {
+        bubbleCameraStream?.getTracks().forEach((t) => t.stop());
+      }
 
-      // Hide overlays right away so the user sees the chrome disappear, but
-      // keep the popover alive until finalize completes — otherwise closing
-      // the Tauri webview cancels the in-flight fetch and the recording
-      // gets stuck in "processing" forever. Popover hide happens AFTER
-      // we've gotten the server's finalize response.
-      console.log("[clips-recorder] hiding overlay chrome");
-      await invoke("hide_overlays").catch((err) =>
-        console.error("[clips-recorder] hide_overlays failed:", err),
+      // Hide the recording-specific overlays (countdown + toolbar). The
+      // bubble is managed by the popover's session effect — when the
+      // popover is hidden or the user turns camera off, that effect tears
+      // down the bubble. Closing it here would cause a flicker on the
+      // cancel path where the popover re-appears with camera still on.
+      console.log("[clips-recorder] hiding recording chrome");
+      const chromeCmd = popoverOwnsCamera
+        ? "hide_recording_chrome"
+        : "hide_overlays";
+      await invoke(chromeCmd).catch((err) =>
+        console.error(`[clips-recorder] ${chromeCmd} failed:`, err),
+      );
+
+      // Show the full-screen "Finishing up your clip…" spinner overlay so
+      // the user gets immediate feedback while we flush the recorder
+      // buffer, wait for in-flight chunk uploads to settle, and POST the
+      // finalize. Without this the screen goes blank between the toolbar
+      // disappearing and the browser opening — several seconds of nothing
+      // on a longer recording. The overlay ignores cursor events and is
+      // closed right after openExternal below. Fired-and-forgotten (no
+      // await) so we don't add latency to the finalize path.
+      invoke("show_finalizing").catch((err) =>
+        console.error("[clips-recorder] show_finalizing failed:", err),
       );
 
       // Wait for any in-flight chunk uploads to settle before sending the
@@ -501,10 +657,18 @@ export async function startNativeRecording(
       }
 
       // Finalize done (or tried and failed — the player page shows a clear
-      // error state in either case). Open the browser to the playback URL.
+      // error state in either case). Open the browser to the playback URL
+      // and THEN close the finalizing spinner. Closing before the browser
+      // opens would leave the user staring at an empty desktop for the
+      // brief moment while the OS launches / focuses the default browser.
       const viewUrl = `/r/${id}`;
-      openExternal(`${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`).catch(
-        (err) => console.error("[clips-recorder] openExternal failed:", err),
+      try {
+        await openExternal(`${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`);
+      } catch (err) {
+        console.error("[clips-recorder] openExternal failed:", err);
+      }
+      invoke("hide_finalizing").catch((err) =>
+        console.error("[clips-recorder] hide_finalizing failed:", err),
       );
 
       return { recordingId: id, viewUrl };
@@ -520,10 +684,20 @@ export async function startNativeRecording(
       } catch {
         // ignore
       }
-      [displayStream, audioStream, cameraStream].forEach((s) =>
+      // Stop the streams WE own. Camera stays alive when the popover
+      // owns it (see stop() for the same split).
+      [displayStream, audioStream].forEach((s) =>
         s?.getTracks().forEach((t) => t.stop()),
       );
-      await invoke("hide_overlays").catch(() => {});
+      if (!popoverOwnsCamera) {
+        bubbleCameraStream?.getTracks().forEach((t) => t.stop());
+      }
+      // Same split as stop(): leave the bubble alone when popover owns
+      // the camera — the popover's session effect handles bubble teardown.
+      const chromeCmd = popoverOwnsCamera
+        ? "hide_recording_chrome"
+        : "hide_overlays";
+      await invoke(chromeCmd).catch(() => {});
       // Tell the server to abort the partial recording.
       await fetch(
         `${params.serverUrl.replace(/\/+$/, "")}/api/uploads/${id}/abort`,

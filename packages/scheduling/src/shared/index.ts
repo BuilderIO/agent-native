@@ -17,7 +17,7 @@ export type BookingStatus =
   | "rescheduled";
 
 export type LocationKind =
-  | "cal-video"
+  | "builtin-video"
   | "zoom"
   | "google-meet"
   | "teams"

@@ -1,9 +1,7 @@
 /**
- * Attendee form — name, email, notes, and any custom fields on the event type.
+ * Attendee form — name, email, notes. Slot summary lives in the host column.
  */
 import { useState } from "react";
-import { TZDate } from "@date-fns/tz";
-import { format } from "date-fns";
 import type { EventType, Slot } from "@agent-native/scheduling/shared";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -28,48 +26,47 @@ export function BookingForm(props: BookingFormProps) {
         if (!canSubmit) return;
         props.onSubmit(form);
       }}
-      className="mx-auto max-w-md space-y-4"
+      className="space-y-4"
     >
-      <div className="rounded-md border border-border bg-muted/30 p-3 text-sm">
-        <div className="font-medium">{props.eventType.title}</div>
-        <div className="text-muted-foreground">
-          {format(
-            new TZDate(new Date(props.slot.start).getTime(), props.timezone),
-            "EEEE, MMMM d · h:mm a",
-          )}{" "}
-          ({props.timezone})
-        </div>
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="name">Name</Label>
+      <div className="space-y-1.5">
+        <Label htmlFor="name">Your name *</Label>
         <Input
           id="name"
           required
+          placeholder="Full name"
           value={form.name}
           onChange={(e) => setForm({ ...form, name: e.currentTarget.value })}
         />
       </div>
-      <div className="space-y-2">
-        <Label htmlFor="email">Email</Label>
+      <div className="space-y-1.5">
+        <Label htmlFor="email">Email address *</Label>
         <Input
           id="email"
           type="email"
           required
+          placeholder="you@example.com"
           value={form.email}
           onChange={(e) => setForm({ ...form, email: e.currentTarget.value })}
         />
       </div>
-      <div className="space-y-2">
-        <Label htmlFor="notes">Additional notes</Label>
-        <Textarea
-          id="notes"
-          value={form.notes}
-          onChange={(e) => setForm({ ...form, notes: e.currentTarget.value })}
-        />
-      </div>
+      {!props.eventType.disableGuests && (
+        <div className="space-y-1.5">
+          <Label htmlFor="notes">Additional notes</Label>
+          <Textarea
+            id="notes"
+            rows={3}
+            placeholder="Please share anything that will help prepare for our meeting."
+            value={form.notes}
+            onChange={(e) => setForm({ ...form, notes: e.currentTarget.value })}
+          />
+        </div>
+      )}
       <Button type="submit" disabled={!canSubmit} className="w-full">
-        Confirm booking
+        Confirm
       </Button>
+      <p className="text-center text-[11px] text-muted-foreground">
+        By proceeding you agree to our Terms and Privacy Policy.
+      </p>
     </form>
   );
 }

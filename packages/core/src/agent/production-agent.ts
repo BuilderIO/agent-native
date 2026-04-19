@@ -108,6 +108,13 @@ export interface ProductionAgentOptions {
   trackUsage?: boolean;
   /** Usage limit in cents (default: 100 = $1.00) */
   usageLimitCents?: number;
+  /**
+   * Skip auto-injecting the workspace files/skills/agents inventory on the
+   * first message of a conversation. Useful for minimal/voice apps where
+   * the ~2KB inventory of unrelated resources is noise, not signal.
+   * Default: false (inventory is injected).
+   */
+  skipFilesContext?: boolean;
 }
 
 const MAX_ITERATIONS = 40;
@@ -558,17 +565,177 @@ export function createProductionAgentHandler(
       }
     }
 
-    // Resolve system prompt before starting the run
-    let systemPrompt: string;
-    try {
-      systemPrompt =
-        typeof options.systemPrompt === "function"
+    // Run all independent pre-send steps in parallel. Each of these hits
+    // the DB or invokes an action; running them sequentially was the
+    // single biggest contributor to pre-LLM latency.
+    const enrichedMessage = enrichMessage(message, references);
+
+    let systemPromptError: any = null;
+    const systemPromptPromise = (async (): Promise<string> => {
+      try {
+        return typeof options.systemPrompt === "function"
           ? await options.systemPrompt(event)
           : options.systemPrompt;
-    } catch (err: any) {
+      } catch (error) {
+        systemPromptError = error;
+        return "";
+      }
+    })();
+
+    const screenContextPromise = (async (): Promise<string> => {
+      try {
+        const viewScreenAction = resolvedActions["view-screen"];
+        if (viewScreenAction) {
+          const result = await viewScreenAction.run({});
+          if (result && result !== "(no output)") {
+            return `\n\n<current-screen>\n${result}\n</current-screen>`;
+          }
+        } else {
+          const navigation = await readAppState("navigation");
+          if (navigation) {
+            return `\n\n<current-screen>\n${JSON.stringify(navigation, null, 2)}\n</current-screen>`;
+          }
+        }
+      } catch {
+        // DB not ready or no navigation state — skip silently
+      }
+      return "";
+    })();
+
+    const urlContextPromise = (async (): Promise<string> => {
+      try {
+        const url = (await readAppState("__url__")) as {
+          pathname?: string;
+          search?: string;
+          hash?: string;
+          searchParams?: Record<string, string>;
+        } | null;
+        if (url && (url.pathname || url.search || url.hash)) {
+          const lines: string[] = [];
+          if (url.pathname) lines.push(`pathname: ${url.pathname}`);
+          if (url.search) lines.push(`search: ${url.search}`);
+          if (url.hash) lines.push(`hash: ${url.hash}`);
+          if (url.searchParams && Object.keys(url.searchParams).length > 0) {
+            lines.push("searchParams:");
+            for (const [k, v] of Object.entries(url.searchParams)) {
+              lines.push(`  ${k}: ${v}`);
+            }
+          }
+          return `\n\n<current-url>\n${lines.join("\n")}\n</current-url>`;
+        }
+      } catch {
+        // DB not ready — skip silently
+      }
+      return "";
+    })();
+
+    // On the first message of a conversation, inject workspace inventory
+    // so the agent knows what files, skills, jobs, and custom agents exist.
+    // Templates can opt out via `skipFilesContext: true` when the inventory
+    // is unrelated to the app's job (e.g. a voice-first macro tracker).
+    const filesContextPromise = (async (): Promise<string> => {
+      let filesContext = "";
+      if (options.skipFilesContext) return filesContext;
+      if (history.length === 0) {
+        try {
+          const { resourceListAccessible, SHARED_OWNER, resourceGet } =
+            await import("../resources/store.js");
+          const {
+            getResourceKind,
+            parseCustomAgentProfile,
+            parseRemoteAgentManifest,
+            parseSkillMetadata,
+          } = await import("../resources/metadata.js");
+          const ownerEmail = getRequestUserEmail() || "local@localhost";
+          const allResources = await resourceListAccessible(ownerEmail);
+
+          if (allResources.length > 0) {
+            const fileLines: string[] = [];
+            const skillLines: string[] = [];
+            const agentLines: string[] = [];
+            const jobLines: string[] = [];
+            for (const r of allResources) {
+              const scope = r.owner === SHARED_OWNER ? "shared" : "personal";
+              const kind = getResourceKind(r.path);
+              if (kind === "file") {
+                fileLines.push(`  ${r.path} (${scope})`);
+                continue;
+              }
+
+              if (kind === "job") {
+                jobLines.push(`  ${r.path} (${scope})`);
+                continue;
+              }
+
+              if (
+                kind === "skill" ||
+                kind === "agent" ||
+                kind === "remote-agent"
+              ) {
+                const full = await resourceGet(r.id);
+                if (!full) continue;
+                if (kind === "skill") {
+                  const skill = parseSkillMetadata(full.content, r.path);
+                  skillLines.push(
+                    `  ${skill?.name || r.path} — ${skill?.description || r.path} (${scope}, ${r.path})`,
+                  );
+                } else if (kind === "agent") {
+                  const agent = parseCustomAgentProfile(full.content, r.path);
+                  agentLines.push(
+                    `  ${agent?.name || r.path} — ${agent?.description || "Custom workspace agent"} (${scope}, ${r.path}${agent?.model ? `, model: ${agent.model}` : ""})`,
+                  );
+                } else {
+                  const agent = parseRemoteAgentManifest(full.content, r.path);
+                  agentLines.push(
+                    `  ${agent?.name || r.path} — ${agent?.description || "Connected A2A agent"} (${scope}, remote via ${r.path})`,
+                  );
+                }
+              }
+            }
+            const blocks: string[] = [];
+            if (fileLines.length > 0) {
+              blocks.push(
+                `<available-files>\nFiles in the workspace:\n${fileLines.join("\n")}\n\nTo read a file's contents, use the resource-read action with the file path.\n</available-files>`,
+              );
+            }
+            if (skillLines.length > 0) {
+              blocks.push(
+                `<available-skills>\nSkills in the workspace:\n${skillLines.join("\n")}\n</available-skills>`,
+              );
+            }
+            if (agentLines.length > 0) {
+              blocks.push(
+                `<available-agents>\nCustom and connected agents in the workspace:\n${agentLines.join("\n")}\n\nCustom agents under agents/*.md can be mentioned or used via spawn-task with the agent parameter.\n</available-agents>`,
+              );
+            }
+            if (jobLines.length > 0) {
+              blocks.push(
+                `<available-jobs>\nScheduled tasks in the workspace:\n${jobLines.join("\n")}\n</available-jobs>`,
+              );
+            }
+            filesContext =
+              blocks.length > 0 ? `\n\n${blocks.join("\n\n")}` : "";
+          }
+        } catch {
+          // Resources not available — skip silently
+        }
+      }
+      return filesContext;
+    })();
+
+    const [systemPrompt, screenBlock, urlBlock, filesContext] =
+      await Promise.all([
+        systemPromptPromise,
+        screenContextPromise,
+        urlContextPromise,
+        filesContextPromise,
+      ]);
+
+    if (systemPromptError) {
       setResponseHeader(event, "Content-Type", "text/event-stream");
       setResponseHeader(event, "Cache-Control", "no-cache");
       const encoder = new TextEncoder();
+      const err = systemPromptError;
       return new ReadableStream({
         start(controller) {
           controller.enqueue(
@@ -580,144 +747,7 @@ export function createProductionAgentHandler(
         },
       });
     }
-
-    const enrichedMessage = enrichMessage(message, references);
-
-    // Auto-inject current screen context so the agent always knows what
-    // the user is looking at without needing to call view-screen first.
-    let screenContext = "";
-    try {
-      const viewScreenAction = resolvedActions["view-screen"];
-      if (viewScreenAction) {
-        const result = await viewScreenAction.run({});
-        if (result && result !== "(no output)") {
-          screenContext = `\n\n<current-screen>\n${result}\n</current-screen>`;
-        }
-      } else {
-        const navigation = await readAppState("navigation");
-        if (navigation) {
-          screenContext = `\n\n<current-screen>\n${JSON.stringify(navigation, null, 2)}\n</current-screen>`;
-        }
-      }
-    } catch {
-      // DB not ready or no navigation state — skip silently
-    }
-
-    // Auto-inject the current URL (path + search params) so the agent
-    // knows what filters/search/query-string state is active. Written by
-    // the framework's <URLSync /> component inside AgentSidebar, so every
-    // template gets this for free. Separate block from <current-screen>
-    // so templates' view-screen output is preserved verbatim.
-    try {
-      const url = (await readAppState("__url__")) as {
-        pathname?: string;
-        search?: string;
-        hash?: string;
-        searchParams?: Record<string, string>;
-      } | null;
-      if (url && (url.pathname || url.search || url.hash)) {
-        const lines: string[] = [];
-        if (url.pathname) lines.push(`pathname: ${url.pathname}`);
-        if (url.search) lines.push(`search: ${url.search}`);
-        if (url.hash) lines.push(`hash: ${url.hash}`);
-        if (url.searchParams && Object.keys(url.searchParams).length > 0) {
-          lines.push("searchParams:");
-          for (const [k, v] of Object.entries(url.searchParams)) {
-            lines.push(`  ${k}: ${v}`);
-          }
-        }
-        screenContext += `\n\n<current-url>\n${lines.join("\n")}\n</current-url>`;
-      }
-    } catch {
-      // DB not ready — skip silently
-    }
-
-    // On the first message of a conversation, inject workspace inventory
-    // so the agent knows what files, skills, jobs, and custom agents exist.
-    let filesContext = "";
-    if (history.length === 0) {
-      try {
-        const { resourceListAccessible, SHARED_OWNER, resourceGet } =
-          await import("../resources/store.js");
-        const {
-          getResourceKind,
-          parseCustomAgentProfile,
-          parseRemoteAgentManifest,
-          parseSkillMetadata,
-        } = await import("../resources/metadata.js");
-        const ownerEmail = getRequestUserEmail() || "local@localhost";
-        const allResources = await resourceListAccessible(ownerEmail);
-
-        if (allResources.length > 0) {
-          const fileLines: string[] = [];
-          const skillLines: string[] = [];
-          const agentLines: string[] = [];
-          const jobLines: string[] = [];
-          for (const r of allResources) {
-            const scope = r.owner === SHARED_OWNER ? "shared" : "personal";
-            const kind = getResourceKind(r.path);
-            if (kind === "file") {
-              fileLines.push(`  ${r.path} (${scope})`);
-              continue;
-            }
-
-            if (kind === "job") {
-              jobLines.push(`  ${r.path} (${scope})`);
-              continue;
-            }
-
-            if (
-              kind === "skill" ||
-              kind === "agent" ||
-              kind === "remote-agent"
-            ) {
-              const full = await resourceGet(r.id);
-              if (!full) continue;
-              if (kind === "skill") {
-                const skill = parseSkillMetadata(full.content, r.path);
-                skillLines.push(
-                  `  ${skill?.name || r.path} — ${skill?.description || r.path} (${scope}, ${r.path})`,
-                );
-              } else if (kind === "agent") {
-                const agent = parseCustomAgentProfile(full.content, r.path);
-                agentLines.push(
-                  `  ${agent?.name || r.path} — ${agent?.description || "Custom workspace agent"} (${scope}, ${r.path}${agent?.model ? `, model: ${agent.model}` : ""})`,
-                );
-              } else {
-                const agent = parseRemoteAgentManifest(full.content, r.path);
-                agentLines.push(
-                  `  ${agent?.name || r.path} — ${agent?.description || "Connected A2A agent"} (${scope}, remote via ${r.path})`,
-                );
-              }
-            }
-          }
-          const blocks: string[] = [];
-          if (fileLines.length > 0) {
-            blocks.push(
-              `<available-files>\nFiles in the workspace:\n${fileLines.join("\n")}\n\nTo read a file's contents, use the resource-read action with the file path.\n</available-files>`,
-            );
-          }
-          if (skillLines.length > 0) {
-            blocks.push(
-              `<available-skills>\nSkills in the workspace:\n${skillLines.join("\n")}\n</available-skills>`,
-            );
-          }
-          if (agentLines.length > 0) {
-            blocks.push(
-              `<available-agents>\nCustom and connected agents in the workspace:\n${agentLines.join("\n")}\n\nCustom agents under agents/*.md can be mentioned or used via spawn-task with the agent parameter.\n</available-agents>`,
-            );
-          }
-          if (jobLines.length > 0) {
-            blocks.push(
-              `<available-jobs>\nScheduled tasks in the workspace:\n${jobLines.join("\n")}\n</available-jobs>`,
-            );
-          }
-          filesContext = blocks.length > 0 ? `\n\n${blocks.join("\n\n")}` : "";
-        }
-      } catch {
-        // Resources not available — skip silently
-      }
-    }
+    const screenContext = screenBlock + urlBlock;
 
     // Pre-compute agent references for A2A resolution inside the run
     const agentRefs = references.filter((r) => r.type === "agent");

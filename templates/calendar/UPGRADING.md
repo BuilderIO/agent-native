@@ -2,15 +2,15 @@
 
 The calendar template is migrating from its own lightweight booking schema
 (`bookingLinks` + `bookings`) to the shared `@agent-native/scheduling`
-package (Cal.com-style event types, availability schedules, teams, workflows).
+package (event types, availability schedules, teams, workflows).
 
 ## What changed
 
 - New dependency: `@agent-native/scheduling` — provides the schema, server
   repos, availability engine, booking service, calendar/video providers,
   actions, and React hooks.
-- The `scheduling` sibling template is the flagship Cal.com clone that
-  uses these primitives in full. Calendar stays focused on the Google
+- The `scheduling` sibling template is the full scheduling app that
+  uses these primitives end-to-end. Calendar stays focused on the Google
   Calendar viewer and lightweight booking; the scheduling template takes
   team / round-robin / routing-forms / workflows.
 
@@ -35,7 +35,7 @@ the existing actions.
 
 ### Option 2 — Full migration (planned for a future release)
 
-Rename legacy tables to match Cal.com terminology:
+Rename legacy tables to the canonical scheduling names:
 
 - `booking_links` → `event_types`
 - `booking_link_shares` → `event_type_shares`
@@ -47,7 +47,7 @@ production should stay on Option 1.
 
 ## Why
 
-The `scheduling` template is a full Cal.com / Calendly clone with teams,
+The `scheduling` template is a full scheduling app with teams,
 round-robin, workflows, and routing forms. Both templates share one
 source of truth for schedule math, availability rule evaluation, slot
 computation, and provider integrations. Every scheduling bugfix lands

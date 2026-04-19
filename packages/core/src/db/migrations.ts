@@ -84,8 +84,31 @@ export interface RunMigrationsOptions {
   table?: string;
 }
 
+/**
+ * A single migration entry.
+ *
+ * `sql` can be a string (runs on every dialect) or an object with dialect
+ * keys for dialect-gated SQL. Useful when Postgres needs an ALTER that
+ * SQLite can't parse.
+ *
+ *   { version: 14, sql: { postgres: "ALTER TABLE …" } }  // no-op on sqlite
+ *   { version: 15, sql: { sqlite: "…", postgres: "…" } } // both dialects
+ */
+export type MigrationSql = string | { postgres?: string; sqlite?: string };
+
+export interface MigrationEntry {
+  version: number;
+  sql: MigrationSql;
+}
+
+function resolveMigrationSql(sql: MigrationSql, pg: boolean): string | null {
+  if (typeof sql === "string") return sql;
+  const raw = pg ? sql.postgres : sql.sqlite;
+  return raw ?? null;
+}
+
 export function runMigrations(
-  migrations: Array<{ version: number; sql: string }>,
+  migrations: Array<MigrationEntry>,
   options: RunMigrationsOptions = {},
 ): NitroPluginDef {
   const table = options.table ?? "_migrations";
@@ -106,7 +129,16 @@ export function runMigrations(
 
         for (const m of migrations.filter((m) => m.version > current)) {
           try {
-            const statements = splitSqlStatements(m.sql);
+            // D1 is SQLite-compatible
+            const raw = resolveMigrationSql(m.sql, false);
+            if (raw == null) {
+              await d1
+                .prepare(`INSERT OR IGNORE INTO ${table} VALUES (?)`)
+                .bind(m.version)
+                .run();
+              continue;
+            }
+            const statements = splitSqlStatements(raw);
             await d1.batch([
               ...statements.map((s: string) => d1.prepare(s)),
               d1
@@ -121,7 +153,7 @@ export function runMigrations(
               `[db] Migration v${m.version} FAILED:`,
               (err as Error).message,
               "\nSQL:",
-              m.sql,
+              JSON.stringify(m.sql),
             );
             throw err;
           }
@@ -160,7 +192,14 @@ export function runMigrations(
       }
 
       for (const m of pending) {
-        const sql = pg ? adaptSqlForPostgres(m.sql) : adaptSqlForSqlite(m.sql);
+        const raw = resolveMigrationSql(m.sql, pg);
+        if (raw == null) {
+          // Dialect-gated migration with no SQL for this dialect; still mark
+          // as applied so we don't retry forever.
+          await exec.execute({ sql: insertSql, args: [m.version] });
+          continue;
+        }
+        const sql = pg ? adaptSqlForPostgres(raw) : adaptSqlForSqlite(raw);
         const statements = splitSqlStatements(sql);
         let currentStmt = "";
         try {

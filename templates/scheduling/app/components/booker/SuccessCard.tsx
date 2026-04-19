@@ -25,14 +25,12 @@ export function SuccessCard(props: SuccessCardProps) {
   return (
     <div className="mx-auto max-w-md space-y-4 text-center">
       <motion.div
-        className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[color:var(--brand-accent)]/10"
+        className="mx-auto flex h-16 w-16 items-center justify-center rounded-full"
+        style={{ background: "hsl(var(--brand-accent) / 0.1)" }}
         initial={{ scale: 0.7, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
       >
-        <IconCheck
-          className="h-8 w-8 text-[color:var(--brand-accent)]"
-          strokeWidth={3}
-        />
+        <IconCheck className="h-8 w-8 booker-accent" strokeWidth={3} />
       </motion.div>
       <h2 className="text-xl font-semibold">You're booked</h2>
       <div className="rounded-md border border-border bg-muted/20 p-3 text-left text-sm">

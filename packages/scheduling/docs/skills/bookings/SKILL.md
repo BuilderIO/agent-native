@@ -33,7 +33,7 @@ logging in.
 
 ## References
 
-External system IDs: Google Calendar event id, Zoom meeting id, Cal Video
+External system IDs: Google Calendar event id, Zoom meeting id, Daily.co
 room name. Stored in `booking_references`, used during cancel/reschedule to
 propagate changes back to the source system.
 

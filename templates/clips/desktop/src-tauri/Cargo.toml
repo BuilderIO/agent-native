@@ -37,6 +37,14 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 url = "2"
 
+# macOS-only: raw Objective-C messaging so we can flip NSWindow's sharingType
+# to NSWindowSharingNone and hide every overlay window (popover, bubble,
+# toolbar, countdown, signin) from screen-capture APIs. Same technique Loom,
+# 1Password, and CleanShot use. Tauri already pulls objc2 0.6 in transitively,
+# so requesting it here is a no-op in terms of the final dep graph.
+[target."cfg(target_os = \"macos\")".dependencies]
+objc2 = "0.6"
+
 [profile.release]
 panic = "abort"
 codegen-units = 1

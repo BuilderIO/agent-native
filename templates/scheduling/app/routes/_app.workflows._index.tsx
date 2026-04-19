@@ -5,14 +5,23 @@ import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { getDb, schema } from "../../server/db";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogTrigger,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -24,7 +33,13 @@ import {
 } from "@/components/ui/select";
 import { callAction } from "@/lib/api";
 import { toast } from "sonner";
-import { IconPlus } from "@tabler/icons-react";
+import {
+  IconBolt,
+  IconCopy,
+  IconDotsVertical,
+  IconPlus,
+  IconTrash,
+} from "@tabler/icons-react";
 
 export async function loader() {
   const email = getRequestUserEmail() ?? "local@localhost";
@@ -35,6 +50,15 @@ export async function loader() {
   return { workflows: rows };
 }
 
+const TRIGGER_LABELS: Record<string, string> = {
+  "new-booking": "New booking",
+  "before-event": "Before event",
+  "after-event": "After event",
+  reschedule: "Reschedule",
+  cancellation: "Cancellation",
+  "no-show": "No-show",
+};
+
 export default function WorkflowsIndex() {
   const { workflows } = useLoaderData<typeof loader>();
   const rv = useRevalidator();
@@ -43,7 +67,9 @@ export default function WorkflowsIndex() {
     name: "",
     trigger: "before-event",
   });
+
   const create = async () => {
+    if (!form.name) return;
     await callAction("create-workflow", {
       name: form.name,
       trigger: form.trigger,
@@ -63,38 +89,53 @@ export default function WorkflowsIndex() {
     setForm({ name: "", trigger: "before-event" });
     rv.revalidate();
   };
+
+  const toggle = async (id: string, disabled: boolean) => {
+    await callAction("toggle-workflow", { id, disabled: !disabled });
+    rv.revalidate();
+  };
+
+  const remove = async (id: string) => {
+    await callAction("delete-workflow", { id });
+    toast.success("Workflow deleted");
+    rv.revalidate();
+  };
+
   return (
-    <div className="mx-auto max-w-3xl p-6">
-      <header className="mb-6 flex items-center justify-between">
+    <div className="mx-auto max-w-4xl p-6 lg:p-8">
+      <header className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Workflows</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Send reminders, follow-ups, and webhooks on booking lifecycle
-            events.
+            Send reminders, follow-ups, and other automations on booking events.
           </p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
             <Button>
-              <IconPlus className="mr-2 h-4 w-4" />
-              New workflow
+              <IconPlus className="mr-1.5 h-4 w-4" />
+              New
             </Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>New workflow</DialogTitle>
+              <DialogTitle>Add a new workflow</DialogTitle>
+              <DialogDescription>
+                Give your workflow a name and pick a trigger.
+              </DialogDescription>
             </DialogHeader>
-            <div className="space-y-3">
-              <div className="space-y-1">
+            <div className="space-y-4">
+              <div className="space-y-1.5">
                 <Label>Name</Label>
                 <Input
+                  placeholder="Send reminders 1 hour before"
                   value={form.name}
                   onChange={(e) =>
                     setForm({ ...form, name: e.currentTarget.value })
                   }
                 />
               </div>
-              <div className="space-y-1">
+              <div className="space-y-1.5">
                 <Label>Trigger</Label>
                 <Select
                   value={form.trigger}
@@ -104,12 +145,11 @@ export default function WorkflowsIndex() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="new-booking">New booking</SelectItem>
-                    <SelectItem value="before-event">Before event</SelectItem>
-                    <SelectItem value="after-event">After event</SelectItem>
-                    <SelectItem value="reschedule">Reschedule</SelectItem>
-                    <SelectItem value="cancellation">Cancellation</SelectItem>
-                    <SelectItem value="no-show">No-show</SelectItem>
+                    {Object.entries(TRIGGER_LABELS).map(([k, label]) => (
+                      <SelectItem key={k} value={k}>
+                        {label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -119,39 +159,95 @@ export default function WorkflowsIndex() {
                 Cancel
               </Button>
               <Button onClick={create} disabled={!form.name}>
-                Create
+                Continue
               </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
       </header>
+
       {workflows.length === 0 ? (
-        <div className="rounded-md border border-dashed border-border p-12 text-center text-sm text-muted-foreground">
-          No workflows yet.
+        <div className="flex flex-col items-center justify-center gap-3 rounded-md border border-dashed border-border p-16 text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+            <IconBolt className="h-5 w-5 text-muted-foreground" />
+          </div>
+          <div>
+            <h2 className="text-base font-semibold">
+              Create your first workflow
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Automate reminders, thank-yous, and more for your bookings.
+            </p>
+          </div>
+          <Button onClick={() => setOpen(true)} className="mt-2">
+            <IconPlus className="mr-1.5 h-4 w-4" />
+            New workflow
+          </Button>
         </div>
       ) : (
-        <ul className="space-y-2">
-          {workflows.map((w: any) => (
-            <li
-              key={w.id}
-              className="flex items-center justify-between rounded-md border border-border p-4"
-            >
-              <div>
-                <Link
-                  to={`/workflows/${w.id}`}
-                  className="font-medium hover:underline"
-                >
-                  {w.name}
-                </Link>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  Trigger: {w.trigger}
+        <ul className="divide-y divide-border rounded-md border border-border bg-card">
+          {workflows.map((w: any) => {
+            const activeOn = Array.isArray(w.activeOnEventTypeIds)
+              ? w.activeOnEventTypeIds.length
+              : 0;
+            const stepCount = Array.isArray(w.steps) ? w.steps.length : 0;
+            return (
+              <li
+                key={w.id}
+                className="flex items-start gap-3 p-4 hover:bg-muted/30"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <Link
+                      to={`/workflows/${w.id}`}
+                      className="truncate font-semibold hover:underline"
+                    >
+                      {w.name}
+                    </Link>
+                    <Badge variant="outline" className="text-[10px]">
+                      {TRIGGER_LABELS[w.trigger] ?? w.trigger}
+                    </Badge>
+                    <Badge variant="secondary" className="text-[10px]">
+                      {stepCount} step{stepCount === 1 ? "" : "s"}
+                    </Badge>
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    Active on {activeOn} event type{activeOn === 1 ? "" : "s"}
+                  </div>
                 </div>
-              </div>
-              <Badge variant={w.disabled ? "secondary" : "default"}>
-                {w.disabled ? "Disabled" : "Active"}
-              </Badge>
-            </li>
-          ))}
+                <div className="flex shrink-0 items-center gap-2">
+                  <Switch
+                    checked={!w.disabled}
+                    onCheckedChange={() => toggle(w.id, !!w.disabled)}
+                  />
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button size="icon" variant="ghost" className="h-8 w-8">
+                        <IconDotsVertical className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem asChild>
+                        <Link to={`/workflows/${w.id}`}>Edit</Link>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem disabled>
+                        <IconCopy className="mr-2 h-4 w-4" />
+                        Duplicate
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        className="text-destructive focus:text-destructive"
+                        onClick={() => remove(w.id)}
+                      >
+                        <IconTrash className="mr-2 h-4 w-4" />
+                        Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

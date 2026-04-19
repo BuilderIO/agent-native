@@ -45,6 +45,21 @@ export function useRecordings(args: ListRecordingsArgs = {}) {
           recordings: Array.isArray(data?.recordings) ? data.recordings : [],
         };
       },
+      // If any recording is still on the seeded "Untitled recording" title
+      // (i.e. the agent hasn't landed a generated title yet), keep a 3s
+      // refetch cadence so the skeleton in `recording-card` upgrades to
+      // the real title promptly even if the refresh-signal poll is missed.
+      refetchInterval: (q) => {
+        const recs = (q.state.data as any)?.recordings as
+          | RecordingSummary[]
+          | undefined;
+        if (!recs || recs.length === 0) return false;
+        const pendingTitle = recs.some((r) => {
+          const t = (r.title ?? "").trim();
+          return t === "" || t === "Untitled recording";
+        });
+        return pendingTitle ? 3000 : false;
+      },
     },
   );
 }

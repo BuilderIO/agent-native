@@ -2,8 +2,8 @@
  * Event types — the top-level bookable definition.
  *
  * An EventType represents "a 30-minute intro call", "a team round-robin sales
- * demo", or "a managed internal 1:1". It's the Cal.com EventType, and the
- * primary resource users create, edit, and share links for.
+ * demo", or "a managed internal 1:1". It is the primary resource users create,
+ * edit, and share booking links for.
  *
  * Ownership: personal event types are owned by a user (ownerEmail);
  * team event types are owned by a team (teamId). Sharing is via the framework
@@ -138,7 +138,7 @@ export const eventTypeSlugRedirects = table("event_type_slug_redirects", {
   createdAt: text("created_at").notNull(),
 });
 
-/** Hashed private links (Cal.com's `/d/:hash/:slug`). */
+/** Hashed private links (`/d/:hash/:slug`) — shareable tokens that don't expose the owner's username. */
 export const hashedLinks = table("hashed_links", {
   id: text("id").primaryKey(),
   hash: text("hash").notNull().unique(),

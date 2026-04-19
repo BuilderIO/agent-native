@@ -1,8 +1,8 @@
 # Scheduling — Agent Guide
 
-You are the AI assistant for this scheduling app, a thorough Cal.com clone
-that supports 1:1 scheduling, team scheduling, routing forms, and workflows.
-This is an **agent-native** app built with `@agent-native/core` and the
+You are the AI assistant for this scheduling app. It supports 1:1
+scheduling, team scheduling, routing forms, and workflows. This is an
+**agent-native** app built with `@agent-native/core` and the
 `@agent-native/scheduling` package.
 
 **Core philosophy:** The agent and UI have full parity. Everything the user
@@ -72,7 +72,7 @@ The first four are must-reads for most tasks. The skill files live in
 - `/booking/:uid` — manage / success
 - `/reschedule/:uid` — reschedule Booker
 - `/forms/:formId` — routing form
-- `/video/:uid` — Cal Video
+- `/video/:uid` — built-in video room
 
 ### Authed dashboard
 
@@ -114,6 +114,39 @@ directory (framework root cwd won't find them).
 | "Remind attendees 1 hour before"                      | `create-workflow --trigger before-event --steps '[{action:"email-attendee",offsetMinutes:60,...}]'` |
 | "Show me my booking page"                             | `navigate --view event-types` (or `/:user`)                                                         |
 
+## Multi-tenancy — orgs, teams, sharing
+
+This template uses the framework's standard **organization** primitive
+(`@agent-native/core/org`) as the top-level multi-tenant boundary, plus
+**teams** as a sub-grouping inside an org. See `ORG_MODEL.md` in the
+template root for the full picture.
+
+- **Organization** = framework tenant. Tables: `organizations`,
+  `org_members`, `org_invitations`. Switched via the sidebar `OrgSwitcher`.
+- **Team** = slugged group of users within an org. Owns team event types,
+  team workflows, the public `/team/:slug` page. Lives at `team_id` on
+  event types / workflows / forms, with `org_id` on the team itself.
+- **Resource visibility** — every user-authored resource (event type,
+  schedule, booking, workflow, routing form) carries `owner_email`, `org_id`,
+  and `visibility ∈ {private, org, public}` via `ownableColumns()`. Companion
+  `{resource}_shares` tables hold per-user / per-org grants
+  (`viewer | editor | admin`).
+- **List actions** use `accessFilter(table, sharesTable)` to admit rows the
+  current user owns, has been shared on, or that match
+  org/public visibility within the active org.
+- **Mutations** call `assertAccess(type, id, role)` before writing —
+  `editor` for updates, `admin` for deletes, owner always satisfies.
+- **Sharing actions** (auto-mounted, framework-wide):
+  - `share-resource --resourceType <event-type|schedule|workflow|routing-form|booking|team> --resourceId <id> --principalType user|org --principalId <email-or-orgId> --role viewer|editor|admin`
+  - `unshare-resource ...`
+  - `list-resource-shares --resourceType <type> --resourceId <id>`
+  - `set-resource-visibility --resourceType <type> --resourceId <id> --visibility private|org|public`
+
+Public booking links (`/:user/:slug`, `/team/:slug`, `/d/:hash/:slug`,
+`/forms/:formId`) intentionally bypass `accessFilter` — they serve
+unauthenticated visitors who need to _book_. The sharing system gates who
+can _manage_ a resource, not who can book against it.
+
 ## Conventions
 
 - **Use shadcn/ui** from `app/components/ui/`. Never roll your own Dialog /
@@ -123,8 +156,28 @@ directory (framework root cwd won't find them).
 - **No browser dialogs** (`window.confirm/alert/prompt`) — use
   `AlertDialog` from shadcn.
 - **No decorative transitions** — keep UI snappy. Framer-motion is allowed
-  for booker stage transitions because that's the Cal.com signature feel.
+  for booker stage transitions where a continuous, animated feel is the
+  intended product polish.
 - **Use shadcn's default pill tabs** for the event type editor — not
   MUI-style underline tabs.
 - **Call view-screen first** when the user's request is ambiguous about
   what they're looking at.
+- **Optimistic UI by default** — never `await` a server round-trip before
+  updating the screen for routine mutations. See the framework `AGENTS.md`
+  for the full pattern.
+
+## Shared booking-link components
+
+Event-type editor UI (Setup tab conferencing row, URL slug editor, custom
+fields, duration picker, create dialog) is supplied by the scheduling
+package — see `@agent-native/scheduling/react/components`. Prefer editing
+the package component over forking. Current exports:
+
+- `ConferencingSelector` — no-conf / Google Meet / Zoom / Custom grid. Zoom
+  uses real OAuth (`connect-video` action).
+- `SlugEditor` — inline-editable URL preview.
+- `CustomFieldsEditor` — add/edit/reorder booking-form fields.
+- `DurationPicker` — multi-select duration pills.
+- `BookingLinkCreateDialog` — title/URL/duration modal.
+
+Details in `packages/scheduling/docs/UI_UNIFICATION.md`.

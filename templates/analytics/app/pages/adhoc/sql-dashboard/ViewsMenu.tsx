@@ -153,7 +153,7 @@ export function ViewsMenu({ dashboardId }: ViewsMenuProps) {
       <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
         <DropdownMenuTrigger asChild>
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
             className="h-8 text-xs gap-1.5"
             title="Saved views"

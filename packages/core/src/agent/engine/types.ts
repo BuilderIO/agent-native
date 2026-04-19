@@ -155,7 +155,7 @@ export interface EngineStreamOptions {
   providerOptions?: {
     anthropic?: {
       thinking?: { type: "enabled"; budgetTokens: number };
-      cacheControl?: { type: "ephemeral" };
+      cacheControl?: { type: "ephemeral" } | boolean;
       topK?: number;
     };
     openai?: Record<string, unknown>;

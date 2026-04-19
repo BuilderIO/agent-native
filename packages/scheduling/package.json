@@ -55,11 +55,15 @@
   },
   "peerDependencies": {
     "@agent-native/core": ">=0.7",
+    "@tabler/icons-react": ">=3",
     "drizzle-orm": ">=0.45",
     "react": ">=18",
     "react-dom": ">=18"
   },
   "peerDependenciesMeta": {
+    "@tabler/icons-react": {
+      "optional": true
+    },
     "react": {
       "optional": true
     },
@@ -69,6 +73,7 @@
   },
   "devDependencies": {
     "@agent-native/core": "workspace:*",
+    "@tabler/icons-react": "^3.0.0",
     "@types/node": "^24.2.1",
     "@types/react": "^18.3.23",
     "drizzle-orm": "^0.45.2",

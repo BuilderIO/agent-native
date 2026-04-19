@@ -1,49 +1,45 @@
-import { useEffect, useMemo } from "react";
-import { useLocation, useParams, useSearchParams } from "react-router";
-import { writeAppState } from "@agent-native/core/application-state";
+import { useEffect, useMemo, useRef } from "react";
+import {
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-/**
- * Sync the router's current state into `application_state` so the agent knows
- * which call, snippet, folder, etc. the user is looking at. The agent reads
- * `navigation` via `view-screen` and uses it to target actions at the right
- * resource without asking for IDs. Do NOT write to `navigation` from the
- * agent — only the UI owns this key.
- *
- * View values map to routes:
- *   library | call | snippet | search | trackers | upload | archive | trash
- *   settings | notifications | share | embed | invite
- */
-export function useNavigationState() {
-  const location = useLocation();
-  const params = useParams();
-  const [searchParams] = useSearchParams();
+export type CallsView =
+  | "library"
+  | "call"
+  | "snippet"
+  | "search"
+  | "trackers"
+  | "upload"
+  | "archive"
+  | "trash"
+  | "settings"
+  | "notifications"
+  | "share"
+  | "embed"
+  | "invite";
 
-  const navState = useMemo(() => {
-    const path = location.pathname;
-    const view = resolveView(path);
-    return {
-      view,
-      path,
-      callId: params.callId ?? null,
-      snippetId: params.snippetId ?? null,
-      folderId: params.folderId ?? null,
-      spaceId: params.spaceId ?? null,
-      shareId: params.shareId ?? null,
-      token: params.token ?? null,
-      search: searchParams.get("q") ?? null,
-      t:
-        searchParams.get("t") != null
-          ? Number(searchParams.get("t"))
-          : undefined,
-    };
-  }, [location.pathname, params, searchParams]);
-
-  useEffect(() => {
-    writeAppState("navigation", navState).catch(() => {});
-  }, [navState]);
+export interface NavigationState {
+  view: CallsView;
+  path: string;
+  callId?: string | null;
+  snippetId?: string | null;
+  folderId?: string | null;
+  spaceId?: string | null;
+  shareId?: string | null;
+  token?: string | null;
+  search?: string | null;
+  t?: number;
 }
 
-function resolveView(path: string): string {
+interface NavigateCommand extends Partial<NavigationState> {
+  _ts?: number;
+}
+
+function resolveView(path: string): CallsView {
   if (path === "/" || path.startsWith("/library")) return "library";
   if (path.startsWith("/calls/")) return "call";
   if (path.startsWith("/snippets/")) return "snippet";
@@ -60,4 +56,112 @@ function resolveView(path: string): string {
     return "embed";
   if (path.startsWith("/invite/")) return "invite";
   return "library";
+}
+
+function pathFromCommand(cmd: NavigateCommand): string {
+  if (cmd.path) return cmd.path;
+  switch (cmd.view) {
+    case "call":
+      return cmd.callId ? `/calls/${cmd.callId}` : "/library";
+    case "snippet":
+      return cmd.snippetId ? `/snippets/${cmd.snippetId}` : "/library";
+    case "share":
+      return cmd.callId ? `/share/${cmd.callId}` : "/library";
+    case "embed":
+      return cmd.callId ? `/embed/${cmd.callId}` : "/library";
+    case "search":
+      return cmd.search
+        ? `/search?q=${encodeURIComponent(cmd.search)}`
+        : "/search";
+    case "trackers":
+      return "/trackers";
+    case "upload":
+      return "/upload";
+    case "archive":
+      return "/archive";
+    case "trash":
+      return "/trash";
+    case "settings":
+      return "/settings";
+    case "notifications":
+      return "/notifications";
+    case "invite":
+      return cmd.token ? `/invite/${cmd.token}` : "/library";
+    case "library":
+    default:
+      if (cmd.folderId) return `/library/folder/${cmd.folderId}`;
+      return "/library";
+  }
+}
+
+/**
+ * Sync the router's current state into `application_state` via HTTP (PUT).
+ * Never imports from `@agent-native/core/application-state` on the client —
+ * that's a server-only module (pulls in Node's `events`).
+ */
+export function useNavigationState() {
+  const location = useLocation();
+  const params = useParams();
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const navState = useMemo<NavigationState>(() => {
+    const path = location.pathname;
+    return {
+      view: resolveView(path),
+      path,
+      callId: params.callId ?? null,
+      snippetId: params.snippetId ?? null,
+      folderId: params.folderId ?? null,
+      spaceId: params.spaceId ?? null,
+      shareId: params.shareId ?? null,
+      token: params.token ?? null,
+      search: searchParams.get("q") ?? null,
+      t:
+        searchParams.get("t") != null
+          ? Number(searchParams.get("t"))
+          : undefined,
+    };
+  }, [location.pathname, params, searchParams]);
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      fetch("/_agent-native/application-state/navigation", {
+        method: "PUT",
+        keepalive: true,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(navState),
+      }).catch(() => {});
+    }, 300);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [navState]);
+
+  const { data: navCommand } = useQuery<NavigateCommand | null>({
+    queryKey: ["navigate-command"],
+    queryFn: async () => {
+      const res = await fetch("/_agent-native/application-state/navigate");
+      if (!res.ok) return null;
+      const data = (await res.json()) as NavigateCommand | null;
+      if (data) return { ...data, _ts: Date.now() };
+      return null;
+    },
+    refetchInterval: 2_000,
+    refetchIntervalInBackground: true,
+    structuralSharing: false,
+  });
+
+  useEffect(() => {
+    if (!navCommand) return;
+    fetch("/_agent-native/application-state/navigate", {
+      method: "DELETE",
+    }).catch(() => {});
+    const path = pathFromCommand(navCommand);
+    navigate(path);
+    qc.setQueryData(["navigate-command"], null);
+  }, [navCommand, navigate, qc]);
 }

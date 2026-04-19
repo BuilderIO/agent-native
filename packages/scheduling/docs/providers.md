@@ -5,7 +5,7 @@ Scheduling needs two kinds of providers:
 - **CalendarProvider** — reads busy intervals + writes events.
 - **VideoProvider** — creates meeting rooms when a booking is confirmed.
 
-Built-ins: Google Calendar, Office 365, Zoom, Cal Video (Daily.co), Google
+Built-ins: Google Calendar, Office 365, Zoom, built-in video (Daily.co), Google
 Meet (piggy-backs on Google Calendar).
 
 ## CalendarProvider
@@ -64,5 +64,5 @@ registerVideoProvider({
 ```
 
 Video providers are invoked by the booking service when a booking's location
-is `cal-video`, `zoom`, `google-meet`, or `teams`. Meeting URLs land in
+is `builtin-video`, `zoom`, `google-meet`, or `teams`. Meeting URLs land in
 `booking_references`.

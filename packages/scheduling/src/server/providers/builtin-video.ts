@@ -1,19 +1,19 @@
 /**
- * Cal Video (Daily.co) provider — zero-OAuth video provider driven by a
+ * Built-in video provider (Daily.co) — zero-OAuth video provider driven by a
  * server-to-server API key. Creates a Daily.co room per booking.
  */
 import type { VideoProvider } from "./types.js";
 
 export interface DailyVideoProviderConfig {
   apiKey: string;
-  /** Prefix for Daily room names; defaults to "cal-" */
+  /** Prefix for Daily room names; defaults to "room-" */
   roomPrefix?: string;
 }
 
 export function createDailyVideoProvider(
   config: DailyVideoProviderConfig,
 ): VideoProvider {
-  const prefix = config.roomPrefix ?? "cal-";
+  const prefix = config.roomPrefix ?? "room-";
   async function apiCall<T>(path: string, init?: RequestInit): Promise<T> {
     const res = await fetch(`https://api.daily.co/v1${path}`, {
       ...init,
@@ -30,8 +30,8 @@ export function createDailyVideoProvider(
     return (await res.json()) as T;
   }
   return {
-    kind: "cal_video",
-    label: "Cal Video",
+    kind: "builtin_video",
+    label: "Built-in video",
     async createMeeting({ booking }) {
       const roomName = `${prefix}${booking.uid}`.slice(0, 40);
       const resp = await apiCall<{ url: string; name: string }>("/rooms", {

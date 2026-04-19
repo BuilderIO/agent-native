@@ -74,17 +74,21 @@ class AnthropicEngine implements AgentEngine {
       extra.top_k = anthropicOpts.topK;
     }
 
-    // Apply prompt caching to the system prompt if requested.
-    // We pass the system prompt as a structured array so we can add cache_control.
+    // Apply prompt caching to the system prompt and tools by default.
+    // Cache is pure upside: identical prefixes on subsequent turns get ~90%
+    // off input cost and much faster time-to-first-token. If the prefix
+    // changes turn-to-turn, it's a no-op. Templates can opt out by setting
+    // providerOptions.anthropic.cacheControl = false.
+    const cacheEnabled = anthropicOpts?.cacheControl !== false;
     const systemBlocks: any[] = [{ type: "text", text: opts.systemPrompt }];
-    if (anthropicOpts?.cacheControl) {
+    if (cacheEnabled) {
       systemBlocks[0].cache_control = { type: "ephemeral" };
     }
 
     // Apply cache_control to the last tool definition when caching is enabled.
     // Anthropic caches the prefix up to and including the last cached block.
     let cachedTools = tools;
-    if (anthropicOpts?.cacheControl && tools.length > 0) {
+    if (cacheEnabled && tools.length > 0) {
       cachedTools = [...tools];
       const last = { ...cachedTools[cachedTools.length - 1] } as any;
       last.cache_control = { type: "ephemeral" };

@@ -3,6 +3,7 @@
  */
 import { eq, and, gte, lt, or, desc, asc } from "drizzle-orm";
 import { nanoid } from "nanoid";
+import { accessFilter } from "@agent-native/core/sharing";
 import type {
   Booking,
   Attendee,
@@ -101,6 +102,12 @@ export interface ListBookingsFilter {
   /** Exclusive end (ISO) */
   to?: string;
   limit?: number;
+  /**
+   * If true, admit any booking the current user owns, has been shared on, or
+   * matches via org-visibility — in addition to the explicit `hostEmail`
+   * filter (which still narrows further when set).
+   */
+  useAccessFilter?: boolean;
 }
 
 export async function listBookings(
@@ -110,6 +117,9 @@ export async function listBookings(
   const db = getDb();
   const now = new Date().toISOString();
   const wheres: any[] = [];
+  if (filter.useAccessFilter) {
+    wheres.push(accessFilter(schema.bookings, schema.bookingShares));
+  }
   if (filter.hostEmail)
     wheres.push(eq(schema.bookings.hostEmail, filter.hostEmail));
   if (filter.eventTypeId)

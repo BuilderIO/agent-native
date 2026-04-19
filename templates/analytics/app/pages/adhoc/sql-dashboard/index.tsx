@@ -379,17 +379,16 @@ export default function SqlDashboardPage() {
           />
         ) : (
           <button
-            className="text-lg font-semibold hover:text-primary flex items-center gap-1 truncate"
+            className="group text-lg font-semibold hover:text-primary flex items-center gap-1 truncate"
             onClick={() => {
               setNameInput(dashboard.name);
               setEditingName(true);
             }}
           >
             <span className="truncate">{dashboard.name}</span>
-            <IconPencil className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <IconPencil className="h-3.5 w-3.5 text-muted-foreground shrink-0 opacity-0 group-hover:opacity-100" />
           </button>
         )}
-        {dashboardId && <ViewsMenu dashboardId={dashboardId} />}
       </div>
     ) : null,
   );
@@ -397,6 +396,7 @@ export default function SqlDashboardPage() {
   useSetHeaderActions(
     dashboard ? (
       <>
+        {dashboardId && <ViewsMenu dashboardId={dashboardId} />}
         {dashboardId ? (
           <ShareButton
             resourceType="dashboard"

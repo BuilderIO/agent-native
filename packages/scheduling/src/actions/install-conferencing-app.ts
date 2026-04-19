@@ -6,9 +6,9 @@ import { currentUserEmail } from "./_helpers.js";
 
 export default defineAction({
   description:
-    "Install a conferencing app (zero-OAuth apps like Cal Video register immediately; OAuth apps start their flow)",
+    "Install a conferencing app (zero-OAuth apps like built-in video register immediately; OAuth apps start their flow)",
   schema: z.object({
-    kind: z.enum(["cal_video", "zoom_video", "google_meet", "teams_video"]),
+    kind: z.enum(["builtin_video", "zoom_video", "google_meet", "teams_video"]),
   }),
   run: async (args) => {
     const { getDb, schema } = getSchedulingContext();

@@ -1,6 +1,6 @@
 # Agent-Native
 
-**Agentic apps that self improve.**
+### Agentic applications you own.
 
 Don't choose between structured user flows and autonomous agents. Every Agent-Native app is both.
 

@@ -3,6 +3,11 @@ import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { startBubbleFramePump } from "./lib/bubble-pump";
+import {
+  startBubbleWebrtc,
+  type BubbleWebrtcHandle,
+} from "./lib/bubble-webrtc";
 import { startNativeRecording, type RecorderHandle } from "./lib/recorder";
 
 interface RecordingSummary {
@@ -105,12 +110,8 @@ export function App() {
   const [recorder, setRecorder] = useState<RecorderHandle | null>(null);
   const [recError, setRecError] = useState<string | null>(null);
   // Latched true the moment the user clicks Start Recording and cleared
-  // when the recorder fully stops/cancels. We use this to keep the camera
-  // bubble alive across the brief popover-visibility transitions during
-  // recording setup (the macOS screen-picker steals focus and can briefly
-  // flip `popoverVisible` to false — without this latch, the bubble
-  // window would be destroyed + recreated, and the second getUserMedia
-  // would race the first and come back black).
+  // when the recorder fully stops/cancels. We use this to suppress the
+  // popover auto-hide during the macOS screen-picker focus dance.
   const [recordingFlowActive, setRecordingFlowActive] = useState(false);
   const [lastRecordingId, setLastRecordingId] = useState<string | null>(null);
   const [authStatus, setAuthStatus] = useState<"unknown" | "authed" | "anon">(
@@ -179,6 +180,22 @@ export function App() {
     }, 1500);
   }
 
+  // Sign out via the framework's logout endpoint. The cookie clears in the
+  // same webview that will re-check `/auth/session`, so the popover flips
+  // back to the inline sign-in form without a reload.
+  async function signOut() {
+    try {
+      await fetch(
+        `${serverUrl.replace(/\/+$/, "")}/_agent-native/auth/logout`,
+        { method: "POST", credentials: "include" },
+      );
+    } catch {
+      // ignore — we'll re-check session regardless
+    }
+    await checkAuth();
+    setShowSettings(false);
+  }
+
   // ---- device enumeration -------------------------------------------------
   // WebKit only returns full device labels after getUserMedia() has granted
   // access once. So we do a one-shot mic + camera probe when the popover
@@ -242,6 +259,13 @@ export function App() {
       console.log("[clips-popover] popover-visible =", ev.payload);
       setPopoverVisible(!!ev.payload);
     }).then((u) => unlistens.push(u));
+    // The bubble window emits `clips:bubble-closed` when the user clicks
+    // the X on the hover controls. Treat that as "camera off" — the
+    // bubble-session effect then tears down the stream + pump.
+    listen("clips:bubble-closed", () => {
+      console.log("[clips-popover] bubble-closed received — clearing cameraOn");
+      setCameraOn(false);
+    }).then((u) => unlistens.push(u));
     // Query the CURRENT visibility on mount in case the event already
     // fired before React subscribed.
     getCurrentWindow()
@@ -254,75 +278,191 @@ export function App() {
     return () => unlistens.forEach((u) => u());
   }, []);
 
-  // ---- pre-record camera bubble overlay -----------------------------------
-  // Show the on-screen circular bubble ONLY when the user can see the
-  // popover OR a recording is in progress. Closing the popover hides it
-  // (so the bubble isn't hovering over everything while the user is
-  // working in another app).
+  // ---- camera bubble session ---------------------------------------------
+  // The bubble overlay (small circular PiP in the bottom-left of the screen
+  // showing the user's face) is owned by the popover for the ENTIRE camera
+  // session — not just during recording. That's a hard requirement of
+  // WebKit's single-page capture-exclusion policy (see `recorder.ts` and
+  // `bubble-pump.ts` headers for the full story): if two webviews in the
+  // same process try to hold capture hardware, WebKit silently mutes one
+  // of them. The only webview that can reliably hold the camera is this
+  // popover, so this popover is where the MediaStream lives and where the
+  // frame pump runs.
+  //
+  // Lifecycle:
+  //   - Popover visible + camera mode + cameraOn → acquire camera, call
+  //     show_bubble, start frame pump. User sees their face in the
+  //     bottom-left corner.
+  //   - User clicks Start Recording → popover hides, recording begins.
+  //     `isRecording` becomes true, so this effect's deps still say
+  //     "active" — the stream + bubble + pump keep running. The recorder
+  //     just borrows the video track for MediaRecorder (see
+  //     `preAcquiredCameraStream` in recorder.ts).
+  //   - Recording stops → `isRecording` flips back to false, popover
+  //     usually hides too, so the effect cleans up: stop tracks, hide
+  //     overlays (which closes the bubble window).
+  //   - User switches camera / turns camera off / closes popover (not
+  //     recording) → cleanup fires, bubble disappears.
+  const bubbleStreamRef = useRef<MediaStream | null>(null);
+  // Set to true the instant startRecording hands `bubbleStreamRef.current`
+  // to `startNativeRecording` as `preAcquiredCameraStream`. The recorder
+  // then owns the track lifecycle — this effect's cleanup MUST NOT stop
+  // the tracks or the MediaRecorder ends up with `readyState: "ended"`
+  // tracks (which causes the laggy / black / silently-failing recording
+  // symptoms). Reset to false once the recording is fully torn down.
+  const bubbleStreamTransferredToRecorder = useRef(false);
+  const wantsCamera = mode !== "screen" && cameraOn;
+  // Ref mirror of `isRecording || recordingFlowActive` so cleanup (which
+  // captures the dep-snapshot value) can still see the CURRENT flow state
+  // at the moment it actually runs. Without this, if `recordingFlowActive`
+  // briefly flips false on a re-render mid-flow (e.g. finally-block
+  // recovery path), the cleanup function snapshots `bubbleActive=false`
+  // from THAT render and stops the camera stream even though recording is
+  // still in flight.
+  const recordingFlowGateRef = useRef(false);
+  recordingFlowGateRef.current = isRecording || recordingFlowActive;
+  const bubbleActive =
+    wantsCamera && (popoverVisible || isRecording || recordingFlowActive);
+  // The toolbar is shown whenever the user is in the pre-record or
+  // recording phase, regardless of camera mode — screen-only recordings
+  // still need the Stop / Pause buttons on-screen.
+  const toolbarActive = popoverVisible || isRecording || recordingFlowActive;
 
-  // The recorder driver needs to DESTROY and re-spawn the bubble during
-  // the startup handshake (to release the camera hardware before we
-  // acquire display + mic — see recorder.ts for the full explanation).
-  // While that handshake is mid-flight it emits `clips:bubble-suppress`
-  // with `true` so this effect doesn't race to re-open the bubble; it
-  // flips back to `false` once MediaRecorder is running and we want the
-  // bubble back. Keep this as a ref-like piece of state so toggles
-  // propagate through the effect cleanly.
-  const [bubbleSuppressed, setBubbleSuppressed] = useState(false);
   useEffect(() => {
-    const unlistens: Array<() => void> = [];
-    listen<{ suppressed?: boolean }>("clips:bubble-suppress", (ev) => {
-      const next = !!ev.payload.suppressed;
-      console.log("[clips-popover] bubble-suppress =", next);
-      setBubbleSuppressed(next);
-    }).then((u) => unlistens.push(u));
-    return () => unlistens.forEach((u) => u());
-  }, []);
-
-  const showBubblePreview =
-    mode !== "screen" &&
-    cameraOn &&
-    !bubbleSuppressed &&
-    (popoverVisible || isRecording || recordingFlowActive);
+    if (!toolbarActive) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        await invoke("show_toolbar");
+        if (cancelled) return;
+        // Seed disabled — previous recordings may have latched it on in
+        // the toolbar's React state (the window is destroyed on
+        // `hide_overlays`, so this is mostly defensive, but free).
+        emit("clips:toolbar-enabled", false).catch(() => {});
+      } catch (err) {
+        console.error("[clips-popover] show_toolbar failed:", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      // In screen-only mode the bubble effect never runs, so its
+      // cleanup (which normally hides overlays) never fires either.
+      // Hide them from here instead. Guard on !recordingInFlight so
+      // we don't rip the toolbar out from under an active recording.
+      if (!recordingFlowGateRef.current) {
+        invoke("hide_overlays").catch(() => {});
+      }
+    };
+  }, [toolbarActive]);
 
   useEffect(() => {
-    console.log("[clips-popover] wantsBubble", showBubblePreview, {
-      mode,
-      cameraOn,
-      isRecording,
-      recordingFlowActive,
-      bubbleSuppressed,
-    });
-    if (!showBubblePreview) {
-      // Don't call hide_overlays here — that would also close the
-      // countdown / toolbar mid-recording. If we want the bubble gone
-      // (either because suppression is on, or the popover closed
-      // pre-recording), close JUST the bubble via close_bubble. The
-      // recorder driver is the only other caller, and it uses the
-      // same command.
-      invoke("close_bubble").catch((e) =>
-        console.error("[clips-popover] close_bubble failed", e),
+    if (!bubbleActive) return;
+
+    let cancelled = false;
+    // Dual-transport bookkeeping. We try WebRTC first; if it fails or
+    // times out, we fall back to the canvas pump. Only one should be
+    // active at a time — the ref below guarantees we never double-start.
+    let webrtcHandle: BubbleWebrtcHandle | null = null;
+    let stopPump: (() => void) | null = null;
+    let fellBackToPump = false;
+    let stream: MediaStream | null = null;
+
+    console.log(
+      "[clips-popover] bubble session start — acquiring camera + showing bubble",
+    );
+    navigator.mediaDevices
+      .getUserMedia({
+        video: cameraId ? { deviceId: { exact: cameraId } } : true,
+        audio: false,
+      })
+      .then(async (s) => {
+        if (cancelled) {
+          // Effect re-ran before we resolved — throw this stream away.
+          s.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        stream = s;
+        bubbleStreamRef.current = s;
+        // Open the bubble window. It's a pure renderer — the bubble
+        // itself creates an RTCPeerConnection receiver and emits
+        // `clips:bubble-ready` once it's listening. We also keep the
+        // legacy canvas-frame sink around so a WebRTC failure can
+        // fall back to JPEG frames without a bubble reload.
+        try {
+          await invoke("show_bubble");
+        } catch (err) {
+          console.error("[clips-popover] show_bubble failed:", err);
+        }
+        if (cancelled) {
+          s.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        // Preferred path: WebRTC. Starts listening for bubble-ready,
+        // then kicks off an offer/answer/ICE dance. If ICE doesn't
+        // connect within the timeout (or fails later) we start the
+        // canvas pump in its place. The pump is our safety net —
+        // proven to work, just slower.
+        const startCanvasFallback = (reason: string) => {
+          if (cancelled || fellBackToPump) return;
+          fellBackToPump = true;
+          console.warn(
+            "[clips-popover] WebRTC bubble failed (%s) — starting canvas pump fallback",
+            reason,
+          );
+          webrtcHandle?.stop();
+          webrtcHandle = null;
+          if (stream) {
+            stopPump = startBubbleFramePump(stream);
+          }
+        };
+        webrtcHandle = startBubbleWebrtc({
+          stream: s,
+          onConnected: () => {
+            console.log(
+              "[clips-popover] bubble WebRTC connected — video is live",
+            );
+          },
+          onFailure: startCanvasFallback,
+        });
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error("[clips-popover] camera acquisition failed:", err);
+      });
+
+    return () => {
+      cancelled = true;
+      const transferred = bubbleStreamTransferredToRecorder.current;
+      const recordingInFlight = recordingFlowGateRef.current;
+      console.log(
+        "[clips-popover] bubble session end — transferred=%o recordingInFlight=%o",
+        transferred,
+        recordingInFlight,
       );
-      return;
-    }
-    invoke("show_bubble")
-      .then(() => console.log("[clips-popover] show_bubble ok"))
-      .catch((e) => console.error("[clips-popover] show_bubble failed", e));
-    const t = setTimeout(() => {
-      emit("clips:bubble-config", { deviceId: cameraId }).catch((e) =>
-        console.error("[clips-popover] bubble-config emit failed", e),
-      );
-    }, 250);
-    return () => clearTimeout(t);
-  }, [
-    showBubblePreview,
-    cameraId,
-    mode,
-    cameraOn,
-    isRecording,
-    recordingFlowActive,
-    bubbleSuppressed,
-  ]);
+      if (webrtcHandle) webrtcHandle.stop();
+      if (stopPump) stopPump();
+      // Critical: if the recorder borrowed this stream, it now owns the
+      // track lifecycle. Stopping tracks here would end them out from
+      // under `MediaRecorder`, producing the laggy-bubble / dead-track
+      // bug. The recorder will stop them on `stop()` / `cancel()`.
+      if (stream && !transferred) {
+        stream.getTracks().forEach((t) => t.stop());
+      }
+      // If the recorder owns the stream, keep `bubbleStreamRef` pointed
+      // at it so the next re-entry of this effect (if any) doesn't try
+      // to re-acquire while the recorder is still using it.
+      if (!transferred) {
+        bubbleStreamRef.current = null;
+      }
+      // Don't tear down overlays if a recording is still in flight (the
+      // recorder's stop flow calls `hide_recording_chrome` which handles
+      // the bubble correctly). Hiding here mid-flow would kill the
+      // on-screen bubble window the user sees during the recording.
+      if (!recordingInFlight) {
+        invoke("hide_overlays").catch(() => {});
+      }
+    };
+  }, [bubbleActive, cameraId]);
 
   // ---- auto-size popover to content --------------------------------------
   // The Tauri window is fixed-size via tauri.conf.json, but our content
@@ -402,10 +542,10 @@ export function App() {
       cameraOn,
       micOn,
     });
-    // Latch BEFORE the async work so the bubble-preview effect keeps the
-    // bubble window alive even if `popoverVisible` briefly flips during
-    // the macOS screen-picker dance — rebuilding the bubble mid-startup
-    // is what left it black when MediaRecorder acquired its streams.
+    // Latch BEFORE the async work so the popover stays in "recording
+    // flow" during the macOS screen-picker focus dance. The bubble
+    // session effect also keys off this flag (via `bubbleActive`) so
+    // the bubble + camera stream stay alive while the picker is up.
     setRecordingFlowActive(true);
     // Tell Rust we're entering the recording flow NOW, not after the
     // handle arrives. The macOS screen-picker dialog steals focus from
@@ -413,54 +553,150 @@ export function App() {
     // mid-setup — so the countdown and toolbar render behind a hidden
     // popover and the user sees nothing happen.
     invoke("set_recording_state", { active: true }).catch(() => {});
-    // Hide the popover BEFORE `getDisplayMedia` runs so the macOS screen
-    // picker doesn't list the popover as a capture target (otherwise a
-    // stray click down selects the popover itself as the "window" to
-    // record). The popover stays hidden during recording anyway; on
-    // cancel/error we show it again below.
-    getCurrentWindow()
-      .hide()
-      .catch(() => {});
-    emit("clips:popover-visible", false).catch(() => {});
+
+    // Hand the live camera stream to the recorder so it doesn't
+    // re-acquire the camera (which would trigger WebKit's
+    // capture-exclusion mute bug — see `preAcquiredCameraStream` in
+    // recorder.ts). The popover KEEPS ownership: the bubble session
+    // effect's deps still include `isRecording`, so the stream + bubble
+    // + pump stay alive for the entire recording.
+    const preAcquiredCameraStream =
+      mode !== "screen" && cameraOn ? bubbleStreamRef.current : null;
+    // Flip the ownership flag BEFORE kicking off the recorder. Any
+    // bubble-session cleanup that fires after this point must leave the
+    // tracks alone — the recorder now owns them. Cleared in the stop /
+    // cancel / failure paths below.
+    if (preAcquiredCameraStream) {
+      bubbleStreamTransferredToRecorder.current = true;
+    }
+
+    let handle: RecorderHandle | null = null;
+    let startError: unknown = null;
     try {
-      const handle = await startNativeRecording({
+      // Per Steve: "when we hit Start Recording the popover should disappear
+      // BEFORE the screen picker shows up — otherwise you might accidentally
+      // pick the popover itself." NSWindowSharingNone keeps the popover out
+      // of the final recording, but on modern macOS the picker STILL lists
+      // NSWindowSharingNone windows — only the actual capture is blocked.
+      // So we have to visually hide it early.
+      //
+      // We can't hide() the popover — that suspends its JS and the bubble
+      // frame pump dies. Instead we park it as a 2×2 pinhole on the primary
+      // screen (AppKit sees the window as on-screen, no occlusion
+      // throttling, pump keeps ticking). The pinhole is too small to show
+      // up prominently in the picker and since NSWindowSharingNone is also
+      // set the picker's thumbnail is empty anyway.
+      //
+      // USER ACTIVATION: WebKit requires `getDisplayMedia` to be called
+      // from within a user gesture handler. The first `await` in a click
+      // handler consumes user activation. `startNativeRecording` kicks off
+      // `getDisplayMedia` SYNCHRONOUSLY before its first `await`, so we
+      // start the recording promise FIRST (capturing the gesture), then
+      // park the popover in parallel via a fire-and-forget `invoke`.
+      // `invoke` itself is async — but because `getDisplayMedia` was
+      // already dispatched at that point, user activation has already been
+      // consumed for the purpose that needs it.
+      //
+      // Set `clipsForceAlive` before parking so the bubble frame pump's
+      // `document.hidden` early-out is bypassed even if WebKit flips
+      // visibility=hidden on a pinhole-sized window.
+      (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive =
+        true;
+
+      const recordingPromise = startNativeRecording({
         serverUrl,
         mode,
         cameraId,
         micId,
         cameraOn,
         micOn,
+        preAcquiredCameraStream,
       });
+      // Park the popover to its 2×2 pinhole IMMEDIATELY — we want the
+      // popover to vanish the instant the user clicks Start, before the
+      // screen picker has a chance to enumerate windows. Fire-and-forget;
+      // the recording promise was already dispatched above so
+      // getDisplayMedia has already captured the user gesture.
+      invoke("park_popover_offscreen").catch(() => {});
+      emit("clips:popover-visible", false).catch(() => {});
+
+      // No watchdog — the macOS screen picker can stay open indefinitely
+      // (a user deciding which window to capture may take 20, 60, 180
+      // seconds). A false-positive timeout here fires recovery mid-setup,
+      // which flips `recordingFlowActive` back to false → the bubble
+      // session effect's cleanup runs and stops the popover-owned camera
+      // stream → the recorder ends up with a dead track when the screen
+      // picker finally resolves. If the user actually wants to abort,
+      // canceling the picker throws NotAllowedError and we recover through
+      // the normal error path.
+      handle = await recordingPromise;
       console.log("[clips-popover] recorder handle received");
-      setRecorder(handle);
     } catch (err) {
-      // Recording didn't actually start — clear the flag so the popover
-      // can auto-hide normally again.
-      setRecordingFlowActive(false);
-      invoke("set_recording_state", { active: false }).catch(() => {});
-      // Bring the popover back so the user can see we returned to the
-      // pre-record state instead of disappearing silently.
-      invoke("show_popover").catch(() => {});
-      console.error("[clips-popover] startRecording failed:", err);
-      // User cancelled the macOS screen-picker (or denied permission).
-      // WebKit throws DOMException `NotAllowedError` for BOTH cancel and
-      // deny with the same message string, so we can't reliably tell them
-      // apart — treat both as a silent no-op and return to pre-record
-      // state. Some browsers throw `AbortError` on user abort instead.
-      const errName =
-        err instanceof DOMException || err instanceof Error ? err.name : "";
-      const message = err instanceof Error ? err.message : String(err);
-      if (
-        errName === "NotAllowedError" ||
-        errName === "AbortError" ||
-        /NotAllowedError|permission denied by system|was cancelled|dismissed/i.test(
-          message,
-        )
-      ) {
-        return;
+      startError = err;
+    } finally {
+      // If the recorder handle was NEVER set, ALWAYS run recovery here —
+      // even if downstream code throws before reaching the failure
+      // branch. This makes the tray-dead symptom impossible: regardless
+      // of WHICH step failed (stream acquisition, countdown, createRecording,
+      // MediaRecorder.start, watchdog, unexpected throw), is_recording_active
+      // is flipped back to false and the popover is re-shown.
+      if (!handle) {
+        console.warn(
+          "[clips-popover] startRecording finally: no handle — running recovery",
+        );
+        // Clear the force-alive flag if it was latched before the failure.
+        (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive =
+          false;
+        // Hand the stream back to the popover session. The recorder
+        // never got far enough to take ownership of the tracks, so the
+        // bubble-session effect must be allowed to stop them again on
+        // its next cleanup (e.g. if the user closes the popover).
+        bubbleStreamTransferredToRecorder.current = false;
+        setRecordingFlowActive(false);
+        try {
+          await invoke("set_recording_state", { active: false });
+        } catch {
+          // ignore — best-effort
+        }
+        try {
+          await invoke("show_popover");
+        } catch {
+          // ignore — best-effort
+        }
       }
-      setRecError(message);
     }
+
+    if (handle) {
+      setRecorder(handle);
+      return;
+    }
+
+    // Failure path — the recorder never came up. Side-effects (recording
+    // flag + popover visibility) were already restored in the finally
+    // block above. Now surface any non-cancel error to the UI.
+    console.error("[clips-popover] startRecording failed:", startError);
+
+    // User cancelled the macOS screen-picker (or denied permission).
+    // WebKit throws DOMException `NotAllowedError` for BOTH cancel and
+    // deny with the same message string, so we can't reliably tell them
+    // apart — treat both as a silent no-op and return to pre-record
+    // state. Some browsers throw `AbortError` on user abort instead.
+    const errName =
+      startError instanceof DOMException || startError instanceof Error
+        ? startError.name
+        : "";
+    const message =
+      startError instanceof Error ? startError.message : String(startError);
+    if (
+      errName === "NotAllowedError" ||
+      errName === "AbortError" ||
+      /NotAllowedError|permission denied by system|was cancelled|dismissed/i.test(
+        message,
+      )
+    ) {
+      return;
+    }
+    setRecError(message);
   }
 
   // When the toolbar or countdown triggers stop/cancel the popover auto-
@@ -480,6 +716,15 @@ export function App() {
             setRecError(err instanceof Error ? err.message : String(err));
         } finally {
           if (!cancelled) {
+            // Clear the force-alive flag — recording is done, the pump
+            // can honor document.hidden normally again.
+            (
+              window as unknown as { clipsForceAlive?: boolean }
+            ).clipsForceAlive = false;
+            // Recorder has stopped its tracks; next popover session can
+            // acquire the camera cleanly again.
+            bubbleStreamTransferredToRecorder.current = false;
+            bubbleStreamRef.current = null;
             setRecorder(null);
             setRecordingFlowActive(false);
             invoke("set_recording_state", { active: false }).catch(() => {});
@@ -499,6 +744,11 @@ export function App() {
           await recorder.cancel();
         } finally {
           if (!cancelled) {
+            (
+              window as unknown as { clipsForceAlive?: boolean }
+            ).clipsForceAlive = false;
+            bubbleStreamTransferredToRecorder.current = false;
+            bubbleStreamRef.current = null;
             setRecorder(null);
             setRecordingFlowActive(false);
             invoke("set_recording_state", { active: false }).catch(() => {});
@@ -543,9 +793,8 @@ export function App() {
           onUseBrowser={signInExternal}
         />
         <div className="footer">
-          <span className="kbd">⌘⇧L</span>
           <a className="footer-link" onClick={() => setShowSettings(true)}>
-            Change server
+            Settings
           </a>
         </div>
         {showSettings ? (
@@ -594,7 +843,6 @@ export function App() {
       </div>
 
       <button className="primary start" onClick={startRecording}>
-        <span className="rec-dot" aria-hidden />
         Start recording
       </button>
       {recError ? <div className="error-banner">{recError}</div> : null}
@@ -608,7 +856,7 @@ export function App() {
         <BottomButton
           icon="settings"
           label="Settings"
-          onClick={() => openInBrowser("/settings")}
+          onClick={() => setShowSettings(true)}
         />
         <BottomButton
           icon="recent"
@@ -648,16 +896,11 @@ export function App() {
         </div>
       ) : null}
 
-      <div className="footer">
-        <span className="kbd">⌘⇧L</span>
-        <a className="footer-link" onClick={() => setShowSettings(true)}>
-          Change server
-        </a>
-      </div>
-
       {showSettings ? (
         <Setup
           initial={serverUrl}
+          signedInAs={signedInAs}
+          onSignOut={signOut}
           onConnect={(url) => {
             saveString(STORAGE_KEY, url.replace(/\/+$/, ""));
             setServerUrl(url.replace(/\/+$/, ""));
@@ -814,14 +1057,42 @@ function SignInForm({
       >
         {submitting ? "Signing in…" : "Sign in"}
       </button>
+      <div className="signin-divider">
+        <span>or</span>
+      </div>
       <button
         type="button"
-        className="footer-link signin-alt"
+        className="signin-google"
         onClick={onUseBrowser}
+        title="Opens your default browser to complete Google sign-in"
       >
-        Sign in with Google / other (opens browser)
+        <GoogleIcon />
+        Continue with Google
       </button>
     </form>
+  );
+}
+
+function GoogleIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 18 18" aria-hidden>
+      <path
+        fill="#4285F4"
+        d="M17.64 9.2c0-.63-.06-1.25-.17-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.71-1.57 2.68-3.89 2.68-6.62z"
+      />
+      <path
+        fill="#34A853"
+        d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.81.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.71H.96v2.34A9 9 0 0 0 9 18z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M3.97 10.71A5.41 5.41 0 0 1 3.68 9c0-.59.1-1.17.29-1.71V4.96H.96A9 9 0 0 0 0 9c0 1.45.35 2.82.96 4.04l3.01-2.33z"
+      />
+      <path
+        fill="#EA4335"
+        d="M9 3.58c1.32 0 2.51.45 3.44 1.35l2.58-2.58A9 9 0 0 0 9 0 9 9 0 0 0 .96 4.96L3.97 7.3C4.68 5.16 6.66 3.58 9 3.58z"
+      />
+    </svg>
   );
 }
 
@@ -1213,51 +1484,103 @@ function CheckIcon() {
 }
 
 function LibraryIcon() {
+  // Four rounded tiles — "grid of clips" metaphor.
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
       <rect
-        x="3"
-        y="5"
-        width="18"
-        height="14"
-        rx="2"
+        x="3.5"
+        y="3.5"
+        width="7"
+        height="7"
+        rx="1.5"
         stroke="currentColor"
         strokeWidth="1.75"
       />
-      <path
-        d="M10 9l5 3-5 3z"
+      <rect
+        x="13.5"
+        y="3.5"
+        width="7"
+        height="7"
+        rx="1.5"
         stroke="currentColor"
         strokeWidth="1.75"
-        strokeLinejoin="round"
-        fill="currentColor"
+      />
+      <rect
+        x="3.5"
+        y="13.5"
+        width="7"
+        height="7"
+        rx="1.5"
+        stroke="currentColor"
+        strokeWidth="1.75"
+      />
+      <rect
+        x="13.5"
+        y="13.5"
+        width="7"
+        height="7"
+        rx="1.5"
+        stroke="currentColor"
+        strokeWidth="1.75"
       />
     </svg>
   );
 }
 
 function SettingsIcon() {
+  // Horizontal sliders — reads cleaner at small sizes than a cogwheel.
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.75" />
       <path
-        d="M19.4 15a7.97 7.97 0 00.1-3l1.9-1.3-2-3.5-2.2.8a8 8 0 00-2.6-1.5L14 4h-4l-.6 2.5a8 8 0 00-2.6 1.5L4.6 7.2l-2 3.5L4.5 12a7.97 7.97 0 00.1 3l-1.9 1.3 2 3.5 2.2-.8a8 8 0 002.6 1.5L10 23h4l.6-2.5a8 8 0 002.6-1.5l2.2.8 2-3.5-1.9-1.3z"
+        d="M4 7h10M18 7h2M4 17h2M10 17h10"
         stroke="currentColor"
         strokeWidth="1.75"
-        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+      <circle
+        cx="16"
+        cy="7"
+        r="2.25"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        fill="var(--bg, #000)"
+      />
+      <circle
+        cx="8"
+        cy="17"
+        r="2.25"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        fill="var(--bg, #000)"
       />
     </svg>
   );
 }
 
 function ClockIcon() {
+  // Counter-clockwise arrow — "history / recent" metaphor.
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.75" />
       <path
-        d="M12 7v5l3 2"
+        d="M4 9a8 8 0 1 1 .5 6"
         stroke="currentColor"
         strokeWidth="1.75"
         strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M4 4v5h5"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M12 8v4l2.5 1.5"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
       />
     </svg>
   );
@@ -1267,12 +1590,16 @@ function ClockIcon() {
 
 function Setup({
   initial,
+  signedInAs,
   onConnect,
   onCancel,
+  onSignOut,
 }: {
   initial?: string | null;
+  signedInAs?: string | null;
   onConnect: (url: string) => void;
   onCancel?: () => void;
+  onSignOut?: () => void;
 }) {
   const [url, setUrl] = useState(initial ?? DEFAULT_URL);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -1289,8 +1616,8 @@ function Setup({
 
   return (
     <form className="setup" onSubmit={handleSubmit}>
-      <h2>Connect to your Clips server</h2>
-      <p>Enter the URL of your running Clips instance.</p>
+      <h2>Settings</h2>
+      <p>Clips server URL</p>
       <input
         ref={inputRef}
         type="url"
@@ -1301,6 +1628,19 @@ function Setup({
       <button className="primary" type="submit">
         Connect
       </button>
+      {signedInAs && onSignOut ? (
+        <div className="setup-account">
+          <span className="setup-account-email">{signedInAs}</span>
+          <button
+            type="button"
+            className="link-button"
+            onClick={onSignOut}
+            style={{ background: "transparent", border: "none" }}
+          >
+            Sign out
+          </button>
+        </div>
+      ) : null}
       {onCancel ? (
         <button
           type="button"
