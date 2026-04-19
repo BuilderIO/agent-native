@@ -763,6 +763,24 @@ button {
   box-shadow: 0 0 0 3px var(--brand-ring);
 }
 
+.setup-account {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.setup-account-email {
+  color: var(--fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .link-button {
   border: 1px solid var(--border);
   background: var(--surface);
@@ -838,6 +856,83 @@ button {
     transform: scale(0.8);
     opacity: 0;
   }
+}
+
+/* ------------------------------------------------------------------------- */
+/* Overlay: finalizing spinner                                                */
+/* ------------------------------------------------------------------------- */
+
+/*
+ * Full-screen transparent overlay shown after the user clicks Stop and
+ * before the browser opens at /r/:id. The Tauri window is transparent +
+ * decorations-less (see `show_finalizing` in lib.rs), so we paint a
+ * rounded-pill card centered on the desktop with a spinner and caption.
+ * The window also has ignore_cursor_events(true), so clicks pass through
+ * to whatever is beneath — the user can't disrupt the finalize by
+ * clicking around.
+ */
+.finalizing-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  pointer-events: none;
+}
+
+.finalizing-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 28px 36px;
+  border-radius: 22px;
+  background: rgba(20, 22, 28, 0.94);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 14px 40px rgba(0, 0, 0, 0.45),
+    0 2px 6px rgba(0, 0, 0, 0.3);
+  color: white;
+  min-width: 260px;
+}
+
+/*
+ * CSS-only spinner — no dependency on @tabler/icons-react (the desktop
+ * bundle doesn't pull that in). A ring with one highlighted quadrant is
+ * rotated continuously.
+ */
+.finalizing-spinner {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.18);
+  border-top-color: #ffffff;
+  animation: finalizing-spin 0.9s linear infinite;
+}
+
+@keyframes finalizing-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.finalizing-caption {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.1px;
+  color: white;
+  text-align: center;
+}
+
+.finalizing-sub {
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.65);
+  text-align: center;
+  margin-top: -4px;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -985,10 +1080,10 @@ button {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: 10px;
   /* Equal inset on all four sides from the pill edge to the buttons. */
-  padding: 16px;
-  border-radius: 28px;
+  padding: 10px;
+  border-radius: 24px;
   background: rgba(20, 22, 28, 0.94);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
@@ -1004,8 +1099,8 @@ button {
 }
 
 .toolbar-v-stop {
-  width: 42px;
-  height: 42px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
   border: none;
   /* orange-500 — a touch softer than the red-orange we had before. */
@@ -1042,8 +1137,8 @@ button {
 }
 
 .toolbar-v-pause {
-  width: 42px;
-  height: 42px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.08);
   color: rgba(255, 255, 255, 0.9);
@@ -1063,22 +1158,79 @@ button {
   border-color: rgba(245, 158, 11, 0.35);
 }
 
+/* Pre-record state: the toolbar is visible during the bubble session so the
+   user can drag + position it before hitting Start. Buttons are disabled
+   (no recorder to drive yet). Greyed out + not-allowed cursor makes the
+   "not yet" affordance obvious. */
+.toolbar-v-disabled .toolbar-v-stop,
+.toolbar-v-disabled .toolbar-v-pause {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.35);
+  cursor: not-allowed;
+  pointer-events: auto;
+}
+.toolbar-v-disabled .toolbar-v-stop:hover,
+.toolbar-v-disabled .toolbar-v-pause:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.35);
+}
+.toolbar-v-stop:disabled,
+.toolbar-v-pause:disabled {
+  cursor: not-allowed;
+}
+
 /* ------------------------------------------------------------------------- */
 /* Overlay: camera bubble                                                     */
 /* ------------------------------------------------------------------------- */
 
-.bubble-root {
+/*
+ * The Tauri bubble window is sized (in Rust) to exactly the circle diameter
+ * PLUS a `--bubble-controls-budget` strip at the bottom, so the hover pill
+ * has real window real-estate to render into. Everything outside window
+ * bounds is invisible no matter the CSS `overflow` — you can't paint where
+ * the OS hasn't given you pixels — so we build in the budget up front.
+ *
+ *   ┌──────────────┐
+ *   │ .bubble-root │  ← circle (drag region, data-tauri-drag-region)
+ *   │     ◯        │    Canvas lives here with pointer-events: none so
+ *   │              │    drags reach the drag-region parent.
+ *   └──────────────┘
+ *   ┌──────────────┐
+ *   │  ·  ●        │  ← .bubble-controls pill (hover-faded)
+ *   └──────────────┘
+ */
+.bubble-wrapper {
   position: fixed;
   inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* Transparent background — the Tauri window is `transparent: true`,
+     so the shadow + circle below paint through. */
+  background: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.bubble-root {
+  /* Circle fills the top of the wrapper. We use `flex: 0 0 auto` + a
+     1:1 aspect-ratio so the circle is always square regardless of the
+     actual window height (which includes the controls budget). */
+  flex: 0 0 auto;
+  aspect-ratio: 1 / 1;
+  /* Width = 100% of wrapper → the wrapper is exactly bubble-diameter
+     wide (Rust sizes the window that way). */
+  width: 100%;
   border-radius: 50%;
   overflow: hidden;
   background: #000;
-  cursor: grab;
-  user-select: none;
-  -webkit-user-select: none;
   /* Drop shadow only — no brand ring. The bubble is the user's face;
      a bright purple halo competes with what matters visually. */
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
+  /* Position context for absolute children (close X, canvas). */
+  position: relative;
+  /* Cursor hint — the drag region is here. */
+  cursor: grab;
 }
 
 .bubble-root:active {
@@ -1089,7 +1241,13 @@ button {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  border-radius: 50%;
   transform: scaleX(-1); /* Mirror — feels more natural for selfie view. */
+  /* CRITICAL: clicks MUST pass through the canvas to the
+     `data-tauri-drag-region` parent. Without this, the canvas swallows
+     mousedown and the bubble can't be dragged — cursor shows the grab
+     affordance but the window never moves. */
+  pointer-events: none;
 }
 
 .bubble-error {
@@ -1102,6 +1260,117 @@ button {
   font-size: 11px;
   text-align: center;
   padding: 12px;
+}
+
+/* Hover controls — close X + size-toggle pill. */
+
+.bubble-close,
+.bubble-controls {
+  /* Snappy fade — per Steve's 150ms-max rule for decorative transitions. */
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease-out;
+}
+
+.bubble-close.is-visible,
+.bubble-controls.is-visible {
+  opacity: 1;
+  /* Close button and pill MUST receive clicks — they sit over the
+     drag region / inside the hover wrapper but must not be treated as
+     drag surfaces. */
+  pointer-events: auto;
+}
+
+/* Top-right X close button. Small circle with a subtle dark backdrop so it
+   reads against any camera feed (light or dark subjects). */
+.bubble-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(20, 20, 20, 0.7);
+  color: rgba(255, 255, 255, 0.92);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  z-index: 3;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
+.bubble-close:hover {
+  background: rgba(60, 60, 60, 0.85);
+  color: white;
+}
+
+/* Size-control pill — lives in the bottom strip of the wrapper (beneath
+   the circle). Centered horizontally, fades in on hover, matches Loom's
+   visual weight. Because it's a sibling of `.bubble-root` (not a child),
+   the border-radius clipping on the circle can't eat it. */
+.bubble-controls {
+  /* `flex: 0 0 auto` + margin-top creates the small gap between the
+     circle and the pill. */
+  flex: 0 0 auto;
+  margin-top: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(20, 20, 20, 0.85);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  z-index: 3;
+  /* Cursor over the pill should not be a grab cursor (we're not dragging
+     the bubble when clicking its controls). */
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Dot buttons — filled circles sized to convey Small vs Medium at a glance,
+   matching Loom's tiny / slightly-larger dots. Active dot gets a white ring
+   so the current size is always legible. */
+.bubble-dot {
+  border: none;
+  background: rgba(255, 255, 255, 0.55);
+  padding: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 50%;
+  transition:
+    background 120ms,
+    box-shadow 120ms;
+}
+
+.bubble-dot:hover {
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.bubble-dot.is-active {
+  background: white;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25);
+}
+
+.bubble-dot-small {
+  width: 10px;
+  height: 10px;
+}
+
+.bubble-dot-medium {
+  width: 16px;
+  height: 16px;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -1155,4 +1424,44 @@ button {
   font-size: 11px;
   text-align: center;
   cursor: pointer;
+}
+
+.signin-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  color: var(--fg-subtle);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 4px 0;
+}
+
+.signin-divider::before,
+.signin-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.signin-google {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--surface);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.signin-google:hover {
+  background: var(--surface-hover, var(--surface));
+  border-color: var(--border-strong, var(--border));
 }

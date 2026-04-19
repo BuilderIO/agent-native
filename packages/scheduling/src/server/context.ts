@@ -4,6 +4,11 @@
  * Actions and server logic call `getSchedulingContext()` to get handles to
  * the DB, provider registry, current user, and configuration. The consumer
  * wires this up at app startup via `setSchedulingContext()`.
+ *
+ * The context is pinned on `globalThis` under a symbol key so Vite SSR +
+ * Nitro can safely end up with two module instances (e.g. source via
+ * workspace linking vs. dist/) and still share state. Same pattern core uses
+ * for the secrets registry.
  */
 import type { GetDbFn, SchedulingSchema } from "./db-types.js";
 
@@ -25,13 +30,17 @@ export interface SchedulingContext {
   publicBaseUrl?: string;
 }
 
-let ctx: SchedulingContext | null = null;
+const CTX_KEY = Symbol.for("@agent-native/scheduling.context");
+interface GlobalWithCtx {
+  [CTX_KEY]?: SchedulingContext;
+}
 
 export function setSchedulingContext(c: SchedulingContext): void {
-  ctx = c;
+  (globalThis as unknown as GlobalWithCtx)[CTX_KEY] = c;
 }
 
 export function getSchedulingContext(): SchedulingContext {
+  const ctx = (globalThis as unknown as GlobalWithCtx)[CTX_KEY];
   if (!ctx)
     throw new Error(
       "@agent-native/scheduling: context not initialized. Call setSchedulingContext(...) at startup.",

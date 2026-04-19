@@ -4,10 +4,11 @@ import { App } from "./app";
 import { Countdown } from "./overlays/countdown";
 import { Toolbar } from "./overlays/toolbar";
 import { Bubble } from "./overlays/bubble";
+import { Finalizing } from "./overlays/finalizing";
 import "./styles.css";
 
 /**
- * One bundle, one HTML, four views. We pick which component to mount based
+ * One bundle, one HTML, five views. We pick which component to mount based
  * on the URL hash so each Tauri window (spawned from Rust with
  * `index.html#<name>`) renders only what it needs.
  */
@@ -20,6 +21,8 @@ function pickRoute(): React.ReactElement {
       return <Toolbar />;
     case "bubble":
       return <Bubble />;
+    case "finalizing":
+      return <Finalizing />;
     default:
       return <App />;
   }

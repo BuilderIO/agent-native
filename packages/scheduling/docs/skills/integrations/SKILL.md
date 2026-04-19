@@ -1,6 +1,6 @@
 ---
 name: integrations
-description: Calendar + video provider integrations — Google Calendar, Office 365, Zoom, Cal Video, Google Meet — and how to write new ones.
+description: Calendar + video provider integrations — Google Calendar, Office 365, Zoom, built-in video, Google Meet — and how to write new ones.
 ---
 
 # Integrations
@@ -14,7 +14,7 @@ description: Calendar + video provider integrations — Google Calendar, Office 
 
 ## Video providers
 
-- **cal_video** — Daily.co-backed; zero OAuth; server-to-server API key.
+- **builtin_video** — Daily.co-backed; zero OAuth; server-to-server API key.
 - **zoom_video** — OAuth; create meetings via Zoom REST API.
 - **google_meet** — piggy-backs on Google Calendar credential.
 - **teams_video** (planned) — Microsoft Teams.

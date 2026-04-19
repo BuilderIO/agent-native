@@ -19,7 +19,8 @@ import {
   IconMessage,
   IconWand,
 } from "@tabler/icons-react";
-import type { Slide, SlideLayout } from "@/context/DeckContext";
+import type { Deck, Slide, SlideLayout } from "@/context/DeckContext";
+import ShareDialog from "./ShareDialog";
 
 import {
   AgentToggleButton,
@@ -36,6 +37,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 interface EditorToolbarProps {
+  deck: Deck;
   deckId: string;
   deckTitle: string;
   onTitleChange: (title: string) => void;
@@ -49,7 +51,6 @@ interface EditorToolbarProps {
   onOpenAssetLibrary: () => void;
   imageGenButtonRef: React.RefObject<HTMLButtonElement | null>;
   assetsButtonRef: React.RefObject<HTMLButtonElement | null>;
-  onShare: () => void;
   historyOpen: boolean;
   onShowHistory: () => void;
   historyButtonRef: React.RefObject<HTMLButtonElement | null>;
@@ -257,6 +258,7 @@ function ToolbarPopover({
 }
 
 export default function EditorToolbar({
+  deck,
   deckId,
   deckTitle,
   onTitleChange,
@@ -270,7 +272,6 @@ export default function EditorToolbar({
   onOpenAssetLibrary,
   imageGenButtonRef,
   assetsButtonRef,
-  onShare,
   historyOpen,
   onShowHistory,
   historyButtonRef,
@@ -699,14 +700,15 @@ graph TD
       </div>
 
       {/* Public link share (anonymous share-by-URL) */}
-      <button
-        onClick={onShare}
-        className="p-2.5 sm:p-1.5 rounded-md text-white/40 hover:text-white/70 hover:bg-white/[0.06] transition-colors flex-shrink-0"
-        title="Share link"
-        aria-label="Share link"
-      >
-        <IconShare2 className="w-3.5 h-3.5" />
-      </button>
+      <ShareDialog deck={deck}>
+        <button
+          className="p-2.5 sm:p-1.5 rounded-md text-white/40 hover:text-white/70 hover:bg-white/[0.06] transition-colors flex-shrink-0"
+          title="Share link"
+          aria-label="Share link"
+        >
+          <IconShare2 className="w-3.5 h-3.5" />
+        </button>
+      </ShareDialog>
 
       {/* Present button */}
       <Link

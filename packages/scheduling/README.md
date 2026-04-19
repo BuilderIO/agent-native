@@ -2,7 +2,7 @@
 
 Scheduling primitives for agent-native apps.
 
-Powers the `scheduling` template (Cal.com clone) and the `calendar` template. Provides:
+Powers the `scheduling` template (full scheduling app) and the `calendar` template. Provides:
 
 - **Drizzle schemas** — event types, schedules, availability rules, bookings, teams, workflows, routing forms
 - **Pure helpers** — slot computation (DST-safe), availability rule evaluation, round-robin assignment, recurring event expansion

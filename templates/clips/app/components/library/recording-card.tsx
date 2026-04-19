@@ -24,7 +24,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { RecordingSummary } from "@/hooks/use-library";
+import { isDefaultTitle } from "@/hooks/use-auto-title";
 
 function formatDuration(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
@@ -202,7 +204,18 @@ export function RecordingCard({
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1 text-sm font-medium text-foreground line-clamp-1">
-              <span className="truncate">{recording.title}</span>
+              {isDefaultTitle(recording.title) ? (
+                // Placeholder while the agent drafts a title from the
+                // transcript. `useAutoTitleBridge` kicks this off and the
+                // polling layer swaps the skeleton for the real title the
+                // moment `update-recording` lands.
+                <Skeleton
+                  aria-label="Generating title"
+                  className="h-3.5 w-3/4"
+                />
+              ) : (
+                <span className="truncate">{recording.title}</span>
+              )}
             </div>
             <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
               <PrivacyIcon

@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
+import { assertAccess } from "@agent-native/core/sharing";
 import { getSchedulingContext } from "../server/context.js";
 
 export default defineAction({
@@ -18,6 +19,7 @@ export default defineAction({
     ),
   }),
   run: async (args) => {
+    await assertAccess("event-type", args.eventTypeId, "editor");
     const { getDb, schema } = getSchedulingContext();
     const now = new Date().toISOString();
     await getDb()

@@ -77,6 +77,34 @@ export interface VideoProvider {
   kind: string;
   label: string;
 
+  /**
+   * Start the OAuth flow — optional. Present on providers like Zoom /
+   * Microsoft Teams that require a user's OAuth grant to create meetings on
+   * their behalf. Zero-OAuth providers (the built-in video provider, or
+   * Google Meet which piggy-backs on the Google Calendar scope) omit this.
+   */
+  startOAuth?(opts: {
+    redirectUri: string;
+    state: string;
+  }): Promise<{ authUrl: string }>;
+
+  /**
+   * Complete the OAuth flow — optional. Paired with `startOAuth`. Consumers
+   * call this from their OAuth callback handler to exchange the `code` for
+   * tokens and return identifying info so a `scheduling_credentials` row
+   * can be written.
+   */
+  completeOAuth?(opts: {
+    credentialId: string;
+    userEmail: string;
+    code: string;
+    redirectUri: string;
+  }): Promise<{
+    externalEmail?: string;
+    externalAccountId: string;
+    displayName?: string;
+  }>;
+
   /** Create a meeting room for a booking. */
   createMeeting(opts: { credentialId?: string; booking: Booking }): Promise<{
     meetingUrl: string;

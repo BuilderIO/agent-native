@@ -2,7 +2,14 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Permissions the Clips tray app needs.",
-  "windows": ["popover", "countdown", "toolbar", "bubble", "signin"],
+  "windows": [
+    "popover",
+    "countdown",
+    "toolbar",
+    "bubble",
+    "signin",
+    "finalizing"
+  ],
   "permissions": [
     "core:default",
     "core:window:allow-show",
@@ -11,6 +18,7 @@
     "core:window:allow-set-position",
     "core:window:allow-set-size",
     "core:window:allow-close",
+    "core:window:allow-start-dragging",
     "shell:allow-open",
     "global-shortcut:allow-register",
     "global-shortcut:allow-unregister",

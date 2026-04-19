@@ -19,6 +19,12 @@ import {
 import { nanoid } from "nanoid";
 import { toast } from "sonner";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
+import { useZoomStatus, useConnectZoom } from "@/hooks/use-zoom-auth";
+import {
+  ConferencingSelector,
+  CustomFieldsEditor as SharedCustomFieldsEditor,
+  SlugEditor,
+} from "@agent-native/scheduling/react/components";
 import {
   startOfMonth,
   endOfMonth,
@@ -240,6 +246,8 @@ export default function BookingLinksPage({
   const { isLocal } = useDbStatus();
   const [showCloudUpgrade, setShowCloudUpgrade] = useState(false);
   const googleStatus = useGoogleAuthStatus();
+  const zoomStatus = useZoomStatus();
+  const connectZoom = useConnectZoom();
 
   // Derive a default username from the Google email (e.g. "steve" from "steve@builder.io")
   const suggestedUsername = useMemo(() => {
@@ -372,22 +380,36 @@ export default function BookingLinksPage({
 
   const previewUrl = getBookingUrl(draft.slug);
 
-  async function handleCreate() {
+  function handleCreate() {
     const n = bookingLinks.length + 1;
     const baseTitle = n > 1 ? `Meeting ${n}` : "Meeting";
     const baseSlug = slugify(baseTitle);
-    try {
-      const created = await createBookingLink.mutateAsync({
+    // Pre-generate an optimistic id so we can navigate instantly; the mutation
+    // inserts the row into the list cache synchronously via onMutate.
+    const optimisticId = `optimistic_${nanoid()}`;
+    createBookingLink.mutate(
+      {
         title: baseTitle,
         slug: baseSlug,
         duration: 30,
         isActive: true,
-      });
-      navigate(`/booking-links/${created.id}`);
-      toast.success("Booking link created");
-    } catch {
-      toast.error("Failed to create booking link");
-    }
+        optimisticId,
+      },
+      {
+        onSuccess: (created) => {
+          // Swap URL from optimistic id to the real one without a back-stack entry.
+          navigate(`/booking-links/${created.id}`, { replace: true });
+        },
+        onError: () => {
+          // Cache was rolled back by the hook's onError. Bring the user back.
+          navigate("/booking-links", { replace: true });
+          toast.error("Failed to create booking link");
+        },
+      },
+    );
+    // Navigate *immediately* — the optimistic row is already in the list cache.
+    navigate(`/booking-links/${optimisticId}`);
+    toast.success("Booking link created");
   }
 
   async function handleSave() {
@@ -605,17 +627,22 @@ export default function BookingLinksPage({
                   />
                 </div>
 
-                {/* Editable URL parts (username / slug) */}
-                <EditableBookingUrl
+                {/* Editable URL parts (username / slug) — shared package component */}
+                <SlugEditor
+                  host={
+                    typeof window !== "undefined" &&
+                    window.location.hostname !== "localhost"
+                      ? window.location.host
+                      : PRODUCTION_DOMAIN
+                  }
+                  pathPrefix="/meet"
                   username={
                     bookingUsername || usernameInput || suggestedUsername || ""
                   }
                   slug={draft.slug}
                   onUsernameChange={(val) => {
-                    const clean = val.toLowerCase().replace(/[^a-z0-9-]/g, "");
-                    setUsernameInput(clean);
-                    // Persist username to availability config
-                    if (clean) {
+                    setUsernameInput(val);
+                    if (val) {
                       updateAvailability.mutate({
                         timezone,
                         weeklySchedule: schedule,
@@ -624,31 +651,40 @@ export default function BookingLinksPage({
                         maxAdvanceDays,
                         slotDurationMinutes: slotDuration,
                         bookingPageSlug: bookingSlug,
-                        bookingUsername: clean,
+                        bookingUsername: val,
                       });
                     }
                   }}
                   onSlugChange={(val) => {
-                    const clean = slugify(val);
                     setDraft((prev) => ({
                       ...prev,
-                      slug: clean,
+                      slug: val,
                       slugManuallyEdited: true,
                     }));
                   }}
                 />
 
-                {/* Conferencing */}
-                <ConferencingEditor
-                  config={draft.conferencing}
+                {/* Conferencing — shared package component, Zoom uses real OAuth */}
+                <ConferencingSelector
+                  value={draft.conferencing}
                   onChange={(conferencing) =>
                     setDraft((prev) => ({ ...prev, conferencing }))
                   }
-                  googleConnected={googleStatus.data?.connected ?? false}
+                  zoomStatus={
+                    zoomStatus.data?.connected
+                      ? "connected"
+                      : zoomStatus.data?.configured === false
+                        ? "not-configured"
+                        : "disconnected"
+                  }
+                  googleStatus={
+                    googleStatus.data?.connected ? "connected" : "disconnected"
+                  }
+                  onConnectZoom={() => connectZoom.mutate()}
                 />
 
-                {/* Custom fields editor */}
-                <CustomFieldsEditor
+                {/* Custom fields editor — shared package component */}
+                <SharedCustomFieldsEditor
                   fields={draft.customFields}
                   onChange={(fields) =>
                     setDraft((prev) => ({ ...prev, customFields: fields }))
@@ -1065,116 +1101,6 @@ const DAY_MAP: Record<number, DayName> = {
   5: "friday",
   6: "saturday",
 };
-
-function EditableBookingUrl({
-  username,
-  slug,
-  onUsernameChange,
-  onSlugChange,
-}: {
-  username: string;
-  slug: string;
-  onUsernameChange: (val: string) => void;
-  onSlugChange: (val: string) => void;
-}) {
-  const [editingField, setEditingField] = useState<"username" | "slug" | null>(
-    null,
-  );
-  const [editValue, setEditValue] = useState("");
-
-  function startEdit(field: "username" | "slug") {
-    setEditingField(field);
-    setEditValue(field === "username" ? username : slug);
-  }
-
-  function commitEdit() {
-    if (!editingField) return;
-    const val = editValue.trim();
-    if (val) {
-      if (editingField === "username") onUsernameChange(val);
-      else onSlugChange(val);
-    }
-    setEditingField(null);
-  }
-
-  const host =
-    typeof window !== "undefined" && window.location.hostname !== "localhost"
-      ? window.location.host
-      : PRODUCTION_DOMAIN;
-
-  return (
-    <div className="space-y-2">
-      <Label>URL</Label>
-      {/* Interactive URL — click username or slug to edit inline */}
-      <div className="flex flex-wrap items-center gap-0 text-sm font-mono break-all rounded-lg border border-border bg-muted/20 px-3 py-2">
-        <span className="text-muted-foreground">{host}/meet/</span>
-
-        {editingField === "username" ? (
-          <input
-            autoFocus
-            value={editValue}
-            onChange={(e) =>
-              setEditValue(
-                e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""),
-              )
-            }
-            onBlur={commitEdit}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") commitEdit();
-              if (e.key === "Escape") setEditingField(null);
-            }}
-            className="inline-block bg-primary/10 text-primary border-b border-primary/40 outline-none px-0.5 py-0 font-mono text-sm w-auto min-w-[3ch]"
-            style={{ width: `${Math.max(3, editValue.length)}ch` }}
-          />
-        ) : (
-          <button
-            type="button"
-            onClick={() => startEdit("username")}
-            className={cn(
-              "inline font-mono rounded px-0.5 -mx-0.5",
-              username
-                ? "text-foreground hover:bg-primary/10 hover:text-primary"
-                : "text-primary/60 bg-primary/5 border border-dashed border-primary/30 hover:bg-primary/10",
-            )}
-            title="Click to edit username"
-          >
-            {username || "your-name"}
-          </button>
-        )}
-
-        <span className="text-muted-foreground">/</span>
-
-        {editingField === "slug" ? (
-          <input
-            autoFocus
-            value={editValue}
-            onChange={(e) =>
-              setEditValue(
-                e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""),
-              )
-            }
-            onBlur={commitEdit}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") commitEdit();
-              if (e.key === "Escape") setEditingField(null);
-            }}
-            className="inline-block bg-primary/10 text-primary border-b border-primary/40 outline-none px-0.5 py-0 font-mono text-sm w-auto min-w-[3ch]"
-            style={{ width: `${Math.max(3, editValue.length)}ch` }}
-          />
-        ) : (
-          <button
-            type="button"
-            onClick={() => startEdit("slug")}
-            className="inline font-mono text-foreground rounded px-0.5 -mx-0.5 hover:bg-primary/10 hover:text-primary"
-            title="Click to edit slug"
-          >
-            {slug || "meeting"}
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
 
 function BookingPreview({
   title,
@@ -1606,468 +1532,6 @@ function BookingPreview({
             </div>
           </div>
         )}
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Custom fields editor — add/edit/remove custom form fields per booking link
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Conferencing editor — configure meeting links per booking link
-// ---------------------------------------------------------------------------
-
-const CONFERENCING_OPTIONS: {
-  type: ConferencingConfig["type"];
-  label: string;
-  description: string;
-}[] = [
-  { type: "none", label: "No conferencing", description: "In-person or other" },
-  {
-    type: "google_meet",
-    label: "Google Meet",
-    description: "Auto-generate a Meet link",
-  },
-  {
-    type: "zoom",
-    label: "Zoom",
-    description: "Use your personal meeting link",
-  },
-  {
-    type: "custom",
-    label: "Custom link",
-    description: "Any meeting URL",
-  },
-];
-
-function ConferencingEditor({
-  config,
-  onChange,
-  googleConnected,
-}: {
-  config: ConferencingConfig;
-  onChange: (config: ConferencingConfig) => void;
-  googleConnected: boolean;
-}) {
-  return (
-    <div className="space-y-3">
-      <Label className="flex items-center gap-1.5">
-        <IconVideo className="h-4 w-4" />
-        Conferencing
-      </Label>
-
-      <div className="grid grid-cols-2 gap-1.5">
-        {CONFERENCING_OPTIONS.map((opt) => {
-          const isSelected = config.type === opt.type;
-          const isDisabled = opt.type === "google_meet" && !googleConnected;
-          return (
-            <button
-              key={opt.type}
-              type="button"
-              disabled={isDisabled}
-              onClick={() =>
-                onChange({
-                  type: opt.type,
-                  url:
-                    opt.type === "zoom" || opt.type === "custom"
-                      ? config.url
-                      : undefined,
-                })
-              }
-              className={cn(
-                "rounded-lg border px-3 py-2 text-left text-xs",
-                isSelected
-                  ? "border-primary bg-primary/10"
-                  : "border-border/60 hover:bg-accent/60 hover:border-primary/30",
-                isDisabled && "opacity-40 cursor-not-allowed",
-              )}
-            >
-              <p className={cn("font-medium", isSelected && "text-primary")}>
-                {opt.label}
-              </p>
-              <p className="text-muted-foreground">{opt.description}</p>
-              {isDisabled && (
-                <p className="text-[10px] text-muted-foreground mt-0.5">
-                  Connect Google Calendar first
-                </p>
-              )}
-            </button>
-          );
-        })}
-      </div>
-
-      {(config.type === "zoom" || config.type === "custom") && (
-        <div className="space-y-1.5">
-          <Label className="text-xs">
-            {config.type === "zoom"
-              ? "Personal Zoom meeting link"
-              : "Meeting URL"}
-          </Label>
-          <Input
-            type="url"
-            value={config.url || ""}
-            onChange={(e) => onChange({ ...config, url: e.target.value })}
-            placeholder={
-              config.type === "zoom"
-                ? "https://zoom.us/j/1234567890"
-                : "https://meet.example.com/room"
-            }
-            className="h-8 text-sm"
-          />
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Custom fields editor — add/edit/remove custom form fields per booking link
-// ---------------------------------------------------------------------------
-
-const FIELD_TYPE_LABELS: Record<CustomField["type"], string> = {
-  text: "Short text",
-  email: "Email",
-  url: "URL",
-  tel: "Phone",
-  textarea: "Long text",
-  select: "Dropdown",
-  checkbox: "Checkbox",
-};
-
-const FIELD_PRESETS: {
-  label: string;
-  type: CustomField["type"];
-  placeholder?: string;
-  pattern?: string;
-  patternError?: string;
-}[] = [
-  {
-    label: "LinkedIn Profile",
-    type: "url",
-    placeholder: "https://linkedin.com/in/yourname",
-    pattern: "^https?://(www\\.)?linkedin\\.com/in/.+",
-    patternError: "Please enter a valid LinkedIn profile URL",
-  },
-  {
-    label: "Company",
-    type: "text",
-    placeholder: "Your company name",
-  },
-  {
-    label: "Phone Number",
-    type: "tel",
-    placeholder: "+1 (555) 123-4567",
-  },
-  {
-    label: "Website",
-    type: "url",
-    placeholder: "https://example.com",
-  },
-];
-
-function CustomFieldsEditor({
-  fields,
-  onChange,
-}: {
-  fields: CustomField[];
-  onChange: (fields: CustomField[]) => void;
-}) {
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [showPresets, setShowPresets] = useState(false);
-
-  function addField(
-    partial?: Partial<CustomField> & {
-      label: string;
-      type: CustomField["type"];
-    },
-  ) {
-    const field: CustomField = {
-      id: nanoid(8),
-      label: partial?.label || "New Field",
-      type: partial?.type || "text",
-      required: partial?.required ?? true,
-      placeholder: partial?.placeholder,
-      pattern: partial?.pattern,
-      patternError: partial?.patternError,
-      options: partial?.options,
-    };
-    onChange([...fields, field]);
-    setEditingId(field.id);
-    setShowPresets(false);
-  }
-
-  function updateField(id: string, updates: Partial<CustomField>) {
-    onChange(fields.map((f) => (f.id === id ? { ...f, ...updates } : f)));
-  }
-
-  function removeField(id: string) {
-    onChange(fields.filter((f) => f.id !== id));
-    if (editingId === id) setEditingId(null);
-  }
-
-  function moveField(id: string, dir: -1 | 1) {
-    const idx = fields.findIndex((f) => f.id === id);
-    if (idx < 0) return;
-    const target = idx + dir;
-    if (target < 0 || target >= fields.length) return;
-    const next = [...fields];
-    [next[idx], next[target]] = [next[target], next[idx]];
-    onChange(next);
-  }
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <Label className="flex items-center gap-1.5">
-          <IconListCheck className="h-4 w-4" />
-          Custom fields
-        </Label>
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => setShowPresets((p) => !p)}
-            className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/60"
-          >
-            <IconChevronDown
-              className={cn(
-                "h-3 w-3 transition-transform",
-                showPresets && "rotate-180",
-              )}
-            />
-            Presets
-          </button>
-          <button
-            type="button"
-            onClick={() => addField()}
-            className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/60"
-          >
-            <IconPlus className="h-3 w-3" />
-            Add
-          </button>
-        </div>
-      </div>
-
-      {showPresets && (
-        <div className="grid grid-cols-2 gap-1.5">
-          {FIELD_PRESETS.map((preset) => (
-            <button
-              key={preset.label}
-              type="button"
-              onClick={() => addField(preset)}
-              className="rounded-lg border border-border/60 px-3 py-2 text-left text-xs hover:bg-accent/60 hover:border-primary/30"
-            >
-              <p className="font-medium">{preset.label}</p>
-              <p className="text-muted-foreground">
-                {FIELD_TYPE_LABELS[preset.type]}
-              </p>
-            </button>
-          ))}
-        </div>
-      )}
-
-      {fields.length === 0 && !showPresets && (
-        <p className="text-xs text-muted-foreground">
-          Add custom fields to collect information from bookers — e.g. LinkedIn
-          profile, company name, phone number.
-        </p>
-      )}
-
-      <div className="space-y-2">
-        {fields.map((field) => {
-          const isEditing = editingId === field.id;
-          return (
-            <div
-              key={field.id}
-              className="rounded-lg border border-border overflow-hidden"
-            >
-              {/* Field summary row */}
-              <button
-                type="button"
-                onClick={() => setEditingId(isEditing ? null : field.id)}
-                className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-accent/40"
-              >
-                <IconGripVertical className="h-3.5 w-3.5 shrink-0 text-muted-foreground/40" />
-                <div className="flex-1 min-w-0">
-                  <span className="text-sm font-medium truncate block">
-                    {field.label}
-                  </span>
-                  <span className="text-[11px] text-muted-foreground">
-                    {FIELD_TYPE_LABELS[field.type]}
-                    {field.required ? " · Required" : " · Optional"}
-                    {field.pattern ? " · Pattern" : ""}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      moveField(field.id, -1);
-                    }}
-                    className="p-0.5 text-muted-foreground/40 hover:text-foreground"
-                    title="Move up"
-                  >
-                    <IconChevronLeft className="h-3 w-3 rotate-90" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      moveField(field.id, 1);
-                    }}
-                    className="p-0.5 text-muted-foreground/40 hover:text-foreground"
-                    title="Move down"
-                  >
-                    <IconChevronRight className="h-3 w-3 rotate-90" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      removeField(field.id);
-                    }}
-                    className="p-0.5 text-muted-foreground/40 hover:text-destructive"
-                    title="Remove field"
-                  >
-                    <IconTrash className="h-3 w-3" />
-                  </button>
-                </div>
-              </button>
-
-              {/* Expanded editor */}
-              {isEditing && (
-                <div className="border-t border-border bg-muted/20 px-3 py-3 space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Label</Label>
-                      <Input
-                        value={field.label}
-                        onChange={(e) =>
-                          updateField(field.id, { label: e.target.value })
-                        }
-                        placeholder="Field label"
-                        className="h-8 text-sm"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Type</Label>
-                      <select
-                        value={field.type}
-                        onChange={(e) =>
-                          updateField(field.id, {
-                            type: e.target.value as CustomField["type"],
-                          })
-                        }
-                        className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
-                      >
-                        {(
-                          Object.entries(FIELD_TYPE_LABELS) as [
-                            CustomField["type"],
-                            string,
-                          ][]
-                        ).map(([value, label]) => (
-                          <option key={value} value={value}>
-                            {label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Placeholder</Label>
-                    <Input
-                      value={field.placeholder || ""}
-                      onChange={(e) =>
-                        updateField(field.id, {
-                          placeholder: e.target.value || undefined,
-                        })
-                      }
-                      placeholder="Placeholder text"
-                      className="h-8 text-sm"
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs">Required</Label>
-                    <Switch
-                      checked={field.required}
-                      onCheckedChange={(checked) =>
-                        updateField(field.id, { required: checked })
-                      }
-                    />
-                  </div>
-
-                  {field.type === "select" && (
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">
-                        Options{" "}
-                        <span className="text-muted-foreground font-normal">
-                          (one per line)
-                        </span>
-                      </Label>
-                      <Textarea
-                        value={(field.options || []).join("\n")}
-                        onChange={(e) => {
-                          const options = e.target.value
-                            .split("\n")
-                            .filter((o) => o.trim());
-                          updateField(field.id, { options });
-                        }}
-                        placeholder={"Option 1\nOption 2\nOption 3"}
-                        rows={3}
-                        className="text-sm"
-                      />
-                    </div>
-                  )}
-
-                  {field.type !== "checkbox" && field.type !== "select" && (
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">
-                        Validation pattern{" "}
-                        <span className="text-muted-foreground font-normal">
-                          (regex, optional)
-                        </span>
-                      </Label>
-                      <Input
-                        value={field.pattern || ""}
-                        onChange={(e) =>
-                          updateField(field.id, {
-                            pattern: e.target.value || undefined,
-                          })
-                        }
-                        placeholder="e.g. ^https?://(www\.)?linkedin\.com/in/.+"
-                        className="h-8 text-sm font-mono"
-                      />
-                      {field.pattern && (
-                        <div className="space-y-1.5">
-                          <Label className="text-xs">
-                            Error message{" "}
-                            <span className="text-muted-foreground font-normal">
-                              (shown when pattern doesn't match)
-                            </span>
-                          </Label>
-                          <Input
-                            value={field.patternError || ""}
-                            onChange={(e) =>
-                              updateField(field.id, {
-                                patternError: e.target.value || undefined,
-                              })
-                            }
-                            placeholder="e.g. Please enter a valid LinkedIn URL"
-                            className="h-8 text-sm"
-                          />
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })}
       </div>
     </div>
   );

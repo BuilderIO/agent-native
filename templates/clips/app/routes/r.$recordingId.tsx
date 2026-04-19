@@ -4,9 +4,6 @@ import { toast } from "sonner";
 import {
   IconShare3,
   IconSettings,
-  IconMessage,
-  IconFileText,
-  IconChartLine,
   IconArrowLeft,
   IconChevronDown,
 } from "@tabler/icons-react";
@@ -14,10 +11,13 @@ import {
   useActionQuery,
   useSession,
   sendToAgentChat,
+  AgentPanel,
 } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { isDefaultTitle } from "@/hooks/use-auto-title";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,7 +36,7 @@ import { CommentsPanel } from "@/components/player/comments-panel";
 import { ReactionsTray } from "@/components/player/reactions-tray";
 import { SettingsPanel } from "@/components/player/settings-panel";
 import { InsightsPanel } from "@/components/player/insights-panel";
-import { ShareRecordingDialog } from "@/components/player/share-dialog";
+import { ShareRecordingPopover } from "@/components/player/share-dialog";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 
@@ -52,7 +52,7 @@ export function HydrateFallback() {
   );
 }
 
-type SidePanel = "transcript" | "comments" | "insights" | "settings";
+type SidePanel = "transcript" | "comments" | "insights" | "agent" | "settings";
 
 export default function RecordingPage() {
   const { recordingId } = useParams<{ recordingId: string }>();
@@ -62,9 +62,9 @@ export default function RecordingPage() {
 
   const [panel, setPanel] = useState<SidePanel>("transcript");
   const [theaterMode, setTheaterMode] = useState(false);
-  const [shareOpen, setShareOpen] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
   const [speed, setSpeed] = useState(1.2);
+  const transcriptKickedRef = useRef<string | null>(null);
   // When the recording lands in the processing state but never flips to
   // 'ready', stop spinning forever and surface an error banner so the user
   // can retry or report the issue instead of staring at a spinner.
@@ -88,6 +88,10 @@ export default function RecordingPage() {
         // Also keep polling while a transcript is pending so "Transcribing…"
         // auto-flips to the ready transcript (or to the failure card).
         if (data?.transcript?.status === "pending") return 3000;
+        // And keep polling while the title is still the server-seeded
+        // default — the agent will land a generated title via
+        // `update-recording` and we want the skeleton to swap in promptly.
+        if (isDefaultTitle(rec.title)) return 3000;
         return false;
       },
     },
@@ -116,6 +120,27 @@ export default function RecordingPage() {
     const s = parseFloat(recording.defaultSpeed || "1.2");
     if (!Number.isNaN(s)) setSpeed(s);
   }, [recording?.defaultSpeed]);
+
+  // Self-heal stuck transcripts. Older recordings (before finalize-recording
+  // learned to auto-trigger Whisper) can sit in `pending` forever with no
+  // worker to pick them up. When the owner opens one, kick off a transcript
+  // once per page mount — the upsert inside request-transcript is idempotent
+  // so a second "real" run would just overwrite the pending row.
+  useEffect(() => {
+    if (!recording) return;
+    if (role !== "owner" && role !== "admin" && role !== "editor") return;
+    if (recording.status !== "ready") return;
+    if (transcriptStatus !== "pending") return;
+    if (transcriptKickedRef.current === recording.id) return;
+    transcriptKickedRef.current = recording.id;
+    fetch("/_agent-native/actions/request-transcript", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ recordingId: recording.id }),
+    })
+      .catch(() => {})
+      .finally(() => playerDataQ.refetch());
+  }, [recording?.id, recording?.status, transcriptStatus, role, playerDataQ]);
 
   // After 30 seconds of non-ready status (without an explicit failure), flip
   // a local flag so we can stop pretending this is normal and show an error.
@@ -260,7 +285,20 @@ export default function RecordingPage() {
             <IconArrowLeft className="h-4 w-4" />
           </Button>
           <div className="flex-1 min-w-0">
-            <h1 className="text-sm font-medium truncate">{recording.title}</h1>
+            {isDefaultTitle(recording.title) ? (
+              // Placeholder while the agent drafts a title. The
+              // useAutoTitleBridge in `_app.tsx` queues the delegation the
+              // moment the transcript is ready; polling then swaps the
+              // skeleton for the real title.
+              <Skeleton
+                aria-label="Generating title"
+                className="h-4 w-56 max-w-full"
+              />
+            ) : (
+              <h1 className="text-sm font-medium truncate">
+                {recording.title}
+              </h1>
+            )}
             <p className="text-xs text-muted-foreground truncate">
               {recording.ownerEmail}
               {recording.visibility !== "private" ? (
@@ -376,14 +414,20 @@ export default function RecordingPage() {
             </DropdownMenu>
           ) : null}
 
-          <Button
-            onClick={() => setShareOpen(true)}
-            className="bg-primary hover:bg-primary/90 text-primary-foreground gap-1.5"
-            size="sm"
+          <ShareRecordingPopover
+            recordingId={recording.id}
+            recordingTitle={recording.title}
+            videoUrl={recording.videoUrl}
+            animatedThumbnailUrl={recording.animatedThumbnailUrl}
           >
-            <IconShare3 className="h-4 w-4" />
-            Share
-          </Button>
+            <Button
+              className="bg-primary hover:bg-primary/90 text-primary-foreground gap-1.5"
+              size="sm"
+            >
+              <IconShare3 className="h-4 w-4" />
+              Share
+            </Button>
+          </ShareRecordingPopover>
         </header>
 
         <div className="flex-1 flex flex-col overflow-hidden p-4 gap-4">
@@ -412,9 +456,16 @@ export default function RecordingPage() {
           {/* Title + reactions row */}
           <div className="flex items-start gap-3 shrink-0">
             <div className="flex-1 min-w-0">
-              <h2 className="text-base font-semibold truncate">
-                {recording.title}
-              </h2>
+              {isDefaultTitle(recording.title) ? (
+                <Skeleton
+                  aria-label="Generating title"
+                  className="h-5 w-72 max-w-full"
+                />
+              ) : (
+                <h2 className="text-base font-semibold truncate">
+                  {recording.title}
+                </h2>
+              )}
               {recording.description ? (
                 <p className="text-sm text-muted-foreground line-clamp-2">
                   {recording.description}
@@ -464,26 +515,28 @@ export default function RecordingPage() {
               <TabsList
                 className={cn(
                   "mx-3 mt-3 grid w-auto",
-                  canEdit ? "grid-cols-3" : "grid-cols-2",
+                  canEdit ? "grid-cols-4" : "grid-cols-2",
                 )}
               >
-                <TabsTrigger value="transcript" className="gap-1.5">
-                  <IconFileText className="h-4 w-4" />
+                <TabsTrigger value="transcript" className="text-xs">
                   Transcript
                 </TabsTrigger>
-                <TabsTrigger value="comments" className="gap-1.5">
-                  <IconMessage className="h-4 w-4" />
+                <TabsTrigger value="comments" className="text-xs gap-1">
                   Comments
                   {comments.length > 0 ? (
-                    <span className="ml-0.5 text-xs rounded-full bg-accent px-1.5 tabular-nums">
+                    <span className="ml-0.5 text-[10px] rounded-full bg-accent px-1.5 tabular-nums">
                       {comments.length}
                     </span>
                   ) : null}
                 </TabsTrigger>
                 {canEdit ? (
-                  <TabsTrigger value="insights" className="gap-1.5">
-                    <IconChartLine className="h-4 w-4" />
+                  <TabsTrigger value="insights" className="text-xs">
                     Insights
+                  </TabsTrigger>
+                ) : null}
+                {canEdit ? (
+                  <TabsTrigger value="agent" className="text-xs">
+                    Agent
                   </TabsTrigger>
                 ) : null}
               </TabsList>
@@ -532,7 +585,6 @@ export default function RecordingPage() {
                   currentUserEmail={session?.email}
                   enableComments={recording.enableComments}
                   onSeek={(ms) => playerRef.current?.seek(ms)}
-                  onRefetch={() => playerDataQ.refetch()}
                 />
               </TabsContent>
               {canEdit ? (
@@ -543,6 +595,22 @@ export default function RecordingPage() {
                   <InsightsPanel
                     recordingId={recording.id}
                     durationMs={recording.durationMs}
+                  />
+                </TabsContent>
+              ) : null}
+              {canEdit ? (
+                <TabsContent
+                  value="agent"
+                  className="flex-1 min-h-0 mt-3 data-[state=inactive]:hidden flex flex-col"
+                >
+                  <AgentPanel
+                    emptyStateText="Ask about this clip…"
+                    suggestions={[
+                      "Summarize this clip",
+                      "Suggest a better title",
+                      "Generate chapters from the transcript",
+                    ]}
+                    showHeader={false}
                   />
                 </TabsContent>
               ) : null}
@@ -564,15 +632,6 @@ export default function RecordingPage() {
           </>
         )}
       </aside>
-
-      <ShareRecordingDialog
-        recordingId={recording.id}
-        recordingTitle={recording.title}
-        videoUrl={recording.videoUrl}
-        animatedThumbnailUrl={recording.animatedThumbnailUrl}
-        open={shareOpen}
-        onOpenChange={setShareOpen}
-      />
     </div>
   );
 }

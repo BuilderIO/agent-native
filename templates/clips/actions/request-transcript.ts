@@ -39,6 +39,22 @@ import {
 import { resolveCredential } from "@agent-native/core/credentials";
 import { readAppSecret } from "@agent-native/core/secrets";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import regenerateTitle from "./regenerate-title.js";
+
+/**
+ * Default title seeded by `create-recording`. Used to detect "the user hasn't
+ * set a title yet, so auto-generating one is safe." Any non-default title
+ * means the user (or the agent) already renamed the clip and we must not
+ * overwrite their choice.
+ */
+const DEFAULT_RECORDING_TITLE = "Untitled recording";
+
+/** Treat blank / null / whitespace as "still the default". */
+function isDefaultTitle(title: string | null | undefined): boolean {
+  const trimmed = (title ?? "").trim();
+  if (!trimmed) return true;
+  return trimmed === DEFAULT_RECORDING_TITLE;
+}
 
 interface WhisperSegment {
   start: number; // seconds
@@ -273,6 +289,26 @@ export default defineAction({
       });
 
       await writeAppState("refresh-signal", { ts: Date.now() });
+
+      // Auto-title. The clip was just born with the default title and we now
+      // have a transcript to reason over — queue a delegation for the agent
+      // chat to pick a concise 3-8 word title. `regenerate-title` writes a
+      // `clips-ai-request-:id` application_state entry; the frontend bridge
+      // in `_app.tsx` picks that up and fires `sendToAgentChat` once. We
+      // intentionally skip this when the user (or agent) has already renamed
+      // the clip so we never clobber a human-authored title.
+      if (isDefaultTitle(rec.title)) {
+        try {
+          await regenerateTitle.run({ recordingId: args.recordingId });
+        } catch (delegateErr) {
+          // Non-fatal — a missing delegation just means the clip keeps its
+          // placeholder title until the user asks the agent to rename it.
+          console.warn(
+            `[clips] auto-title delegation failed for ${args.recordingId}:`,
+            (delegateErr as Error).message,
+          );
+        }
+      }
 
       const elapsedMs = Date.now() - startedAt;
       console.log(

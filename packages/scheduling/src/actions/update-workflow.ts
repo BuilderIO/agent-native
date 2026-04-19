@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { eq } from "drizzle-orm";
+import { assertAccess } from "@agent-native/core/sharing";
 import { getSchedulingContext } from "../server/context.js";
 
 export default defineAction({
@@ -46,6 +47,7 @@ export default defineAction({
       .optional(),
   }),
   run: async (args) => {
+    await assertAccess("workflow", args.id, "editor");
     const { getDb, schema } = getSchedulingContext();
     const now = new Date().toISOString();
     const set: any = { updatedAt: now };

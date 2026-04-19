@@ -14,6 +14,82 @@ use tauri::{
     WebviewWindowBuilder,
 };
 
+// ---------------------------------------------------------------------------
+// Exclude-from-capture helper (macOS only)
+// ---------------------------------------------------------------------------
+//
+// Every Clips-owned overlay window (popover / bubble / toolbar / countdown /
+// signin) gets `NSWindow.sharingType = NSWindowSharingNone` flipped on right
+// after build. This has two effects on macOS:
+//
+//   1. **Screen pickers don't list it.** When the user clicks "Start Recording"
+//      the popover stays open on screen while macOS shows the screen / window
+//      picker. Because the popover is marked non-sharable, the picker doesn't
+//      enumerate it as a potential capture source — the user can't accidentally
+//      record the Clips UI itself.
+//
+//   2. **Full-screen captures omit it.** Even when the user picks a full
+//      display, the compositor doesn't composite the overlay windows into the
+//      captured frame. The final recording shows the screen content beneath
+//      the popover / bubble / toolbar / countdown, not the overlays.
+//
+// This is the same mechanism Loom, 1Password, and CleanShot use to keep their
+// own chrome out of captures. It also sidesteps a nasty WebKit bug we hit
+// earlier: hiding the popover's webview mid-`getDisplayMedia` suspends JS
+// execution and the recorder promise never resolves — freezing the tray.
+// By leaving the popover VISIBLE (but non-sharable) during the screen picker,
+// JS keeps running and the promise resolves cleanly.
+//
+// Caveat: on macOS 15.4+ (Sequoia), ScreenCaptureKit-based apps can sometimes
+// still capture `NSWindowSharingNone` windows — Apple has acknowledged this as
+// a platform bug with no public workaround. Everything up to macOS 14 works
+// correctly, and on 15.4+ the majority of capture apps still honour it.
+#[cfg(target_os = "macos")]
+fn set_capture_excluded(window: &WebviewWindow) {
+    // AppKit's `-[NSWindow setSharingType:]` is strictly main-thread-only, and
+    // macOS 15.5+ hard-asserts it (the process crashes in
+    // `-[NSWMWindowCoordinator performTransactionUsingBlock:]` otherwise).
+    // Most of our callers are `async fn #[tauri::command]`s, which run on a
+    // tokio worker thread — so we always hop back to the main runloop before
+    // poking AppKit. If we're already on the main thread (e.g. the setup
+    // handler path), `run_on_main_thread` just runs the closure inline.
+    let win = window.clone();
+    if let Err(err) = win.clone().run_on_main_thread(move || {
+        let label = win.label().to_string();
+        let ns_window_ptr = match win.ns_window() {
+            Ok(p) => p,
+            Err(err) => {
+                eprintln!("[clips-tray] set_capture_excluded({label}): ns_window() failed: {err}");
+                return;
+            }
+        };
+        if ns_window_ptr.is_null() {
+            eprintln!("[clips-tray] set_capture_excluded({label}): ns_window is null");
+            return;
+        }
+        // 0 == NSWindowSharingNone, 1 == NSWindowSharingReadOnly (default). We
+        // want 0. Pass as NSUInteger (usize) to match the Objective-C selector
+        // signature.
+        // SAFETY: ns_window() returns a live NSWindow* owned by Tauri. We're
+        // guaranteed to be on the main thread here (run_on_main_thread), which
+        // is what AppKit's setSharingType: requires. The setter is idempotent
+        // and has no return value.
+        unsafe {
+            let obj = ns_window_ptr as *mut objc2::runtime::AnyObject;
+            let _: () = objc2::msg_send![&*obj, setSharingType: 0usize];
+        }
+        eprintln!("[clips-tray] set_capture_excluded({label}): NSWindowSharingNone applied");
+    }) {
+        eprintln!("[clips-tray] set_capture_excluded: run_on_main_thread failed: {err}");
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn set_capture_excluded(_window: &WebviewWindow) {
+    // No-op on non-macOS platforms. Screen-capture exclusion isn't a public
+    // Windows API; Linux doesn't even have a universal screen-capture API.
+}
+
 /// Last-known tray icon rect, updated on every tray event. Used to anchor the
 /// popover directly under the icon (Loom-style) instead of floating in the
 /// top-right corner of the screen.
@@ -38,6 +114,7 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 const COUNTDOWN_LABEL: &str = "countdown";
 const TOOLBAR_LABEL: &str = "toolbar";
 const BUBBLE_LABEL: &str = "bubble";
+const FINALIZING_LABEL: &str = "finalizing";
 
 fn build_overlay_url(path: &str) -> WebviewUrl {
     // tauri dev serves the Vite dev server; prod builds resolve relative to
@@ -78,8 +155,58 @@ async fn show_countdown(app: AppHandle) -> Result<(), String> {
     let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(mw, mh)));
     let _ = win.set_position(PhysicalPosition::new(0, 0));
     let _ = win.set_ignore_cursor_events(true);
+    set_capture_excluded(&win);
     let _ = win.show();
     eprintln!("[clips-tray] countdown shown");
+    Ok(())
+}
+
+/// Full-screen transparent overlay that shows a centered spinner while the
+/// recorder flushes its final chunks and awaits the server finalize. Rendered
+/// immediately after the user clicks Stop so they don't stare at a blank
+/// screen for a few seconds while `recorder.stop()` completes. Ignores cursor
+/// events so accidental clicks can't disrupt the finalize flow. Marked
+/// non-sharable for consistency with the other Clips overlays, even though
+/// the recording has already ended by the time this appears.
+#[tauri::command]
+async fn show_finalizing(app: AppHandle) -> Result<(), String> {
+    eprintln!("[clips-tray] show_finalizing invoked");
+    if let Some(existing) = app.get_webview_window(FINALIZING_LABEL) {
+        let _ = existing.close();
+    }
+    let (mw, mh) = primary_monitor_physical_size(&app).unwrap_or((2880, 1800));
+    eprintln!("[clips-tray] finalizing target size {}x{} physical", mw, mh);
+    let win = WebviewWindowBuilder::new(&app, FINALIZING_LABEL, build_overlay_url("finalizing"))
+        .title("Finalizing")
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .shadow(false)
+        .visible(false)
+        // Don't steal focus — same rationale as the countdown overlay.
+        .focused(false)
+        .build()
+        .map_err(|e| {
+            eprintln!("[clips-tray] finalizing build failed: {}", e);
+            e.to_string()
+        })?;
+    let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(mw, mh)));
+    let _ = win.set_position(PhysicalPosition::new(0, 0));
+    let _ = win.set_ignore_cursor_events(true);
+    set_capture_excluded(&win);
+    let _ = win.show();
+    eprintln!("[clips-tray] finalizing shown");
+    Ok(())
+}
+
+/// Close the finalizing spinner overlay. Called from the recorder stop path
+/// right after `openExternal` opens the browser to the recording URL.
+#[tauri::command]
+async fn hide_finalizing(app: AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window(FINALIZING_LABEL) {
+        let _ = w.close();
+    }
     Ok(())
 }
 
@@ -94,10 +221,12 @@ async fn show_toolbar(app: AppHandle) -> Result<(), String> {
         return Ok(());
     }
     let (_mw, mh) = primary_monitor_physical_size(&app).unwrap_or((2880, 1800));
-    // 72x180 logical → 144x360 physical on 2x, but we're working in pure
-    // physical here so pick values that look right at retina scale.
-    let w: u32 = 144;
-    let h: u32 = 360;
+    // Tighter pill: buttons are 30px, padding is 10px, gap is 10px. The
+    // window is sized so the pill fills it with only ~4-6 px of slack per
+    // side for the CSS drop shadow to bleed into. Values are physical px,
+    // so ~2x the logical pill dimensions on retina.
+    let w: u32 = 110;
+    let h: u32 = 260;
     // Flush-left with a small margin; vertically centered on the screen.
     let x: i32 = 48;
     let y: i32 = (mh as i32 - h as i32) / 2;
@@ -133,9 +262,43 @@ async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     })?;
     let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
     let _ = win.set_position(PhysicalPosition::new(x, y));
+    set_capture_excluded(&win);
     let _ = win.show();
     eprintln!("[clips-tray] toolbar shown");
     Ok(())
+}
+
+/// Physical-pixel bubble sizes. Logical px on retina = physical / 2, so these
+/// map to ~96 (small) and ~180 (medium) logical px — matching Loom's camera
+/// bubble sizes exactly. Small is the default so the bubble feels like a
+/// quiet PiP rather than a giant circle the user has to shrink on every
+/// launch — this matches Loom's out-of-the-box behavior.
+const BUBBLE_SIZE_SMALL: u32 = 360;
+const BUBBLE_SIZE_MEDIUM: u32 = 504;
+
+/// Extra vertical real-estate reserved beneath the circular bubble for the
+/// hover-controls pill (small-dot + medium-dot). The Tauri window is
+/// `transparent: true`, so the budget paints through as empty space until the
+/// user hovers the bubble and the pill fades in. We'd otherwise have no pixels
+/// to paint the pill into — WebKit can't render outside its window bounds, no
+/// matter what CSS `overflow` says.
+///
+/// 80 physical px ≈ 40 logical px on retina — enough for the ~28px pill plus
+/// an 8px gap from the circle, with a small cushion so the pill's drop-shadow
+/// doesn't clip at the window bottom.
+const BUBBLE_CONTROLS_BUDGET_PX: u32 = 80;
+
+fn bubble_size_for_name(name: &str) -> u32 {
+    match name {
+        "medium" => BUBBLE_SIZE_MEDIUM,
+        _ => BUBBLE_SIZE_SMALL,
+    }
+}
+
+/// Total window height for a bubble of the given diameter — includes the
+/// controls-budget strip beneath the circle.
+fn bubble_window_height_for(size: u32) -> u32 {
+    size + BUBBLE_CONTROLS_BUDGET_PX
 }
 
 /// Path to the JSON blob that stores the last-known bubble position on disk.
@@ -153,6 +316,111 @@ fn bubble_position_path(app: &AppHandle) -> Option<PathBuf> {
         return None;
     }
     Some(dir.join("bubble-position.json"))
+}
+
+/// Path to the JSON blob that stores the last-chosen bubble size ("small" or
+/// "medium"). Same storage pattern as `bubble-position.json`.
+fn bubble_size_path(app: &AppHandle) -> Option<PathBuf> {
+    let dir = app.path().app_data_dir().ok()?;
+    if let Err(err) = std::fs::create_dir_all(&dir) {
+        eprintln!(
+            "[clips-tray] bubble_size_path mkdir failed: {} ({})",
+            err,
+            dir.display()
+        );
+        return None;
+    }
+    Some(dir.join("bubble-size.json"))
+}
+
+/// Load the last-saved bubble size name, default "small" if nothing is saved
+/// or parsing fails. Small is the out-of-the-box default so the bubble feels
+/// like a quiet PiP on first launch — users can bump it to medium from the
+/// hover-controls pill if they want it bigger.
+fn load_bubble_size_name(app: &AppHandle) -> String {
+    let Some(path) = bubble_size_path(app) else {
+        return "small".to_string();
+    };
+    let Ok(bytes) = std::fs::read(&path) else {
+        return "small".to_string();
+    };
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+        return "small".to_string();
+    };
+    match value.get("size").and_then(|v| v.as_str()) {
+        Some("small") => "small".to_string(),
+        Some("medium") => "medium".to_string(),
+        _ => "small".to_string(),
+    }
+}
+
+/// Persist the chosen bubble size to disk (atomic write via temp + rename).
+fn save_bubble_size_name(app: &AppHandle, name: &str) {
+    let Some(path) = bubble_size_path(app) else {
+        return;
+    };
+    let body = match serde_json::to_vec(&serde_json::json!({ "size": name })) {
+        Ok(b) => b,
+        Err(err) => {
+            eprintln!("[clips-tray] save_bubble_size_name serialize failed: {err}");
+            return;
+        }
+    };
+    let tmp = path.with_extension("json.tmp");
+    if let Err(err) = std::fs::write(&tmp, &body) {
+        eprintln!("[clips-tray] save_bubble_size_name write tmp failed: {err}");
+        return;
+    }
+    if let Err(err) = std::fs::rename(&tmp, &path) {
+        eprintln!("[clips-tray] save_bubble_size_name rename failed: {err}");
+        let _ = std::fs::remove_file(&tmp);
+    }
+}
+
+/// Load the saved bubble size and return it to the frontend. Default is
+/// "medium". Exposed to JS via `invoke("load_bubble_size")`.
+#[tauri::command]
+async fn load_bubble_size(app: AppHandle) -> Result<String, String> {
+    Ok(load_bubble_size_name(&app))
+}
+
+/// Resize the bubble window to match the named size ("small" | "medium") and
+/// persist the choice. Clamps to valid names silently — unknown values fall
+/// back to medium so a typo in the frontend doesn't brick persistence.
+#[tauri::command]
+async fn set_bubble_size(app: AppHandle, size: String) -> Result<(), String> {
+    let name = match size.as_str() {
+        "medium" => "medium",
+        _ => "small",
+    };
+    let px = bubble_size_for_name(name);
+    let win_h = bubble_window_height_for(px);
+    if let Some(win) = app.get_webview_window(BUBBLE_LABEL) {
+        // Re-center the resize around the current circle's center so the
+        // bubble visually grows / shrinks around its current spot instead of
+        // jumping toward the top-left corner (Tauri resizes from the window's
+        // origin by default). We center on the CIRCLE's center — not the
+        // window center — since the controls budget strip is always beneath
+        // the circle, not around it.
+        let current_pos = win
+            .outer_position()
+            .ok()
+            .map(|p| (p.x, p.y))
+            .unwrap_or((0, 0));
+        let current_size = win
+            .outer_size()
+            .ok()
+            .map(|s| s.width as i32)
+            .unwrap_or(BUBBLE_SIZE_SMALL as i32);
+        let new_px = px as i32;
+        let delta = (current_size - new_px) / 2;
+        let new_x = current_pos.0 + delta;
+        let new_y = current_pos.1 + delta;
+        let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(px, win_h)));
+        let _ = win.set_position(PhysicalPosition::new(new_x, new_y));
+    }
+    save_bubble_size_name(&app, name);
+    Ok(())
 }
 
 /// Load the last-saved bubble position, if any. Returns (x, y) in physical
@@ -205,24 +473,32 @@ async fn show_bubble(app: AppHandle) -> Result<(), String> {
         return Ok(());
     }
     let (mw, mh) = primary_monitor_physical_size(&app).unwrap_or((2880, 1800));
-    let size: u32 = 360; // physical (= 180 logical on retina)
-                         // Default Loom-style anchor: flush-left with a small margin, a hair
-                         // above the bottom edge of the primary display. On Retina the 60
-                         // physical-px offset maps to ~30 logical px.
+    // Honor the user's last-chosen size. Default is "small" (192 physical =
+    // 96 logical) so new users get a quiet PiP rather than a giant circle.
+    let size_name = load_bubble_size_name(&app);
+    let size: u32 = bubble_size_for_name(&size_name);
+    // The actual window is TALLER than the circle — see
+    // `BUBBLE_CONTROLS_BUDGET_PX` — to give the hover controls pill room.
+    let win_h: u32 = bubble_window_height_for(size);
+    // Default Loom-style anchor: flush-left with a small margin, a hair
+    // above the bottom edge of the primary display. On Retina the 60
+    // physical-px offset maps to ~30 logical px. Account for the extra
+    // height below the circle so the circle (not the controls strip) sits
+    // at the same visual position as before.
     let default_x: i32 = 48;
-    let default_y: i32 = mh as i32 - size as i32 - 60;
+    let default_y: i32 = mh as i32 - win_h as i32 - 60;
     // Prefer the last-known position, clamped to the primary monitor so a
     // position saved on a now-disconnected external display can't leave
     // the bubble off-screen.
     let max_x = (mw as i32 - size as i32).max(0);
-    let max_y = (mh as i32 - size as i32).max(0);
+    let max_y = (mh as i32 - win_h as i32).max(0);
     let (x, y, source) = match load_bubble_position(&app) {
         Some((sx, sy)) => (sx.clamp(0, max_x), sy.clamp(0, max_y), "saved"),
         None => (default_x, default_y, "default"),
     };
     eprintln!(
-        "[clips-tray] bubble pos=({},{}) source={} size={} monitor={}x{}",
-        x, y, source, size, mw, mh
+        "[clips-tray] bubble pos=({},{}) source={} size={}x{} monitor={}x{}",
+        x, y, source, size, win_h, mw, mh
     );
     let mut builder = WebviewWindowBuilder::new(&app, BUBBLE_LABEL, build_overlay_url("bubble"))
         .title("Clips Camera")
@@ -247,8 +523,14 @@ async fn show_bubble(app: AppHandle) -> Result<(), String> {
         eprintln!("[clips-tray] bubble build failed: {}", e);
         e.to_string()
     })?;
-    let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(size, size)));
+    let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(size, win_h)));
     let _ = win.set_position(PhysicalPosition::new(x, y));
+    // NOTE: intentionally NOT calling `set_capture_excluded` on the bubble.
+    // The bubble is the user's face — Loom's behavior is that the camera
+    // PiP IS composited into the final recording (that's the whole point of
+    // the bubble). NSWindowSharingNone would make macOS exclude it from
+    // `getDisplayMedia`, which matches the other Clips chrome (popover,
+    // toolbar, countdown) but NOT what users want for the camera bubble.
     let _ = win.show();
     eprintln!("[clips-tray] bubble shown at ({},{}) size {}", x, y, size);
     Ok(())
@@ -256,7 +538,28 @@ async fn show_bubble(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 async fn hide_overlays(app: AppHandle) -> Result<(), String> {
-    for label in [COUNTDOWN_LABEL, TOOLBAR_LABEL, BUBBLE_LABEL] {
+    for label in [
+        COUNTDOWN_LABEL,
+        TOOLBAR_LABEL,
+        BUBBLE_LABEL,
+        FINALIZING_LABEL,
+    ] {
+        if let Some(w) = app.get_webview_window(label) {
+            let _ = w.close();
+        }
+    }
+    Ok(())
+}
+
+/// Close just the recording-specific overlays (countdown + toolbar),
+/// leaving the bubble alone. Used on recording stop/cancel when the
+/// popover owns the camera bubble for the entire session — we don't
+/// want to rip the bubble away mid-session; its lifecycle is governed
+/// by the popover's session effect (show on popover-open, hide on
+/// popover-close).
+#[tauri::command]
+async fn hide_recording_chrome(app: AppHandle) -> Result<(), String> {
+    for label in [COUNTDOWN_LABEL, TOOLBAR_LABEL] {
         if let Some(w) = app.get_webview_window(label) {
             let _ = w.close();
         }
@@ -331,6 +634,7 @@ async fn show_signin(app: AppHandle, url: String) -> Result<(), String> {
         .focused(true)
         .build()
         .map_err(|e| e.to_string())?;
+    set_capture_excluded(&win);
     let _ = win.show();
     let _ = win.set_focus();
     Ok(())
@@ -349,10 +653,36 @@ async fn close_signin(app: AppHandle) -> Result<(), String> {
 /// user can stop a recording from anywhere with one click.
 #[tauri::command]
 async fn set_recording_state(app: AppHandle, active: bool) -> Result<(), String> {
+    eprintln!("[clips-tray] set_recording_state active={}", active);
     if let Some(state) = app.try_state::<RecordingActive>() {
         if let Ok(mut g) = state.0.lock() {
             *g = active;
         }
+    }
+    Ok(())
+}
+
+/// Last-resort recovery command: clear `is_recording_active` and show the
+/// popover. Not wired to any UI by default — available for debugging when
+/// the recording-flow side-effects wedge the tray in a dead state.
+/// Invoke from the webview via `invoke("reset_state")`.
+#[tauri::command]
+async fn reset_state(app: AppHandle) -> Result<(), String> {
+    eprintln!("[clips-tray] reset_state invoked — clearing recording flag + showing popover");
+    if let Some(state) = app.try_state::<RecordingActive>() {
+        if let Ok(mut g) = state.0.lock() {
+            *g = false;
+        }
+    }
+    if let Some(window) = app.get_webview_window("popover") {
+        // Restore normal size in case the window was shrunk to a pinhole
+        // during recording — otherwise it would reappear as a 2×2 dot.
+        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(360.0, 520.0)));
+        position_popover(&app, &window);
+        mark_popover_shown(&app);
+        let _ = window.show();
+        let _ = window.set_focus();
+        let _ = app.emit("clips:popover-visible", true);
     }
     Ok(())
 }
@@ -366,11 +696,54 @@ fn is_recording_active(app: &AppHandle) -> bool {
 #[tauri::command]
 async fn show_popover(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("popover") {
+        // Restore the popover's normal size — it may have been shrunk to 2×2
+        // during recording by `park_popover_offscreen` (kept the JS alive
+        // while keeping the window out of the way). The content's
+        // ResizeObserver will call `resize_popover` on the next render to
+        // fine-tune the height, but we need a sensible starting size so
+        // `position_popover` can anchor correctly.
+        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(360.0, 520.0)));
         position_popover(&app, &window);
         mark_popover_shown(&app);
         let _ = window.show();
         let _ = window.set_focus();
         let _ = app.emit("clips:popover-visible", true);
+    }
+    Ok(())
+}
+
+/// Shrink the popover to a 2×2 pinhole anchored on the primary screen WITHOUT
+/// hiding it. Used during recording to hide the popover from the user while
+/// keeping its JS alive.
+///
+/// History: we used to park the window off-screen at (99999,99999). That kept
+/// AppKit's backing surface alive, but on macOS 15+ WKWebView treats a window
+/// with no on-screen pixels as "occluded" and throttles the whole page's JS —
+/// `requestAnimationFrame`, `setInterval`, and (critically) `<video>` playback
+/// + `requestVideoFrameCallback` all stall. The bubble frame pump is owned by
+/// this popover, so the moment we parked it the bubble showed its last frame
+/// and froze.
+///
+/// Fix: anchor the window at a visible coordinate on the primary screen and
+/// shrink it to 2×2 physical pixels. From WKWebView's point of view the
+/// window IS on-screen — no occlusion, no throttling, pump keeps ticking. The
+/// user sees a 2-pixel dot that effectively vanishes against any pixel the
+/// cursor won't touch. NSWindowSharingNone is already set on the popover, so
+/// it stays out of the recording either way.
+///
+/// Call `show_popover` to restore normal size + tray-anchored position when
+/// the recording ends.
+#[tauri::command]
+async fn park_popover_offscreen(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("popover") {
+        // Anchor near the top-left of the primary display. We avoid (0,0)
+        // exactly because on some macOS versions that corner falls under the
+        // menu-bar cutout — 2,2 is safely inside every real display's bounds.
+        let _ = window.set_position(PhysicalPosition::new(2_i32, 2_i32));
+        // 2×2 physical px ≈ 1×1 logical on retina — visually a dot that
+        // disappears into the menu-bar shadow. Going smaller than 2×2 has
+        // caused AppKit to treat the window as "empty" on some macOS builds.
+        let _ = window.set_size(tauri::Size::Physical(PhysicalSize::new(2, 2)));
     }
     Ok(())
 }
@@ -408,6 +781,9 @@ fn toggle_popover(app: &AppHandle) {
         let _ = window.hide();
         let _ = app.emit("clips:popover-visible", false);
     } else {
+        // Restore normal size in case the window was shrunk to a pinhole
+        // during recording — otherwise it would reappear as a 2×2 dot.
+        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(360.0, 520.0)));
         position_popover(app, &window);
         mark_popover_shown(app);
         let _ = window.show();
@@ -509,16 +885,23 @@ pub fn run() {
         }))
         .invoke_handler(tauri::generate_handler![
             show_countdown,
+            show_finalizing,
+            hide_finalizing,
             show_toolbar,
             show_bubble,
             hide_overlays,
+            hide_recording_chrome,
             close_bubble,
             show_popover,
+            park_popover_offscreen,
             resize_popover,
             show_signin,
             close_signin,
             set_recording_state,
+            reset_state,
             save_bubble_position,
+            set_bubble_size,
+            load_bubble_size,
         ])
         .plugin(tauri_plugin_shell::init())
         .plugin(
@@ -630,7 +1013,9 @@ pub fn run() {
                     } = event
                     {
                         let app = tray.app_handle();
-                        if is_recording_active(app) {
+                        let active = is_recording_active(app);
+                        eprintln!("[clips-tray] tray click — is_recording_active={}", active);
+                        if active {
                             // Loom-style: tray click while recording stops it.
                             let _ = app.emit("clips:recorder-stop", ());
                         } else {
@@ -662,6 +1047,12 @@ pub fn run() {
             // itself macOS briefly steals focus from the popover, which would
             // fire Focused(false) and hide the window we literally just showed.
             if let Some(window) = app.get_webview_window("popover") {
+                // Exclude the popover from screen recordings and from the macOS
+                // screen / window picker. See `set_capture_excluded` docs. This
+                // is what lets us keep the popover visible (and its JS alive)
+                // during `getDisplayMedia` without the popover leaking into the
+                // recorded video.
+                set_capture_excluded(&window);
                 let handle = window.clone();
                 let app_handle = app.handle().clone();
                 // NOTE: Intentionally NOT calling window.open_devtools()

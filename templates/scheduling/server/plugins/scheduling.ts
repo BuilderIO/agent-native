@@ -20,8 +20,12 @@ import {
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
 import { registerRequiredSecret } from "@agent-native/core/secrets";
-import { getOAuthTokens } from "@agent-native/core/oauth-tokens";
+import {
+  getOAuthTokens,
+  saveOAuthTokens,
+} from "@agent-native/core/oauth-tokens";
 import { getDb, schema } from "../db/index.js";
+import { eq } from "drizzle-orm";
 
 export default () => {
   setSchedulingContext({
@@ -40,8 +44,8 @@ export default () => {
         clientId: process.env.GOOGLE_CLIENT_ID,
         clientSecret: process.env.GOOGLE_CLIENT_SECRET,
         getAccessToken: async (credentialId) => {
-          const t: any = await (getOAuthTokens as any)?.(credentialId);
-          const token = t?.accessToken;
+          const t = await getOAuthTokens("google_calendar", credentialId);
+          const token = (t as any)?.accessToken;
           if (!token) throw new Error("Missing Google token");
           return token;
         },
@@ -56,11 +60,19 @@ export default () => {
         clientId: process.env.MICROSOFT_CLIENT_ID,
         clientSecret: process.env.MICROSOFT_CLIENT_SECRET,
         getAccessToken: async (credentialId) => {
-          const t: any = await (getOAuthTokens as any)?.(credentialId);
-          const token = t?.accessToken;
+          const t = await getOAuthTokens("office365", credentialId);
+          const token = (t as any)?.accessToken;
           if (!token) throw new Error("Missing MS token");
           return token;
         },
+      }),
+    );
+  }
+
+  if (process.env.DAILY_API_KEY) {
+    registerVideoProvider(
+      createDailyVideoProvider({
+        apiKey: process.env.DAILY_API_KEY,
       }),
     );
   }
@@ -70,19 +82,21 @@ export default () => {
       createZoomProvider({
         clientId: process.env.ZOOM_CLIENT_ID,
         clientSecret: process.env.ZOOM_CLIENT_SECRET,
-        getAccessToken: async (credentialId) => {
-          const t: any = await (getOAuthTokens as any)?.(credentialId);
-          const token = t?.accessToken;
-          if (!token) throw new Error("Missing Zoom token");
-          return token;
+        getAccessToken: (credentialId) => getZoomAccessToken(credentialId),
+        updateTokens: async (credentialId, tokens) => {
+          await saveOAuthTokens("zoom_video", credentialId, {
+            accessToken: tokens.accessToken,
+            refreshToken: tokens.refreshToken,
+            expiresAt: tokens.expiresAt?.getTime(),
+          });
+        },
+        markInvalid: async (credentialId) => {
+          await getDb()
+            .update(schema.schedulingCredentials)
+            .set({ invalid: true, updatedAt: new Date().toISOString() })
+            .where(eq(schema.schedulingCredentials.id, credentialId));
         },
       }),
-    );
-  }
-
-  if (process.env.DAILY_API_KEY) {
-    registerVideoProvider(
-      createDailyVideoProvider({ apiKey: process.env.DAILY_API_KEY }),
     );
   }
 
@@ -113,8 +127,60 @@ export default () => {
   });
   registerRequiredSecret({
     key: "DAILY_API_KEY",
-    label: "Daily.co API Key (Cal Video)",
+    label: "Daily.co API Key (built-in video)",
     scope: "workspace",
     kind: "api-key",
   });
 };
+
+/**
+ * Resolve a Zoom access token for a given credentialId, refreshing against
+ * the Zoom token endpoint if it's expired or near-expiry.
+ */
+async function getZoomAccessToken(credentialId: string): Promise<string> {
+  const record: any = await (getOAuthTokens as any)("zoom_video", credentialId);
+  if (!record?.accessToken) {
+    throw new Error("Zoom credential missing access token");
+  }
+  const expiresAt: number | undefined = record.expiresAt;
+  const stillFresh =
+    typeof expiresAt === "number" && expiresAt > Date.now() + 60_000;
+  if (stillFresh) return record.accessToken;
+
+  if (!record.refreshToken) return record.accessToken;
+
+  const clientId = process.env.ZOOM_CLIENT_ID!;
+  const clientSecret = process.env.ZOOM_CLIENT_SECRET!;
+  const basic = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
+  const body = new URLSearchParams({
+    grant_type: "refresh_token",
+    refresh_token: record.refreshToken,
+  });
+  const res = await fetch("https://zoom.us/oauth/token", {
+    method: "POST",
+    headers: {
+      authorization: `Basic ${basic}`,
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body,
+  });
+  if (!res.ok) {
+    // If refresh fails, mark credential invalid and fall back to last token.
+    await getDb()
+      .update(schema.schedulingCredentials)
+      .set({ invalid: true, updatedAt: new Date().toISOString() })
+      .where(eq(schema.schedulingCredentials.id, credentialId));
+    return record.accessToken;
+  }
+  const next = (await res.json()) as {
+    access_token: string;
+    refresh_token?: string;
+    expires_in?: number;
+  };
+  await saveOAuthTokens("zoom_video", credentialId, {
+    accessToken: next.access_token,
+    refreshToken: next.refresh_token ?? record.refreshToken,
+    expiresAt: Date.now() + (next.expires_in ?? 3600) * 1000,
+  });
+  return next.access_token;
+}

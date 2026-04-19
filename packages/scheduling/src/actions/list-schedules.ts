@@ -1,12 +1,16 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import { listSchedules } from "../server/schedules-repo.js";
-import { currentUserEmail } from "./_helpers.js";
+import { currentUserEmailOrNull } from "./_helpers.js";
 
 export default defineAction({
-  description: "List the current user's availability schedules",
+  description:
+    "List availability schedules visible to the current user — owned, shared, or matching org visibility",
   schema: z.object({}),
-  run: async () => ({
-    schedules: await listSchedules(currentUserEmail()),
-  }),
+  run: async () => {
+    if (!currentUserEmailOrNull()) return { schedules: [] };
+    return {
+      schedules: await listSchedules({ useAccessFilter: true }),
+    };
+  },
 });

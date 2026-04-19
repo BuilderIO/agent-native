@@ -25,6 +25,10 @@ import weightsHistory from "../../actions/weights-history.js";
 export default createAgentChatPlugin({
   appId: "macros",
   model: "claude-haiku-4-5-20251001",
+  // Voice-first app: keep the prompt tight. Skip the framework preamble,
+  // resource loading, SQL schema dump, and workspace inventory — the
+  // template prompt below has everything this agent needs.
+  leanPrompt: true,
   actions: {
     "delete-exercise": deleteExercise,
     "delete-item": deleteItem,
@@ -89,6 +93,12 @@ When processing voice commands or quick text, be FAST and MINIMAL:
 - If parsing is ambiguous, make your best guess and log it
 - Handle multiple items in one command (e.g., "lunch 500 calories and a run 300 calories burned")
 - For weight entries, require explicit weight-related keywords
+
+## Minimize Tool Calls
+
+- Never call \`view-screen\` — the current screen is already injected as \`<current-screen>\`.
+- For a log/edit/delete command, go straight to the one action that does it. Do not call \`list-*\` as a pre-flight read unless the user is asking you to find something.
+- For input that is NOT a meal/exercise/weight command (e.g. "test", "hi", random words), do NOT call any tools. Reply with one short line asking what to log.
 
 ## Response Format
 

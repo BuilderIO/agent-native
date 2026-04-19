@@ -20,7 +20,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 export default function BookerPage() {
   const { eventType, ownerEmail } = useLoaderData<typeof loader>();
   return (
-    <div className="min-h-screen bg-background py-6">
+    <div className="min-h-screen bg-background py-8">
       <Booker eventType={eventType} ownerEmail={ownerEmail} mode="page" />
     </div>
   );

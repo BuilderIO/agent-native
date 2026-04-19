@@ -26,7 +26,7 @@ description: How event types work — fields, scheduling types, tabs in the edit
 
 ## Location kinds
 
-`cal-video`, `zoom`, `google-meet`, `teams`, `phone`, `in-person`,
+`builtin-video`, `zoom`, `google-meet`, `teams`, `phone`, `in-person`,
 `custom-link`, `attendee-phone`, `organizer-phone`, `attendee-choice`.
 
 ## Custom fields

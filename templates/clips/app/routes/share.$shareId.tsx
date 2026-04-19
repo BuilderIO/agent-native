@@ -268,7 +268,6 @@ export default function ShareRoute() {
                     currentMs={currentMs}
                     enableComments={recording.enableComments}
                     onSeek={(ms) => playerRef.current?.seek(ms)}
-                    onRefetch={() => dataQ.refetch()}
                   />
                 </div>
               </TabsContent>
