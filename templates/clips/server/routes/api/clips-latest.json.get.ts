@@ -11,17 +11,32 @@ import { defineEventHandler, setResponseHeaders, createError } from "h3";
  * patch bundles for the already-installed app. End users arriving at
  * /download want the raw installers (.dmg / .msi / .exe / .AppImage).
  *
- * This route therefore hits GitHub's REST API, finds the most recent
- * release whose tag starts with `clips-v`, and returns its asset list
- * plus metadata. GitHub's API does CORS correctly, but we still proxy
- * server-side so:
- *   - rate limits hit one IP (the server), not every visitor.
- *   - the download page stays portable — it only touches same-origin.
- *   - we can add caching (`cache-control: max-age=60`).
+ * This route therefore hits GitHub's REST API, paginates through
+ * releases until it finds the most recent published `clips-v*` release,
+ * and returns its asset list plus metadata.
+ *
+ * ## Rate-limit hardening
+ *
+ * GitHub's unauthenticated REST API caps at 60 requests/hour/IP, so a
+ * modest burst of downloads would 429. We guard against that with:
+ *
+ *   - A 5-minute process-wide memoization (`cached`) — every request
+ *     for 5 min shares one upstream fetch.
+ *   - A stale-while-error fallback — if GitHub ever errors out AND we
+ *     have a previously-successful payload (even expired), we return
+ *     it. Avoids a download outage during a transient GitHub hiccup or
+ *     a rate-limit burst.
+ *   - HTTP `cache-control: max-age=60` on the response so downstream
+ *     CDNs + the browser cache this aggressively.
  */
 
-const RELEASES_URL =
-  "https://api.github.com/repos/BuilderIO/agent-native/releases?per_page=50";
+const RELEASES_URL_BASE =
+  "https://api.github.com/repos/BuilderIO/agent-native/releases";
+const PER_PAGE = 100;
+// Up to 10 pages = 1000 releases. If clips-v* hasn't shown up by then,
+// something else is wrong and the 404 is correct.
+const MAX_PAGES = 10;
+const CACHE_TTL_MS = 5 * 60_000;
 
 interface GhAsset {
   name: string;
@@ -95,45 +110,58 @@ function classifyAsset(
   return "unknown";
 }
 
-export default defineEventHandler(async (event) => {
-  let res: Response;
-  try {
-    res = await fetch(RELEASES_URL, {
-      headers: {
-        accept: "application/vnd.github+json",
-        "user-agent": "clips-download-page",
-      },
-      signal: AbortSignal.timeout(10_000),
-    });
-  } catch (err) {
-    const reason =
-      err instanceof Error && err.name === "TimeoutError"
-        ? "Upstream releases fetch timed out"
-        : "Upstream releases fetch failed";
-    throw createError({ statusCode: 502, statusMessage: reason });
-  }
+let cache: { data: DownloadManifest; ts: number } | null = null;
+let inFlight: Promise<DownloadManifest> | null = null;
+
+async function fetchPage(page: number): Promise<GhRelease[]> {
+  const url = `${RELEASES_URL_BASE}?per_page=${PER_PAGE}&page=${page}`;
+  const res = await fetch(url, {
+    headers: {
+      accept: "application/vnd.github+json",
+      "user-agent": "clips-download-page",
+    },
+    signal: AbortSignal.timeout(10_000),
+  });
   if (!res.ok) {
-    throw createError({
-      statusCode: 502,
-      statusMessage: `Upstream releases fetch failed (${res.status})`,
-    });
+    throw new Error(`Upstream releases fetch failed (${res.status})`);
   }
-  const releases = (await res.json()) as GhRelease[];
-  const latest = releases
-    .filter(
-      (r) => !r.draft && !r.prerelease && r.tag_name.startsWith("clips-v"),
-    )
-    .sort(
-      (a, b) =>
-        new Date(b.published_at).getTime() - new Date(a.published_at).getTime(),
-    )[0];
+  return (await res.json()) as GhRelease[];
+}
+
+async function findLatestClipsRelease(): Promise<GhRelease | null> {
+  let best: GhRelease | null = null;
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const batch = await fetchPage(page);
+    if (batch.length === 0) break;
+    for (const r of batch) {
+      if (r.draft || r.prerelease) continue;
+      if (!r.tag_name.startsWith("clips-v")) continue;
+      if (
+        !best ||
+        new Date(r.published_at).getTime() >
+          new Date(best.published_at).getTime()
+      ) {
+        best = r;
+      }
+    }
+    // Releases are returned newest-first by GitHub. Once we've seen a
+    // clips-v* match on any page, subsequent pages can only hold older
+    // matches — safe to stop.
+    if (best) break;
+    if (batch.length < PER_PAGE) break;
+  }
+  return best;
+}
+
+async function buildManifest(): Promise<DownloadManifest> {
+  const latest = await findLatestClipsRelease();
   if (!latest) {
     throw createError({
       statusCode: 404,
       statusMessage: "No published clips-v* release found",
     });
   }
-  const manifest: DownloadManifest = {
+  return {
     version: latest.tag_name.replace(/^clips-v/, ""),
     tag: latest.tag_name,
     pub_date: latest.published_at,
@@ -145,6 +173,39 @@ export default defineEventHandler(async (event) => {
       kind: classifyAsset(a.name),
     })),
   };
+}
+
+async function getManifest(): Promise<DownloadManifest> {
+  const now = Date.now();
+  if (cache && now - cache.ts < CACHE_TTL_MS) return cache.data;
+  if (inFlight) return inFlight;
+  inFlight = (async () => {
+    try {
+      const data = await buildManifest();
+      cache = { data, ts: Date.now() };
+      return data;
+    } catch (err) {
+      // Stale-while-error: if we have an older payload, serve it. Only
+      // bubble the error if the cache is empty.
+      if (cache) return cache.data;
+      throw err;
+    } finally {
+      inFlight = null;
+    }
+  })();
+  return inFlight;
+}
+
+export default defineEventHandler(async (event) => {
+  let manifest: DownloadManifest;
+  try {
+    manifest = await getManifest();
+  } catch (err) {
+    const e = err as { statusCode?: number; statusMessage?: string };
+    const status = typeof e.statusCode === "number" ? e.statusCode : 502;
+    const msg = e.statusMessage ?? "Upstream releases fetch failed";
+    throw createError({ statusCode: status, statusMessage: msg });
+  }
   setResponseHeaders(event, {
     "content-type": "application/json; charset=utf-8",
     "cache-control": "public, max-age=60",

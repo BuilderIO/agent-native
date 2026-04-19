@@ -108,7 +108,11 @@ export default function DownloadPage() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(LATEST_JSON_URL, { cache: "no-cache" })
+    // Use default browser caching — the server sets `cache-control:
+    // max-age=60`, and there's a process-wide 5-minute cache behind
+    // it. Forcing `no-cache` would bypass both and amplify load on
+    // the GitHub REST upstream (60 req/hr/IP rate limit).
+    fetch(LATEST_JSON_URL)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`${r.status}`))))
       .then((json) => {
         if (!cancelled) setManifest(json as Manifest);
