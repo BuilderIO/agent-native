@@ -25,6 +25,12 @@ import {
   loadMcpConfig,
   autoDetectMcpConfig,
   mcpToolsToActionEntries,
+  syncMcpActionEntries,
+  mountMcpServersRoutes,
+  mountMcpHubRoutes,
+  buildMergedConfig,
+  getHubStatus,
+  isHubServeEnabled,
 } from "../mcp-client/index.js";
 import { discoverAgents } from "./agent-discovery.js";
 import { loadSchemaPromptBlock } from "./schema-prompt.js";
@@ -1721,25 +1727,32 @@ export function createAgentChatPlugin(
     // function means "the user currently has dev mode ON" (live).
     const isDevMode = () => currentDevMode;
 
-    // Initialize MCP client (connects to user-configured local MCP servers).
-    // Graceful-degrade: any failure yields zero MCP tools and agent-chat keeps
-    // working as before. No-op outside Node runtimes.
-    let mcpConfig = loadMcpConfig();
+    // Initialize MCP client. Merges file/env config + auto-detected binaries
+    // + any remote servers users have added through the settings UI (persisted
+    // in the settings table, scanned across all scopes so we never drop
+    // another user's entries). Graceful-degrade: any failure yields zero MCP
+    // tools and agent-chat keeps working as before.
+    let mcpConfig = await buildMergedConfig().catch((err) => {
+      console.warn(
+        `[mcp-client] buildMergedConfig failed: ${err?.message ?? err}`,
+      );
+      return null;
+    });
     if (!mcpConfig) {
-      mcpConfig = autoDetectMcpConfig();
-      if (mcpConfig) {
-        const detected = Object.keys(mcpConfig.servers).join(", ");
+      const fileOrEnv = loadMcpConfig() ?? autoDetectMcpConfig();
+      mcpConfig = fileOrEnv;
+      if (mcpConfig?.source) {
         console.log(
-          `[mcp-client] auto-detected ${detected}, registering as MCP server — set AGENT_NATIVE_DISABLE_MCP_AUTODETECT=1 to opt out`,
+          `[mcp-client] loaded config from ${mcpConfig.source} (${Object.keys(mcpConfig.servers).length} server(s))`,
         );
       } else {
         console.log(
-          "[mcp-client] no mcp.config.json and no auto-detectable servers — skipping MCP tools",
+          "[mcp-client] no configured MCP servers — skipping MCP tools",
         );
       }
     } else if (mcpConfig.source) {
       console.log(
-        `[mcp-client] loaded config from ${mcpConfig.source} (${Object.keys(mcpConfig.servers).length} server(s))`,
+        `[mcp-client] merged config (${Object.keys(mcpConfig.servers).length} server(s), source: ${mcpConfig.source})`,
       );
     }
     const mcpManager = new McpClientManager(mcpConfig);
@@ -1753,8 +1766,26 @@ export function createAgentChatPlugin(
     setGlobalMcpManager(mcpManager);
     const mcpActionEntries = mcpToolsToActionEntries(mcpManager);
 
-    // Mount status route so tooling/onboarding can inspect MCP state.
+    // Mount status + management routes so the settings UI can list / add /
+    // remove remote MCP servers and hot-reload the running manager.
     mountMcpStatusRoute(nitroApp, mcpManager);
+    mountMcpServersRoutes(nitroApp, mcpManager);
+    // Hub-serve: expose org-scope servers to other agent-native apps in the
+    // workspace when `AGENT_NATIVE_MCP_HUB_TOKEN` is set (dispatch, by
+    // convention). Gated by the env var so mounting is a no-op otherwise.
+    if (isHubServeEnabled()) {
+      mountMcpHubRoutes(nitroApp);
+      console.log(
+        "[mcp-client] hub serve enabled — other apps can pull org servers via /_agent-native/mcp/hub/servers",
+      );
+    }
+    const hubStatus = getHubStatus();
+    if (hubStatus.consuming) {
+      console.log(
+        `[mcp-client] hub consume enabled — pulling from ${hubStatus.hubUrl}`,
+      );
+    }
+    mountMcpHubStatusRoute(nitroApp);
 
     // Ensure we tear down child processes if the host shuts down cleanly.
     if (
@@ -2415,6 +2446,14 @@ export function createAgentChatPlugin(
       ...mcpActionEntries,
     };
 
+    // Keep the prod action dict's MCP entries in sync when the manager's
+    // server set changes at runtime (e.g. a user adds a remote MCP server
+    // through the settings UI). getEngineTools() in production-agent re-reads
+    // the registry per request, so updates here propagate without restart.
+    mcpManager.onChange(() => {
+      syncMcpActionEntries(mcpManager, prodActions);
+    });
+
     // Always build the production handler (includes resource tools + call-agent + team tools)
     // In production mode (!canToggle), enable usage tracking and limits
     const isHostedProd = !canToggle;
@@ -2509,6 +2548,14 @@ export function createAgentChatPlugin(
             ...mcpActionEntries,
             ...(await createDevScriptRegistry()),
           };
+      // Keep dev action dict in sync with runtime MCP additions. When
+      // leanPrompt is true, devActions === prodActions so the prod listener
+      // already covers it.
+      if (devActions !== prodActions) {
+        mcpManager.onChange(() => {
+          syncMcpActionEntries(mcpManager, devActions);
+        });
+      }
       devHandler = createProductionAgentHandler({
         actions: devActions,
         systemPrompt: async (event: any) => {
@@ -3442,6 +3489,28 @@ function setGlobalMcpManager(manager: McpClientManager): void {
 /** Internal: access the current process's MCP client manager, if any. */
 export function getGlobalMcpManager(): McpClientManager | null {
   return _globalMcpManager;
+}
+
+function mountMcpHubStatusRoute(nitroApp: any): void {
+  if ((globalThis as any).__agentNativeMcpHubStatusMounted) return;
+  (globalThis as any).__agentNativeMcpHubStatusMounted = true;
+  try {
+    getH3App(nitroApp).use(
+      "/_agent-native/mcp/hub/status",
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "GET") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        setResponseHeader(event, "Content-Type", "application/json");
+        return getHubStatus();
+      }),
+    );
+  } catch (err: any) {
+    console.warn(
+      `[mcp-client] Failed to mount /_agent-native/mcp/hub/status: ${err?.message ?? err}`,
+    );
+  }
 }
 
 function mountMcpStatusRoute(nitroApp: any, manager: McpClientManager): void {

@@ -31,6 +31,7 @@ import {
 import type { ActiveRun } from "./run-manager.js";
 import { readBody } from "../server/h3-helpers.js";
 import { getRequestUserEmail } from "../server/request-context.js";
+import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
 
 // Register built-in engines on first import
 registerBuiltinEngines();
@@ -449,8 +450,21 @@ export function createProductionAgentHandler(
   // Resolve actions — prefer `actions`, fall back to deprecated `scripts`
   const resolvedActions = options.actions ?? options.scripts ?? {};
 
-  // Build engine tools from action registry
-  const engineTools = actionsToEngineTools(resolvedActions);
+  // Engine tools are derived from the action registry at request time so that
+  // registries which mutate after handler creation (e.g. MCP servers added via
+  // the settings UI) show up to the LLM without a process restart. MCP tools
+  // are also scope-filtered per request — a user-scope server added by Alice
+  // must not appear in Bob's tool list in a shared-process deployment.
+  const getEngineTools = () => {
+    const filtered: Record<string, ActionEntry> = {};
+    for (const [name, entry] of Object.entries(resolvedActions)) {
+      if (name.startsWith("mcp__") && !isMcpToolAllowedForRequest(name)) {
+        continue;
+      }
+      filtered[name] = entry;
+    }
+    return actionsToEngineTools(filtered);
+  };
 
   return defineEventHandler(async (event) => {
     if (getMethod(event) !== "POST") {
@@ -830,7 +844,7 @@ export function createProductionAgentHandler(
                   engine,
                   model: profile.model ?? model,
                   systemPrompt: profilePrompt,
-                  tools: engineTools,
+                  tools: getEngineTools(),
                   messages: [
                     {
                       role: "user",
@@ -1035,7 +1049,7 @@ export function createProductionAgentHandler(
           engine,
           model,
           systemPrompt,
-          tools: engineTools,
+          tools: getEngineTools(),
           messages,
           actions: resolvedActions,
           send,
