@@ -379,6 +379,33 @@ type HistoryEntry = {
 
 const historyCache = new Map<string, HistoryEntry>();
 
+// Per-key in-flight dedupe. Concurrent requests for the same
+// (email, label, maxResults) tuple share one computation — avoids two
+// callers both racing to apply a delta and stomping each other's cache
+// writes (or one failing and deleting the cache another just rebuilt).
+const historyInflight = new Map<string, Promise<any[]>>();
+
+// TTL + soft-cap eviction so long-lived servers don't hold full Gmail
+// message payloads forever. 1h TTL plus a 200-entry cap covers typical
+// multi-account setups; entries refresh on each successful fetch so
+// active inboxes stay warm while abandoned ones fall out.
+const HISTORY_CACHE_TTL_MS = 60 * 60 * 1000;
+const HISTORY_CACHE_MAX = 200;
+
+function evictStaleHistoryCache(): void {
+  const now = Date.now();
+  for (const [key, entry] of historyCache) {
+    if (now - entry.updatedAt > HISTORY_CACHE_TTL_MS) historyCache.delete(key);
+  }
+  if (historyCache.size <= HISTORY_CACHE_MAX) return;
+  // Size-based LRU: drop the oldest-by-updatedAt until we're at cap.
+  const entries = Array.from(historyCache.entries()).sort(
+    (a, b) => a[1].updatedAt - b[1].updatedAt,
+  );
+  const toDrop = entries.length - HISTORY_CACHE_MAX;
+  for (let i = 0; i < toDrop; i++) historyCache.delete(entries[i][0]);
+}
+
 function historyCacheKey(
   email: string,
   labelId: string,
@@ -489,10 +516,28 @@ async function applyHistoryDelta(
     return { messages: entry.messages, historyId: newHistoryId };
   }
 
-  const addedIds: string[] = [];
+  // Fold history records in chronological order so the FINAL label state
+  // for each message reflects the last event wins. Collapsing into
+  // unordered sets would drop the restore half of an archive-then-undo
+  // sequence within a single delta (and vice versa).
   const deleted = new Set<string>();
-  const labelsAddedById = new Map<string, Set<string>>();
-  const labelsRemovedById = new Map<string, Set<string>>();
+  const addedIds: string[] = [];
+  // Per-message flag: does this id currently carry `labelId`? undefined
+  // means no label event touched it in this delta (so preserve whatever
+  // the cache already has).
+  const finalLabelOnWatched = new Map<string, boolean>();
+  const netLabelDelta = new Map<
+    string,
+    { add: Set<string>; remove: Set<string> }
+  >();
+  const touchLabels = (id: string) => {
+    let d = netLabelDelta.get(id);
+    if (!d) {
+      d = { add: new Set(), remove: new Set() };
+      netLabelDelta.set(id, d);
+    }
+    return d;
+  };
 
   for (const rec of history.history) {
     for (const added of rec.messagesAdded || []) {
@@ -504,48 +549,65 @@ async function applyHistoryDelta(
     for (const evt of rec.labelsAdded || []) {
       const id = evt.message?.id;
       if (!id) continue;
-      const set = labelsAddedById.get(id) ?? new Set<string>();
-      for (const l of evt.labelIds || []) set.add(l);
-      labelsAddedById.set(id, set);
+      const d = touchLabels(id);
+      for (const l of evt.labelIds || []) {
+        d.add.add(l);
+        d.remove.delete(l);
+        if (l === labelId) finalLabelOnWatched.set(id, true);
+      }
     }
     for (const evt of rec.labelsRemoved || []) {
       const id = evt.message?.id;
       if (!id) continue;
-      const set = labelsRemovedById.get(id) ?? new Set<string>();
-      for (const l of evt.labelIds || []) set.add(l);
-      labelsRemovedById.set(id, set);
+      const d = touchLabels(id);
+      for (const l of evt.labelIds || []) {
+        d.remove.add(l);
+        d.add.delete(l);
+        if (l === labelId) finalLabelOnWatched.set(id, false);
+      }
     }
   }
 
-  // Keep existing messages that weren't deleted and didn't lose the label.
+  // Keep existing messages unless deleted or their final watched-label
+  // state is explicitly `false` this delta.
   const kept: any[] = [];
   const existingById = new Map<string, any>();
   for (const m of entry.messages) {
     existingById.set(m.id, m);
     if (deleted.has(m.id)) continue;
-    if (labelsRemovedById.get(m.id)?.has(labelId)) continue;
+    if (finalLabelOnWatched.get(m.id) === false) continue;
 
-    // Apply label mutations in place (set-union / set-minus).
-    const added = labelsAddedById.get(m.id);
-    const removed = labelsRemovedById.get(m.id);
-    if (added || removed) {
+    const d = netLabelDelta.get(m.id);
+    if (d) {
       const labels = new Set<string>(m.labelIds || []);
-      if (added) for (const l of added) labels.add(l);
-      if (removed) for (const l of removed) labels.delete(l);
+      for (const l of d.add) labels.add(l);
+      for (const l of d.remove) labels.delete(l);
       m.labelIds = Array.from(labels);
     }
     kept.push(m);
   }
 
-  // Fetch bodies only for newly-added messages we don't already have.
-  // Skip any id that was also deleted or removed-from-label in the same
-  // delta (Gmail can stream contradictory events when labels churn fast).
-  const toFetch = Array.from(new Set(addedIds)).filter((id) => {
-    if (existingById.has(id)) return false;
-    if (deleted.has(id)) return false;
-    if (labelsRemovedById.get(id)?.has(labelId)) return false;
-    return true;
-  });
+  // Ids that need a full body fetch:
+  //   1. New messages (`messagesAdded`) not already cached.
+  //   2. Messages whose FINAL watched-label state is `true` but that we
+  //      don't have cached yet — e.g. a previously-archived message that
+  //      gets unarchived and re-enters the inbox via `labelAdded(INBOX)`,
+  //      or a message added then labeled within the same delta.
+  // Always skip anything deleted in this delta.
+  const fetchSet = new Set<string>();
+  for (const id of addedIds) {
+    if (deleted.has(id)) continue;
+    if (existingById.has(id)) continue;
+    if (finalLabelOnWatched.get(id) === false) continue;
+    fetchSet.add(id);
+  }
+  for (const [id, onLabel] of finalLabelOnWatched) {
+    if (!onLabel) continue;
+    if (deleted.has(id)) continue;
+    if (existingById.has(id)) continue;
+    fetchSet.add(id);
+  }
+  const toFetch = Array.from(fetchSet);
 
   const fetched: any[] = [];
   const batchSize = 5;
@@ -570,6 +632,15 @@ async function applyHistoryDelta(
     return bd - ad;
   });
 
+  // If removals shrank the cached window below `maxResults`, there are
+  // older messages in the account we'd need to pull forward — the delta
+  // alone can't fill the gap. Return null so the caller falls back to a
+  // full rehydrate, which is the correct (if more expensive) answer
+  // rather than quietly serving a short inbox.
+  if (entry.messages.length >= maxResults && merged.length < maxResults) {
+    return null;
+  }
+
   return { messages: merged.slice(0, maxResults), historyId: newHistoryId };
 }
 
@@ -581,37 +652,55 @@ async function fetchAccountWithHistory(
   maxResults: number,
 ): Promise<any[]> {
   const cacheKey = historyCacheKey(email, labelId, maxResults);
-  const cached = historyCache.get(cacheKey);
 
-  if (cached) {
-    const delta = await applyHistoryDelta(
+  // Dedupe concurrent callers on the same key so the cache isn't raced.
+  const pending = historyInflight.get(cacheKey);
+  if (pending) return pending;
+
+  const promise = (async () => {
+    evictStaleHistoryCache();
+    const cached = historyCache.get(cacheKey);
+
+    if (cached) {
+      const delta = await applyHistoryDelta(
+        accessToken,
+        email,
+        labelId,
+        cached,
+        maxResults,
+      );
+      if (delta) {
+        historyCache.set(cacheKey, {
+          historyId: delta.historyId,
+          messages: delta.messages,
+          updatedAt: Date.now(),
+        });
+        return delta.messages;
+      }
+      // Delta unusable — drop cache and fall through to full hydrate.
+      historyCache.delete(cacheKey);
+    }
+
+    const init = await hydrateAccountInbox(
       accessToken,
       email,
-      labelId,
-      cached,
+      query,
       maxResults,
     );
-    if (delta) {
+    if (init.historyId) {
       historyCache.set(cacheKey, {
-        historyId: delta.historyId,
-        messages: delta.messages,
+        historyId: init.historyId,
+        messages: init.messages,
         updatedAt: Date.now(),
       });
-      return delta.messages;
     }
-    // Delta unusable — drop cache and fall through to full hydrate.
-    historyCache.delete(cacheKey);
-  }
+    return init.messages;
+  })().finally(() => {
+    historyInflight.delete(cacheKey);
+  });
 
-  const init = await hydrateAccountInbox(accessToken, email, query, maxResults);
-  if (init.historyId) {
-    historyCache.set(cacheKey, {
-      historyId: init.historyId,
-      messages: init.messages,
-      updatedAt: Date.now(),
-    });
-  }
-  return init.messages;
+  historyInflight.set(cacheKey, promise);
+  return promise;
 }
 
 async function fetchAccountLegacy(
