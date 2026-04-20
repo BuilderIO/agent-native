@@ -80,6 +80,13 @@ const markdownStyles = `
 .agent-markdown code { font-size: 0.875em; padding: 0.15em 0.35em; border-radius: 0.25em; background: hsl(var(--muted, 0 0% 15%)); color: hsl(var(--foreground, 0 0% 90%)); }
 .agent-markdown pre { margin: 0.5em 0; padding: 0.75em 1em; border-radius: 0.375em; background: hsl(var(--muted, 0 0% 15%)); color: hsl(var(--foreground, 0 0% 90%)); overflow-x: auto; }
 .agent-markdown pre code { padding: 0; background: transparent; font-size: 0.8125em; color: inherit; }
+.agent-markdown-shiki { margin: 0.5em 0; border-radius: 0.375em; overflow: hidden; font-size: 0.8125em; }
+.agent-markdown-shiki pre { margin: 0; padding: 0.75em 1em; overflow-x: auto; background: var(--shiki-light-bg); color: var(--shiki-light); }
+.agent-markdown-shiki pre code { background: transparent; padding: 0; font-size: inherit; color: inherit; }
+.agent-markdown-shiki pre span { color: var(--shiki-light); background: var(--shiki-light-bg); }
+.dark .agent-markdown-shiki pre { background: var(--shiki-dark-bg); color: var(--shiki-dark); }
+.dark .agent-markdown-shiki pre span { color: var(--shiki-dark); background: var(--shiki-dark-bg); }
+@media (prefers-color-scheme: dark) { :root:not(.light) .agent-markdown-shiki pre { background: var(--shiki-dark-bg); color: var(--shiki-dark); } :root:not(.light) .agent-markdown-shiki pre span { color: var(--shiki-dark); background: var(--shiki-dark-bg); } }
 .agent-markdown hr { border: none; border-top: 1px solid hsl(var(--border, 0 0% 20%)); margin: 0.75em 0; }
 .agent-markdown a { text-decoration: underline; text-underline-offset: 2px; }
 .agent-markdown blockquote { border-left: 2px solid hsl(var(--border, 0 0% 20%)); padding-left: 0.75em; margin: 0.5em 0; opacity: 0.8; }
@@ -107,6 +114,62 @@ function extractCodeText(child: React.ReactNode): string {
   return "";
 }
 
+// Lazy-loaded shiki highlighter — themes work for both light and dark mode
+// via shiki's dual-theme support which emits CSS vars for each theme.
+let shikiLoader: Promise<typeof import("shiki")> | null = null;
+function loadShiki() {
+  if (!shikiLoader) shikiLoader = import("shiki");
+  return shikiLoader;
+}
+
+function HighlightedCodeBlock({
+  code,
+  lang,
+}: {
+  code: string;
+  lang: string;
+}) {
+  const [html, setHtml] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    loadShiki()
+      .then(({ codeToHtml }) =>
+        codeToHtml(code, {
+          lang: lang || "text",
+          themes: {
+            light: "github-light-default",
+            dark: "github-dark-default",
+          },
+          defaultColor: false,
+        }),
+      )
+      .then((out) => {
+        if (!cancelled) setHtml(out);
+      })
+      .catch(() => {
+        // Unknown language or other shiki failure — fall back to plain pre.
+        if (!cancelled) setHtml(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [code, lang]);
+
+  if (html) {
+    return (
+      <div
+        className="agent-markdown-shiki"
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+    );
+  }
+  return (
+    <pre>
+      <code className={lang ? `language-${lang}` : undefined}>{code}</code>
+    </pre>
+  );
+}
+
 const markdownComponents = {
   pre(props: React.HTMLAttributes<HTMLPreElement>) {
     const { children, ...rest } = props;
@@ -122,6 +185,11 @@ const markdownComponents = {
         return (
           <IframeEmbed {...(parsed as Parameters<typeof IframeEmbed>[0])} />
         );
+      }
+      const langMatch = className.match(/\blanguage-([\w+-]+)\b/);
+      if (langMatch) {
+        const code = extractCodeText(childProps.children).replace(/\n$/, "");
+        return <HighlightedCodeBlock code={code} lang={langMatch[1]} />;
       }
     }
     return <pre {...rest}>{children}</pre>;

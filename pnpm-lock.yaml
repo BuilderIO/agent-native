@@ -212,6 +212,9 @@ importers:
       remark-gfm:
         specifier: ^4.0.1
         version: 4.0.1
+      shiki:
+        specifier: ^4.0.2
+        version: 4.0.2
       tailwind-merge:
         specifier: ^2.6.0
         version: 2.6.1

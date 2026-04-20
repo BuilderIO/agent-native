@@ -109,6 +109,7 @@
     "react-markdown": "^10.1.0",
     "react-router": "^7.13.1",
     "remark-gfm": "^4.0.1",
+    "shiki": "^4.0.2",
     "tailwind-merge": "^2.6.0",
     "tiptap-markdown": "^0.9.0",
     "y-protocols": "^1.0.7",
