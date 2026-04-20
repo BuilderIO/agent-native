@@ -44,19 +44,22 @@ At the start of every conversation, the agent automatically reads:
 
 A shared resource seeded by default. It contains custom instructions, preferences, and skill references. Edit this to change how the agent behaves for all users — tone, rules, domain context, and which skills to use.
 
-```text
+```markdown
 # Agent Instructions
 
 ## Tone
+
 Be concise. Lead with the answer.
 
 ## Code style
+
 - Use TypeScript, never JavaScript
 - Prefer named exports
 
 ## Skills
-| Skill | Path | Description |
-|-------|------|-------------|
+
+| Skill         | Path                      | Description                 |
+| ------------- | ------------------------- | --------------------------- |
 | data-analysis | `skills/data-analysis.md` | BigQuery and data workflows |
 ```
 
@@ -134,7 +137,7 @@ Use custom agents for delegation within one app. Use connected agents when you n
 
 Skills are Markdown files with optional YAML frontmatter for metadata:
 
-````text
+````markdown
 ---
 name: data-analysis
 description: BigQuery queries, data transforms, and visualization
@@ -143,19 +146,21 @@ description: BigQuery queries, data transforms, and visualization
 # Data Analysis
 
 ## When to use
+
 Use this skill when the user asks about data, queries, or analytics.
 
 ## Rules
+
 - Always validate SQL before executing
 - Prefer CTEs over subqueries
 - Include LIMIT on exploratory queries
 
 ## Patterns
+
 ```sql
 -- Standard BigQuery date filter
 WHERE DATE(created_at) BETWEEN @start_date AND @end_date
-````
-
+```
 ````
 
 ## @ Tagging {#at-tagging}
@@ -188,13 +193,13 @@ If no skills are configured, the dropdown shows a hint with a link to these docs
 
 The resource system works identically in both modes. The difference is what additional sources are available for `@` tagging and `/` commands:
 
-| Feature | Dev Mode | Production |
-|---------|----------|------------|
-| @ tagging | Codebase files + workspace resources + custom agents + connected agents | Workspace resources + custom agents + connected agents |
-| / slash commands | .agents/skills/ + resource skills | Resource skills only |
-| Agent file access | Filesystem + resources | Resources only |
-| Workspace panel | Full access | Full access |
-| AGENTS.md / learnings.md | Available | Available |
+| Feature                  | Dev Mode                                                                | Production                                             |
+| ------------------------ | ----------------------------------------------------------------------- | ------------------------------------------------------ |
+| @ tagging                | Codebase files + workspace resources + custom agents + connected agents | Workspace resources + custom agents + connected agents |
+| / slash commands         | .agents/skills/ + resource skills                                       | Resource skills only                                   |
+| Agent file access        | Filesystem + resources                                                  | Resources only                                         |
+| Workspace panel          | Full access                                                             | Full access                                            |
+| AGENTS.md / learnings.md | Available                                                               | Available                                              |
 
 ## Resource API {#resource-api}
 
@@ -204,15 +209,15 @@ Resources can be managed from server code, actions, or the REST API.
 
 REST endpoints mounted automatically:
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/_agent-native/resources?scope=all` | List resources |
-| `GET` | `/_agent-native/resources/tree?scope=all` | Get folder tree |
-| `POST` | `/_agent-native/resources` | Create a resource |
-| `GET` | `/_agent-native/resources/:id` | Get resource with content |
-| `PUT` | `/_agent-native/resources/:id` | Update a resource |
-| `DELETE` | `/_agent-native/resources/:id` | Delete a resource |
-| `POST` | `/_agent-native/resources/upload` | Upload a file as resource |
+| Method   | Endpoint                                  | Description               |
+| -------- | ----------------------------------------- | ------------------------- |
+| `GET`    | `/_agent-native/resources?scope=all`      | List resources            |
+| `GET`    | `/_agent-native/resources/tree?scope=all` | Get folder tree           |
+| `POST`   | `/_agent-native/resources`                | Create a resource         |
+| `GET`    | `/_agent-native/resources/:id`            | Get resource with content |
+| `PUT`    | `/_agent-native/resources/:id`            | Update a resource         |
+| `DELETE` | `/_agent-native/resources/:id`            | Delete a resource         |
+| `POST`   | `/_agent-native/resources/upload`         | Upload a file as resource |
 
 ### Action API {#script-api}
 
@@ -230,4 +235,4 @@ pnpm action resource-write --path "notes/meeting.md" --content "# Meeting Notes.
 
 # Delete a resource
 pnpm action resource-delete --path "notes/old.md"
-````
+```
