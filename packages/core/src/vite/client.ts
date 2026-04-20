@@ -597,17 +597,11 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     },
     plugins: [
       // Stub packages from `options.ssrStubs` in the SSR bundle so they
-      // don't bloat the edge worker. The framework also stubs a small set
-      // of its own browser-only deps (e.g. `shiki`, used inside
-      // AssistantChat's useEffect) since they would otherwise inflate the
-      // CF Pages Functions bundle past the 25 MiB limit.
+      // don't bloat the edge worker. Opt-in per template — the framework
+      // hardcodes nothing (e.g. docs sites legitimately import `shiki` on
+      // the server, so we can't blanket-stub it here).
       ...(() => {
-        const FRAMEWORK_BROWSER_ONLY_DEPS = ["shiki"];
-        const allStubs = [
-          ...FRAMEWORK_BROWSER_ONLY_DEPS,
-          ...(options.ssrStubs ?? []),
-        ];
-        const p = ssrStubPlugin(allStubs);
+        const p = ssrStubPlugin(options.ssrStubs ?? []);
         return p ? [p] : [];
       })(),
       actionTypesPlugin(),

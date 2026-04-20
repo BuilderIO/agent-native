@@ -8,6 +8,7 @@ export default defineConfig({
   // MermaidRenderer and Excalidraw-based components mount client-side only
   // (inside useEffect), so SSR never calls into them.
   ssrStubs: [
+    "shiki",
     "mermaid",
     "@excalidraw/excalidraw",
     "@excalidraw/mermaid-to-excalidraw",

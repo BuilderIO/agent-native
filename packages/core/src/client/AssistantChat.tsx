@@ -126,7 +126,7 @@ type ShikiHighlighter = {
       themes: { light: string; dark: string };
       defaultColor?: false | "light" | "dark";
     },
-  ) => string;
+  ) => string | Promise<string>;
   getLoadedLanguages: () => string[];
 };
 
