@@ -47,9 +47,15 @@ function unwrapLayerBaseAroundSelectors(src) {
     }
     out += src.slice(i, layerIdx);
     const openIdx = src.indexOf("{", layerIdx);
-    if (openIdx === -1) { out += src.slice(layerIdx); break; }
+    if (openIdx === -1) {
+      out += src.slice(layerIdx);
+      break;
+    }
     const closeIdx = findMatchingBrace(src, openIdx);
-    if (closeIdx === -1) { out += src.slice(layerIdx); break; }
+    if (closeIdx === -1) {
+      out += src.slice(layerIdx);
+      break;
+    }
     const body = src.slice(openIdx + 1, closeIdx);
     if (/(:root|\.dark|\.light)\s*\{/.test(body)) {
       out += body;
@@ -65,7 +71,10 @@ function findMatchingBrace(src, openIdx) {
   let depth = 0;
   for (let j = openIdx; j < src.length; j++) {
     if (src[j] === "{") depth++;
-    else if (src[j] === "}") { depth--; if (depth === 0) return j; }
+    else if (src[j] === "}") {
+      depth--;
+      if (depth === 0) return j;
+    }
   }
   return -1;
 }
@@ -79,7 +88,10 @@ function migratePackageJson(filePath) {
     const deps = pkg[section];
     if (!deps) continue;
     for (const key of ["autoprefixer", "postcss", "tailwindcss-animate"]) {
-      if (key in deps) { delete deps[key]; changed = true; }
+      if (key in deps) {
+        delete deps[key];
+        changed = true;
+      }
     }
     if ("tailwindcss" in deps && deps.tailwindcss !== "catalog:") {
       deps.tailwindcss = "catalog:";
@@ -99,16 +111,26 @@ function migratePackageJson(filePath) {
 }
 
 function deleteIfExists(p) {
-  if (fs.existsSync(p)) { fs.unlinkSync(p); return true; }
+  if (fs.existsSync(p)) {
+    fs.unlinkSync(p);
+    return true;
+  }
   return false;
 }
 
 const summary = [];
 for (const t of templates) {
   const dir = path.join(TEMPLATES_DIR, t);
-  const result = { template: t, deleted: [], cssRewritten: false, pkgUpdated: false };
-  if (deleteIfExists(path.join(dir, "tailwind.config.ts"))) result.deleted.push("tailwind.config.ts");
-  if (deleteIfExists(path.join(dir, "postcss.config.js"))) result.deleted.push("postcss.config.js");
+  const result = {
+    template: t,
+    deleted: [],
+    cssRewritten: false,
+    pkgUpdated: false,
+  };
+  if (deleteIfExists(path.join(dir, "tailwind.config.ts")))
+    result.deleted.push("tailwind.config.ts");
+  if (deleteIfExists(path.join(dir, "postcss.config.js")))
+    result.deleted.push("postcss.config.js");
   result.cssRewritten = migrateGlobalCss(path.join(dir, "app/global.css"));
   result.pkgUpdated = migratePackageJson(path.join(dir, "package.json"));
   summary.push(result);

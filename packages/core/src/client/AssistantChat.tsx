@@ -118,7 +118,14 @@ function extractCodeText(child: React.ReactNode): string {
 // via shiki's dual-theme support which emits CSS vars for each theme.
 let shikiLoader: Promise<typeof import("shiki")> | null = null;
 function loadShiki() {
-  if (!shikiLoader) shikiLoader = import("shiki");
+  if (!shikiLoader) {
+    shikiLoader = import("shiki").catch((error) => {
+      // Reset on failure so a future code block can retry instead of
+      // silently failing forever on a stale chunk / network blip.
+      shikiLoader = null;
+      throw error;
+    });
+  }
   return shikiLoader;
 }
 

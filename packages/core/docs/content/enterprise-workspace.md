@@ -180,8 +180,12 @@ The framework is on Tailwind v4. The core ships a shared CSS file with the stand
 @import "@my-company-platform/core-module/styles/tokens.css";
 @source "./**/*.{ts,tsx}";
 
-:root { --background: 0 0% 100%; /* ...brand tokens... */ }
-.dark { --background: 220 6% 6%; /* ... */ }
+:root {
+  --background: 0 0% 100%; /* ...brand tokens... */
+}
+.dark {
+  --background: 220 6% 6%; /* ... */
+}
 ```
 
 Brand colors, typography, spacing scales, and any shared component classes live in that one CSS file. Update it in the core and every app rebrands on the next build. Shared React components in `src/client/` pick up the same tokens automatically.
