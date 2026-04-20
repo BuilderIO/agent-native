@@ -1,10 +1,10 @@
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@import "@agent-native/core/styles/agent-native.css";
 
-@layer base {
+@source "./**/*.{ts,tsx}";
+
   :root {
     /* Base - Linear/Vercel Dark Mode Style */
     --background: 240 10% 3.9%; /* #09090b */
@@ -99,13 +99,8 @@
     --sidebar-border: 240 5.9% 90%;
     --sidebar-ring: 217.2 91.2% 59.8%;
   }
-}
 
 @layer base {
-  * {
-    @apply border-border;
-  }
-
   body {
     @apply bg-background text-foreground font-sans antialiased;
     font-feature-settings:

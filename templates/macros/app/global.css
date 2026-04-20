@@ -1,10 +1,10 @@
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700&display=swap");
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@import "@agent-native/core/styles/agent-native.css";
 
-@layer base {
+@source "./**/*.{ts,tsx}";
+
   :root {
     --background: 0 0% 4%;
     --foreground: 0 0% 98%;
@@ -49,13 +49,8 @@
     --input: 0 0% 90%;
     --ring: 0 0% 20%;
   }
-}
 
 @layer base {
-  * {
-    @apply border-border;
-  }
-
   html {
     scroll-behavior: smooth;
   }

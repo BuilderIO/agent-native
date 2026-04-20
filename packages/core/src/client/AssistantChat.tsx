@@ -122,13 +122,7 @@ function loadShiki() {
   return shikiLoader;
 }
 
-function HighlightedCodeBlock({
-  code,
-  lang,
-}: {
-  code: string;
-  lang: string;
-}) {
+function HighlightedCodeBlock({ code, lang }: { code: string; lang: string }) {
   const [html, setHtml] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;

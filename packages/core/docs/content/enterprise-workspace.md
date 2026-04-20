@@ -24,7 +24,7 @@ Anything every app in your org should agree on lives in the workspace core:
 | Agent skills                  | `skills/<skill-name>/SKILL.md`                                               |
 | Shared agent actions          | `actions/*.ts`                                                               |
 | Shared React components       | `src/client/*.tsx` (e.g. `AuthenticatedLayout`)                              |
-| Design tokens / brand         | `tailwind.preset.ts`                                                         |
+| Design tokens / brand         | `styles/tokens.css`                                                          |
 | Shared API credentials        | `src/credentials.ts` → `resolveCompanyCredential()`                          |
 
 Each individual app becomes _just a set of screens_ — routes, dashboards, views, domain-specific actions. Everything else is inherited. If you're building ten tools for the same org, nine of them are 80% the same package, and the workspace core is where that 80% lives.
@@ -56,7 +56,7 @@ my-company-platform/
 │       ├── actions/             # shared agent-callable actions
 │       ├── skills/              # shared agent skills
 │       ├── AGENTS.md            # enterprise-wide instructions
-│       └── tailwind.preset.ts   # brand tokens
+│       └── styles/tokens.css    # brand tokens (Tailwind v4 @theme + CSS vars)
 └── apps/
     ├── mail/
     ├── calendar/
@@ -173,18 +173,18 @@ Under the hood this wraps `@agent-native/core`'s `resolveCredential()`, which ch
 
 ## Shared design tokens {#design-tokens}
 
-The core exports a Tailwind preset. Each app's `tailwind.config.ts` extends it:
+The framework is on Tailwind v4. The core ships a shared CSS file with the standard `@theme` tokens — each app imports it from its `app/global.css`:
 
-```ts
-import preset from "@my-company-platform/core-module/tailwind";
+```css
+@import "tailwindcss";
+@import "@my-company-platform/core-module/styles/tokens.css";
+@source "./**/*.{ts,tsx}";
 
-export default {
-  presets: [preset],
-  content: ["./app/**/*.{ts,tsx}"],
-};
+:root { --background: 0 0% 100%; /* ...brand tokens... */ }
+.dark { --background: 220 6% 6%; /* ... */ }
 ```
 
-Brand colors, typography, spacing scales, and any shared component classes live in one file. Update it in the core and every app rebrands on the next build. Shared React components in `src/client/` pick up the same tokens automatically.
+Brand colors, typography, spacing scales, and any shared component classes live in that one CSS file. Update it in the core and every app rebrands on the next build. Shared React components in `src/client/` pick up the same tokens automatically.
 
 ## Deployment {#deployment}
 

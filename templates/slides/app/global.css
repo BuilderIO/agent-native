@@ -1,9 +1,10 @@
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap");
 @import url("https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap");
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@import "@agent-native/core/styles/agent-native.css";
+
+@source "./**/*.{ts,tsx}";
 
 /* Hide the sidebar's built-in collapsed tab strip — AgentToggleButton in the
    toolbar serves this purpose instead, so we don't want a redundant bar. */
@@ -11,7 +12,6 @@ button[title="Open agent sidebar"] {
   display: none !important;
 }
 
-@layer base {
   :root {
     --background: 240 6% 4%;
     --foreground: 240 6% 93%;
@@ -46,13 +46,8 @@ button[title="Open agent sidebar"] {
     --surface: 240 5% 10%;
     --surface-hover: 240 5% 13%;
   }
-}
 
 @layer base {
-  * {
-    @apply border-border;
-  }
-
   body {
     @apply bg-background text-foreground antialiased;
     font-family:

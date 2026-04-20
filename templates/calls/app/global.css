@@ -1,10 +1,10 @@
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap");
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@import "@agent-native/core/styles/agent-native.css";
 
-@layer base {
+@source "./**/*.{ts,tsx}";
+
   :root {
     --background: 0 0% 100%;
     --foreground: 220 10% 10%;
@@ -66,12 +66,8 @@
     --sidebar-border: 220 4% 10%;
     --sidebar-ring: 0 0% 60%;
   }
-}
 
 @layer base {
-  * {
-    @apply border-border;
-  }
   body {
     @apply bg-background text-foreground;
     font-family: "Inter", sans-serif;

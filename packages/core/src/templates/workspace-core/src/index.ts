@@ -7,7 +7,7 @@
  *   - Shared agent actions — see actions/
  *   - Shared agent skills — see skills/
  *   - Enterprise-wide agent instructions — see AGENTS.md
- *   - Shared Tailwind preset — see tailwind.preset.ts
+ *   - Shared Tailwind v4 design tokens — see styles/tokens.css
  *
  * Apps don't import from this root entry directly — they import from
  * the specific sub-path they need:
