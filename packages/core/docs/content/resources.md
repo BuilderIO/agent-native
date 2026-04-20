@@ -1,11 +1,28 @@
 ---
-title: "Workspace Resources"
-description: "SQL-backed workspace files for notes, skills, custom agents, scheduled tasks, and instructions."
+title: "Workspace"
+description: "Claude-Code-level customization per user — skills, memory, instructions, custom agents, scheduled jobs, MCP servers — backed by SQL, not a filesystem."
 ---
 
-# Workspace Resources
+# Workspace
 
-The **Workspace** tab is where you and the agent share persistent files — notes, instructions, skills, custom agents, and scheduled jobs. Files live in the database (not the filesystem), so they persist across sessions, work in serverless/edge deploys, and can be edited from both the UI and the agent.
+Every agent-native app ships with a **workspace**: the customization layer that makes the agent yours. It contains team instructions (`AGENTS.md`), per-user memory (`learnings.md`), skills the agent pulls in on demand, custom sub-agents, scheduled jobs, and connected MCP servers — everything you'd expect from a Claude Code / Codex setup.
+
+The twist: **it's SQL rows, not filesystem files.** Each user gets their own workspace stored in the database. There's no dev-box to spin up, no container per user, no files to mount. A multi-tenant SaaS can give every user a fully-customizable agent for essentially free, because all of it is rows — personal memory, personal MCP servers, personal skills, personal sub-agents — and the shared codebase hosts all of them at once.
+
+| Claude Code / Codex              | Agent-native workspace                             |
+| -------------------------------- | -------------------------------------------------- |
+| Files on your local disk         | Rows in a shared SQL database                      |
+| One codebase per developer       | One codebase, many users                           |
+| Needs a dev-box or container     | Runs on any serverless/edge host                   |
+| Customization at `~/.claude/`    | Customization per-user, scoped `u:<email>:…`       |
+| Per-project `CLAUDE.md` / skills | Per-app `AGENTS.md` + per-user `learnings.md`      |
+| MCP config in a JSON file        | MCP config in JSON _or_ the settings UI, per scope |
+
+Same capabilities. Different economics. See [Cloneable SaaS](/docs/cloneable-saas) for why this matters for SaaS.
+
+## The Workspace tab {#the-tab}
+
+The **Workspace** tab in the agent sidebar is where you and the agent share persistent files — notes, instructions, skills, custom agents, and scheduled jobs. Files live in the database (not the filesystem), so they persist across sessions, work in serverless/edge deploys, and can be edited from both the UI and the agent.
 
 ## TL;DR {#tldr}
 
