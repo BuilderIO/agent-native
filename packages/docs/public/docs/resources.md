@@ -137,7 +137,7 @@ Use custom agents for delegation within one app. Use connected agents when you n
 
 Skills are Markdown files with optional YAML frontmatter for metadata:
 
-````markdown
+```markdown
 ---
 name: data-analysis
 description: BigQuery queries, data transforms, and visualization
@@ -157,11 +157,11 @@ Use this skill when the user asks about data, queries, or analytics.
 
 ## Patterns
 
-```sql
--- Standard BigQuery date filter
-WHERE DATE(created_at) BETWEEN @start_date AND @end_date
+    -- Standard BigQuery date filter
+    WHERE DATE(created_at) BETWEEN @start_date AND @end_date
 ```
-````
+
+> Skill bodies can embed fenced code blocks in any language — shown above as indented code to keep this outer example readable, but you'd normally use a language-tagged fence in your real skill file.
 
 ## @ Tagging {#at-tagging}
 
