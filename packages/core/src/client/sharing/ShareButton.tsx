@@ -421,8 +421,10 @@ function SharePanel(
       <ul className="mb-4 flex flex-col gap-1 list-none p-0 m-0">
         {data?.ownerEmail ? (
           <li className="flex items-center gap-3 px-1 py-1.5 text-sm">
-            <Avatar label={data.ownerEmail} />
-            <span className="flex-1 min-w-0 truncate">{data.ownerEmail}</span>
+            <Avatar label={displayName(data.ownerEmail, orgMembers)} />
+            <span className="flex-1 min-w-0 truncate">
+              {displayName(data.ownerEmail, orgMembers)}
+            </span>
             <span className="text-xs text-muted-foreground">Owner</span>
           </li>
         ) : null}
@@ -434,8 +436,19 @@ function SharePanel(
               inFlight.has(keyOf(s)) && "opacity-60",
             )}
           >
-            <Avatar label={s.principalId} org={s.principalType === "org"} />
-            <span className="flex-1 min-w-0 truncate">{s.principalId}</span>
+            <Avatar
+              label={
+                s.principalType === "org"
+                  ? s.principalId
+                  : displayName(s.principalId, orgMembers)
+              }
+              org={s.principalType === "org"}
+            />
+            <span className="flex-1 min-w-0 truncate">
+              {s.principalType === "org"
+                ? s.principalId
+                : displayName(s.principalId, orgMembers)}
+            </span>
             {canManage ? (
               <RoleSelect
                 value={s.role}
@@ -655,4 +668,10 @@ function cap(s: string): string {
 function initials(s: string): string {
   const name = s.split("@")[0] ?? s;
   return (name[0] ?? "?").toUpperCase();
+}
+
+function displayName(email: string, members: OrgMember[]): string {
+  const match = members.find((m) => m.email === email);
+  if (match?.name && match.name.trim()) return match.name;
+  return email;
 }

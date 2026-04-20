@@ -59,6 +59,43 @@ interface SharesResponse {
   shares: Share[];
 }
 
+interface OrgMember {
+  email: string;
+  name?: string | null;
+}
+
+function useOrgMembers(): OrgMember[] {
+  const [members, setMembers] = useState<OrgMember[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/_agent-native/org/members")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled || !data) return;
+        const list = Array.isArray(data?.members) ? data.members : [];
+        setMembers(
+          list
+            .map((m: any) => ({
+              email: typeof m?.email === "string" ? m.email : "",
+              name: typeof m?.name === "string" ? m.name : null,
+            }))
+            .filter((m: OrgMember) => m.email),
+        );
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return members;
+}
+
+function displayName(email: string, members: OrgMember[]): string {
+  const match = members.find((m) => m.email === email);
+  if (match?.name && match.name.trim()) return match.name;
+  return email;
+}
+
 const BUTTON_BASE =
   "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0";
 const BUTTON_OUTLINE_SM = cn(
@@ -130,6 +167,7 @@ export function ShareDialog(props: ShareDialogProps) {
     resourceType,
     resourceId,
   });
+  const orgMembers = useOrgMembers();
 
   const hasLinkTab = Boolean(shareUrl);
   const hasEmbedTab = Boolean(embedUrl);
@@ -178,7 +216,7 @@ export function ShareDialog(props: ShareDialogProps) {
             </div>
             {sharesQuery.data?.ownerEmail ? (
               <div className="mt-0.5 truncate text-xs text-muted-foreground">
-                Owner: {sharesQuery.data.ownerEmail}
+                Owner: {displayName(sharesQuery.data.ownerEmail, orgMembers)}
               </div>
             ) : null}
           </div>
@@ -239,6 +277,7 @@ export function ShareDialog(props: ShareDialogProps) {
               resourceId={resourceId}
               sharesQuery={sharesQuery}
               showVisibility={!tabsEnabled}
+              orgMembers={orgMembers}
             />
           ) : null}
           {tabsEnabled && tab === "embed" && hasEmbedTab
@@ -355,8 +394,10 @@ function InviteTab(props: {
   resourceId: string;
   sharesQuery: ReturnType<typeof useActionQuery<SharesResponse>>;
   showVisibility: boolean;
+  orgMembers: OrgMember[];
 }) {
-  const { resourceType, resourceId, sharesQuery, showVisibility } = props;
+  const { resourceType, resourceId, sharesQuery, showVisibility, orgMembers } =
+    props;
 
   const share = useActionMutation("share-resource");
   const unshare = useActionMutation("unshare-resource");
@@ -437,8 +478,10 @@ function InviteTab(props: {
         <ul className="flex flex-col gap-1 list-none p-0 m-0">
           {data?.ownerEmail ? (
             <li className="flex items-center gap-3 px-1 py-1.5 text-sm">
-              <Avatar label={data.ownerEmail} />
-              <span className="flex-1 min-w-0 truncate">{data.ownerEmail}</span>
+              <Avatar label={displayName(data.ownerEmail, orgMembers)} />
+              <span className="flex-1 min-w-0 truncate">
+                {displayName(data.ownerEmail, orgMembers)}
+              </span>
               <span className="text-xs text-muted-foreground">Owner</span>
             </li>
           ) : null}
@@ -447,8 +490,19 @@ function InviteTab(props: {
               key={`${s.principalType}:${s.principalId}`}
               className="flex items-center gap-3 px-1 py-1.5 text-sm"
             >
-              <Avatar label={s.principalId} org={s.principalType === "org"} />
-              <span className="flex-1 min-w-0 truncate">{s.principalId}</span>
+              <Avatar
+                label={
+                  s.principalType === "org"
+                    ? s.principalId
+                    : displayName(s.principalId, orgMembers)
+                }
+                org={s.principalType === "org"}
+              />
+              <span className="flex-1 min-w-0 truncate">
+                {s.principalType === "org"
+                  ? s.principalId
+                  : displayName(s.principalId, orgMembers)}
+              </span>
               <span className="text-xs text-muted-foreground">
                 {cap(s.role)}
               </span>

@@ -9,6 +9,8 @@ Agent-native apps can also act as MCP **clients** — connecting to locally inst
 
 With one config file, every agent-native app in your workspace gains access to tools provided by MCP servers on your machine: `claude-in-chrome` for browser automation, `@modelcontextprotocol/server-filesystem` for reading files, `@modelcontextprotocol/server-playwright` for browser testing, and anything else that speaks MCP.
 
+You can also [connect remote (HTTP) MCP servers at runtime](#remote-via-ui) — individual users or whole organizations — without editing a config file.
+
 ## Adding a local MCP server {#adding-a-server}
 
 Create `mcp.config.json` at your workspace root (or at an individual app root — workspace root wins when both exist):
@@ -72,6 +74,31 @@ MCP tools only activate in Node runtimes — Cloudflare Workers and other edge t
 If you have **no** `mcp.config.json` and the `claude-in-chrome-mcp` binary is on `PATH` (or in the well-known install location `~/.claude-in-chrome/bin/claude-in-chrome-mcp`), agent-native auto-registers it as a default MCP server. Set `AGENT_NATIVE_DISABLE_MCP_AUTODETECT=1` to opt out.
 
 This means users who've installed the claude-in-chrome extension get browser control across every agent-native app they open with no config changes.
+
+## Remote MCP servers via the settings UI {#remote-via-ui}
+
+Users don't have to edit `mcp.config.json` to add a remote, HTTP-based MCP server (Zapier, Cloudflare, Composio, an internal tool, etc). Open the settings panel → **MCP Servers** and paste the server's URL. Two scopes are supported:
+
+- **Personal** — only the signed-in user gets the tools. Stored as a user-scope setting.
+- **Team** — everyone in the active organization gets the tools. Owners and admins can add; members see the list read-only. Stored as an org-scope setting.
+
+Adds and removes hot-reload into the running MCP manager — no process restart, and no server restart. The new `mcp__<scope>-<name>__*` tools appear to the agent on the next message.
+
+HTTPS URLs are accepted everywhere; plain `http://` is only allowed for `localhost` during development. Optional auth goes in as a Bearer token that's sent via `Authorization: Bearer …` on every request.
+
+Under the hood these servers are persisted in the framework's `settings` table under the key `u:<email>:mcp-servers-remote` (Personal) or `o:<orgId>:mcp-servers-remote` (Team) and merged with `mcp.config.json` on startup.
+
+### HTTP endpoints
+
+| Method | Route                                                 | Purpose                                                                |
+| ------ | ----------------------------------------------------- | ---------------------------------------------------------------------- |
+| GET    | `/_agent-native/mcp/servers`                          | List the current user's personal + org servers with live status.       |
+| POST   | `/_agent-native/mcp/servers`                          | Add a server. Body: `{ scope, name, url, headers?, description? }`.    |
+| DELETE | `/_agent-native/mcp/servers/:id?scope=user\|org`      | Remove a server and reconfigure the manager.                           |
+| POST   | `/_agent-native/mcp/servers/:id/test?scope=user\|org` | Dry-run the existing server's connect + list-tools.                    |
+| POST   | `/_agent-native/mcp/servers/test`                     | Dry-run an arbitrary URL before persisting. Body: `{ url, headers? }`. |
+
+Stdio servers are still a no-op outside Node runtimes, but remote HTTP MCP servers work in any environment with `fetch` — including desktop production builds.
 
 ## Status route {#status-route}
 

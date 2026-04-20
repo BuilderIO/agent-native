@@ -17,7 +17,12 @@ import path from "node:path";
 import os from "node:os";
 import { findWorkspaceRoot } from "../scripts/utils.js";
 
-export interface McpServerConfig {
+/**
+ * Stdio transport — spawns a local binary and speaks MCP over its stdio.
+ * This is the default when no `type` field is set (backward compat).
+ */
+export interface McpStdioServerConfig {
+  type?: "stdio";
   /** Executable or path to spawn over stdio */
   command: string;
   /** Arguments passed to the command */
@@ -29,6 +34,22 @@ export interface McpServerConfig {
   /** Human-readable description (optional, shown in /mcp/status) */
   description?: string;
 }
+
+/**
+ * HTTP transport — connects to a remote MCP server over Streamable HTTP
+ * (the transport hosted providers like Zapier / Cloudflare / Composio use).
+ */
+export interface McpHttpServerConfig {
+  type: "http";
+  /** Full URL of the remote MCP server's Streamable HTTP endpoint. */
+  url: string;
+  /** Extra headers to send with every request (e.g. Authorization). */
+  headers?: Record<string, string>;
+  /** Human-readable description (optional, shown in /mcp/status) */
+  description?: string;
+}
+
+export type McpServerConfig = McpStdioServerConfig | McpHttpServerConfig;
 
 export interface McpConfig {
   /** Map of server id → config */
@@ -58,20 +79,37 @@ function parseConfig(raw: string, source: string): McpConfig | null {
     for (const [id, cfg] of Object.entries(servers)) {
       if (!cfg || typeof cfg !== "object") continue;
       const c = cfg as any;
-      if (typeof c.command !== "string" || !c.command) continue;
-      valid[id] = {
-        command: c.command,
-        args: Array.isArray(c.args) ? c.args.map(String) : undefined,
-        env:
-          c.env && typeof c.env === "object"
-            ? Object.fromEntries(
-                Object.entries(c.env).map(([k, v]) => [k, String(v)]),
-              )
-            : undefined,
-        cwd: typeof c.cwd === "string" ? c.cwd : undefined,
-        description:
-          typeof c.description === "string" ? c.description : undefined,
-      };
+      const description =
+        typeof c.description === "string" ? c.description : undefined;
+      if (c.type === "http") {
+        if (typeof c.url !== "string" || !c.url) continue;
+        valid[id] = {
+          type: "http",
+          url: c.url,
+          headers:
+            c.headers && typeof c.headers === "object"
+              ? Object.fromEntries(
+                  Object.entries(c.headers).map(([k, v]) => [k, String(v)]),
+                )
+              : undefined,
+          description,
+        };
+      } else {
+        if (typeof c.command !== "string" || !c.command) continue;
+        valid[id] = {
+          type: "stdio",
+          command: c.command,
+          args: Array.isArray(c.args) ? c.args.map(String) : undefined,
+          env:
+            c.env && typeof c.env === "object"
+              ? Object.fromEntries(
+                  Object.entries(c.env).map(([k, v]) => [k, String(v)]),
+                )
+              : undefined,
+          cwd: typeof c.cwd === "string" ? c.cwd : undefined,
+          description,
+        };
+      }
     }
     if (Object.keys(valid).length === 0) return null;
     return { servers: valid, source };
@@ -166,6 +204,7 @@ export function autoDetectMcpConfig(): McpConfig | null {
         return {
           servers: {
             "claude-in-chrome": {
+              type: "stdio",
               command: candidate,
               description:
                 "Auto-detected claude-in-chrome MCP server (Chrome automation)",

@@ -449,8 +449,10 @@ export function createProductionAgentHandler(
   // Resolve actions — prefer `actions`, fall back to deprecated `scripts`
   const resolvedActions = options.actions ?? options.scripts ?? {};
 
-  // Build engine tools from action registry
-  const engineTools = actionsToEngineTools(resolvedActions);
+  // Engine tools are derived from the action registry at request time so that
+  // registries which mutate after handler creation (e.g. MCP servers added via
+  // the settings UI) show up to the LLM without a process restart.
+  const getEngineTools = () => actionsToEngineTools(resolvedActions);
 
   return defineEventHandler(async (event) => {
     if (getMethod(event) !== "POST") {
@@ -830,7 +832,7 @@ export function createProductionAgentHandler(
                   engine,
                   model: profile.model ?? model,
                   systemPrompt: profilePrompt,
-                  tools: engineTools,
+                  tools: getEngineTools(),
                   messages: [
                     {
                       role: "user",
@@ -1035,7 +1037,7 @@ export function createProductionAgentHandler(
           engine,
           model,
           systemPrompt,
-          tools: engineTools,
+          tools: getEngineTools(),
           messages,
           actions: resolvedActions,
           send,
