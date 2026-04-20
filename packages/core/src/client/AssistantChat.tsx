@@ -114,36 +114,93 @@ function extractCodeText(child: React.ReactNode): string {
   return "";
 }
 
-// Lazy-loaded shiki highlighter — themes work for both light and dark mode
-// via shiki's dual-theme support which emits CSS vars for each theme.
-let shikiLoader: Promise<typeof import("shiki")> | null = null;
-function loadShiki() {
-  if (!shikiLoader) {
-    shikiLoader = import("shiki").catch((error) => {
+// Lazy-loaded shiki highlighter using the fine-grained API so we only ship
+// the languages and themes we actually use (instead of shiki's full ~30 MB
+// bundle of every grammar). This is required to keep the Cloudflare Pages
+// Functions bundle under the 25 MiB limit.
+type ShikiHighlighter = {
+  codeToHtml: (
+    code: string,
+    options: {
+      lang: string;
+      themes: { light: string; dark: string };
+      defaultColor?: false | "light" | "dark";
+    },
+  ) => string;
+  getLoadedLanguages: () => string[];
+};
+
+let highlighterLoader: Promise<ShikiHighlighter> | null = null;
+function loadHighlighter(): Promise<ShikiHighlighter> {
+  if (!highlighterLoader) {
+    highlighterLoader = (async () => {
+      const [{ createHighlighterCore }, { createOnigurumaEngine }] =
+        await Promise.all([
+          import("shiki/core"),
+          import("shiki/engine/oniguruma"),
+        ]);
+      return createHighlighterCore({
+        themes: [
+          import("shiki/themes/github-light-default.mjs"),
+          import("shiki/themes/github-dark-default.mjs"),
+        ],
+        langs: [
+          import("shiki/langs/javascript.mjs"),
+          import("shiki/langs/typescript.mjs"),
+          import("shiki/langs/jsx.mjs"),
+          import("shiki/langs/tsx.mjs"),
+          import("shiki/langs/json.mjs"),
+          import("shiki/langs/css.mjs"),
+          import("shiki/langs/html.mjs"),
+          import("shiki/langs/markdown.mjs"),
+          import("shiki/langs/bash.mjs"),
+          import("shiki/langs/shellscript.mjs"),
+          import("shiki/langs/python.mjs"),
+          import("shiki/langs/yaml.mjs"),
+        ],
+        engine: createOnigurumaEngine(import("shiki/wasm")),
+      }) as unknown as Promise<ShikiHighlighter>;
+    })().catch((error) => {
       // Reset on failure so a future code block can retry instead of
       // silently failing forever on a stale chunk / network blip.
-      shikiLoader = null;
+      highlighterLoader = null;
       throw error;
     });
   }
-  return shikiLoader;
+  return highlighterLoader;
 }
+
+// Map a few common aliases to languages we bundled above.
+const LANG_ALIASES: Record<string, string> = {
+  js: "javascript",
+  ts: "typescript",
+  sh: "bash",
+  shell: "bash",
+  zsh: "bash",
+  py: "python",
+  yml: "yaml",
+  md: "markdown",
+};
 
 function HighlightedCodeBlock({ code, lang }: { code: string; lang: string }) {
   const [html, setHtml] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
-    loadShiki()
-      .then(({ codeToHtml }) =>
-        codeToHtml(code, {
-          lang: lang || "text",
+    loadHighlighter()
+      .then((highlighter) => {
+        const requested = (lang || "text").toLowerCase();
+        const resolved = LANG_ALIASES[requested] ?? requested;
+        const loaded = highlighter.getLoadedLanguages();
+        const finalLang = loaded.includes(resolved) ? resolved : "text";
+        return highlighter.codeToHtml(code, {
+          lang: finalLang,
           themes: {
             light: "github-light-default",
             dark: "github-dark-default",
           },
           defaultColor: false,
-        }),
-      )
+        });
+      })
       .then((out) => {
         if (!cancelled) setHtml(out);
       })
