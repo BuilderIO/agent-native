@@ -245,6 +245,11 @@ export function mergedConfigKey(
  * `mcp__user_abcd1234ef_zapier__run-task`) back into its scope + owner + name
  * components. Returns null for non-merged keys (e.g. stdio file-config servers
  * like `claude-in-chrome`) so callers can treat them as always-visible.
+ *
+ * `hub_<orgId>_<name>` entries (pulled from a remote hub via
+ * `hub-client.ts`) project to `scope: "org"` so they pass through the same
+ * per-request visibility gate as locally-stored org servers — the tool is
+ * only visible to requests whose active org matches the hub entry's org.
  */
 export function parseMergedKey(
   keyOrToolName: string,
@@ -255,10 +260,14 @@ export function parseMergedKey(
     const idx = rest.indexOf("__");
     key = idx >= 0 ? rest.slice(0, idx) : rest;
   }
-  const m = /^(user|org)_([^_]+)_(.+)$/.exec(key);
+  const m = /^(user|org|hub)_([^_]+)_(.+)$/.exec(key);
   if (!m) return null;
+  const prefix = m[1];
+  // Hub-sourced servers are scoped to the org they came from — treat them
+  // as org-scope for visibility purposes (see isMcpToolAllowedForRequest).
+  const scope: RemoteMcpScope = prefix === "user" ? "user" : "org";
   return {
-    scope: m[1] as RemoteMcpScope,
+    scope,
     owner: m[2],
     name: m[3],
   };

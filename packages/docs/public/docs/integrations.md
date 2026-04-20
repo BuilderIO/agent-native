@@ -63,7 +63,7 @@ Subscribe to the `message.im` bot event (and optionally `app_mention` for channe
 
 ### 3. Set environment variables
 
-```
+```bash
 SLACK_BOT_TOKEN=xoxb-your-bot-token
 SLACK_SIGNING_SECRET=your-signing-secret
 ```
@@ -78,7 +78,7 @@ Message [@BotFather](https://t.me/BotFather) on Telegram and use the `/newbot` c
 
 ### 2. Set environment variables
 
-```
+```bash
 TELEGRAM_BOT_TOKEN=your-bot-token
 ```
 
@@ -104,7 +104,7 @@ Go to the [Meta Developer Portal](https://developers.facebook.com/), create an a
 
 ### 2. Set environment variables
 
-```
+```bash
 WHATSAPP_ACCESS_TOKEN=your-access-token
 WHATSAPP_VERIFY_TOKEN=your-verify-token
 WHATSAPP_PHONE_NUMBER_ID=your-phone-number-id
