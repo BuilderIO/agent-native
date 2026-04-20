@@ -9,6 +9,7 @@ import {
   type BubbleWebrtcHandle,
 } from "./lib/bubble-webrtc";
 import { startNativeRecording, type RecorderHandle } from "./lib/recorder";
+import { UpdateBanner } from "./components/UpdateBanner";
 
 interface RecordingSummary {
   id: string;
@@ -785,6 +786,7 @@ export function App() {
     return (
       <div className="app" ref={appRef}>
         <Header mode={mode} onModeChange={setMode} />
+        <UpdateBanner />
         <SignInForm
           serverUrl={serverUrl}
           onSignedIn={async () => {
@@ -815,6 +817,7 @@ export function App() {
   return (
     <div className="app" ref={appRef}>
       <Header mode={mode} onModeChange={setMode} />
+      <UpdateBanner />
 
       <div className="panel">
         {showSourceRow ? (
