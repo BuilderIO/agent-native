@@ -26,13 +26,15 @@ mac:
   target:
     - target: dmg
       arch:
-        - universal
+        - arm64
+        - x64
     - target: zip
       arch:
-        - universal
+        - arm64
+        - x64
 
 dmg:
-  artifactName: ${productName}.${ext}
+  artifactName: ${productName}-${arch}.${ext}
 
 win:
   target:

@@ -44,7 +44,7 @@ const PLATFORMS: Record<Platform, PlatformInfo> = {
     icon: <AppleIcon />,
     primary: {
       label: "Download for Mac",
-      href: `${DL}/Agent-Native.dmg`,
+      href: "https://github.com/BuilderIO/agent-native/releases/download/v0.1.3/Agent-Native.dmg",
     },
     note: "Universal binary — works on Apple Silicon and Intel.",
   },

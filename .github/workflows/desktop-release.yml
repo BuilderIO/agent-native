@@ -120,7 +120,12 @@ jobs:
 
       - name: Get version
         id: version
-        run: echo "version=$(node -p "require('./packages/desktop-app/package.json').version")" >> $GITHUB_OUTPUT
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=$(node -p "require('./packages/desktop-app/package.json').version")" >> $GITHUB_OUTPUT
+          fi
 
       - name: Publish draft release
         env:
