@@ -374,6 +374,11 @@ export async function listGmailMessages(
 type HistoryEntry = {
   historyId: string;
   messages: any[];
+  // Pagination token from the initial hydrate's `messages.list` response.
+  // Preserved across deltas so the frontend's infinite-query can still
+  // page past the first window — otherwise the history-sync path would
+  // cap the inbox at `maxResults` even when older messages exist.
+  nextPageToken?: string;
   updatedAt: number;
 };
 
@@ -383,7 +388,10 @@ const historyCache = new Map<string, HistoryEntry>();
 // (email, label, maxResults) tuple share one computation — avoids two
 // callers both racing to apply a delta and stomping each other's cache
 // writes (or one failing and deleting the cache another just rebuilt).
-const historyInflight = new Map<string, Promise<any[]>>();
+const historyInflight = new Map<
+  string,
+  Promise<{ messages: any[]; nextPageToken?: string }>
+>();
 
 // TTL + soft-cap eviction so long-lived servers don't hold full Gmail
 // message payloads forever. 1h TTL plus a 200-entry cap covers typical
@@ -442,7 +450,7 @@ async function hydrateAccountInbox(
   email: string,
   query: string,
   maxResults: number,
-): Promise<{ messages: any[]; historyId?: string }> {
+): Promise<{ messages: any[]; historyId?: string; nextPageToken?: string }> {
   let historyId: string | undefined;
   try {
     const profile = await gmailGetProfile(accessToken);
@@ -456,6 +464,7 @@ async function hydrateAccountInbox(
     maxResults,
   });
   const messageIds = (listRes.messages || []) as Array<{ id: string }>;
+  const nextPageToken: string | undefined = listRes.nextPageToken || undefined;
 
   const messages: any[] = [];
   const batchSize = 5;
@@ -470,7 +479,7 @@ async function hydrateAccountInbox(
     messages.push(...results);
   }
 
-  return { messages, historyId };
+  return { messages, historyId, nextPageToken };
 }
 
 /**
@@ -661,7 +670,7 @@ async function fetchAccountWithHistory(
   labelId: string,
   query: string,
   maxResults: number,
-): Promise<any[]> {
+): Promise<{ messages: any[]; nextPageToken?: string }> {
   const cacheKey = historyCacheKey(email, labelId, maxResults);
 
   // Dedupe concurrent callers on the same key so the cache isn't raced.
@@ -684,10 +693,17 @@ async function fetchAccountWithHistory(
         historyCache.set(cacheKey, {
           historyId: delta.historyId,
           messages: delta.messages,
+          // Preserve the original page token — deltas don't produce one,
+          // and page tokens referencing earlier `list` calls remain valid
+          // for Gmail's history-backed pagination window.
+          nextPageToken: cached.nextPageToken,
           updatedAt: Date.now(),
         });
         evictStaleHistoryCache();
-        return delta.messages;
+        return {
+          messages: delta.messages,
+          nextPageToken: cached.nextPageToken,
+        };
       }
       // Delta unusable — drop cache and fall through to full hydrate.
       historyCache.delete(cacheKey);
@@ -703,11 +719,12 @@ async function fetchAccountWithHistory(
       historyCache.set(cacheKey, {
         historyId: init.historyId,
         messages: init.messages,
+        nextPageToken: init.nextPageToken,
         updatedAt: Date.now(),
       });
       evictStaleHistoryCache();
     }
-    return init.messages;
+    return { messages: init.messages, nextPageToken: init.nextPageToken };
   })().finally(() => {
     historyInflight.delete(cacheKey);
   });
@@ -772,13 +789,15 @@ async function listGmailMessagesUncached(
     clients.map(async ({ email, accessToken }) => {
       try {
         if (historyLabel) {
-          return await fetchAccountWithHistory(
+          const res = await fetchAccountWithHistory(
             accessToken,
             email,
             historyLabel,
             resolvedQuery,
             maxResults,
           );
+          if (res.nextPageToken) nextPageTokens[email] = res.nextPageToken;
+          return res.messages;
         }
         return await fetchAccountLegacy(
           accessToken,
