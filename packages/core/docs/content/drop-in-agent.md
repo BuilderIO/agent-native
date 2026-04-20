@@ -120,16 +120,12 @@ import { sendToAgentChat } from "@agent-native/core/client";
 
 `sendToAgentChat` returns a stable `tabId` you can use to track the chat run.
 
-If you want a loading state, pair `useSendToAgentChat()` (which gives you the same `send` function as a hook) with `useAgentChatGenerating()` (which tells you whether the agent is currently streaming):
+If you want a loading state, use the `useSendToAgentChat()` hook — it returns both `send` and `isGenerating`:
 
 ```ts
-import {
-  useSendToAgentChat,
-  useAgentChatGenerating,
-} from "@agent-native/core/client";
+import { useSendToAgentChat } from "@agent-native/core/client";
 
-const send = useSendToAgentChat();
-const isGenerating = useAgentChatGenerating();
+const { send, isGenerating } = useSendToAgentChat();
 ```
 
 ## Typesafe actions from the UI: `useActionMutation()` {#use-action-mutation}
