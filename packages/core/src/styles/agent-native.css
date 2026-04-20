@@ -1,0 +1,111 @@
+/**
+ * Agent-native shared Tailwind v4 stylesheet.
+ *
+ * Templates should import this in their `app/global.css` AFTER `@import "tailwindcss";`:
+ *
+ *   @import "tailwindcss";
+ *   @import "@agent-native/core/styles/agent-native.css";
+ *
+ * It provides:
+ *   - `@source` directives so Tailwind scans @agent-native/core's compiled
+ *     client files for class names (AgentPanel, AssistantChat, onboarding, etc.)
+ *   - `@custom-variant dark` for the `.dark` class-based dark-mode strategy
+ *   - shadcn/ui-compatible `@theme` color tokens that resolve from raw HSL
+ *     CSS variables (--background, --foreground, --muted, …) defined per
+ *     template in `:root`/`.dark` (or `.light`).
+ *   - Accordion keyframes/animations (replaces the v3 tailwindcss-animate
+ *     plugin for the small subset of animations the framework uses).
+ *   - The official typography plugin.
+ *
+ * Templates remain in control of their own colour palette: they only need
+ * to define the raw `--background`, `--foreground`, etc. variables — this
+ * file maps those to Tailwind utilities like `bg-background`, `text-foreground`.
+ */
+
+/* Scan @agent-native/core's compiled client output for Tailwind classes.
+   Path is resolved relative to THIS file. After build, this CSS lives at
+   dist/styles/agent-native.css, so `../client/**` resolves to dist/client/**. */
+@source "../client/**/*.{js,mjs,ts,tsx}";
+@source "../client/**/onboarding/**/*.{js,mjs,ts,tsx}";
+
+/* Class-based dark mode (matches v3 darkMode: ["class"]). */
+@custom-variant dark (&:is(.dark *));
+
+@plugin "@tailwindcss/typography";
+
+@theme {
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+
+  --color-sidebar: hsl(var(--sidebar-background));
+  --color-sidebar-foreground: hsl(var(--sidebar-foreground));
+  --color-sidebar-primary: hsl(var(--sidebar-primary));
+  --color-sidebar-primary-foreground: hsl(var(--sidebar-primary-foreground));
+  --color-sidebar-accent: hsl(var(--sidebar-accent));
+  --color-sidebar-accent-foreground: hsl(var(--sidebar-accent-foreground));
+  --color-sidebar-border: hsl(var(--sidebar-border));
+  --color-sidebar-ring: hsl(var(--sidebar-ring));
+
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+
+  --animate-accordion-down: accordion-down 0.2s ease-out;
+  --animate-accordion-up: accordion-up 0.2s ease-out;
+
+  @keyframes accordion-down {
+    from {
+      height: 0;
+    }
+    to {
+      height: var(--radix-accordion-content-height);
+    }
+  }
+  @keyframes accordion-up {
+    from {
+      height: var(--radix-accordion-content-height);
+    }
+    to {
+      height: 0;
+    }
+  }
+}
+
+/* Border-color compatibility shim:
+   In Tailwind v3, the preflight set the default border colour to
+   `hsl(var(--border))`. v4 drops that — borders default to currentColor.
+   Many of our components/templates use `border` or `border-t/b/l/r` without
+   an explicit colour and rely on the v3 behaviour. Keep that working. */
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: hsl(var(--border));
+  }
+}

@@ -55,6 +55,7 @@
     "./terminal": "./dist/client/terminal/index.js",
     "./terminal/server": "./dist/terminal/index.js",
     "./tailwind": "./dist/tailwind.preset.js",
+    "./styles/agent-native.css": "./dist/styles/agent-native.css",
     "./tsconfig.base.json": "./tsconfig.base.json"
   },
   "files": [
@@ -64,7 +65,7 @@
     "src/templates"
   ],
   "scripts": {
-    "build": "tsc && rm -rf dist/templates && cp -r src/templates dist/templates",
+    "build": "tsc && rm -rf dist/templates && cp -r src/templates dist/templates && mkdir -p dist/styles && cp src/styles/*.css dist/styles/",
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest --run",
@@ -133,17 +134,15 @@
     "@xterm/addon-web-links": ">=0.11",
     "@xterm/xterm": ">=5",
     "ai": ">=4",
-    "autoprefixer": ">=10",
     "convex": ">=1",
     "node-pty": ">=1",
     "ollama-ai-provider": ">=1",
-    "postcss": ">=8",
     "postgres": ">=3",
     "react": ">=18",
     "react-dom": ">=18",
     "react-router": ">=7",
-    "tailwindcss": ">=3",
-    "tailwindcss-animate": ">=1",
+    "tailwindcss": ">=4",
+    "@tailwindcss/vite": ">=4",
     "typescript": ">=5",
     "vite": ">=5",
     "ws": ">=8"
@@ -182,13 +181,7 @@
     "tailwindcss": {
       "optional": true
     },
-    "tailwindcss-animate": {
-      "optional": true
-    },
-    "autoprefixer": {
-      "optional": true
-    },
-    "postcss": {
+    "@tailwindcss/vite": {
       "optional": true
     },
     "@vitejs/plugin-react-swc": {
@@ -252,11 +245,10 @@
     "express": "^5.2.1",
     "firebase-admin": "^13.0.0",
     "node-pty": "^1.1.0",
-    "postcss": "^8.5.6",
     "react": "^18.3.1",
     "react-router": "^7.13.1",
-    "tailwindcss": "^3.4.17",
-    "tailwindcss-animate": "^1.0.7",
+    "tailwindcss": "catalog:",
+    "@tailwindcss/vite": "catalog:",
     "typescript": "^5.9.2",
     "vite": "^8.0.0",
     "vitest": "^3.2.4",
