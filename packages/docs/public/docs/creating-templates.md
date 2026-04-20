@@ -209,7 +209,7 @@ Keep your data models simple — flat JSON files, one per entity. The agent can 
 
 This is the most important file in your template. `AGENTS.md` tells the AI agent how your app works, what it can and can't do, and how to make changes:
 
-````markdown
+```markdown
 # My Template — Agent-Native App
 
 ## Architecture
@@ -226,12 +226,10 @@ This is an **@agent-native/core** application.
 
 ### Directory Structure
 
-```
-app/             # React frontend (file-based routing in app/routes/)
-server/          # Nitro API server
-actions/         # Agent-callable actions
-data/            # File-based state
-```
+    app/             # React frontend (file-based routing in app/routes/)
+    server/          # Nitro API server
+    actions/         # Agent-callable actions
+    data/            # File-based state
 
 ### Available Actions
 
@@ -242,16 +240,16 @@ data/            # File-based state
 
 Items are stored as `data/items/<id>.json`:
 
-```json
-{ "id": "...", "title": "...", "status": "active" }
-```
+    { "id": "...", "title": "...", "status": "active" }
 
 ### Key Patterns
 
 - API routes in `server/routes/` serve files from `data/`
 - UI delegates AI work via `sendToAgentChat()`
 - Actions write results to `data/` — SSE updates the UI
-````
+```
+
+> Code blocks inside `AGENTS.md` would normally be fenced with triple backticks — they're shown as indented code here to keep this outer example readable.
 
 Be specific about your data models, available actions, and key patterns. The better your `AGENTS.md`, the better the agent will work with your template.
 
