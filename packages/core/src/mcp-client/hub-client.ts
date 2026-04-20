@@ -16,10 +16,21 @@ import { isHubConsumeEnabled } from "./hub-routes.js";
 
 const FETCH_TIMEOUT_MS = 5_000;
 
+/**
+ * Normalize an orgId to the canonical form used by the visibility gate.
+ * Must match `isMcpToolAllowedForRequest()` in `visibility.ts` — otherwise
+ * a hub server published under "ACME-Corp" would build a key
+ * `hub_ACME-Corp_...` that can never match a request whose active org is
+ * normalized to "acme-corp", and the tool would be invisible to everyone.
+ */
+function normalizeOrgId(orgId: string): string {
+  return orgId.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+}
+
 /** Merged-config key prefix for hub-sourced servers — avoids collision with
  * the consuming app's own `org_<orgId>_<name>` entries. */
 function hubMergedKey(orgId: string, name: string): string {
-  return `hub_${orgId}_${name}`;
+  return `hub_${normalizeOrgId(orgId)}_${name}`;
 }
 
 /**
@@ -80,6 +91,24 @@ export async function fetchHubServersDetailed(): Promise<HubFetchResult> {
 
   if (!res.ok) {
     const msg = `hub returned ${res.status}`;
+    // Auth / config errors (401 unauthorized, 403 forbidden, 404 misconfig)
+    // must NOT fall back to the cached set — if the hub is deliberately
+    // revoking access (e.g. a rotated token), keeping servers in the
+    // manager would leave revoked tools callable until process restart.
+    // Transient errors (408 timeout, 429 rate limit, 5xx) are retryable,
+    // so for those we keep serving the last-known-good set.
+    const isAuthOrConfigError =
+      res.status === 401 ||
+      res.status === 403 ||
+      res.status === 404 ||
+      res.status === 410;
+    if (isAuthOrConfigError) {
+      console.warn(
+        `[mcp-client] hub fetch returned ${res.status} from ${url} — clearing cached servers`,
+      );
+      lastGoodServers = null;
+      return { state: "unreachable", servers: {}, error: msg };
+    }
     console.warn(
       `[mcp-client] hub fetch returned ${res.status} from ${url} — keeping last-known-good set`,
     );
