@@ -19,6 +19,7 @@ import {
   IconSearch,
   IconCloud,
   IconGauge,
+  IconSpreadsheet,
 } from "@tabler/icons-react";
 
 export type DataSourceCategory =
@@ -300,7 +301,62 @@ export const dataSources: DataSource[] = [
     ],
   },
 
-  // --- IconDatabase ---
+  {
+    id: "sigma",
+    name: "Sigma Computing",
+    description: "Browse workbooks, data models, lineage, and export data via MCP",
+    category: "analytics",
+    icon: IconSpreadsheet,
+    envKeys: ["SIGMA_CLIENT_ID", "SIGMA_CLIENT_SECRET", "SIGMA_API_BASE_URL"],
+    docsUrl: "https://help.sigmacomputing.com/reference/get-started-sigma-api",
+    walkthroughSteps: [
+      {
+        title: "Open the Sigma Admin panel",
+        description:
+          "In Sigma, go to Administration > APIs & Embed Secrets. You need Admin access to create API credentials.",
+        url: "https://app.sigmacomputing.com/administration",
+        linkText: "Sigma Administration",
+      },
+      {
+        title: "Create API credentials",
+        description:
+          'Click "Create New" under APIs & Embed Secrets. Give the credential a name (e.g. "Analytics MCP") and copy the Client ID and Client Secret shown — the secret is only displayed once.',
+      },
+      {
+        title: "Find your API base URL",
+        description:
+          'Go to Administration > Developer Access and copy the "API Base URL" for your cloud region (e.g. https://aws-api.sigmacomputing.com).',
+      },
+      {
+        title: "Enter your Client ID",
+        description: "Paste the Client ID from the API credentials you created.",
+        inputKey: "SIGMA_CLIENT_ID",
+        inputLabel: "Client ID",
+        inputPlaceholder: "your-sigma-client-id",
+        inputType: "text",
+      },
+      {
+        title: "Enter your Client Secret",
+        description:
+          "Paste the Client Secret from the API credentials. If you lost it, create a new credential pair.",
+        inputKey: "SIGMA_CLIENT_SECRET",
+        inputLabel: "Client Secret",
+        inputPlaceholder: "your-sigma-client-secret",
+        inputType: "password",
+      },
+      {
+        title: "Enter your API Base URL",
+        description:
+          "The API base URL for your Sigma cloud region.",
+        inputKey: "SIGMA_API_BASE_URL",
+        inputLabel: "API Base URL",
+        inputPlaceholder: "https://aws-api.sigmacomputing.com",
+        inputType: "text",
+      },
+    ],
+  },
+
+  // --- Database ---
   {
     id: "postgresql",
     name: "PostgreSQL",

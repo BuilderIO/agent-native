@@ -5,6 +5,11 @@
       "command": "uvx",
       "args": ["dbt-mcp"],
       "description": "dbt MCP server — browse models, columns, lineage, and docs. Requires uvx (install via https://docs.astral.sh/uv/). Set DBT_PROJECT_DIR in .env for local dbt Core, or DBT_HOST + DBT_TOKEN for dbt Cloud. See .builder/skills/dbt/SKILL.md for setup."
+    },
+    "sigma": {
+      "command": "npx",
+      "args": ["-y", "@getguru/sigma-mcp"],
+      "description": "Sigma Computing MCP server — browse workbooks, data models, elements, lineage, and export data. Set SIGMA_CLIENT_ID, SIGMA_CLIENT_SECRET, and SIGMA_API_BASE_URL in .env. See .builder/skills/sigma/SKILL.md for setup."
     }
   }
 }

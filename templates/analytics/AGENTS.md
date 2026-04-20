@@ -49,7 +49,7 @@ Provider-specific knowledge is in `.builder/skills/<provider>/SKILL.md`. **Alway
   sentry/       grafana/    gcloud/       pylon/
   gong/         apollo/     dataforseo/   slack/
   notion/       commonroom/ charts/       learn/
-  stripe/       dbt/
+  stripe/       dbt/        sigma/
 ```
 
 Skills should be **continuously improved**. When you discover a new gotcha or pattern, update the relevant SKILL.md directly.
@@ -266,6 +266,29 @@ Check if the server is connected before using: `/_agent-native/mcp/status` → l
 
 If dbt MCP is unavailable, fall back to querying `INFORMATION_SCHEMA.COLUMNS` in BigQuery to discover real column names.
 
+### Sigma MCP Tools
+
+The Sigma MCP server exposes tools prefixed `mcp__sigma__`. **Always read `.builder/skills/sigma/SKILL.md` before using any Sigma MCP tool.**
+
+Check connection: `/_agent-native/mcp/status` → look for `sigma` in `connectedServers`.
+
+| Tool | Purpose |
+| ---- | ------- |
+| `mcp__sigma__get_workbooks` | List all workbooks, or get a single workbook's details. |
+| `mcp__sigma__get_workbook_elements` | List all elements (tables, charts, pivots) in a workbook. |
+| `mcp__sigma__get_element_sql` | Get the compiled BigQuery SQL behind a specific chart or table element. **Use this to mirror a Sigma chart exactly.** |
+| `mcp__sigma__get_workbook_lineage` | Full dependency graph — which tables a workbook reads from. |
+| `mcp__sigma__get_data_models` | List or inspect data models. |
+| `mcp__sigma__get_data_model_columns` | Get column names and types for a data model — reliable source of truth for warehouse column names. |
+| `mcp__sigma__export_workbook` | Export workbook data as CSV/JSON/XLSX. Returns a `queryId`. |
+| `mcp__sigma__download_export` | Download the exported file using the `queryId` from `export_workbook`. |
+
+**Key workflow — mirror a Sigma chart in a dashboard panel:**
+1. `mcp__sigma__get_workbooks` → find workbook by name → get `workbook_id`
+2. `mcp__sigma__get_workbook_elements` → find the chart/table → get `element_id`
+3. `mcp__sigma__get_element_sql` → copy the compiled BigQuery SQL
+4. Use that SQL directly as a dashboard panel (source: `"bigquery"`)
+
 ### Built-in Filtering
 
 All scripts that use `output()` support:
@@ -297,6 +320,9 @@ pnpm action hubspot-deals --grep="enterprise" --fields=dealname,amount,stageLabe
 | "What tables are in dbt?"           | Read dbt skill, call `mcp__dbt__list` or `mcp__dbt__get_all_models`           |
 | "What columns does model X have?"   | `mcp__dbt__get_node_details_dev` → use exact column names in SQL              |
 | "How is model X built?"             | `mcp__dbt__get_lineage_dev` + `mcp__dbt__compile` to see the compiled SQL     |
+| "What does this Sigma workbook show?" | `mcp__sigma__get_workbooks` → `mcp__sigma__get_workbook_elements`             |
+| "Show me the SQL behind a Sigma chart" | `mcp__sigma__get_element_sql` → use as BigQuery panel SQL                   |
+| "Build a dashboard matching Sigma" | Read sigma skill, `get_element_sql`, compose panels from compiled SQL          |
 
 **Key principle**: When asked a question, don't say "check the dashboard" — actually query the data, get results, and present the answer directly in chat with tables and/or charts.
 
