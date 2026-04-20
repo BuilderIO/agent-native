@@ -27,12 +27,17 @@ export {
   validateRemoteUrl,
   normalizeServerName,
   mergedConfigKey,
+  parseMergedKey,
+  hashEmail,
   toHttpServerConfig,
   type RemoteMcpScope,
   type StoredRemoteMcpServer,
 } from "./remote-store.js";
 
 export { mountMcpServersRoutes, buildMergedConfig } from "./routes.js";
+
+export { isMcpToolAllowedForRequest } from "./visibility.js";
+import { isMcpToolAllowedForRequest } from "./visibility.js";
 
 /**
  * Convert MCP tools into `ActionEntry` values suitable for registration in
@@ -90,6 +95,12 @@ function mcpToolToActionEntry(
     },
     http: false,
     run: async (args: Record<string, string>) => {
+      // Defense-in-depth: even if a cross-scope MCP tool somehow makes it
+      // into the LLM's visible tool list, reject invocation here so we never
+      // execute a user's credentials on behalf of another user.
+      if (!isMcpToolAllowedForRequest(tool.name)) {
+        return `Error: MCP tool ${tool.name} is not available in the current request scope.`;
+      }
       try {
         const result = await manager.callTool(tool.name, args);
         // MCP tool results are typically `{ content: [{ type: "text", text: ... }], isError? }`.

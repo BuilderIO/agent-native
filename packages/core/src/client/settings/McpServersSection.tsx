@@ -6,7 +6,8 @@
  * Adds/removes hot-reload into the running MCP manager — no restart.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   IconCheck,
   IconLoader2,
@@ -49,29 +50,23 @@ interface ListResponse {
 
 export function McpServersSection() {
   const org = useOrg().data;
-  const [data, setData] = useState<ListResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [reloadToken, setReloadToken] = useState(0);
+  const qc = useQueryClient();
 
-  useEffect(() => {
-    let cancelled = false;
-    fetch(ENDPOINT, { credentials: "include" })
-      .then(async (r) => {
-        if (!r.ok) throw new Error(`Failed to load (${r.status})`);
-        return (await r.json()) as ListResponse;
-      })
-      .then((d) => {
-        if (!cancelled) setData(d);
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err?.message ?? "Failed to load");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [reloadToken]);
+  // Keying the query on (email, orgId) means switching orgs via useSwitchOrg
+  // triggers a refetch automatically — the old cached entry stays around
+  // under its old key, and the new key has no data, which forces the fetch.
+  const queryKey = ["mcp-servers", org?.email ?? null, org?.orgId ?? null];
+  const { data, error, isLoading } = useQuery<ListResponse>({
+    queryKey,
+    queryFn: async () => {
+      const res = await fetch(ENDPOINT, { credentials: "include" });
+      if (!res.ok) throw new Error(`Failed to load (${res.status})`);
+      return (await res.json()) as ListResponse;
+    },
+    staleTime: 10_000,
+  });
 
-  const reload = useCallback(() => setReloadToken((t) => t + 1), []);
+  const reload = () => qc.invalidateQueries({ queryKey: ["mcp-servers"] });
 
   const hasOrg = !!org?.orgId;
   const canWriteOrg =
@@ -86,11 +81,11 @@ export function McpServersSection() {
   if (error) {
     return (
       <p className="text-[10px] text-red-500">
-        Failed to load MCP servers: {error}
+        Failed to load MCP servers: {(error as Error).message}
       </p>
     );
   }
-  if (data === null) {
+  if (isLoading || !data) {
     return (
       <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
         <IconLoader2 size={10} className="animate-spin" />

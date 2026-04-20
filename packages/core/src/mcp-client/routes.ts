@@ -52,6 +52,7 @@ function redactHeaders(
 function projectForClient(
   stored: StoredRemoteMcpServer,
   scope: RemoteMcpScope,
+  ownerId: string,
   status: ServerStatus,
 ): ClientServer {
   return {
@@ -62,7 +63,7 @@ function projectForClient(
     headers: redactHeaders(stored.headers),
     description: stored.description,
     createdAt: stored.createdAt,
-    mergedId: mergedConfigKey(scope, stored),
+    mergedId: mergedConfigKey(scope, stored, ownerId),
     status,
   };
 }
@@ -106,9 +107,11 @@ function statusFor(manager: McpClientManager, mergedId: string): ServerStatus {
  * settings store. Scanning all scopes means a mutation from one user's
  * session never drops another user's servers from the running manager.
  *
- * The merged key is `<scope>-<name>` — `user-zapier` vs `org-zapier` can
- * coexist without collision, and the tool name becomes
- * `mcp__user-zapier__run-task`.
+ * Each persisted server's merged key includes its owner discriminator
+ * (`user_<emailhash>_<name>` or `org_<orgId>_<name>`) so two users' servers
+ * with the same name coexist; the request-time gate in
+ * `isMcpToolAllowedForRequest` then scopes tool visibility back down to the
+ * calling user.
  */
 export async function buildMergedConfig(): Promise<McpConfig | null> {
   const base = loadMcpConfig() ?? autoDetectMcpConfig();
@@ -118,17 +121,22 @@ export async function buildMergedConfig(): Promise<McpConfig | null> {
   for (const [fullKey, value] of Object.entries(all)) {
     const userMatch = /^u:([^:]+):mcp-servers-remote$/.exec(fullKey);
     const orgMatch = /^o:([^:]+):mcp-servers-remote$/.exec(fullKey);
-    const scope: RemoteMcpScope | null = userMatch
-      ? "user"
-      : orgMatch
-        ? "org"
-        : null;
-    if (!scope) continue;
+    let scope: RemoteMcpScope | null = null;
+    let ownerId: string | null = null;
+    if (userMatch) {
+      scope = "user";
+      ownerId = userMatch[1];
+    } else if (orgMatch) {
+      scope = "org";
+      ownerId = orgMatch[1];
+    }
+    if (!scope || !ownerId) continue;
     const list = (value as { servers?: StoredRemoteMcpServer[] }).servers;
     if (!Array.isArray(list)) continue;
     for (const stored of list) {
       if (!stored || typeof stored.url !== "string" || !stored.name) continue;
-      servers[mergedConfigKey(scope, stored)] = toHttpServerConfig(stored);
+      servers[mergedConfigKey(scope, stored, ownerId)] =
+        toHttpServerConfig(stored);
     }
   }
 
@@ -241,11 +249,17 @@ async function handleList(
       projectForClient(
         s,
         "user",
-        statusFor(manager, mergedConfigKey("user", s)),
+        email ?? "",
+        statusFor(manager, mergedConfigKey("user", s, email ?? "")),
       ),
     ),
     org: orgServers.map((s) =>
-      projectForClient(s, "org", statusFor(manager, mergedConfigKey("org", s))),
+      projectForClient(
+        s,
+        "org",
+        orgId ?? "",
+        statusFor(manager, mergedConfigKey("org", s, orgId ?? "")),
+      ),
     ),
     orgId,
     role,
@@ -311,12 +325,13 @@ async function handleAdd(event: H3Event, manager: McpClientManager) {
   }
 
   await reconfigureManager(manager);
-  const mergedId = mergedConfigKey(scope, result.server);
+  const mergedId = mergedConfigKey(scope, result.server, scopeId);
   return {
     ok: true,
     server: projectForClient(
       result.server,
       scope,
+      scopeId,
       statusFor(manager, mergedId),
     ),
   };

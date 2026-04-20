@@ -11,6 +11,7 @@
  * `mcp.config.json` on startup and after every mutation.
  */
 
+import { createHash } from "node:crypto";
 import {
   getUserSetting,
   putUserSetting,
@@ -52,16 +53,39 @@ function shortId(): string {
 
 /**
  * Validate a candidate MCP server name — used as a key in the merged config
- * and as part of the prefixed tool name (`mcp__<name>__<tool>`).
+ * and as part of the prefixed tool name (`mcp__<merged-key>__<tool>`).
  *
- * Allowed: letters, digits, hyphen, underscore; 1–40 chars. Lowercased.
+ * Allowed: letters, digits, hyphen; 1–40 chars. Lowercased. Underscores are
+ * excluded on purpose — the merged-key format uses `_` as a separator between
+ * `<scope>`, `<owner>`, and `<name>`, so allowing `_` in names would make the
+ * parse ambiguous.
  */
 export function normalizeServerName(input: string): string {
   return input
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9_-]/g, "-")
+    .replace(/[^a-z0-9-]/g, "-")
     .slice(0, 40);
+}
+
+/**
+ * Short, deterministic, URL-safe hash of an email. Used as the owner
+ * discriminator in user-scope merged keys so two users with the same server
+ * name don't collide in the global MCP manager.
+ */
+export function hashEmail(email: string): string {
+  return createHash("sha256")
+    .update(email.toLowerCase().trim())
+    .digest("hex")
+    .slice(0, 10);
+}
+
+/**
+ * Sanitise an org id to the character set allowed in merged keys.
+ * Org ids are already nanoid-style alphanumeric, but we normalise defensively.
+ */
+function sanitiseOrgId(orgId: string): string {
+  return orgId.toLowerCase().replace(/[^a-z0-9-]/g, "-");
 }
 
 /** Reject obviously-wrong URLs. Allows http only for localhost. */
@@ -194,10 +218,48 @@ export function toHttpServerConfig(
   };
 }
 
-/** Build the merged-config key for a stored server at a given scope. */
+/**
+ * Build the merged-config key for a stored server.
+ *
+ * The key encodes the owning scope + owner identity so two users adding a
+ * server called `zapier` produce distinct ids (`user_ab12cd34ef_zapier` vs
+ * `user_99aa88bb77_zapier`) and Alice's tool calls never route through Bob's
+ * credentials in a shared-process deployment.
+ *
+ * - User scope: `user_<emailhash>_<name>`
+ * - Org scope:  `org_<orgId>_<name>`
+ *
+ * `ownerId` is the raw email for user scope, and the org id for org scope.
+ */
 export function mergedConfigKey(
   scope: RemoteMcpScope,
   stored: StoredRemoteMcpServer,
+  ownerId: string,
 ): string {
-  return `${scope}-${stored.name}`;
+  const owner = scope === "user" ? hashEmail(ownerId) : sanitiseOrgId(ownerId);
+  return `${scope}_${owner}_${stored.name}`;
+}
+
+/**
+ * Parse a merged key (or a full prefixed tool name like
+ * `mcp__user_abcd1234ef_zapier__run-task`) back into its scope + owner + name
+ * components. Returns null for non-merged keys (e.g. stdio file-config servers
+ * like `claude-in-chrome`) so callers can treat them as always-visible.
+ */
+export function parseMergedKey(
+  keyOrToolName: string,
+): { scope: RemoteMcpScope; owner: string; name: string } | null {
+  let key = keyOrToolName;
+  if (key.startsWith("mcp__")) {
+    const rest = key.slice("mcp__".length);
+    const idx = rest.indexOf("__");
+    key = idx >= 0 ? rest.slice(0, idx) : rest;
+  }
+  const m = /^(user|org)_([^_]+)_(.+)$/.exec(key);
+  if (!m) return null;
+  return {
+    scope: m[1] as RemoteMcpScope,
+    owner: m[2],
+    name: m[3],
+  };
 }
