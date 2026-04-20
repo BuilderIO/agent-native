@@ -78,15 +78,15 @@ Drop a Markdown file in `jobs/` via the framework's resource APIs:
 ```ts
 import { resourcePut } from "@agent-native/core/resources";
 
-await resourcePut({
-  path: "jobs/morning-digest.md",
-  scope: "personal",
-  content: `---
+await resourcePut(
+  ownerEmail,
+  "jobs/morning-digest.md",
+  `---
 schedule: "0 7 * * *"
 enabled: true
 ---
 Summarize overnight emails.`,
-});
+);
 ```
 
 ## How the scheduler runs {#how-scheduler-runs}

@@ -48,10 +48,15 @@ So the next move is obvious: stream the agent's work into a chat UI where the us
 ```tsx
 // actions/reply-to-email.ts
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 
 export default defineAction({
-  name: "replyToEmail",
-  handler: async ({ emailId, body }) => {
+  description: "Reply to an email thread",
+  schema: z.object({
+    emailId: z.string(),
+    body: z.string(),
+  }),
+  run: async ({ emailId, body }) => {
     await db.replies.insert({ emailId, body });
   },
 });
