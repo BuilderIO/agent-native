@@ -100,6 +100,50 @@ Under the hood these servers are persisted in the framework's `settings` table u
 
 Stdio servers are still a no-op outside Node runtimes, but remote HTTP MCP servers work in any environment with `fetch` — including desktop production builds.
 
+## Shared MCP servers via a hub {#hub}
+
+If your workspace runs multiple agent-native apps (e.g. dispatch + mail + clips), you can configure **one** app as the hub and have the others pull its org-scope MCP servers automatically. No per-app copy-paste of URLs and bearer tokens.
+
+Dispatch is the conventional hub — it already coordinates across apps.
+
+### 1. Enable hub-serve on the hub app (dispatch)
+
+Set an env var in dispatch's deployment:
+
+```bash
+AGENT_NATIVE_MCP_HUB_TOKEN=<a-long-random-secret>
+```
+
+Dispatch now mounts `GET /_agent-native/mcp/hub/servers` which returns every org-scope MCP server stored in its `settings` table, with full URL + headers, authenticated by the token.
+
+### 2. Point consuming apps at the hub
+
+Set on every consumer (mail, clips, whatever):
+
+```bash
+AGENT_NATIVE_MCP_HUB_URL=https://dispatch.acme.com
+AGENT_NATIVE_MCP_HUB_TOKEN=<the-same-secret>
+```
+
+At startup, each consumer pulls the hub's server list and merges it into its own MCP manager. The tools appear to the agent as `mcp__hub_<orgId>_<name>__*` — distinct from the consumer's own local `mcp__org_…` so there's no collision.
+
+### 3. What gets shared
+
+Only **org-scope** servers are shared. User-scope (Personal) servers stay with the user who added them — the hub never re-exposes personal credentials across apps.
+
+Hub responses include the full auth headers (Bearer tokens etc). The transport is HTTPS, the endpoint requires the shared secret, and it only returns org-scope rows — treat the hub URL + token like a database credential.
+
+### 4. Hot reload vs restart
+
+Local UI adds in each app hot-reload via `McpClientManager.reconfigure()` — no restart. Hub-sourced servers currently re-fetch only when a local mutation triggers a reconfigure (or when the app restarts), so if you add a new server in dispatch, other apps pick it up on their next restart or next local change. Periodic background refresh is on the roadmap.
+
+### Endpoints summary
+
+| Method | Route                            | Purpose                                                                                                            |
+| ------ | -------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| GET    | `/_agent-native/mcp/hub/servers` | Serve all org-scope servers with full creds (bearer-gated, only mounted when `AGENT_NATIVE_MCP_HUB_TOKEN` is set). |
+| GET    | `/_agent-native/mcp/hub/status`  | Returns `{ serving, consuming, hubUrl }` for the settings UI card.                                                 |
+
 ## Status route {#status-route}
 
 Every app exposes `GET /_agent-native/mcp/status` for tooling and onboarding:

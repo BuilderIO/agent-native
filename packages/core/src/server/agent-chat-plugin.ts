@@ -27,7 +27,10 @@ import {
   mcpToolsToActionEntries,
   syncMcpActionEntries,
   mountMcpServersRoutes,
+  mountMcpHubRoutes,
   buildMergedConfig,
+  getHubStatus,
+  isHubServeEnabled,
 } from "../mcp-client/index.js";
 import { discoverAgents } from "./agent-discovery.js";
 import { loadSchemaPromptBlock } from "./schema-prompt.js";
@@ -1767,6 +1770,22 @@ export function createAgentChatPlugin(
     // remove remote MCP servers and hot-reload the running manager.
     mountMcpStatusRoute(nitroApp, mcpManager);
     mountMcpServersRoutes(nitroApp, mcpManager);
+    // Hub-serve: expose org-scope servers to other agent-native apps in the
+    // workspace when `AGENT_NATIVE_MCP_HUB_TOKEN` is set (dispatch, by
+    // convention). Gated by the env var so mounting is a no-op otherwise.
+    if (isHubServeEnabled()) {
+      mountMcpHubRoutes(nitroApp);
+      console.log(
+        "[mcp-client] hub serve enabled — other apps can pull org servers via /_agent-native/mcp/hub/servers",
+      );
+    }
+    const hubStatus = getHubStatus();
+    if (hubStatus.consuming) {
+      console.log(
+        `[mcp-client] hub consume enabled — pulling from ${hubStatus.hubUrl}`,
+      );
+    }
+    mountMcpHubStatusRoute(nitroApp);
 
     // Ensure we tear down child processes if the host shuts down cleanly.
     if (
@@ -3470,6 +3489,28 @@ function setGlobalMcpManager(manager: McpClientManager): void {
 /** Internal: access the current process's MCP client manager, if any. */
 export function getGlobalMcpManager(): McpClientManager | null {
   return _globalMcpManager;
+}
+
+function mountMcpHubStatusRoute(nitroApp: any): void {
+  if ((globalThis as any).__agentNativeMcpHubStatusMounted) return;
+  (globalThis as any).__agentNativeMcpHubStatusMounted = true;
+  try {
+    getH3App(nitroApp).use(
+      "/_agent-native/mcp/hub/status",
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "GET") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        setResponseHeader(event, "Content-Type", "application/json");
+        return getHubStatus();
+      }),
+    );
+  } catch (err: any) {
+    console.warn(
+      `[mcp-client] Failed to mount /_agent-native/mcp/hub/status: ${err?.message ?? err}`,
+    );
+  }
 }
 
 function mountMcpStatusRoute(nitroApp: any, manager: McpClientManager): void {

@@ -12,6 +12,7 @@ import {
   IconCheck,
   IconLoader2,
   IconPlus,
+  IconShare,
   IconTrash,
   IconUsers,
   IconUser,
@@ -20,6 +21,13 @@ import {
 import { useOrg } from "../org/hooks.js";
 
 const ENDPOINT = "/_agent-native/mcp/servers";
+const HUB_STATUS_ENDPOINT = "/_agent-native/mcp/hub/status";
+
+interface HubStatus {
+  serving: boolean;
+  consuming: boolean;
+  hubUrl: string | null;
+}
 
 type Scope = "user" | "org";
 
@@ -51,6 +59,16 @@ interface ListResponse {
 export function McpServersSection() {
   const org = useOrg().data;
   const qc = useQueryClient();
+
+  const { data: hub } = useQuery<HubStatus>({
+    queryKey: ["mcp-hub-status"],
+    queryFn: async () => {
+      const res = await fetch(HUB_STATUS_ENDPOINT, { credentials: "include" });
+      if (!res.ok) throw new Error(`Failed to load hub status (${res.status})`);
+      return (await res.json()) as HubStatus;
+    },
+    staleTime: 60_000,
+  });
 
   // Keying the query on (email, orgId) means switching orgs via useSwitchOrg
   // triggers a refetch automatically — the old cached entry stays around
@@ -98,6 +116,7 @@ export function McpServersSection() {
 
   return (
     <div className="space-y-2">
+      {hub && (hub.serving || hub.consuming) && <HubCard hub={hub} />}
       {/* Scope tabs */}
       <div className="flex gap-1 rounded-md bg-accent/30 p-0.5">
         <ScopeTab
@@ -483,6 +502,40 @@ function AddServerForm({
           </>
         )}
       </button>
+    </div>
+  );
+}
+
+function HubCard({ hub }: { hub: HubStatus }) {
+  return (
+    <div className="rounded-md border border-border px-2.5 py-2 bg-accent/20">
+      <div className="flex items-center gap-1.5">
+        <IconShare size={12} className="text-muted-foreground" />
+        <div className="text-[11px] font-medium text-foreground">
+          {hub.serving && hub.consuming
+            ? "Hub — serving and consuming"
+            : hub.serving
+              ? "Hub — serving other apps"
+              : "Consuming from hub"}
+        </div>
+      </div>
+      {hub.serving && (
+        <p className="text-[10px] text-muted-foreground mt-1 leading-relaxed">
+          Org-scope servers on this app are shared with other agent-native apps
+          in the workspace via{" "}
+          <code className="text-foreground">
+            /_agent-native/mcp/hub/servers
+          </code>
+          .
+        </p>
+      )}
+      {hub.consuming && hub.hubUrl && (
+        <p className="text-[10px] text-muted-foreground mt-1 leading-relaxed">
+          Team servers are pulled from{" "}
+          <code className="text-foreground">{hub.hubUrl}</code> at startup.
+          Add/remove them there; this app picks them up on next restart.
+        </p>
+      )}
     </div>
   );
 }

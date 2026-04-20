@@ -36,6 +36,18 @@ export {
 
 export { mountMcpServersRoutes, buildMergedConfig } from "./routes.js";
 
+export {
+  mountMcpHubRoutes,
+  listHubServers,
+  getHubStatus,
+  isHubServeEnabled,
+  isHubConsumeEnabled,
+  type HubServerRecord,
+  type HubServersResponse,
+} from "./hub-routes.js";
+
+export { fetchHubServers } from "./hub-client.js";
+
 export { isMcpToolAllowedForRequest } from "./visibility.js";
 import { isMcpToolAllowedForRequest } from "./visibility.js";
 

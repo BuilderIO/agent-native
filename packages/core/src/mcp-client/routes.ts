@@ -38,6 +38,7 @@ import {
   type RemoteMcpScope,
   type StoredRemoteMcpServer,
 } from "./remote-store.js";
+import { fetchHubServers } from "./hub-client.js";
 
 /** Redact obvious auth header values before sending to the client. */
 function redactHeaders(
@@ -138,6 +139,21 @@ export async function buildMergedConfig(): Promise<McpConfig | null> {
       servers[mergedConfigKey(scope, stored, ownerId)] =
         toHttpServerConfig(stored);
     }
+  }
+
+  // Hub-consume: if this app is configured to consume from a remote hub
+  // (AGENT_NATIVE_MCP_HUB_URL + AGENT_NATIVE_MCP_HUB_TOKEN), pull its
+  // org-scope servers and merge. Hub entries use `hub_<orgId>_<name>` so
+  // they never collide with local `org_<orgId>_<name>` rows.
+  try {
+    const hubServers = await fetchHubServers();
+    for (const [mergedKey, cfg] of Object.entries(hubServers)) {
+      servers[mergedKey] = cfg;
+    }
+  } catch (err: any) {
+    console.warn(
+      `[mcp-client] hub merge failed: ${err?.message ?? err}. Continuing with local config.`,
+    );
   }
 
   if (Object.keys(servers).length === 0) return null;
