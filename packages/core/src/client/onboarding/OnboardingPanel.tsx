@@ -668,9 +668,9 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "4px 8px 10px",
   },
   card: {
-    border: "1px solid rgba(255,255,255,0.06)",
+    border: "1px solid hsl(var(--border, 0 0% 100% / 0.06))",
     borderRadius: 6,
-    background: "rgba(0,0,0,0.12)",
+    background: "hsl(var(--muted, 0 0% 0% / 0.12))",
   },
   cardDone: {
     opacity: 0.55,
