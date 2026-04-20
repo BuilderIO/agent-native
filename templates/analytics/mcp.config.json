@@ -1,0 +1,10 @@
+{
+  "$schema": "https://agent-native.com/schema/mcp.config.json",
+  "servers": {
+    "dbt": {
+      "command": "uvx",
+      "args": ["dbt-mcp"],
+      "description": "dbt MCP server — browse models, columns, lineage, and docs. Requires uvx (install via https://docs.astral.sh/uv/). Set DBT_PROJECT_DIR in .env for local dbt Core, or DBT_HOST + DBT_TOKEN for dbt Cloud. See .builder/skills/dbt/SKILL.md for setup."
+    }
+  }
+}

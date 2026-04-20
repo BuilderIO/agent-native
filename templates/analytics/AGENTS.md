@@ -155,6 +155,10 @@ To override the default org plugin (e.g. to add custom validation or extra handl
 | `BIGQUERY_PROJECT_ID`                 | BigQuery panels — e.g. `builder-3b0a2`           |
 | `GOOGLE_APPLICATION_CREDENTIALS_JSON` | BigQuery service-account JSON (single line)      |
 | `ANTHROPIC_API_KEY`                   | Agent chat                                       |
+| `DBT_PROJECT_DIR`                     | dbt MCP (local) — absolute path to dbt project  |
+| `DBT_PROFILES_DIR`                    | dbt MCP (local) — dir containing `profiles.yml` |
+| `DBT_MCP_DISABLE_DBTCLOUD`            | Set `true` if using local dbt Core only          |
+| `DBT_MCP_DISABLE_SEMANTIC_LAYER`      | Set `true` if not using dbt Semantic Layer       |
 
 The OAuth 2.0 Client ID for Google sign-in is a **separate credential** from the BigQuery service account. Create it in GCP Console → APIs & Services → Credentials → OAuth client ID → Web application, with redirect URIs `https://analytics.agent-native.com/_agent-native/auth/ba/callback/google` and `http://localhost:3000/_agent-native/auth/ba/callback/google`.
 
@@ -238,6 +242,30 @@ A `<data-dictionary>` block is injected into your system prompt with the approve
 | `twitter-tweets`     |                             | Tweet engagement                |
 | `generate-chart`     | `--type`, `--data`          | Generate inline charts for chat |
 
+### dbt MCP Tools
+
+The dbt MCP server (configured in `mcp.config.json`) exposes tools prefixed `mcp__dbt__`. **Always read `.builder/skills/dbt/SKILL.md` before using any dbt MCP tool.**
+
+Check if the server is connected before using: `/_agent-native/mcp/status` → look for `dbt` in `connectedServers`.
+
+| Tool | Purpose |
+| ---- | ------- |
+| `mcp__dbt__list` | List all models, sources, or tests. Use to discover what's in the project. |
+| `mcp__dbt__get_node_details_dev` | Get exact column names, SQL, tags, and description for a specific model. **Call this before writing panel SQL.** |
+| `mcp__dbt__get_lineage_dev` | Trace upstream/downstream lineage. Useful for finding safe join paths. |
+| `mcp__dbt__compile` | Compile a model's Jinja SQL to raw BigQuery SQL. |
+| `mcp__dbt__get_all_models` | (dbt Cloud only) List all models with descriptions. |
+| `mcp__dbt__show` | Run a SQL snippet and return sample rows. Good for column value spot-checks. |
+
+**Workflow for building dashboards from dbt models:**
+1. `mcp__dbt__get_all_models` or `mcp__dbt__list` → find candidate model names
+2. `mcp__dbt__get_node_details_dev` → get exact column names (never guess)
+3. `mcp__dbt__get_lineage_dev` → understand upstream sources and join paths
+4. Write BigQuery SQL using the verified table names and columns
+5. Run an exploratory `bigquery` action to validate before saving to a dashboard
+
+If dbt MCP is unavailable, fall back to querying `INFORMATION_SCHEMA.COLUMNS` in BigQuery to discover real column names.
+
 ### Built-in Filtering
 
 All scripts that use `output()` support:
@@ -266,6 +294,9 @@ pnpm action hubspot-deals --grep="enterprise" --fields=dealname,amount,stageLabe
 | "Build me a dashboard for X"        | `list-data-dictionary --search=X` FIRST, then compose from entries             |
 | "Document this metric"              | `save-data-dictionary-entry --metric="…" --definition="…" …`                   |
 | "Populate the data dictionary"      | Ask where definitions live, fetch them, loop over `save-data-dictionary-entry` |
+| "What tables are in dbt?"           | Read dbt skill, call `mcp__dbt__list` or `mcp__dbt__get_all_models`           |
+| "What columns does model X have?"   | `mcp__dbt__get_node_details_dev` → use exact column names in SQL              |
+| "How is model X built?"             | `mcp__dbt__get_lineage_dev` + `mcp__dbt__compile` to see the compiled SQL     |
 
 **Key principle**: When asked a question, don't say "check the dashboard" — actually query the data, get results, and present the answer directly in chat with tables and/or charts.
 

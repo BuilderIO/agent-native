@@ -1,118 +1,195 @@
+# dbt Skill
+
+## Overview
+
+This skill covers two complementary approaches for working with dbt:
+
+1. **dbt MCP tools** — live introspection of the dbt project via `mcp__dbt__*` tools (requires the dbt MCP server to be connected; check `/_agent-native/mcp/status`).
+2. **Static reference** — hardcoded table/column/join knowledge compiled here when the MCP server is unavailable.
+
+**Always check the MCP server first.** If the `dbt` server appears in connected servers (`/_agent-native/mcp/status`), use MCP tools to get accurate, live model details before writing SQL.
+
 ---
-name: dbt
-description: >
-  dbt (data build tool) project structure, SQL patterns, and best practices for the analytics warehouse.
-  Use this skill when working with dbt models, testing SQL queries, or creating new analytical tables.
----
 
-# dbt Integration
+## Setup
 
-## Project Location
+### Option A — Local dbt Core (requires uvx)
 
-- **Root**: `dbt/` (in workspace root, NOT in code/)
-- **Models**: `dbt/models/` organized by layer (staging, intermediate, mart, analytics)
-- **Config**: `dbt/dbt_project.yml`
-- **Profiles**: `dbt/profiles.yml`
+1. Install [uv](https://docs.astral.sh/uv/): `curl -LsSf https://astral.sh/uv/install.sh | sh`
+2. Add to `.env` (analytics template root):
+   ```
+   DBT_PROJECT_DIR=/absolute/path/to/your/dbt/project
+   DBT_PROFILES_DIR=/absolute/path/to/your/dbt/project   # same dir if profiles.yml lives there
+   ```
+3. The spawned `uvx dbt-mcp` process inherits all env vars from the analytics server process.
+4. Restart the analytics dev server — watch for `[mcp-client] connected to dbt: N tools`.
 
-## Access Control
-
-⚠️ **CRITICAL**: The dbt directory has restricted write access. When creating or modifying dbt models:
-
-1. Create SQL in `code/.builder/dbt-models/` first
-2. Test the query using a script in `code/scripts/`
-3. Validate results before requesting deployment
-4. User must manually copy to `dbt/models/` directory
-
-## Schema Organization
-
-| Schema                 | Purpose                                    | Examples                                               |
-| ---------------------- | ------------------------------------------ | ------------------------------------------------------ |
-| `dbt_staging_bigquery` | Raw staged events from BigQuery            | `first_pageviews`, `all_pageviews`, `signups`          |
-| `dbt_staging`          | Raw staged data from other sources         | `hubspot_companies`, `hubspot_contacts`                |
-| `dbt_intermediate`     | Joins, transforms, denormalization         | `hubspot_form_submissions`, `deal_first_contact`       |
-| `dbt_mapping`          | Join tables, ID mappings                   | `hs_deals_to_contact_id`, `user_id_to_org_id`          |
-| `dbt_mart`             | Dimensional models (fact/dim tables)       | `dim_hs_deals`, `dim_hs_contacts`, `dim_subscriptions` |
-| `dbt_analytics`        | Reporting views, aggregates                | `deals_by_motion`, `revenue_funnel`, `active_users`    |
-| `dbt_dev`              | Development/testing (EXCLUDE from queries) | Auto-filtered by BigQuery lib                          |
-
-## Model Configuration Best Practices
-
-### Standard config block
-
-```sql
-{{
-    config(
-        schema="dbt_analytics",          -- Target schema
-        materialized="table",             -- or "view", "incremental"
-        tags=["daily", "analytics", "hubspot"],  -- For orchestration/docs
-    )
-}}
+**Disable unused toolsets** (avoids noise for dbt Core users who have no Cloud account):
+```
+DBT_MCP_DISABLE_DBTCLOUD=true
+DBT_MCP_DISABLE_SEMANTIC_LAYER=true
 ```
 
-### Common materializations
+### Option B — dbt Cloud (HTTP, no local install needed)
 
-- `table` - Full refresh daily, good for < 10M rows
-- `view` - No storage, always fresh, good for simple transforms
-- `incremental` - Append-only, for large event tables
+Add the dbt Cloud MCP server via the Analytics app Settings → MCP Servers → Add server:
 
-## SQL Patterns & Gotchas
+- **URL**: `https://cloud.getdbt.com/api/mcp/v1/sse`
+- **Authorization header**: `Bearer <your-dbt-cloud-service-token>`
+- **Scope**: Team (shared) or Personal
 
-### 1. Column Name Mismatches
+The server id will appear as `org_<orgId>_dbt-cloud` or `user_<hash>_dbt-cloud`. Tools are prefixed `mcp__<id>__`.
 
-⚠️ **Common bug source**: Column names differ between spec and actual tables
+Alternatively, set the `MCP_SERVERS` env var at deploy time (substitutes the full JSON config including the token):
+```
+MCP_SERVERS={"servers":{"dbt":{"type":"http","url":"https://cloud.getdbt.com/api/mcp/v1/sse","headers":{"Authorization":"Bearer YOUR_TOKEN"}}}}
+```
 
-| Spec Column           | Actual Column              | Table             |
-| --------------------- | -------------------------- | ----------------- |
+---
+
+## Available dbt MCP Tools
+
+All tools are prefixed `mcp__dbt__` (local stdio) or `mcp__<scope>_<name>__` (remote HTTP). Use the exact prefixed name when calling them.
+
+### Local CLI Tools (Option A only)
+
+| Tool | When to use |
+|---|---|
+| `mcp__dbt__list` | List all models, sources, tests, or seeds by type. Pass `--select` for filtering. |
+| `mcp__dbt__get_node_details_dev` | Get full details (SQL, columns, description, tags, config) for a specific model from `manifest.json`. |
+| `mcp__dbt__get_lineage_dev` | Trace upstream/downstream lineage from a model. `depth=1` for immediate parents/children. |
+| `mcp__dbt__compile` | Compile a model's Jinja SQL to raw SQL — useful to see the actual query before running. |
+| `mcp__dbt__parse` | Re-parse the project to refresh `manifest.json` after model changes. |
+| `mcp__dbt__show` | Run SQL against the warehouse and return sample rows. Use for spot-checking column values. |
+| `mcp__dbt__run` | Materialize one or more models. Use sparingly — only when the user explicitly asks. |
+| `mcp__dbt__build` | Run + test a selection. Use only when explicitly asked. |
+
+### Discovery API Tools (Option B / dbt Cloud)
+
+| Tool | When to use |
+|---|---|
+| `mcp__dbt__get_all_models` | List all models with names and descriptions. Good starting point for finding relevant tables. |
+| `mcp__dbt__get_all_sources` | List all sources with freshness status. |
+| `mcp__dbt__get_all_macros` | List macros — rarely needed for dashboard work. |
+
+### Documentation Tools (both options)
+
+| Tool | When to use |
+|---|---|
+| `mcp__dbt__search_product_docs` | Search dbt's official documentation at docs.getdbt.com. |
+| `mcp__dbt__get_product_doc_pages` | Fetch full content of a specific docs page. |
+
+---
+
+## Workflow: Finding the Right Tables for a Dashboard
+
+**Always follow this sequence before writing any dashboard SQL:**
+
+```
+1. mcp__dbt__get_all_models         → scan names + descriptions
+2. mcp__dbt__get_node_details_dev   → get exact column names for relevant models
+3. mcp__dbt__get_lineage_dev        → understand joins and upstream sources
+4. mcp__dbt__compile (optional)     → verify Jinja resolves to expected SQL
+5. Write BigQuery SQL using verified table/column names
+```
+
+If MCP is unavailable, fall back to the Static Reference section below and query `INFORMATION_SCHEMA.COLUMNS` to verify column names before writing panels.
+
+---
+
+## Project Schema Organization
+
+| Schema | Purpose | Examples |
+|---|---|---|
+| `dbt_staging_bigquery` | Raw staged events from BigQuery | `first_pageviews`, `all_pageviews`, `signups` |
+| `dbt_staging` | Raw staged data from other sources | `hubspot_companies`, `hubspot_contacts` |
+| `dbt_intermediate` | Joins, transforms, denormalization | `hubspot_form_submissions`, `deal_first_contact` |
+| `dbt_mapping` | Join tables, ID mappings | `hs_deals_to_contact_id`, `user_id_to_org_id` |
+| `dbt_mart` | Dimensional models (fact/dim tables) | `dim_hs_deals`, `dim_hs_contacts`, `dim_subscriptions` |
+| `dbt_analytics` | Reporting views, aggregates | `deals_by_motion`, `revenue_funnel`, `active_users` |
+| `dbt_dev` | Development/testing — **exclude from queries** | Auto-filtered by BigQuery lib |
+
+---
+
+## Static Reference: Key Tables and Columns
+
+Use these when MCP isn't connected. Always verify with `INFORMATION_SCHEMA.COLUMNS` before relying on any column name.
+
+| Table | Key Columns |
+|---|---|
+| `dbt_staging_bigquery.first_pageviews` | `visitor_id`, `url`, `referrer`, `created_date` (TIMESTAMP), `channel`, `utm_*`, `user_id`, `site_type` |
+| `dbt_staging_bigquery.all_pageviews` | `page_type`, `sub_page_type`, `first_touch_channel`, `session_channel`, `c_referrer`, `utm_*` |
+| `dbt_staging_bigquery.signups` | `visitor_id`, `user_id`, `root_organization_id`, `utm_*`, `signup_url`, `created_date` |
+| `dbt_analytics.product_signups` | `user_id`, `user_create_d` (TIMESTAMP), `channel`, `icp_flag`, `top_subscription`, `referrer`, `utm_*` |
+| `dbt_mart.dim_hs_contacts` | `contact_id`, `b_visitor_id`, `builder_user_id`, `ql_score`, `company_fit_score`, `lifecycle_stage_name`, `date_entered_mql/sal/s0/s1` |
+| `dbt_mart.dim_deals` | `deal_id`, `amount`, `stage_name` (NOT `deal_stage`), `is_closed_won` (string), `arr_amount`, `close_date`, `create_date` |
+| `dbt_mart.dim_subscriptions` | `subscription_id`, `root_id`, `space_id`, `subscription_arr`, `start_date`, `plan`, `status` |
+
+---
+
+## Common Join Paths
+
+```sql
+-- Visitor → Signup
+first_pageviews.visitor_id = signups.visitor_id
+
+-- Visitor → Contact
+first_pageviews.visitor_id = dim_hs_contacts.b_visitor_id
+
+-- Signup → Contact (always match BOTH — prevents false matches from ID reuse)
+signups.user_id = dim_hs_contacts.builder_user_id
+AND LOWER(signups.email) = LOWER(dim_hs_contacts.email)
+
+-- Signup → Subscription
+signups.root_organization_id = dim_subscriptions.root_id
+
+-- Contact → Deal
+-- Option 1: via mapping table
+dbt_intermediate.hs_deals_to_contact_id (unnests associatedcontactids JSON)
+-- Option 2: via lifecycle stage dates on dim_hs_contacts
+```
+
+---
+
+## Critical SQL Gotchas
+
+### Column Name Mismatches
+
+| Spec Column | Actual Column | Table |
+|---|---|---|
 | `first_pageview_date` | `created_date` (TIMESTAMP) | `first_pageviews` |
-| `channel`             | `first_touch_channel`      | `all_pageviews`   |
-| `referrer`            | `c_referrer`               | `all_pageviews`   |
-| `user_create_date`    | `user_create_d`            | `product_signups` |
-| `deal_stage`          | `stage_name`               | `dim_hs_deals`    |
-| `deal_amount`         | `amount`                   | `dim_hs_deals`    |
+| `channel` | `first_touch_channel` | `all_pageviews` |
+| `referrer` | `c_referrer` | `all_pageviews` |
+| `user_create_date` | `user_create_d` (TIMESTAMP) | `product_signups` |
+| `deal_stage` | `stage_name` | `dim_hs_deals` / `dim_deals` |
+| `deal_amount` | `amount` | `dim_hs_deals` / `dim_deals` |
 
-**Always verify column names** by querying `INFORMATION_SCHEMA.COLUMNS` or reading the source dbt model.
+**Resolution:** Use `mcp__dbt__get_node_details_dev` to get exact column names, or query `INFORMATION_SCHEMA.COLUMNS` before writing panel SQL.
 
-### 2. ARRAY_AGG Syntax
-
-❌ **WRONG** (DISTINCT + ORDER BY non-argument):
+### Type Casting
 
 ```sql
-ARRAY_AGG(DISTINCT form_name IGNORE NULLS ORDER BY form_fill_date LIMIT 1)
-```
-
-✅ **CORRECT** (remove DISTINCT or order by same column):
-
-```sql
--- Option 1: Remove DISTINCT (ORDER BY creates uniqueness)
-ARRAY_AGG(form_name IGNORE NULLS ORDER BY form_fill_date LIMIT 1)[SAFE_OFFSET(0)]
-
--- Option 2: Order by the aggregated column
-ARRAY_AGG(DISTINCT form_name ORDER BY form_name LIMIT 1)[SAFE_OFFSET(0)]
-```
-
-### 3. Type Casting
-
-BigQuery dbt models store booleans as strings in some tables. Always cast:
-
-```sql
--- dim_hs_deals.is_closed_won is STRING 'true'/'false', not BOOL
+-- is_closed_won is STRING 'true'/'false', NOT BOOL
 CASE WHEN CAST(is_closed_won AS STRING) = 'true' THEN 1 ELSE 0 END
 
--- Amounts may be STRING, cast to numeric
+-- Amounts can be STRING in some tables
 SUM(CAST(amount AS FLOAT64))
+
+-- first_pageviews.created_date is TIMESTAMP — wrap date literals:
+WHERE created_date >= TIMESTAMP('2025-01-01')
 ```
 
-### 4. Email Matching
-
-Always use case-insensitive email matching:
+### ARRAY_AGG Syntax (BigQuery)
 
 ```sql
-LOWER(qf.email) = LOWER(c.email)
+-- WRONG — DISTINCT + ORDER BY non-argument
+ARRAY_AGG(DISTINCT form_name IGNORE NULLS ORDER BY form_fill_date LIMIT 1)
+
+-- CORRECT — remove DISTINCT or order by the aggregated column
+ARRAY_AGG(form_name IGNORE NULLS ORDER BY form_fill_date LIMIT 1)[SAFE_OFFSET(0)]
 ```
 
-### 5. QUALIFY for Deduplication
-
-Use `QUALIFY` for window function filtering (cleaner than subquery):
+### Deduplication with QUALIFY
 
 ```sql
 SELECT *
@@ -120,183 +197,72 @@ FROM table
 QUALIFY ROW_NUMBER() OVER (PARTITION BY deal_id ORDER BY created_date) = 1
 ```
 
-### 6. NULL-Safe Joins
-
-When joining on potentially NULL columns (like visitor IDs):
+### Email Matching
 
 ```sql
-LEFT JOIN forms f
-  ON (
-    LOWER(f.email) = LOWER(c.email)
-    OR (f.b_visitor_id IS NOT NULL AND f.b_visitor_id = c.b_visitor_id)
-  )
+-- Always case-insensitive; NULL-safe for visitor IDs
+LOWER(a.email) = LOWER(b.email)
+OR (a.b_visitor_id IS NOT NULL AND a.b_visitor_id = b.b_visitor_id)
 ```
 
-## Common Join Paths
+---
 
-### HubSpot Deals → Contacts → Forms
+## Deal Motion Classification (Warm Outbound Detection)
 
-```sql
-FROM {{ ref("dim_hs_deals") }} d
-LEFT JOIN {{ ref("hs_deals_to_contact_id") }} dc
-  ON d.deal_id = dc.deal_id
-LEFT JOIN {{ ref("dim_hs_contacts") }} c
-  ON dc.contact_id = c.contact_id
-LEFT JOIN {{ ref("hubspot_form_submissions") }} f
-  ON LOWER(f.email) = LOWER(c.email)
-  AND f.form_fill_date < d.createdate
-```
-
-**Key points**:
-
-- `hs_deals_to_contact_id` unnests the `associatedcontactids` JSON array
-- Multiple contacts per deal → need aggregation or `QUALIFY` to dedupe
-- Match contacts to forms by email AND/OR `b_visitor_id`
-- Timestamp filter (`form_fill_date < deal.createdate`) for attribution
-
-### Visitor → Signup → Subscription
+Join `dbt_analytics.product_signups` (match by **both** email AND user_id with OR logic):
 
 ```sql
-FROM {{ ref("first_pageviews") }} fp
-LEFT JOIN {{ ref("signups") }} s
-  ON fp.visitor_id = s.visitor_id
-LEFT JOIN {{ ref("dim_subscriptions") }} sub
-  ON s.root_organization_id = sub.root_id
-```
-
-### Contact → User → Organization
-
-```sql
--- Use product_signups for user data
-FROM {{ ref("dim_hs_contacts") }} c
-LEFT JOIN {{ ref("product_signups") }} ps
-  ON LOWER(ps.email) = LOWER(c.email)
-  OR (ps.user_id IS NOT NULL AND ps.user_id = c.builder_user_id)
-LEFT JOIN {{ ref("dim_root_organizations") }} ro
-  ON ps.user_id = ro.user_id -- or use appropriate join key
-WHERE ps.user_create_d IS NOT NULL
-```
-
-**Important**: Use `dbt_analytics.product_signups` for signup data - it has the most complete user coverage. Match on both email and user_id for best results.
-
-## Testing Queries Before Creating Models
-
-**Always test SQL before creating dbt model**:
-
-1. Create test script in `code/scripts/test-<feature>.sql`
-2. Write BigQuery SQL with fully qualified table names:
-   ```sql
-   FROM `your-project-id.dbt_mart.dim_hs_deals`
-   ```
-3. Create runner script in `code/scripts/test-<feature>.ts`:
-   ```typescript
-   import { runQuery } from "../server/lib/bigquery";
-   import { readFileSync } from "fs";
-   const sql = readFileSync("scripts/test-<feature>.sql", "utf-8");
-   const result = await runQuery(sql);
-   console.log(result.rows);
-   ```
-4. Run: `pnpm action test-<feature>`
-5. Iterate until results are correct
-6. Convert to dbt syntax (replace table names with `{{ ref("table") }}`)
-7. Save final SQL to `code/.builder/dbt-models/<model_name>.sql`
-
-## Deal Motion Classification Patterns
-
-### Warm Outbound Detection
-
-To detect if a contact had a product signup before deal creation, use `dbt_analytics.product_signups`:
-
-```sql
--- Join to product_signups (match by email OR user_id)
--- AND signup was BEFORE deal creation
-LEFT JOIN {{ ref("product_signups") }} ps
+LEFT JOIN `builder-3b0a2.dbt_analytics.product_signups` ps
   ON (
     LOWER(ps.email) = LOWER(c.email)
     OR (ps.user_id IS NOT NULL AND ps.user_id = c.builder_user_id)
   )
-  AND ps.user_create_d < d.createdate
+  AND ps.user_create_d < d.createdate   -- signed up BEFORE deal was created
 ```
 
-**Key columns in product_signups**:
+**Critical**: Use `dbt_analytics.product_signups` not `dbt_staging_bigquery.signups` — the former has complete coverage. `user_create_d` is already TIMESTAMP, no conversion needed.
 
-- `user_id` - Builder user ID
-- `email` - User email
-- `user_create_d` (TIMESTAMP) - Signup/user creation date
+---
 
-**Critical**: Match on **both email AND user_id** with OR logic for complete coverage. `user_create_d` is already TIMESTAMP, no conversion needed.
-
-**Do NOT** use:
-
-- `dbt_staging_bigquery.signups` - incomplete coverage
-- `dim_hs_contacts.sign_up_time_stamp` - DATE type, requires conversion and has gaps
-
-### Form Submission Attribution
-
-When attributing form submissions to deals/contacts:
-
-**Qualifying form categories** (based on actual data analysis):
+## dbt Model Config Block Reference
 
 ```sql
-WHERE (
-  -- Sales-related forms
-  LOWER(form_name) LIKE '%sales%'
-  OR LOWER(conversion_details) LIKE '%sales%'
-
-  -- Demo forms
-  OR LOWER(form_name) LIKE '%demo%'
-  OR LOWER(conversion_details) LIKE '%demo%'
-
-  -- Specific high-intent forms
-  OR form_name = '[Marketing]  | Component Indexing Request'
-  OR conversion_details = 'Unlock Ent Trial'
-)
+{{
+    config(
+        schema="dbt_analytics",
+        materialized="table",    -- or "view", "incremental"
+        tags=["daily", "analytics"],
+    )
+}}
 ```
 
-**Common form names** (March 2026 data):
+---
 
-- `[Marketing] Sales Demo Form | 7.20.23` - 5,803 submissions
-- `[Marketing] Sales Demo Form - Unlock Enterprise Features` - 3,971 submissions
-- `Demo Library Form` - 1,866 submissions
-- `[Marketing]  | Component Indexing Request` - 51 submissions
+## Testing Queries Before Creating dbt Models
 
-## Model Documentation
+1. Write the SQL with fully qualified table names: `` `builder-3b0a2.dbt_mart.dim_hs_deals` ``
+2. Run via `pnpm action bigquery --sql "..."` to validate against the real warehouse
+3. If it passes, convert to dbt Jinja syntax (`{{ ref("table") }}`)
+4. Save to `code/.builder/dbt-models/<model_name>.sql` for the user to deploy
 
-Add to `dbt/models/analytics/_models.yml`:
+**Do NOT** create files in `dbt/models/` directly — that directory has restricted write access.
 
-```yaml
-- name: deals_inbound_outbound_motion
-  description: >
-    Classifies Enterprise deals as Inbound or Outbound based on whether 
-    any associated contact filled a qualifying form before deal creation.
-  columns:
-    - name: deal_id
-      description: Unique deal identifier
-    - name: deal_motion
-      description: "Inbound or Outbound classification"
-    - name: qualifying_form_count
-      description: "Number of distinct qualifying forms filled by associated contacts"
-    - name: first_qualifying_form_name
-      description: "Name of earliest qualifying form"
+---
+
+## Checking MCP Connection Status
+
+```bash
+curl /_agent-native/mcp/status
 ```
 
-## Performance Considerations
+Look for `"dbt"` in `connectedServers`. If absent, the dbt MCP server failed to connect — check `errors.dbt` for the reason (usually: uvx not installed, or env vars not set).
 
-- **Byte limits**: BigQuery queries have 750GB byte limit
-- **Table size**: `dim_hs_deals` ~3,400 rows, `hubspot_form_submissions` ~20K rows
-- **Caching**: 24-hour cache in `server/lib/bigquery.ts`
-- **Enterprise filter**: Always filter to Enterprise pipelines early in WHERE clause
-- **Avoid**: Unnecessary JOINs, avoid SELECT \* from large tables
+---
 
-## Useful AI Instructions to Add
+## When to Update This Skill
 
-Based on this analysis, here are additional AI instructions that would be helpful:
-
-1. **Form submission attribution logic** - Document the exact form categories that qualify as "inbound"
-2. **Deal-to-contact join patterns** - The unnesting of `associatedcontactids` is non-obvious
-3. **Column name mapping reference** - Centralized list of common mismatches
-4. **Type casting patterns** - Which fields need CAST and to what type
-5. **Email matching best practices** - Always case-insensitive, NULL-safe for visitor IDs
-6. **ARRAY_AGG syntax rules** - DISTINCT + ORDER BY gotcha
-7. **QUALIFY usage** - Preferred over subquery for window function filtering
-8. **Enterprise pipeline filter** - Standard WHERE clause for enterprise deals
+Update this skill when you:
+- Discover a new column name mismatch or gotcha
+- Find a new join pattern between dbt models
+- Learn a new dbt MCP tool or flag
+- Validate a query template that others would reuse
