@@ -102,6 +102,9 @@ export class McpClientManager {
   private config: McpConfig | null;
   private sdk: SdkModules | null = null;
   private readonly listeners: Set<() => void> = new Set();
+  /** Serialises reconfigure()/start() — two concurrent callers would
+   * otherwise race on `this.config` and on connect/disconnect ordering. */
+  private reconfigureQueue: Promise<unknown> = Promise.resolve();
 
   constructor(config: McpConfig | null, options: McpClientManagerOptions = {}) {
     this.config = config;
@@ -205,8 +208,19 @@ export class McpClientManager {
    * Connect to each configured MCP server (stdio or http) and enumerate tools.
    * Individual server failures are logged and skipped — the manager stays
    * usable with whichever servers did come up.
+   *
+   * Queued against `reconfigure()` so a `reconfigure` that lands before
+   * `start()` finishes can't race on `this.started` / `this.servers`.
    */
   async start(): Promise<void> {
+    const task = this.reconfigureQueue.then(() => this.startInternal());
+    this.reconfigureQueue = task.catch(() => {
+      /* failures surface on the caller, not on the queue */
+    });
+    return task;
+  }
+
+  private async startInternal(): Promise<void> {
     if (this.started) return;
     this.started = true;
     if (!this.enabled) return;
@@ -294,27 +308,43 @@ export class McpClientManager {
       { capabilities: {} },
     );
 
-    await client.connect(transport);
+    // If connect or listTools throws, we still need to release the child
+    // process (stdio) or pending HTTP session — otherwise repeated failures
+    // leak transports. Assign to the entry only after the handshake succeeds.
+    try {
+      await client.connect(transport);
+      const listed = await client.listTools();
+      const rawTools: Array<{
+        name: string;
+        description?: string;
+        inputSchema?: Record<string, unknown>;
+      }> = (listed?.tools ?? []) as any[];
 
-    const listed = await client.listTools();
-    const rawTools: Array<{
-      name: string;
-      description?: string;
-      inputSchema?: Record<string, unknown>;
-    }> = (listed?.tools ?? []) as any[];
-
-    entry.client = client;
-    entry.transport = transport;
-    entry.tools = rawTools.map((t) => ({
-      source: entry.id,
-      name: buildPrefixedName(entry.id, t.name),
-      originalName: t.name,
-      description: t.description ?? t.name,
-      inputSchema: (t.inputSchema ?? {
-        type: "object",
-        properties: {},
-      }) as Record<string, unknown>,
-    }));
+      entry.client = client;
+      entry.transport = transport;
+      entry.tools = rawTools.map((t) => ({
+        source: entry.id,
+        name: buildPrefixedName(entry.id, t.name),
+        originalName: t.name,
+        description: t.description ?? t.name,
+        inputSchema: (t.inputSchema ?? {
+          type: "object",
+          properties: {},
+        }) as Record<string, unknown>,
+      }));
+    } catch (err) {
+      try {
+        if (client?.close) await client.close();
+      } catch {
+        // ignore
+      }
+      try {
+        if (transport?.close) await transport.close();
+      } catch {
+        // ignore
+      }
+      throw err;
+    }
   }
 
   /**
@@ -323,9 +353,28 @@ export class McpClientManager {
    * removed entries are disconnected. Safe to call while `start()` is in
    * flight or after it has completed.
    *
+   * Serialised against `start()` and any other `reconfigure()` call via the
+   * internal queue — two concurrent mutations would otherwise interleave on
+   * `this.config` and on connect/disconnect ordering.
+   *
    * Returns a summary describing what happened for logging / UI feedback.
    */
   async reconfigure(newConfig: McpConfig | null): Promise<{
+    added: string[];
+    removed: string[];
+    unchanged: string[];
+    reconnected: string[];
+  }> {
+    const task = this.reconfigureQueue.then(() =>
+      this.reconfigureInternal(newConfig),
+    );
+    this.reconfigureQueue = task.catch(() => {
+      /* failures surface on the caller, not on the queue */
+    });
+    return task;
+  }
+
+  private async reconfigureInternal(newConfig: McpConfig | null): Promise<{
     added: string[];
     removed: string[];
     unchanged: string[];
