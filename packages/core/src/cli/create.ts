@@ -89,6 +89,16 @@ async function createWorkspaceInteractive(
 
   name = await promptNameIfMissing(name, clack, "workspace", "my-platform");
 
+  clack.note(
+    [
+      "A workspace is a monorepo that holds one or more apps sharing auth,",
+      "database, and the agent chat. Pick as many as you want — you can add",
+      "more later with `agent-native add-app`. Starter is a minimal scaffold,",
+      "useful as a blank app to build from scratch alongside the others.",
+    ].join("\n"),
+    "About workspaces",
+  );
+
   // Multi-select picker for apps to include.
   const preselected = parseTemplateList(opts?.template);
   const templates = await promptTemplatePicker(preselected, clack);
@@ -505,8 +515,9 @@ async function promptTemplatePicker(
         ? ["starter"]
         : [];
 
+  const baseMessage = opts?.message ?? "Which apps would you like to include?";
   const result = await clack.multiselect({
-    message: opts?.message ?? "Which apps would you like to include?",
+    message: `${baseMessage}\n  (↑/↓ move · space to toggle · enter to confirm)`,
     options,
     initialValues: defaults,
     required: false,
