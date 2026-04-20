@@ -626,18 +626,29 @@ async function applyHistoryDelta(
     for (const r of results) if (r) fetched.push(r);
   }
 
+  // If any fetch failed we can't tell whether the missing body would have
+  // been kept or filtered — advancing historyId would permanently hide
+  // those messages until the next cold load. Force a full rehydrate.
+  if (fetched.length < toFetch.length) return null;
+
   const merged = [...kept, ...fetched].sort((a, b) => {
     const ad = Number(a.internalDate || 0);
     const bd = Number(b.internalDate || 0);
     return bd - ad;
   });
 
-  // If removals shrank the cached window below `maxResults`, there are
-  // older messages in the account we'd need to pull forward — the delta
-  // alone can't fill the gap. Return null so the caller falls back to a
-  // full rehydrate, which is the correct (if more expensive) answer
-  // rather than quietly serving a short inbox.
-  if (entry.messages.length >= maxResults && merged.length < maxResults) {
+  // If the previous window was already full and ANY removal happened in
+  // this delta, older messages in the account may need to be pulled
+  // forward to fill the vacated slots. The delta alone can't see those
+  // (gmailListHistory only reports messages touched since startHistoryId),
+  // so even if `merged.length` still equals `maxResults` because of a
+  // same-delta restore of an older message, the top-N ordering can be
+  // wrong. Bail to full rehydrate whenever the window was full and
+  // anything was removed.
+  const anyRemoved =
+    deleted.size > 0 ||
+    Array.from(finalLabelOnWatched.values()).some((v) => v === false);
+  if (entry.messages.length >= maxResults && anyRemoved) {
     return null;
   }
 
@@ -675,6 +686,7 @@ async function fetchAccountWithHistory(
           messages: delta.messages,
           updatedAt: Date.now(),
         });
+        evictStaleHistoryCache();
         return delta.messages;
       }
       // Delta unusable — drop cache and fall through to full hydrate.
@@ -693,6 +705,7 @@ async function fetchAccountWithHistory(
         messages: init.messages,
         updatedAt: Date.now(),
       });
+      evictStaleHistoryCache();
     }
     return init.messages;
   })().finally(() => {
