@@ -231,17 +231,27 @@ export async function getClientForAccount(
   const all = await listOAuthAccounts("google");
   const account = all.find((a) => a.accountId === accountId);
   if (!account) return null;
+  return getClientFromAccount(account);
+}
 
+/**
+ * Same as getClientForAccount but takes a pre-fetched account object to
+ * avoid re-calling listOAuthAccounts. Use this inside loops that already
+ * have the accounts list loaded (watch renewal, bootstrap).
+ */
+export async function getClientFromAccount(
+  account: Awaited<ReturnType<typeof listOAuthAccounts>>[number],
+): Promise<{ accessToken: string; email: string } | null> {
   const tokens = account.tokens as unknown as GoogleTokens;
   if (!tokens) return null;
 
-  const ownerForRefresh = account.owner ?? accountId;
+  const ownerForRefresh = account.owner ?? account.accountId;
   const accessToken = await getValidAccessToken(
-    accountId,
+    account.accountId,
     tokens,
     ownerForRefresh,
   );
-  return { accessToken, email: accountId };
+  return { accessToken, email: account.accountId };
 }
 
 /**

@@ -8,5 +8,7 @@ export default createAuthPlugin({
   // Gmail Pub/Sub push notifications POST here from Google's servers — no
   // user session. The handler itself verifies the OIDC token when
   // GMAIL_PUSH_AUDIENCE is configured.
-  publicPaths: ["/api/gmail/push"],
+  // Cloud Scheduler POSTs to /api/gmail/watch/renew every 6h for watch
+  // lifecycle; same OIDC-verification pattern.
+  publicPaths: ["/api/gmail/push", "/api/gmail/watch/renew"],
 });
