@@ -1766,6 +1766,9 @@ importers:
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
+      drizzle-kit:
+        specifier: ^0.31.10
+        version: 0.31.10
       lucide-react:
         specifier: ^0.539.0
         version: 0.539.0(react@18.3.1)
@@ -3448,6 +3451,9 @@ importers:
       date-fns:
         specifier: ^4.1.0
         version: 4.1.0
+      drizzle-kit:
+        specifier: ^0.31.10
+        version: 0.31.10
       embla-carousel-react:
         specifier: ^8.6.0
         version: 8.6.0(react@18.3.1)
@@ -3885,6 +3891,9 @@ importers:
       date-fns:
         specifier: ^4.1.0
         version: 4.1.0
+      drizzle-kit:
+        specifier: ^0.31.10
+        version: 0.31.10
       embla-carousel-react:
         specifier: ^8.6.0
         version: 8.6.0(react@18.3.1)

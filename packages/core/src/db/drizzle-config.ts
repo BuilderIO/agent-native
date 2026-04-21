@@ -35,10 +35,28 @@ export function createDrizzleConfig(
     sqliteFile = "./data/app.db",
   } = opts;
 
-  const url = process.env.DATABASE_URL || `file:${sqliteFile}`;
+  // Mirror getDatabaseUrl / getDatabaseAuthToken from @agent-native/core (db/client)
+  // without importing — drizzle-kit configs should stay side-effect-free.
+  const appName = process.env.APP_NAME?.toUpperCase().replace(/-/g, "_");
+  const envUrl =
+    (appName && process.env[`${appName}_DATABASE_URL`]) ||
+    process.env.DATABASE_URL ||
+    "";
+  const envAuthToken =
+    (appName && process.env[`${appName}_DATABASE_AUTH_TOKEN`]) ||
+    process.env.DATABASE_AUTH_TOKEN;
+
+  const url = envUrl || `file:${sqliteFile}`;
   const isPostgres =
     url.startsWith("postgres://") || url.startsWith("postgresql://");
   const isTurso = url.startsWith("libsql://") || url.startsWith("https://");
+
+  // For SQLite, drizzle-kit wants a filesystem path, not a URL. Strip the
+  // `file:` scheme if the user passed one via DATABASE_URL, else fall back
+  // to the explicit sqliteFile option.
+  const sqlitePath = envUrl.startsWith("file:")
+    ? envUrl.slice("file:".length)
+    : sqliteFile;
 
   return defineConfig({
     schema,
@@ -47,7 +65,7 @@ export function createDrizzleConfig(
     dbCredentials: isPostgres
       ? { url }
       : isTurso
-        ? { url, authToken: process.env.DATABASE_AUTH_TOKEN! }
-        : { url: sqliteFile },
+        ? { url, authToken: envAuthToken! }
+        : { url: sqlitePath },
   });
 }
