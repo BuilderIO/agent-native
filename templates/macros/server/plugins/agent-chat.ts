@@ -24,7 +24,6 @@ import weightsHistory from "../../actions/weights-history.js";
 
 export default createAgentChatPlugin({
   appId: "macros",
-  model: "claude-haiku-4-5-20251001",
   // Voice-first app: keep the prompt tight. Skip the framework preamble,
   // resource loading, SQL schema dump, and workspace inventory — the
   // template prompt below has everything this agent needs.
