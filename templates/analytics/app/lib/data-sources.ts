@@ -19,7 +19,7 @@ import {
   IconSearch,
   IconCloud,
   IconGauge,
-  IconSpreadsheet,
+  IconFileSpreadsheet,
 } from "@tabler/icons-react";
 
 export type DataSourceCategory =
@@ -306,7 +306,7 @@ export const dataSources: DataSource[] = [
     name: "Sigma Computing",
     description: "Browse workbooks, data models, lineage, and export data via MCP",
     category: "analytics",
-    icon: IconSpreadsheet,
+    icon: IconFileSpreadsheet,
     envKeys: ["SIGMA_CLIENT_ID", "SIGMA_CLIENT_SECRET", "SIGMA_API_BASE_URL"],
     docsUrl: "https://help.sigmacomputing.com/reference/get-started-sigma-api",
     walkthroughSteps: [
