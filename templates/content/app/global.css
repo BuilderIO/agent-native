@@ -1,102 +1,98 @@
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@import "@agent-native/core/styles/agent-native.css";
+
+@source "./**/*.{ts,tsx}";
 
 /* ===== Light Mode (Notion light) ===== */
-@layer base {
-  :root {
-    --background: 0 0% 100%;
-    --foreground: 0 0% 15%;
 
-    --card: 0 0% 100%;
-    --card-foreground: 0 0% 15%;
+:root {
+  --background: 0 0% 100%;
+  --foreground: 0 0% 15%;
 
-    --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 15%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 15%;
 
-    --primary: 0 0% 15%;
-    --primary-foreground: 0 0% 100%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 15%;
 
-    --secondary: 0 0% 96%;
-    --secondary-foreground: 0 0% 15%;
+  --primary: 0 0% 15%;
+  --primary-foreground: 0 0% 100%;
 
-    --muted: 0 0% 96%;
-    --muted-foreground: 0 0% 45%;
+  --secondary: 0 0% 96%;
+  --secondary-foreground: 0 0% 15%;
 
-    --accent: 0 0% 96%;
-    --accent-foreground: 0 0% 15%;
+  --muted: 0 0% 96%;
+  --muted-foreground: 0 0% 45%;
 
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 100%;
+  --accent: 0 0% 96%;
+  --accent-foreground: 0 0% 15%;
 
-    --border: 0 0% 90%;
-    --input: 0 0% 90%;
-    --ring: 0 0% 15%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
 
-    --radius: 0.375rem;
+  --border: 0 0% 90%;
+  --input: 0 0% 90%;
+  --ring: 0 0% 15%;
 
-    /* Sidebar light = Notion light sidebar */
-    --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 0 0% 45%;
-    --sidebar-primary: 0 0% 15%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 0 0% 93%;
-    --sidebar-accent-foreground: 0 0% 15%;
-    --sidebar-border: 0 0% 92%;
-    --sidebar-ring: 0 0% 15%;
-    --sidebar-muted: 0 0% 55%;
-  }
+  --radius: 0.375rem;
 
-  /* ===== Dark Mode ===== */
-  .dark {
-    --background: 220 6% 6%;
-    --foreground: 0 0% 90%;
+  /* Sidebar light = Notion light sidebar */
+  --sidebar-background: 0 0% 98%;
+  --sidebar-foreground: 0 0% 45%;
+  --sidebar-primary: 0 0% 15%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 0 0% 93%;
+  --sidebar-accent-foreground: 0 0% 15%;
+  --sidebar-border: 0 0% 92%;
+  --sidebar-ring: 0 0% 15%;
+  --sidebar-muted: 0 0% 55%;
+}
 
-    --card: 220 5% 6%;
-    --card-foreground: 0 0% 90%;
+/* ===== Dark Mode ===== */
+.dark {
+  --background: 220 6% 6%;
+  --foreground: 0 0% 90%;
 
-    --popover: 220 5% 10%;
-    --popover-foreground: 0 0% 90%;
+  --card: 220 5% 6%;
+  --card-foreground: 0 0% 90%;
 
-    --primary: 0 0% 90%;
-    --primary-foreground: 220 6% 6%;
+  --popover: 220 5% 10%;
+  --popover-foreground: 0 0% 90%;
 
-    --secondary: 220 4% 12%;
-    --secondary-foreground: 0 0% 90%;
+  --primary: 0 0% 90%;
+  --primary-foreground: 220 6% 6%;
 
-    --muted: 220 4% 10%;
-    --muted-foreground: 220 4% 60%;
+  --secondary: 220 4% 12%;
+  --secondary-foreground: 0 0% 90%;
 
-    --accent: 220 4% 13%;
-    --accent-foreground: 0 0% 90%;
+  --muted: 220 4% 10%;
+  --muted-foreground: 220 4% 60%;
 
-    --destructive: 0 62% 50%;
-    --destructive-foreground: 0 0% 100%;
+  --accent: 220 4% 13%;
+  --accent-foreground: 0 0% 90%;
 
-    --border: 220 4% 14%;
-    --input: 220 4% 14%;
-    --ring: 0 0% 50%;
+  --destructive: 0 62% 50%;
+  --destructive-foreground: 0 0% 100%;
 
-    /* Sidebar dark */
-    --sidebar-background: 220 6% 4%;
-    --sidebar-foreground: 220 4% 60%;
-    --sidebar-primary: 0 0% 75%;
-    --sidebar-primary-foreground: 220 6% 6%;
-    --sidebar-accent: 220 4% 10%;
-    --sidebar-accent-foreground: 0 0% 90%;
-    --sidebar-border: 220 4% 10%;
-    --sidebar-ring: 0 0% 60%;
-    --sidebar-muted: 0 0% 50%;
-  }
+  --border: 220 4% 14%;
+  --input: 220 4% 14%;
+  --ring: 0 0% 50%;
+
+  /* Sidebar dark */
+  --sidebar-background: 220 6% 4%;
+  --sidebar-foreground: 220 4% 60%;
+  --sidebar-primary: 0 0% 75%;
+  --sidebar-primary-foreground: 220 6% 6%;
+  --sidebar-accent: 220 4% 10%;
+  --sidebar-accent-foreground: 0 0% 90%;
+  --sidebar-border: 220 4% 10%;
+  --sidebar-ring: 0 0% 60%;
+  --sidebar-muted: 0 0% 50%;
 }
 
 @layer base {
-  * {
-    @apply border-border;
-  }
-
   body {
     @apply bg-background text-foreground;
     font-family:
