@@ -15,10 +15,11 @@ export interface CreateDrizzleConfigOptions {
 /**
  * Create a dialect-detecting drizzle-kit config.
  *
- * Inspects `process.env.DATABASE_URL` and picks the right `dialect` +
- * `dbCredentials` for Postgres (Neon/Supabase), Turso/libsql, or local SQLite.
- * Falls back to `file:./data/app.db` when `DATABASE_URL` is unset so local dev
- * keeps working.
+ * Inspects `process.env.NETLIFY_DATABASE_URL` (set by the Netlify↔Neon
+ * integration with a deploy-context-aware value), then `process.env.DATABASE_URL`,
+ * and picks the right `dialect` + `dbCredentials` for Postgres (Neon/Supabase),
+ * Turso/libsql, or local SQLite. Falls back to `file:./data/app.db` when no URL
+ * is set so local dev keeps working.
  *
  * Usage:
  * ```ts
@@ -35,7 +36,10 @@ export function createDrizzleConfig(
     sqliteFile = "./data/app.db",
   } = opts;
 
-  const url = process.env.DATABASE_URL || `file:${sqliteFile}`;
+  const url =
+    process.env.NETLIFY_DATABASE_URL ||
+    process.env.DATABASE_URL ||
+    `file:${sqliteFile}`;
   const isPostgres =
     url.startsWith("postgres://") || url.startsWith("postgresql://");
   const isTurso = url.startsWith("libsql://") || url.startsWith("https://");
