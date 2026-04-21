@@ -97,7 +97,7 @@ class AnthropicEngine implements AgentEngine {
 
     const requestParams: any = {
       model: opts.model,
-      max_tokens: opts.maxTokens ?? 16384,
+      max_tokens: opts.maxOutputTokens ?? 16384,
       system: systemBlocks,
       tools: cachedTools.length > 0 ? cachedTools : undefined,
       messages,
