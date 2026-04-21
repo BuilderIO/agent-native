@@ -449,9 +449,13 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
         }
       }
 
-      // If some accounts failed but others succeeded, add warning header
+      // If some accounts failed but others succeeded, add warning header.
+      // HTTP headers must be ByteString (code points <= 255), so strip any
+      // UTF-8 that might land in an error message (em dashes, smart quotes,
+      // etc. from Google error responses). Otherwise the whole handler 500s.
       if (errors.length > 0) {
-        setResponseHeader(event, "X-Account-Errors", JSON.stringify(errors));
+        const safe = JSON.stringify(errors).replace(/[^\x20-\x7e]/g, "?");
+        setResponseHeader(event, "X-Account-Errors", safe);
       }
 
       // Encode next page token for the frontend

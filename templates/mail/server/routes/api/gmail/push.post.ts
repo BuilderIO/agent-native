@@ -55,31 +55,29 @@ async function verifyPubSubToken(authHeader: string): Promise<JWTPayload> {
 }
 
 export default defineEventHandler(async (event: H3Event) => {
-  // Fail closed when watches are enabled. If GMAIL_WATCH_TOPIC is set we are
-  // actively subscribing for push notifications, so the endpoint MUST verify
-  // incoming payloads — otherwise any public caller can post forged
-  // historyId bumps and force the server into garbage-hydrate loops. OIDC
-  // verification is keyed off GMAIL_PUSH_AUDIENCE; both must be configured
-  // together. Without GMAIL_WATCH_TOPIC (watches disabled) we accept
-  // unauthenticated pushes as a no-op pathway for local/dev testing.
-  const watchesEnabled = !!process.env.GMAIL_WATCH_TOPIC;
+  // The push endpoint is registered as a public path so Google's Pub/Sub
+  // can reach it without a user session. That's only safe when OIDC
+  // verification is active — otherwise any caller who knows an email
+  // address could bump historyId and force cache invalidation + Gmail
+  // rehydrate loops on the server. So:
+  //
+  //   - GMAIL_PUSH_AUDIENCE set   → verify every request; reject on failure.
+  //   - GMAIL_PUSH_AUDIENCE unset → the endpoint is disabled. Return 503 so
+  //     a misconfigured deployment (watches running via GMAIL_WATCH_TOPIC
+  //     with no audience) surfaces in Pub/Sub's delivery metrics, and so
+  //     anonymous callers can't trigger processing.
   const audience = process.env.GMAIL_PUSH_AUDIENCE;
-  if (watchesEnabled && !audience) {
-    console.error(
-      "[gmail-push] GMAIL_WATCH_TOPIC set but GMAIL_PUSH_AUDIENCE missing — rejecting to avoid unauthenticated push processing",
-    );
+  if (!audience) {
     setResponseStatus(event, 503);
-    return { ok: false, error: "push auth not configured" };
+    return { ok: false, error: "push endpoint disabled" };
   }
-  if (audience) {
-    const authHeader = getHeader(event, "authorization") || "";
-    try {
-      await verifyPubSubToken(authHeader);
-    } catch (err: any) {
-      console.warn(`[gmail-push] OIDC verify failed: ${err.message}`);
-      setResponseStatus(event, 401);
-      return { ok: false, error: "unauthorized" };
-    }
+  const authHeader = getHeader(event, "authorization") || "";
+  try {
+    await verifyPubSubToken(authHeader);
+  } catch (err: any) {
+    console.warn(`[gmail-push] OIDC verify failed: ${err.message}`);
+    setResponseStatus(event, 401);
+    return { ok: false, error: "unauthorized" };
   }
 
   let body: any;
