@@ -26,8 +26,7 @@ function hasGoogleOAuth(): boolean {
 }
 
 function getConnectionLabel(): string {
-  const url =
-    process.env.NETLIFY_DATABASE_URL || process.env.DATABASE_URL || "";
+  const url = process.env.DATABASE_URL || "";
   if (!url) return "SQLite (local file)";
   if (url.startsWith("postgres://") || url.startsWith("postgresql://")) {
     if (url.includes("neon.tech")) return "Neon Postgres";

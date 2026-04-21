@@ -11,17 +11,24 @@ connection string as `NETLIFY_DATABASE_URL` into that deploy's env, and
 deletes the branch when the deploy is cleaned up. Production deploys on
 `main` keep using the prod branch.
 
-## What's already done (code)
+## What's already done (config)
 
-- `getDatabaseUrl()` in `@agent-native/core/db/client` prefers
-  `NETLIFY_DATABASE_URL` over `DATABASE_URL`, so once the integration sets it,
-  the runtime picks up the branched DB automatically.
-- `createDrizzleConfig()` in `@agent-native/core/db/drizzle-config` does the
-  same, so `drizzle-kit push --force` in the Netlify build pushes schema to
-  the preview branch, not prod.
-- `onboarding-html.ts` reads the same fallback for the local-dev banner.
+Every template's `netlify.toml` build command now starts with:
 
-No per-template code changes are needed — the fallback is global.
+```
+export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && ...
+```
+
+That's the whole mapping. If the Netlify↔Neon extension is installed and the
+site is linked, Netlify injects `NETLIFY_DATABASE_URL` per deploy context
+(prod branch for prod, preview branch for previews) and the shell expansion
+overrides `DATABASE_URL` with it before `pnpm install`, `drizzle-kit push`,
+and the Nitro build all read it. If the extension is not installed, the
+fallback leaves the existing `DATABASE_URL` untouched.
+
+`@agent-native/core` stays provider-agnostic — it only ever reads
+`DATABASE_URL`. The Netlify-specific convention lives in each template's
+`netlify.toml`, not in framework code.
 
 ## What has to be done in the Netlify UI (one-time per team + per site)
 

@@ -1,5 +1,5 @@
 [build]
-  command = "pnpm install && NITRO_PRESET=netlify pnpm --filter analytics build"
+  command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter analytics build"
   publish = "templates/analytics/dist"
   functions = "templates/analytics/.netlify/functions-internal"
 

@@ -33,11 +33,6 @@ export interface DbExec {
  * then falls back to `DATABASE_URL`. This allows multiple apps to run in the
  * same process group (e.g. `dev:all` or builder.io) with separate databases.
  *
- * `NETLIFY_DATABASE_URL` is also honored as a fallback — the Netlify↔Neon
- * integration injects a per-deploy branch URL under that name in preview
- * builds, so preview deploys automatically point at a branched Neon DB
- * while production stays on whatever `DATABASE_URL` is set to.
- *
  * Set `APP_NAME=mail` in the child process env and
  * `MAIL_DATABASE_URL=postgres://...` in the shared env.
  */
@@ -47,12 +42,7 @@ export function getDatabaseUrl(fallback = ""): string {
     const prefixed = process.env[`${appName}_DATABASE_URL`];
     if (prefixed) return prefixed;
   }
-  // Prefer NETLIFY_DATABASE_URL when present — the Netlify↔Neon integration
-  // injects a deploy-context-aware value (prod branch for prod, preview branch
-  // for previews), and we want that to win over any stale manual DATABASE_URL.
-  return (
-    process.env.NETLIFY_DATABASE_URL || process.env.DATABASE_URL || fallback
-  );
+  return process.env.DATABASE_URL || fallback;
 }
 
 /** Same per-app resolution for DATABASE_AUTH_TOKEN (used by Turso/libsql). */

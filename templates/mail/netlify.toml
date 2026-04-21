@@ -1,5 +1,5 @@
 [build]
-  command = "pnpm install && pnpm --filter mail exec drizzle-kit push --force && NITRO_PRESET=netlify pnpm --filter mail build"
+  command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && pnpm --filter mail exec drizzle-kit push --force && NITRO_PRESET=netlify pnpm --filter mail build"
   publish = "templates/mail/dist"
   functions = "templates/mail/.netlify/functions-internal"
 

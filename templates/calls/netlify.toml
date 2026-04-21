@@ -1,5 +1,5 @@
 [build]
-  command = "pnpm install && NITRO_PRESET=netlify pnpm --filter calls build"
+  command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter calls build"
   publish = "templates/calls/dist"
   functions = "templates/calls/.netlify/functions-internal"
 

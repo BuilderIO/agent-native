@@ -1,5 +1,5 @@
 [build]
-  command = "pnpm install && pnpm --filter issues exec drizzle-kit push --force && NITRO_PRESET=netlify pnpm --filter issues build"
+  command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && pnpm --filter issues exec drizzle-kit push --force && NITRO_PRESET=netlify pnpm --filter issues build"
   publish = "templates/issues/dist"
   functions = "templates/issues/.netlify/functions-internal"
 
