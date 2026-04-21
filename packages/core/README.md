@@ -123,7 +123,7 @@ my-platform/
 ├── pnpm-workspace.yaml
 ├── .env                           # shared secrets: ANTHROPIC_API_KEY, BUILDER_PRIVATE_KEY, A2A_SECRET, ...
 ├── packages/
-│   └── core-module/               # shared auth, agent-chat plugin, skills, tailwind preset
+│   └── core-module/               # shared auth, agent-chat plugin, skills, Tailwind v4 design tokens
 └── apps/
     ├── mail/
     ├── calendar/

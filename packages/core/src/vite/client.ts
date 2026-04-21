@@ -131,6 +131,12 @@ export interface ClientConfigOptions {
   /** Additional Vite optimizeDeps configuration */
   optimizeDeps?: { include?: string[]; exclude?: string[] };
   /**
+   * Whether to auto-inject the Tailwind v4 Vite plugin (`@tailwindcss/vite`).
+   * Defaults to true — set to `false` if a template wants to manage Tailwind
+   * itself (e.g. the legacy v3 PostCSS pipeline).
+   */
+  tailwind?: boolean;
+  /**
    * Package names to stub in the SSR bundle with an empty proxy object.
    *
    * Use this for dependencies that only run in the browser (canvas / diagram
@@ -541,6 +547,20 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
   // Build the React transform plugin (only for legacy SPA mode)
   const reactPluginInstance = reactTransformPlugin?.();
 
+  // Auto-inject the Tailwind v4 Vite plugin if `@tailwindcss/vite` is
+  // installed (which it is by default for all agent-native templates).
+  // Templates can opt out by setting `options.tailwind = false`.
+  let tailwindPluginInstance: any = null;
+  if (options.tailwind !== false) {
+    try {
+      let tailwindPlugin = require("@tailwindcss/vite");
+      if (tailwindPlugin.default) tailwindPlugin = tailwindPlugin.default;
+      tailwindPluginInstance = tailwindPlugin();
+    } catch {
+      // Plugin not installed — silently skip. Old templates may still be on v3.
+    }
+  }
+
   // APP_BASE_PATH lets this app be mounted under a prefix (e.g. "/mail") as
   // part of a unified workspace deploy. Defaults to "/" for standalone apps.
   const appBasePath =
@@ -578,7 +598,8 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     plugins: [
       // Stub packages from `options.ssrStubs` in the SSR bundle so they
       // don't bloat the edge worker. Opt-in per template — the framework
-      // hardcodes nothing.
+      // hardcodes nothing (e.g. docs sites legitimately import `shiki` on
+      // the server, so we can't blanket-stub it here).
       ...(() => {
         const p = ssrStubPlugin(options.ssrStubs ?? []);
         return p ? [p] : [];
@@ -601,6 +622,7 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
             } as any),
           ]),
       reactPluginInstance,
+      tailwindPluginInstance,
       ...(options.plugins ?? []),
     ].filter(Boolean),
     optimizeDeps: {

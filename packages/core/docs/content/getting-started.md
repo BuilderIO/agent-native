@@ -81,16 +81,28 @@ export default defineConfig();
 { "extends": "@agent-native/core/tsconfig.base.json" }
 ```
 
-```ts
-// tailwind.config.ts
-import type { Config } from "tailwindcss";
-import preset from "@agent-native/core/tailwind";
+```css
+/* app/global.css — Tailwind v4 (CSS-first, no tailwind.config.ts needed) */
+@import "tailwindcss";
+@import "@agent-native/core/styles/agent-native.css";
 
-export default {
-  presets: [preset],
-  content: ["./app/**/*.{ts,tsx}"],
-} satisfies Config;
+@source "./**/*.{ts,tsx}";
+
+:root {
+  --background: 0 0% 100%;
+  --foreground: 220 10% 10%;
+  /* ...rest of your shadcn-style tokens */
+}
+
+.dark {
+  --background: 220 6% 6%;
+  --foreground: 0 0% 90%;
+  /* ... */
+}
 ```
+
+The framework auto-injects `@tailwindcss/vite` from `defineConfig()`.
+No `tailwind.config.ts`, `postcss.config.js`, or vite changes needed.
 
 ## Architecture Principles {#architecture-principles}
 

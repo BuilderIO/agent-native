@@ -20,10 +20,7 @@
       "types": "./src/credentials.ts",
       "default": "./src/credentials.ts"
     },
-    "./tailwind": {
-      "types": "./tailwind.preset.ts",
-      "default": "./tailwind.preset.ts"
-    }
+    "./styles/tokens.css": "./styles/tokens.css"
   },
   "dependencies": {
     "@agent-native/core": "^0.6.0"

@@ -77,15 +77,22 @@ const markdownStyles = `
 .agent-markdown h3 { font-size: 1em; font-weight: 600; margin: 0.75em 0 0.25em; }
 .agent-markdown strong { font-weight: 600; }
 .agent-markdown em { font-style: italic; }
-.agent-markdown code { font-size: 0.875em; padding: 0.15em 0.35em; border-radius: 0.25em; background: var(--color-muted, hsl(0 0% 15%)); }
-.agent-markdown pre { margin: 0.5em 0; padding: 0.75em 1em; border-radius: 0.375em; background: var(--color-muted, hsl(0 0% 15%)); overflow-x: auto; }
-.agent-markdown pre code { padding: 0; background: transparent; font-size: 0.8125em; }
-.agent-markdown hr { border: none; border-top: 1px solid var(--color-border, hsl(0 0% 20%)); margin: 0.75em 0; }
+.agent-markdown code { font-size: 0.875em; padding: 0.15em 0.35em; border-radius: 0.25em; background: hsl(var(--muted, 0 0% 15%)); color: hsl(var(--foreground, 0 0% 90%)); }
+.agent-markdown pre { margin: 0.5em 0; padding: 0.75em 1em; border-radius: 0.375em; background: hsl(var(--muted, 0 0% 15%)); color: hsl(var(--foreground, 0 0% 90%)); overflow-x: auto; }
+.agent-markdown pre code { padding: 0; background: transparent; font-size: 0.8125em; color: inherit; }
+.agent-markdown-shiki { margin: 0.5em 0; border-radius: 0.375em; overflow: hidden; font-size: 0.8125em; }
+.agent-markdown-shiki pre { margin: 0; padding: 0.75em 1em; overflow-x: auto; background: var(--shiki-light-bg); color: var(--shiki-light); }
+.agent-markdown-shiki pre code { background: transparent; padding: 0; font-size: inherit; color: inherit; }
+.agent-markdown-shiki pre span { color: var(--shiki-light); background: var(--shiki-light-bg); }
+.dark .agent-markdown-shiki pre { background: var(--shiki-dark-bg); color: var(--shiki-dark); }
+.dark .agent-markdown-shiki pre span { color: var(--shiki-dark); background: var(--shiki-dark-bg); }
+@media (prefers-color-scheme: dark) { :root:not(.light) .agent-markdown-shiki pre { background: var(--shiki-dark-bg); color: var(--shiki-dark); } :root:not(.light) .agent-markdown-shiki pre span { color: var(--shiki-dark); background: var(--shiki-dark-bg); } }
+.agent-markdown hr { border: none; border-top: 1px solid hsl(var(--border, 0 0% 20%)); margin: 0.75em 0; }
 .agent-markdown a { text-decoration: underline; text-underline-offset: 2px; }
-.agent-markdown blockquote { border-left: 2px solid var(--color-border, hsl(0 0% 20%)); padding-left: 0.75em; margin: 0.5em 0; opacity: 0.8; }
+.agent-markdown blockquote { border-left: 2px solid hsl(var(--border, 0 0% 20%)); padding-left: 0.75em; margin: 0.5em 0; opacity: 0.8; }
 .agent-markdown table { border-collapse: collapse; margin: 0.5em 0; font-size: 0.875em; }
-.agent-markdown th, .agent-markdown td { border: 1px solid var(--color-border, hsl(0 0% 20%)); padding: 0.35em 0.65em; text-align: left; }
-.agent-markdown th { font-weight: 600; background: var(--color-muted, hsl(0 0% 15%)); }
+.agent-markdown th, .agent-markdown td { border: 1px solid hsl(var(--border, 0 0% 20%)); padding: 0.35em 0.65em; text-align: left; }
+.agent-markdown th { font-weight: 600; background: hsl(var(--muted, 0 0% 15%)); color: hsl(var(--foreground, 0 0% 90%)); }
 `;
 
 let stylesInjected = false;
@@ -107,6 +114,120 @@ function extractCodeText(child: React.ReactNode): string {
   return "";
 }
 
+// Lazy-loaded shiki highlighter using the fine-grained API so we only ship
+// the languages and themes we actually use (instead of shiki's full ~30 MB
+// bundle of every grammar). This is required to keep the Cloudflare Pages
+// Functions bundle under the 25 MiB limit.
+type ShikiHighlighter = {
+  codeToHtml: (
+    code: string,
+    options: {
+      lang: string;
+      themes: { light: string; dark: string };
+      defaultColor?: false | "light" | "dark";
+    },
+  ) => string | Promise<string>;
+  getLoadedLanguages: () => string[];
+};
+
+let highlighterLoader: Promise<ShikiHighlighter> | null = null;
+function loadHighlighter(): Promise<ShikiHighlighter> {
+  if (!highlighterLoader) {
+    highlighterLoader = (async () => {
+      const [{ createHighlighterCore }, { createOnigurumaEngine }] =
+        await Promise.all([
+          import("shiki/core"),
+          import("shiki/engine/oniguruma"),
+        ]);
+      return createHighlighterCore({
+        themes: [
+          import("shiki/themes/github-light-default.mjs"),
+          import("shiki/themes/github-dark-default.mjs"),
+        ],
+        langs: [
+          import("shiki/langs/javascript.mjs"),
+          import("shiki/langs/typescript.mjs"),
+          import("shiki/langs/jsx.mjs"),
+          import("shiki/langs/tsx.mjs"),
+          import("shiki/langs/json.mjs"),
+          import("shiki/langs/css.mjs"),
+          import("shiki/langs/html.mjs"),
+          import("shiki/langs/markdown.mjs"),
+          import("shiki/langs/bash.mjs"),
+          import("shiki/langs/shellscript.mjs"),
+          import("shiki/langs/python.mjs"),
+          import("shiki/langs/yaml.mjs"),
+        ],
+        engine: createOnigurumaEngine(import("shiki/wasm")),
+      }) as unknown as Promise<ShikiHighlighter>;
+    })().catch((error) => {
+      // Reset on failure so a future code block can retry instead of
+      // silently failing forever on a stale chunk / network blip.
+      highlighterLoader = null;
+      throw error;
+    });
+  }
+  return highlighterLoader;
+}
+
+// Map a few common aliases to languages we bundled above.
+const LANG_ALIASES: Record<string, string> = {
+  js: "javascript",
+  ts: "typescript",
+  sh: "bash",
+  shell: "bash",
+  zsh: "bash",
+  py: "python",
+  yml: "yaml",
+  md: "markdown",
+};
+
+function HighlightedCodeBlock({ code, lang }: { code: string; lang: string }) {
+  const [html, setHtml] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    loadHighlighter()
+      .then((highlighter) => {
+        const requested = (lang || "text").toLowerCase();
+        const resolved = LANG_ALIASES[requested] ?? requested;
+        const loaded = highlighter.getLoadedLanguages();
+        const finalLang = loaded.includes(resolved) ? resolved : "text";
+        return highlighter.codeToHtml(code, {
+          lang: finalLang,
+          themes: {
+            light: "github-light-default",
+            dark: "github-dark-default",
+          },
+          defaultColor: false,
+        });
+      })
+      .then((out) => {
+        if (!cancelled) setHtml(out);
+      })
+      .catch(() => {
+        // Unknown language or other shiki failure — fall back to plain pre.
+        if (!cancelled) setHtml(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [code, lang]);
+
+  if (html) {
+    return (
+      <div
+        className="agent-markdown-shiki"
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+    );
+  }
+  return (
+    <pre>
+      <code className={lang ? `language-${lang}` : undefined}>{code}</code>
+    </pre>
+  );
+}
+
 const markdownComponents = {
   pre(props: React.HTMLAttributes<HTMLPreElement>) {
     const { children, ...rest } = props;
@@ -122,6 +243,11 @@ const markdownComponents = {
         return (
           <IframeEmbed {...(parsed as Parameters<typeof IframeEmbed>[0])} />
         );
+      }
+      const langMatch = className.match(/\blanguage-([\w+-]+)\b/);
+      if (langMatch) {
+        const code = extractCodeText(childProps.children).replace(/\n$/, "");
+        return <HighlightedCodeBlock code={code} lang={langMatch[1]} />;
       }
     }
     return <pre {...rest}>{children}</pre>;

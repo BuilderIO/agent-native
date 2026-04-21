@@ -1,13 +1,19 @@
 import type { Config } from "tailwindcss";
 
 /**
- * Agent-native Tailwind preset.
- * Provides the standard HSL variable-based color system, shadcn/ui compatible
- * theme tokens, sidebar colors, border radius, and accordion animations.
+ * @deprecated Legacy Tailwind v3 preset.
  *
- * Usage in tailwind.config.ts:
- *   import preset from "@agent-native/core/tailwind";
- *   export default { presets: [preset], content: ["./client/**\/*.{ts,tsx}"] };
+ * The framework has moved to Tailwind v4. Templates should now use the shared
+ * stylesheet from CSS instead of a `tailwind.config.ts`:
+ *
+ *   // app/global.css
+ *   @import "tailwindcss";
+ *   @import "@agent-native/core/styles/agent-native.css";
+ *
+ * No `tailwind.config.ts` or `postcss.config.js` is needed. The
+ * `@tailwindcss/vite` plugin is auto-injected by `defineConfig()`.
+ *
+ * This export is kept only for third-party templates still on the v3 PostCSS pipeline.
  */
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
@@ -30,7 +36,10 @@ const thisDir =
  */
 export const coreContentGlob = join(thisDir, "client", "**/*.{js,mjs}");
 
-const preset: Config = {
+// Cast to `any` for the inner config — Tailwind v4 ships stricter Config types
+// than v3 (e.g. `darkMode: ["class"]` is v3-only). This file exists only to
+// keep third-party v3 setups working until they migrate.
+const preset = {
   darkMode: ["class"],
   content: [coreContentGlob],
   prefix: "",
@@ -109,7 +118,17 @@ const preset: Config = {
       },
     },
   },
-  plugins: [require("tailwindcss-animate"), require("@tailwindcss/typography")],
+  plugins: [
+    // tailwindcss-animate is v3-only and is no longer a peer dep — guard the require.
+    (() => {
+      try {
+        return require("tailwindcss-animate");
+      } catch {
+        return null;
+      }
+    })(),
+    require("@tailwindcss/typography"),
+  ].filter(Boolean),
 };
 
-export default preset;
+export default preset as unknown as Config;

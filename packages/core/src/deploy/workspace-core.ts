@@ -3,7 +3,7 @@
  *
  * An enterprise can sit many agent-native apps in one monorepo alongside a
  * private "workspace core" package that provides shared plugins, skills,
- * actions, AGENTS.md, and a tailwind preset. Apps inherit everything from
+ * actions, AGENTS.md, and shared Tailwind v4 design tokens. Apps inherit everything from
  * the workspace core without writing any boilerplate — this is the
  * middle layer of the three-layer inheritance model:
  *
@@ -22,7 +22,7 @@
  *     actions/             (shared agent-callable actions)
  *     skills/              (shared .agents/skills/<name>/SKILL.md)
  *     AGENTS.md            (enterprise-wide agent instructions)
- *     tailwind.preset.ts   (brand preset extending @agent-native/core/tailwind)
+ *     styles/tokens.css      (brand tokens — `@import "@agent-native/core/styles/agent-native.css"` then your `@theme` overrides)
  */
 import path from "path";
 
