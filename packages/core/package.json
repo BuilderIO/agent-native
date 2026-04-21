@@ -24,6 +24,7 @@
     "./server/request-context": "./dist/server/request-context.js",
     "./db": "./dist/db/index.js",
     "./db/schema": "./dist/db/schema.js",
+    "./db/drizzle-config": "./dist/db/drizzle-config.js",
     "./client": "./dist/client/index.js",
     "./client/onboarding": "./dist/client/onboarding/index.js",
     "./onboarding": "./dist/onboarding/index.js",
@@ -128,6 +129,7 @@
     "@assistant-ui/react-markdown": ">=0.12",
     "@supabase/supabase-js": ">=2",
     "@tabler/icons-react": ">=3",
+    "drizzle-kit": ">=0.31",
     "@tanstack/react-query": ">=5",
     "@vitejs/plugin-react-swc": ">=4",
     "@xterm/addon-fit": ">=0.10",
@@ -199,6 +201,9 @@
     "convex": {
       "optional": true
     },
+    "drizzle-kit": {
+      "optional": true
+    },
     "@xterm/xterm": {
       "optional": true
     },
@@ -237,6 +242,7 @@
     "@types/react": "^18.3.23",
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-react-swc": "^4.0.0",
+    "drizzle-kit": "^0.31.10",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-web-links": "^0.11.0",
     "@xterm/xterm": "^5.5.0",
