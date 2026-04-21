@@ -598,8 +598,136 @@ async function syncWorkspacesToOrganizations(): Promise<void> {
   }
 }
 
+/**
+ * Sweep orphaned recording-chunk scratch rows out of `application_state`.
+ *
+ * Why: `/api/uploads/:id/chunk` base64-encodes each MediaRecorder chunk and
+ * stores it in `application_state` keyed `recording-chunks-<recordingId>-<idx>`.
+ * `finalize-recording` is responsible for deleting those rows after assembling
+ * the final blob — but before this sweep existed, a finalize that threw
+ * mid-way (uploadFile failure, DB hiccup, dev-server restart between chunk
+ * arrival and finalize) left every chunk in place forever. Each chunk is ~1 MB
+ * of base64; a 30-minute recording is ~1.5 GB of orphaned scratch space, and
+ * those rows are resident in memory as soon as the server fetches them. This
+ * was the server-side half of the 70 GB memory leak Steve reported.
+ *
+ * Safe rules: we only delete chunks whose matching `recordings` row is either
+ * (a) absent (the recording was deleted but chunks remained), or
+ * (b) in status=`ready` or `failed` (finalize ran and should have cleaned, or
+ *     bailed), AND last updated more than 1 hour ago (don't race a finalize
+ *     that's CURRENTLY running).
+ *
+ * Runs once on server startup. Best-effort — any individual delete or probe
+ * failure is logged and ignored; the rest of the sweep continues.
+ */
+async function sweepOrphanedRecordingChunks(): Promise<void> {
+  const exec = getDbExec();
+  const pg = isPostgres();
+
+  let chunkRows: Array<{ key: string }> = [];
+  try {
+    const probe = await exec.execute({
+      sql: pg
+        ? `SELECT key FROM application_state WHERE key LIKE 'recording-chunks-%'`
+        : `SELECT key FROM application_state WHERE key LIKE 'recording-chunks-%'`,
+      args: [],
+    });
+    chunkRows = (probe.rows as Array<{ key: string }>) ?? [];
+  } catch (err) {
+    // application_state table may not exist on a fresh dev DB — bail quietly.
+    console.warn(
+      "[db] chunk sweep: application_state probe failed (table missing?)",
+      (err as Error)?.message ?? err,
+    );
+    return;
+  }
+
+  if (chunkRows.length === 0) return;
+
+  // Group by recordingId so one probe per recording, not per chunk.
+  const keysByRecording = new Map<string, string[]>();
+  for (const row of chunkRows) {
+    // Key shape: recording-chunks-<recordingId>-<paddedIdx>. `recordingId` may
+    // contain hyphens, so we peel off the trailing `-<idx>` first and then
+    // the `recording-chunks-` prefix.
+    const stripped = row.key.replace(/^recording-chunks-/, "");
+    const lastDash = stripped.lastIndexOf("-");
+    if (lastDash < 0) continue;
+    const recordingId = stripped.slice(0, lastDash);
+    const list = keysByRecording.get(recordingId) ?? [];
+    list.push(row.key);
+    keysByRecording.set(recordingId, list);
+  }
+
+  const oneHourAgoIso = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  let totalDeleted = 0;
+  let recordingsCleaned = 0;
+
+  for (const [recordingId, keys] of keysByRecording) {
+    let shouldSweep = false;
+    try {
+      const probe = await exec.execute({
+        sql: pg
+          ? `SELECT status, updated_at FROM recordings WHERE id = $1 LIMIT 1`
+          : `SELECT status, updated_at FROM recordings WHERE id = ? LIMIT 1`,
+        args: [recordingId],
+      });
+      const row = (
+        probe.rows as Array<{ status?: string; updated_at?: string }>
+      )[0];
+      if (!row) {
+        // Recording row gone — chunks are orphaned.
+        shouldSweep = true;
+      } else if (
+        (row.status === "ready" || row.status === "failed") &&
+        (row.updated_at ?? "") < oneHourAgoIso
+      ) {
+        // Finalize ran (ready) or bailed (failed) and it's been >1h — safe.
+        shouldSweep = true;
+      }
+    } catch (err) {
+      console.warn("[db] chunk sweep: recording probe failed", {
+        recordingId,
+        err: (err as Error)?.message ?? err,
+      });
+      continue;
+    }
+
+    if (!shouldSweep) continue;
+
+    for (const key of keys) {
+      try {
+        await exec.execute({
+          sql: pg
+            ? `DELETE FROM application_state WHERE key = $1`
+            : `DELETE FROM application_state WHERE key = ?`,
+          args: [key],
+        });
+        totalDeleted += 1;
+      } catch (err) {
+        console.warn("[db] chunk sweep: delete failed", {
+          key,
+          err: (err as Error)?.message ?? err,
+        });
+      }
+    }
+    recordingsCleaned += 1;
+  }
+
+  if (totalDeleted > 0) {
+    console.log("[db] swept orphaned recording chunks", {
+      totalDeleted,
+      recordingsCleaned,
+    });
+  }
+}
+
 export default async (nitroApp: any): Promise<void> => {
   await migrations(nitroApp);
   await retypeBooleanColumnsOnPostgres();
   await syncWorkspacesToOrganizations();
+  // Best-effort chunk sweep — don't block startup on failures.
+  sweepOrphanedRecordingChunks().catch((err) => {
+    console.warn("[db] chunk sweep failed:", (err as Error)?.message ?? err);
+  });
 };

@@ -79,214 +79,265 @@ export default defineAction({
     const id = args.id;
     console.log("[finalize] starting", { id, ownerEmail });
 
-    const [existing] = await db
-      .select()
-      .from(schema.recordings)
-      .where(
-        and(
-          eq(schema.recordings.id, id),
-          eq(schema.recordings.ownerEmail, ownerEmail),
-        ),
-      );
+    // Keys of chunks we need to delete regardless of how finalize exits.
+    // Collected as soon as we list chunks and purged in a finally-block so
+    // a throw mid-finalize can't leave multi-gigabyte base64 payloads
+    // lingering in application_state. This was the primary cause of the
+    // server-side half of the 70 GB memory leak — each failed finalize
+    // orphaned one recording's worth of chunks, and with base64 overhead
+    // a 30-minute recording is ~1.5 GB per corpse.
+    let chunkKeysToPurge: string[] = [];
+    try {
+      const [existing] = await db
+        .select()
+        .from(schema.recordings)
+        .where(
+          and(
+            eq(schema.recordings.id, id),
+            eq(schema.recordings.ownerEmail, ownerEmail),
+          ),
+        );
 
-    if (!existing) {
-      console.warn("[finalize] recording not found", { id, ownerEmail });
-      throw new Error(`Recording not found: ${id}`);
-    }
+      if (!existing) {
+        console.warn("[finalize] recording not found", { id, ownerEmail });
+        // Still purge chunks for this id — it's orphaned.
+        chunkKeysToPurge = (await listAppState(`recording-chunks-${id}-`)).map(
+          (e) => e.key,
+        );
+        throw new Error(`Recording not found: ${id}`);
+      }
 
-    const uploadState = await readAppState(`recording-upload-${id}`);
-    const mimeType =
-      args.mimeType ||
-      (typeof uploadState?.mimeType === "string" ? uploadState.mimeType : "") ||
-      "video/webm";
-    const videoFormat: "webm" | "mp4" = mimeType.includes("mp4")
-      ? "mp4"
-      : "webm";
+      const uploadState = await readAppState(`recording-upload-${id}`);
+      const mimeType =
+        args.mimeType ||
+        (typeof uploadState?.mimeType === "string"
+          ? uploadState.mimeType
+          : "") ||
+        "video/webm";
+      const videoFormat: "webm" | "mp4" = mimeType.includes("mp4")
+        ? "mp4"
+        : "webm";
 
-    // Flip to 'processing' while we assemble.
-    await db
-      .update(schema.recordings)
-      .set({
-        status: "processing",
-        uploadProgress: 100,
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(schema.recordings.id, id));
-
-    await writeAppState(`recording-upload-${id}`, {
-      recordingId: id,
-      status: "processing",
-      progress: 100,
-      updatedAt: new Date().toISOString(),
-    });
-
-    // Pull all chunk entries for this recording in index order.
-    const chunkEntries = await listAppState(`recording-chunks-${id}-`);
-    chunkEntries.sort((a, b) => {
-      const ai = Number(a.key.split("-").pop() || 0);
-      const bi = Number(b.key.split("-").pop() || 0);
-      return ai - bi;
-    });
-    console.log("[finalize] chunks found", {
-      id,
-      count: chunkEntries.length,
-    });
-
-    if (chunkEntries.length === 0) {
+      // Flip to 'processing' while we assemble.
       await db
         .update(schema.recordings)
         .set({
-          status: "failed",
-          failureReason: "No chunks found for recording",
+          status: "processing",
+          uploadProgress: 100,
           updatedAt: new Date().toISOString(),
         })
         .where(eq(schema.recordings.id, id));
+
       await writeAppState(`recording-upload-${id}`, {
         recordingId: id,
-        status: "failed",
-        failureReason: "No chunks found for recording",
+        status: "processing",
+        progress: 100,
+        updatedAt: new Date().toISOString(),
       });
-      throw new Error(`No chunks found for recording ${id}`);
-    }
 
-    const parts: Uint8Array[] = [];
-    for (const entry of chunkEntries) {
-      const b64 =
-        typeof entry.value?.data === "string" ? entry.value.data : null;
-      if (b64) parts.push(b64ToBytes(b64));
-    }
-    const assembled = concatBytes(parts);
+      // Pull all chunk entries for this recording in index order.
+      const chunkEntries = await listAppState(`recording-chunks-${id}-`);
+      chunkEntries.sort((a, b) => {
+        const ai = Number(a.key.split("-").pop() || 0);
+        const bi = Number(b.key.split("-").pop() || 0);
+        return ai - bi;
+      });
+      console.log("[finalize] chunks found", {
+        id,
+        count: chunkEntries.length,
+      });
+      // Commit to deleting these keys in the finally below. We collect
+      // the keys NOW (not after success) because a throw in uploadFile
+      // or the drizzle update would otherwise bypass the delete and
+      // orphan the chunks.
+      chunkKeysToPurge = chunkEntries.map((e) => e.key);
 
-    // Upload to the configured provider. If none is configured the helper
-    // returns null and we fall back to a tiny application_state-hosted URL.
-    let videoUrl: string;
-    const upload = await uploadFile({
-      data: assembled,
-      filename: `${id}.${videoFormat}`,
-      mimeType,
-      ownerEmail,
-    });
+      if (chunkEntries.length === 0) {
+        await db
+          .update(schema.recordings)
+          .set({
+            status: "failed",
+            failureReason: "No chunks found for recording",
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(schema.recordings.id, id));
+        await writeAppState(`recording-upload-${id}`, {
+          recordingId: id,
+          status: "failed",
+          failureReason: "No chunks found for recording",
+        });
+        throw new Error(`No chunks found for recording ${id}`);
+      }
 
-    if (upload?.url) {
-      videoUrl = upload.url;
-    } else {
-      // Dev-only fallback: stash the assembled blob in application_state
-      // and serve it via /api/video/:id. (See server/plugins/auth.ts —
-      // /api/video is in publicPaths so anonymous viewers on /share/:id
-      // can play public recordings. /api/uploads stays protected because
-      // the chunk upload POST endpoints live under the same prefix.)
-      const b64 =
-        typeof Buffer !== "undefined"
-          ? Buffer.from(assembled).toString("base64")
-          : btoa(String.fromCharCode(...assembled));
-      await writeAppState(`recording-blob-${id}`, {
+      const parts: Uint8Array[] = [];
+      for (const entry of chunkEntries) {
+        const b64 =
+          typeof entry.value?.data === "string" ? entry.value.data : null;
+        if (b64) parts.push(b64ToBytes(b64));
+      }
+      const assembled = concatBytes(parts);
+      // `parts` is no longer needed — dropping the array reference lets V8
+      // GC the Uint8Array slices while uploadFile is in flight. Each entry
+      // can be megabytes and we can be holding a gigabyte total for long
+      // recordings.
+      parts.length = 0;
+
+      // Upload to the configured provider. If none is configured the helper
+      // returns null and we fall back to a tiny application_state-hosted URL.
+      let videoUrl: string;
+      const upload = await uploadFile({
+        data: assembled,
+        filename: `${id}.${videoFormat}`,
         mimeType,
-        data: b64,
+        ownerEmail,
       });
-      videoUrl = `/api/video/${id}`;
-    }
 
-    // Update the recording row with final metadata and flip to 'ready'.
-    await db
-      .update(schema.recordings)
-      .set({
+      if (upload?.url) {
+        videoUrl = upload.url;
+      } else {
+        // Dev-only fallback: stash the assembled blob in application_state
+        // and serve it via /api/video/:id. (See server/plugins/auth.ts —
+        // /api/video is in publicPaths so anonymous viewers on /share/:id
+        // can play public recordings. /api/uploads stays protected because
+        // the chunk upload POST endpoints live under the same prefix.)
+        const b64 =
+          typeof Buffer !== "undefined"
+            ? Buffer.from(assembled).toString("base64")
+            : btoa(String.fromCharCode(...assembled));
+        await writeAppState(`recording-blob-${id}`, {
+          mimeType,
+          data: b64,
+        });
+        videoUrl = `/api/video/${id}`;
+      }
+
+      // Update the recording row with final metadata and flip to 'ready'.
+      await db
+        .update(schema.recordings)
+        .set({
+          status: "ready",
+          videoUrl,
+          videoFormat,
+          videoSizeBytes: assembled.byteLength,
+          durationMs: args.durationMs ?? existing.durationMs ?? 0,
+          width: args.width ?? existing.width ?? 0,
+          height: args.height ?? existing.height ?? 0,
+          hasAudio:
+            typeof args.hasAudio === "boolean"
+              ? args.hasAudio
+              : existing.hasAudio,
+          hasCamera:
+            typeof args.hasCamera === "boolean"
+              ? args.hasCamera
+              : existing.hasCamera,
+          uploadProgress: 100,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(schema.recordings.id, id));
+
+      // Seed a pending transcript row so the agent background task has a place
+      // to write results.
+      const [existingTranscript] = await db
+        .select({ recordingId: schema.recordingTranscripts.recordingId })
+        .from(schema.recordingTranscripts)
+        .where(eq(schema.recordingTranscripts.recordingId, id));
+      if (!existingTranscript) {
+        await db.insert(schema.recordingTranscripts).values({
+          recordingId: id,
+          ownerEmail,
+          status: "pending",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+      }
+
+      await writeAppState(`recording-upload-${id}`, {
+        recordingId: id,
         status: "ready",
+        progress: 100,
         videoUrl,
-        videoFormat,
+        finishedAt: new Date().toISOString(),
+      });
+
+      await writeAppState("refresh-signal", { ts: Date.now() });
+
+      // Kick off Whisper transcription in the background. The chunk endpoint
+      // already awaits this finalize call, so we fire-and-forget — the request
+      // context (user email via AsyncLocalStorage) carries through to any
+      // async continuations started before this run() returns. Without this
+      // the transcript row stays in `pending` forever and the UI shows an
+      // infinite "Transcribing…" spinner.
+      void requestTranscript.run({ recordingId: id }).catch((err) => {
+        console.error("[finalize] background transcript failed", {
+          id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+
+      // Queue a background agent run by writing a structured message to
+      // application_state. The frontend's agent-chat-bridge picks up
+      // `agent-task-*` keys and dispatches sendToAgentChat({ background: true }).
+      await writeAppState(`agent-task-recording-${id}`, {
+        kind: "post-recording-processing",
+        recordingId: id,
+        background: true,
+        openSidebar: false,
+        message: [
+          `A new recording (${id}) just finished uploading.`,
+          "Please do the following in the background:",
+          "1. Generate a concise, descriptive title and update it via update-recording.",
+          "2. Generate a 1-2 sentence summary and store it in the description.",
+          "3. Produce a transcript (segmented, with startMs/endMs/text) and save it to the recording_transcripts table for this recording id, setting status='ready'.",
+          "4. Produce a short chapters list (chaptersJson: [{startMs, title}]) and save it on the recording row.",
+          "Do NOT prompt the user — this is a silent background task.",
+        ].join("\n"),
+        context: {
+          recordingId: id,
+          videoUrl,
+          durationMs: args.durationMs ?? 0,
+        },
+        createdAt: new Date().toISOString(),
+      });
+
+      console.log("[finalize] done", {
+        id,
+        videoUrl,
+        bytes: assembled.byteLength,
+      });
+
+      return {
+        id,
+        status: "ready" as const,
+        videoUrl,
         videoSizeBytes: assembled.byteLength,
         durationMs: args.durationMs ?? existing.durationMs ?? 0,
-        width: args.width ?? existing.width ?? 0,
-        height: args.height ?? existing.height ?? 0,
-        hasAudio:
-          typeof args.hasAudio === "boolean"
-            ? args.hasAudio
-            : existing.hasAudio,
-        hasCamera:
-          typeof args.hasCamera === "boolean"
-            ? args.hasCamera
-            : existing.hasCamera,
-        uploadProgress: 100,
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(schema.recordings.id, id));
-
-    // Seed a pending transcript row so the agent background task has a place
-    // to write results.
-    const [existingTranscript] = await db
-      .select({ recordingId: schema.recordingTranscripts.recordingId })
-      .from(schema.recordingTranscripts)
-      .where(eq(schema.recordingTranscripts.recordingId, id));
-    if (!existingTranscript) {
-      await db.insert(schema.recordingTranscripts).values({
-        recordingId: id,
-        ownerEmail,
-        status: "pending",
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      });
+      };
+    } finally {
+      // Unconditional chunk scratch-space cleanup. Runs on success AND on
+      // error — a throw during uploadFile / drizzle update / anything else
+      // used to leave gigabytes of base64 chunks in application_state
+      // forever. Best-effort: individual delete failures are logged but
+      // never re-thrown, because re-throwing from a finally would mask the
+      // original error that landed us here.
+      if (chunkKeysToPurge.length > 0) {
+        let purged = 0;
+        for (const key of chunkKeysToPurge) {
+          try {
+            await deleteAppState(key);
+            purged += 1;
+          } catch (err) {
+            console.warn("[finalize] chunk delete failed", {
+              key,
+              err: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+        console.log("[finalize] chunks purged", {
+          id,
+          purged,
+          attempted: chunkKeysToPurge.length,
+        });
+      }
     }
-
-    // Clean up chunk scratch space.
-    for (const entry of chunkEntries) {
-      await deleteAppState(entry.key);
-    }
-
-    await writeAppState(`recording-upload-${id}`, {
-      recordingId: id,
-      status: "ready",
-      progress: 100,
-      videoUrl,
-      finishedAt: new Date().toISOString(),
-    });
-
-    await writeAppState("refresh-signal", { ts: Date.now() });
-
-    // Kick off Whisper transcription in the background. The chunk endpoint
-    // already awaits this finalize call, so we fire-and-forget — the request
-    // context (user email via AsyncLocalStorage) carries through to any
-    // async continuations started before this run() returns. Without this
-    // the transcript row stays in `pending` forever and the UI shows an
-    // infinite "Transcribing…" spinner.
-    void requestTranscript.run({ recordingId: id }).catch((err) => {
-      console.error("[finalize] background transcript failed", {
-        id,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    });
-
-    // Queue a background agent run by writing a structured message to
-    // application_state. The frontend's agent-chat-bridge picks up
-    // `agent-task-*` keys and dispatches sendToAgentChat({ background: true }).
-    await writeAppState(`agent-task-recording-${id}`, {
-      kind: "post-recording-processing",
-      recordingId: id,
-      background: true,
-      openSidebar: false,
-      message: [
-        `A new recording (${id}) just finished uploading.`,
-        "Please do the following in the background:",
-        "1. Generate a concise, descriptive title and update it via update-recording.",
-        "2. Generate a 1-2 sentence summary and store it in the description.",
-        "3. Produce a transcript (segmented, with startMs/endMs/text) and save it to the recording_transcripts table for this recording id, setting status='ready'.",
-        "4. Produce a short chapters list (chaptersJson: [{startMs, title}]) and save it on the recording row.",
-        "Do NOT prompt the user — this is a silent background task.",
-      ].join("\n"),
-      context: { recordingId: id, videoUrl, durationMs: args.durationMs ?? 0 },
-      createdAt: new Date().toISOString(),
-    });
-
-    console.log("[finalize] done", {
-      id,
-      videoUrl,
-      bytes: assembled.byteLength,
-    });
-
-    return {
-      id,
-      status: "ready" as const,
-      videoUrl,
-      videoSizeBytes: assembled.byteLength,
-      durationMs: args.durationMs ?? existing.durationMs ?? 0,
-    };
   },
 });

@@ -9,10 +9,11 @@ let _initPromise: Promise<void> | undefined;
 
 /**
  * Max time without a heartbeat before a "running" run is considered dead.
- * The run-manager heartbeats every 5s, so 90s tolerates several missed
- * writes from DB slowness before we assume the producer died.
+ * The run-manager heartbeats every 1.5s, so 6s tolerates 3 missed writes.
+ * Short window is what makes reload recovery feel instant instead of
+ * stranding the user on "Thinking..." for up to 90s after a process death.
  */
-export const RUN_STALE_MS = 90_000;
+export const RUN_STALE_MS = 6_000;
 
 async function ensureRunTables(): Promise<void> {
   if (!_initPromise) {
@@ -192,11 +193,12 @@ export async function getRunByThread(threadId: string): Promise<{
   threadId: string;
   status: string;
   startedAt: number;
+  heartbeatAt: number | null;
 } | null> {
   await ensureRunTables();
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT id, thread_id, status, started_at FROM agent_runs WHERE thread_id = ? AND status = 'running' ORDER BY started_at DESC LIMIT 1`,
+    sql: `SELECT id, thread_id, status, started_at, heartbeat_at FROM agent_runs WHERE thread_id = ? AND status = 'running' ORDER BY started_at DESC LIMIT 1`,
     args: [threadId],
   });
   if (rows.length === 0) return null;
@@ -205,13 +207,35 @@ export async function getRunByThread(threadId: string): Promise<{
     thread_id: string;
     status: string;
     started_at: number | string;
+    heartbeat_at: number | string | null;
   };
   return {
     id: r.id,
     threadId: r.thread_id,
     status: r.status,
     startedAt: Number(r.started_at),
+    heartbeatAt: r.heartbeat_at == null ? null : Number(r.heartbeat_at),
   };
+}
+
+/**
+ * Expire any "running" rows whose heartbeat is stale — producer died.
+ * Safe to call at server startup on multi-isolate deployments: only rows
+ * without a fresh heartbeat get reaped, so runs owned by OTHER live
+ * isolates (which keep heartbeating) are left alone.
+ */
+export async function reapAllStaleRuns(): Promise<number> {
+  await ensureRunTables();
+  const client = getDbExec();
+  const heartbeatCutoff = Date.now() - RUN_STALE_MS;
+  const { rowsAffected } = await client.execute({
+    sql: `UPDATE agent_runs
+          SET status = 'errored', completed_at = ?
+          WHERE status = 'running'
+            AND COALESCE(heartbeat_at, started_at) < ?`,
+    args: [Date.now(), heartbeatCutoff],
+  });
+  return rowsAffected ?? 0;
 }
 
 /** Delete completed/errored runs older than the given threshold,

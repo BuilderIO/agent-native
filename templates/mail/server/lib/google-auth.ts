@@ -2,9 +2,11 @@ import {
   createOAuth2Client,
   gmailGetProfile,
   gmailListMessages,
-  gmailGetMessage,
+  gmailBatchGetMessages,
   gmailListHistory,
   gmailListLabels,
+  gmailWatch,
+  gmailStopWatch,
   peopleGetProfile,
 } from "./google-api.js";
 import {
@@ -116,6 +118,38 @@ export function getAuthUrl(
   });
 }
 
+function getWatchTopic(): string | null {
+  return process.env.GMAIL_WATCH_TOPIC || null;
+}
+
+// Start a Gmail watch for the given access token. No-op when
+// GMAIL_WATCH_TOPIC env is unset (push isn't configured for this deploy).
+export async function startWatch(
+  accessToken: string,
+): Promise<{ historyId: string; expiration: string } | null> {
+  const topic = getWatchTopic();
+  if (!topic) return null;
+  try {
+    const res = await gmailWatch(accessToken, topic, {
+      labelIds: ["INBOX"],
+      labelFilterBehavior: "include",
+    });
+    return res;
+  } catch (err: any) {
+    console.warn(`[gmail-watch] start failed: ${err.message}`);
+    return null;
+  }
+}
+
+export async function stopWatch(accessToken: string): Promise<void> {
+  if (!getWatchTopic()) return;
+  try {
+    await gmailStopWatch(accessToken);
+  } catch (err: any) {
+    console.warn(`[gmail-watch] stop failed: ${err.message}`);
+  }
+}
+
 export async function exchangeCode(
   code: string,
   origin?: string,
@@ -150,6 +184,12 @@ export async function exchangeCode(
     tokens as unknown as Record<string, unknown>,
     owner ?? email,
   );
+
+  try {
+    await startWatch(tokens.access_token);
+  } catch (err: any) {
+    console.warn(`[gmail-watch] start after OAuth failed: ${err.message}`);
+  }
 
   return email;
 }
@@ -289,6 +329,12 @@ export async function getAuthStatus(
 
 export async function disconnect(email?: string): Promise<void> {
   if (email) {
+    try {
+      const client = await getClient(email);
+      if (client) await stopWatch(client.accessToken);
+    } catch {
+      // Tokens may already be revoked — skip stopping the watch.
+    }
     await deleteOAuthTokens("google", email);
   } else {
     await deleteOAuthTokens("google");
@@ -365,6 +411,17 @@ export async function listGmailMessages(
   return promise;
 }
 
+// Invalidate all listCache entries that would have included the given owner's
+// accounts. Called by the Pub/Sub push handler to surface changes to the UI
+// faster than the 20s listCache TTL.
+export function invalidateListCacheForOwner(ownerEmail: string): void {
+  // listCache keys are formatted as `${forEmail}::...` — delete matches.
+  const prefix = `${ownerEmail}::`;
+  for (const key of listCache.keys()) {
+    if (key.startsWith(prefix)) listCache.delete(key);
+  }
+}
+
 // Per-(account, label) history cache. After the first hydrate we keep the
 // fully-fetched messages in memory alongside Gmail's historyId. Subsequent
 // calls use gmailListHistory to fetch only the delta since that historyId —
@@ -383,6 +440,28 @@ type HistoryEntry = {
 };
 
 const historyCache = new Map<string, HistoryEntry>();
+
+// Bump historyCache watermark for an account so the next list call sees a
+// fresh delta. Also triggers a re-hydrate if the account isn't cached yet.
+// historyId is optional — if absent, the next delta call just uses the
+// existing watermark; if present, we replace the watermark so the delta is
+// bounded to "since Gmail told us something changed".
+export function bumpHistoryWatermark(email: string, historyId?: string): void {
+  if (!historyId) return;
+  // Update every cached entry for this email (across different maxResults).
+  const prefix = `${email}::`;
+  for (const [key, entry] of historyCache.entries()) {
+    if (!key.startsWith(prefix)) continue;
+    // Only advance if the new historyId is strictly greater — don't regress.
+    try {
+      if (BigInt(historyId) > BigInt(entry.historyId)) {
+        entry.historyId = historyId;
+      }
+    } catch {
+      // Non-numeric historyIds — skip; delta will still work with stale.
+    }
+  }
+}
 
 // Per-key in-flight dedupe. Concurrent requests for the same
 // (email, label, maxResults) tuple share one computation — avoids two
@@ -466,17 +545,15 @@ async function hydrateAccountInbox(
   const messageIds = (listRes.messages || []) as Array<{ id: string }>;
   const nextPageToken: string | undefined = listRes.nextPageToken || undefined;
 
+  const batchResults = await gmailBatchGetMessages(
+    accessToken,
+    messageIds.map((m) => m.id),
+    "metadata",
+  );
   const messages: any[] = [];
-  const batchSize = 5;
-  for (let i = 0; i < messageIds.length; i += batchSize) {
-    const batch = messageIds.slice(i, i + batchSize);
-    const results = await Promise.all(
-      batch.map(async (m) => {
-        const msg = await gmailGetMessage(accessToken, m.id, "full");
-        return { ...msg, _accountEmail: email };
-      }),
-    );
-    messages.push(...results);
+  for (const r of batchResults) {
+    if (!r.data) continue;
+    messages.push({ ...r.data, _accountEmail: email });
   }
 
   return { messages, historyId, nextPageToken };
@@ -619,20 +696,14 @@ async function applyHistoryDelta(
   const toFetch = Array.from(fetchSet);
 
   const fetched: any[] = [];
-  const batchSize = 5;
-  for (let i = 0; i < toFetch.length; i += batchSize) {
-    const batch = toFetch.slice(i, i + batchSize);
-    const results = await Promise.all(
-      batch.map(async (id) => {
-        try {
-          const msg = await gmailGetMessage(accessToken, id, "full");
-          return { ...msg, _accountEmail: email };
-        } catch {
-          return null;
-        }
-      }),
-    );
-    for (const r of results) if (r) fetched.push(r);
+  const batchResults = await gmailBatchGetMessages(
+    accessToken,
+    toFetch,
+    "metadata",
+  );
+  for (const r of batchResults) {
+    if (!r.data) continue;
+    fetched.push({ ...r.data, _accountEmail: email });
   }
 
   // If any fetch failed we can't tell whether the missing body would have
@@ -754,17 +825,15 @@ async function fetchAccountLegacy(
   const messageIds = listRes.messages || [];
   if (messageIds.length === 0) return [];
 
-  const batchSize = 5;
+  const batchResults = await gmailBatchGetMessages(
+    accessToken,
+    messageIds.map((m: any) => m.id),
+    "full",
+  );
   const messages: any[] = [];
-  for (let i = 0; i < messageIds.length; i += batchSize) {
-    const batch = messageIds.slice(i, i + batchSize);
-    const batchResults = await Promise.all(
-      batch.map(async (m: any) => {
-        const msg = await gmailGetMessage(accessToken, m.id, "full");
-        return { ...msg, _accountEmail: email };
-      }),
-    );
-    messages.push(...batchResults);
+  for (const r of batchResults) {
+    if (!r.data) continue;
+    messages.push({ ...r.data, _accountEmail: email });
   }
   return messages;
 }

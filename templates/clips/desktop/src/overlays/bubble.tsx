@@ -165,9 +165,53 @@ export function Bubble() {
     // offer we processed. ICE candidates arriving for a stale id are
     // ignored (the popover sometimes re-negotiates if it reboots).
     let currentHandshakeId: number | null = null;
+    // Same race-safe listen tracker as in app.tsx. Every `listen()` is
+    // an async IPC call; if this effect cleans up before the promise
+    // resolves, the fire-and-forget `.then(push)` pattern leaks the
+    // listener (and its entire closure scope, including pc + senders).
+    const trackListen = (p: Promise<() => void>) => {
+      p.then((u) => {
+        if (stopped) {
+          try {
+            u();
+          } catch {
+            // ignore
+          }
+          return;
+        }
+        unlistens.push(u);
+      }).catch(() => {
+        // ignore — listen() itself may reject if the webview is dying
+      });
+    };
 
     function teardownPeer() {
       if (pc) {
+        // Detach the incoming video <video>.srcObject BEFORE closing the
+        // peer — otherwise WKWebView's media pipeline keeps the decoder
+        // alive referencing the (now-dead) track. This is how a single
+        // 1080p receiver peer can pin ~100 MB of GPU + decoder state
+        // that GC can't reclaim.
+        const videoEl = videoRef.current;
+        if (videoEl && videoEl.srcObject) {
+          try {
+            videoEl.pause();
+          } catch {
+            // ignore
+          }
+          videoEl.srcObject = null;
+        }
+        // Null handlers so the closure graph doesn't keep the old peer
+        // reachable through React state refs.
+        try {
+          pc.onicecandidate = null;
+          pc.oniceconnectionstatechange = null;
+          pc.ontrack = null;
+        } catch {
+          // ignore
+        }
+        const senders = pc.getSenders ? pc.getSenders() : [];
+        console.log("[bubble] teardownPeer — senders:", senders.length);
         try {
           pc.close();
         } catch {
@@ -269,60 +313,56 @@ export function Bubble() {
       }
     }
 
-    listen<{
-      handshakeId: number;
-      sdp: string;
-      type: string;
-    }>("clips:webrtc-offer", (ev) => {
-      const { handshakeId, sdp, type } = ev.payload;
-      handleOffer(handshakeId, sdp, type).catch((err) => {
-        console.warn("[bubble] handleOffer threw", err);
-      });
-    })
-      .then((u) => unlistens.push(u))
-      .catch((err) => {
-        console.warn("[bubble] listen offer failed", err);
-      });
-
-    listen<{
-      handshakeId: number;
-      candidate: string;
-      sdpMid: string | null;
-      sdpMLineIndex: number | null;
-    }>("clips:webrtc-ice-from-popover", async (ev) => {
-      if (stopped) return;
-      const {
-        handshakeId: incomingId,
-        candidate,
-        sdpMid,
-        sdpMLineIndex,
-      } = ev.payload;
-      if (incomingId !== currentHandshakeId) return;
-      if (!pc) return;
-      try {
-        await pc.addIceCandidate({
-          candidate,
-          sdpMid: sdpMid ?? undefined,
-          sdpMLineIndex: sdpMLineIndex ?? undefined,
+    trackListen(
+      listen<{
+        handshakeId: number;
+        sdp: string;
+        type: string;
+      }>("clips:webrtc-offer", (ev) => {
+        const { handshakeId, sdp, type } = ev.payload;
+        handleOffer(handshakeId, sdp, type).catch((err) => {
+          console.warn("[bubble] handleOffer threw", err);
         });
-      } catch (err) {
-        console.warn("[bubble] addIceCandidate failed", err);
-      }
-    })
-      .then((u) => unlistens.push(u))
-      .catch((err) => {
-        console.warn("[bubble] listen ice failed", err);
-      });
+      }),
+    );
+
+    trackListen(
+      listen<{
+        handshakeId: number;
+        candidate: string;
+        sdpMid: string | null;
+        sdpMLineIndex: number | null;
+      }>("clips:webrtc-ice-from-popover", async (ev) => {
+        if (stopped) return;
+        const {
+          handshakeId: incomingId,
+          candidate,
+          sdpMid,
+          sdpMLineIndex,
+        } = ev.payload;
+        if (incomingId !== currentHandshakeId) return;
+        if (!pc) return;
+        try {
+          await pc.addIceCandidate({
+            candidate,
+            sdpMid: sdpMid ?? undefined,
+            sdpMLineIndex: sdpMLineIndex ?? undefined,
+          });
+        } catch (err) {
+          console.warn("[bubble] addIceCandidate failed", err);
+        }
+      }),
+    );
 
     // The popover may ping us if it thinks we missed the first
     // bubble-ready emit (e.g. popover restart with an already-mounted
     // bubble). Re-emit on demand.
-    listen("clips:bubble-handshake-request", () => {
-      if (stopped) return;
-      emit("clips:bubble-ready", {}).catch(() => {});
-    })
-      .then((u) => unlistens.push(u))
-      .catch(() => {});
+    trackListen(
+      listen("clips:bubble-handshake-request", () => {
+        if (stopped) return;
+        emit("clips:bubble-ready", {}).catch(() => {});
+      }),
+    );
 
     // Announce readiness once the listeners are all wired.
     emit("clips:bubble-ready", {}).catch((err) => {
@@ -332,7 +372,14 @@ export function Bubble() {
     return () => {
       stopped = true;
       teardownPeer();
-      unlistens.forEach((u) => u());
+      unlistens.forEach((u) => {
+        try {
+          u();
+        } catch {
+          // ignore
+        }
+      });
+      unlistens.length = 0;
     };
   }, []);
 
@@ -343,6 +390,22 @@ export function Bubble() {
   // build) still drives the bubble.
   useEffect(() => {
     const unlistens: Array<() => void> = [];
+    let stopped = false;
+    const trackListen = (p: Promise<() => void>) => {
+      p.then((u) => {
+        if (stopped) {
+          try {
+            u();
+          } catch {
+            // ignore
+          }
+          return;
+        }
+        unlistens.push(u);
+      }).catch(() => {
+        // ignore
+      });
+    };
 
     // Two-slot `<img>` pool — see the extensive rationale comment below.
     // Same pattern as the old implementation.
@@ -401,64 +464,95 @@ export function Bubble() {
         });
     }
 
-    listen<{
-      dataUrl?: string;
-      bytes?: number[];
-      w: number;
-      h: number;
-    }>("clips:bubble-frame", async (ev) => {
-      const { dataUrl, bytes, w, h } = ev.payload;
+    trackListen(
+      listen<{
+        dataUrl?: string;
+        bytes?: number[];
+        w: number;
+        h: number;
+      }>("clips:bubble-frame", async (ev) => {
+        if (stopped) return;
+        const { dataUrl, bytes, w, h } = ev.payload;
 
-      if (firstFrameAtRef.current == null) {
-        firstFrameAtRef.current = Date.now();
-        console.log(
-          "[bubble] first frame received path=",
-          dataUrl ? "dataUrl" : "bytes",
-        );
-      }
+        if (firstFrameAtRef.current == null) {
+          firstFrameAtRef.current = Date.now();
+          console.log(
+            "[bubble] first frame received path=",
+            dataUrl ? "dataUrl" : "bytes",
+          );
+        }
 
-      // Flip the active path on first canvas frame — only if WebRTC
-      // hasn't already taken over. If WebRTC is live the canvas frames
-      // still arrive (the popover may send a few overlap frames during
-      // handover) but we ignore them for display.
-      setActivePath((prev) => (prev === "webrtc" ? prev : "canvas"));
+        // Flip the active path on first canvas frame — only if WebRTC
+        // hasn't already taken over. If WebRTC is live the canvas frames
+        // still arrive (the popover may send a few overlap frames during
+        // handover) but we ignore them for display.
+        setActivePath((prev) => (prev === "webrtc" ? prev : "canvas"));
 
-      if (dataUrl) {
-        latestPending = { dataUrl, w, h };
-        dispatchPending();
-        return;
-      }
-
-      // Legacy fallback — bytes array. Kept so that a stale popover
-      // build can still drive this bubble.
-      if (!bytes || !bytes.length) return;
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      if (canvas.width !== w) canvas.width = w;
-      if (canvas.height !== h) canvas.height = h;
-      try {
-        const u8 = new Uint8Array(bytes);
-        const blob = new Blob([u8], { type: "image/jpeg" });
-        const bitmap = await createImageBitmap(blob);
-        const ctx = canvas.getContext("2d");
-        if (!ctx) {
-          bitmap.close();
+        if (dataUrl) {
+          latestPending = { dataUrl, w, h };
+          dispatchPending();
           return;
         }
-        ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-        bitmap.close();
-      } catch (err) {
-        console.warn("[bubble] frame decode failed", err);
-      }
-    }).then((u) => unlistens.push(u));
+
+        // Legacy fallback — bytes array. Kept so that a stale popover
+        // build can still drive this bubble.
+        if (!bytes || !bytes.length) return;
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        if (canvas.width !== w) canvas.width = w;
+        if (canvas.height !== h) canvas.height = h;
+        try {
+          const u8 = new Uint8Array(bytes);
+          const blob = new Blob([u8], { type: "image/jpeg" });
+          const bitmap = await createImageBitmap(blob);
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            bitmap.close();
+            return;
+          }
+          ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+          bitmap.close();
+        } catch (err) {
+          console.warn("[bubble] frame decode failed", err);
+        }
+      }),
+    );
 
     // Keep `clips:bubble-config` as a no-op legacy listener so emits
     // from older code paths don't blow up.
-    listen("clips:bubble-config", (ev) => {
-      console.log("[bubble] bubble-config (legacy, ignored)", ev.payload);
-    }).then((u) => unlistens.push(u));
+    trackListen(
+      listen("clips:bubble-config", (ev) => {
+        console.log("[bubble] bubble-config (legacy, ignored)", ev.payload);
+      }),
+    );
 
-    return () => unlistens.forEach((u) => u());
+    return () => {
+      stopped = true;
+      unlistens.forEach((u) => {
+        try {
+          u();
+        } catch {
+          // ignore
+        }
+      });
+      unlistens.length = 0;
+      // Drop pending frame reference + clear each slot's image so the
+      // data URL string + decoded bitmap are GC'able. In normal operation
+      // the Bubble window is destroyed on `hide_overlays`, but if the
+      // component ever re-mounts we don't want to leak the previous
+      // slot's dataUrl.
+      latestPending = null;
+      for (const slot of slots) {
+        try {
+          slot.img.src = "";
+          slot.img.onload = null;
+          slot.img.onerror = null;
+        } catch {
+          // ignore
+        }
+        slot.busy = false;
+      }
+    };
   }, []);
 
   // ---- position persistence ----------------------------------------------

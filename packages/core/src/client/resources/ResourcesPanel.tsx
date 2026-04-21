@@ -31,6 +31,7 @@ import {
   useDeleteResource,
   useUploadResource,
   withMcpServersFolder,
+  withAgentScratchFolder,
   type ResourceScope,
   type ResourceMeta,
 } from "./use-resources.js";
@@ -989,9 +990,11 @@ export function ResourcesPanel() {
   // table — the virtual ids carry the `mcp:<scope>:<id>` prefix that
   // `handleSelect` and `handleDelete` below recognize to route back to
   // the MCP endpoints.
-  const personalTree = withMcpServersFolder(
-    personalTreeQuery.data ?? [],
-    mcpServersQuery.data?.user ?? [],
+  const personalTree = withAgentScratchFolder(
+    withMcpServersFolder(
+      personalTreeQuery.data ?? [],
+      mcpServersQuery.data?.user ?? [],
+    ),
   );
   const sharedTree = withMcpServersFolder(
     sharedTreeQuery.data ?? [],

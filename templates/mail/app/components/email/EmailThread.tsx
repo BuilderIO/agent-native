@@ -43,6 +43,7 @@ import {
   IconMailOff,
   IconX,
   IconArrowBackUp,
+  IconArrowBackUpDouble,
   IconArrowForwardUp,
   IconPaperclip,
   IconDownload,
@@ -1626,7 +1627,7 @@ const ExpandedMessageCard = forwardRef<
               className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
               title="Reply All"
             >
-              <IconArrowBackUp className="h-4 w-4 sm:h-[14px] sm:w-[14px]" />
+              <IconArrowBackUpDouble className="h-4 w-4 sm:h-[14px] sm:w-[14px]" />
             </button>
             <button
               onClick={(e) => {

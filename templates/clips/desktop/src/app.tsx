@@ -255,28 +255,69 @@ export function App() {
   // infinite show_bubble/hide flap when we listened to onFocusChanged.
   const [popoverVisible, setPopoverVisible] = useState(false);
   useEffect(() => {
+    // Race-safe listen tracking. `listen()` is async — the unlisten fn
+    // only exists AFTER the IPC round-trip resolves. If React cleanup
+    // fires before that, the "fire-and-forget" `.then((u) => push(u))`
+    // pattern never enqueues the unlisten and the listener leaks
+    // forever. Each leaked listener closes over the effect scope +
+    // React state, so every remount of this component grows heap.
+    // Track `cancelled` and call the unlisten IMMEDIATELY if it arrives
+    // after cleanup ran.
+    let cancelled = false;
     const unlistens: Array<() => void> = [];
-    listen<boolean>("clips:popover-visible", (ev) => {
-      console.log("[clips-popover] popover-visible =", ev.payload);
-      setPopoverVisible(!!ev.payload);
-    }).then((u) => unlistens.push(u));
+    const track = (p: Promise<() => void>) => {
+      p.then((u) => {
+        if (cancelled) {
+          try {
+            u();
+          } catch {
+            // ignore
+          }
+          return;
+        }
+        unlistens.push(u);
+      }).catch(() => {
+        // ignore — best-effort
+      });
+    };
+    track(
+      listen<boolean>("clips:popover-visible", (ev) => {
+        console.log("[clips-popover] popover-visible =", ev.payload);
+        setPopoverVisible(!!ev.payload);
+      }),
+    );
     // The bubble window emits `clips:bubble-closed` when the user clicks
     // the X on the hover controls. Treat that as "camera off" — the
     // bubble-session effect then tears down the stream + pump.
-    listen("clips:bubble-closed", () => {
-      console.log("[clips-popover] bubble-closed received — clearing cameraOn");
-      setCameraOn(false);
-    }).then((u) => unlistens.push(u));
+    track(
+      listen("clips:bubble-closed", () => {
+        console.log(
+          "[clips-popover] bubble-closed received — clearing cameraOn",
+        );
+        setCameraOn(false);
+      }),
+    );
     // Query the CURRENT visibility on mount in case the event already
     // fired before React subscribed.
     getCurrentWindow()
       .isVisible()
       .then((v) => {
+        if (cancelled) return;
         console.log("[clips-popover] initial isVisible =", v);
         setPopoverVisible(!!v);
       })
       .catch(() => {});
-    return () => unlistens.forEach((u) => u());
+    return () => {
+      cancelled = true;
+      unlistens.forEach((u) => {
+        try {
+          u();
+        } catch {
+          // ignore
+        }
+      });
+      unlistens.length = 0;
+    };
   }, []);
 
   // ---- camera bubble session ---------------------------------------------
@@ -435,19 +476,34 @@ export function App() {
       cancelled = true;
       const transferred = bubbleStreamTransferredToRecorder.current;
       const recordingInFlight = recordingFlowGateRef.current;
+      const trackCount = stream ? stream.getTracks().length : 0;
       console.log(
-        "[clips-popover] bubble session end — transferred=%o recordingInFlight=%o",
+        "[clips-popover] bubble session end — transferred=%o recordingInFlight=%o tracks=%d hasWebrtc=%o hasPump=%o",
         transferred,
         recordingInFlight,
+        trackCount,
+        !!webrtcHandle,
+        !!stopPump,
       );
-      if (webrtcHandle) webrtcHandle.stop();
-      if (stopPump) stopPump();
+      if (webrtcHandle) {
+        webrtcHandle.stop();
+        webrtcHandle = null;
+      }
+      if (stopPump) {
+        stopPump();
+        stopPump = null;
+      }
       // Critical: if the recorder borrowed this stream, it now owns the
       // track lifecycle. Stopping tracks here would end them out from
       // under `MediaRecorder`, producing the laggy-bubble / dead-track
       // bug. The recorder will stop them on `stop()` / `cancel()`.
       if (stream && !transferred) {
         stream.getTracks().forEach((t) => t.stop());
+        // Drop the local closure reference so nothing else pins the
+        // (now-stopped) MediaStream. WebKit's MediaStream is backed by a
+        // native track buffer that GC doesn't reclaim aggressively — any
+        // dangling reference keeps it resident.
+        stream = null;
       }
       // If the recorder owns the stream, keep `bubbleStreamRef` pointed
       // at it so the next re-entry of this effect (if any) doesn't try
@@ -706,7 +762,29 @@ export function App() {
   useEffect(() => {
     if (!recorder) return;
     let cancelled = false;
-    const unlisteners: Array<Promise<() => void>> = [
+    // Each Promise<UnlistenFn> is still pending when this effect might
+    // already be tearing down (a fast stop→cancel toggle, or the effect
+    // re-running due to a new recorder). If the unlisten arrives after
+    // cleanup ran, call it immediately — otherwise Tauri keeps the
+    // listener registered for the lifetime of the webview, and each
+    // orphaned closure pins `recorder` + its MediaStream graph.
+    const unlisteners: Array<() => void> = [];
+    const track = (p: Promise<() => void>) => {
+      p.then((u) => {
+        if (cancelled) {
+          try {
+            u();
+          } catch {
+            // ignore
+          }
+          return;
+        }
+        unlisteners.push(u);
+      }).catch(() => {
+        // ignore — best-effort
+      });
+    };
+    track(
       listen("clips:recorder-stop", async () => {
         try {
           const { recordingId } = await recorder.stop();
@@ -740,6 +818,8 @@ export function App() {
           }
         }
       }),
+    );
+    track(
       listen("clips:recorder-cancel", async () => {
         try {
           await recorder.cancel();
@@ -757,10 +837,17 @@ export function App() {
           }
         }
       }),
-    ];
+    );
     return () => {
       cancelled = true;
-      unlisteners.forEach((p) => p.then((un) => un()).catch(() => {}));
+      unlisteners.forEach((u) => {
+        try {
+          u();
+        } catch {
+          // ignore
+        }
+      });
+      unlisteners.length = 0;
     };
   }, [recorder, fetchRecent]);
 

@@ -190,6 +190,16 @@ async function uploadChunk(url: string, blob: Blob): Promise<void> {
     );
     throw new Error(`chunk ${res.status}: ${body.slice(0, 200)}`);
   }
+  // Drain the response body even on success. If we don't consume the
+  // body, WebKit can keep the network buffer resident until GC — that's
+  // extra retention on top of the ~1MB Blob we just uploaded. Reading
+  // and discarding is cheap (the body is usually tiny for a chunk ack)
+  // and makes the memory footprint predictable.
+  try {
+    await res.text();
+  } catch {
+    // ignore — body drain is best-effort
+  }
   console.log("[clips-recorder] chunk ok:", res.status, blob.size, "bytes");
 }
 
@@ -197,16 +207,45 @@ async function waitForEvent(name: string, timeoutMs = 15_000): Promise<void> {
   return new Promise((resolve, reject) => {
     let timer: ReturnType<typeof setTimeout> | null = null;
     let un: UnlistenFn | null = null;
+    // Flag so that if the timeout fires BEFORE `listen()` resolves we can
+    // still call the unlisten the instant it arrives — otherwise the
+    // event handler closure stays registered for the life of the webview
+    // (leaks the `resolve` / `reject` closures + anything they pin).
+    let done = false;
     listen(name, () => {
-      if (timer) clearTimeout(timer);
+      if (done) return;
+      done = true;
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
       un?.();
       resolve();
     })
       .then((u) => {
+        if (done) {
+          // Timeout already fired — unregister immediately.
+          try {
+            u();
+          } catch {
+            // ignore
+          }
+          return;
+        }
         un = u;
       })
-      .catch(reject);
+      .catch((err) => {
+        if (done) return;
+        done = true;
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+        reject(err);
+      });
     timer = setTimeout(() => {
+      if (done) return;
+      done = true;
       un?.();
       reject(new Error(`timeout waiting for ${name}`));
     }, timeoutMs);
@@ -461,7 +500,14 @@ async function startNativeRecordingInner(
   );
   let chunkIndex = 0;
   let failed: Error | null = null;
-  const uploadQueue: Promise<void>[] = [];
+  // In-flight chunk uploads. We use a Set (not an array) so entries can be
+  // removed as soon as each fetch settles — otherwise, for a 30-minute
+  // recording the array grows to 900 Promises, and EACH promise closes over
+  // the Blob it's uploading. MediaRecorder Blobs are the raw encoded video
+  // chunk — ~500KB to ~1MB each. Holding 900 of them is a ~700MB leak per
+  // recording, and cumulative across recordings in a long-lived process.
+  // See `uploadChunk()` — it removes its own entry in `.finally()`.
+  const inflight = new Set<Promise<void>>();
 
   recorder.ondataavailable = (ev) => {
     if (!ev.data || ev.data.size === 0) return;
@@ -469,10 +515,25 @@ async function startNativeRecordingInner(
     const url = chunkUrl(params.serverUrl, id, idx, false, {
       mimeType: ev.data.type || mimeType || "video/webm",
     });
-    const p = uploadChunk(url, ev.data).catch((err) => {
-      failed ??= err instanceof Error ? err : new Error(String(err));
-    });
-    uploadQueue.push(p);
+    // Wrap so `inflight.delete(p)` runs regardless of outcome. The closure
+    // holds the Blob only for the duration of this fetch — once removed,
+    // the Blob (and this promise) become GC-able. Note we assign `p` before
+    // constructing the promise body so `inflight.delete(p)` inside the
+    // `.finally` can reference the same handle we added.
+    let p: Promise<void>;
+    p = uploadChunk(url, ev.data)
+      .catch((err) => {
+        failed ??= err instanceof Error ? err : new Error(String(err));
+      })
+      .finally(() => {
+        inflight.delete(p);
+      });
+    inflight.add(p);
+    // Explicitly drop the local Blob reference. `ev.data` is already out of
+    // scope once this handler returns, but the reference hanging in the V8
+    // temporary register can survive long enough to pin a Blob across GC
+    // cycles in WKWebView. Setting it to null via `as any` is cheap insurance.
+    (ev as unknown as { data: Blob | null }).data = null;
   };
 
   const startedAt = Date.now();
@@ -563,6 +624,7 @@ async function startNativeRecordingInner(
       console.log("[clips-recorder] stop requested");
       clearInterval(tickHandle);
       stateUnlistens.forEach((u) => u());
+      stateUnlistens = [];
 
       // Flush the in-flight recorder buffer, then wait for it to fully stop
       // so we get the trailing dataavailable event.
@@ -588,6 +650,23 @@ async function startNativeRecordingInner(
           // ignore
         }
       });
+
+      // Null the data handler so the final MediaRecorder teardown
+      // doesn't keep the closure (which captures `inflight`, the URL
+      // builder, and indirectly the MediaStream) reachable after we're
+      // done with it. WebKit's MediaRecorder can retain a reference to
+      // its event handler for the life of the object if you leave a
+      // non-null ondataavailable in place — null it to break the chain.
+      recorder.ondataavailable = null;
+      // Clear combined MediaStream's track list — just removing our
+      // references to the tracks is enough; the tracks themselves are
+      // owned by `displayStream` / `audioStream` / `bubbleCameraStream`
+      // and get stopped below.
+      try {
+        combined.getTracks().forEach((t) => combined.removeTrack(t));
+      } catch {
+        // ignore — best-effort
+      }
 
       // Stop the streams WE own so OS permission indicators clear. The
       // camera stream is owned by the popover when reused — we leave it
@@ -626,8 +705,11 @@ async function startNativeRecordingInner(
 
       // Wait for any in-flight chunk uploads to settle before sending the
       // final chunk. Otherwise the server could finalize before the last
-      // few bytes land.
-      await Promise.allSettled(uploadQueue);
+      // few bytes land. Snapshot the current set — the `.finally` in each
+      // upload will have already removed settled entries from `inflight`.
+      const pending = Array.from(inflight);
+      await Promise.allSettled(pending);
+      inflight.clear();
       if (failed)
         console.error("[clips-recorder] chunk upload failed:", failed);
 
@@ -636,7 +718,7 @@ async function startNativeRecordingInner(
       });
       console.log("[clips-recorder] finalize POST", finalizeUrl, {
         chunksSent: chunkIndex,
-        uploadQueueLen: uploadQueue.length,
+        inflightAtFinalize: pending.length,
         anyFailed: !!failed,
       });
       try {
@@ -679,8 +761,21 @@ async function startNativeRecordingInner(
       stopped = true;
       clearInterval(tickHandle);
       stateUnlistens.forEach((u) => u());
+      stateUnlistens = [];
+      // Remove MediaRecorder's data handler so any final `ondataavailable`
+      // from the stop() below doesn't push a new Blob into `inflight`
+      // after we've decided to discard everything.
+      recorder.ondataavailable = null;
       try {
         if (recorder.state !== "inactive") recorder.stop();
+      } catch {
+        // ignore
+      }
+      // Drop the combined stream's track references — same rationale as
+      // in stop(). Just detaches from `combined`; the originating
+      // streams own the tracks and we stop them below.
+      try {
+        combined.getTracks().forEach((t) => combined.removeTrack(t));
       } catch {
         // ignore
       }
@@ -692,17 +787,30 @@ async function startNativeRecordingInner(
       if (!popoverOwnsCamera) {
         bubbleCameraStream?.getTracks().forEach((t) => t.stop());
       }
+      // Drop remaining in-flight chunk Blobs aggressively. Their fetches
+      // will still settle (we don't AbortController them — dev server is
+      // local and won't hang long) but we no longer hold references to the
+      // Blobs via this Set. Combined with the `ondataavailable = null`
+      // above, this guarantees no new Blobs latch on during the stop.
+      inflight.clear();
       // Same split as stop(): leave the bubble alone when popover owns
       // the camera — the popover's session effect handles bubble teardown.
       const chromeCmd = popoverOwnsCamera
         ? "hide_recording_chrome"
         : "hide_overlays";
       await invoke(chromeCmd).catch(() => {});
-      // Tell the server to abort the partial recording.
-      await fetch(
-        `${params.serverUrl.replace(/\/+$/, "")}/api/uploads/${id}/abort`,
-        { method: "POST", credentials: "include" },
-      ).catch(() => {});
+      // Tell the server to abort the partial recording (drops chunks from
+      // application_state, flips the recording row to 'failed'). Fire and
+      // forget with a short-circuit on failure — we don't want to keep the
+      // user waiting on a network call to a dev server that may be down.
+      try {
+        await fetch(
+          `${params.serverUrl.replace(/\/+$/, "")}/api/uploads/${id}/abort`,
+          { method: "POST", credentials: "include" },
+        );
+      } catch (err) {
+        console.warn("[clips-recorder] abort failed (non-fatal):", err);
+      }
     },
   };
 

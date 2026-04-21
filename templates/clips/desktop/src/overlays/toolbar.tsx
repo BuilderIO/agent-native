@@ -36,19 +36,54 @@ export function Toolbar() {
 
   useEffect(() => {
     const unlistens: Array<() => void> = [];
-    listen<{ paused: boolean; elapsedMs: number }>(
-      "clips:recorder-state",
-      (ev) => {
-        setPaused(!!ev.payload.paused);
-        setElapsed(ev.payload.elapsedMs ?? 0);
-      },
-    ).then((u) => unlistens.push(u));
-    listen<boolean>("clips:toolbar-enabled", (ev) => {
-      setEnabled(!!ev.payload);
-    }).then((u) => unlistens.push(u));
+    let stopped = false;
+    // Same race-safe listen tracker as elsewhere: if this effect
+    // cleans up before `listen()` resolves, the unlisten is called
+    // immediately — otherwise the listener lingers for the life of
+    // the webview, holding the setState closures captive.
+    const trackListen = (p: Promise<() => void>) => {
+      p.then((u) => {
+        if (stopped) {
+          try {
+            u();
+          } catch {
+            // ignore
+          }
+          return;
+        }
+        unlistens.push(u);
+      }).catch(() => {
+        // ignore
+      });
+    };
+    trackListen(
+      listen<{ paused: boolean; elapsedMs: number }>(
+        "clips:recorder-state",
+        (ev) => {
+          setPaused(!!ev.payload.paused);
+          setElapsed(ev.payload.elapsedMs ?? 0);
+        },
+      ),
+    );
+    trackListen(
+      listen<boolean>("clips:toolbar-enabled", (ev) => {
+        setEnabled(!!ev.payload);
+      }),
+    );
     return () => {
-      unlistens.forEach((u) => u());
-      if (fallbackTimer.current) clearTimeout(fallbackTimer.current);
+      stopped = true;
+      unlistens.forEach((u) => {
+        try {
+          u();
+        } catch {
+          // ignore
+        }
+      });
+      unlistens.length = 0;
+      if (fallbackTimer.current) {
+        clearTimeout(fallbackTimer.current);
+        fallbackTimer.current = null;
+      }
     };
   }, []);
 
