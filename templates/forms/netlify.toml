@@ -1,5 +1,5 @@
 [build]
-  command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && DATABASE_URL=${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL} pnpm --filter forms exec drizzle-kit push --force && NITRO_PRESET=netlify pnpm --filter forms build"
+  command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && DATABASE_URL=${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL} NITRO_PRESET=netlify pnpm --filter forms build"
   publish = "templates/forms/dist"
   functions = "templates/forms/.netlify/functions-internal"
 
