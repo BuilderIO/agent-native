@@ -11,7 +11,7 @@ import {
 } from "../lib/jobs.js";
 import { processAutomations } from "../lib/automation-engine.js";
 import { listOAuthAccounts } from "@agent-native/core/oauth-tokens";
-import { getClient, startWatch } from "../lib/google-auth.js";
+import { getClientForAccount, startWatch } from "../lib/google-auth.js";
 
 const INTERVAL_MS = 60_000; // 1 minute
 const WATCH_RENEW_INTERVAL_MS = 12 * 60 * 60_000;
@@ -22,7 +22,10 @@ async function renewAllWatches(): Promise<void> {
   const accounts = await listOAuthAccounts("google");
   for (const acc of accounts) {
     try {
-      const client = await getClient(acc.accountId);
+      // Use accountId-based lookup so secondary/added accounts (where
+      // `owner !== accountId`) also get their watch renewed. Gmail watches
+      // expire in ~7 days and must be renewed regularly.
+      const client = await getClientForAccount(acc.accountId);
       if (!client) continue;
       await startWatch(client.accessToken);
     } catch (err: any) {
