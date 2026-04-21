@@ -5,7 +5,7 @@ description: "Pick a template, create your app, and start customizing it with AI
 
 # Getting Started
 
-The fastest way to get started is to pick a template and customize it. Templates are complete, production-ready apps — not starter kits. You get a working app in under a minute and start making it yours.
+The fastest way to get started is to pick a template and make it yours. Agent-native templates are **[cloneable SaaS](/docs/cloneable-saas)** — complete, production-grade apps, not starter kits. You get a working product in under a minute and start customizing it with the agent.
 
 ## Create Your Workspace {#create-your-app}
 
@@ -41,16 +41,19 @@ From here, use your AI coding tool (Claude Code, Cursor, Windsurf, etc.) to cust
 
 Each template is a complete app with UI, agent actions, database schema, and AI instructions ready to go:
 
-| Template                          | Replaces                    |
-| --------------------------------- | --------------------------- |
-| [Mail](/templates/mail)           | Superhuman, Gmail           |
-| [Calendar](/templates/calendar)   | Google Calendar, Calendly   |
-| [Content](/templates/content)     | Notion, Google Docs         |
-| [Slides](/templates/slides)       | Google Slides, Pitch        |
-| [Video](/templates/video)         | video editing               |
-| [Analytics](/templates/analytics) | Amplitude, Mixpanel, Looker |
+| Template                            | Replaces                                         |
+| ----------------------------------- | ------------------------------------------------ |
+| [Mail](/templates/mail)             | Superhuman, Gmail                                |
+| [Calendar](/templates/calendar)     | Google Calendar, Calendly                        |
+| [Content](/templates/content)       | Notion, Google Docs                              |
+| [Slides](/templates/slides)         | Google Slides, Pitch                             |
+| [Video](/templates/video)           | video editing                                    |
+| [Analytics](/templates/analytics)   | Amplitude, Mixpanel, Looker                      |
+| [Forms](/docs/template-forms)       | Typeform                                         |
+| [Dispatch](/docs/template-dispatch) | Workspace control plane — secrets, routing, jobs |
+| [Starter](/docs/template-starter)   | Minimal scaffold — build from scratch            |
 
-Browse the [template gallery](/templates) for live demos and detailed feature lists.
+Browse the [template gallery](/templates) for live demos, or see [Cloneable SaaS](/docs/cloneable-saas) for the full list and the clone → customize → deploy flow.
 
 ## Project Structure {#project-structure}
 

@@ -18,7 +18,6 @@ import {
   IconMail,
   IconKey,
   IconMicrophone,
-  IconPuzzle,
 } from "@tabler/icons-react";
 import { SettingsSection } from "./SettingsSection.js";
 import { useBuilderStatus } from "./useBuilderStatus.js";
@@ -26,7 +25,6 @@ import { AgentsSection } from "./AgentsSection.js";
 import { UsageSection } from "./UsageSection.js";
 import { SecretsSection } from "./SecretsSection.js";
 import { VoiceTranscriptionSection } from "./VoiceTranscriptionSection.js";
-import { McpServersSection } from "./McpServersSection.js";
 
 const IntegrationsPanel = lazy(() =>
   import("../integrations/IntegrationsPanel.js").then((m) => ({
@@ -887,17 +885,6 @@ export function SettingsPanel({
         <Suspense fallback={null}>
           <IntegrationsPanel />
         </Suspense>
-      </SettingsSection>
-
-      {/* Remote MCP servers — user- and org-scope */}
-      <SettingsSection
-        icon={<IconPuzzle size={14} />}
-        title="MCP Servers"
-        subtitle="Connect remote MCP servers (Zapier, Cloudflare, internal tools). Scope to yourself or share with the team."
-        open={openSection === "mcp-servers"}
-        onToggle={() => toggle("mcp-servers")}
-      >
-        <McpServersSection />
       </SettingsSection>
 
       {/* Usage & spend */}

@@ -3,6 +3,7 @@ import {
   gmailGetProfile,
   gmailListMessages,
   gmailGetMessage,
+  gmailListHistory,
   gmailListLabels,
   peopleGetProfile,
 } from "./google-api.js";
@@ -364,6 +365,410 @@ export async function listGmailMessages(
   return promise;
 }
 
+// Per-(account, label) history cache. After the first hydrate we keep the
+// fully-fetched messages in memory alongside Gmail's historyId. Subsequent
+// calls use gmailListHistory to fetch only the delta since that historyId —
+// dramatically cheaper than a full messages.list + per-id messages.get sweep
+// (one list = ~5 units + 50 gets = 255 units; a delta with no changes is ~2
+// units, and a typical delta with a handful of adds is 10–50 units).
+type HistoryEntry = {
+  historyId: string;
+  messages: any[];
+  // Pagination token from the initial hydrate's `messages.list` response.
+  // Preserved across deltas so the frontend's infinite-query can still
+  // page past the first window — otherwise the history-sync path would
+  // cap the inbox at `maxResults` even when older messages exist.
+  nextPageToken?: string;
+  updatedAt: number;
+};
+
+const historyCache = new Map<string, HistoryEntry>();
+
+// Per-key in-flight dedupe. Concurrent requests for the same
+// (email, label, maxResults) tuple share one computation — avoids two
+// callers both racing to apply a delta and stomping each other's cache
+// writes (or one failing and deleting the cache another just rebuilt).
+const historyInflight = new Map<
+  string,
+  Promise<{ messages: any[]; nextPageToken?: string }>
+>();
+
+// TTL + soft-cap eviction so long-lived servers don't hold full Gmail
+// message payloads forever. 1h TTL plus a 200-entry cap covers typical
+// multi-account setups; entries refresh on each successful fetch so
+// active inboxes stay warm while abandoned ones fall out.
+const HISTORY_CACHE_TTL_MS = 60 * 60 * 1000;
+const HISTORY_CACHE_MAX = 200;
+
+function evictStaleHistoryCache(): void {
+  const now = Date.now();
+  for (const [key, entry] of historyCache) {
+    if (now - entry.updatedAt > HISTORY_CACHE_TTL_MS) historyCache.delete(key);
+  }
+  if (historyCache.size <= HISTORY_CACHE_MAX) return;
+  // Size-based LRU: drop the oldest-by-updatedAt until we're at cap.
+  const entries = Array.from(historyCache.entries()).sort(
+    (a, b) => a[1].updatedAt - b[1].updatedAt,
+  );
+  const toDrop = entries.length - HISTORY_CACHE_MAX;
+  for (let i = 0; i < toDrop; i++) historyCache.delete(entries[i][0]);
+}
+
+function historyCacheKey(
+  email: string,
+  labelId: string,
+  maxResults: number,
+): string {
+  return `${email}::${labelId}::${maxResults}`;
+}
+
+// history.list requires a single labelId filter, so free-form search queries
+// and multi-label views can't use this path. For now, only the default inbox
+// view (the highest-volume polling case) is eligible.
+function historyLabelFor(query: string | undefined): string | null {
+  const q = (query || "in:inbox").trim();
+  if (q === "" || q === "in:inbox") return "INBOX";
+  return null;
+}
+
+function isHistoryEligible(
+  query: string | undefined,
+  pageTokens: Record<string, string> | undefined,
+): string | null {
+  if (pageTokens && Object.keys(pageTokens).length > 0) return null;
+  return historyLabelFor(query);
+}
+
+/**
+ * Initial hydrate: do a full list + per-message fetch, but capture the
+ * account's historyId from profile.get *before* listing so any changes
+ * that land mid-hydrate are replayed on the next delta (adds dedup via
+ * existingById; label mutations are idempotent set-union).
+ */
+async function hydrateAccountInbox(
+  accessToken: string,
+  email: string,
+  query: string,
+  maxResults: number,
+): Promise<{ messages: any[]; historyId?: string; nextPageToken?: string }> {
+  let historyId: string | undefined;
+  try {
+    const profile = await gmailGetProfile(accessToken);
+    historyId = profile.historyId;
+  } catch {
+    // Missing historyId just means we'll re-hydrate on next call; not fatal.
+  }
+
+  const listRes = await gmailListMessages(accessToken, {
+    q: query,
+    maxResults,
+  });
+  const messageIds = (listRes.messages || []) as Array<{ id: string }>;
+  const nextPageToken: string | undefined = listRes.nextPageToken || undefined;
+
+  const messages: any[] = [];
+  const batchSize = 5;
+  for (let i = 0; i < messageIds.length; i += batchSize) {
+    const batch = messageIds.slice(i, i + batchSize);
+    const results = await Promise.all(
+      batch.map(async (m) => {
+        const msg = await gmailGetMessage(accessToken, m.id, "full");
+        return { ...msg, _accountEmail: email };
+      }),
+    );
+    messages.push(...results);
+  }
+
+  return { messages, historyId, nextPageToken };
+}
+
+/**
+ * Incremental sync via gmailListHistory. Returns null if history is
+ * unusable (404/expired/paginated-too-deep) so the caller can fall back
+ * to a full re-hydrate.
+ */
+async function applyHistoryDelta(
+  accessToken: string,
+  email: string,
+  labelId: string,
+  entry: HistoryEntry,
+  maxResults: number,
+): Promise<{ messages: any[]; historyId: string } | null> {
+  let history: any;
+  try {
+    history = await gmailListHistory(accessToken, {
+      startHistoryId: entry.historyId,
+      historyTypes: [
+        "messageAdded",
+        "messageDeleted",
+        "labelAdded",
+        "labelRemoved",
+      ],
+      labelId,
+      maxResults: 500,
+    });
+  } catch (err: any) {
+    // 404 historyId-too-old, malformed response, etc. Caller re-hydrates.
+    console.warn(`[history-sync] delta failed for ${email}: ${err.message}`);
+    return null;
+  }
+
+  // If Gmail paginates the delta it means a very large batch of changes
+  // accumulated; a full re-hydrate is likely cheaper and simpler than
+  // chasing page tokens (plus our primitive doesn't accept pageToken yet).
+  if (history.nextPageToken) return null;
+
+  const newHistoryId: string = history.historyId || entry.historyId;
+
+  // No changes → return cached messages as-is with refreshed historyId.
+  if (!history.history || history.history.length === 0) {
+    return { messages: entry.messages, historyId: newHistoryId };
+  }
+
+  // Fold history records in chronological order so the FINAL label state
+  // for each message reflects the last event wins. Collapsing into
+  // unordered sets would drop the restore half of an archive-then-undo
+  // sequence within a single delta (and vice versa).
+  const deleted = new Set<string>();
+  const addedIds: string[] = [];
+  // Per-message flag: does this id currently carry `labelId`? undefined
+  // means no label event touched it in this delta (so preserve whatever
+  // the cache already has).
+  const finalLabelOnWatched = new Map<string, boolean>();
+  const netLabelDelta = new Map<
+    string,
+    { add: Set<string>; remove: Set<string> }
+  >();
+  const touchLabels = (id: string) => {
+    let d = netLabelDelta.get(id);
+    if (!d) {
+      d = { add: new Set(), remove: new Set() };
+      netLabelDelta.set(id, d);
+    }
+    return d;
+  };
+
+  for (const rec of history.history) {
+    for (const added of rec.messagesAdded || []) {
+      if (added.message?.id) addedIds.push(added.message.id);
+    }
+    for (const removed of rec.messagesDeleted || []) {
+      if (removed.message?.id) deleted.add(removed.message.id);
+    }
+    for (const evt of rec.labelsAdded || []) {
+      const id = evt.message?.id;
+      if (!id) continue;
+      const d = touchLabels(id);
+      for (const l of evt.labelIds || []) {
+        d.add.add(l);
+        d.remove.delete(l);
+        if (l === labelId) finalLabelOnWatched.set(id, true);
+      }
+    }
+    for (const evt of rec.labelsRemoved || []) {
+      const id = evt.message?.id;
+      if (!id) continue;
+      const d = touchLabels(id);
+      for (const l of evt.labelIds || []) {
+        d.remove.add(l);
+        d.add.delete(l);
+        if (l === labelId) finalLabelOnWatched.set(id, false);
+      }
+    }
+  }
+
+  // Keep existing messages unless deleted or their final watched-label
+  // state is explicitly `false` this delta.
+  const kept: any[] = [];
+  const existingById = new Map<string, any>();
+  for (const m of entry.messages) {
+    existingById.set(m.id, m);
+    if (deleted.has(m.id)) continue;
+    if (finalLabelOnWatched.get(m.id) === false) continue;
+
+    const d = netLabelDelta.get(m.id);
+    if (d) {
+      const labels = new Set<string>(m.labelIds || []);
+      for (const l of d.add) labels.add(l);
+      for (const l of d.remove) labels.delete(l);
+      m.labelIds = Array.from(labels);
+    }
+    kept.push(m);
+  }
+
+  // Ids that need a full body fetch:
+  //   1. New messages (`messagesAdded`) not already cached.
+  //   2. Messages whose FINAL watched-label state is `true` but that we
+  //      don't have cached yet — e.g. a previously-archived message that
+  //      gets unarchived and re-enters the inbox via `labelAdded(INBOX)`,
+  //      or a message added then labeled within the same delta.
+  // Always skip anything deleted in this delta.
+  const fetchSet = new Set<string>();
+  for (const id of addedIds) {
+    if (deleted.has(id)) continue;
+    if (existingById.has(id)) continue;
+    if (finalLabelOnWatched.get(id) === false) continue;
+    fetchSet.add(id);
+  }
+  for (const [id, onLabel] of finalLabelOnWatched) {
+    if (!onLabel) continue;
+    if (deleted.has(id)) continue;
+    if (existingById.has(id)) continue;
+    fetchSet.add(id);
+  }
+  const toFetch = Array.from(fetchSet);
+
+  const fetched: any[] = [];
+  const batchSize = 5;
+  for (let i = 0; i < toFetch.length; i += batchSize) {
+    const batch = toFetch.slice(i, i + batchSize);
+    const results = await Promise.all(
+      batch.map(async (id) => {
+        try {
+          const msg = await gmailGetMessage(accessToken, id, "full");
+          return { ...msg, _accountEmail: email };
+        } catch {
+          return null;
+        }
+      }),
+    );
+    for (const r of results) if (r) fetched.push(r);
+  }
+
+  // If any fetch failed we can't tell whether the missing body would have
+  // been kept or filtered — advancing historyId would permanently hide
+  // those messages until the next cold load. Force a full rehydrate.
+  if (fetched.length < toFetch.length) return null;
+
+  const merged = [...kept, ...fetched].sort((a, b) => {
+    const ad = Number(a.internalDate || 0);
+    const bd = Number(b.internalDate || 0);
+    return bd - ad;
+  });
+
+  // If the previous window was already full and ANY removal happened in
+  // this delta, older messages in the account may need to be pulled
+  // forward to fill the vacated slots. The delta alone can't see those
+  // (gmailListHistory only reports messages touched since startHistoryId),
+  // so even if `merged.length` still equals `maxResults` because of a
+  // same-delta restore of an older message, the top-N ordering can be
+  // wrong. Bail to full rehydrate whenever the window was full and
+  // anything was removed.
+  const anyRemoved =
+    deleted.size > 0 ||
+    Array.from(finalLabelOnWatched.values()).some((v) => v === false);
+  if (entry.messages.length >= maxResults && anyRemoved) {
+    return null;
+  }
+
+  return { messages: merged.slice(0, maxResults), historyId: newHistoryId };
+}
+
+async function fetchAccountWithHistory(
+  accessToken: string,
+  email: string,
+  labelId: string,
+  query: string,
+  maxResults: number,
+): Promise<{ messages: any[]; nextPageToken?: string }> {
+  const cacheKey = historyCacheKey(email, labelId, maxResults);
+
+  // Dedupe concurrent callers on the same key so the cache isn't raced.
+  const pending = historyInflight.get(cacheKey);
+  if (pending) return pending;
+
+  const promise = (async () => {
+    evictStaleHistoryCache();
+    const cached = historyCache.get(cacheKey);
+
+    if (cached) {
+      const delta = await applyHistoryDelta(
+        accessToken,
+        email,
+        labelId,
+        cached,
+        maxResults,
+      );
+      if (delta) {
+        historyCache.set(cacheKey, {
+          historyId: delta.historyId,
+          messages: delta.messages,
+          // Preserve the original page token — deltas don't produce one,
+          // and page tokens referencing earlier `list` calls remain valid
+          // for Gmail's history-backed pagination window.
+          nextPageToken: cached.nextPageToken,
+          updatedAt: Date.now(),
+        });
+        evictStaleHistoryCache();
+        return {
+          messages: delta.messages,
+          nextPageToken: cached.nextPageToken,
+        };
+      }
+      // Delta unusable — drop cache and fall through to full hydrate.
+      historyCache.delete(cacheKey);
+    }
+
+    const init = await hydrateAccountInbox(
+      accessToken,
+      email,
+      query,
+      maxResults,
+    );
+    if (init.historyId) {
+      historyCache.set(cacheKey, {
+        historyId: init.historyId,
+        messages: init.messages,
+        nextPageToken: init.nextPageToken,
+        updatedAt: Date.now(),
+      });
+      evictStaleHistoryCache();
+    }
+    return { messages: init.messages, nextPageToken: init.nextPageToken };
+  })().finally(() => {
+    historyInflight.delete(cacheKey);
+  });
+
+  historyInflight.set(cacheKey, promise);
+  return promise;
+}
+
+async function fetchAccountLegacy(
+  accessToken: string,
+  email: string,
+  query: string,
+  maxResults: number,
+  pageToken: string | undefined,
+  onNextPageToken: (token: string) => void,
+  onEstimate: (n: number) => void,
+): Promise<any[]> {
+  const listRes = await gmailListMessages(accessToken, {
+    q: query,
+    maxResults,
+    pageToken,
+  });
+
+  onEstimate(listRes.resultSizeEstimate || 0);
+  if (listRes.nextPageToken) onNextPageToken(listRes.nextPageToken);
+
+  const messageIds = listRes.messages || [];
+  if (messageIds.length === 0) return [];
+
+  const batchSize = 5;
+  const messages: any[] = [];
+  for (let i = 0; i < messageIds.length; i += batchSize) {
+    const batch = messageIds.slice(i, i + batchSize);
+    const batchResults = await Promise.all(
+      batch.map(async (m: any) => {
+        const msg = await gmailGetMessage(accessToken, m.id, "full");
+        return { ...msg, _accountEmail: email };
+      }),
+    );
+    messages.push(...batchResults);
+  }
+  return messages;
+}
+
 async function listGmailMessagesUncached(
   query?: string,
   maxResults = 50,
@@ -377,38 +782,36 @@ async function listGmailMessagesUncached(
   const nextPageTokens: Record<string, string> = {};
   let totalEstimate = 0;
 
+  const historyLabel = isHistoryEligible(query, pageTokens);
+  const resolvedQuery = query || "in:inbox";
+
   const allResults = await Promise.all(
     clients.map(async ({ email, accessToken }) => {
       try {
-        const listRes = await gmailListMessages(accessToken, {
-          q: query || "in:inbox",
-          maxResults,
-          pageToken: pageTokens?.[email],
-        });
-
-        totalEstimate += listRes.resultSizeEstimate || 0;
-        if (listRes.nextPageToken) {
-          nextPageTokens[email] = listRes.nextPageToken;
-        }
-
-        const messageIds = listRes.messages || [];
-        if (messageIds.length === 0) return [];
-
-        // Fetch messages in batches of 5 to avoid Gmail rate limits
-        const batchSize = 5;
-        const messages: any[] = [];
-        for (let i = 0; i < messageIds.length; i += batchSize) {
-          const batch = messageIds.slice(i, i + batchSize);
-          const batchResults = await Promise.all(
-            batch.map(async (m: any) => {
-              const msg = await gmailGetMessage(accessToken, m.id, "full");
-              return { ...msg, _accountEmail: email };
-            }),
+        if (historyLabel) {
+          const res = await fetchAccountWithHistory(
+            accessToken,
+            email,
+            historyLabel,
+            resolvedQuery,
+            maxResults,
           );
-          messages.push(...batchResults);
+          if (res.nextPageToken) nextPageTokens[email] = res.nextPageToken;
+          return res.messages;
         }
-
-        return messages;
+        return await fetchAccountLegacy(
+          accessToken,
+          email,
+          resolvedQuery,
+          maxResults,
+          pageTokens?.[email],
+          (token) => {
+            nextPageTokens[email] = token;
+          },
+          (n) => {
+            totalEstimate += n;
+          },
+        );
       } catch (error: any) {
         console.error(
           `[listGmailMessages] Error fetching from ${email}:`,

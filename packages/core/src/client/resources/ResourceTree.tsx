@@ -17,6 +17,7 @@ import {
 } from "@tabler/icons-react";
 import { cn } from "../utils.js";
 import type { TreeNode, ResourceMeta, JobMetadata } from "./use-resources.js";
+import type { McpServer } from "./use-mcp-servers.js";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -26,7 +27,7 @@ function getFileIcon(node: TreeNode): React.ReactNode {
       <IconMessageChatbot className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
     );
   }
-  if (node.kind === "remote-agent") {
+  if (node.kind === "remote-agent" || node.kind === "mcp-server") {
     return (
       <IconPlugConnected className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
     );
@@ -81,6 +82,31 @@ export interface ResourceTreeProps {
 interface CreatingState {
   parentPath: string;
   type: "file" | "folder";
+}
+
+function McpStatusDot({ server }: { server: McpServer }) {
+  if (server.status.state === "connected") {
+    return (
+      <span
+        className="ml-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-green-500"
+        title={`Connected — ${server.status.toolCount} tool${server.status.toolCount === 1 ? "" : "s"}`}
+      />
+    );
+  }
+  if (server.status.state === "error") {
+    return (
+      <span
+        className="ml-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-red-500"
+        title={`Error: ${server.status.error}`}
+      />
+    );
+  }
+  return (
+    <span
+      className="ml-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/40"
+      title="Connecting…"
+    />
+  );
 }
 
 function JobStatusDot({ meta }: { meta: JobMetadata }) {
@@ -192,6 +218,7 @@ function TreeNodeRow({
           {node.name}
         </span>
         {node.jobMeta && <JobStatusDot meta={node.jobMeta} />}
+        {node.mcpServerMeta && <McpStatusDot server={node.mcpServerMeta} />}
         {!readOnly && (
           <div className="ml-auto flex shrink-0 items-center gap-0.5 opacity-0 group-hover/row:opacity-100">
             {isFolder && (

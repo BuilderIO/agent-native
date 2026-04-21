@@ -105,3 +105,11 @@ Save the file at `.agents/skills/my-skill/SKILL.md`. The directory name should m
 > **Skills** — Deep dives. Each skill focuses on one pattern with detailed rules, code examples, and do/don't lists. The agent reads these when it needs to follow a specific pattern.
 
 `AGENTS.md` tells the agent _what_ the app does. Skills tell the agent _how_ to do specific things correctly. Both are needed — `AGENTS.md` for orientation, skills for execution.
+
+## Skills vs memory {#skills-vs-memory}
+
+> **Skills** — Authored, reusable how-to guides. Apply to every user, invoked on demand when the task matches.
+>
+> **Memory (`learnings.md`)** — Per-user notes the agent writes automatically from corrections and preferences. Loaded every turn.
+
+If the knowledge applies to _everyone_ working in the app ("always prefer CTEs over subqueries"), it's a skill. If it's about _this particular user_ ("Steve likes concise answers"), it belongs in `learnings.md` — and the agent will put it there itself the next time you correct it. See [Agent Memory (`learnings.md`)](./resources.md#learnings-md) for the full treatment.

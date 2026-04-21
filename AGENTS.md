@@ -26,7 +26,7 @@ Every new feature MUST update all four areas. Skipping any one breaks the agent-
 
 If a feature needs user-facing setup (API keys, OAuth), register an onboarding step. See `onboarding`.
 
-When MCP servers are configured in `mcp.config.json`, their tools appear in the registry with the `mcp__<server-id>__` prefix. Compose with them where possible (e.g. delegate browser automation to `mcp__claude-in-chrome__*`).
+MCP servers reach the agent from three sources: local stdio servers in `mcp.config.json`, remote HTTP servers added per-user or per-org via the settings UI, and the workspace MCP hub (Dispatch template) when enabled. Tools appear in the registry prefixed `mcp__<server-id>__`. Compose with them where possible (e.g. delegate browser automation to `mcp__claude-in-chrome__*`).
 
 ## Project Structure
 
@@ -67,6 +67,9 @@ Agent skills in `.agents/skills/` provide detailed guidance. Read the relevant s
 | `a2a-protocol`        | Enabling inter-agent communication                            |
 | `recurring-jobs`      | Scheduled tasks the agent runs on a cron schedule             |
 | `onboarding`          | Registering setup steps for API keys / OAuth                  |
+| `secrets`             | Declaratively register API keys the template needs            |
+| `sharing`             | Per-user / per-org sharing and access checks on resources     |
+| `voice-transcription` | Voice dictation in the agent composer (Whisper / browser)     |
 | `frontend-design`     | Building or styling any web UI, components, or pages          |
 | `create-skill`        | Adding new skills for the agent                               |
 | `capture-learnings`   | Recording corrections and patterns                            |

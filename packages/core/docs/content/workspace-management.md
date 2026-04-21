@@ -222,3 +222,4 @@ For a new workspace, after running `agent-native create`:
 - [ ] Configure the approval policy and approver emails
 - [ ] Set up SendGrid (`SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL`) for admin notifications
 - [ ] Connect Slack or Telegram for workspace messaging
+- [ ] Configure shared MCP servers — drop `mcp.config.json` at the workspace root, or enable Dispatch as the workspace [MCP hub](/docs/mcp-clients#hub) so every app inherits the same server list
