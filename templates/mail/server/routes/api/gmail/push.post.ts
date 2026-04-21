@@ -1,14 +1,71 @@
-import { defineEventHandler, readBody, type H3Event } from "h3";
+import {
+  defineEventHandler,
+  readBody,
+  getHeader,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
+import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import { listOAuthAccounts } from "@agent-native/core/oauth-tokens";
 import {
   bumpHistoryWatermark,
   invalidateListCacheForOwner,
 } from "../../../lib/google-auth.js";
 
-// TODO: verify the Pub/Sub OIDC token on inbound requests before trusting the
-// payload. See
-// https://cloud.google.com/pubsub/docs/push#authentication_and_authorization_by_the_push_endpoint
+// Cache Google's public keys for OIDC verification. jose handles TTL + refresh.
+// https://cloud.google.com/pubsub/docs/push#validate_tokens
+const GOOGLE_JWKS = createRemoteJWKSet(
+  new URL("https://www.googleapis.com/oauth2/v3/certs"),
+);
+
+const GOOGLE_ISSUERS = ["https://accounts.google.com", "accounts.google.com"];
+
+async function verifyPubSubToken(authHeader: string): Promise<JWTPayload> {
+  if (!authHeader.startsWith("Bearer ")) {
+    throw new Error("missing bearer token");
+  }
+  const token = authHeader.slice(7);
+  const audience = process.env.GMAIL_PUSH_AUDIENCE;
+  if (!audience) {
+    throw new Error("GMAIL_PUSH_AUDIENCE not configured");
+  }
+
+  const { payload } = await jwtVerify(token, GOOGLE_JWKS, {
+    issuer: GOOGLE_ISSUERS,
+    audience,
+  });
+
+  if (payload.email_verified !== true) {
+    throw new Error("email_verified claim is not true");
+  }
+
+  // Optional pin to the specific service account Pub/Sub signs as. Blocks
+  // any other Google-issued token that happens to have the right audience.
+  const expectedSigner = process.env.GMAIL_PUSH_SIGNER_EMAIL;
+  if (expectedSigner && payload.email !== expectedSigner) {
+    throw new Error(`unexpected signer: ${payload.email}`);
+  }
+
+  return payload;
+}
+
 export default defineEventHandler(async (event: H3Event) => {
+  // OIDC verification is opt-in via env. When GMAIL_PUSH_AUDIENCE is unset
+  // we run unauthenticated — matching the subscription's default state
+  // before "Enable authentication" is flipped on. Once the env var is set,
+  // we reject any request that fails verification with 401 so Pub/Sub
+  // surfaces the misconfiguration in its delivery metrics.
+  if (process.env.GMAIL_PUSH_AUDIENCE) {
+    const authHeader = getHeader(event, "authorization") || "";
+    try {
+      await verifyPubSubToken(authHeader);
+    } catch (err: any) {
+      console.warn(`[gmail-push] OIDC verify failed: ${err.message}`);
+      setResponseStatus(event, 401);
+      return { ok: false, error: "unauthorized" };
+    }
+  }
+
   let body: any;
   try {
     body = await readBody(event);
