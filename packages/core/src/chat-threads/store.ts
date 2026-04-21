@@ -26,15 +26,17 @@ export function withThreadDataLock<T>(
 ): Promise<T> {
   const prev = _threadDataLocks.get(threadId) ?? Promise.resolve();
   const next = prev.then(fn, fn);
-  // Store the same `next` promise we compare against at cleanup time —
-  // `next.finally(...)` returns a DIFFERENT promise, so comparing against
-  // it would never match and entries would leak forever.
   _threadDataLocks.set(threadId, next);
-  next.finally(() => {
+  // Use `.then(cleanup, cleanup)` (not `.finally`) so the rejection is
+  // observed on this chained promise — otherwise any failure inside `fn`
+  // triggers `unhandledRejection` on the discarded `finally()` return.
+  // The caller still sees the rejection via `next`.
+  const cleanup = () => {
     if (_threadDataLocks.get(threadId) === next) {
       _threadDataLocks.delete(threadId);
     }
-  });
+  };
+  next.then(cleanup, cleanup);
   return next as Promise<T>;
 }
 
