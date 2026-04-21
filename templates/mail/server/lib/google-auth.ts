@@ -1,6 +1,7 @@
 import {
   createOAuth2Client,
   gmailGetProfile,
+  gmailGetMessage,
   gmailListMessages,
   gmailBatchGetMessages,
   gmailListHistory,
@@ -582,15 +583,34 @@ async function hydrateAccountInbox(
     "metadata",
   );
 
-  // Partial batch failures would leave gaps in the inbox window while we
-  // still cache `historyId` — those messages then never appear in history
-  // deltas (deltas only surface events since the cached id) and silently
-  // vanish from the UI until the next full rehydrate. Fail the whole
-  // hydrate instead; the caller retries, which is cheaper than serving a
-  // wrong list indefinitely.
-  if (batchResults.some((r) => !r.data)) {
+  // Gmail's batch endpoint will return fewer sub-responses than sub-requests
+  // when it rate-limits mid-batch (or on transient transport issues). Refill
+  // any gaps with individual gets so we don't cache an incomplete inbox and
+  // then silently drop those messages from every subsequent delta.
+  const missing = batchResults.filter((r) => !r.data).map((r) => r.id);
+  if (missing.length > 0) {
+    const refills = await Promise.all(
+      missing.map(async (id) => {
+        try {
+          const data = await gmailGetMessage(accessToken, id, "metadata");
+          return { id, data };
+        } catch {
+          return { id, data: null as any };
+        }
+      }),
+    );
+    const byId = new Map(refills.map((r) => [r.id, r.data]));
+    for (const r of batchResults) {
+      if (!r.data && byId.has(r.id)) r.data = byId.get(r.id);
+    }
+  }
+
+  // If refill still couldn't cover everything, abort rather than cache a
+  // partial window (gaps never show up in history deltas). Caller retries.
+  const stillMissing = batchResults.filter((r) => !r.data).length;
+  if (stillMissing > 0) {
     throw new Error(
-      `Batch message fetch returned incomplete results (${batchResults.filter((r) => !r.data).length}/${batchResults.length} missing) — aborting hydrate to avoid caching an incomplete inbox`,
+      `Batch message fetch incomplete: ${stillMissing}/${batchResults.length} missing after refill; aborting hydrate`,
     );
   }
 
