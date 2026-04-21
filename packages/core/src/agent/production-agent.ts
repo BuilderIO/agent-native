@@ -382,6 +382,7 @@ export async function runAgentLoop(opts: {
           return {
             type: "tool-result" as const,
             toolCallId: toolCall.id,
+            toolName: toolCall.name,
             content: result,
             isError: true,
           };
@@ -429,6 +430,7 @@ export async function runAgentLoop(opts: {
         return {
           type: "tool-result" as const,
           toolCallId: toolCall.id,
+          toolName: toolCall.name,
           content: result,
           ...(isError ? { isError } : {}),
         };
@@ -445,7 +447,8 @@ export async function runAgentLoop(opts: {
 export function createProductionAgentHandler(
   options: ProductionAgentOptions,
 ): H3EventHandler {
-  const model = options.model ?? "claude-sonnet-4-6";
+  // Undefined = let each engine pick its own defaultModel at request time.
+  const configuredModel = options.model;
 
   // Resolve actions — prefer `actions`, fall back to deprecated `scripts`
   const resolvedActions = options.actions ?? options.scripts ?? {};
@@ -516,13 +519,15 @@ export function createProductionAgentHandler(
       engine = await resolveEngine({
         engineOption: options.engine,
         apiKey: effectiveApiKey,
-        model,
+        model: configuredModel,
       });
     } catch {
       engine = await resolveEngine({
         apiKey: effectiveApiKey,
       });
     }
+
+    const model = configuredModel ?? engine.defaultModel;
 
     // Check for API key before starting a run (only for anthropic engine)
     if (engine.name === "anthropic" && !effectiveApiKey) {
