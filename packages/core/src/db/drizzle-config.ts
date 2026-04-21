@@ -47,15 +47,28 @@ export function createDrizzleConfig(
     process.env.DATABASE_AUTH_TOKEN;
 
   const url = envUrl || `file:${sqliteFile}`;
+  // URI schemes are case-insensitive per RFC 3986; normalize before matching.
+  const scheme = url.toLowerCase();
   const isPostgres =
-    url.startsWith("postgres://") || url.startsWith("postgresql://");
-  const isTurso = url.startsWith("libsql://") || url.startsWith("https://");
+    scheme.startsWith("postgres://") || scheme.startsWith("postgresql://");
+  // Only `libsql://` matches Turso. Plain `https://` is too broad — Turso's
+  // HTTP endpoint is reachable via libsql:// in drizzle-kit, and a generic
+  // https:// URL is far more likely to be a custom Postgres endpoint.
+  const isTurso = scheme.startsWith("libsql://");
+
+  if (isTurso && !envAuthToken) {
+    throw new Error(
+      "createDrizzleConfig: DATABASE_URL is a libsql:// URL but DATABASE_AUTH_TOKEN " +
+        "is not set. Set DATABASE_AUTH_TOKEN (or <APP_NAME>_DATABASE_AUTH_TOKEN) so " +
+        "drizzle-kit can authenticate against Turso.",
+    );
+  }
 
   // For SQLite, drizzle-kit wants a filesystem path, not a URL. Strip the
   // `file:` scheme if the user passed one via DATABASE_URL, else fall back
   // to the explicit sqliteFile option.
-  const sqlitePath = envUrl.startsWith("file:")
-    ? envUrl.slice("file:".length)
+  const sqlitePath = scheme.startsWith("file:")
+    ? url.slice("file:".length)
     : sqliteFile;
 
   return defineConfig({
@@ -65,7 +78,7 @@ export function createDrizzleConfig(
     dbCredentials: isPostgres
       ? { url }
       : isTurso
-        ? { url, authToken: envAuthToken! }
+        ? { url, authToken: envAuthToken as string }
         : { url: sqlitePath },
   });
 }
