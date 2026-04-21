@@ -1,4 +1,4 @@
-name: Auto-publish on version bump
+name: Publish packages
 
 on:
   push:
@@ -6,10 +6,101 @@ on:
     paths:
       - "packages/core/package.json"
       - "packages/desktop-app/package.json"
+  workflow_dispatch:
+    inputs:
+      version_bump:
+        description: "Version bump type for @agent-native/core"
+        required: true
+        default: "patch"
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - dev
+
+permissions: {}
 
 jobs:
+  # Manual dispatch: bump version, commit, push. The push to main then
+  # triggers this workflow's push branch, which does the actual publish.
+  # (For dev prereleases, publish directly — they don't land on main.)
+  dispatch-bump:
+    name: Bump core version (manual dispatch)
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.version_bump != 'dev'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
+          private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Bump, commit, tag, push
+        working-directory: packages/core
+        env:
+          VERSION_BUMP: ${{ github.event.inputs.version_bump }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          npm version "$VERSION_BUMP" --no-git-tag-version
+          VERSION=$(node -p "require('./package.json').version")
+          git add package.json
+          git commit -m "chore: bump @agent-native/core to v${VERSION}"
+          git tag "v${VERSION}"
+          git push origin HEAD:main --tags
+
+  dispatch-dev-publish:
+    name: Publish dev version (manual dispatch)
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.version_bump == 'dev'
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build core package
+        run: pnpm --filter @agent-native/core build
+
+      - name: Run tests
+        run: pnpm --filter @agent-native/core test
+
+      - name: Set dev version
+        working-directory: packages/core
+        run: |
+          CURRENT=$(node -p "require('./package.json').version")
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          npm version "${CURRENT}-dev.${SHORT_SHA}" --no-git-tag-version
+
+      - name: Publish dev to npm
+        working-directory: packages/core
+        run: npx npm@11 publish --access public --provenance --tag dev
+
   detect-changes:
     name: Detect version changes
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     outputs:
       core-changed: ${{ steps.check.outputs.core-changed }}
@@ -62,6 +153,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
 
@@ -77,6 +169,19 @@ jobs:
 
       - name: Run tests
         run: pnpm --filter @agent-native/core test
+
+      - name: Tag release
+        working-directory: packages/core
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git rev-parse "v${VERSION}" >/dev/null 2>&1; then
+            echo "Tag v${VERSION} already exists, skipping"
+          else
+            git tag "v${VERSION}"
+            git push origin "v${VERSION}"
+          fi
 
       - name: Publish to npm
         working-directory: packages/core
