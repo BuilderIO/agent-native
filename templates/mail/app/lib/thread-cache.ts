@@ -209,9 +209,11 @@ function backgroundRefresh(threadId: string) {
   return p;
 }
 
-// Rate-limited bulk warm — Gmail's per-user-per-second quota is 250 units
-// and threads.get is 10 units, so 6 in flight is well under the limit.
-export function warmThreads(threadIds: string[], concurrency = 6) {
+// Bulk warm — threads.get is 10 units and the server-side token bucket
+// paces us under Gmail's 250/user/sec cap automatically, so we can run
+// with higher concurrency without tripping quota. 10 in flight = 100
+// units/sec worst case, comfortably within budget.
+export function warmThreads(threadIds: string[], concurrency = 10) {
   const queue = threadIds.filter((id) => !cache.has(id) && !inflight.has(id));
   if (queue.length === 0) return;
   let active = 0;

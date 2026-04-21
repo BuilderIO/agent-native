@@ -56,6 +56,7 @@ import {
   searchThreads,
   updateThreadData,
   deleteThread,
+  setThreadQueuedMessages,
 } from "../chat-threads/store.js";
 import {
   resourceListAccessible,
@@ -1203,6 +1204,8 @@ Resources can be personal (per-user) or shared (team-wide). By default, resource
 
 When the user gives instructions that should apply to all users/sessions, update the shared "AGENTS.md" resource.
 
+**Resources are NOT an agent scratchpad.** Never use \`resource-write\` to store executable scripts, task plans, retry notes, or work-in-progress files you're writing to yourself. Specifically, do NOT create resources under \`scripts/\` or \`tasks/\` unless the user explicitly asked for a file at that path, or a tool (like \`create-job\` or \`spawn-task\`) writes there as part of its contract. If you can't complete a task with the tools you have, say so — don't improvise by leaving behind \`FINAL-*.md\`, \`EXECUTE-NOW-*.js\`, or similar artifacts. Resources are visible to the user in the workspace sidebar; every file you write is something they'll see and have to clean up.
+
 ### Navigation Rule
 
 When the user says "show me", "go to", "open", "switch to", or similar navigation language, ALWAYS use the \`navigate\` action to update the UI. The user expects to SEE the result in the main app, not just read it in chat. Navigate first, then fetch/display data.
@@ -1696,6 +1699,22 @@ export function createAgentChatPlugin(
     // this, requests can race ahead of the bootstrap and hit the SSR catch-all.
     const { awaitBootstrap } = await import("./framework-request-handler.js");
     await awaitBootstrap(nitroApp);
+
+    // Reap phantom runs left over from the previous process (HMR restart,
+    // process crash, isolate eviction). Any run whose heartbeat is already
+    // stale by startup time had a dead producer; mark it errored so the
+    // next /runs/active check returns a terminal status and reconnecting
+    // clients don't spin on "Thinking...". Runs owned by OTHER live
+    // isolates are protected by their fresh heartbeats.
+    try {
+      const { reapAllStaleRuns } = await import("../agent/run-store.js");
+      const reaped = await reapAllStaleRuns();
+      if (reaped > 0) {
+        console.log(`[agent-chat] reaped ${reaped} stale run(s) on startup`);
+      }
+    } catch {
+      // Best effort — don't block plugin init if SQL isn't ready yet.
+    }
 
     const env = process.env.NODE_ENV;
     // AGENT_MODE=production forces production agent constraints even in dev
@@ -3261,6 +3280,7 @@ export function createAgentChatPlugin(
             runId: run.runId,
             threadId: run.threadId,
             status: run.status,
+            heartbeatAt: run.heartbeatAt,
           };
         }
 
@@ -3310,13 +3330,56 @@ export function createAgentChatPlugin(
               return { error: "Thread not found" };
             }
             const body = await readBody(event);
+            let newThreadData = body.threadData || thread.threadData;
+            // Preserve queuedMessages from the existing thread_data when the
+            // incoming blob doesn't include it. Periodic full-thread saves
+            // (exported via threadRuntime.export) don't carry the queue, and
+            // we don't want them to clobber queued-message state persisted
+            // via POST /threads/:id/queued.
+            if (body.threadData) {
+              try {
+                const existing = JSON.parse(thread.threadData);
+                if (existing.queuedMessages !== undefined) {
+                  const incoming = JSON.parse(newThreadData);
+                  if (incoming.queuedMessages === undefined) {
+                    incoming.queuedMessages = existing.queuedMessages;
+                    newThreadData = JSON.stringify(incoming);
+                  }
+                }
+              } catch {
+                // Invalid JSON in either side — fall back to raw body blob.
+              }
+            }
             await updateThreadData(
               threadId,
-              body.threadData || thread.threadData,
+              newThreadData,
               body.title ?? thread.title,
               body.preview ?? thread.preview,
               body.messageCount || thread.messageCount,
             );
+            return { ok: true };
+          }
+
+          // POST /threads/:id/queued — debounced writes from the client
+          // when the user adds/removes/dequeues a queued message. Keeps
+          // queued messages durable across reloads without piggybacking
+          // on full-thread saves.
+          if (
+            method === "POST" &&
+            /\/threads\/[^/?]+\/queued/.test(
+              event.node?.req?.url || event.path || "",
+            )
+          ) {
+            const thread = await getThread(threadId);
+            if (!thread || thread.ownerEmail !== owner) {
+              setResponseStatus(event, 404);
+              return { error: "Thread not found" };
+            }
+            const body = await readBody(event);
+            const queued = Array.isArray(body?.queuedMessages)
+              ? body.queuedMessages
+              : [];
+            await setThreadQueuedMessages(threadId, queued);
             return { ok: true };
           }
 
