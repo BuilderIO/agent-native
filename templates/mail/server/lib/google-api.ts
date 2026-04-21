@@ -269,7 +269,7 @@ export async function googleFetch(
   const remaining = isInCooldown(accessToken);
   if (remaining > 0) {
     throw new Error(
-      `Google API error (429): Rate limit cooldown — retry in ${Math.ceil(remaining / 1000)}s`,
+      `Google API error (429): Rate limit cooldown, retry in ${Math.ceil(remaining / 1000)}s`,
     );
   }
 
@@ -480,15 +480,18 @@ export function gmailListHistory(
     maxResults?: number;
   },
 ) {
-  const queryParams: Record<string, string | number | undefined> = {
-    startHistoryId: params.startHistoryId,
-    labelId: params.labelId,
-    maxResults: params.maxResults,
-  };
-  if (params.historyTypes?.length) {
-    queryParams.historyTypes = params.historyTypes.join(",");
+  // Gmail's users.history.list expects `historyTypes` as repeated query
+  // params (e.g. ...&historyTypes=messageAdded&historyTypes=labelAdded),
+  // not a single comma-joined value — the API returns 400 "Invalid value"
+  // otherwise. URLSearchParams.append handles repetition.
+  const sp = new URLSearchParams();
+  sp.set("startHistoryId", params.startHistoryId);
+  if (params.labelId) sp.set("labelId", params.labelId);
+  if (params.maxResults !== undefined) {
+    sp.set("maxResults", String(params.maxResults));
   }
-  return googleFetch(`${GMAIL_BASE}/history${qs(queryParams)}`, accessToken);
+  for (const t of params.historyTypes || []) sp.append("historyTypes", t);
+  return googleFetch(`${GMAIL_BASE}/history?${sp.toString()}`, accessToken);
 }
 
 export function gmailWatch(
@@ -546,7 +549,7 @@ export async function gmailBatchGetMessages(
   const remaining = isInCooldown(accessToken);
   if (remaining > 0) {
     throw new Error(
-      `Google API error (429): Rate limit cooldown — retry in ${Math.ceil(remaining / 1000)}s`,
+      `Google API error (429): Rate limit cooldown, retry in ${Math.ceil(remaining / 1000)}s`,
     );
   }
 

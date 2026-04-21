@@ -3346,40 +3346,48 @@ export function createAgentChatPlugin(
           }
 
           if (method === "PUT") {
-            const thread = await getThread(threadId);
-            if (!thread || thread.ownerEmail !== owner) {
-              setResponseStatus(event, 404);
-              return { error: "Thread not found" };
-            }
-            const body = await readBody(event);
-            let newThreadData = body.threadData || thread.threadData;
-            // Preserve queuedMessages from the existing thread_data when the
-            // incoming blob doesn't include it. Periodic full-thread saves
-            // (exported via threadRuntime.export) don't carry the queue, and
-            // we don't want them to clobber queued-message state persisted
-            // via POST /threads/:id/queued.
-            if (body.threadData) {
-              try {
-                const existing = JSON.parse(thread.threadData);
-                if (existing.queuedMessages !== undefined) {
-                  const incoming = JSON.parse(newThreadData);
-                  if (incoming.queuedMessages === undefined) {
-                    incoming.queuedMessages = existing.queuedMessages;
-                    newThreadData = JSON.stringify(incoming);
-                  }
-                }
-              } catch {
-                // Invalid JSON in either side — fall back to raw body blob.
+            // Hold the thread_data lock for the full read-modify-write so
+            // periodic saves from the frontend don't race with
+            // onRunComplete / setThreadQueuedMessages / setThreadEngineMeta.
+            // Without the lock, a client save that lands during an agent
+            // run could clobber the assistant message the server just
+            // appended (and vice versa).
+            return await withThreadDataLock(threadId, async () => {
+              const thread = await getThread(threadId);
+              if (!thread || thread.ownerEmail !== owner) {
+                setResponseStatus(event, 404);
+                return { error: "Thread not found" };
               }
-            }
-            await updateThreadData(
-              threadId,
-              newThreadData,
-              body.title ?? thread.title,
-              body.preview ?? thread.preview,
-              body.messageCount || thread.messageCount,
-            );
-            return { ok: true };
+              const body = await readBody(event);
+              let newThreadData = body.threadData || thread.threadData;
+              // Preserve queuedMessages from the existing thread_data when the
+              // incoming blob doesn't include it. Periodic full-thread saves
+              // (exported via threadRuntime.export) don't carry the queue, and
+              // we don't want them to clobber queued-message state persisted
+              // via POST /threads/:id/queued.
+              if (body.threadData) {
+                try {
+                  const existing = JSON.parse(thread.threadData);
+                  if (existing.queuedMessages !== undefined) {
+                    const incoming = JSON.parse(newThreadData);
+                    if (incoming.queuedMessages === undefined) {
+                      incoming.queuedMessages = existing.queuedMessages;
+                      newThreadData = JSON.stringify(incoming);
+                    }
+                  }
+                } catch {
+                  // Invalid JSON in either side — fall back to raw body blob.
+                }
+              }
+              await updateThreadData(
+                threadId,
+                newThreadData,
+                body.title ?? thread.title,
+                body.preview ?? thread.preview,
+                body.messageCount || thread.messageCount,
+              );
+              return { ok: true };
+            });
           }
 
           // POST /threads/:id/queued — debounced writes from the client
