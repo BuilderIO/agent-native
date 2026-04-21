@@ -3,6 +3,40 @@ import { emitChatThreadChange } from "./emitter.js";
 
 let _initPromise: Promise<void> | undefined;
 
+/**
+ * Per-thread async mutex. Read-modify-write on the `thread_data` JSON blob
+ * is not atomic at the DB level — two concurrent callers (e.g. the UI
+ * persisting queued messages while `onRunComplete` appends agent output)
+ * would both read the same row, each mutate it independently, and the
+ * second write clobbers the first. Serializing on thread id inside this
+ * process eliminates the race for the usual single-process deployment
+ * while leaving straight reads and other thread-data-unrelated updates
+ * untouched.
+ *
+ * Cross-process races (multiple Node replicas writing the same thread at
+ * the same instant) are not fixed here — acceptable for `thread_data`
+ * today because writes come from either the user's own tab or an agent
+ * run owned by that user, which run in one place at a time.
+ */
+const _threadDataLocks = new Map<string, Promise<unknown>>();
+
+export function withThreadDataLock<T>(
+  threadId: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const prev = _threadDataLocks.get(threadId) ?? Promise.resolve();
+  const next = prev.then(fn, fn);
+  _threadDataLocks.set(
+    threadId,
+    next.finally(() => {
+      if (_threadDataLocks.get(threadId) === next) {
+        _threadDataLocks.delete(threadId);
+      }
+    }),
+  );
+  return next as Promise<T>;
+}
+
 async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
@@ -184,20 +218,22 @@ export async function setThreadEngineMeta(
   threadId: string,
   meta: ThreadEngineMeta,
 ): Promise<void> {
-  const thread = await getThread(threadId);
-  if (!thread) return;
-  let data: Record<string, unknown> = {};
-  try {
-    data = JSON.parse(thread.threadData);
-  } catch {}
-  data.engineMeta = meta;
-  await updateThreadData(
-    threadId,
-    JSON.stringify(data),
-    thread.title,
-    thread.preview,
-    thread.messageCount,
-  );
+  return withThreadDataLock(threadId, async () => {
+    const thread = await getThread(threadId);
+    if (!thread) return;
+    let data: Record<string, unknown> = {};
+    try {
+      data = JSON.parse(thread.threadData);
+    } catch {}
+    data.engineMeta = meta;
+    await updateThreadData(
+      threadId,
+      JSON.stringify(data),
+      thread.title,
+      thread.preview,
+      thread.messageCount,
+    );
+  });
 }
 
 export interface QueuedMessage {
@@ -216,24 +252,26 @@ export async function setThreadQueuedMessages(
   threadId: string,
   queuedMessages: QueuedMessage[],
 ): Promise<void> {
-  const thread = await getThread(threadId);
-  if (!thread) return;
-  let data: Record<string, unknown> = {};
-  try {
-    data = JSON.parse(thread.threadData);
-  } catch {}
-  if (queuedMessages.length === 0) {
-    delete data.queuedMessages;
-  } else {
-    data.queuedMessages = queuedMessages;
-  }
-  await updateThreadData(
-    threadId,
-    JSON.stringify(data),
-    thread.title,
-    thread.preview,
-    thread.messageCount,
-  );
+  return withThreadDataLock(threadId, async () => {
+    const thread = await getThread(threadId);
+    if (!thread) return;
+    let data: Record<string, unknown> = {};
+    try {
+      data = JSON.parse(thread.threadData);
+    } catch {}
+    if (queuedMessages.length === 0) {
+      delete data.queuedMessages;
+    } else {
+      data.queuedMessages = queuedMessages;
+    }
+    await updateThreadData(
+      threadId,
+      JSON.stringify(data),
+      thread.title,
+      thread.preview,
+      thread.messageCount,
+    );
+  });
 }
 
 export async function deleteThread(id: string): Promise<boolean> {
