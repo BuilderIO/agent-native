@@ -17,6 +17,7 @@ import type {
   EngineCapabilities,
   EngineStreamOptions,
   EngineEvent,
+  EngineContentPart,
 } from "./types.js";
 import {
   engineToolsToAISDK,
@@ -250,6 +251,8 @@ class AISDKEngine implements AgentEngine {
       }
     }
 
+    let assistantContent: EngineContentPart[] = [];
+
     try {
       const result = streamText({
         model: providerModel,
@@ -262,27 +265,29 @@ class AISDKEngine implements AgentEngine {
           : {}),
         abortSignal: opts.abortSignal,
         onStepFinish: (step: any) => {
-          (opts as any)[AISDK_ASSISTANT_CONTENT_KEY] =
-            aiSdkStepToAssistantContent(step);
+          assistantContent = aiSdkStepToAssistantContent(step);
         },
         ...(Object.keys(providerOpts).length > 0
           ? { providerOptions: providerOpts }
           : {}),
       });
 
-      let hasEmittedStop = false;
+      // Buffer the terminal stop so assistant-content can be emitted just
+      // before it, regardless of where `finish` arrives in the stream.
+      let bufferedStop: EngineEvent | undefined;
 
       for await (const part of result.fullStream) {
-        const events = aiSdkPartToEngineEvents(part);
-        for (const event of events) {
-          yield event;
-          if (event.type === "stop") hasEmittedStop = true;
+        for (const event of aiSdkPartToEngineEvents(part)) {
+          if (event.type === "stop") {
+            bufferedStop = event;
+          } else {
+            yield event;
+          }
         }
       }
 
-      if (!hasEmittedStop) {
-        yield { type: "stop", reason: "end_turn" };
-      }
+      yield { type: "assistant-content", parts: assistantContent };
+      yield bufferedStop ?? { type: "stop", reason: "end_turn" };
     } catch (err: any) {
       yield {
         type: "stop",
@@ -320,12 +325,6 @@ class AISDKEngine implements AgentEngine {
     return this.provider === "openai" ? provider.chat(model) : provider(model);
   }
 }
-
-// ---------------------------------------------------------------------------
-// Symbol for assistant content pass-through
-// ---------------------------------------------------------------------------
-
-export const AISDK_ASSISTANT_CONTENT_KEY = Symbol("aiSdkAssistantContent");
 
 // ---------------------------------------------------------------------------
 // Factory functions

@@ -18,7 +18,6 @@ import type {
   EngineContentPart,
 } from "./engine/types.js";
 import { resolveEngine, registerBuiltinEngines } from "./engine/index.js";
-import { ASSISTANT_CONTENT_KEY } from "./engine/anthropic-engine.js";
 import { readAppState } from "../application-state/script-helpers.js";
 import {
   startRun,
@@ -311,6 +310,8 @@ export async function runAgentLoop(opts: {
             // them as a collapsible "reasoning" section in the UI.
           } else if (event.type === "tool-call") {
             hasToolCalls = true;
+          } else if (event.type === "assistant-content") {
+            assistantContent = event.parts;
           } else if (event.type === "usage") {
             usage.inputTokens += event.inputTokens;
             usage.outputTokens += event.outputTokens;
@@ -319,19 +320,6 @@ export async function runAgentLoop(opts: {
           } else if (event.type === "stop" && event.reason === "error") {
             throw new Error(event.error ?? "Engine stream error");
           }
-        }
-
-        // Retrieve the assistant content blocks stored by the engine.
-        // AnthropicEngine sets streamOpts[ASSISTANT_CONTENT_KEY] after streaming.
-        assistantContent = (streamOpts as any)[ASSISTANT_CONTENT_KEY];
-
-        // If engine didn't populate assistant content (e.g. AI SDK engine),
-        // rebuild it from the messages state we tracked via tool-call events.
-        // The AI SDK engine stores it under AISDK_ASSISTANT_CONTENT_KEY.
-        if (!assistantContent) {
-          const { AISDK_ASSISTANT_CONTENT_KEY } =
-            await import("./engine/ai-sdk-engine.js");
-          assistantContent = (streamOpts as any)[AISDK_ASSISTANT_CONTENT_KEY];
         }
 
         break;
