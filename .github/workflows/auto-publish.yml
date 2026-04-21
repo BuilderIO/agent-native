@@ -80,7 +80,7 @@ jobs:
 
       - name: Publish to npm
         working-directory: packages/core
-        run: npm publish --access public --provenance
+        run: npx npm@11 publish --access public --provenance
 
   publish-desktop:
     name: Publish desktop app
