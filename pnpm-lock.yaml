@@ -294,6 +294,9 @@ importers:
       autoprefixer:
         specifier: ^10.4.21
         version: 10.4.27(postcss@8.5.8)
+      drizzle-kit:
+        specifier: ^0.31.10
+        version: 0.31.10
       express:
         specifier: ^5.2.1
         version: 5.2.1

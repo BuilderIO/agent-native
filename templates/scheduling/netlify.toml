@@ -1,5 +1,5 @@
 [build]
-  command = "pnpm install && NITRO_PRESET=netlify pnpm --filter scheduling build"
+  command = "pnpm install && pnpm --filter scheduling exec drizzle-kit push --force && NITRO_PRESET=netlify pnpm --filter scheduling build"
   publish = "templates/scheduling/dist"
   functions = "templates/scheduling/.netlify/functions-internal"
 

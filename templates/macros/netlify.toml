@@ -1,5 +1,5 @@
 [build]
-  command = "pnpm install && NITRO_PRESET=netlify pnpm --filter macros build"
+  command = "pnpm install && pnpm --filter macros exec drizzle-kit push --force && NITRO_PRESET=netlify pnpm --filter macros build"
   publish = "templates/macros/dist"
   functions = "templates/macros/.netlify/functions-internal"
 
