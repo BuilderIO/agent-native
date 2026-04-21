@@ -148,6 +148,116 @@ function isQuotaError(status: number, data: any): boolean {
   return /quota|rate limit/i.test(msg);
 }
 
+// ---------------------------------------------------------------------------
+// Proactive per-token quota bucket
+// ---------------------------------------------------------------------------
+// Gmail's per-user quota is 250 units/second. We run a token bucket below
+// that (240/s refill, 480 capacity) so a burst can briefly exceed the steady
+// rate while the long-run average still lands under the cap. This sits in
+// FRONT of the circuit breaker — the breaker only trips when Google actually
+// returns a 429/403-quota; the bucket's job is to make that rare.
+const BUCKET_REFILL_PER_SEC = 240;
+const BUCKET_CAPACITY = 480;
+
+// Cost table from https://developers.google.com/gmail/api/reference/quota.
+// Most-specific patterns first — `estimateRequestCost` walks this in order.
+const COST_TABLE: Array<[RegExp, number, RegExp?]> = [
+  // Gmail — send (expensive)
+  [/\/gmail\/v1\/users\/[^/]+\/messages\/send/, 100, /^POST$/i],
+  // Gmail — watch / stop
+  [/\/gmail\/v1\/users\/[^/]+\/watch/, 100, /^POST$/i],
+  [/\/gmail\/v1\/users\/[^/]+\/stop/, 50, /^POST$/i],
+  // Gmail — thread modify / trash / untrash
+  [/\/gmail\/v1\/users\/[^/]+\/threads\/[^/]+\/modify/, 10, /^POST$/i],
+  [
+    /\/gmail\/v1\/users\/[^/]+\/threads\/[^/]+\/(?:trash|untrash)/,
+    10,
+    /^POST$/i,
+  ],
+  // Gmail — message modify / trash / untrash
+  [/\/gmail\/v1\/users\/[^/]+\/messages\/[^/]+\/modify/, 5, /^POST$/i],
+  [
+    /\/gmail\/v1\/users\/[^/]+\/messages\/[^/]+\/(?:trash|untrash)/,
+    5,
+    /^POST$/i,
+  ],
+  // Gmail — attachments
+  [
+    /\/gmail\/v1\/users\/[^/]+\/messages\/[^/]+\/attachments\/[^/]+/,
+    5,
+    /^GET$/i,
+  ],
+  // Gmail — history
+  [/\/gmail\/v1\/users\/[^/]+\/history/, 2, /^GET$/i],
+  // Gmail — labels (list + create share the same endpoint; same cost)
+  [/\/gmail\/v1\/users\/[^/]+\/labels(?:\/|$|\?)/, 5],
+  // Gmail — profile
+  [/\/gmail\/v1\/users\/[^/]+\/profile/, 1, /^GET$/i],
+  // Gmail — single thread get (before list pattern so it wins)
+  [/\/gmail\/v1\/users\/[^/]+\/threads\/[^/]+(?:$|\?)/, 10, /^GET$/i],
+  // Gmail — threads list
+  [/\/gmail\/v1\/users\/[^/]+\/threads(?:\/|$|\?)/, 10, /^GET$/i],
+  // Gmail — single message get
+  [/\/gmail\/v1\/users\/[^/]+\/messages\/[^/]+(?:$|\?)/, 5, /^GET$/i],
+  // Gmail — messages list
+  [/\/gmail\/v1\/users\/[^/]+\/messages(?:\/|$|\?)/, 5, /^GET$/i],
+];
+
+export function estimateRequestCost(url: string, method: string): number {
+  for (const [pattern, cost, methodPattern] of COST_TABLE) {
+    if (methodPattern && !methodPattern.test(method)) continue;
+    if (pattern.test(url)) return cost;
+  }
+  // Calendar / People / anything else — default to 5. Harmless since those
+  // APIs have separate quotas; the bucket just adds a light global smoother.
+  return 5;
+}
+
+type Bucket = { tokens: number; lastRefill: number };
+const tokenBuckets = new Map<string, Bucket>();
+
+function getBucket(accessToken: string): Bucket {
+  const key = cooldownKey(accessToken);
+  let b = tokenBuckets.get(key);
+  if (!b) {
+    b = { tokens: BUCKET_CAPACITY, lastRefill: Date.now() };
+    tokenBuckets.set(key, b);
+  }
+  return b;
+}
+
+function refillBucket(b: Bucket): void {
+  const now = Date.now();
+  const elapsed = (now - b.lastRefill) / 1000;
+  if (elapsed > 0) {
+    b.tokens = Math.min(
+      BUCKET_CAPACITY,
+      b.tokens + elapsed * BUCKET_REFILL_PER_SEC,
+    );
+    b.lastRefill = now;
+  }
+}
+
+export async function acquireQuota(
+  accessToken: string,
+  cost: number,
+): Promise<void> {
+  const b = getBucket(accessToken);
+  // Cap cost at capacity so a single too-big request doesn't deadlock —
+  // we'll still effectively pay the full cost via the refill wait.
+  const want = Math.min(cost, BUCKET_CAPACITY);
+  while (true) {
+    refillBucket(b);
+    if (b.tokens >= want) {
+      b.tokens -= want;
+      return;
+    }
+    const deficit = want - b.tokens;
+    const waitMs = Math.ceil((deficit / BUCKET_REFILL_PER_SEC) * 1000);
+    await new Promise((r) => setTimeout(r, Math.max(waitMs, 10)));
+  }
+}
+
 export async function googleFetch(
   url: string,
   accessToken: string,
@@ -164,6 +274,14 @@ export async function googleFetch(
   }
 
   const maxRetries = 3;
+
+  // Pre-pay the bucket once per call; retries don't re-charge (Google didn't
+  // actually complete the work, and we'd rather retry promptly than stack
+  // waits on top of backoff).
+  await acquireQuota(
+    accessToken,
+    estimateRequestCost(url, opts?.method || "GET"),
+  );
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const headers = new Headers(opts?.headers);
@@ -371,6 +489,207 @@ export function gmailListHistory(
     queryParams.historyTypes = params.historyTypes.join(",");
   }
   return googleFetch(`${GMAIL_BASE}/history${qs(queryParams)}`, accessToken);
+}
+
+export function gmailWatch(
+  accessToken: string,
+  topicName: string,
+  opts?: { labelIds?: string[]; labelFilterBehavior?: "include" | "exclude" },
+): Promise<{ historyId: string; expiration: string }> {
+  return googleFetch(`${GMAIL_BASE}/watch`, accessToken, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      topicName,
+      labelIds: opts?.labelIds ?? ["INBOX"],
+      labelFilterBehavior: opts?.labelFilterBehavior ?? "include",
+    }),
+  });
+}
+
+export function gmailStopWatch(accessToken: string): Promise<null> {
+  return googleFetch(`${GMAIL_BASE}/stop`, accessToken, { method: "POST" });
+}
+
+// ---------------------------------------------------------------------------
+// Gmail batch endpoint
+// ---------------------------------------------------------------------------
+// One HTTP round-trip for up to 100 messages.get calls. Huge win vs N serial
+// requests but still counts as N*cost against per-user quota — so we pre-pay
+// the bucket before firing, and caller can pre-pay further upstream using
+// `acquireQuota(token, ids.length * 5)` if they want to pace batch calls.
+
+const GMAIL_BATCH_URL = "https://gmail.googleapis.com/batch/gmail/v1";
+
+export async function gmailBatchGetMessages(
+  accessToken: string,
+  ids: string[],
+  format?: "full" | "metadata" | "minimal",
+): Promise<Array<{ id: string; data: any | null; error?: string }>> {
+  if (ids.length === 0) return [];
+
+  // Gmail batch limit is 100; chunk and concatenate to stay under it.
+  if (ids.length > 100) {
+    const chunks: string[][] = [];
+    for (let i = 0; i < ids.length; i += 100) {
+      chunks.push(ids.slice(i, i + 100));
+    }
+    const results: Array<{ id: string; data: any | null; error?: string }> = [];
+    for (const chunk of chunks) {
+      const part = await gmailBatchGetMessages(accessToken, chunk, format);
+      results.push(...part);
+    }
+    return results;
+  }
+
+  // Respect the circuit breaker like googleFetch does.
+  const remaining = isInCooldown(accessToken);
+  if (remaining > 0) {
+    throw new Error(
+      `Google API error (429): Rate limit cooldown — retry in ${Math.ceil(remaining / 1000)}s`,
+    );
+  }
+
+  // Each messages.get is 5 units — pre-pay the whole batch so the bucket
+  // sees real cost instead of a single cheap-looking request.
+  await acquireQuota(accessToken, ids.length * 5);
+
+  const boundary = `batch_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+  const CRLF = "\r\n";
+  const formatQs = format ? `?format=${format}` : "";
+
+  const parts: string[] = [];
+  ids.forEach((id, i) => {
+    parts.push(
+      `--${boundary}${CRLF}` +
+        `Content-Type: application/http${CRLF}` +
+        `Content-ID: <part-${i}>${CRLF}${CRLF}` +
+        `GET /gmail/v1/users/me/messages/${encodeURIComponent(id)}${formatQs}${CRLF}${CRLF}`,
+    );
+  });
+  parts.push(`--${boundary}--${CRLF}`);
+  const body = parts.join("");
+
+  const res = await fetch(GMAIL_BATCH_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": `multipart/mixed; boundary=${boundary}`,
+    },
+    body,
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    // Trip circuit breaker on quota errors just like googleFetch.
+    let parsed: any = null;
+    try {
+      parsed = text ? JSON.parse(text) : null;
+    } catch {
+      /* body is multipart or plain text — fine */
+    }
+    if (isQuotaError(res.status, parsed)) tripCooldown(accessToken);
+    throw new Error(
+      `Google API error (${res.status}): Gmail batch failed: ${text || res.statusText}`,
+    );
+  }
+
+  const ct = res.headers.get("content-type") || "";
+  const m = ct.match(/boundary=([^;]+)/i);
+  const respBoundary = m?.[1]?.trim().replace(/^"|"$/g, "");
+  const respText = await res.text();
+
+  if (!respBoundary) {
+    throw new Error(
+      `Google API error: Gmail batch response missing boundary (Content-Type: ${ct})`,
+    );
+  }
+
+  return parseBatchResponse(respText, respBoundary, ids);
+}
+
+function parseBatchResponse(
+  text: string,
+  boundary: string,
+  ids: string[],
+): Array<{ id: string; data: any | null; error?: string }> {
+  const results: Array<{ id: string; data: any | null; error?: string }> =
+    ids.map((id) => ({ id, data: null, error: "No response part" }));
+
+  // Split on boundary. Parts can use --boundary with CRLF or LF endings;
+  // we normalize by splitting on "--<boundary>" and trimming the trailing
+  // "--" marker.
+  const marker = `--${boundary}`;
+  const rawParts = text.split(marker);
+  // First element is preamble, last is "--\r\n" epilogue — both ignorable.
+  for (const raw of rawParts) {
+    const part = raw.replace(/^\r?\n/, "");
+    if (!part || part.startsWith("--")) continue;
+
+    // Split part headers from inner HTTP message on first blank line.
+    const headerEnd = part.search(/\r?\n\r?\n/);
+    if (headerEnd < 0) continue;
+    const partHeaders = part.slice(0, headerEnd);
+    const rest = part.slice(headerEnd).replace(/^\r?\n\r?\n/, "");
+
+    // Pull Content-ID to map back to the original id slot.
+    const cidMatch =
+      partHeaders.match(/Content-ID:\s*<?response-part-(\d+)>?/i) ||
+      partHeaders.match(/Content-ID:\s*<?part-(\d+)>?/i);
+    const idx = cidMatch ? Number(cidMatch[1]) : -1;
+
+    // Inside `rest`: status line, inner headers, blank line, body.
+    const statusMatch = rest.match(/^HTTP\/[\d.]+\s+(\d+)/);
+    const status = statusMatch ? Number(statusMatch[1]) : 0;
+
+    const innerHeaderEnd = rest.search(/\r?\n\r?\n/);
+    const innerBody =
+      innerHeaderEnd >= 0
+        ? rest
+            .slice(innerHeaderEnd)
+            .replace(/^\r?\n\r?\n/, "")
+            .trimEnd()
+        : "";
+
+    const slot =
+      idx >= 0 && idx < ids.length
+        ? idx
+        : results.findIndex((r) => r.error === "No response part");
+    if (slot < 0 || slot >= ids.length) continue;
+
+    if (!statusMatch) {
+      results[slot] = {
+        id: ids[slot],
+        data: null,
+        error: "Missing status line in batch part",
+      };
+      continue;
+    }
+
+    let parsed: any = null;
+    if (innerBody) {
+      try {
+        parsed = JSON.parse(innerBody);
+      } catch (e: any) {
+        results[slot] = {
+          id: ids[slot],
+          data: null,
+          error: `Failed to parse JSON: ${e?.message || String(e)}`,
+        };
+        continue;
+      }
+    }
+
+    if (status >= 200 && status < 300) {
+      results[slot] = { id: ids[slot], data: parsed };
+    } else {
+      const msg =
+        parsed?.error?.message || parsed?.error_description || `HTTP ${status}`;
+      results[slot] = { id: ids[slot], data: null, error: msg };
+    }
+  }
+
+  return results;
 }
 
 // ---------------------------------------------------------------------------

@@ -68,13 +68,13 @@ export function startRun(
   // Persist run to SQL (fire-and-forget — don't block the response)
   insertRun(runId, threadId).catch(() => {});
 
-  // Heartbeat: bump heartbeat_at every 5s so watchers can detect a dead
-  // producer (process crash, HMR restart, isolate eviction) and reap the
-  // row. Without this, the run's SQL status stays "running" forever and
-  // reconnect clients spin on "Thinking..." indefinitely.
+  // Heartbeat: bump heartbeat_at every 1.5s so watchers can detect a dead
+  // producer (process crash, HMR restart, isolate eviction) quickly and
+  // reap the row. Paired with RUN_STALE_MS (6s) — 4x the interval to
+  // tolerate transient DB slowness without false positives.
   const heartbeatTimer: ReturnType<typeof setInterval> = setInterval(() => {
     updateRunHeartbeat(runId).catch(() => {});
-  }, 5000);
+  }, 1500);
 
   // Periodic SQL abort check interval (for cross-isolate abort on Workers)
   let lastAbortCheck = Date.now();
@@ -121,12 +121,17 @@ export function startRun(
       run.status = "errored";
       send({ type: "error", error: err?.message ?? "Unknown error" });
     })
-    .finally(() => {
-      // Stop the heartbeat — the run is done, no more liveness writes.
-      clearInterval(heartbeatTimer);
-      // Send a terminal event so every subscriber's ReadableStream controller
-      // gets closed.  Without this, SSE connections hang open forever when
-      // the agent errors out in a way that bypasses the normal `send()` path.
+    .finally(async () => {
+      // Ordering matters here — this is the atomic-complete boundary.
+      // Invariant: once agent_runs.status flips to "completed"/"errored"
+      // in SQL, thread_data for this turn is already durable. This lets
+      // reconnecting clients trust the simple rule "status != running →
+      // fetch thread_data" without polling/retrying for a race window
+      // where onComplete was still pending.
+
+      // 1. Emit terminal event to live subscribers + SQL event log so
+      //    in-flight SSE streams close promptly. Thread-data save below
+      //    runs in parallel with subscribers disconnecting.
       if (run.status === "errored" || run.status === "completed") {
         const terminal: RunEvent = {
           seq: run.events.length,
@@ -135,7 +140,6 @@ export function startRun(
               ? { type: "error", error: "Agent run ended unexpectedly" }
               : { type: "done" },
         };
-        // Only emit if the last event isn't already terminal — avoid duplicates
         const last = run.events[run.events.length - 1];
         if (
           !last ||
@@ -146,7 +150,6 @@ export function startRun(
             last.event.type !== "loop_limit")
         ) {
           run.events.push(terminal);
-          // Persist terminal event to SQL
           insertRunEvent(
             runId,
             terminal.seq,
@@ -161,36 +164,48 @@ export function startRun(
           }
         }
       }
-      // Clean up subscriber references
       for (const subscriber of run.subscribers) {
         run.subscribers.delete(subscriber);
       }
-      // Persist final status to SQL
-      updateRunStatus(
-        runId,
-        run.status === "errored" ? "errored" : "completed",
-      ).catch(() => {});
-      // Call completion callback (e.g. to save thread data).
-      // onComplete may be async — handle the returned Promise so rejections
-      // don't go unobserved and the callback reliably runs to completion.
+
+      // 2. Await the completion callback (thread_data save). Heartbeat is
+      //    still ticking so the run doesn't look stale to any concurrent
+      //    /runs/active check while we wait for SQL writes to land.
+      let completionError: unknown = null;
       if (onComplete) {
-        Promise.resolve()
-          .then(() => onComplete(run))
-          .catch((err) => {
-            console.error(
-              "[run-manager] onComplete callback error:",
-              err instanceof Error ? err.message : err,
-            );
-          });
+        try {
+          await onComplete(run);
+        } catch (err) {
+          completionError = err;
+          console.error(
+            "[run-manager] onComplete callback error:",
+            err instanceof Error ? err.message : err,
+          );
+        }
       }
-      // Schedule in-memory cleanup
+
+      // 3. Stop the heartbeat — all liveness writes are done.
+      clearInterval(heartbeatTimer);
+
+      // 4. Persist final status to SQL. If the completion callback threw,
+      //    we'd rather mark the run errored than claim success with
+      //    incomplete thread_data.
+      const finalStatus =
+        run.status === "errored" || completionError ? "errored" : "completed";
+      try {
+        await updateRunStatus(runId, finalStatus);
+      } catch {
+        // Best-effort — reapIfStale will eventually clean this up via
+        // the heartbeat-stale path.
+      }
+
+      // 5. Schedule in-memory cleanup + opportunistic old-run pruning.
       setTimeout(() => {
         activeRuns.delete(runId);
         if (threadToRun.get(threadId) === runId) {
           threadToRun.delete(threadId);
         }
       }, CLEANUP_DELAY_MS);
-      // Opportunistically clean up old SQL runs (>30 min)
       cleanupOldRuns(30 * 60 * 1000).catch(() => {});
     });
 
@@ -418,10 +433,16 @@ export function getActiveRunForThread(threadId: string): ActiveRun | null {
 /**
  * Async version that also checks SQL — for cross-isolate access.
  * Used by the /runs/active endpoint.
+ *
+ * Returns `heartbeatAt` so the client can independently decide a run is
+ * dead even before the server-side stale reap has fired.
  */
-export async function getActiveRunForThreadAsync(
-  threadId: string,
-): Promise<{ runId: string; threadId: string; status: string } | null> {
+export async function getActiveRunForThreadAsync(threadId: string): Promise<{
+  runId: string;
+  threadId: string;
+  status: string;
+  heartbeatAt: number;
+} | null> {
   // Check memory first — return both running AND recently-completed runs
   // that still have events in memory. This allows sub-agent tabs to replay
   // the full conversation from completed runs via SSE.
@@ -431,6 +452,9 @@ export async function getActiveRunForThreadAsync(
       runId: memRun.runId,
       threadId: memRun.threadId,
       status: memRun.status,
+      // In-memory means this isolate is the producer. By definition, the
+      // heartbeat is fresh as of "now" — the client can trust this.
+      heartbeatAt: Date.now(),
     };
   }
   // Fall back to SQL
@@ -446,6 +470,7 @@ export async function getActiveRunForThreadAsync(
         runId: sqlRun.id,
         threadId: sqlRun.threadId,
         status: sqlRun.status,
+        heartbeatAt: sqlRun.heartbeatAt ?? sqlRun.startedAt,
       };
     }
   } catch {

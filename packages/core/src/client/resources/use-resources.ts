@@ -135,6 +135,44 @@ export function withMcpServersFolder(
   return [...foldersFirst, ...files];
 }
 
+/**
+ * Group top-level `scripts/` and `tasks/` folders into a virtual
+ * `agent-scratch/` folder.
+ *
+ * The agent occasionally writes scratch scripts and task notes to the
+ * resources store while working through a request. These aren't user
+ * content — they're agent machinery — and they clutter the top of the
+ * personal tree. Grouping them under a single clearly-labeled folder
+ * keeps them visible (so the user can inspect or delete) without making
+ * them look like first-class personal files.
+ */
+export function withAgentScratchFolder(tree: TreeNode[]): TreeNode[] {
+  const scratch: TreeNode[] = [];
+  const rest: TreeNode[] = [];
+  for (const n of tree) {
+    if (n.type === "folder" && (n.name === "scripts" || n.name === "tasks")) {
+      scratch.push(n);
+    } else {
+      rest.push(n);
+    }
+  }
+  if (scratch.length === 0) return tree;
+  const folder: TreeNode = {
+    name: "agent-scratch",
+    path: "agent-scratch",
+    type: "folder",
+    children: scratch,
+  };
+  const folders: TreeNode[] = [];
+  const files: TreeNode[] = [];
+  for (const n of rest) {
+    (n.type === "folder" ? folders : files).push(n);
+  }
+  folders.push(folder);
+  folders.sort((a, b) => a.name.localeCompare(b.name));
+  return [...folders, ...files];
+}
+
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.statusText}`);

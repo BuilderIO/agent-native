@@ -915,7 +915,7 @@ function AssistantMessage() {
 
 // ─── Thinking Indicator ─────────────────────────────────────────────────────
 
-function ThinkingIndicator() {
+function ThinkingIndicator({ label = "Thinking" }: { label?: string } = {}) {
   const [dots, setDots] = useState(0);
   useEffect(() => {
     const interval = setInterval(() => {
@@ -925,7 +925,10 @@ function ThinkingIndicator() {
   }, []);
   return (
     <div className="flex items-center text-muted-foreground">
-      <span className="text-xs">Thinking{".".repeat(dots)}</span>
+      <span className="text-xs">
+        {label}
+        {".".repeat(dots)}
+      </span>
     </div>
   );
 }
@@ -1355,6 +1358,10 @@ const AssistantChatInner = forwardRef<
       references?: Reference[];
     }>
   >([]);
+  // Tracks the JSON of the last queue we successfully persisted so the
+  // debounced save effect can skip no-op writes (e.g. restore-from-server
+  // on mount, or queue state that hasn't actually changed).
+  const lastPersistedQueueRef = useRef<string>("[]");
   const [showContinue, setShowContinue] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [reconnectContent, setReconnectContent] = useState<ContentPart[]>([]);
@@ -1408,6 +1415,15 @@ const AssistantChatInner = forwardRef<
               titleGeneratedRef.current = true; // Don't re-generate for restored threads
               threadRuntime.import(ensureMessageMetadata(repo));
             }
+            // Restore user-queued messages that were persisted before reload.
+            if (Array.isArray(repo?.queuedMessages)) {
+              setQueuedMessages(repo.queuedMessages);
+              // Mark as restored so the debounced save effect doesn't write
+              // the same data back to the server on mount.
+              lastPersistedQueueRef.current = JSON.stringify(
+                repo.queuedMessages,
+              );
+            }
           }
           // Also skip title generation if thread already has a title
           if (data.title) {
@@ -1422,9 +1438,22 @@ const AssistantChatInner = forwardRef<
             if (runRes.ok) {
               const runInfo = await runRes.json();
 
-              // If the run already completed, just re-fetch thread data
-              // (don't enter "Thinking." reconnection mode)
-              if (runInfo.status !== "running") {
+              // Defense in depth: if the server says status="running" but the
+              // heartbeat is stale (producer died before the server-side reap
+              // sweep noticed), treat it as dead. 5s tolerates normal jitter
+              // around the 1.5s heartbeat without false positives.
+              const heartbeatAt =
+                typeof runInfo.heartbeatAt === "number"
+                  ? runInfo.heartbeatAt
+                  : null;
+              const looksStale =
+                runInfo.status === "running" &&
+                heartbeatAt != null &&
+                Date.now() - heartbeatAt > 5000;
+
+              // If the run already completed or looks stale, just re-fetch
+              // thread data (don't enter "Thinking." reconnection mode).
+              if (runInfo.status !== "running" || looksStale) {
                 try {
                   const refreshRes = await fetch(
                     `${apiUrl}/threads/${encodeURIComponent(threadId)}`,
@@ -1438,6 +1467,12 @@ const AssistantChatInner = forwardRef<
                           : refreshData.threadData;
                       if (repo?.messages?.length > 0) {
                         threadRuntime.import(ensureMessageMetadata(repo));
+                      }
+                      if (Array.isArray(repo?.queuedMessages)) {
+                        setQueuedMessages(repo.queuedMessages);
+                        lastPersistedQueueRef.current = JSON.stringify(
+                          repo.queuedMessages,
+                        );
                       }
                     }
                   }
@@ -1460,12 +1495,11 @@ const AssistantChatInner = forwardRef<
                 const abortCtrl = new AbortController();
                 reconnectAbortRef.current = abortCtrl;
 
-                // Watchdog: poll /runs/active to detect when the run is no
-                // longer running server-side. If the SSE stream hangs (e.g.
-                // because the agent process died but its SQL run row is still
-                // marked "running", or the stream just never emits `done`),
-                // this aborts the fetch so we fall through to thread refresh
-                // instead of showing "Thinking..." forever.
+                // Watchdog: poll /runs/active every 1s to detect when the run
+                // is no longer running server-side, or the heartbeat has gone
+                // stale (producer died). Aborts the SSE fetch so we fall
+                // through to thread refresh instead of showing "Thinking..."
+                // forever.
                 const watchdog = setInterval(async () => {
                   try {
                     const res = await fetch(
@@ -1477,26 +1511,32 @@ const AssistantChatInner = forwardRef<
                       return;
                     }
                     const info = await res.json();
-                    if (info.status !== "running") {
+                    const hb =
+                      typeof info.heartbeatAt === "number"
+                        ? info.heartbeatAt
+                        : null;
+                    const stale =
+                      info.status === "running" &&
+                      hb != null &&
+                      Date.now() - hb > 5000;
+                    if (info.status !== "running" || stale) {
                       abortCtrl.abort();
                       clearInterval(watchdog);
                     }
                   } catch {
                     // Network blip — keep polling
                   }
-                }, 3000);
+                }, 1000);
 
                 // Hard cap: no single reconnect should wedge the UI for
-                // more than 2 minutes. Even if the watchdog is fooled and
-                // the SSE stream never closes, this guarantees "Thinking..."
-                // eventually clears.
-                const maxReconnectTimer = setTimeout(
-                  () => {
-                    abortCtrl.abort();
-                    clearInterval(watchdog);
-                  },
-                  2 * 60 * 1000,
-                );
+                // more than 20s. With the 1s watchdog + stale-heartbeat
+                // detection + startup reap, this only triggers in truly
+                // pathological cases. Keeps "Reconnecting…" from feeling
+                // infinite.
+                const maxReconnectTimer = setTimeout(() => {
+                  abortCtrl.abort();
+                  clearInterval(watchdog);
+                }, 20_000);
 
                 const streamReconnect = async () => {
                   try {
@@ -1706,6 +1746,36 @@ const AssistantChatInner = forwardRef<
   useEffect(() => {
     onMessageCountChange?.(messages.length);
   }, [messages.length, onMessageCountChange]);
+
+  // Persist queued messages to the server so they survive reloads. Debounced
+  // to 300ms so typing-and-queuing-rapidly doesn't hammer the endpoint.
+  // Stores them in thread_data.queuedMessages via POST /threads/:id/queued.
+  useEffect(() => {
+    if (!threadId) return;
+    if (!hasRestoredRef.current) return;
+    const serialized = JSON.stringify(queuedMessages);
+    if (serialized === lastPersistedQueueRef.current) return;
+    const timer = setTimeout(() => {
+      (async () => {
+        try {
+          const res = await fetch(
+            `${apiUrl}/threads/${encodeURIComponent(threadId)}/queued`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ queuedMessages }),
+            },
+          );
+          if (res.ok) {
+            lastPersistedQueueRef.current = serialized;
+          }
+        } catch {
+          // Best-effort — next queue change will retry.
+        }
+      })();
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [queuedMessages, threadId, apiUrl]);
 
   // Listen for missing API key events from the adapter
   useEffect(() => {
@@ -2089,8 +2159,14 @@ const AssistantChatInner = forwardRef<
               {/* Always show the thinking indicator while the agent is working,
                 including during reconnect. The indicator sits BELOW any
                 already-streamed reconnect content so the user sees both
-                "what it did so far" and "it's still working". */}
-              {showRunningInUI && <ThinkingIndicator />}
+                "what it did so far" and "it's still working". Swap the label
+                to "Reconnecting" during reconnect so the user knows the
+                system is actively recovering, not just stuck. */}
+              {showRunningInUI && (
+                <ThinkingIndicator
+                  label={isReconnecting ? "Reconnecting" : "Thinking"}
+                />
+              )}
               {queuedMessages.map((msg) => {
                 const displayText = msg.text
                   .replace(/<context>[\s\S]*?<\/context>\n?/g, "")

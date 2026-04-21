@@ -135,6 +135,36 @@ export function startBubbleWebrtc(
       connectTimer = null;
     }
     if (pc) {
+      // Explicitly drop all senders before close so WebKit doesn't hold
+      // onto encoder state for the (already-borrowed) video track. The
+      // video track itself belongs to the popover's MediaStream — the
+      // bubble-session effect in app.tsx stops it — so we must NOT stop
+      // it here. Just detach from this peer.
+      try {
+        const senders = pc.getSenders ? pc.getSenders() : [];
+        for (const s of senders) {
+          try {
+            pc.removeTrack(s);
+          } catch {
+            // ignore — some senders reject removeTrack after close
+          }
+        }
+        console.log(
+          "[clips-bubble-webrtc] cleanupPeer — senders:",
+          senders.length,
+        );
+      } catch (err) {
+        console.warn("[clips-bubble-webrtc] removeTrack failed", err);
+      }
+      // Null out the handlers so WebKit doesn't keep the closure alive
+      // through a dangling event reference.
+      try {
+        pc.onicecandidate = null;
+        pc.oniceconnectionstatechange = null;
+        pc.ontrack = null;
+      } catch {
+        // ignore
+      }
       try {
         pc.close();
       } catch {
@@ -155,6 +185,9 @@ export function startBubbleWebrtc(
         // ignore
       }
     }
+    // Empty the array so we don't retain listener closures if something
+    // holds a stale reference to this handle after stop().
+    unlistens.length = 0;
     console.log("[clips-bubble-webrtc] stopped");
   }
 
@@ -263,85 +296,106 @@ export function startBubbleWebrtc(
   }
 
   // -- wire up listeners --------------------------------------------------
-
-  listen<{ handshakeId?: number }>("clips:bubble-ready", (ev) => {
-    if (stopped) return;
-    // If the bubble re-mounts (it emits bubble-ready on every mount),
-    // restart the handshake from scratch.
-    console.log(
-      "[clips-bubble-webrtc] bubble-ready received — starting handshake",
-      ev.payload,
-    );
-    startHandshake().catch((err) => {
-      console.warn("[clips-bubble-webrtc] startHandshake threw", err);
-    });
-  })
-    .then((u) => unlistens.push(u))
-    .catch((err) => {
-      console.warn("[clips-bubble-webrtc] listen bubble-ready failed", err);
-    });
-
-  listen<{ handshakeId: number; sdp: string; type: string }>(
-    "clips:webrtc-answer",
-    async (ev) => {
-      if (stopped) return;
-      const { handshakeId: incomingId, sdp, type } = ev.payload;
-      if (incomingId !== handshakeId) {
-        console.log(
-          "[clips-bubble-webrtc] answer for stale handshake — ignoring",
-          incomingId,
-          handshakeId,
-        );
+  //
+  // Race-safe listen tracking. `listen()` is async and returns a Promise
+  // that resolves to the unlisten fn. If `stop()` is called between the
+  // listen() call and its resolution (e.g. a fast preview→record→cancel
+  // cycle), the fire-and-forget `.then(push)` pattern would never enqueue
+  // the unlisten — the listener would live on for the lifetime of the
+  // webview, with its closure pinning the peer connection + ICE state.
+  // Instead: if `stopped` is already true when the promise resolves, call
+  // the unlisten immediately.
+  const trackListen = (p: Promise<UnlistenFn>): void => {
+    p.then((u) => {
+      if (stopped) {
+        try {
+          u();
+        } catch {
+          // ignore
+        }
         return;
       }
+      unlistens.push(u);
+    }).catch((err) => {
+      console.warn("[clips-bubble-webrtc] listen failed", err);
+    });
+  };
+
+  trackListen(
+    listen<{ handshakeId?: number }>("clips:bubble-ready", (ev) => {
+      if (stopped) return;
+      // If the bubble re-mounts (it emits bubble-ready on every mount),
+      // restart the handshake from scratch.
+      console.log(
+        "[clips-bubble-webrtc] bubble-ready received — starting handshake",
+        ev.payload,
+      );
+      startHandshake().catch((err) => {
+        console.warn("[clips-bubble-webrtc] startHandshake threw", err);
+      });
+    }),
+  );
+
+  trackListen(
+    listen<{ handshakeId: number; sdp: string; type: string }>(
+      "clips:webrtc-answer",
+      async (ev) => {
+        if (stopped) return;
+        const { handshakeId: incomingId, sdp, type } = ev.payload;
+        if (incomingId !== handshakeId) {
+          console.log(
+            "[clips-bubble-webrtc] answer for stale handshake — ignoring",
+            incomingId,
+            handshakeId,
+          );
+          return;
+        }
+        if (!pc) return;
+        try {
+          await pc.setRemoteDescription({ type: type as RTCSdpType, sdp });
+          console.log("[clips-bubble-webrtc] setRemoteDescription(answer) ok");
+        } catch (err) {
+          console.warn(
+            "[clips-bubble-webrtc] setRemoteDescription failed",
+            err,
+          );
+          onFailure("set-remote-failed");
+          stop();
+        }
+      },
+    ),
+  );
+
+  trackListen(
+    listen<{
+      handshakeId: number;
+      candidate: string;
+      sdpMid: string | null;
+      sdpMLineIndex: number | null;
+    }>("clips:webrtc-ice-from-bubble", async (ev) => {
+      if (stopped) return;
+      const {
+        handshakeId: incomingId,
+        candidate,
+        sdpMid,
+        sdpMLineIndex,
+      } = ev.payload;
+      if (incomingId !== handshakeId) return;
       if (!pc) return;
       try {
-        await pc.setRemoteDescription({ type: type as RTCSdpType, sdp });
-        console.log("[clips-bubble-webrtc] setRemoteDescription(answer) ok");
+        await pc.addIceCandidate({
+          candidate,
+          sdpMid: sdpMid ?? undefined,
+          sdpMLineIndex: sdpMLineIndex ?? undefined,
+        });
       } catch (err) {
-        console.warn("[clips-bubble-webrtc] setRemoteDescription failed", err);
-        onFailure("set-remote-failed");
-        stop();
+        // Some candidates fail to add (e.g. already-closed peer, stale
+        // handshake). Not fatal — the surviving candidates can still form
+        // a connection on loopback.
+        console.warn("[clips-bubble-webrtc] addIceCandidate failed", err);
       }
-    },
-  )
-    .then((u) => unlistens.push(u))
-    .catch((err) => {
-      console.warn("[clips-bubble-webrtc] listen answer failed", err);
-    });
-
-  listen<{
-    handshakeId: number;
-    candidate: string;
-    sdpMid: string | null;
-    sdpMLineIndex: number | null;
-  }>("clips:webrtc-ice-from-bubble", async (ev) => {
-    if (stopped) return;
-    const {
-      handshakeId: incomingId,
-      candidate,
-      sdpMid,
-      sdpMLineIndex,
-    } = ev.payload;
-    if (incomingId !== handshakeId) return;
-    if (!pc) return;
-    try {
-      await pc.addIceCandidate({
-        candidate,
-        sdpMid: sdpMid ?? undefined,
-        sdpMLineIndex: sdpMLineIndex ?? undefined,
-      });
-    } catch (err) {
-      // Some candidates fail to add (e.g. already-closed peer, stale
-      // handshake). Not fatal — the surviving candidates can still form
-      // a connection on loopback.
-      console.warn("[clips-bubble-webrtc] addIceCandidate failed", err);
-    }
-  })
-    .then((u) => unlistens.push(u))
-    .catch((err) => {
-      console.warn("[clips-bubble-webrtc] listen ice failed", err);
-    });
+    }),
+  );
 
   // If the bubble window was already alive when we started (e.g. a
   // re-start of the session), it might not re-emit bubble-ready. Ping

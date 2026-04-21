@@ -2634,6 +2634,9 @@ importers:
       isbot:
         specifier: ^5
         version: 5.1.37
+      jose:
+        specifier: ^6.2.2
+        version: 6.2.2
       nanoid:
         specifier: ^4.0.2
         version: 4.0.2

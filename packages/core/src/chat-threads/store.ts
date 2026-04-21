@@ -200,6 +200,42 @@ export async function setThreadEngineMeta(
   );
 }
 
+export interface QueuedMessage {
+  id: string;
+  text: string;
+  images?: string[];
+  references?: unknown[];
+}
+
+/**
+ * Persist the user's queued (not-yet-sent) messages onto the thread.
+ * Stored in thread_data JSON so it survives reloads without a schema
+ * change. Safe to call often — the frontend debounces writes.
+ */
+export async function setThreadQueuedMessages(
+  threadId: string,
+  queuedMessages: QueuedMessage[],
+): Promise<void> {
+  const thread = await getThread(threadId);
+  if (!thread) return;
+  let data: Record<string, unknown> = {};
+  try {
+    data = JSON.parse(thread.threadData);
+  } catch {}
+  if (queuedMessages.length === 0) {
+    delete data.queuedMessages;
+  } else {
+    data.queuedMessages = queuedMessages;
+  }
+  await updateThreadData(
+    threadId,
+    JSON.stringify(data),
+    thread.title,
+    thread.preview,
+    thread.messageCount,
+  );
+}
+
 export async function deleteThread(id: string): Promise<boolean> {
   await ensureTable();
   const client = getDbExec();
