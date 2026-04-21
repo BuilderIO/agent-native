@@ -55,6 +55,7 @@ import {
   listThreads,
   searchThreads,
   updateThreadData,
+  withThreadDataLock,
   deleteThread,
   setThreadQueuedMessages,
 } from "../chat-threads/store.js";
@@ -2316,83 +2317,93 @@ export function createAgentChatPlugin(
     // Reconstructs the assistant message from buffered events and appends to thread_data.
     const onRunComplete = async (run: any, threadId: string | undefined) => {
       if (!threadId) return;
-      try {
-        const thread = await getThread(threadId);
-        if (!thread) return;
-
-        const assistantMsg = buildAssistantMessage(run.events ?? [], run.runId);
-        if (!assistantMsg) {
-          // No content produced — just bump timestamp
-          await updateThreadData(
-            threadId,
-            thread.threadData,
-            thread.title,
-            thread.preview,
-            thread.messageCount,
-          );
-          return;
-        }
-
-        // Parse existing thread_data, append assistant message only if
-        // the frontend hasn't already saved it (avoids duplicates when
-        // the client is still connected during a normal flow).
-        let repo: any;
+      // Serialize the read-modify-write against the same thread's other
+      // `thread_data` writers (setThreadQueuedMessages, setThreadEngineMeta,
+      // the frontend-triggered saves below). Without the lock, a concurrent
+      // queued-message save can clobber the assistant message we just
+      // appended here, or vice versa.
+      await withThreadDataLock(threadId, async () => {
         try {
-          repo = JSON.parse(thread.threadData || "{}");
-        } catch {
-          repo = {};
-        }
-        if (!Array.isArray(repo.messages)) repo.messages = [];
+          const thread = await getThread(threadId);
+          if (!thread) return;
 
-        const lastMsg = repo.messages[repo.messages.length - 1];
-        // Check both wrapped ({ message: { role } }) and unwrapped ({ role }) formats
-        const lastRole = lastMsg?.message?.role ?? lastMsg?.role;
-        const lastContent = lastMsg?.message?.content ?? lastMsg?.content;
-        const lastContentIsEmpty = Array.isArray(lastContent)
-          ? lastContent.length === 0
-          : lastContent == null || lastContent === "";
-        if (lastRole === "assistant" && !lastContentIsEmpty) {
-          // Frontend already saved the assistant response — just bump timestamp
+          const assistantMsg = buildAssistantMessage(
+            run.events ?? [],
+            run.runId,
+          );
+          if (!assistantMsg) {
+            // No content produced — just bump timestamp
+            await updateThreadData(
+              threadId,
+              thread.threadData,
+              thread.title,
+              thread.preview,
+              thread.messageCount,
+            );
+            return;
+          }
+
+          // Parse existing thread_data, append assistant message only if
+          // the frontend hasn't already saved it (avoids duplicates when
+          // the client is still connected during a normal flow).
+          let repo: any;
+          try {
+            repo = JSON.parse(thread.threadData || "{}");
+          } catch {
+            repo = {};
+          }
+          if (!Array.isArray(repo.messages)) repo.messages = [];
+
+          const lastMsg = repo.messages[repo.messages.length - 1];
+          // Check both wrapped ({ message: { role } }) and unwrapped ({ role }) formats
+          const lastRole = lastMsg?.message?.role ?? lastMsg?.role;
+          const lastContent = lastMsg?.message?.content ?? lastMsg?.content;
+          const lastContentIsEmpty = Array.isArray(lastContent)
+            ? lastContent.length === 0
+            : lastContent == null || lastContent === "";
+          if (lastRole === "assistant" && !lastContentIsEmpty) {
+            // Frontend already saved the assistant response — just bump timestamp
+            await updateThreadData(
+              threadId,
+              thread.threadData,
+              thread.title,
+              thread.preview,
+              thread.messageCount,
+            );
+            return;
+          }
+          if (lastRole === "assistant" && lastContentIsEmpty) {
+            // The frontend wrote an empty assistant placeholder before the stream
+            // had any content (common when the user reloads mid-run, and the 5s
+            // periodic save raced with the first text chunk). Replace it with
+            // the server's reconstructed message so the turn isn't lost.
+            repo.messages.pop();
+          }
+
+          // Determine if repo uses wrapped format ({ message, parentId }) or flat format
+          const isWrapped = lastMsg && "message" in lastMsg;
+          if (isWrapped) {
+            const parentId =
+              repo.messages.length > 0
+                ? (repo.messages[repo.messages.length - 1].message?.id ?? null)
+                : null;
+            repo.messages.push({ message: assistantMsg, parentId });
+          } else {
+            repo.messages.push(assistantMsg);
+          }
+
+          const meta = extractThreadMeta(repo);
           await updateThreadData(
             threadId,
-            thread.threadData,
-            thread.title,
-            thread.preview,
-            thread.messageCount,
+            JSON.stringify(repo),
+            meta.title || thread.title,
+            meta.preview || thread.preview,
+            repo.messages.length,
           );
-          return;
+        } catch {
+          // Best-effort — don't break cleanup
         }
-        if (lastRole === "assistant" && lastContentIsEmpty) {
-          // The frontend wrote an empty assistant placeholder before the stream
-          // had any content (common when the user reloads mid-run, and the 5s
-          // periodic save raced with the first text chunk). Replace it with
-          // the server's reconstructed message so the turn isn't lost.
-          repo.messages.pop();
-        }
-
-        // Determine if repo uses wrapped format ({ message, parentId }) or flat format
-        const isWrapped = lastMsg && "message" in lastMsg;
-        if (isWrapped) {
-          const parentId =
-            repo.messages.length > 0
-              ? (repo.messages[repo.messages.length - 1].message?.id ?? null)
-              : null;
-          repo.messages.push({ message: assistantMsg, parentId });
-        } else {
-          repo.messages.push(assistantMsg);
-        }
-
-        const meta = extractThreadMeta(repo);
-        await updateThreadData(
-          threadId,
-          JSON.stringify(repo),
-          meta.title || thread.title,
-          meta.preview || thread.preview,
-          repo.messages.length,
-        );
-      } catch {
-        // Best-effort — don't break cleanup
-      }
+      });
     };
 
     // ─── Agent Teams: per-run send reference ─────────────────────────

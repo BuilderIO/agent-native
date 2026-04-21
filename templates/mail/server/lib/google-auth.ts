@@ -13,6 +13,7 @@ import {
   getOAuthTokens,
   saveOAuthTokens,
   deleteOAuthTokens,
+  listOAuthAccounts,
   listOAuthAccountsByOwner,
   hasOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
@@ -209,6 +210,36 @@ export async function getClient(
   const accountId = account.accountId;
   const accessToken = await getValidAccessToken(accountId, tokens, email);
 
+  return { accessToken, email: accountId };
+}
+
+/**
+ * Look up an OAuth client by accountId regardless of ownership.
+ *
+ * `getClient()` filters by owner, which works for a user's primary account
+ * (where `owner === accountId`) but returns null for added secondary accounts
+ * (where `owner` is the primary email). Background jobs that iterate
+ * `listOAuthAccounts("google")` — notably Gmail watch renewal — need to
+ * refresh tokens for every stored account, not just the primary of each
+ * owner. This helper scans all accounts and uses the stored `owner` (falling
+ * back to `accountId`) when persisting refreshed tokens.
+ */
+export async function getClientForAccount(
+  accountId: string,
+): Promise<{ accessToken: string; email: string } | null> {
+  const all = await listOAuthAccounts("google");
+  const account = all.find((a) => a.accountId === accountId);
+  if (!account) return null;
+
+  const tokens = account.tokens as unknown as GoogleTokens;
+  if (!tokens) return null;
+
+  const ownerForRefresh = account.owner ?? accountId;
+  const accessToken = await getValidAccessToken(
+    accountId,
+    tokens,
+    ownerForRefresh,
+  );
   return { accessToken, email: accountId };
 }
 
@@ -550,11 +581,23 @@ async function hydrateAccountInbox(
     messageIds.map((m) => m.id),
     "metadata",
   );
-  const messages: any[] = [];
-  for (const r of batchResults) {
-    if (!r.data) continue;
-    messages.push({ ...r.data, _accountEmail: email });
+
+  // Partial batch failures would leave gaps in the inbox window while we
+  // still cache `historyId` — those messages then never appear in history
+  // deltas (deltas only surface events since the cached id) and silently
+  // vanish from the UI until the next full rehydrate. Fail the whole
+  // hydrate instead; the caller retries, which is cheaper than serving a
+  // wrong list indefinitely.
+  if (batchResults.some((r) => !r.data)) {
+    throw new Error(
+      `Batch message fetch returned incomplete results (${batchResults.filter((r) => !r.data).length}/${batchResults.length} missing) — aborting hydrate to avoid caching an incomplete inbox`,
+    );
   }
+
+  const messages: any[] = batchResults.map((r) => ({
+    ...r.data,
+    _accountEmail: email,
+  }));
 
   return { messages, historyId, nextPageToken };
 }

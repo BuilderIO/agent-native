@@ -39,10 +39,15 @@ async function verifyPubSubToken(authHeader: string): Promise<JWTPayload> {
     throw new Error("email_verified claim is not true");
   }
 
-  // Optional pin to the specific service account Pub/Sub signs as. Blocks
-  // any other Google-issued token that happens to have the right audience.
+  // Pin to the specific service account Pub/Sub signs as. Without this any
+  // Google-issued token with the right audience (e.g. a different GCP
+  // project) would pass verification and spoof mailbox updates. Required
+  // whenever OIDC auth is on.
   const expectedSigner = process.env.GMAIL_PUSH_SIGNER_EMAIL;
-  if (expectedSigner && payload.email !== expectedSigner) {
+  if (!expectedSigner) {
+    throw new Error("GMAIL_PUSH_SIGNER_EMAIL not configured");
+  }
+  if (payload.email !== expectedSigner) {
     throw new Error(`unexpected signer: ${payload.email}`);
   }
 
@@ -50,12 +55,23 @@ async function verifyPubSubToken(authHeader: string): Promise<JWTPayload> {
 }
 
 export default defineEventHandler(async (event: H3Event) => {
-  // OIDC verification is opt-in via env. When GMAIL_PUSH_AUDIENCE is unset
-  // we run unauthenticated — matching the subscription's default state
-  // before "Enable authentication" is flipped on. Once the env var is set,
-  // we reject any request that fails verification with 401 so Pub/Sub
-  // surfaces the misconfiguration in its delivery metrics.
-  if (process.env.GMAIL_PUSH_AUDIENCE) {
+  // Fail closed when watches are enabled. If GMAIL_WATCH_TOPIC is set we are
+  // actively subscribing for push notifications, so the endpoint MUST verify
+  // incoming payloads — otherwise any public caller can post forged
+  // historyId bumps and force the server into garbage-hydrate loops. OIDC
+  // verification is keyed off GMAIL_PUSH_AUDIENCE; both must be configured
+  // together. Without GMAIL_WATCH_TOPIC (watches disabled) we accept
+  // unauthenticated pushes as a no-op pathway for local/dev testing.
+  const watchesEnabled = !!process.env.GMAIL_WATCH_TOPIC;
+  const audience = process.env.GMAIL_PUSH_AUDIENCE;
+  if (watchesEnabled && !audience) {
+    console.error(
+      "[gmail-push] GMAIL_WATCH_TOPIC set but GMAIL_PUSH_AUDIENCE missing — rejecting to avoid unauthenticated push processing",
+    );
+    setResponseStatus(event, 503);
+    return { ok: false, error: "push auth not configured" };
+  }
+  if (audience) {
     const authHeader = getHeader(event, "authorization") || "";
     try {
       await verifyPubSubToken(authHeader);
