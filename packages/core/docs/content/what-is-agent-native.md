@@ -131,7 +131,7 @@ Agent-native ships the same customization layer as a first-class part of every a
 
 The twist: it's **SQL-backed, not filesystem-backed.** There's no dev-box to spin up, no container per user, no files to sync. Every user gets their own full workspace — personal memory, personal MCP servers, personal skills — for essentially free, because it's all rows in a database. That makes this model viable for real SaaS: multi-tenant, deployable to any serverless or edge host, with Claude-Code-level flexibility per user.
 
-See [Workspace](/docs/resources) for the full concept.
+See [Workspace](/docs/workspace) for the full concept.
 
 ## What makes it different {#what-makes-it-different}
 
@@ -192,6 +192,6 @@ Every action you define is also a tool exposed over A2A _and_ as an MCP server, 
 
 - [**Key Concepts**](/docs/key-concepts) — the architecture: SQL, actions, polling sync, context awareness, portability
 - [**Cloneable SaaS**](/docs/cloneable-saas) — templates as complete products you own
-- [**Workspace**](/docs/resources) — the per-user customization layer (skills, memory, instructions, MCP)
+- [**Workspace**](/docs/workspace) — the per-user customization layer (skills, memory, instructions, MCP)
 - [**Drop-in Agent**](/docs/drop-in-agent) — mount `<AgentPanel>` into any React app
 - [**Getting Started**](/docs) — scaffold your first app

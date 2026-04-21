@@ -12,14 +12,15 @@ The agent and the UI are equal citizens of the same system. Every action works b
 
 - **Everything syncs** — Agent and UI share one database and one state. Changes from either side show up instantly on the other.
 - **Context-aware** — The agent knows what you're looking at. Select text, hit Cmd+I, and tell it what to do.
+- **Per-user workspace** — Skills, memory, instructions, sub-agents, and MCP servers — SQL-backed, customizable per user. Claude-Code-level flexibility, SaaS-grade economics.
 - **Agents call agents** — Tag another agent from any app. They discover each other over A2A and take action across your stack.
 - **Apps that improve themselves** — Your apps get better on their own. The agent can add features, fix bugs, and refine the UI over time.
 - **Any database, any host** — Any SQL database Drizzle supports. Any hosting target Nitro supports. No lock-in.
 - **Any AI agent** — Claude Code, Codex, Gemini CLI, OpenCode, or Builder.io. Use whichever agent you prefer.
 
-## Templates
+## Cloneable SaaS Templates
 
-Start from a production-ready template. Each one replaces tools you're paying for — except you own everything and can customize it however you want.
+Start from a complete, production-grade SaaS app. Each one replaces tools you're paying for — except you own everything and can customize it however you want. Not demos; products.
 
 <table>
 <tr>
@@ -94,7 +95,7 @@ Connect any data source, prompt for any chart. Build reusable dashboards, not th
 </tr>
 </table>
 
-Every template is forkable, open source, and designed to be customized. Try them with example data before connecting your own sources.
+Every template is cloneable SaaS — fork it, customize it with the agent, own it. Try them with example data before connecting your own sources.
 
 ## Quick Start
 

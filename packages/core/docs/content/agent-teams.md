@@ -12,7 +12,7 @@ This keeps the main thread focused, lets sub-agents run in parallel, and gives y
 ## The mental model {#mental-model}
 
 - **Main chat** — the orchestrator. Reads your request, delegates. Rarely does heavy work itself.
-- **Sub-agents** — run with their own thread, their own system prompt, their own tool set. Each maps to a "custom agent" profile in the [workspace](/docs/resources).
+- **Sub-agents** — run with their own thread, their own system prompt, their own tool set. Each maps to a "custom agent" profile in the [workspace](/docs/workspace).
 - **Chips** — the rich preview card that appears inline in the main chat, showing the sub-agent's current step, streaming output, and final summary. Collapsed by default; expands to the full conversation on click.
 - **Bidirectional messaging** — the main agent can send follow-ups to a running sub-agent; a sub-agent can message back when it hits an ambiguous point.
 
@@ -37,7 +37,7 @@ Three ways to kick off a sub-agent, from least to most explicit:
 
 The user types `@agent-name` in the chat composer. A dropdown of workspace sub-agents appears. Selecting one inserts a chip; on submit the main agent delegates the message to that sub-agent.
 
-Custom agents live in the workspace at `agents/<slug>.md` — a Markdown file with YAML frontmatter. See [Custom Agents](/docs/resources#custom-agents) for the format.
+Custom agents live in the workspace at `agents/<slug>.md` — a Markdown file with YAML frontmatter. See [Custom Agents](/docs/workspace#custom-agents) for the format.
 
 ### 2. The main agent delegates automatically {#auto-delegate}
 
@@ -130,10 +130,10 @@ you can.
 - Never LGTM silently; always summarize what you checked.
 ```
 
-Store at `agents/code-review.md` in the workspace. It appears in the `@mention` dropdown and is available to the main agent as a delegation target. See [Workspace — Custom Agents](/docs/resources#custom-agents) for the full format.
+Store at `agents/code-review.md` in the workspace. It appears in the `@mention` dropdown and is available to the main agent as a delegation target. See [Workspace — Custom Agents](/docs/workspace#custom-agents) for the full format.
 
 ## What's next
 
-- [**Workspace — Custom Agents**](/docs/resources#custom-agents) — the profile format
+- [**Workspace — Custom Agents**](/docs/workspace#custom-agents) — the profile format
 - [**A2A Protocol**](/docs/a2a-protocol) — when the "sub-agent" lives in a different app entirely
 - [**Actions**](/docs/actions) — the tools a sub-agent calls

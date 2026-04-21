@@ -82,7 +82,7 @@ Cloneable SaaS wouldn't be practical in a traditional codebase. Every user forki
 Two framework decisions unlock it:
 
 1. **Agents do the maintenance.** You don't write code to add a column or wire a new integration — you ask the agent. So "your own forked inbox" is a feature, not a burden, because the agent is doing the work.
-2. **The workspace is SQL, not files.** Every user gets their own customization layer (skills, memory, instructions, connected MCP servers, sub-agents) without a dev-box. The shared codebase hosts all of them at once. See [Workspace](/docs/resources).
+2. **The workspace is SQL, not files.** Every user gets their own customization layer (skills, memory, instructions, connected MCP servers, sub-agents) without a dev-box. The shared codebase hosts all of them at once. See [Workspace](/docs/workspace).
 
 Combined, you get Claude-Code-level flexibility per user, with SaaS-grade deployment economics.
 

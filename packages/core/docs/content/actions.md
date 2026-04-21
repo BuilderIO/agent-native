@@ -1,40 +1,202 @@
 ---
 title: "Actions"
-description: "Action dispatcher, parseArgs, standard actions, and utility functions for agent-callable operations."
+description: "defineAction — the single definition that becomes an agent tool, a typesafe frontend mutation, an HTTP endpoint, an MCP tool, and a CLI command."
 ---
 
 # Actions
 
-`@agent-native/core` provides an action dispatcher and utilities for building agent-callable actions.
+Actions are the single source of truth for anything your app does. Define an action once with `defineAction()`, drop it in `actions/`, and it's immediately available as:
 
-## Action Dispatcher {#action-dispatcher}
+- **An agent tool** — the agent sees it with a zod-derived JSON Schema and can call it in chat.
+- **A typesafe React mutation** — `useActionMutation("name")` on the frontend, types inferred from the schema.
+- **An HTTP endpoint** — `POST /_agent-native/actions/<name>` (auto-mounted by the framework).
+- **An MCP tool** — exposed to Claude Desktop, ChatGPT remote-MCP, and any other MCP client.
+- **An A2A tool** — called by other agent-native apps over A2A.
+- **A CLI command** — `pnpm action <name>` for scripting and dev loops.
 
-The action system lets you create actions that agents can invoke via `pnpm action <name>`. Each action is a TypeScript file that exports a default async function.
+One definition, six consumers. This is rung 3 of the [ladder](/docs/what-is-agent-native#the-ladder).
+
+## Defining an action {#defining}
 
 ```ts
-// actions/run.ts — dispatcher (one-time setup)
-import { runScript } from "@agent-native/core";
-runScript();
+// actions/reply-to-email.ts
+import { defineAction } from "@agent-native/core";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Reply to an email thread in the user's voice.",
+  schema: z.object({
+    emailId: z.string().describe("The id of the email to reply to."),
+    body: z.string().describe("The reply body, in markdown."),
+  }),
+  run: async ({ emailId, body }) => {
+    await db.insert(replies).values({ emailId, body });
+    return { ok: true, emailId };
+  },
+});
 ```
 
+That's it. The framework auto-discovers every file in `actions/` and mounts them on startup.
+
+### Schema options {#schemas}
+
+`schema` accepts any [Standard Schema](https://standardschema.dev)-compatible library:
+
+- **Zod** (v4) — most common, best type inference, auto-converts to JSON Schema.
+- **Valibot** — minimal bundle size if that matters.
+- **ArkType** — if you like the syntax.
+
+The schema is converted to JSON Schema for the Claude API tool definition, _and_ used at runtime to validate inputs before `run()` fires. Invalid inputs never reach your handler.
+
+### HTTP config {#http}
+
+By default every action is exposed as `POST /_agent-native/actions/<name>`. Override with the `http` option:
+
 ```ts
-// actions/hello.ts — example action
+export default defineAction({
+  description: "Get details for a lead.",
+  schema: z.object({ leadId: z.string() }),
+  http: { method: "GET", path: "leads/:leadId" }, // optional override
+  run: async ({ leadId }) => {
+    return await db.select().from(leads).where(eq(leads.id, leadId));
+  },
+});
+```
+
+- **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`** — default `POST`. `GET` actions are auto-marked `readOnly` so successful calls don't trigger a UI poll-refresh.
+- **`http: { path: "..." }`** — override the route path under `/_agent-native/actions/`. Defaults to the filename.
+- **`http: false`** — disable the HTTP endpoint entirely. Agent + CLI only.
+- **`readOnly: true`** — explicitly skip the poll-refresh even for POST actions that don't mutate.
+
+## Calling it from the UI {#ui}
+
+Two hooks, both in `@agent-native/core/client`. Types are inferred from your `defineAction` schemas — no manual type declarations.
+
+### `useActionMutation` {#use-action-mutation}
+
+For actions that change state:
+
+```tsx
+import { useActionMutation } from "@agent-native/core/client";
+
+const { mutate, isPending } = useActionMutation("replyToEmail");
+
+<Button
+  disabled={isPending}
+  onClick={() => mutate({ emailId, body: "Thanks!" })}
+>
+  Send Reply
+</Button>;
+```
+
+On success, the framework emits a poll event so every `useActionQuery`/`useDbSync` consumer refetches automatically. See [Real-Time Sync](/docs/key-concepts#polling-sync).
+
+### `useActionQuery` {#use-action-query}
+
+For read-only GET actions:
+
+```ts
+import { useActionQuery } from "@agent-native/core/client";
+
+const { data, isLoading } = useActionQuery("getLead", { leadId });
+```
+
+The query is cached under `["action", "getLead", { leadId }]` and auto-invalidated on any mutating action that completes.
+
+## Calling it from the CLI {#cli}
+
+Every action is runnable via `pnpm action`:
+
+```bash
+pnpm action replyToEmail --emailId thread-123 --body "Thanks!"
+```
+
+Flags are parsed into the shape your schema expects. Useful for agent-dev loops, scripts, and cron.
+
+## Calling it from another agent (A2A) {#a2a}
+
+If your app is an [A2A](/docs/a2a-protocol) peer, other agent-native apps discover your actions automatically and can call them by name. Same-origin deploys skip JWT signing; cross-origin uses a shared `A2A_SECRET`.
+
+## Exposing it over MCP {#mcp}
+
+With MCP enabled, your actions show up in the framework's MCP server at `/_agent-native/mcp`. Any MCP client — Claude Desktop, ChatGPT remote MCP, etc. — can connect and see them as tools. See [MCP Protocol](/docs/mcp-protocol).
+
+## Standard actions {#standard-actions}
+
+Every template should include these two for [context awareness](/docs/context-awareness):
+
+### view-screen {#view-screen}
+
+Reads the current navigation state, fetches contextual data, and returns a snapshot of what the user sees. The agent calls this when it needs a fresh look at the screen.
+
+```ts
+// actions/view-screen.ts
+import { defineAction } from "@agent-native/core";
+import { readAppState } from "@agent-native/core/application-state";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Read the current screen state for context.",
+  schema: z.object({}),
+  http: { method: "GET" },
+  run: async () => {
+    const navigation = await readAppState("navigation");
+    const screen: Record<string, unknown> = { navigation };
+
+    if (navigation?.view === "inbox") {
+      const res = await fetch(
+        `${process.env.APP_URL}/api/emails?label=${navigation.label}`,
+      );
+      screen.emailList = await res.json();
+    }
+
+    return screen;
+  },
+});
+```
+
+### navigate {#navigate}
+
+Writes a one-shot navigation command to application state. The UI reads it, navigates, and deletes the entry.
+
+```ts
+// actions/navigate.ts
+import { defineAction } from "@agent-native/core";
+import { writeAppState } from "@agent-native/core/application-state";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Navigate the user to a view.",
+  schema: z.object({
+    view: z.string(),
+    threadId: z.string().optional(),
+  }),
+  run: async (args) => {
+    await writeAppState("navigate", args);
+    return { ok: true };
+  },
+});
+```
+
+## Legacy CLI-style actions {#legacy-cli-actions}
+
+The framework still supports older `export default async function(args)` actions that aren't wrapped in `defineAction` — useful for one-off dev scripts that don't need agent/HTTP exposure. These are CLI-only; they don't appear as agent tools, don't mount HTTP endpoints, and don't get typesafe frontend hooks.
+
+```ts
+// actions/debug-dump.ts — CLI-only
 import { parseArgs } from "@agent-native/core";
 
-export default async function hello(args: string[]) {
-  const { name } = parseArgs(args);
-  console.log(`Hello, ${name ?? "world"}!`);
+export default async function main(args: string[]) {
+  const { table } = parseArgs(args);
+  // one-off script you wouldn't want the agent to call
 }
 ```
 
-```bash
-# Run it
-pnpm action hello --name Steve
-```
+New code should prefer `defineAction()`. Reach for this pattern only when you deliberately don't want the action exposed to agents or the UI.
 
-## parseArgs(args) {#parseargs}
+### `parseArgs(args)` {#parseargs}
 
-Parse CLI arguments in `--key value` or `--key=value` format:
+Helper for legacy-style actions. Parses CLI arguments in `--key value` or `--key=value` format:
 
 ```ts
 import { parseArgs } from "@agent-native/core";
@@ -43,87 +205,20 @@ const args = parseArgs(["--name", "Steve", "--verbose", "--count=3"]);
 // { name: "Steve", verbose: "true", count: "3" }
 ```
 
-## Standard actions {#standard-actions}
+## Utility functions {#utility-functions}
 
-Every template should include these two actions for [context awareness](/docs/context-awareness):
+| Function                | Returns   | Description                                           |
+| ----------------------- | --------- | ----------------------------------------------------- |
+| `loadEnv(path?)`        | `void`    | Load `.env` from project root (or custom path).       |
+| `camelCaseArgs(args)`   | `Record`  | Convert kebab-case keys to camelCase.                 |
+| `isValidPath(p)`        | `boolean` | Validate a relative path (no traversal, no absolute). |
+| `isValidProjectPath(p)` | `boolean` | Validate a project slug (e.g. `my-project`).          |
+| `ensureDir(dir)`        | `void`    | `mkdir -p` helper.                                    |
+| `fail(message)`         | `never`   | Print to stderr and `exit(1)`.                        |
 
-### view-screen {#view-screen}
+## What's next
 
-Reads the current navigation state, fetches contextual data, and returns a snapshot of what the user sees. The agent should always call this before acting.
-
-```ts
-// actions/view-screen.ts
-import { readAppState } from "@agent-native/core/application-state";
-
-export default async function main() {
-  const navigation = await readAppState("navigation");
-  const screen: Record<string, unknown> = { navigation };
-
-  if (navigation?.view === "inbox") {
-    const res = await fetch(
-      "http://localhost:3000/api/emails?label=" + navigation.label,
-    );
-    screen.emailList = await res.json();
-  }
-
-  console.log(JSON.stringify(screen, null, 2));
-}
-```
-
-```bash
-pnpm action view-screen
-```
-
-### navigate {#navigate}
-
-Writes a one-shot navigation command to application-state. The UI reads it, navigates, and deletes the entry.
-
-```ts
-// actions/navigate.ts
-import { parseArgs } from "@agent-native/core";
-import { writeAppState } from "@agent-native/core/application-state";
-
-export default async function main(args: string[]) {
-  const parsed = parseArgs(args);
-  await writeAppState("navigate", parsed);
-  console.log("Navigate command written:", parsed);
-}
-```
-
-```bash
-pnpm action navigate --view inbox --threadId thread-123
-```
-
-## Shared Agent Chat {#shared-agent-chat}
-
-`@agent-native/core` provides an isomorphic chat bridge that works in both browser and Node.js:
-
-```ts
-import { agentChat } from "@agent-native/core";
-
-// Auto-submit a message
-agentChat.submit("Generate a report for Q4");
-
-// Prefill without submitting
-agentChat.prefill("Draft an email to...", contextData);
-
-// Full control
-agentChat.send({
-  message: "Process this data",
-  context: JSON.stringify(data),
-  submit: true,
-});
-```
-
-In the browser, messages are sent via `window.postMessage()`. In Node.js (actions), they use the `BUILDER_PARENT_MESSAGE:` stdout format that the Electron host translates to postMessage.
-
-## Utility Functions {#utility-functions}
-
-| Function                | Returns   | Description                                        |
-| ----------------------- | --------- | -------------------------------------------------- |
-| `loadEnv(path?)`        | `void`    | Load .env from project root (or custom path)       |
-| `camelCaseArgs(args)`   | `Record`  | Convert kebab-case keys to camelCase               |
-| `isValidPath(p)`        | `boolean` | Validate relative path (no traversal, no absolute) |
-| `isValidProjectPath(p)` | `boolean` | Validate project slug (e.g. "my-project")          |
-| `ensureDir(dir)`        | `void`    | mkdir -p helper                                    |
-| `fail(message)`         | `never`   | Print error to stderr and exit(1)                  |
+- [**Drop-in Agent**](/docs/drop-in-agent) — `useActionMutation` / `useActionQuery` in React
+- [**Context Awareness**](/docs/context-awareness) — the `view-screen` + `navigate` pattern in depth
+- [**A2A Protocol**](/docs/a2a-protocol) — how other agents discover and call your actions
+- [**MCP Protocol**](/docs/mcp-protocol) — exposing actions over MCP

@@ -66,4 +66,4 @@ Most "pure-agent" apps eventually want a little bit of custom UI — not a dashb
 - [**Recurring Jobs**](/docs/recurring-jobs) — scheduled prompts the agent runs on its own
 - [**Drop-in Agent**](/docs/drop-in-agent) — mounting `<AgentPanel>` fullscreen or in a sidebar
 - [**Actions**](/docs/actions) — the tools your pure-agent will call
-- [**Workspace**](/docs/resources) — the customization surface for skills, memory, and MCP servers
+- [**Workspace**](/docs/workspace) — the customization surface for skills, memory, and MCP servers

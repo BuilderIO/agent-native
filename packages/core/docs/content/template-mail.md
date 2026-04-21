@@ -166,4 +166,4 @@ Mail is yours to change. Everything important lives in a handful of places — s
 
 **Changing keyboard shortcuts.** Keybind handlers live in `templates/mail/app/components/email/` — search for `useHotkeys` or `addEventListener("keydown"` to find where each key is wired.
 
-Ask the agent to make any of these changes for you. The agent can edit its own source — see the [self-modifying-code](/docs/self-modifying-code) docs.
+Ask the agent to make any of these changes for you. The agent can edit its own source — see [Self-Modifying Code](/docs/key-concepts#agent-modifies-code).

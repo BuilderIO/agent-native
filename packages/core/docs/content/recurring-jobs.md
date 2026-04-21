@@ -7,7 +7,7 @@ description: "Cron-scheduled prompts the agent runs on its own — daily digests
 
 A **recurring job** is a prompt that runs on a cron schedule. It's how the agent does things on its own: "every morning at 7 summarize my overnight emails," "every Monday post last week's signup numbers to Slack," "every hour sweep for stale drafts and delete them."
 
-Jobs live in the [workspace](/docs/resources) at `jobs/<name>.md` — just a Markdown file with YAML frontmatter. No registration, no wiring. Drop the file in and the framework picks it up.
+Jobs live in the [workspace](/docs/workspace) at `jobs/<name>.md` — just a Markdown file with YAML frontmatter. No registration, no wiring. Drop the file in and the framework picks it up.
 
 ## A job file {#job-file}
 
@@ -118,6 +118,6 @@ Recurring jobs are "how do I make the agent act on its own?" The scheduling pack
 
 ## What's next
 
-- [**Workspace**](/docs/resources) — where jobs live alongside skills, memory, and custom agents
+- [**Workspace**](/docs/workspace) — where jobs live alongside skills, memory, and custom agents
 - [**Actions**](/docs/actions) — the tools a job calls
 - [**Agent Teams**](/docs/agent-teams) — jobs often spawn sub-agents to do parallel work

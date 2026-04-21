@@ -221,17 +221,10 @@ export default defineConfig({
 | `NITRO_PRESET`      | Override build preset at build time                                                                                  |
 | `ACCESS_TOKEN`      | Enable auth gating for production mode                                                                               |
 | `ANTHROPIC_API_KEY` | API key for embedded production agent                                                                                |
-| `FILE_SYNC_ENABLED` | Enable file sync for multi-instance                                                                                  |
 | `APP_BASE_PATH`     | Mount the app under a prefix (e.g. `/mail`). Set automatically by `agent-native deploy`; leave unset for standalone. |
 
 Inside a workspace, the root `.env` is loaded into every app automatically, so shared keys like `ANTHROPIC_API_KEY` and `A2A_SECRET` only need to be set once. Per-app `apps/<name>/.env` wins on conflict.
 
-## File Sync in Production {#file-sync}
+## Multi-instance deploys {#multi-instance}
 
-By default, agent-native apps store state in local files. For multi-instance deployments (e.g., serverless or load-balanced), enable file sync to keep instances in sync:
-
-```bash
-FILE_SYNC_ENABLED=true
-```
-
-See [File Sync](/docs/file-sync) for adapter configuration (Firestore, Supabase, Convex).
+Agent-native apps store all state in SQL via Drizzle and sync the UI via [polling](/docs/key-concepts#polling-sync) against the database — no file-system state, no sticky sessions, no in-memory caches. That means multi-instance and serverless deployments work out of the box: point every instance at the same `DATABASE_URL` and they converge automatically. See [Key Concepts — Data in SQL](/docs/key-concepts#data-in-sql) and [Portability](/docs/key-concepts#hosting-agnostic).

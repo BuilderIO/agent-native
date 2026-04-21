@@ -196,5 +196,5 @@ The user sees a chat button in the header, can open it, and can talk to the agen
 
 - [**Actions**](/docs/actions) — `defineAction()` and `useActionMutation()`
 - [**Context Awareness**](/docs/context-awareness) — selection, navigation, view-screen
-- [**Workspace**](/docs/resources) — what the Workspace tab contains (skills, memory, MCP servers, scheduled jobs)
+- [**Workspace**](/docs/workspace) — what the Workspace tab contains (skills, memory, MCP servers, scheduled jobs)
 - [**Voice Input**](/docs/voice-input) — the microphone in the chat composer
