@@ -1,7 +1,8 @@
 [build]
-  command = "pnpm install && NITRO_PRESET=netlify pnpm --filter issues build"
+  command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && DATABASE_URL=${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL} pnpm --filter issues exec drizzle-kit push --force && NITRO_PRESET=netlify pnpm --filter issues build"
   publish = "templates/issues/dist"
   functions = "templates/issues/.netlify/functions-internal"
 
 [build.environment]
   NITRO_PRESET = "netlify"
+  NPM_CONFIG_PRODUCTION = "false"

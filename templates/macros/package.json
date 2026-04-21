@@ -69,7 +69,7 @@
     "cmdk": "^1.1.1",
     "date-fns": "^4.1.0",
     "dotenv": "^17.3.1",
-    "drizzle-kit": "^0.27.2",
+    "drizzle-kit": "^0.31.10",
     "framer-motion": "^12.23.12",
     "globals": "^16.3.0",
     "next-themes": "^0.4.6",

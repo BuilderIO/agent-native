@@ -1,9 +1,4 @@
-import { defineConfig } from "drizzle-kit";
+import { createDrizzleConfig } from "@agent-native/core/db/drizzle-config";
 
-export default defineConfig({
-  schema: "./server/db/schema.ts",
-  dialect: "postgresql",
-  dbCredentials: {
-    url: process.env.DATABASE_URL!,
-  },
-});
+// macros uses drizzle-kit's default `./drizzle` migrations directory.
+export default createDrizzleConfig({ out: "./drizzle" });
