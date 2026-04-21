@@ -26,14 +26,15 @@ export function withThreadDataLock<T>(
 ): Promise<T> {
   const prev = _threadDataLocks.get(threadId) ?? Promise.resolve();
   const next = prev.then(fn, fn);
-  _threadDataLocks.set(
-    threadId,
-    next.finally(() => {
-      if (_threadDataLocks.get(threadId) === next) {
-        _threadDataLocks.delete(threadId);
-      }
-    }),
-  );
+  // Store the same `next` promise we compare against at cleanup time —
+  // `next.finally(...)` returns a DIFFERENT promise, so comparing against
+  // it would never match and entries would leak forever.
+  _threadDataLocks.set(threadId, next);
+  next.finally(() => {
+    if (_threadDataLocks.get(threadId) === next) {
+      _threadDataLocks.delete(threadId);
+    }
+  });
   return next as Promise<T>;
 }
 
