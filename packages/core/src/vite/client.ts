@@ -586,11 +586,12 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     },
     build: {
       outDir: options.outDir ?? "dist/spa",
-      // Safari 16.4+ so esbuild's CSS minifier keeps the standard
-      // backdrop-filter. Targeting safari14 caused it to drop the unprefixed
-      // version (since Safari 14 only speaks -webkit-backdrop-filter) and
-      // keep just the vendor-prefixed one, which broke the blur in prod.
-      cssTarget: ["es2020", "safari16.4"],
+      // Safari 18+ so esbuild's CSS minifier keeps the standard
+      // backdrop-filter. Targeting older Safari caused it to drop the
+      // unprefixed version (Safari only got unprefixed backdrop-filter in
+      // 18.0, Sept 2024) and keep just -webkit-backdrop-filter, which broke
+      // the blur in prod where the unprefixed form was expected.
+      cssTarget: ["es2020", "safari18"],
     },
     // Bundle all non-Node.js deps into the SSR server build.
     // Edge runtimes (CF Workers, Deno) don't have node_modules at runtime.
