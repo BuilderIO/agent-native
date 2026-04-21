@@ -61,6 +61,8 @@ export interface EngineToolCallPart {
 export interface EngineToolResultPart {
   type: "tool-result";
   toolCallId: string;
+  /** Required by AI SDK v6+ ModelMessage. */
+  toolName?: string;
   content: string;
   isError?: boolean;
 }
@@ -97,6 +99,8 @@ export type EngineEvent =
       outputTokens: number;
       cacheReadTokens?: number;
       cacheWriteTokens?: number;
+      totalTokens?: number;
+      reasoningTokens?: number;
     }
   | {
       type: "stop";
@@ -136,7 +140,7 @@ export interface EngineStreamOptions {
   messages: EngineMessage[];
   tools: EngineTool[];
   abortSignal: AbortSignal;
-  maxTokens?: number;
+  maxOutputTokens?: number;
   temperature?: number;
   /**
    * Provider-specific options passed opaquely.

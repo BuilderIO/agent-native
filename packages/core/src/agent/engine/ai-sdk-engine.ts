@@ -154,7 +154,18 @@ const PROVIDER_PACKAGES: Record<AISDKProvider, string> = {
   groq: "@ai-sdk/groq",
   mistral: "@ai-sdk/mistral",
   cohere: "@ai-sdk/cohere",
-  ollama: "ollama-ai-provider",
+  ollama: "ai-sdk-ollama",
+};
+
+/** Factory export name per provider (not all follow `create<Provider>`). */
+const PROVIDER_FACTORIES: Record<AISDKProvider, string> = {
+  anthropic: "createAnthropic",
+  openai: "createOpenAI",
+  google: "createGoogleGenerativeAI",
+  groq: "createGroq",
+  mistral: "createMistral",
+  cohere: "createCohere",
+  ollama: "createOllama",
 };
 
 // ---------------------------------------------------------------------------
@@ -232,7 +243,6 @@ class AISDKEngine implements AgentEngine {
         };
       }
       if (anthropicOpts.cacheControl) {
-        // AI SDK v5 supports cache_control via system message providerOptions
         providerOpts.anthropic = {
           ...((providerOpts.anthropic as object) ?? {}),
           cacheControl: anthropicOpts.cacheControl,
@@ -246,34 +256,27 @@ class AISDKEngine implements AgentEngine {
         system: opts.systemPrompt,
         messages,
         tools: aiSdkTools,
-        maxTokens: opts.maxTokens ?? 16384,
+        maxOutputTokens: opts.maxOutputTokens ?? 16384,
         ...(opts.temperature !== undefined
           ? { temperature: opts.temperature }
           : {}),
         abortSignal: opts.abortSignal,
-        // One step only — runAgentLoop drives the loop
-        maxSteps: 1,
-        // Collect tool calls but don't auto-execute them
-        experimental_toolCallStreaming: false,
+        onStepFinish: (step: any) => {
+          (opts as any)[AISDK_ASSISTANT_CONTENT_KEY] =
+            aiSdkStepToAssistantContent(step);
+        },
         ...(Object.keys(providerOpts).length > 0
           ? { providerOptions: providerOpts }
           : {}),
       });
 
       let hasEmittedStop = false;
-      let assistantContent: any[] = [];
 
       for await (const part of result.fullStream) {
         const events = aiSdkPartToEngineEvents(part);
         for (const event of events) {
           yield event;
           if (event.type === "stop") hasEmittedStop = true;
-        }
-
-        // Capture step finish for assistant content reconstruction
-        if (part.type === "step-finish") {
-          assistantContent = aiSdkStepToAssistantContent(part);
-          (opts as any)[AISDK_ASSISTANT_CONTENT_KEY] = assistantContent;
         }
       }
 
@@ -301,11 +304,10 @@ class AISDKEngine implements AgentEngine {
       );
     }
 
-    const createFnName = `create${capitalize(this.provider)}`;
-    const createFn = providerModule[createFnName] ?? providerModule.default;
-
+    const fnName = PROVIDER_FACTORIES[this.provider];
+    const createFn = providerModule[fnName] ?? providerModule.default;
     if (typeof createFn !== "function") {
-      throw new Error(`Could not find provider factory in "${pkg}"`);
+      throw new Error(`"${pkg}" does not export ${fnName} or default`);
     }
 
     const config: Record<string, unknown> = {};
@@ -313,7 +315,9 @@ class AISDKEngine implements AgentEngine {
     if (this.baseUrl) config.baseURL = this.baseUrl;
 
     const provider = createFn(config);
-    return provider(model);
+    // @ai-sdk/openai@3 defaults to the Responses API; force Chat Completions
+    // so OpenAI-compatible gateways (OpenRouter, Groq, Together, …) work too.
+    return this.provider === "openai" ? provider.chat(model) : provider(model);
   }
 }
 
