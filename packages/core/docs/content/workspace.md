@@ -1,11 +1,28 @@
 ---
-title: "Workspace Resources"
-description: "SQL-backed workspace files for notes, skills, custom agents, scheduled tasks, and instructions."
+title: "Workspace"
+description: "Claude-Code-level customization per user — skills, memory, instructions, custom agents, scheduled jobs, MCP servers — backed by SQL, not a filesystem."
 ---
 
-# Workspace Resources
+# Workspace
 
-The **Workspace** tab is where you and the agent share persistent files — notes, instructions, skills, custom agents, and scheduled jobs. Files live in the database (not the filesystem), so they persist across sessions, work in serverless/edge deploys, and can be edited from both the UI and the agent.
+Every agent-native app ships with a **workspace**: the customization layer that makes the agent yours. It contains team instructions (`AGENTS.md`), per-user memory (`learnings.md`), skills the agent pulls in on demand, custom sub-agents, scheduled jobs, and connected MCP servers — everything you'd expect from a Claude Code / Codex setup.
+
+The twist: **it's SQL rows, not filesystem files.** Each user gets their own workspace stored in the database. There's no dev-box to spin up, no container per user, no files to mount. A multi-tenant SaaS can give every user a fully-customizable agent for essentially free, because all of it is rows — personal memory, personal MCP servers, personal skills, personal sub-agents — and the shared codebase hosts all of them at once.
+
+| Claude Code / Codex              | Agent-native workspace                             |
+| -------------------------------- | -------------------------------------------------- |
+| Files on your local disk         | Rows in a shared SQL database                      |
+| One codebase per developer       | One codebase, many users                           |
+| Needs a dev-box or container     | Runs on any serverless/edge host                   |
+| Customization at `~/.claude/`    | Customization per-user, scoped `u:<email>:…`       |
+| Per-project `CLAUDE.md` / skills | Per-app `AGENTS.md` + per-user `learnings.md`      |
+| MCP config in a JSON file        | MCP config in JSON _or_ the settings UI, per scope |
+
+Same capabilities. Different economics. See [Cloneable SaaS](/docs/cloneable-saas) for why this matters for SaaS.
+
+## The Workspace tab {#the-tab}
+
+The **Workspace** tab in the agent sidebar is where you and the agent share persistent files — notes, instructions, skills, custom agents, and scheduled jobs. Files live in the database (not the filesystem), so they persist across sessions, work in serverless/edge deploys, and can be edited from both the UI and the agent.
 
 ## TL;DR {#tldr}
 
@@ -13,19 +30,19 @@ The **Workspace** tab is where you and the agent share persistent files — note
 - Create files with the `+` menu. Upload with the upload button. Edit inline (visual or code view).
 - **Personal** is just you. **Shared** is your team/org.
 - The agent can read, write, and rename any of these files as part of a conversation.
-- Special files the agent always reads: `AGENTS.md` (team rules) and `learnings.md` (per-user).
+- Special files the agent always reads: `AGENTS.md` (team rules) and `learnings.md` (per-user memory the agent auto-updates when you correct it).
 
 ## What goes in here? {#what-goes-in-here}
 
-| File / path                 | What it's for                                                                                          |
-| --------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `AGENTS.md` (Shared)        | Team instructions the agent reads every turn — tone, rules, domain context, skill references.          |
-| `learnings.md` (Personal)   | Corrections and preferences the agent records per user so it doesn't repeat mistakes.                  |
-| `skills/<name>.md`          | Focused domain guidance the agent pulls in on demand (invoked with `/` slash commands).                |
-| `agents/<name>.md`          | **Custom agents** — reusable sub-agent profiles the agent can delegate to (invoked with `@` mentions). |
-| `remote-agents/<name>.json` | A2A manifests for connected remote agents — edited via a form, not raw JSON.                           |
-| `jobs/<name>.md`            | Scheduled tasks that run on a cron (see the recurring-jobs docs).                                      |
-| Anything else               | Notes, prompts, config, dataset snippets — any text file.                                              |
+| File / path                 | What it's for                                                                                                  |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `AGENTS.md` (Shared)        | Team instructions the agent reads every turn — tone, rules, domain context, skill references.                  |
+| `learnings.md` (Personal)   | **Agent memory.** Per-user file the agent auto-writes to on corrections/preferences and auto-reads every turn. |
+| `skills/<name>.md`          | Focused domain guidance the agent pulls in on demand (invoked with `/` slash commands).                        |
+| `agents/<name>.md`          | **Custom agents** — reusable sub-agent profiles the agent can delegate to (invoked with `@` mentions).         |
+| `remote-agents/<name>.json` | A2A manifests for connected remote agents — edited via a form, not raw JSON.                                   |
+| `jobs/<name>.md`            | Scheduled tasks that run on a cron (see the recurring-jobs docs).                                              |
+| Anything else               | Notes, prompts, config, dataset snippets — any text file.                                                      |
 
 ## Overview {#overview}
 
@@ -88,25 +105,58 @@ At the start of every conversation, the agent automatically reads:
 
 A shared resource seeded by default. It contains custom instructions, preferences, and skill references. Edit this to change how the agent behaves for all users — tone, rules, domain context, and which skills to use.
 
-```text
+```markdown
 # Agent Instructions
 
 ## Tone
+
 Be concise. Lead with the answer.
 
 ## Code style
+
 - Use TypeScript, never JavaScript
 - Prefer named exports
 
 ## Skills
-| Skill | Path | Description |
-|-------|------|-------------|
+
+| Skill         | Path                      | Description                 |
+| ------------- | ------------------------- | --------------------------- |
 | data-analysis | `skills/data-analysis.md` | BigQuery and data workflows |
 ```
 
-### learnings.md {#learnings-md}
+### learnings.md — agent memory {#learnings-md}
 
-A personal resource where the agent records corrections, preferences, and patterns it learns from each user. When the agent makes a mistake and the user corrects it, the agent updates `learnings.md` so it doesn't repeat the error.
+`learnings.md` is the agent's long-term memory about _you_. It's a **Personal-scope** resource (one per user) that the agent auto-reads at the start of every conversation and auto-writes to whenever it picks up something worth remembering.
+
+**What gets saved.** When you correct the agent ("no, always use X instead of Y"), share a preference ("I prefer concise answers"), or reveal context ("my team calls this 'the dispatch layer'"), the agent appends the learning to `learnings.md` so it doesn't repeat the mistake or have to re-ask next time. This behavior lives in the framework system prompt (the `capture-learnings` skill spells out the rules for when and how).
+
+**What it looks like.**
+
+```markdown
+# Learnings
+
+## Tone
+
+- Be concise; skip preamble. (corrected 2026-01-14)
+
+## Naming
+
+- "Dispatch" refers to our internal event-routing service, not the template app.
+
+## Preferences
+
+- Prefer named exports over default exports in TypeScript.
+```
+
+**Where it fits.**
+
+| Surface        | Scope    | Written by                | Read when                    |
+| -------------- | -------- | ------------------------- | ---------------------------- |
+| `AGENTS.md`    | Shared   | Humans / agent on request | Every turn                   |
+| `learnings.md` | Personal | Agent, automatically      | Every turn                   |
+| `skills/…`     | Shared   | Humans / agent on request | On demand (`/slash` command) |
+
+Users can edit `learnings.md` directly in the Workspace tab — it's a regular resource. Delete lines the agent got wrong or promote them into `AGENTS.md` if they apply to the whole team.
 
 ## Skills {#skills}
 
@@ -178,7 +228,7 @@ Use custom agents for delegation within one app. Use connected agents when you n
 
 Skills are Markdown files with optional YAML frontmatter for metadata:
 
-````text
+```markdown
 ---
 name: data-analysis
 description: BigQuery queries, data transforms, and visualization
@@ -187,20 +237,22 @@ description: BigQuery queries, data transforms, and visualization
 # Data Analysis
 
 ## When to use
+
 Use this skill when the user asks about data, queries, or analytics.
 
 ## Rules
+
 - Always validate SQL before executing
 - Prefer CTEs over subqueries
 - Include LIMIT on exploratory queries
 
 ## Patterns
-```sql
--- Standard BigQuery date filter
-WHERE DATE(created_at) BETWEEN @start_date AND @end_date
-````
 
-````
+    -- Standard BigQuery date filter
+    WHERE DATE(created_at) BETWEEN @start_date AND @end_date
+```
+
+> Skill bodies can embed fenced code blocks in any language — shown above as indented code to keep this outer example readable, but you'd normally use a language-tagged fence in your real skill file.
 
 ## @ Tagging {#at-tagging}
 
@@ -232,13 +284,13 @@ If no skills are configured, the dropdown shows a hint with a link to these docs
 
 The resource system works identically in both modes. The difference is what additional sources are available for `@` tagging and `/` commands:
 
-| Feature | Dev Mode | Production |
-|---------|----------|------------|
-| @ tagging | Codebase files + workspace resources + custom agents + connected agents | Workspace resources + custom agents + connected agents |
-| / slash commands | .agents/skills/ + resource skills | Resource skills only |
-| Agent file access | Filesystem + resources | Resources only |
-| Workspace panel | Full access | Full access |
-| AGENTS.md / learnings.md | Available | Available |
+| Feature                  | Dev Mode                                                                | Production                                             |
+| ------------------------ | ----------------------------------------------------------------------- | ------------------------------------------------------ |
+| @ tagging                | Codebase files + workspace resources + custom agents + connected agents | Workspace resources + custom agents + connected agents |
+| / slash commands         | .agents/skills/ + resource skills                                       | Resource skills only                                   |
+| Agent file access        | Filesystem + resources                                                  | Resources only                                         |
+| Workspace panel          | Full access                                                             | Full access                                            |
+| AGENTS.md / learnings.md | Available                                                               | Available                                              |
 
 ## Resource API {#resource-api}
 
@@ -248,15 +300,15 @@ Resources can be managed from server code, actions, or the REST API.
 
 REST endpoints mounted automatically:
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/_agent-native/resources?scope=all` | List resources |
-| `GET` | `/_agent-native/resources/tree?scope=all` | Get folder tree |
-| `POST` | `/_agent-native/resources` | Create a resource |
-| `GET` | `/_agent-native/resources/:id` | Get resource with content |
-| `PUT` | `/_agent-native/resources/:id` | Update a resource |
-| `DELETE` | `/_agent-native/resources/:id` | Delete a resource |
-| `POST` | `/_agent-native/resources/upload` | Upload a file as resource |
+| Method   | Endpoint                                  | Description               |
+| -------- | ----------------------------------------- | ------------------------- |
+| `GET`    | `/_agent-native/resources?scope=all`      | List resources            |
+| `GET`    | `/_agent-native/resources/tree?scope=all` | Get folder tree           |
+| `POST`   | `/_agent-native/resources`                | Create a resource         |
+| `GET`    | `/_agent-native/resources/:id`            | Get resource with content |
+| `PUT`    | `/_agent-native/resources/:id`            | Update a resource         |
+| `DELETE` | `/_agent-native/resources/:id`            | Delete a resource         |
+| `POST`   | `/_agent-native/resources/upload`         | Upload a file as resource |
 
 ### Action API {#script-api}
 
@@ -274,4 +326,4 @@ pnpm action resource-write --path "notes/meeting.md" --content "# Meeting Notes.
 
 # Delete a resource
 pnpm action resource-delete --path "notes/old.md"
-````
+```

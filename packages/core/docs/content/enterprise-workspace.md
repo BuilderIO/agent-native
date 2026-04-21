@@ -159,6 +159,14 @@ A few onboarding flows are workspace-aware out of the box:
 - **Builder `/cli-auth`**: clicking "Connect Builder" from any app writes `BUILDER_PRIVATE_KEY` and friends to the **workspace root** `.env`, so every app gains browser access at once.
 - **Env-vars settings route** (`POST /_agent-native/env-vars`): when inside a workspace, defaults to writing the workspace root `.env`. Pass `scope: "app"` in the body to override one app.
 
+## Shared MCP servers {#shared-mcp}
+
+Drop an `mcp.config.json` at the workspace root and every app in the workspace connects to the same MCP servers — one place to configure `claude-in-chrome`, `@modelcontextprotocol/server-filesystem`, Playwright, or any internal MCP server. Individual apps can override with their own `mcp.config.json` (app-root wins over the workspace root for that one app).
+
+For remote HTTP MCP servers (Zapier, Composio, internal tools), users can add them from the settings UI at **Personal** or **Team (org)** scope — no file edits, hot-reloaded into the running agent. And if you run the dispatch template, it can act as an **MCP hub** that every other app in the workspace pulls org-scope servers from, so you configure each URL + bearer token exactly once.
+
+See [MCP Clients](/docs/mcp-clients) for the config schema, precedence rules, remote-UI scopes, and hub setup.
+
 ## Shared credentials {#shared-credentials}
 
 Rotate a third-party API key in one place and every app picks it up:

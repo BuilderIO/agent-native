@@ -15,6 +15,8 @@ import {
   IconExternalLink,
   IconLoader2,
   IconHelp,
+  IconPlugConnected,
+  IconCheck,
 } from "@tabler/icons-react";
 import { cn } from "../utils.js";
 import { sendToAgentChat } from "../agent-chat.js";
@@ -28,9 +30,19 @@ import {
   useUpdateResource,
   useDeleteResource,
   useUploadResource,
+  withMcpServersFolder,
   type ResourceScope,
   type ResourceMeta,
 } from "./use-resources.js";
+import {
+  useMcpServers,
+  useCreateMcpServer,
+  useDeleteMcpServer,
+  testMcpServerUrl,
+  parseMcpVirtualId,
+  type McpServerScope,
+} from "./use-mcp-servers.js";
+import { McpServerDetail } from "./McpServerDetail.js";
 import { useOrg } from "../org/hooks.js";
 
 // ─── Create Menu (unified + button) ────────────────────────────────────────
@@ -42,7 +54,8 @@ type CreateMenuView =
   | "job"
   | "agent-mode"
   | "agent-prompt"
-  | "agent-form";
+  | "agent-form"
+  | "mcp-server";
 
 const AGENT_MODEL_OPTIONS = [
   { value: "inherit", label: "Default model" },
@@ -86,11 +99,23 @@ function CreateMenu({
   scope,
   onCreateFile,
   onCreateResource,
+  onCreateMcpServer,
+  canCreateOrgMcp,
+  hasOrg,
   onCreated,
 }: {
   scope: ResourceScope;
   onCreateFile: (name: string) => void;
   onCreateResource: (path: string, content: string, mimeType?: string) => void;
+  onCreateMcpServer: (args: {
+    scope: McpServerScope;
+    name: string;
+    url: string;
+    headers?: Record<string, string>;
+    description?: string;
+  }) => Promise<void>;
+  canCreateOrgMcp: boolean;
+  hasOrg: boolean;
   onCreated?: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -102,6 +127,19 @@ function CreateMenu({
   const [agentInstructions, setAgentInstructions] = useState(
     `# Role\n\nDefine how this agent should work.\n\n## Focus\n\n- What kinds of tasks it should handle\n- What tone or approach it should use\n- Important constraints or preferences\n`,
   );
+  const defaultMcpScope: McpServerScope =
+    scope === "shared" && canCreateOrgMcp ? "org" : "user";
+  const [mcpScope, setMcpScope] = useState<McpServerScope>(defaultMcpScope);
+  const [mcpName, setMcpName] = useState("");
+  const [mcpUrl, setMcpUrl] = useState("");
+  const [mcpDescription, setMcpDescription] = useState("");
+  const [mcpHeadersText, setMcpHeadersText] = useState("");
+  const [mcpBusy, setMcpBusy] = useState(false);
+  const [mcpError, setMcpError] = useState<string | null>(null);
+  const [mcpTestResult, setMcpTestResult] = useState<{
+    ok: boolean;
+    message: string;
+  } | null>(null);
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -116,8 +154,16 @@ function CreateMenu({
       setAgentInstructions(
         `# Role\n\nDefine how this agent should work.\n\n## Focus\n\n- What kinds of tasks it should handle\n- What tone or approach it should use\n- Important constraints or preferences\n`,
       );
+      setMcpScope(defaultMcpScope);
+      setMcpName("");
+      setMcpUrl("");
+      setMcpDescription("");
+      setMcpHeadersText("");
+      setMcpError(null);
+      setMcpTestResult(null);
+      setMcpBusy(false);
     }
-  }, [open]);
+  }, [open, defaultMcpScope]);
 
   useEffect(() => {
     if (view !== "menu" && view !== "agent-form") {
@@ -336,6 +382,69 @@ The result should be a reusable agent profile, not a one-off task response.`,
     onCreated?.();
   };
 
+  const parseHeaderLines = (
+    text: string,
+  ): Record<string, string> | undefined => {
+    const out: Record<string, string> = {};
+    for (const line of text.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const idx = trimmed.indexOf(":");
+      if (idx <= 0) continue;
+      const key = trimmed.slice(0, idx).trim();
+      const value = trimmed.slice(idx + 1).trim();
+      if (!key || !value) continue;
+      out[key] = value;
+    }
+    return Object.keys(out).length > 0 ? out : undefined;
+  };
+
+  const submitMcpServer = async () => {
+    const name = mcpName.trim();
+    const url = mcpUrl.trim();
+    if (!name || !url || mcpBusy) return;
+    setMcpError(null);
+    setMcpBusy(true);
+    try {
+      await onCreateMcpServer({
+        scope: mcpScope,
+        name,
+        url,
+        headers: parseHeaderLines(mcpHeadersText),
+        description: mcpDescription.trim() || undefined,
+      });
+      setOpen(false);
+      onCreated?.();
+    } catch (err: any) {
+      setMcpError(err?.message ?? String(err));
+    } finally {
+      setMcpBusy(false);
+    }
+  };
+
+  const runMcpTest = async () => {
+    const url = mcpUrl.trim();
+    if (!url || mcpBusy) return;
+    setMcpTestResult(null);
+    setMcpError(null);
+    setMcpBusy(true);
+    try {
+      const res = await testMcpServerUrl(url, parseHeaderLines(mcpHeadersText));
+      if (res.ok) {
+        setMcpTestResult({
+          ok: true,
+          message: `${res.toolCount ?? 0} tool${res.toolCount === 1 ? "" : "s"} available`,
+        });
+      } else {
+        setMcpTestResult({ ok: false, message: res.error ?? "Failed" });
+      }
+    } catch (err: any) {
+      setMcpTestResult({ ok: false, message: err?.message ?? String(err) });
+    } finally {
+      setMcpBusy(false);
+    }
+  };
+
   const menuItems: {
     icon: React.ReactNode;
     label: string;
@@ -365,6 +474,12 @@ The result should be a reusable agent profile, not a one-off task response.`,
       label: "Create Custom Agent",
       desc: "Add a reusable sub-agent profile",
       action: () => setView("agent-mode"),
+    },
+    {
+      icon: <IconPlugConnected className="h-3.5 w-3.5" />,
+      label: "Connect MCP Server",
+      desc: "Expose external tools to the agent",
+      action: () => setView("mcp-server"),
     },
   ];
 
@@ -660,6 +775,130 @@ The result should be a reusable agent profile, not a one-off task response.`,
               </div>
             </div>
           )}
+
+          {view === "mcp-server" && (
+            <div className="p-3">
+              <label className="mb-1 block text-[11px] font-semibold text-foreground">
+                Connect MCP Server
+              </label>
+              <p className="mb-2 text-[10px] text-muted-foreground/60 leading-relaxed">
+                Point at any Streamable HTTP MCP server (Zapier, Cloudflare,
+                internal tools). Its tools become available to the agent.
+              </p>
+              <div className="space-y-2">
+                <div className="flex gap-1 rounded-md border border-border p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setMcpScope("user")}
+                    className={cn(
+                      "flex-1 rounded px-2 py-1 text-[11px] font-medium",
+                      mcpScope === "user"
+                        ? "bg-accent text-foreground"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    Personal
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      hasOrg && canCreateOrgMcp && setMcpScope("org")
+                    }
+                    disabled={!hasOrg || !canCreateOrgMcp}
+                    title={
+                      !hasOrg
+                        ? "Join an organization to share MCP servers"
+                        : !canCreateOrgMcp
+                          ? "Only owners and admins can add org-scope servers"
+                          : undefined
+                    }
+                    className={cn(
+                      "flex-1 rounded px-2 py-1 text-[11px] font-medium",
+                      mcpScope === "org"
+                        ? "bg-accent text-foreground"
+                        : "text-muted-foreground hover:text-foreground",
+                      (!hasOrg || !canCreateOrgMcp) &&
+                        "cursor-not-allowed opacity-40 hover:text-muted-foreground",
+                    )}
+                  >
+                    Organization
+                  </button>
+                </div>
+                <input
+                  value={mcpName}
+                  onChange={(e) => setMcpName(e.target.value)}
+                  className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+                  placeholder="Server name (e.g. zapier)"
+                />
+                <input
+                  value={mcpUrl}
+                  onChange={(e) => setMcpUrl(e.target.value)}
+                  className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+                  placeholder="https://mcp.example.com/"
+                />
+                <input
+                  value={mcpDescription}
+                  onChange={(e) => setMcpDescription(e.target.value)}
+                  className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+                  placeholder="Description (optional)"
+                />
+                <label className="block text-[10px] font-medium text-muted-foreground/70">
+                  Headers (one per line, e.g. Authorization: Bearer …)
+                </label>
+                <textarea
+                  value={mcpHeadersText}
+                  onChange={(e) => setMcpHeadersText(e.target.value)}
+                  rows={2}
+                  className="w-full resize-y rounded-md border border-border bg-background px-2.5 py-1.5 text-[12px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+                  style={{
+                    fontFamily:
+                      'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+                  }}
+                  placeholder="Authorization: Bearer sk-..."
+                />
+                {mcpTestResult && (
+                  <div
+                    className={cn(
+                      "flex items-center gap-1 text-[11px]",
+                      mcpTestResult.ok
+                        ? "text-green-600 dark:text-green-400"
+                        : "text-red-600 dark:text-red-400",
+                    )}
+                  >
+                    {mcpTestResult.ok && <IconCheck className="h-3 w-3" />}
+                    {mcpTestResult.message}
+                  </div>
+                )}
+                {mcpError && (
+                  <div className="text-[11px] text-red-600 dark:text-red-400">
+                    {mcpError}
+                  </div>
+                )}
+              </div>
+              <div className="mt-2.5 flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={runMcpTest}
+                  disabled={!mcpUrl.trim() || mcpBusy}
+                  className="rounded-md border border-border bg-background px-2.5 py-1.5 text-[11px] font-medium text-foreground hover:bg-accent disabled:opacity-40 disabled:pointer-events-none"
+                >
+                  Test
+                </button>
+                <button
+                  type="button"
+                  onClick={submitMcpServer}
+                  disabled={!mcpName.trim() || !mcpUrl.trim() || mcpBusy}
+                  className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40 disabled:pointer-events-none"
+                >
+                  {mcpBusy ? (
+                    <IconLoader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    "Connect"
+                  )}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -741,6 +980,43 @@ export function ResourcesPanel() {
 
   const sharedTreeQuery = useResourceTree("shared");
   const personalTreeQuery = useResourceTree("personal");
+  const mcpServersQuery = useMcpServers();
+  const createMcpServer = useCreateMcpServer();
+  const deleteMcpServer = useDeleteMcpServer();
+
+  // Merge MCP servers into each scope's tree as a virtual `mcp-servers/`
+  // folder. The servers live in the settings store, not the resources
+  // table — the virtual ids carry the `mcp:<scope>:<id>` prefix that
+  // `handleSelect` and `handleDelete` below recognize to route back to
+  // the MCP endpoints.
+  const personalTree = withMcpServersFolder(
+    personalTreeQuery.data ?? [],
+    mcpServersQuery.data?.user ?? [],
+  );
+  const sharedTree = withMcpServersFolder(
+    sharedTreeQuery.data ?? [],
+    mcpServersQuery.data?.org ?? [],
+  );
+
+  const orgRole = mcpServersQuery.data?.role ?? org?.role ?? null;
+  const hasOrgForMcp = !!(mcpServersQuery.data?.orgId ?? org?.orgId);
+  const canCreateOrgMcp =
+    hasOrgForMcp && (orgRole === "owner" || orgRole === "admin");
+
+  // Virtual MCP server currently selected in the tree (or null for a real
+  // resource / nothing). Resolved by scanning both trees' mcp folders for
+  // a matching virtual id.
+  const selectedMcpServer = React.useMemo(() => {
+    const parsed = selectedResourceId
+      ? parseMcpVirtualId(selectedResourceId)
+      : null;
+    if (!parsed) return null;
+    const list =
+      parsed.scope === "user"
+        ? (mcpServersQuery.data?.user ?? [])
+        : (mcpServersQuery.data?.org ?? []);
+    return list.find((s) => s.id === parsed.serverId) ?? null;
+  }, [selectedResourceId, mcpServersQuery.data]);
 
   // Sync activeScope once the org role arrives (canEditOrg is resolved async).
   useEffect(() => {
@@ -748,7 +1024,13 @@ export function ResourcesPanel() {
       setActiveScope("personal");
     }
   }, [canEditOrg, activeScope]);
-  const resourceQuery = useResource(selectedResourceId);
+  // Virtual MCP ids aren't in the resources store — skip the fetch so
+  // useResource doesn't 404-flash.
+  const resourceQuery = useResource(
+    selectedResourceId && !parseMcpVirtualId(selectedResourceId)
+      ? selectedResourceId
+      : null,
+  );
   const createResource = useCreateResource();
   const updateResource = useUpdateResource();
   const deleteResource = useDeleteResource();
@@ -776,6 +1058,7 @@ export function ResourcesPanel() {
 
   // Are we viewing a file (editor) or the tree?
   const isEditing = selectedResourceId !== null;
+  const isMcpSelected = !!selectedMcpServer;
 
   const handleSelect = useCallback((resource: ResourceMeta) => {
     setSelectedResourceId(resource.id);
@@ -838,12 +1121,39 @@ export function ResourcesPanel() {
 
   const handleDelete = useCallback(
     (id: string) => {
+      const mcp = parseMcpVirtualId(id);
+      if (mcp) {
+        deleteMcpServer.mutate(
+          { id: mcp.serverId, scope: mcp.scope },
+          {
+            onSuccess: () => {
+              if (selectedResourceId === id) setSelectedResourceId(null);
+            },
+          },
+        );
+        return;
+      }
       deleteResource.mutate(id);
       if (selectedResourceId === id) {
         setSelectedResourceId(null);
       }
     },
-    [deleteResource, selectedResourceId],
+    [deleteResource, deleteMcpServer, selectedResourceId],
+  );
+
+  const handleCreateMcpServer = useCallback(
+    async (args: {
+      scope: McpServerScope;
+      name: string;
+      url: string;
+      headers?: Record<string, string>;
+      description?: string;
+    }) => {
+      const server = await createMcpServer.mutateAsync(args);
+      // Select the newly-created virtual entry so the detail view opens.
+      setSelectedResourceId(`mcp:${args.scope}:${server.id}`);
+    },
+    [createMcpServer],
   );
 
   const handleRename = useCallback(
@@ -919,12 +1229,17 @@ export function ResourcesPanel() {
             >
               <IconArrowLeft className="h-3.5 w-3.5" />
             </button>
-            {resourceQuery.data && (
+            {selectedMcpServer ? (
+              <PathBreadcrumb
+                path={`mcp-servers/${selectedMcpServer.name}.json`}
+              />
+            ) : resourceQuery.data ? (
               <PathBreadcrumb path={resourceQuery.data.path} />
-            )}
+            ) : null}
           </div>
           <div className="flex items-center gap-1 shrink-0">
-            {resourceQuery.data &&
+            {!selectedMcpServer &&
+              resourceQuery.data &&
               (resourceQuery.data.mimeType === "text/markdown" ||
                 resourceQuery.data.path.endsWith(".md")) && (
                 <div className="flex items-center gap-0.5 mr-1">
@@ -979,6 +1294,9 @@ export function ResourcesPanel() {
             scope={activeScope}
             onCreateFile={handleCreateFromToolbar}
             onCreateResource={handleCreateResourceFromToolbar}
+            onCreateMcpServer={handleCreateMcpServer}
+            canCreateOrgMcp={canCreateOrgMcp}
+            hasOrg={hasOrgForMcp}
           />
           <button
             onClick={() => fileInputRef.current?.click()}
@@ -1014,8 +1332,11 @@ export function ResourcesPanel() {
       {/* Content: either tree OR editor (single view) */}
       <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
         {isEditing ? (
-          /* Editor view */
-          selectedResourceId && resourceQuery.data ? (
+          selectedMcpServer ? (
+            <div className="flex-1 min-h-0 overflow-hidden">
+              <McpServerDetail server={selectedMcpServer} />
+            </div>
+          ) : selectedResourceId && resourceQuery.data ? (
             <div className="flex-1 min-h-0 overflow-hidden">
               <ResourceEditor
                 resource={resourceQuery.data}
@@ -1069,12 +1390,14 @@ export function ResourcesPanel() {
                 </div>
               )}
             <ResourceTree
-              tree={personalTreeQuery.data ?? []}
+              tree={personalTree}
               isLoading={personalTreeQuery.isLoading}
               deletingId={
                 deleteResource.isPending
                   ? (deleteResource.variables as string)
-                  : null
+                  : deleteMcpServer.isPending
+                    ? `mcp:${(deleteMcpServer.variables as { scope: string }).scope}:${(deleteMcpServer.variables as { id: string }).id}`
+                    : null
               }
               selectedId={selectedResourceId}
               onSelect={handleSelect}
@@ -1091,12 +1414,14 @@ export function ResourcesPanel() {
               titleTooltip="Files visible only to you"
             />
             <ResourceTree
-              tree={sharedTreeQuery.data ?? []}
+              tree={sharedTree}
               isLoading={sharedTreeQuery.isLoading}
               deletingId={
                 deleteResource.isPending
                   ? (deleteResource.variables as string)
-                  : null
+                  : deleteMcpServer.isPending
+                    ? `mcp:${(deleteMcpServer.variables as { scope: string }).scope}:${(deleteMcpServer.variables as { id: string }).id}`
+                    : null
               }
               selectedId={selectedResourceId}
               onSelect={handleSelect}

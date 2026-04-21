@@ -41,6 +41,23 @@ Six rules govern the architecture:
 5. **The agent can modify code** — the app evolves as you use it
 6. **Application state in SQL** — ephemeral UI state lives in the database, readable by both agent and UI
 
+## What you get for free {#what-you-get-for-free}
+
+Adopting the framework is valuable mostly because of what you stop having to build. The moment your app follows the six rules, you inherit:
+
+- **One action = four surfaces.** Every action defined with `defineAction()` is simultaneously an agent tool, a typesafe frontend mutation (`useActionMutation("name")`), an HTTP endpoint at `/_agent-native/actions/:name`, and an MCP tool (when MCP is enabled). External agents can call it over [A2A](/docs/a2a-protocol) too. One implementation, four consumers.
+- **A full workspace per user.** Skills, memory (`learnings.md`), `AGENTS.md`, custom sub-agents, scheduled jobs, connected MCP servers — all SQL-backed, per-user, no dev-box required. See [Workspace](/docs/workspace).
+- **Drop-in React components.** `<AgentPanel />` and `<AgentSidebar />` render chat + workspace anywhere in your app. See [Drop-in Agent](/docs/drop-in-agent).
+- **Live sync between agent and UI.** A 2-second poll invalidates React Query caches whenever the agent writes to the DB. No WebSockets, no serverless-unfriendly long-lived connections. See [Polling Sync](#polling-sync) below.
+- **Auth, orgs, RBAC.** Better Auth with orgs/members/roles is wired in for every template. See [Authentication](/docs/authentication).
+- **Context awareness.** The agent always knows what the user is looking at through the `navigation` app-state key. See [Context Awareness](/docs/context-awareness).
+- **MCP client + server, both directions.** The app ingests MCP servers (local, remote, hub-shared) _and_ exposes its own actions as an MCP server. See [MCP Clients](/docs/mcp-clients) and [MCP Protocol](/docs/mcp-protocol).
+- **Inter-app delegation.** Agents in different apps talk over [A2A](/docs/a2a-protocol). Same-origin deploys skip JWT; cross-origin uses a shared `A2A_SECRET`.
+- **Sub-agent teams.** Spawn a sub-agent with its own thread and tools, surfaced as a chip inline in chat. See [Agent Teams](/docs/agent-teams).
+- **Portability.** Any Drizzle-supported SQL database, any Nitro-compatible host (Node, Workers, Netlify, Vercel, Deno, Lambda, Bun).
+
+That's the "and everything else" you'd otherwise be gluing together yourself.
+
 ## The four-area checklist {#four-area-checklist}
 
 Every new feature must update all four areas. Skipping any one breaks the agent-native contract.
@@ -65,7 +82,7 @@ Core SQL stores are auto-created and available in every template:
 - `oauth_tokens` — OAuth credentials
 - `sessions` — auth sessions
 
-```bash
+```ts
 // Drizzle schema for domain data
 import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
 
@@ -76,9 +93,11 @@ export const forms = sqliteTable("forms", {
   ownerEmail: text("owner_email"),
   createdAt: integer("created_at").notNull(),
 });
+```
 
-// Core actions for quick database access
-pnpm action db-schema           # show all tables
+```bash
+# Core actions for quick database access
+pnpm action db-schema                                       # show all tables
 pnpm action db-query --sql "SELECT * FROM forms"
 pnpm action db-exec --sql "INSERT INTO forms ..."
 # Surgical find/replace on a large text column — sends a diff, not the whole value
@@ -110,26 +129,34 @@ Why not call an LLM inline?
 
 ## Actions system {#actions-system}
 
-When the agent needs to do something complex — call an API, process data, query the database — it runs an action. Actions are TypeScript files in `actions/` that export a default async function:
+When the agent needs to do something complex — call an API, process data, query the database — it runs an **action**. Actions are TypeScript files in `actions/` that export a default `defineAction()`:
 
 ```ts
 // actions/fetch-data.ts
-import { parseArgs } from "@agent-native/core";
+import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 
-export default async function fetchData(args: string[]) {
-  const { source } = parseArgs(args);
-  const res = await fetch(`https://api.example.com/${source}`);
-  const data = await res.json();
-  console.log(JSON.stringify(data, null, 2));
-}
+export default defineAction({
+  description: "Fetch data from a source API.",
+  schema: z.object({
+    source: z.string().describe("Data source key, e.g. 'signups'"),
+  }),
+  run: async ({ source }) => {
+    const res = await fetch(`https://api.example.com/${source}`);
+    return await res.json();
+  },
+});
 ```
 
-```bash
-# Agent runs actions via CLI
-pnpm action fetch-data --source=signups
-```
+One `defineAction()` call gives you:
 
-This means anything the UI can do, the agent can do — and vice versa. The UI calls `POST /api/fetch-data`, the agent calls `pnpm action fetch-data`. Same logic, same results, different entry points.
+- **Agent tool** — the agent sees it with the zod-derived JSON Schema and can call it.
+- **Frontend mutation** — `useActionMutation("fetch-data")` with full TypeScript inference.
+- **HTTP endpoint** — `POST /_agent-native/actions/fetch-data` (auto-mounted).
+- **CLI** — `pnpm action fetch-data --source=signups` for scripting and agent dev loops.
+- **MCP tool / A2A tool** — when MCP server or A2A is enabled, the same action shows up there too.
+
+Same logic, one definition, wired to every consumer automatically. See [Actions](/docs/actions) for the full reference.
 
 ## Polling sync {#polling-sync}
 
@@ -169,14 +196,14 @@ The agent always knows what the user is looking at. The UI writes a `navigation`
 
 See [Context Awareness](/docs/context-awareness) for the full pattern: navigation state, view-screen, navigate commands, and jitter prevention.
 
-## APIs & CLIs, not MCPs {#apis-and-clis}
+## Actions, MCP, and A2A — one surface, many protocols {#protocols}
 
-Agent-native apps can work with MCP servers, but the architecture leans heavily on something more standard: **regular APIs and CLIs accessed through code execution**. Agents are great at writing code that calls `fetch()` or runs a CLI command — no special protocol needed.
+Every action you define automatically becomes available over multiple protocols — you don't pick one. The framework runs both an MCP server and an A2A peer for your app, with actions feeding both.
 
-- **No wrapper layer.** Call APIs directly with `fetch()` or use official SDKs.
-- **Any CLI works.** `ffmpeg`, `gh`, `aws`, `gcloud` — if it runs in a terminal, the agent can use it.
-- **Code is the protocol.** TypeScript actions are more expressive than any tool schema.
-- **MCP is additive.** Use MCP servers alongside actions if you want, but they're not required.
+- **Actions first.** Write the logic once as an action. Use `fetch()` and any SDK you want inside — no wrapper layer.
+- **MCP for the outside world.** Your actions show up as MCP tools to Claude Desktop, ChatGPT's remote-MCP support, and any other MCP client. Your app also _consumes_ MCP servers — local, remote, or from a workspace hub. See [MCP Clients](/docs/mcp-clients) and [MCP Protocol](/docs/mcp-protocol).
+- **A2A for other agents.** Other agent-native apps discover and call your actions over [A2A](/docs/a2a-protocol) — same-origin deploys skip JWT entirely.
+- **CLIs still work.** `pnpm action <name>` and direct shell tools (`ffmpeg`, `gh`, `aws`) remain available whenever they're the simplest path.
 
 ## Agent modifies code {#agent-modifies-code}
 
