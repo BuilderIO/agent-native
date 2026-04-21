@@ -59,7 +59,13 @@ jobs:
           VERSION=$(node -p "require('./package.json').version")
           git add package.json
           git commit -m "chore: bump @agent-native/core to v${VERSION}"
-          git tag "v${VERSION}"
+          # Idempotent tag creation — matches the pattern in publish-core so
+          # a retried job after a partial push doesn't fail on a tag conflict.
+          if git rev-parse "v${VERSION}" >/dev/null 2>&1; then
+            echo "Tag v${VERSION} already exists locally, skipping"
+          else
+            git tag "v${VERSION}"
+          fi
           git push origin HEAD:main --tags
 
   dispatch-dev-publish:
@@ -191,6 +197,10 @@ jobs:
     name: Publish desktop app
     needs: detect-changes
     if: needs.detect-changes.outputs.desktop-changed == 'true'
+    # electron-builder --publish always creates/updates a GitHub release.
+    # Needed because the workflow-level permissions: {} resets defaults.
+    permissions:
+      contents: write
     strategy:
       matrix:
         include:
@@ -241,6 +251,9 @@ jobs:
     name: Publish desktop release
     needs: [detect-changes, publish-desktop]
     if: needs.detect-changes.outputs.desktop-changed == 'true'
+    # gh release edit requires contents:write; workflow default is {}.
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
