@@ -413,17 +413,20 @@ export function EmailThread({
     [threadId, view, navigate, labelSuffix, setSelectedIds],
   );
 
-  // Warm only the immediate neighbors of the currently open thread — warming
-  // the entire sibling list was tripping Gmail's per-user quota. j/k
-  // navigation still calls ensureThread on the next target, so on-demand
-  // warming covers the common case.
+  // Prefetch a window of threads around the currently open one so j/k
+  // navigation feels instant. Window is ±5 — large enough to cover a burst
+  // of key presses in either direction without visible loading. The
+  // server-side token bucket paces requests under Gmail's per-user quota,
+  // and history-delta + push notifications keep the polling cost near zero,
+  // so we can be aggressive here without reintroducing the rate-limit wall
+  // that used to force the ±1 window.
   useEffect(() => {
     if (emailIds.length === 0) return;
     const currentIdx = emailIds.findIndex((id) => id === threadId);
     const base = currentIdx >= 0 ? currentIdx : 0;
     const neighbors = emailIds.slice(
-      Math.max(0, base - 1),
-      Math.min(emailIds.length, base + 3),
+      Math.max(0, base - 5),
+      Math.min(emailIds.length, base + 6),
     );
     warmThreads(neighbors);
   }, [emailIds, threadId]);
