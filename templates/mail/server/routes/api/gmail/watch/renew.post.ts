@@ -7,7 +7,7 @@ import {
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import { listOAuthAccounts } from "@agent-native/core/oauth-tokens";
 import {
-  getClientForAccount,
+  getClientFromAccount,
   startWatch,
 } from "../../../../lib/google-auth.js";
 
@@ -29,6 +29,7 @@ const GOOGLE_ISSUERS = ["https://accounts.google.com", "accounts.google.com"];
 async function verifyCallerToken(
   authHeader: string,
   audience: string,
+  expectedSigner: string,
 ): Promise<JWTPayload> {
   if (!authHeader.startsWith("Bearer ")) {
     throw new Error("missing bearer token");
@@ -41,26 +42,28 @@ async function verifyCallerToken(
   if (payload.email_verified !== true) {
     throw new Error("email_verified claim is not true");
   }
-  const expectedSigner = process.env.GMAIL_PUSH_SIGNER_EMAIL;
-  if (!expectedSigner) {
-    throw new Error("GMAIL_PUSH_SIGNER_EMAIL not configured");
-  }
   if (payload.email !== expectedSigner) {
+    // Log the caller's claimed email — service-account identities aren't
+    // sensitive, and this is invaluable when debugging misconfig vs attack.
     throw new Error(`unexpected signer: ${payload.email}`);
   }
   return payload;
 }
 
 export default defineEventHandler(async (event: H3Event) => {
+  // Treat missing config as 503 "service unavailable", not 401. These are
+  // operator errors, not caller errors — surfacing them as auth failures
+  // pollutes the push/renew auth-error metric and misleads on-call.
   const audience = process.env.GMAIL_WATCH_RENEW_AUDIENCE;
-  if (!audience) {
+  const expectedSigner = process.env.GMAIL_PUSH_SIGNER_EMAIL;
+  if (!audience || !expectedSigner) {
     setResponseStatus(event, 503);
     return { ok: false, error: "renew endpoint disabled" };
   }
 
   const authHeader = getHeader(event, "authorization") || "";
   try {
-    await verifyCallerToken(authHeader, audience);
+    await verifyCallerToken(authHeader, audience, expectedSigner);
   } catch (err: any) {
     console.warn(`[gmail-watch-renew] OIDC verify failed: ${err.message}`);
     setResponseStatus(event, 401);
@@ -71,6 +74,8 @@ export default defineEventHandler(async (event: H3Event) => {
     return { ok: true, skipped: "GMAIL_WATCH_TOPIC not set" };
   }
 
+  // Load the full account list once and reuse it in the loop; calling
+  // getClientForAccount(accountId) would re-scan oauth_tokens per account.
   const accounts = await listOAuthAccounts("google");
   let succeeded = 0;
   let failed = 0;
@@ -78,7 +83,7 @@ export default defineEventHandler(async (event: H3Event) => {
 
   for (const acc of accounts) {
     try {
-      const client = await getClientForAccount(acc.accountId);
+      const client = await getClientFromAccount(acc);
       if (!client) {
         failed += 1;
         errors.push(`${acc.accountId}: no valid token`);
