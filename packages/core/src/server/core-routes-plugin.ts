@@ -609,10 +609,7 @@ export function createCoreRoutesPlugin(
     );
 
     // ─── Ad-hoc secrets (user-created keys) ────────────────────────────
-    getH3App(nitroApp).use(
-      `${P}/secrets/adhoc`,
-      adHocSecretHandler,
-    );
+    getH3App(nitroApp).use(`${P}/secrets/adhoc`, adHocSecretHandler);
 
     // ─── Automations API ──────────────────────────────────────────────
     // GET  /_agent-native/automations — list all automations (parsed triggers)
