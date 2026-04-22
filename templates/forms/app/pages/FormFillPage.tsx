@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { usePublicForm, useSubmitForm } from "@/hooks/use-forms";
 import { toast } from "sonner";
-import { CheckCircle2, RefreshCw } from "lucide-react";
+import { CircleCheck, RefreshCw } from "lucide-react";
 import type { FormField, FormSettings } from "@shared/types";
 
 export function FormFillPage() {
@@ -176,7 +176,7 @@ export function FormFillPage() {
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <div className="text-center max-w-md">
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-600/10">
-            <CheckCircle2 className="h-7 w-7 text-emerald-600 dark:text-emerald-400" />
+            <CircleCheck className="h-7 w-7 text-emerald-600 dark:text-emerald-400" />
           </div>
           <h1 className="text-2xl font-semibold mb-2">Response submitted</h1>
           <p className="text-muted-foreground">

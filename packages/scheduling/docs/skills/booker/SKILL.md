@@ -16,7 +16,7 @@ Plus **reschedule** mode — prefilled from existing booking uid.
 
 ## Animations
 
-Use framer-motion `AnimatePresence` with `fadeInLeft` variants. The outer
+Use motion (`motion/react`) `AnimatePresence` with `fadeInLeft` variants. The outer
 container animates its width across stages: narrow (calendar only) → wider
 (calendar + slots) → widest (form).
 

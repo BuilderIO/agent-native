@@ -13,7 +13,7 @@
   "dependencies": {
     "@agent-native/core": "workspace:*",
     "@agent-native/shared-app-config": "workspace:*",
-    "@tanstack/react-query": "^5.84.2",
+    "@tanstack/react-query": "^5.99.2",
     "@tabler/icons-react": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",

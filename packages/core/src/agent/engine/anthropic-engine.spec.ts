@@ -64,9 +64,9 @@ describe("createAnthropicEngine", () => {
     };
 
     vi.doMock("@anthropic-ai/sdk", () => ({
-      default: vi.fn().mockImplementation(() => ({
-        messages: { stream: vi.fn().mockReturnValue(mockStream) },
-      })),
+      default: class MockAnthropic {
+        messages = { stream: vi.fn().mockReturnValue(mockStream) };
+      },
     }));
 
     vi.resetModules();

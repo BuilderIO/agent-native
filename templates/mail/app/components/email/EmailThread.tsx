@@ -289,7 +289,7 @@ export function EmailThread({
 
   // Scroll so the most recent (last) message is at the top of the viewport.
   // Pin for ~800ms to handle iframe resizes / async content.
-  const scrolledForRef = useRef<string | undefined>();
+  const scrolledForRef = useRef<string | undefined>(undefined);
   const lastMessageRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!threadId || messages.length === 0) return;

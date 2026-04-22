@@ -60,7 +60,7 @@ function registerBuiltInEvents(): void {
     description:
       "Developer test event — fired manually from the Automations UI or via the test-event action.",
     payloadSchema: z
-      .object({ data: z.record(z.unknown()).optional() })
+      .object({ data: z.record(z.string(), z.unknown()).optional() })
       .optional() as unknown as EventDefinition["payloadSchema"],
   });
 
