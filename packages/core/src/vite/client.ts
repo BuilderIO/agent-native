@@ -76,7 +76,11 @@ function getClientDedupe(cwd: string): string[] {
       if (serverOnly.has(dep)) continue;
       // Dedupe if the app also declares it, OR if it's a React-based
       // UI library (Radix, Tanstack) that must share the app's React.
-      if (appDeps.has(dep) || dep.startsWith("@radix-ui/") || dep.startsWith("@tanstack/")) {
+      if (
+        appDeps.has(dep) ||
+        dep.startsWith("@radix-ui/") ||
+        dep.startsWith("@tanstack/")
+      ) {
         always.add(dep);
       }
     }

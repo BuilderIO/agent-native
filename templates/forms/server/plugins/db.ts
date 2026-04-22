@@ -49,7 +49,9 @@ CREATE TABLE IF NOT EXISTS form_shares (
   },
   {
     version: 5,
-    sql: { sqlite: `ALTER TABLE forms ADD COLUMN visibility TEXT NOT NULL DEFAULT 'public'` },
+    sql: {
+      sqlite: `ALTER TABLE forms ADD COLUMN visibility TEXT NOT NULL DEFAULT 'public'`,
+    },
   },
   {
     version: 6,
