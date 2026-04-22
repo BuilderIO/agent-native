@@ -103,6 +103,12 @@ export type EngineEvent =
       reasoningTokens?: number;
     }
   | {
+      /** Final assistant content for the turn. Engines MUST emit this
+       *  exactly once, immediately before the terminal `stop` event. */
+      type: "assistant-content";
+      parts: EngineContentPart[];
+    }
+  | {
       type: "stop";
       reason:
         | "end_turn"
