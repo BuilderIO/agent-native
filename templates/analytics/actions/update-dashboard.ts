@@ -298,7 +298,7 @@ export default defineAction({
     config: z
       .preprocess(
         (v) => (typeof v === "string" ? JSON.parse(v) : v),
-        z.record(z.unknown()),
+        z.record(z.string(), z.unknown()),
       )
       .optional()
       .describe("Replace the whole dashboard config (or a JSON string)."),
