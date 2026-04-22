@@ -40,10 +40,21 @@ CREATE TABLE IF NOT EXISTS form_shares (
   created_by TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (now())
 )`,
-      sqlite: `ALTER TABLE forms ADD COLUMN owner_email TEXT NOT NULL DEFAULT 'local@localhost';
-ALTER TABLE forms ADD COLUMN org_id TEXT;
-ALTER TABLE forms ADD COLUMN visibility TEXT NOT NULL DEFAULT 'public';
-CREATE TABLE IF NOT EXISTS form_shares (
+      sqlite: `ALTER TABLE forms ADD COLUMN owner_email TEXT NOT NULL DEFAULT 'local@localhost'`,
+    },
+  },
+  {
+    version: 4,
+    sql: { sqlite: `ALTER TABLE forms ADD COLUMN org_id TEXT` },
+  },
+  {
+    version: 5,
+    sql: { sqlite: `ALTER TABLE forms ADD COLUMN visibility TEXT NOT NULL DEFAULT 'public'` },
+  },
+  {
+    version: 6,
+    sql: {
+      sqlite: `CREATE TABLE IF NOT EXISTS form_shares (
   id TEXT PRIMARY KEY,
   resource_id TEXT NOT NULL,
   principal_type TEXT NOT NULL,
