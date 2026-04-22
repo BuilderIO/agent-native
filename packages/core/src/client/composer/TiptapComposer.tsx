@@ -69,6 +69,12 @@ interface TiptapComposerProps {
   onExecModeChange?: (mode: ExecMode) => void;
   /** Show the microphone button for voice dictation. Default true. */
   voiceEnabled?: boolean;
+  /** Selected model override for this conversation */
+  selectedModel?: string;
+  /** Available models grouped by provider */
+  availableModels?: Array<{ engine: string; label: string; models: string[] }>;
+  /** Callback when user picks a model */
+  onModelChange?: (model: string, engine: string) => void;
 }
 
 function ModeSelector({
@@ -145,6 +151,85 @@ function ModeSelector({
   );
 }
 
+function shortModelName(model: string): string {
+  if (model.startsWith("claude-opus-4")) return "Opus 4";
+  if (model.startsWith("claude-sonnet-4")) return "Sonnet 4";
+  if (model.startsWith("claude-haiku-4")) return "Haiku 4";
+  if (model.startsWith("claude-opus")) return "Opus";
+  if (model.startsWith("claude-sonnet")) return "Sonnet";
+  if (model.startsWith("claude-haiku")) return "Haiku";
+  if (model === "gpt-4o") return "GPT-4o";
+  if (model === "gpt-4o-mini") return "GPT-4o mini";
+  if (model === "gpt-4-turbo") return "GPT-4 Turbo";
+  if (model.startsWith("o1")) return "o1";
+  if (model.startsWith("o3")) return "o3";
+  if (model.startsWith("gemini-2.0-flash")) return "Gemini 2.0 Flash";
+  if (model.startsWith("gemini-2.0-pro")) return "Gemini 2.0 Pro";
+  if (model.startsWith("gemini-1.5")) return "Gemini 1.5";
+  return model; // fallback: show full name
+}
+
+function ModelSelector({
+  model,
+  engines,
+  onChange,
+}: {
+  model: string;
+  engines: Array<{ engine: string; label: string; models: string[] }>;
+  onChange: (model: string, engine: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
+      <PopoverPrimitive.Trigger asChild>
+        <button
+          type="button"
+          className="shrink-0 flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent/50"
+        >
+          {shortModelName(model)}
+          <IconChevronDown className="h-3 w-3 opacity-60" />
+        </button>
+      </PopoverPrimitive.Trigger>
+      <PopoverPrimitive.Portal>
+        <PopoverPrimitive.Content
+          side="top"
+          align="end"
+          sideOffset={6}
+          className="w-64 max-h-72 overflow-y-auto rounded-lg border border-border bg-popover shadow-lg z-50 py-1 animate-in fade-in-0 zoom-in-95"
+          style={{ fontSize: 13 }}
+        >
+          {engines.map((group) => (
+            <div key={group.engine}>
+              <div className="px-3 py-1.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+                {group.label}
+              </div>
+              {group.models.map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => {
+                    onChange(m, group.engine);
+                    setOpen(false);
+                  }}
+                  className="flex w-full items-center gap-3 px-3 py-1.5 hover:bg-accent/50 text-left"
+                >
+                  <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
+                    {shortModelName(m)}
+                  </span>
+                  {m === model && (
+                    <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                  )}
+                </button>
+              ))}
+            </div>
+          ))}
+        </PopoverPrimitive.Content>
+      </PopoverPrimitive.Portal>
+    </PopoverPrimitive.Root>
+  );
+}
+
 type PopoverState = {
   type: "@" | "/";
   position: { top: number; left: number };
@@ -164,6 +249,9 @@ export function TiptapComposer({
   execMode,
   onExecModeChange,
   voiceEnabled = true,
+  selectedModel,
+  availableModels,
+  onModelChange,
 }: TiptapComposerProps) {
   const [popover, setPopover] = useState<PopoverState>(null);
   const popoverRef = useRef<MentionPopoverRef>(null);
@@ -838,6 +926,13 @@ export function TiptapComposer({
         <div className="flex-1" />
         {actionButton ?? (
           <>
+            {selectedModel && availableModels && onModelChange && (
+              <ModelSelector
+                model={selectedModel}
+                engines={availableModels}
+                onChange={onModelChange}
+              />
+            )}
             {execMode && onExecModeChange && (
               <ModeSelector mode={execMode} onChange={onExecModeChange} />
             )}

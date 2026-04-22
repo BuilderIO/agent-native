@@ -1281,6 +1281,12 @@ export interface AssistantChatProps {
   execMode?: "build" | "plan";
   /** Callback to change execution mode */
   onExecModeChange?: (mode: "build" | "plan") => void;
+  /** Selected model override for this conversation */
+  selectedModel?: string;
+  /** Available engine/model list for the model picker */
+  availableModels?: Array<{ engine: string; label: string; models: string[] }>;
+  /** Callback when user picks a model from the picker */
+  onModelChange?: (model: string, engine: string) => void;
 }
 
 export const CHAT_STORAGE_PREFIX = "agent-chat:";
@@ -1334,6 +1340,9 @@ const AssistantChatInner = forwardRef<
     onSlashCommand,
     execMode,
     onExecModeChange,
+    selectedModel,
+    availableModels,
+    onModelChange,
   },
   ref,
 ) {
@@ -2252,6 +2261,9 @@ const AssistantChatInner = forwardRef<
               onSlashCommand={onSlashCommand}
               execMode={execMode}
               onExecModeChange={onExecModeChange}
+              selectedModel={selectedModel}
+              availableModels={availableModels}
+              onModelChange={onModelChange}
               extraActionButton={
                 showRunningInUI ? (
                   <button
@@ -2309,8 +2321,11 @@ export const AssistantChat = forwardRef<
   { apiUrl = "/_agent-native/agent-chat", tabId, threadId, ...props },
   ref,
 ) {
+  const modelRef = useRef<string | undefined>(props.selectedModel);
+  modelRef.current = props.selectedModel;
+
   const adapter = useMemo(
-    () => createAgentChatAdapter({ apiUrl, tabId, threadId }),
+    () => createAgentChatAdapter({ apiUrl, tabId, threadId, modelRef }),
     [apiUrl, tabId, threadId],
   );
   const attachmentAdapter = useMemo(
