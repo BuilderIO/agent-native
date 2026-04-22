@@ -307,7 +307,9 @@ export function TemplateCard({ template }: { template: Template }) {
           {template.name}
         </Link>
       </h3>
-      <p className="m-0 text-xs text-[var(--docs-accent)]">{template.replaces}</p>
+      <p className="m-0 text-xs text-[var(--docs-accent)]">
+        {template.replaces}
+      </p>
       <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
         {template.description}
       </p>
