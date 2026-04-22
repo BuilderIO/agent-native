@@ -16,9 +16,42 @@ try {
   _version = pkg.version;
 } catch {}
 
+const FEEDBACK_URL =
+  "https://forms.agent-native.com/f/agent-native-feedback/_16ewV?source=cli";
+const BUGS_URL = "https://github.com/BuilderIO/agent-native/issues";
+
 const command = process.argv[2];
 // Filter out bare "--" separators that pnpm inserts between its args and script args
 const args = process.argv.slice(3).filter((a) => a !== "--");
+
+// Track CLI usage (best-effort, non-blocking)
+function trackCli(event: string, props?: Record<string, unknown>): void {
+  try {
+    import("../tracking/registry.js").then((m) => {
+      m.track(event, { command, ...props });
+    });
+    import("../tracking/providers.js").then((m) =>
+      m.registerBuiltinProviders(),
+    );
+  } catch {}
+}
+
+// Global error handler — show feedback link on unhandled crashes
+process.on("uncaughtException", (err) => {
+  console.error(`\n  Unexpected error: ${err.message}\n`);
+  console.error(`  Report this bug: ${BUGS_URL}`);
+  console.error(`  Send feedback:   ${FEEDBACK_URL}\n`);
+  trackCli("cli.crash", { error: err.message });
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (reason: any) => {
+  console.error(`\n  Unhandled error: ${reason?.message ?? reason}\n`);
+  console.error(`  Report this bug: ${BUGS_URL}`);
+  console.error(`  Send feedback:   ${FEEDBACK_URL}\n`);
+  trackCli("cli.crash", { error: reason?.message ?? String(reason) });
+  process.exit(1);
+});
 
 function findViteBin(): string {
   // Look for vite in node_modules/.bin
@@ -61,10 +94,10 @@ function run(
   return child;
 }
 
+trackCli("cli.run");
+
 switch (command) {
   case "dev": {
-    // Like `next dev` — runs Vite dev server (Nitro plugin handles API routes)
-    // Supports --base <path> for mounting under a prefix (e.g. agent-native dev --base /app/)
     const vite = findViteBin();
     run(vite, args);
     break;
@@ -280,11 +313,15 @@ Options:
   --template <names>            Comma-separated templates to pre-select
                                 (mail,calendar,analytics,...) — or
                                 github:user/repo for community templates
-  --standalone                  Scaffold a single standalone app (no workspace)`);
+  --standalone                  Scaffold a single standalone app (no workspace)
+
+Feedback:  ${FEEDBACK_URL}
+Bugs:      ${BUGS_URL}`);
     break;
 
   default:
     console.error(`Unknown command: ${command}`);
     console.error('Run "agent-native --help" for usage.');
+    console.error(`Bugs: ${BUGS_URL}`);
     process.exit(1);
 }

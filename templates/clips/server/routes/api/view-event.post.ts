@@ -30,6 +30,7 @@ import { getDb, schema } from "../../db/index.js";
 import { nanoid, shouldCountView } from "../../lib/recordings.js";
 import { getSession } from "@agent-native/core/server";
 import { writeAppState } from "@agent-native/core/application-state";
+import { emit } from "@agent-native/core/event-bus";
 
 interface ViewEventBody {
   recordingId?: string;
@@ -140,6 +141,7 @@ export default defineEventHandler(async (event) => {
     .select({
       id: schema.recordings.id,
       visibility: schema.recordings.visibility,
+      ownerEmail: schema.recordings.ownerEmail,
     })
     .from(schema.recordings)
     .where(eq(schema.recordings.id, recordingId))
@@ -233,6 +235,23 @@ export default defineEventHandler(async (event) => {
   // the polling clients every 2s with watch-progress heartbeats.
   if (kind !== "watch-progress") {
     await writeAppState("refresh-signal", { ts: Date.now() });
+  }
+
+  // Emit clip.viewed event on view-start — best-effort, never block the response.
+  if (kind === "view-start") {
+    try {
+      emit(
+        "clip.viewed",
+        {
+          clipId: recordingId,
+          viewerEmail: viewerEmail ?? null,
+          viewedAt: now,
+        },
+        { owner: rec.ownerEmail ?? undefined },
+      );
+    } catch (err) {
+      console.warn("[view-event] clip.viewed emit failed:", err);
+    }
   }
 
   return { ok: true, viewerId, countedView };

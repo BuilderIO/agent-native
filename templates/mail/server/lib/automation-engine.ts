@@ -5,6 +5,7 @@ import {
   getOAuthTokens,
   saveOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
+import { emit } from "@agent-native/core/event-bus";
 import { db, schema } from "../db/index.js";
 import {
   createOAuth2Client,
@@ -176,6 +177,7 @@ async function loadActiveRules(
 
 interface EmailSummary {
   id: string;
+  threadId: string;
   from: string;
   to: string;
   subject: string;
@@ -274,6 +276,7 @@ async function fetchNewInboxMessages(
 
       messages.push({
         id: msg.id,
+        threadId: msg.threadId || msg.id,
         from: getHeader("From"),
         to: getHeader("To"),
         subject: getHeader("Subject"),
@@ -495,6 +498,27 @@ export async function processAutomationsForAccount(
   }
 
   result.messagesProcessed = messages.length;
+
+  // 4b. Emit event-bus events for each new message (best-effort)
+  for (const msg of messages) {
+    try {
+      emit(
+        "mail.message.received",
+        {
+          messageId: msg.id,
+          from: msg.from,
+          to: msg.to,
+          subject: msg.subject,
+          snippet: msg.snippet,
+          labels: msg.labelIds,
+          threadId: msg.threadId,
+        },
+        { owner: ownerEmail },
+      );
+    } catch {
+      // best-effort — never block the automation run
+    }
+  }
 
   // 5. Evaluate rules with AI
   const autoSettings = await getUserSetting(ownerEmail, "automation-settings");

@@ -14,6 +14,7 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getDbExec, isPostgres } from "@agent-native/core/db";
+import { emit } from "@agent-native/core/event-bus";
 import {
   sendEmail,
   isEmailConfigured,
@@ -180,6 +181,20 @@ export default defineAction({
     }
 
     await writeAppState("refresh-signal", { ts: Date.now() });
+
+    // Emit clip.shared event — best-effort, never block the main flow.
+    try {
+      emit(
+        "clip.shared",
+        {
+          sharedWith: args.email,
+          sharedBy: inviter,
+        },
+        { owner: inviter },
+      );
+    } catch (err) {
+      console.warn("[invite-member] clip.shared emit failed:", err);
+    }
 
     console.log(`Invited ${args.email} to organization ${orgName}`);
 
