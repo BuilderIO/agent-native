@@ -33,6 +33,7 @@ import {
 export type AISDKProvider =
   | "anthropic"
   | "openai"
+  | "openrouter"
   | "google"
   | "groq"
   | "mistral"
@@ -50,6 +51,13 @@ const PROVIDER_CAPABILITIES: Record<AISDKProvider, EngineCapabilities> = {
   openai: {
     thinking: false,
     promptCaching: false,
+    vision: true,
+    computerUse: false,
+    parallelToolCalls: true,
+  },
+  openrouter: {
+    thinking: true,
+    promptCaching: true,
     vision: true,
     computerUse: false,
     parallelToolCalls: true,
@@ -94,6 +102,7 @@ const PROVIDER_CAPABILITIES: Record<AISDKProvider, EngineCapabilities> = {
 const PROVIDER_DEFAULT_MODELS: Record<AISDKProvider, string> = {
   anthropic: "claude-sonnet-4-6",
   openai: "gpt-4o",
+  openrouter: "anthropic/claude-sonnet-4.5",
   google: "gemini-2.0-flash",
   groq: "llama-3.3-70b-versatile",
   mistral: "mistral-large-latest",
@@ -118,6 +127,16 @@ const PROVIDER_SUPPORTED_MODELS: Record<AISDKProvider, readonly string[]> = {
     "o3",
     "o3-mini",
   ],
+  openrouter: [
+    "anthropic/claude-sonnet-4.5",
+    "anthropic/claude-opus-4.1",
+    "anthropic/claude-3.5-haiku",
+    "openai/gpt-4o",
+    "openai/o3",
+    "google/gemini-2.5-pro",
+    "google/gemini-2.5-flash",
+    "meta-llama/llama-3.3-70b-instruct",
+  ],
   google: [
     "gemini-2.0-flash",
     "gemini-2.0-pro",
@@ -141,6 +160,7 @@ const PROVIDER_SUPPORTED_MODELS: Record<AISDKProvider, readonly string[]> = {
 const PROVIDER_ENV_VARS: Record<AISDKProvider, string[]> = {
   anthropic: ["ANTHROPIC_API_KEY"],
   openai: ["OPENAI_API_KEY"],
+  openrouter: ["OPENROUTER_API_KEY"],
   google: ["GOOGLE_GENERATIVE_AI_API_KEY"],
   groq: ["GROQ_API_KEY"],
   mistral: ["MISTRAL_API_KEY"],
@@ -151,6 +171,7 @@ const PROVIDER_ENV_VARS: Record<AISDKProvider, string[]> = {
 const PROVIDER_PACKAGES: Record<AISDKProvider, string> = {
   anthropic: "@ai-sdk/anthropic",
   openai: "@ai-sdk/openai",
+  openrouter: "@openrouter/ai-sdk-provider",
   google: "@ai-sdk/google",
   groq: "@ai-sdk/groq",
   mistral: "@ai-sdk/mistral",
@@ -162,6 +183,7 @@ const PROVIDER_PACKAGES: Record<AISDKProvider, string> = {
 const PROVIDER_FACTORIES: Record<AISDKProvider, string> = {
   anthropic: "createAnthropic",
   openai: "createOpenAI",
+  openrouter: "createOpenRouter",
   google: "createGoogleGenerativeAI",
   groq: "createGroq",
   mistral: "createMistral",
@@ -173,6 +195,20 @@ const PROVIDER_FACTORIES: Record<AISDKProvider, string> = {
 // AISDKEngine implementation
 // ---------------------------------------------------------------------------
 
+/** Config accepted by every `ai-sdk:*` engine. */
+export interface AISDKEngineConfig {
+  /** Override the provider's default model (also becomes the engine's defaultModel). */
+  model?: string;
+  /** API key — falls back to the provider-specific env var if omitted. */
+  apiKey?: string;
+  /** Override the provider base URL (useful for proxies or OpenAI-compatible gateways). */
+  baseUrl?: string;
+  /** OpenRouter: `X-OpenRouter-Title` header for dashboard attribution. */
+  appName?: string;
+  /** OpenRouter: `HTTP-Referer` header for dashboard attribution. */
+  appUrl?: string;
+}
+
 class AISDKEngine implements AgentEngine {
   readonly name: string;
   readonly label: string;
@@ -183,18 +219,20 @@ class AISDKEngine implements AgentEngine {
   private readonly provider: AISDKProvider;
   private readonly apiKey?: string;
   private readonly baseUrl?: string;
+  private readonly appName?: string;
+  private readonly appUrl?: string;
 
-  constructor(provider: AISDKProvider, config: Record<string, unknown>) {
+  constructor(provider: AISDKProvider, config: AISDKEngineConfig) {
     this.provider = provider;
     this.name = `ai-sdk:${provider}`;
     this.label = `${capitalize(provider)} (AI SDK)`;
-    this.defaultModel =
-      (config.model as string | undefined) ?? PROVIDER_DEFAULT_MODELS[provider];
+    this.defaultModel = config.model ?? PROVIDER_DEFAULT_MODELS[provider];
     this.supportedModels = PROVIDER_SUPPORTED_MODELS[provider];
     this.capabilities = PROVIDER_CAPABILITIES[provider];
-    this.apiKey =
-      (config.apiKey as string | undefined) ?? getProviderApiKey(provider);
-    this.baseUrl = config.baseUrl as string | undefined;
+    this.apiKey = config.apiKey ?? getProviderApiKey(provider);
+    this.baseUrl = config.baseUrl;
+    this.appName = config.appName;
+    this.appUrl = config.appUrl;
   }
 
   async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
@@ -318,6 +356,11 @@ class AISDKEngine implements AgentEngine {
     const config: Record<string, unknown> = {};
     if (this.apiKey) config.apiKey = this.apiKey;
     if (this.baseUrl) config.baseURL = this.baseUrl;
+    // Scoped to openrouter — other providers' factories may reject unknown keys.
+    if (this.provider === "openrouter") {
+      if (this.appName) config.appName = this.appName;
+      if (this.appUrl) config.appUrl = this.appUrl;
+    }
 
     const provider = createFn(config);
     // @ai-sdk/openai@3 defaults to the Responses API; force Chat Completions
@@ -334,7 +377,7 @@ export function createAISDKEngine(
   provider: AISDKProvider,
   config: Record<string, unknown> = {},
 ): AgentEngine {
-  return new AISDKEngine(provider, config);
+  return new AISDKEngine(provider, config as AISDKEngineConfig);
 }
 
 // ---------------------------------------------------------------------------

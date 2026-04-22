@@ -59,6 +59,7 @@ Returns `{ ok, latencyMs, response, capabilities }`. If `ok: false`, the error m
 | `anthropic` | Anthropic Claude SDK | `ANTHROPIC_API_KEY` |
 | `ai-sdk:anthropic` | Claude via Vercel AI SDK | `ANTHROPIC_API_KEY` |
 | `ai-sdk:openai` | OpenAI via Vercel AI SDK | `OPENAI_API_KEY` |
+| `ai-sdk:openrouter` | 300+ models (Anthropic, OpenAI, Google, Meta, …) routed through OpenRouter | `OPENROUTER_API_KEY` |
 | `ai-sdk:google` | Google Gemini via Vercel AI SDK | `GOOGLE_GENERATIVE_AI_API_KEY` |
 | `ai-sdk:groq` | Groq LPU via Vercel AI SDK | `GROQ_API_KEY` |
 | `ai-sdk:mistral` | Mistral via Vercel AI SDK | `MISTRAL_API_KEY` |
@@ -85,6 +86,28 @@ When using the `anthropic` engine (or `ai-sdk:anthropic`):
 - **Extended thinking** can be enabled via `providerOptions.anthropic.thinking` — the agent reasons longer before responding.
 
 These features are silently ignored when a non-Anthropic engine is active (capability-gated, no breakage).
+
+## Using OpenRouter
+
+`ai-sdk:openrouter` gives access to 300+ models from many providers through a single API. Model IDs use the `vendor/model` form:
+
+```
+set-agent-engine --engine "ai-sdk:openrouter" --model "anthropic/claude-sonnet-4.5"
+set-agent-engine --engine "ai-sdk:openrouter" --model "openai/gpt-4o"
+set-agent-engine --engine "ai-sdk:openrouter" --model "google/gemini-2.5-pro"
+```
+
+Any `vendor/model` string from [openrouter.ai/models](https://openrouter.ai/models) works — the `supportedModels` list in the registry is a UI hint, not an allow-list.
+
+**App attribution** (optional): pass `appName` / `appUrl` in the engine config to set the `X-OpenRouter-Title` / `HTTP-Referer` headers — useful to see your app on the OpenRouter dashboard and leaderboards:
+
+```ts
+createAISDKEngine("openrouter", {
+  apiKey: process.env.OPENROUTER_API_KEY,
+  appName: "My App",
+  appUrl: "https://myapp.example",
+});
+```
 
 ## Registering a Custom Engine
 
@@ -152,6 +175,7 @@ be selected via `set-agent-engine`.
 |---|---|
 | `ANTHROPIC_API_KEY` | Required for `anthropic` and `ai-sdk:anthropic` engines |
 | `OPENAI_API_KEY` | Required for `ai-sdk:openai` |
+| `OPENROUTER_API_KEY` | Required for `ai-sdk:openrouter` |
 | `GOOGLE_GENERATIVE_AI_API_KEY` | Required for `ai-sdk:google` |
 | `GROQ_API_KEY` | Required for `ai-sdk:groq` |
 | `MISTRAL_API_KEY` | Required for `ai-sdk:mistral` |

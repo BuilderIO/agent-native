@@ -129,6 +129,7 @@
     "@ai-sdk/groq": ">=3",
     "@ai-sdk/mistral": ">=3",
     "@ai-sdk/openai": ">=3",
+    "@openrouter/ai-sdk-provider": ">=2",
     "@assistant-ui/react": ">=0.12",
     "@assistant-ui/react-markdown": ">=0.12",
     "@supabase/supabase-js": ">=2",
@@ -161,6 +162,9 @@
       "optional": true
     },
     "@ai-sdk/openai": {
+      "optional": true
+    },
+    "@openrouter/ai-sdk-provider": {
       "optional": true
     },
     "@ai-sdk/google": {
