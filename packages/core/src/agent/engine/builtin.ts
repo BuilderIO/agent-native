@@ -49,6 +49,7 @@ export function registerBuiltinEngines(): void {
   const aiSdkProviders: AISDKProvider[] = [
     "anthropic",
     "openai",
+    "openrouter",
     "google",
     "groq",
     "mistral",
@@ -59,6 +60,7 @@ export function registerBuiltinEngines(): void {
   const providerLabels: Record<AISDKProvider, string> = {
     anthropic: "Claude via AI SDK",
     openai: "OpenAI (AI SDK)",
+    openrouter: "OpenRouter (AI SDK)",
     google: "Google Gemini (AI SDK)",
     groq: "Groq (AI SDK)",
     mistral: "Mistral (AI SDK)",
@@ -70,6 +72,8 @@ export function registerBuiltinEngines(): void {
     anthropic:
       "Claude models through the Vercel AI SDK. Supports thinking and caching via AI SDK providerOptions.",
     openai: "OpenAI GPT models via the Vercel AI SDK. Requires OPENAI_API_KEY.",
+    openrouter:
+      "300+ models from Anthropic, OpenAI, Google, Meta, and more routed through a single endpoint. Use model IDs like 'anthropic/claude-sonnet-4.5' or 'openai/gpt-4o'. Requires OPENROUTER_API_KEY.",
     google:
       "Google Gemini models via the Vercel AI SDK. Requires GOOGLE_GENERATIVE_AI_API_KEY.",
     groq: "Groq LPU inference via the Vercel AI SDK. Requires GROQ_API_KEY.",
