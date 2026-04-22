@@ -1,14 +1,17 @@
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { IconSearch, IconX } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { useRecordingSearch, type SearchHit } from "@/hooks/use-library";
 
-function highlight(text: string, query: string): (string | JSX.Element)[] {
+function highlight(
+  text: string,
+  query: string,
+): (string | React.JSX.Element)[] {
   if (!query) return [text];
   const lower = text.toLowerCase();
   const q = query.toLowerCase();
-  const parts: (string | JSX.Element)[] = [];
+  const parts: (string | React.JSX.Element)[] = [];
   let i = 0;
   while (i < text.length) {
     const idx = lower.indexOf(q, i);

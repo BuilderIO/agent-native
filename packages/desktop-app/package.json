@@ -24,16 +24,16 @@
   },
   "devDependencies": {
     "@types/node": "^24.2.1",
-    "@types/react": "^18.3.23",
-    "@types/react-dom": "^18.3.7",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react-swc": "^4.0.0",
-    "electron": "^31.6.0",
+    "electron": "^41.2.2",
     "electron-builder": "^26.8.1",
-    "electron-vite": "^2.3.0",
-    "lucide-react": "^0.539.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "typescript": "^5.9.2",
+    "electron-vite": "^5.0.0",
+    "lucide-react": "^1.8.0",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "typescript": "^6.0.3",
     "vite": "^5.4.0"
   }
 }

@@ -112,8 +112,8 @@ export function NotionButton() {
       ? `${window.location.origin}/api/notion/callback`
       : "";
 
-  const pollRef = useRef<ReturnType<typeof setInterval>>();
-  const pollTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const pollRef = useRef<ReturnType<typeof setInterval>>(undefined);
+  const pollTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // Cleanup polling on unmount
   useEffect(() => {

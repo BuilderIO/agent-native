@@ -52,7 +52,7 @@
     "bippy": "^0.5.32",
     "element-source": "^0.0.3",
     "solid-js": "^1.9.10",
-    "zod": "^3.25.76"
+    "zod": "^4.3.6"
   },
   "peerDependencies": {
     "react": ">=18.0.0"
@@ -66,13 +66,13 @@
     "@modelcontextprotocol/sdk": "^1.0.0",
     "@types/express": "^5.0.3",
     "@types/node": "^24.2.1",
-    "@types/react": "^18.3.23",
+    "@types/react": "^19.2.14",
     "babel-preset-solid": "^1.9.10",
     "esbuild-plugin-solid": "^0.6.0",
     "express": "^5.1.0",
     "tsup": "^8.4.0",
-    "typescript": "^5.9.2",
+    "typescript": "^6.0.3",
     "vite-plugin-solid": "^2.11.0",
-    "vitest": "^3.2.4"
+    "vitest": "^4.1.5"
   }
 }

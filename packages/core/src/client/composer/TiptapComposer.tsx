@@ -384,7 +384,7 @@ export function TiptapComposer({
 
   // Persist draft to localStorage so hot-reloads don't lose the prompt
   const DRAFT_KEY = "an-composer-draft";
-  const draftTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const draftTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const editor = useEditor({
     extensions: [

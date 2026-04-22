@@ -53,7 +53,7 @@ export default defineAction({
           "This is what users see when they load the analysis.",
       ),
     resultData: z
-      .record(z.unknown())
+      .record(z.string(), z.unknown())
       .optional()
       .describe(
         "Optional structured data (JSON) backing the analysis — raw query results, metrics, etc. " +

@@ -183,7 +183,7 @@ export function DocumentToolbar({
   >(null);
   const [linkingPageId, setLinkingPageId] = useState<string | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const isConnected = connection?.connected ?? false;
   const isLinked = !!syncStatus?.pageId;

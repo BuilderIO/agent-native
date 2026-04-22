@@ -185,7 +185,7 @@ export default function SqlDashboardPage() {
   ]);
 
   // Auto-save filter state when URL params change (debounced)
-  const saveTimer = useRef<ReturnType<typeof setTimeout>>();
+  const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => {
     if (!loaded || !dashboard?.filters?.length || !dashboardId) return;
     clearTimeout(saveTimer.current);

@@ -67,7 +67,7 @@ export function useSequenceShortcuts(
   enabled = true,
 ) {
   const bufferRef = useRef<string[]>([]);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
     if (!enabled) return;
