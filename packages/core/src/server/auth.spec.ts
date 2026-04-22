@@ -269,6 +269,7 @@ describe("server/auth", () => {
         isPostgres: () => false,
         isLocalDatabase: () => true,
         intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
       const authModule = await import("./auth.js");
