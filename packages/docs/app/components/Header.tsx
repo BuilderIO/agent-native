@@ -2,6 +2,7 @@ import { Link, NavLink, useLocation } from "react-router";
 import ThemeToggle from "./ThemeToggle";
 import { useSearchModal, SearchModal } from "./SearchModal";
 import { useState, useEffect } from "react";
+import { IconMessageCircle } from "@tabler/icons-react";
 
 function SearchTrigger({ onClick }: { onClick: () => void }) {
   return (
@@ -157,6 +158,15 @@ export default function Header() {
           <div className="ml-auto flex items-center gap-3">
             <SearchTrigger onClick={() => setOpen(true)} />
             <ThemeToggle />
+            <button
+              onClick={() =>
+                window.dispatchEvent(new Event("agent-panel:toggle"))
+              }
+              className="flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border)] text-[var(--fg-secondary)] hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
+              title="Ask the AI assistant"
+            >
+              <IconMessageCircle size={16} stroke={1.5} />
+            </button>
 
             {/* Mobile hamburger */}
             <button

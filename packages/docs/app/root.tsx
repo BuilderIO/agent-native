@@ -9,6 +9,13 @@ import {
   useRouteError,
   useLocation,
 } from "react-router";
+import { useState } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  AgentSidebar,
+  ClientOnly,
+  DefaultSpinner,
+} from "@agent-native/core/client";
 import Header from "./components/Header";
 import Footer from "./components/Footer";
 
@@ -120,13 +127,41 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
+function AppContent() {
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },
+      }),
+  );
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AgentSidebar
+        position="right"
+        defaultOpen={false}
+        sidebarWidth={400}
+        emptyStateText="Ask me anything about Agent-Native"
+        suggestions={[
+          "How do I get started with Agent-Native?",
+          "How do actions work?",
+          "Explain the polling sync model",
+          "How do I deploy to production?",
+        ]}
+      >
+        <Header />
+        <Outlet />
+        <Footer />
+      </AgentSidebar>
+    </QueryClientProvider>
+  );
+}
+
 export default function Root() {
   return (
-    <>
-      <Header />
-      <Outlet />
-      <Footer />
-    </>
+    <ClientOnly fallback={<DefaultSpinner />}>
+      <AppContent />
+    </ClientOnly>
   );
 }
 

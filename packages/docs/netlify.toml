@@ -23,3 +23,9 @@
   for = "/assets/*"
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
+
+# Agent-native API routes: no caching
+[[headers]]
+  for = "/_agent-native/*"
+  [headers.values]
+    Cache-Control = "no-cache, no-store"
