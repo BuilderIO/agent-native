@@ -55,6 +55,7 @@
     "./a2a": "./dist/a2a/index.js",
     "./mcp": "./dist/mcp/index.js",
     "./mcp-client": "./dist/mcp-client/index.js",
+    "./tracking": "./dist/tracking/index.js",
     "./triggers": "./dist/triggers/index.js",
     "./terminal": "./dist/client/terminal/index.js",
     "./terminal/server": "./dist/terminal/index.js",

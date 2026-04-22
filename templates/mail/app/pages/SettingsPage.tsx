@@ -10,6 +10,10 @@ import {
   IconBolt,
   IconX,
   IconChartBar,
+  IconCircleCheck,
+  IconCircleX,
+  IconClock,
+  IconPlayerPlay,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -655,6 +659,145 @@ function AutomationRow({
   );
 }
 
+// ─── Framework Triggers Subsection ──────────────────────────────────────────
+
+interface FrameworkTrigger {
+  id: string;
+  name: string;
+  triggerType: string;
+  event?: string;
+  condition?: string;
+  mode: string;
+  domain?: string;
+  enabled: boolean;
+  lastStatus?: string;
+  lastRun?: string;
+  lastError?: string;
+  body: string;
+}
+
+function TriggersSubsection() {
+  const { data: triggers = [], isLoading } = useQuery<FrameworkTrigger[]>({
+    queryKey: ["framework-triggers-mail"],
+    queryFn: async () => {
+      const res = await fetch("/_agent-native/automations");
+      if (!res.ok) return [];
+      const all: FrameworkTrigger[] = await res.json();
+      // Filter to mail domain triggers only (event-based)
+      return all.filter(
+        (t) =>
+          t.domain === "mail" ||
+          (t.triggerType === "event" && t.event && t.event.startsWith("mail.")),
+      );
+    },
+    staleTime: 30_000,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="space-y-2">
+        <Skeleton className="h-14 w-full" />
+        <Skeleton className="h-14 w-full" />
+      </div>
+    );
+  }
+
+  if (triggers.length === 0) {
+    return (
+      <div className="rounded-lg border border-border/20 bg-card/50 py-8 text-center">
+        <IconPlayerPlay className="h-6 w-6 text-muted-foreground/20 mx-auto mb-2" />
+        <p className="text-[12px] text-muted-foreground/50">
+          No event-triggered automations for mail yet.
+        </p>
+        <p className="text-[11px] text-muted-foreground/30 max-w-xs mx-auto mt-1">
+          Ask the agent to create an automation like "when I receive an email
+          from my boss, star it and notify me."
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {triggers.map((t) => {
+        const StatusIcon =
+          t.lastStatus === "success"
+            ? IconCircleCheck
+            : t.lastStatus === "error"
+              ? IconCircleX
+              : t.lastStatus === "running"
+                ? IconLoader2
+                : IconClock;
+        const statusColor =
+          t.lastStatus === "success"
+            ? "text-green-400"
+            : t.lastStatus === "error"
+              ? "text-red-400"
+              : t.lastStatus === "running"
+                ? "text-yellow-400 animate-spin"
+                : "text-muted-foreground/40";
+
+        return (
+          <div
+            key={t.id}
+            className="flex items-start gap-3 rounded-lg border border-border/30 bg-card px-4 py-3"
+          >
+            <div className="pt-0.5">
+              <StatusIcon className={cn("h-4 w-4", statusColor)} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-0.5">
+                <span
+                  className={cn(
+                    "text-[13px] font-semibold",
+                    t.enabled ? "text-foreground" : "text-muted-foreground/50",
+                  )}
+                >
+                  {t.name}
+                </span>
+                {!t.enabled && (
+                  <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground/50">
+                    disabled
+                  </span>
+                )}
+              </div>
+              {t.event && (
+                <p className="text-[11px] text-muted-foreground/60 mb-0.5">
+                  on{" "}
+                  <code className="rounded bg-muted px-1 py-0.5 text-[10px]">
+                    {t.event}
+                  </code>
+                  {t.condition && (
+                    <span>
+                      {" "}
+                      when <em>"{t.condition}"</em>
+                    </span>
+                  )}
+                </p>
+              )}
+              <p className="text-[12px] text-muted-foreground line-clamp-2">
+                {t.body}
+              </p>
+              {t.lastRun && (
+                <p className="text-[10px] text-muted-foreground/40 mt-1">
+                  Last run:{" "}
+                  {new Date(t.lastRun).toLocaleString(undefined, {
+                    dateStyle: "short",
+                    timeStyle: "short",
+                  })}
+                  {t.lastError && (
+                    <span className="text-red-400"> — {t.lastError}</span>
+                  )}
+                </p>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── Automations Section ─────────────────────────────────────────────────────
 
 const AUTOMATION_MODELS = [
@@ -795,6 +938,20 @@ function AutomationsSection() {
             onCancelEdit={() => setEditingId(null)}
           />
         ))}
+      </div>
+
+      {/* Event-triggered automations (framework-level triggers) */}
+      <div className="max-w-2xl mt-10">
+        <div className="mb-4">
+          <h3 className="text-[14px] font-semibold text-foreground">
+            Event Triggers
+          </h3>
+          <p className="text-[12px] text-muted-foreground mt-0.5">
+            Automations that fire when mail events occur (e.g. new email
+            received). Managed by the agent.
+          </p>
+        </div>
+        <TriggersSubsection />
       </div>
     </div>
   );

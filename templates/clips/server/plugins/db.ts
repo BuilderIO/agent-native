@@ -1,4 +1,6 @@
 import { runMigrations, getDbExec, isPostgres } from "@agent-native/core/db";
+import { registerEvent } from "@agent-native/core/event-bus";
+import { z } from "zod";
 // Side-effect import — registers `recording` as a shareable resource with the
 // framework before any HTTP request runs. The framework's auto-mounted
 // share-resource / set-resource-visibility / list-resource-shares actions
@@ -729,5 +731,42 @@ export default async (nitroApp: any): Promise<void> => {
   // Best-effort chunk sweep — don't block startup on failures.
   sweepOrphanedRecordingChunks().catch((err) => {
     console.warn("[db] chunk sweep failed:", (err as Error)?.message ?? err);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Register Clips template events for the automations system.
+  // ---------------------------------------------------------------------------
+  registerEvent({
+    name: "clip.created",
+    description:
+      "A new screen recording (clip) was created and is ready to view.",
+    payloadSchema: z.object({
+      clipId: z.string(),
+      title: z.string().optional(),
+      createdBy: z.string().optional(),
+      duration: z.number().optional(),
+      url: z.string().optional(),
+    }) as any,
+  });
+
+  registerEvent({
+    name: "clip.shared",
+    description:
+      "A clip's organization was shared with a new member via invite.",
+    payloadSchema: z.object({
+      clipId: z.string().optional(),
+      sharedWith: z.string(),
+      sharedBy: z.string().optional(),
+    }) as any,
+  });
+
+  registerEvent({
+    name: "clip.viewed",
+    description: "A clip was viewed by someone.",
+    payloadSchema: z.object({
+      clipId: z.string(),
+      viewerEmail: z.string().nullable().optional(),
+      viewedAt: z.string(),
+    }) as any,
   });
 };

@@ -9,6 +9,7 @@ import {
 import { nanoid } from "nanoid";
 import { eq, and, gte, lte, ne } from "drizzle-orm";
 import { readBody, verifyCaptcha } from "@agent-native/core/server";
+import { emit } from "@agent-native/core/event-bus";
 import type {
   Booking,
   CalendarEvent,
@@ -207,13 +208,14 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       }
     }
 
+    const hostEmail =
+      (bookingLink as any)?.ownerEmail ||
+      (bookingLink as any)?.owner_email ||
+      "local@localhost";
+
     // For Zoom, create a real meeting via the host's connected OAuth
     // account. The booking link's owner_email is the host.
     if (conferencing?.type === "zoom") {
-      const hostEmail =
-        (bookingLink as any)?.ownerEmail ||
-        (bookingLink as any)?.owner_email ||
-        "local@localhost";
       try {
         const zoomResult = await createZoomMeeting({
           hostEmail,
@@ -312,6 +314,24 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       status: "confirmed",
       createdAt: now,
     };
+
+    try {
+      emit(
+        "calendar.booking.created",
+        {
+          bookingId: id,
+          schedulingLinkSlug: body.slug || "",
+          attendeeName: body.name,
+          attendeeEmail: body.email,
+          startTime: body.start,
+          endTime: body.end,
+          eventTitle: booking.eventTitle || "",
+        },
+        { owner: hostEmail },
+      );
+    } catch {
+      // best-effort
+    }
 
     setResponseStatus(event, 201);
     return booking;

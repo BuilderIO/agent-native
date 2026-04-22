@@ -14,7 +14,7 @@ import { runWithRequestContext } from "../server/request-context.js";
 import {
   runAgentLoop,
   actionsToEngineTools,
-  getOwnerAnthropicApiKey,
+  getOwnerActiveApiKey,
   type ActionEntry,
 } from "../agent/production-agent.js";
 import { createAnthropicEngine } from "../agent/engine/index.js";
@@ -230,7 +230,7 @@ async function handleEvent(
 
       // Resolve API key for condition evaluation
       const owner = meta.createdBy || resource.owner;
-      const userApiKey = await getOwnerAnthropicApiKey(owner);
+      const userApiKey = await getOwnerActiveApiKey(owner);
       const apiKey =
         userApiKey || _deps.apiKey || process.env.ANTHROPIC_API_KEY;
       if (!apiKey) {

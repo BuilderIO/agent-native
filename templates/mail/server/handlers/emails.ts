@@ -46,6 +46,7 @@ import {
   incrementSendFrequency,
   getContactFrequencyMap,
 } from "../lib/contact-frequency.js";
+import { emit } from "@agent-native/core/event-bus";
 import { getSyntheticEmailsForView, getSnoozedThreadIds } from "../lib/jobs.js";
 import {
   collectLinks,
@@ -1367,6 +1368,21 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
           )
           .filter((r) => r.email);
         incrementSendFrequency(email, allRecipients).catch(() => {});
+
+        // Emit mail.message.sent event (best-effort)
+        try {
+          emit(
+            "mail.message.sent",
+            {
+              messageId: sent.id,
+              to: to || "",
+              subject: subject || "",
+            },
+            { owner: email },
+          );
+        } catch {
+          // best-effort — never block the send response
+        }
 
         setResponseStatus(event, 201);
         return {

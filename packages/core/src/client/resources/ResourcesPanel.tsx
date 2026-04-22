@@ -5,6 +5,7 @@ import {
   IconArrowLeft,
   IconWand,
   IconBulb,
+  IconBolt,
   IconTrash,
   IconEye,
   IconCode,
@@ -475,6 +476,26 @@ The result should be a reusable agent profile, not a one-off task response.`,
       label: "Create Custom Agent",
       desc: "Add a reusable sub-agent profile",
       action: () => setView("agent-mode"),
+    },
+    {
+      icon: <IconBolt className="h-3.5 w-3.5" />,
+      label: "Create Automation",
+      desc: "Set up a when-X-do-Y rule",
+      action: () => {
+        setOpen(false);
+        window.dispatchEvent(
+          new CustomEvent("agent-panel:set-mode", {
+            detail: { mode: "chat" },
+          }),
+        );
+        sendToAgentChat({
+          message:
+            "Help me create a new automation. Ask me what I want to automate.",
+          context: `The user wants to create a new automation. Scope: personal. Use define-automation to create it. Ask clarifying questions if needed about what event to trigger on, conditions, and what actions to take.`,
+          submit: true,
+        });
+        onCreated?.();
+      },
     },
     {
       icon: <IconPlugConnected className="h-3.5 w-3.5" />,
