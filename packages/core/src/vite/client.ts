@@ -649,6 +649,7 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
         "react",
         "react-dom",
         "react-dom/client",
+        "@tanstack/react-query",
         "@radix-ui/react-select",
         "@radix-ui/react-popover",
         "@radix-ui/react-tooltip",
