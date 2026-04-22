@@ -110,7 +110,7 @@ export default function VideoTemplate() {
 
         <div className="grid gap-12 lg:grid-cols-2 lg:items-start">
           <div>
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--fg-secondary)]">
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--fg-secondary)]">
               <span
                 className="inline-block h-2 w-2 rounded-full"
                 style={{ background: template.color }}
@@ -160,7 +160,7 @@ export default function VideoTemplate() {
             </div>
           </div>
 
-          <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)]">
+          <div className="overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)]">
             <img
               src={template.screenshot}
               alt="Video template screenshot"
@@ -171,8 +171,8 @@ export default function VideoTemplate() {
       </section>
 
       {/* By the numbers */}
-      <section className="border-t border-[var(--border)] py-16">
-        <div className="mx-auto grid max-w-3xl gap-px overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--border)] sm:grid-cols-4">
+      <section className="border-t border-[var(--docs-border)] py-16">
+        <div className="mx-auto grid max-w-3xl gap-px overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--docs-border)] sm:grid-cols-4">
           {[
             { number: "30+", label: "Easing curves" },
             { number: "12", label: "Example compositions" },
@@ -180,7 +180,7 @@ export default function VideoTemplate() {
             { number: "6D", label: "Camera controls" },
           ].map((stat) => (
             <div key={stat.label} className="bg-[var(--bg)] p-6 text-center">
-              <div className="mb-1 text-2xl font-bold text-[var(--accent)]">
+              <div className="mb-1 text-2xl font-bold text-[var(--docs-accent)]">
                 {stat.number}
               </div>
               <div className="text-sm text-[var(--fg-secondary)]">
@@ -192,7 +192,7 @@ export default function VideoTemplate() {
       </section>
 
       {/* Animation system - two column highlight */}
-      <section className="border-t border-[var(--border)] py-16">
+      <section className="border-t border-[var(--docs-border)] py-16">
         <h2 className="mb-3 text-2xl font-bold tracking-tight">
           Professional animation system
         </h2>
@@ -201,20 +201,20 @@ export default function VideoTemplate() {
           reorderable.
         </p>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
+          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
             <h3 className="mb-1 text-sm font-semibold">Duration Tracks</h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
               Drag handles to set start/end. Visual bars in the timeline.
             </p>
           </div>
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
+          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
             <h3 className="mb-1 text-sm font-semibold">Keyframe Tracks</h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
               Diamond markers at arbitrary frames. Per-property with independent
               easing.
             </p>
           </div>
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
+          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
             <h3 className="mb-1 text-sm font-semibold">Expression Tracks</h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
               Programmatic animations — typing reveals, particle bursts, stagger
@@ -225,9 +225,9 @@ export default function VideoTemplate() {
       </section>
 
       {/* Easing + camera - split section */}
-      <section className="border-t border-[var(--border)] py-16">
+      <section className="border-t border-[var(--docs-border)] py-16">
         <div className="grid gap-4 sm:grid-cols-2">
-          <div className="rounded-xl border border-[var(--border)] p-6">
+          <div className="rounded-xl border border-[var(--docs-border)] p-6">
             <h3 className="mb-2 text-base font-semibold">30+ Easing Curves</h3>
             <p className="mb-4 text-sm text-[var(--fg-secondary)]">
               Visual curve picker shows the shape of each easing.
@@ -246,14 +246,14 @@ export default function VideoTemplate() {
               ].map((e) => (
                 <span
                   key={e}
-                  className="rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] px-2 py-1"
+                  className="rounded-md border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-2 py-1"
                 >
                   {e}
                 </span>
               ))}
             </div>
           </div>
-          <div className="rounded-xl border border-[var(--border)] p-6">
+          <div className="rounded-xl border border-[var(--docs-border)] p-6">
             <h3 className="mb-2 text-base font-semibold">6D Camera Controls</h3>
             <p className="mb-4 text-sm text-[var(--fg-secondary)]">
               Pan, zoom, and 3D tilt with perspective depth.
@@ -261,7 +261,7 @@ export default function VideoTemplate() {
             <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
               <li className="flex items-start gap-2">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--accent)]"
+                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
                   width="16"
                   height="16"
                   viewBox="0 0 24 24"
@@ -277,7 +277,7 @@ export default function VideoTemplate() {
               </li>
               <li className="flex items-start gap-2">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--accent)]"
+                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
                   width="16"
                   height="16"
                   viewBox="0 0 24 24"
@@ -293,7 +293,7 @@ export default function VideoTemplate() {
               </li>
               <li className="flex items-start gap-2">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--accent)]"
+                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
                   width="16"
                   height="16"
                   viewBox="0 0 24 24"
@@ -313,7 +313,7 @@ export default function VideoTemplate() {
       </section>
 
       {/* Interactive cursor + keyframes */}
-      <section className="border-t border-[var(--border)] py-16">
+      <section className="border-t border-[var(--docs-border)] py-16">
         <div className="grid gap-8 lg:grid-cols-2 lg:items-center">
           <div>
             <h2 className="mb-3 text-2xl font-bold tracking-tight">
@@ -324,15 +324,15 @@ export default function VideoTemplate() {
               and click animations. Perfect for product demos.
             </p>
             <div className="flex gap-4 text-sm text-[var(--fg-secondary)]">
-              <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-2 text-center">
+              <div className="rounded-lg border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-4 py-2 text-center">
                 <div className="mb-1 text-lg">↖</div>
                 Arrow
               </div>
-              <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-2 text-center">
+              <div className="rounded-lg border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-4 py-2 text-center">
                 <div className="mb-1 text-lg">☝</div>
                 Pointer
               </div>
-              <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-2 text-center">
+              <div className="rounded-lg border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-4 py-2 text-center">
                 <div className="mb-1 text-lg">|</div>
                 I-beam
               </div>
@@ -349,7 +349,7 @@ export default function VideoTemplate() {
             <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
               <li className="flex items-start gap-2">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--accent)]"
+                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
                   width="16"
                   height="16"
                   viewBox="0 0 24 24"
@@ -365,7 +365,7 @@ export default function VideoTemplate() {
               </li>
               <li className="flex items-start gap-2">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--accent)]"
+                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
                   width="16"
                   height="16"
                   viewBox="0 0 24 24"
@@ -381,7 +381,7 @@ export default function VideoTemplate() {
               </li>
               <li className="flex items-start gap-2">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--accent)]"
+                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
                   width="16"
                   height="16"
                   viewBox="0 0 24 24"
@@ -401,8 +401,8 @@ export default function VideoTemplate() {
       </section>
 
       {/* Remotion powered */}
-      <section className="border-t border-[var(--border)] py-16">
-        <div className="mx-auto grid max-w-3xl gap-px overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--border)] sm:grid-cols-3">
+      <section className="border-t border-[var(--docs-border)] py-16">
+        <div className="mx-auto grid max-w-3xl gap-px overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--docs-border)] sm:grid-cols-3">
           <div className="bg-[var(--bg)] p-6 text-center">
             <div className="mb-1 text-sm font-semibold">React Components</div>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
@@ -425,14 +425,14 @@ export default function VideoTemplate() {
       </section>
 
       {/* Comparison table */}
-      <section className="border-t border-[var(--border)] py-16">
+      <section className="border-t border-[var(--docs-border)] py-16">
         <h2 className="mb-8 text-2xl font-bold tracking-tight">
           How it compares
         </h2>
-        <div className="overflow-hidden rounded-xl border border-[var(--border)]">
+        <div className="overflow-hidden rounded-xl border border-[var(--docs-border)]">
           <table className="comparison-table w-full text-sm">
             <thead>
-              <tr className="border-b border-[var(--border)] bg-[var(--bg-secondary)]">
+              <tr className="border-b border-[var(--docs-border)] bg-[var(--bg-secondary)]">
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg)]"></th>
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
                   After Effects / Premiere
@@ -440,13 +440,13 @@ export default function VideoTemplate() {
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
                   AI Video Tools
                 </th>
-                <th className="px-5 py-3 text-left font-semibold text-[var(--accent)]">
+                <th className="px-5 py-3 text-left font-semibold text-[var(--docs-accent)]">
                   Agent-Native Video
                 </th>
               </tr>
             </thead>
             <tbody className="text-[var(--fg-secondary)]">
-              <tr className="border-b border-[var(--border)]">
+              <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
                   Timeline editor
                 </td>
@@ -456,7 +456,7 @@ export default function VideoTemplate() {
                   Visual tracks + keyframes
                 </td>
               </tr>
-              <tr className="border-b border-[var(--border)]">
+              <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
                   AI assistance
                 </td>
@@ -466,7 +466,7 @@ export default function VideoTemplate() {
                   Full create + edit + iterate
                 </td>
               </tr>
-              <tr className="border-b border-[var(--border)]">
+              <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
                   Programmatic
                 </td>
@@ -474,7 +474,7 @@ export default function VideoTemplate() {
                 <td className="px-5 py-3">API-only</td>
                 <td className="px-5 py-3 text-[var(--fg)]">React components</td>
               </tr>
-              <tr className="border-b border-[var(--border)]">
+              <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
                   Customization
                 </td>
@@ -498,7 +498,7 @@ export default function VideoTemplate() {
       </section>
 
       {/* CTA */}
-      <section className="border-t border-[var(--border)] py-16 text-center">
+      <section className="border-t border-[var(--docs-border)] py-16 text-center">
         <h2 className="mb-3 text-2xl font-bold tracking-tight">
           Get started in minutes
         </h2>
@@ -516,7 +516,7 @@ export default function VideoTemplate() {
           <Link
             prefetch="render"
             to="/templates"
-            className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+            className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
           >
             View all templates
           </Link>

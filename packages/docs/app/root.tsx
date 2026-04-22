@@ -171,7 +171,7 @@ export function ErrorBoundary() {
   if (isRouteErrorResponse(error) && error.status === 404) {
     return (
       <main className="mx-auto flex min-h-[60vh] max-w-[600px] flex-col items-center justify-center px-6 text-center">
-        <div className="mb-6 text-[120px] font-bold leading-none tracking-tighter text-[var(--border)]">
+        <div className="mb-6 text-[120px] font-bold leading-none tracking-tighter text-[var(--docs-border)]">
           404
         </div>
         <h1 className="mb-3 text-2xl font-semibold tracking-tight">
@@ -191,7 +191,7 @@ export function ErrorBoundary() {
           <Link
             prefetch="render"
             to="/docs"
-            className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+            className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
           >
             Read the docs
           </Link>

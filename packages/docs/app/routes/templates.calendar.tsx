@@ -112,7 +112,7 @@ export default function CalendarTemplate() {
 
         <div className="grid gap-12 lg:grid-cols-2 lg:items-start">
           <div>
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--fg-secondary)]">
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--fg-secondary)]">
               <span
                 className="inline-block h-2 w-2 rounded-full"
                 style={{ background: template.color }}
@@ -163,7 +163,7 @@ export default function CalendarTemplate() {
             </div>
           </div>
 
-          <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)]">
+          <div className="overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)]">
             <img
               src={template.screenshot}
               alt="Calendar template screenshot"
@@ -174,8 +174,8 @@ export default function CalendarTemplate() {
       </section>
 
       {/* By the numbers */}
-      <section className="border-t border-[var(--border)] py-16">
-        <div className="mx-auto grid max-w-3xl gap-px overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--border)] sm:grid-cols-4">
+      <section className="border-t border-[var(--docs-border)] py-16">
+        <div className="mx-auto grid max-w-3xl gap-px overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--docs-border)] sm:grid-cols-4">
           {[
             { number: "3", label: "Calendar views" },
             { number: "4", label: "Agent actions" },
@@ -183,7 +183,7 @@ export default function CalendarTemplate() {
             { number: "2-way", label: "Google sync" },
           ].map((stat) => (
             <div key={stat.label} className="bg-[var(--bg)] p-6 text-center">
-              <div className="mb-1 text-2xl font-bold text-[var(--accent)]">
+              <div className="mb-1 text-2xl font-bold text-[var(--docs-accent)]">
                 {stat.number}
               </div>
               <div className="text-sm text-[var(--fg-secondary)]">
@@ -195,7 +195,7 @@ export default function CalendarTemplate() {
       </section>
 
       {/* Core capabilities */}
-      <section className="border-t border-[var(--border)] py-16">
+      <section className="border-t border-[var(--docs-border)] py-16">
         <h2 className="mb-3 text-2xl font-bold tracking-tight">
           What you can do
         </h2>
@@ -203,8 +203,8 @@ export default function CalendarTemplate() {
           Everything you need to replace your calendar and scheduling stack.
         </p>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-            <div className="mb-3 text-[var(--accent)]">
+          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
+            <div className="mb-3 text-[var(--docs-accent)]">
               <svg
                 width="20"
                 height="20"
@@ -228,8 +228,8 @@ export default function CalendarTemplate() {
               Month, week, and day views with drag-and-drop event management.
             </p>
           </div>
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-            <div className="mb-3 text-[var(--accent)]">
+          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
+            <div className="mb-3 text-[var(--docs-accent)]">
               <svg
                 width="20"
                 height="20"
@@ -251,8 +251,8 @@ export default function CalendarTemplate() {
               handles the rest.
             </p>
           </div>
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-            <div className="mb-3 text-[var(--accent)]">
+          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
+            <div className="mb-3 text-[var(--docs-accent)]">
               <svg
                 width="20"
                 height="20"
@@ -277,8 +277,8 @@ export default function CalendarTemplate() {
               durations and availability. Visitors pick a slot that works.
             </p>
           </div>
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-            <div className="mb-3 text-[var(--accent)]">
+          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
+            <div className="mb-3 text-[var(--docs-accent)]">
               <svg
                 width="20"
                 height="20"
@@ -303,9 +303,9 @@ export default function CalendarTemplate() {
       </section>
 
       {/* Google Calendar + Booking */}
-      <section className="border-t border-[var(--border)] py-16">
+      <section className="border-t border-[var(--docs-border)] py-16">
         <div className="grid gap-4 sm:grid-cols-2">
-          <div className="rounded-xl border border-[var(--border)] p-6">
+          <div className="rounded-xl border border-[var(--docs-border)] p-6">
             <h3 className="mb-2 text-base font-semibold">
               Google Calendar Sync
             </h3>
@@ -316,7 +316,7 @@ export default function CalendarTemplate() {
             <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
               <li className="flex items-start gap-2">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--accent)]"
+                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
                   width="16"
                   height="16"
                   viewBox="0 0 24 24"
@@ -332,7 +332,7 @@ export default function CalendarTemplate() {
               </li>
               <li className="flex items-start gap-2">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--accent)]"
+                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
                   width="16"
                   height="16"
                   viewBox="0 0 24 24"
@@ -348,7 +348,7 @@ export default function CalendarTemplate() {
               </li>
               <li className="flex items-start gap-2">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--accent)]"
+                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
                   width="16"
                   height="16"
                   viewBox="0 0 24 24"
@@ -364,7 +364,7 @@ export default function CalendarTemplate() {
               </li>
             </ul>
           </div>
-          <div className="rounded-xl border border-[var(--border)] p-6">
+          <div className="rounded-xl border border-[var(--docs-border)] p-6">
             <h3 className="mb-2 text-base font-semibold">
               Calendly-Style Booking
             </h3>
@@ -375,7 +375,7 @@ export default function CalendarTemplate() {
             <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
               <li className="flex items-start gap-2">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--accent)]"
+                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
                   width="16"
                   height="16"
                   viewBox="0 0 24 24"
@@ -391,7 +391,7 @@ export default function CalendarTemplate() {
               </li>
               <li className="flex items-start gap-2">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--accent)]"
+                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
                   width="16"
                   height="16"
                   viewBox="0 0 24 24"
@@ -407,7 +407,7 @@ export default function CalendarTemplate() {
               </li>
               <li className="flex items-start gap-2">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--accent)]"
+                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
                   width="16"
                   height="16"
                   viewBox="0 0 24 24"
@@ -427,7 +427,7 @@ export default function CalendarTemplate() {
       </section>
 
       {/* Agent actions */}
-      <section className="border-t border-[var(--border)] py-16">
+      <section className="border-t border-[var(--docs-border)] py-16">
         <div className="grid gap-8 lg:grid-cols-2 lg:items-center">
           <div>
             <h2 className="mb-3 text-2xl font-bold tracking-tight">
@@ -440,7 +440,7 @@ export default function CalendarTemplate() {
             <ul className="m-0 list-none space-y-3 p-0 text-sm text-[var(--fg-secondary)]">
               <li className="flex items-start gap-2">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--accent)]"
+                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
                   width="16"
                   height="16"
                   viewBox="0 0 24 24"
@@ -456,7 +456,7 @@ export default function CalendarTemplate() {
               </li>
               <li className="flex items-start gap-2">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--accent)]"
+                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
                   width="16"
                   height="16"
                   viewBox="0 0 24 24"
@@ -472,7 +472,7 @@ export default function CalendarTemplate() {
               </li>
               <li className="flex items-start gap-2">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--accent)]"
+                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
                   width="16"
                   height="16"
                   viewBox="0 0 24 24"
@@ -488,7 +488,7 @@ export default function CalendarTemplate() {
               </li>
               <li className="flex items-start gap-2">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--accent)]"
+                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
                   width="16"
                   height="16"
                   viewBox="0 0 24 24"
@@ -504,34 +504,34 @@ export default function CalendarTemplate() {
               </li>
             </ul>
           </div>
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-6">
+          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-6">
             <div className="space-y-3 font-mono text-sm">
               <div className="text-[var(--fg-secondary)]">
                 {"// Available agent actions"}
               </div>
               <div>
-                <span className="text-[var(--accent)]">$</span>{" "}
+                <span className="text-[var(--docs-accent)]">$</span>{" "}
                 <span className="text-[var(--fg)]">
                   pnpm action sync-google-calendar --from 2026-01-01 --to
                   2026-06-01
                 </span>
               </div>
               <div>
-                <span className="text-[var(--accent)]">$</span>{" "}
+                <span className="text-[var(--docs-accent)]">$</span>{" "}
                 <span className="text-[var(--fg)]">
                   pnpm action create-event --title "Team Standup" --start
                   "2026-03-15T09:00"
                 </span>
               </div>
               <div>
-                <span className="text-[var(--accent)]">$</span>{" "}
+                <span className="text-[var(--docs-accent)]">$</span>{" "}
                 <span className="text-[var(--fg)]">
                   pnpm action check-availability --date "2026-03-18" --duration
                   30
                 </span>
               </div>
               <div>
-                <span className="text-[var(--accent)]">$</span>{" "}
+                <span className="text-[var(--docs-accent)]">$</span>{" "}
                 <span className="text-[var(--fg)]">
                   pnpm action list-events --from "2026-03-14" --to "2026-03-21"
                 </span>
@@ -542,14 +542,14 @@ export default function CalendarTemplate() {
       </section>
 
       {/* Comparison table */}
-      <section className="border-t border-[var(--border)] py-16">
+      <section className="border-t border-[var(--docs-border)] py-16">
         <h2 className="mb-8 text-2xl font-bold tracking-tight">
           How it compares
         </h2>
-        <div className="overflow-hidden rounded-xl border border-[var(--border)]">
+        <div className="overflow-hidden rounded-xl border border-[var(--docs-border)]">
           <table className="comparison-table w-full text-sm">
             <thead>
-              <tr className="border-b border-[var(--border)] bg-[var(--bg-secondary)]">
+              <tr className="border-b border-[var(--docs-border)] bg-[var(--bg-secondary)]">
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg)]"></th>
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
                   Google Calendar
@@ -557,13 +557,13 @@ export default function CalendarTemplate() {
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
                   Calendly
                 </th>
-                <th className="px-5 py-3 text-left font-semibold text-[var(--accent)]">
+                <th className="px-5 py-3 text-left font-semibold text-[var(--docs-accent)]">
                   Agent-Native Calendar
                 </th>
               </tr>
             </thead>
             <tbody className="text-[var(--fg-secondary)]">
-              <tr className="border-b border-[var(--border)]">
+              <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
                   Calendar UI
                 </td>
@@ -573,7 +573,7 @@ export default function CalendarTemplate() {
                   Full, fully customizable
                 </td>
               </tr>
-              <tr className="border-b border-[var(--border)]">
+              <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
                   AI scheduling
                 </td>
@@ -583,7 +583,7 @@ export default function CalendarTemplate() {
                   Natural language, full control
                 </td>
               </tr>
-              <tr className="border-b border-[var(--border)]">
+              <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
                   Booking page
                 </td>
@@ -593,7 +593,7 @@ export default function CalendarTemplate() {
                   Fully customizable, own domain
                 </td>
               </tr>
-              <tr className="border-b border-[var(--border)]">
+              <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
                   Customization
                 </td>
@@ -617,7 +617,7 @@ export default function CalendarTemplate() {
       </section>
 
       {/* CTA */}
-      <section className="border-t border-[var(--border)] py-16 text-center">
+      <section className="border-t border-[var(--docs-border)] py-16 text-center">
         <h2 className="mb-3 text-2xl font-bold tracking-tight">
           Get started in minutes
         </h2>
@@ -636,7 +636,7 @@ export default function CalendarTemplate() {
           <Link
             prefetch="render"
             to="/templates"
-            className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+            className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
           >
             View all templates
           </Link>

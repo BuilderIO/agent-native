@@ -112,7 +112,7 @@ export default function ContentTemplate() {
 
         <div className="grid gap-12 lg:grid-cols-2 lg:items-start">
           <div>
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--fg-secondary)]">
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--fg-secondary)]">
               <span
                 className="inline-block h-2 w-2 rounded-full"
                 style={{ background: template.color }}
@@ -162,7 +162,7 @@ export default function ContentTemplate() {
             </div>
           </div>
 
-          <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)]">
+          <div className="overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)]">
             <img
               src={template.screenshot}
               alt="Content template screenshot"
@@ -173,10 +173,10 @@ export default function ContentTemplate() {
       </section>
 
       {/* How it works - 3 panels */}
-      <section className="border-t border-[var(--border)] py-16">
-        <div className="mx-auto grid max-w-3xl gap-px overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--border)] sm:grid-cols-3">
+      <section className="border-t border-[var(--docs-border)] py-16">
+        <div className="mx-auto grid max-w-3xl gap-px overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--docs-border)] sm:grid-cols-3">
           <div className="bg-[var(--bg)] p-6 text-center">
-            <div className="mb-3 flex justify-center text-[var(--accent)]">
+            <div className="mb-3 flex justify-center text-[var(--docs-accent)]">
               <svg
                 width="24"
                 height="24"
@@ -243,7 +243,7 @@ export default function ContentTemplate() {
       </section>
 
       {/* Core features */}
-      <section className="border-t border-[var(--border)] py-16">
+      <section className="border-t border-[var(--docs-border)] py-16">
         <h2 className="mb-3 text-2xl font-bold tracking-tight">
           Everything you need
         </h2>
@@ -251,28 +251,28 @@ export default function ContentTemplate() {
           A complete content workspace — like Notion, but you own the code.
         </p>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
+          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
             <h3 className="mb-1 text-sm font-semibold">Projects & Documents</h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
               Organize into projects with nested documents. Sidebar tree nav and
               search.
             </p>
           </div>
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
+          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
             <h3 className="mb-1 text-sm font-semibold">Brand-Aware AI</h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
               The agent learns your voice, style guide, and tone. Every draft
               sounds like you.
             </p>
           </div>
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
+          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
             <h3 className="mb-1 text-sm font-semibold">Notion Import/Export</h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
               Two-way Notion sync. Import pages from Notion, edit locally, and
               push changes back.
             </p>
           </div>
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
+          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
             <h3 className="mb-1 text-sm font-semibold">
               Code Block Syntax Highlighting
             </h3>
@@ -281,14 +281,14 @@ export default function ContentTemplate() {
               formatting built in.
             </p>
           </div>
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
+          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
             <h3 className="mb-1 text-sm font-semibold">Script Automation</h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
               Batch content generation, cross-referencing, and publishing
               pipelines.
             </p>
           </div>
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
+          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
             <h3 className="mb-1 text-sm font-semibold">Self-Improving</h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
               The agent modifies the app itself. Need a new workflow? Just ask.
@@ -298,7 +298,7 @@ export default function ContentTemplate() {
       </section>
 
       {/* Publishing highlight */}
-      <section className="border-t border-[var(--border)] py-16">
+      <section className="border-t border-[var(--docs-border)] py-16">
         <div className="grid gap-8 lg:grid-cols-2 lg:items-center">
           <div>
             <h2 className="mb-3 text-2xl font-bold tracking-tight">
@@ -311,7 +311,7 @@ export default function ContentTemplate() {
             <ul className="m-0 list-none space-y-3 p-0 text-sm text-[var(--fg-secondary)]">
               <li className="flex items-start gap-2">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--accent)]"
+                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
                   width="16"
                   height="16"
                   viewBox="0 0 24 24"
@@ -327,7 +327,7 @@ export default function ContentTemplate() {
               </li>
               <li className="flex items-start gap-2">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--accent)]"
+                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
                   width="16"
                   height="16"
                   viewBox="0 0 24 24"
@@ -343,7 +343,7 @@ export default function ContentTemplate() {
               </li>
               <li className="flex items-start gap-2">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--accent)]"
+                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
                   width="16"
                   height="16"
                   viewBox="0 0 24 24"
@@ -359,7 +359,7 @@ export default function ContentTemplate() {
               </li>
               <li className="flex items-start gap-2">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--accent)]"
+                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
                   width="16"
                   height="16"
                   viewBox="0 0 24 24"
@@ -375,31 +375,31 @@ export default function ContentTemplate() {
               </li>
             </ul>
           </div>
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-6">
+          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-6">
             <div className="space-y-3 font-mono text-sm">
               <div className="text-[var(--fg-secondary)]">
                 {"// Agent publishing workflow"}
               </div>
               <div>
-                <span className="text-[var(--accent)]">1.</span>{" "}
+                <span className="text-[var(--docs-accent)]">1.</span>{" "}
                 <span className="text-[var(--fg)]">
                   Draft content in editor
                 </span>
               </div>
               <div>
-                <span className="text-[var(--accent)]">2.</span>{" "}
+                <span className="text-[var(--docs-accent)]">2.</span>{" "}
                 <span className="text-[var(--fg)]">
                   "Publish this to WordPress"
                 </span>
               </div>
               <div>
-                <span className="text-[var(--accent)]">3.</span>{" "}
+                <span className="text-[var(--docs-accent)]">3.</span>{" "}
                 <span className="text-[var(--fg)]">
                   Agent runs publish script
                 </span>
               </div>
               <div>
-                <span className="text-[var(--accent)]">4.</span>{" "}
+                <span className="text-[var(--docs-accent)]">4.</span>{" "}
                 <span className="text-[var(--fg)]">
                   Content live on your site
                 </span>
@@ -410,14 +410,14 @@ export default function ContentTemplate() {
       </section>
 
       {/* Comparison table */}
-      <section className="border-t border-[var(--border)] py-16">
+      <section className="border-t border-[var(--docs-border)] py-16">
         <h2 className="mb-8 text-2xl font-bold tracking-tight">
           How it compares
         </h2>
-        <div className="overflow-hidden rounded-xl border border-[var(--border)]">
+        <div className="overflow-hidden rounded-xl border border-[var(--docs-border)]">
           <table className="comparison-table w-full text-sm">
             <thead>
-              <tr className="border-b border-[var(--border)] bg-[var(--bg-secondary)]">
+              <tr className="border-b border-[var(--docs-border)] bg-[var(--bg-secondary)]">
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg)]"></th>
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
                   Notion / Google Docs
@@ -425,13 +425,13 @@ export default function ContentTemplate() {
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
                   ChatGPT / Claude
                 </th>
-                <th className="px-5 py-3 text-left font-semibold text-[var(--accent)]">
+                <th className="px-5 py-3 text-left font-semibold text-[var(--docs-accent)]">
                   Agent-Native Content
                 </th>
               </tr>
             </thead>
             <tbody className="text-[var(--fg-secondary)]">
-              <tr className="border-b border-[var(--border)]">
+              <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
                   Editor UI
                 </td>
@@ -441,7 +441,7 @@ export default function ContentTemplate() {
                   Full, customizable
                 </td>
               </tr>
-              <tr className="border-b border-[var(--border)]">
+              <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
                   Brand awareness
                 </td>
@@ -451,7 +451,7 @@ export default function ContentTemplate() {
                   Persistent, trained
                 </td>
               </tr>
-              <tr className="border-b border-[var(--border)]">
+              <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
                   CMS publishing
                 </td>
@@ -461,7 +461,7 @@ export default function ContentTemplate() {
                   Integrated workflow
                 </td>
               </tr>
-              <tr className="border-b border-[var(--border)]">
+              <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
                   Customization
                 </td>
@@ -485,7 +485,7 @@ export default function ContentTemplate() {
       </section>
 
       {/* CTA */}
-      <section className="border-t border-[var(--border)] py-16 text-center">
+      <section className="border-t border-[var(--docs-border)] py-16 text-center">
         <h2 className="mb-3 text-2xl font-bold tracking-tight">
           Get started in minutes
         </h2>
@@ -503,7 +503,7 @@ export default function ContentTemplate() {
           <Link
             prefetch="render"
             to="/templates"
-            className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+            className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
           >
             View all templates
           </Link>
