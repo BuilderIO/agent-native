@@ -84,16 +84,17 @@ You do NOT get auto-injected screen state. **Call `pnpm action view-screen` at t
 
 Skills in `.agents/skills/` provide detailed guidance for each architectural rule. Read them before making changes.
 
-| Skill                 | When to read                                                   |
-| --------------------- | -------------------------------------------------------------- |
-| `storing-data`        | Before storing or reading any app state                        |
-| `delegate-to-agent`   | Before adding LLM calls or AI delegation                       |
-| `actions`             | Before creating or modifying actions                           |
-| `real-time-sync`      | Before wiring up real-time UI sync                             |
-| `self-modifying-code` | Before editing source, components, or styles                   |
-| `capture-learnings`   | Before recording user preferences or corrections               |
-| `frontend-design`     | Before building or restyling any UI component, page, or layout |
-| `agent-engines`       | Before switching LLM providers or registering a custom engine  |
+| Skill                 | When to read                                                    |
+| --------------------- | --------------------------------------------------------------- |
+| `storing-data`        | Before storing or reading any app state                         |
+| `delegate-to-agent`   | Before adding LLM calls or AI delegation                        |
+| `actions`             | Before creating or modifying actions                            |
+| `real-time-sync`      | Before wiring up real-time UI sync                              |
+| `self-modifying-code` | Before editing source, components, or styles                    |
+| `capture-learnings`   | Before recording user preferences or corrections                |
+| `frontend-design`     | Before building or restyling any UI component, page, or layout  |
+| `agent-engines`       | Before switching LLM providers or registering a custom engine   |
+| `notifications`       | Before surfacing alerts/progress to the user or adding channels |
 
 ## When Adding Features
 
