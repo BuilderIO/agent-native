@@ -189,7 +189,7 @@ function UseBuilderCard({
       </p>
       {showComingSoon ? (
         <a
-          href="https://forms.gle/WGpRR5ENCwEppFWL7"
+          href="https://forms.agent-native.com/f/builder-waitlist/36GWqf"
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1 mt-2.5 rounded bg-foreground px-2.5 py-1 text-[10px] font-medium no-underline text-background hover:opacity-90"
