@@ -394,6 +394,9 @@ importers:
       '@tailwindcss/vite':
         specifier: ^4.1.18
         version: 4.2.2(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
+      '@tanstack/react-query':
+        specifier: ^5.99.2
+        version: 5.99.2(react@19.2.4)
       gray-matter:
         specifier: ^4.0.3
         version: 4.0.3
@@ -421,6 +424,9 @@ importers:
       tailwindcss:
         specifier: ^4.1.18
         version: 4.2.2
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
     devDependencies:
       '@tailwindcss/typography':
         specifier: ^0.5.16
@@ -443,6 +449,9 @@ importers:
       jsdom:
         specifier: ^29.0.2
         version: 29.0.2(@noble/hashes@2.0.1)(canvas@3.2.3)
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -20214,6 +20223,11 @@ snapshots:
       vite: 8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
 
   '@tanstack/query-core@5.99.2': {}
+
+  '@tanstack/react-query@5.99.2(react@19.2.4)':
+    dependencies:
+      '@tanstack/query-core': 5.99.2
+      react: 19.2.4
 
   '@tanstack/react-query@5.99.2(react@19.2.5)':
     dependencies:
