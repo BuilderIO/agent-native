@@ -81,7 +81,7 @@ export function buildAssistantMessage(
     id: `server-${runId ?? Date.now()}`,
     role: "assistant",
     content,
-    metadata: {},
+    metadata: runId ? { runId } : {},
   };
 }
 

@@ -263,7 +263,7 @@ async function initClient(): Promise<void> {
     return;
   }
 
-  const url = getDatabaseUrl("file:./data/app.db");
+  let url = getDatabaseUrl("file:./data/app.db");
 
   // Postgres — uses postgres.js. Works on Node.js natively and on Cloudflare
   // Workers with the nodejs_compat compatibility flag (provides net/tls polyfills).
@@ -365,9 +365,22 @@ async function initClient(): Promise<void> {
 
   // SQLite / libsql (default)
   if (url.startsWith("file:")) {
+    // On serverless runtimes (Netlify, AWS Lambda) the working directory is
+    // read-only. Detect this and redirect local SQLite to /tmp which IS
+    // writable (ephemeral per invocation, but the server stays alive for the
+    // duration of the request).
+    const isServerless =
+      !!process.env.NETLIFY ||
+      !!process.env.AWS_LAMBDA_FUNCTION_NAME ||
+      !!process.env.LAMBDA_TASK_ROOT;
     try {
       const fs = await import("fs");
-      fs.mkdirSync(path.join(process.cwd(), "data"), { recursive: true });
+      if (isServerless && url === "file:./data/app.db") {
+        fs.mkdirSync("/tmp/data", { recursive: true });
+        url = "file:///tmp/data/app.db";
+      } else {
+        fs.mkdirSync(path.join(process.cwd(), "data"), { recursive: true });
+      }
     } catch {
       // Edge runtime — no filesystem
     }

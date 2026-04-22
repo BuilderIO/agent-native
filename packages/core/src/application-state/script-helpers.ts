@@ -1,10 +1,17 @@
 /**
- * Application state helpers for use in scripts.
+ * Application state helpers for use in scripts and actions.
  *
- * Scripts run as standalone processes without HTTP context.
- * The session ID is resolved from the AGENT_USER_EMAIL env var
- * (set by the agent runtime for per-user data isolation), defaulting to
- * "local" for backward compatibility in dev mode.
+ * The session ID determines which user's application state is read/written.
+ * Resolution order:
+ *   1. Per-request context (AsyncLocalStorage) — set by the HTTP handler
+ *   2. AGENT_USER_EMAIL env var — set by agent runtime or CLI
+ *   3. Most recent session in the DB — fallback for CLI scripts
+ *   4. "local" — last resort
+ *
+ * The per-request context is critical in multi-user deployments: the env var
+ * is process-global and gets overwritten by concurrent requests, so it cannot
+ * reliably identify the caller. Only CLI scripts (single-user, no HTTP
+ * context) should fall through to the env var or DB-lookup paths.
  */
 
 import {
@@ -16,27 +23,39 @@ import {
 } from "./store.js";
 import { getDbExec } from "../db/client.js";
 
-let _resolvedSessionId: string | undefined;
+// Fallback session ID for CLI scripts (no per-request context).
+// Cached after first resolution so repeated CLI calls don't hit the DB.
+let _cliFallbackSessionId: string | undefined;
 
 /**
- * Resolve session ID, checking AGENT_USER_EMAIL first, then falling back to
- * the most recent session in the DB. This ensures CLI actions write to the
- * same session partition as the logged-in UI user.
+ * Resolve session ID for the current caller.
+ *
+ * In an HTTP/action context, uses the per-request user email from
+ * AsyncLocalStorage so concurrent users don't collide.
+ * In a CLI context (no request), falls back to AGENT_USER_EMAIL or the
+ * most recent session in the DB.
  */
 async function resolveSessionId(): Promise<string> {
-  if (_resolvedSessionId) return _resolvedSessionId;
+  // 1. Per-request context (AsyncLocalStorage) — always preferred
+  try {
+    const { getRequestUserEmail } = await import(
+      "../server/request-context.js"
+    );
+    const ctxEmail = getRequestUserEmail();
+    if (ctxEmail && ctxEmail !== "local@localhost") return ctxEmail;
+    if (ctxEmail === "local@localhost") return "local";
+  } catch {
+    // request-context module not available (e.g. edge runtime) — fall through
+  }
 
+  // 2. AGENT_USER_EMAIL env var (CLI scripts)
   const email = process.env.AGENT_USER_EMAIL;
-  if (email && email !== "local@localhost") {
-    _resolvedSessionId = email;
-    return email;
-  }
-  if (email === "local@localhost") {
-    _resolvedSessionId = "local";
-    return "local";
-  }
+  if (email && email !== "local@localhost") return email;
+  if (email === "local@localhost") return "local";
 
-  // No AGENT_USER_EMAIL set — check DB for the most recent session
+  // 3. DB fallback — cached per-process for CLI scripts only
+  if (_cliFallbackSessionId) return _cliFallbackSessionId;
+
   try {
     const db = getDbExec();
     const { rows } = await db.execute({
@@ -46,7 +65,7 @@ async function resolveSessionId(): Promise<string> {
     if (rows[0]) {
       const dbEmail = rows[0].email as string;
       if (dbEmail && dbEmail !== "local@localhost") {
-        _resolvedSessionId = dbEmail;
+        _cliFallbackSessionId = dbEmail;
         return dbEmail;
       }
     }
@@ -54,7 +73,7 @@ async function resolveSessionId(): Promise<string> {
     // sessions table may not exist yet — fall through
   }
 
-  _resolvedSessionId = "local";
+  _cliFallbackSessionId = "local";
   return "local";
 }
 
