@@ -63,7 +63,7 @@ function buildSlackPayload(submission: SubmissionPayload) {
         elements: [
           {
             type: "mrkdwn",
-            text: `Submitted ${submission.submittedAt}`,
+            text: `Submitted <!date^${Math.floor(new Date(submission.submittedAt).getTime() / 1000)}^{date_short_pretty} at {time}|${submission.submittedAt}>`,
           },
         ],
       },
