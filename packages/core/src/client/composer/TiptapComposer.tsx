@@ -156,6 +156,23 @@ function ModeSelector({
   );
 }
 
+const MODEL_DISPLAY_NAMES: Record<string, string> = {
+  "claude-opus-4-7": "Opus 4.7",
+  "claude-sonnet-4-6": "Sonnet 4.6",
+  "claude-haiku-4-5-20251001": "Haiku 4.5",
+  "gpt-5.4": "GPT-5.4",
+  "gpt-5.4-mini": "GPT-5.4 mini",
+  o3: "o3",
+  "o4-mini": "o4-mini",
+  "gemini-2.5-flash": "Gemini 2.5 Flash",
+  "gemini-3-flash-preview": "Gemini 3 Flash",
+  "gemini-3.1-pro-preview": "Gemini 3.1 Pro",
+};
+
+function friendlyModelName(model: string): string {
+  return MODEL_DISPLAY_NAMES[model] ?? model;
+}
+
 function ModelSelector({
   model,
   engines,
@@ -179,7 +196,7 @@ function ModelSelector({
           type="button"
           className="shrink-0 flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent/50"
         >
-          {model}
+          {friendlyModelName(model)}
           <IconChevronDown className="h-3 w-3 opacity-60" />
         </button>
       </PopoverPrimitive.Trigger>
@@ -225,7 +242,7 @@ function ModelSelector({
                   }`}
                 >
                   <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
-                    {m}
+                    {friendlyModelName(m)}
                   </span>
                   {m === model && group.configured && (
                     <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
