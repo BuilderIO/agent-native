@@ -95,6 +95,7 @@ Skills in `.agents/skills/` provide detailed guidance for each architectural rul
 | `frontend-design`     | Before building or restyling any UI component, page, or layout  |
 | `agent-engines`       | Before switching LLM providers or registering a custom engine   |
 | `notifications`       | Before surfacing alerts/progress to the user or adding channels |
+| `progress`            | Before running any task that takes more than a few seconds      |
 
 ## When Adding Features
 

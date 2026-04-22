@@ -2006,6 +2006,12 @@ export function createAgentChatPlugin(
           () => _currentRunOwner,
         );
       } catch {}
+      let progressTools: Record<string, ActionEntry> = {};
+      try {
+        const { createProgressToolEntries } =
+          await import("../progress/actions.js");
+        progressTools = createProgressToolEntries(() => _currentRunOwner);
+      } catch {}
       let fetchTool: Record<string, ActionEntry> = {};
       try {
         const { createFetchToolEntry } = await import("../tools/fetch-tool.js");
@@ -2043,6 +2049,7 @@ export function createAgentChatPlugin(
             ...callAgentScript,
             ...automationTools,
             ...notificationTools,
+            ...progressTools,
             ...fetchTool,
             ...browserTools,
             ...devScriptsForA2A,
@@ -2059,6 +2066,7 @@ export function createAgentChatPlugin(
             ...callAgentScript,
             ...automationTools,
             ...notificationTools,
+            ...progressTools,
             ...fetchTool,
             ...browserTools,
             ...devScriptsForA2A,
@@ -2588,6 +2596,7 @@ export function createAgentChatPlugin(
         ...jobTools,
         ...automationTools,
         ...notificationTools,
+        ...progressTools,
         ...fetchTool,
         ...browserTools,
         ...mcpActionEntries,
@@ -2694,6 +2703,7 @@ export function createAgentChatPlugin(
               ...jobTools,
               ...automationTools,
               ...notificationTools,
+              ...progressTools,
               ...fetchTool,
               ...browserTools,
               ...mcpActionEntries,
@@ -3785,6 +3795,7 @@ export function createAgentChatPlugin(
             ...jobTools,
             ...automationTools,
             ...notificationTools,
+            ...progressTools,
             ...fetchTool,
           }),
           getSystemPrompt: async (owner: string) => {
@@ -3823,6 +3834,7 @@ export function createAgentChatPlugin(
             ...jobTools,
             ...automationTools,
             ...notificationTools,
+            ...progressTools,
             ...fetchTool,
           }),
           getSystemPrompt: async (owner: string) => {
