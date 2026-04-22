@@ -26,27 +26,27 @@ The Neon/Netlify specifics live in the workflow and each template's
 
 ## Required GitHub secrets
 
-| Secret                | Where to get it                              |
-| --------------------- | -------------------------------------------- |
-| `NEON_API_KEY`        | Neon dashboard → Account → API Keys          |
-| `NETLIFY_AUTH_TOKEN`  | Netlify User Settings → Personal Access Token|
-| `NETLIFY_ACCOUNT_ID`  | Netlify team settings → Team ID              |
+| Secret               | Where to get it                               |
+| -------------------- | --------------------------------------------- |
+| `NEON_API_KEY`       | Neon dashboard → Account → API Keys           |
+| `NETLIFY_AUTH_TOKEN` | Netlify User Settings → Personal Access Token |
+| `NETLIFY_ACCOUNT_ID` | Netlify team settings → Team ID               |
 
 ## Site ↔ Neon project mapping
 
 Defined in the workflow's matrix. Update it when adding a new hosted template.
 
-| Template  | Neon project ID            | Netlify site ID                      |
-| --------- | -------------------------- | ------------------------------------ |
-| analytics | dry-shadow-75673589        | ba983662-dac4-478d-a481-5079e67e4d33 |
-| calendar  | super-fire-75593365        | 954fe53b-052e-4401-aac2-2e973e498af8 |
-| clips     | aged-glitter-95425960      | 7e3f4fee-258d-4d16-9aaf-154a714e87e2 |
-| content   | quiet-heart-51077706       | 5c2198f5-bee4-41c3-8a6d-4869f400eec2 |
-| forms     | curly-glade-91979555       | aa0b2020-9983-4d6c-8fb0-65462f960fc4 |
-| issues    | crimson-wave-50288362      | 76b94d46-f566-43cd-bddd-01123137ab9a |
-| mail      | patient-cake-44789837      | dee98bb0-6143-4205-8c04-afe7bf83d5b5 |
-| slides    | hidden-thunder-16834477    | fd5deb5b-5539-47e1-830c-e5fb5e105efd |
-| videos    | soft-pine-75308618         | 3f0c2cd2-06cd-4ab8-bfb4-c199430d1dac |
+| Template  | Neon project ID         | Netlify site ID                      |
+| --------- | ----------------------- | ------------------------------------ |
+| analytics | dry-shadow-75673589     | ba983662-dac4-478d-a481-5079e67e4d33 |
+| calendar  | super-fire-75593365     | 954fe53b-052e-4401-aac2-2e973e498af8 |
+| clips     | aged-glitter-95425960   | 7e3f4fee-258d-4d16-9aaf-154a714e87e2 |
+| content   | quiet-heart-51077706    | 5c2198f5-bee4-41c3-8a6d-4869f400eec2 |
+| forms     | curly-glade-91979555    | aa0b2020-9983-4d6c-8fb0-65462f960fc4 |
+| issues    | crimson-wave-50288362   | 76b94d46-f566-43cd-bddd-01123137ab9a |
+| mail      | patient-cake-44789837   | dee98bb0-6143-4205-8c04-afe7bf83d5b5 |
+| slides    | hidden-thunder-16834477 | fd5deb5b-5539-47e1-830c-e5fb5e105efd |
+| videos    | soft-pine-75308618      | 3f0c2cd2-06cd-4ab8-bfb4-c199430d1dac |
 
 ## Schema changes
 
