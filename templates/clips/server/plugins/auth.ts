@@ -6,9 +6,11 @@ export default createAuthPlugin({
   publicPaths: [
     "/share",
     "/embed",
+    "/download",
     "/api/view-event",
     "/api/public-recording",
     "/api/media",
+    "/api/clips-latest.json",
     // Blob-serving for the dev-fallback (no provider) path.
     // The route itself enforces resolveAccess + password/expiry checks;
     // we add it to publicPaths so anonymous viewers on /share/:id can

@@ -581,7 +581,12 @@ function startPollLoop(
       if (!config?.configData?.enabled) return;
       await processChanges(options);
     } catch (err) {
-      console.error("[google-docs] Poller error:", err);
+      // Unwrap ErrorEvent (Neon WS driver emits these on network failure) so logs show the real cause
+      const detail =
+        err instanceof Error
+          ? err
+          : ((err as any)?.error ?? (err as any)?.message ?? err);
+      console.error("[google-docs] Poller error:", detail);
     }
   }
 

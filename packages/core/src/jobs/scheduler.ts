@@ -179,7 +179,12 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
       await executeJob(resource, meta, body, deps, now);
     }
   } catch (err) {
-    console.error("[recurring-jobs] Error processing jobs:", err);
+    // Unwrap ErrorEvent (Neon WS driver emits these on network failure) so logs show the real cause
+    const detail =
+      err instanceof Error
+        ? err
+        : ((err as any)?.error ?? (err as any)?.message ?? err);
+    console.error("[recurring-jobs] Error processing jobs:", detail);
   } finally {
     _isRunning = false;
   }
