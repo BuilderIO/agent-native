@@ -52,10 +52,16 @@ function getClientDedupe(cwd: string): string[] {
   ]);
 
   try {
-    // Read core's peerDependencies
     const corePkgPath = path.resolve(__dirname, "../../package.json");
     const corePkg = JSON.parse(fs.readFileSync(corePkgPath, "utf-8"));
-    const corePeers = Object.keys(corePkg.peerDependencies ?? {});
+
+    // Scan both peerDependencies and dependencies. Direct deps like
+    // @radix-ui/* use React internally — they must resolve against the
+    // app's React, not a second copy inside core's node_modules.
+    const coreDeps = new Set([
+      ...Object.keys(corePkg.peerDependencies ?? {}),
+      ...Object.keys(corePkg.dependencies ?? {}),
+    ]);
 
     // Read the consuming app's dependencies
     const appPkg = JSON.parse(
@@ -66,9 +72,13 @@ function getClientDedupe(cwd: string): string[] {
       ...Object.keys(appPkg.devDependencies ?? {}),
     ]);
 
-    for (const dep of corePeers) {
+    for (const dep of coreDeps) {
       if (serverOnly.has(dep)) continue;
-      if (appDeps.has(dep)) always.add(dep);
+      // Dedupe if the app also declares it, OR if it's a React-based
+      // UI library (Radix, Tanstack) that must share the app's React.
+      if (appDeps.has(dep) || dep.startsWith("@radix-ui/") || dep.startsWith("@tanstack/")) {
+        always.add(dep);
+      }
     }
   } catch {
     // Can't read package.json — fall back to known singletons
