@@ -296,11 +296,11 @@ ${
   googleOnly
     ? ""
     : `  <div class="tabs">
-    <button class="tab active" data-tab="signup">Create account</button>
+    <button class="tab" data-tab="signup">Create account</button>
     <button class="tab" data-tab="login">Sign in</button>
   </div>
 
-  <form id="signup-form" class="form active">
+  <form id="signup-form" class="form">
     <label for="s-email">Email</label>
     <input id="s-email" type="email" autocomplete="email" autofocus placeholder="you@example.com" required />
     <label for="s-pass">Password</label>
@@ -351,13 +351,38 @@ ${localModeBlock}
 ${
   googleOnly
     ? ""
-    : `  var tabs = document.querySelectorAll('.tab');
+    : `  var TAB_STORAGE_KEY = 'an.onboarding.tab';
+  var tabs = document.querySelectorAll('.tab');
   var forms = document.querySelectorAll('.form');
-  tabs.forEach(function(t) { t.addEventListener('click', function() {
+  function setActiveTab(name, opts) {
+    if (name !== 'signup' && name !== 'login') return;
+    var form = document.getElementById(name + '-form');
+    if (!form) return;
     tabs.forEach(function(x) { x.classList.remove('active'); });
     forms.forEach(function(x) { x.classList.remove('active'); });
-    t.classList.add('active');
-    document.getElementById(t.dataset.tab + '-form').classList.add('active');
+    var btn = document.querySelector('.tab[data-tab="' + name + '"]');
+    if (btn) btn.classList.add('active');
+    form.classList.add('active');
+    if (opts && opts.persist) {
+      try { localStorage.setItem(TAB_STORAGE_KEY, name); } catch (e) {}
+    }
+  }
+  (function initActiveTab() {
+    var initial = 'signup';
+    try {
+      var params = new URLSearchParams(location.search);
+      var qp = params.get('tab');
+      if (qp === 'login' || qp === 'signup') {
+        initial = qp;
+      } else {
+        var stored = localStorage.getItem(TAB_STORAGE_KEY);
+        if (stored === 'login' || stored === 'signup') initial = stored;
+      }
+    } catch (e) {}
+    setActiveTab(initial, { persist: false });
+  })();
+  tabs.forEach(function(t) { t.addEventListener('click', function() {
+    setActiveTab(t.dataset.tab, { persist: true });
   }); });
 
   document.getElementById('signup-form').addEventListener('submit', async function(e) {

@@ -330,7 +330,7 @@ async function createDbScriptEntries(): Promise<Record<string, ActionEntry>> {
       "db-query": wrapCliScript(
         {
           description:
-            "Read from the app's SQL database. Runs a SELECT (or WITH/EXPLAIN/PRAGMA) against the app's own tables — settings, application_state, and all template tables. Results are automatically scoped to the current user/org; DO NOT add `WHERE owner_email = ...` yourself. This queries the APP DATABASE — not any external data source.",
+            "Read from the app's own SQL database ONLY. Runs a SELECT against the app's internal tables (settings, application_state, template tables). Results are auto-scoped to the current user/org. IMPORTANT: This tool CANNOT access external data sources like BigQuery, dbt models, HubSpot, Jira, GA4, etc. For those, use the appropriate template action (e.g. `bigquery` for BigQuery/dbt tables, `ga4-report` for Google Analytics). If a table isn't in the app schema, don't try db-query — use the data-source-specific action.",
           parameters: {
             type: "object",
             properties: {
@@ -359,7 +359,7 @@ async function createDbScriptEntries(): Promise<Record<string, ActionEntry>> {
       "db-exec": wrapCliScript(
         {
           description:
-            "Write to the app's SQL database. Runs INSERT / UPDATE / DELETE against the app's own tables. Writes are automatically scoped to the current user/org, and `owner_email` / `org_id` are auto-injected on INSERT. Use this to update rows in the settings table (e.g. edit a dashboard config stored under `o:<orgId>:sql-dashboard-<id>`). This writes to the APP DATABASE — not any external data source.",
+            "Write to the app's own SQL database ONLY. Runs INSERT / UPDATE / DELETE against the app's internal tables. Writes are auto-scoped to the current user/org, and `owner_email` / `org_id` are auto-injected on INSERT. IMPORTANT: This tool CANNOT write to external data sources like BigQuery, dbt, HubSpot, etc. For external services, use the appropriate template action.",
           parameters: {
             type: "object",
             properties: {
@@ -1598,6 +1598,8 @@ ${lines.join("\n")}`;
   return `\n\n## Available Actions
 
 **Use these actions directly to accomplish tasks. Do NOT use \`db-schema\`, \`search-files\`, or \`shell\` to explore the app — these actions already connect to the correct database and services.**
+
+**For external data sources (BigQuery, HubSpot, Jira, GA4, etc.), use the data-source-specific action below — NOT \`db-query\`.** \`db-query\` only reaches the app's own internal database. If the user asks about tables not in the app schema, pick the matching action here.
 
 Parameter notation: \`name*\` = required, \`name?\` = optional. Always pass the tool's parameters as a JSON object to the tool_use call — never via shell or string-concatenated CLI flags.
 
