@@ -1,3 +1,5 @@
+declare module "*.css" {}
+
 /** Auto-update status surfaced from electron-updater (mirrors shared/ipc-channels.ts). */
 type UpdateStatus =
   | { state: "idle" }
@@ -96,7 +98,7 @@ declare namespace JSX {
     > & {
       src?: string;
       partition?: string;
-      allowpopups?: string;
+      allowpopups?: boolean;
       webpreferences?: string;
       useragent?: string;
       disablewebsecurity?: string;

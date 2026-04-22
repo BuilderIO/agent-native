@@ -297,7 +297,9 @@ export function CommandMenu({
       if (child.type === CommandItem) {
         if (!search) return child;
         const text = getTextContent(props.children as ReactNode).toLowerCase();
-        const keywords = ((props.keywords as string[]) || []).join(" ").toLowerCase();
+        const keywords = ((props.keywords as string[]) || [])
+          .join(" ")
+          .toLowerCase();
         const searchLower = search.toLowerCase();
         if (text.includes(searchLower) || keywords.includes(searchLower)) {
           return child;
@@ -407,8 +409,13 @@ function getTextContent(children: ReactNode): string {
   if (Array.isArray(children)) {
     return children.map(getTextContent).join(" ");
   }
-  if (React.isValidElement(children) && (children.props as Record<string, unknown>).children) {
-    return getTextContent((children.props as Record<string, unknown>).children as ReactNode);
+  if (
+    React.isValidElement(children) &&
+    (children.props as Record<string, unknown>).children
+  ) {
+    return getTextContent(
+      (children.props as Record<string, unknown>).children as ReactNode,
+    );
   }
   return "";
 }
