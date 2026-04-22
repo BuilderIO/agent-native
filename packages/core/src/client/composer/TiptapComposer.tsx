@@ -157,27 +157,17 @@ function ModeSelector({
 }
 
 function friendlyModelName(model: string): string {
-  // Claude models: claude-{tier}-{version} → Tier Version
+  // Claude: claude-{tier}-{major}-{minor}[-dateYYYYMMDD] → Tier Major.Minor
   const claude = model.match(
-    /^claude-(opus|sonnet|haiku)-(\d+(?:[.-]\d+)*)(?:-\d{8})?$/,
+    /^claude-(opus|sonnet|haiku)-(\d+)-(\d+)(?:-\d{8,})?$/,
   );
   if (claude) {
     const tier = claude[1][0].toUpperCase() + claude[1].slice(1);
-    const ver = claude[2].replace(/-/g, ".");
-    return `${tier} ${ver}`;
+    return `${tier} ${claude[2]}.${claude[3]}`;
   }
-  // GPT models
-  if (model.startsWith("gpt-")) {
-    const rest = model.slice(4);
-    return `GPT-${rest}`;
-  }
-  // OpenAI reasoning models
-  if (model === "o3") return "o3";
-  if (model === "o4-mini") return "o4-mini";
-  if (model === "o3-mini") return "o3-mini";
-  if (model === "o1") return "o1";
-  if (model === "o1-mini") return "o1-mini";
-  // Gemini models
+  if (model.startsWith("gpt-")) return `GPT-${model.slice(4)}`;
+  if (/^o\d/.test(model)) return model;
+  // Gemini: gemini-{version-parts}[-preview] → Gemini Version Parts
   const gemini = model.match(/^gemini-(.+?)(?:-preview)?$/);
   if (gemini) {
     const parts = gemini[1]
@@ -187,6 +177,34 @@ function friendlyModelName(model: string): string {
     return `Gemini ${parts}${model.endsWith("-preview") ? " (preview)" : ""}`;
   }
   return model;
+}
+
+/**
+ * Deduplicate models to only the latest version per family.
+ * e.g. [opus-4-7, opus-4-6, opus-4-5] → [opus-4-7]
+ */
+function latestModelsOnly(models: string[]): string[] {
+  const seen = new Set<string>();
+  return models.filter((m) => {
+    // Claude: family = tier (opus/sonnet/haiku)
+    const claude = m.match(/^claude-(opus|sonnet|haiku)-/);
+    if (claude) {
+      if (seen.has(claude[1])) return false;
+      seen.add(claude[1]);
+      return true;
+    }
+    // GPT: family = gpt-{major} (e.g. gpt-5.4 and gpt-5.4-mini are different)
+    // OpenAI reasoning: each is its own family
+    // Gemini: family = gemini-{major} + variant
+    const gemini = m.match(/^gemini-(\d+(?:\.\d+)?)-(.+?)(?:-preview)?$/);
+    if (gemini) {
+      const family = gemini[2]; // flash, pro, etc.
+      if (seen.has(`gemini-${family}`)) return false;
+      seen.add(`gemini-${family}`);
+      return true;
+    }
+    return true;
+  });
 }
 
 function ModelSelector({
@@ -224,49 +242,52 @@ function ModelSelector({
           className="w-64 max-h-72 overflow-y-auto rounded-lg border border-border bg-popover shadow-lg z-50 py-1 animate-in fade-in-0 zoom-in-95"
           style={{ fontSize: 13 }}
         >
-          {engines.map((group) => (
-            <div key={group.engine}>
-              <div className="flex items-center gap-2 px-3 py-1.5">
-                <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-                  {group.label}
-                </span>
-                {!group.configured && (
-                  <span className="text-[10px] text-muted-foreground/60">
-                    needs API key
+          {engines.map((group) => {
+            const models = latestModelsOnly(group.models);
+            return (
+              <div key={group.engine}>
+                <div className="flex items-center gap-2 px-3 py-1.5">
+                  <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+                    {group.label}
                   </span>
-                )}
-              </div>
-              {group.models.map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => {
-                    if (!group.configured) {
-                      window.dispatchEvent(
-                        new CustomEvent("agent-panel:open-settings"),
-                      );
-                      setOpen(false);
-                      return;
-                    }
-                    onChange(m, group.engine);
-                    setOpen(false);
-                  }}
-                  className={`flex w-full items-center gap-3 px-3 py-1.5 text-left ${
-                    group.configured
-                      ? "hover:bg-accent/50"
-                      : "opacity-40 cursor-default"
-                  }`}
-                >
-                  <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
-                    {friendlyModelName(m)}
-                  </span>
-                  {m === model && group.configured && (
-                    <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                  {!group.configured && (
+                    <span className="text-[10px] text-muted-foreground/60">
+                      needs API key
+                    </span>
                   )}
-                </button>
-              ))}
-            </div>
-          ))}
+                </div>
+                {models.map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => {
+                      if (!group.configured) {
+                        window.dispatchEvent(
+                          new CustomEvent("agent-panel:open-settings"),
+                        );
+                        setOpen(false);
+                        return;
+                      }
+                      onChange(m, group.engine);
+                      setOpen(false);
+                    }}
+                    className={`flex w-full items-center gap-3 px-3 py-1.5 text-left ${
+                      group.configured
+                        ? "hover:bg-accent/50"
+                        : "opacity-40 cursor-default"
+                    }`}
+                  >
+                    <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
+                      {friendlyModelName(m)}
+                    </span>
+                    {m === model && group.configured && (
+                      <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            );
+          })}
         </PopoverPrimitive.Content>
       </PopoverPrimitive.Portal>
     </PopoverPrimitive.Root>

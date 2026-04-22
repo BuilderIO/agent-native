@@ -50,6 +50,47 @@ const selectStyle: React.CSSProperties = {
   lineHeight: 1,
 };
 
+function friendlyModelName(model: string): string {
+  const claude = model.match(
+    /^claude-(opus|sonnet|haiku)-(\d+)-(\d+)(?:-\d{8,})?$/,
+  );
+  if (claude) {
+    const tier = claude[1][0].toUpperCase() + claude[1].slice(1);
+    return `${tier} ${claude[2]}.${claude[3]}`;
+  }
+  if (model.startsWith("gpt-")) return `GPT-${model.slice(4)}`;
+  if (/^o\d/.test(model)) return model;
+  const gemini = model.match(/^gemini-(.+?)(?:-preview)?$/);
+  if (gemini) {
+    const parts = gemini[1]
+      .split("-")
+      .map((s) => s[0].toUpperCase() + s.slice(1))
+      .join(" ");
+    return `Gemini ${parts}${model.endsWith("-preview") ? " (preview)" : ""}`;
+  }
+  return model;
+}
+
+function latestModelsOnly(models: string[]): string[] {
+  const seen = new Set<string>();
+  return models.filter((m) => {
+    const claude = m.match(/^claude-(opus|sonnet|haiku)-/);
+    if (claude) {
+      if (seen.has(claude[1])) return false;
+      seen.add(claude[1]);
+      return true;
+    }
+    const gemini = m.match(/^gemini-(\d+(?:\.\d+)?)-(.+?)(?:-preview)?$/);
+    if (gemini) {
+      const family = gemini[2];
+      if (seen.has(`gemini-${family}`)) return false;
+      seen.add(`gemini-${family}`);
+      return true;
+    }
+    return true;
+  });
+}
+
 export function LLMSection() {
   const { status: builder } = useBuilderStatus();
   const [envKeys, setEnvKeys] = useState<EnvKeyStatus[]>([]);
@@ -121,7 +162,9 @@ export function LLMSection() {
     providerOptions.push(selectedEngine);
   }
 
-  const modelOptions = selectedEngineInfo?.supportedModels ?? [];
+  const modelOptions = latestModelsOnly(
+    selectedEngineInfo?.supportedModels ?? [],
+  );
 
   const handleSave = async () => {
     if (!apiKey.trim() || !envVar) return;
@@ -261,7 +304,7 @@ export function LLMSection() {
                   >
                     {modelOptions.map((m) => (
                       <option key={m} value={m}>
-                        {m}
+                        {friendlyModelName(m)}
                       </option>
                     ))}
                   </select>
