@@ -349,7 +349,7 @@ export async function loadSchemaPromptBlock(opts: {
       "The `db-*` tools ONLY query the app's own SQL database (the tables listed above). They do NOT reach external data warehouses, analytics platforms, or third-party services.",
     );
     lines.push(
-      "If the user asks about tables that are NOT in the schema above (e.g. `dbt_analytics.*`, `dbt_intermediate.*`, warehouse tables, or any table you don't see listed), use the appropriate template action instead — for example `bigquery` for BigQuery/dbt tables, `ga4-report` for Google Analytics, `hubspot-deals` for HubSpot, etc. Check your available actions for the right data-source-specific tool.",
+      "If the user asks about tables that are NOT in the schema above, use the appropriate template action instead — for example `bigquery` for BigQuery warehouse tables, `ga4-report` for Google Analytics, `hubspot-deals` for HubSpot, etc. Check your available actions for the right data-source-specific tool.",
     );
     lines.push(
       "**Never use `db-query` for external data.** It will fail because those tables don't exist in the app database.",

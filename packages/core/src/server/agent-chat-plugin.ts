@@ -330,7 +330,7 @@ async function createDbScriptEntries(): Promise<Record<string, ActionEntry>> {
       "db-query": wrapCliScript(
         {
           description:
-            "Read from the app's own SQL database ONLY. Runs a SELECT against the app's internal tables (settings, application_state, template tables). Results are auto-scoped to the current user/org. IMPORTANT: This tool CANNOT access external data sources like BigQuery, dbt models, HubSpot, Jira, GA4, etc. For those, use the appropriate template action (e.g. `bigquery` for BigQuery/dbt tables, `ga4-report` for Google Analytics). If a table isn't in the app schema, don't try db-query — use the data-source-specific action.",
+            "Read from the app's own SQL database ONLY. Runs a SELECT against the app's internal tables (settings, application_state, template tables). Results are auto-scoped to the current user/org. IMPORTANT: This tool CANNOT access external data sources like BigQuery, HubSpot, Jira, GA4, etc. For those, use the appropriate template action (e.g. `bigquery` for warehouse tables, `ga4-report` for Google Analytics). If a table isn't in the app schema, don't try db-query — use the data-source-specific action.",
           parameters: {
             type: "object",
             properties: {
@@ -359,7 +359,7 @@ async function createDbScriptEntries(): Promise<Record<string, ActionEntry>> {
       "db-exec": wrapCliScript(
         {
           description:
-            "Write to the app's own SQL database ONLY. Runs INSERT / UPDATE / DELETE against the app's internal tables. Writes are auto-scoped to the current user/org, and `owner_email` / `org_id` are auto-injected on INSERT. IMPORTANT: This tool CANNOT write to external data sources like BigQuery, dbt, HubSpot, etc. For external services, use the appropriate template action.",
+            "Write to the app's own SQL database ONLY. Runs INSERT / UPDATE / DELETE against the app's internal tables. Writes are auto-scoped to the current user/org, and `owner_email` / `org_id` are auto-injected on INSERT. IMPORTANT: This tool CANNOT write to external data sources like BigQuery, HubSpot, etc. For external services, use the appropriate template action.",
           parameters: {
             type: "object",
             properties: {
