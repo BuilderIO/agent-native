@@ -1998,11 +1998,24 @@ export function createAgentChatPlugin(
     let fetchTool: Record<string, ActionEntry> = {};
     try {
       const { createFetchToolEntry } = await import("../tools/fetch-tool.js");
-      const { resolveKeyReferences } =
+      const { resolveKeyReferences, validateUrlAllowlist, getKeyAllowlist } =
         await import("../secrets/substitution.js");
       fetchTool = createFetchToolEntry({
         resolveKeys: async (text) =>
           resolveKeyReferences(text, "user", _currentRunOwner),
+        validateUrl: async (url, usedKeys) => {
+          for (const keyName of usedKeys) {
+            const allowlist = await getKeyAllowlist(
+              keyName,
+              "user",
+              _currentRunOwner,
+            );
+            if (allowlist && !validateUrlAllowlist(url, allowlist)) {
+              return false;
+            }
+          }
+          return true;
+        },
       });
     } catch {}
 

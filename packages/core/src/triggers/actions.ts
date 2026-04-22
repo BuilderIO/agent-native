@@ -240,13 +240,10 @@ export function createAutomationToolEntries(
 
         const resource = await resourceGetByPath(owner, path);
         if (!resource) {
-          // Try shared owner
-          const shared = await resourceGetByPath("__shared__", path);
-          if (!shared) return `Automation "${name}" not found.`;
+          return `Automation "${name}" not found (or you don't own it).`;
         }
 
-        const r = resource || (await resourceGetByPath("__shared__", path))!;
-        const { meta, body } = parseTriggerFrontmatter(r.content);
+        const { meta, body } = parseTriggerFrontmatter(resource.content);
 
         if (args.enabled !== undefined) {
           meta.enabled = args.enabled !== "false";
@@ -256,7 +253,11 @@ export function createAutomationToolEntries(
         }
         const newBody = args.body ?? body;
 
-        await resourcePut(r.owner, r.path, buildTriggerContent(meta, newBody));
+        await resourcePut(
+          resource.owner,
+          resource.path,
+          buildTriggerContent(meta, newBody),
+        );
         await refreshEventSubscriptions();
 
         return `Automation "${name}" updated.`;

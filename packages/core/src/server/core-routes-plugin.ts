@@ -570,6 +570,11 @@ export function createCoreRoutesPlugin(
       createTranscribeVoiceHandler(),
     );
 
+    // ─── Ad-hoc secrets (user-created keys) ────────────────────────────
+    // Must mount before the generic /secrets handler to avoid shadowing.
+    const adHocSecretHandler = createAdHocSecretHandler();
+    getH3App(nitroApp).use(`${P}/secrets/adhoc`, adHocSecretHandler);
+
     // ─── Secrets registry ────────────────────────────────────────────
     // GET    /_agent-native/secrets              — list registered secrets + status
     // POST   /_agent-native/secrets/:key         — write a secret value
@@ -578,7 +583,6 @@ export function createCoreRoutesPlugin(
     const listSecretsHandler = createListSecretsHandler();
     const writeSecretHandler = createWriteSecretHandler();
     const testSecretHandler = createTestSecretHandler();
-    const adHocSecretHandler = createAdHocSecretHandler();
 
     getH3App(nitroApp).use(
       `${P}/secrets`,
@@ -607,9 +611,6 @@ export function createCoreRoutesPlugin(
         return { error: "Not found" };
       }),
     );
-
-    // ─── Ad-hoc secrets (user-created keys) ────────────────────────────
-    getH3App(nitroApp).use(`${P}/secrets/adhoc`, adHocSecretHandler);
 
     // ─── Automations API ──────────────────────────────────────────────
     // GET  /_agent-native/automations — list all automations (parsed triggers)
@@ -643,9 +644,14 @@ export function createCoreRoutesPlugin(
         }
 
         try {
-          const { resourceListAllOwners } =
+          const session = await getSession(event).catch(() => null);
+          const owner = session?.email || "local@localhost";
+          const { resourceListAllOwners, SHARED_OWNER } =
             await import("../resources/store.js");
-          const resources = await resourceListAllOwners("jobs/");
+          const allResources = await resourceListAllOwners("jobs/");
+          const resources = allResources.filter(
+            (r) => r.owner === owner || r.owner === SHARED_OWNER,
+          );
           const FRONT_RE = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/;
           const automations = resources
             .filter((r) => r.path.endsWith(".md") && !r.path.endsWith(".keep"))

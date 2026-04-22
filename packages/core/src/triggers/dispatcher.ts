@@ -207,6 +207,15 @@ async function handleEvent(
     const matchingTriggers = jobResources.filter((r) => {
       if (!r.path.endsWith(".md")) return false;
       const { meta } = parseTriggerFrontmatter(r.content);
+      // Scope: only dispatch triggers owned by the event's owner,
+      // or shared triggers. Prevents cross-tenant trigger execution.
+      if (
+        eventMeta.owner &&
+        r.owner !== eventMeta.owner &&
+        r.owner !== "__shared__"
+      ) {
+        return false;
+      }
       return (
         meta.triggerType === "event" &&
         meta.event === eventName &&
