@@ -2001,6 +2001,12 @@ export function createAgentChatPlugin(
         await import("../notifications/actions.js");
       notificationTools = createNotificationToolEntries(() => _currentRunOwner);
     } catch {}
+    let progressTools: Record<string, ActionEntry> = {};
+    try {
+      const { createProgressToolEntries } =
+        await import("../progress/actions.js");
+      progressTools = createProgressToolEntries(() => _currentRunOwner);
+    } catch {}
     let fetchTool: Record<string, ActionEntry> = {};
     try {
       const { createFetchToolEntry } = await import("../tools/fetch-tool.js");
@@ -2038,6 +2044,7 @@ export function createAgentChatPlugin(
           ...callAgentScript,
           ...automationTools,
           ...notificationTools,
+          ...progressTools,
           ...fetchTool,
           ...browserTools,
           ...devScriptsForA2A,
@@ -2054,6 +2061,7 @@ export function createAgentChatPlugin(
           ...callAgentScript,
           ...automationTools,
           ...notificationTools,
+          ...progressTools,
           ...fetchTool,
           ...browserTools,
           ...devScriptsForA2A,
@@ -3611,6 +3619,7 @@ export function createAgentChatPlugin(
           ...jobTools,
           ...automationTools,
           ...notificationTools,
+          ...progressTools,
           ...fetchTool,
         }),
         getSystemPrompt: async (owner: string) => {
@@ -3649,6 +3658,7 @@ export function createAgentChatPlugin(
           ...jobTools,
           ...automationTools,
           ...notificationTools,
+          ...progressTools,
           ...fetchTool,
         }),
         getSystemPrompt: async (owner: string) => {
