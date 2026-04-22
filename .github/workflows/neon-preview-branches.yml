@@ -63,27 +63,31 @@ jobs:
           branch_name: preview/pr-${{ github.event.number }}
           api_key: ${{ secrets.NEON_API_KEY }}
 
-      - name: Set NETLIFY_DATABASE_URL for deploy previews
+      - name: Set preview DB URLs on Netlify site
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          NEON_DB_URL: ${{ steps.neon.outputs.db_url_pooled }}
+          NEON_DB_URL_POOLED: ${{ steps.neon.outputs.db_url_pooled }}
+          NEON_DB_URL_UNPOOLED: ${{ steps.neon.outputs.db_url }}
         run: |
-          # Set the branch DB URL as NETLIFY_DATABASE_URL in the deploy-preview context.
-          # Netlify's auto-deploy will pick this up via the shell expansion in netlify.toml.
-          curl -s -X POST \
-            -H "Authorization: Bearer $NETLIFY_AUTH_TOKEN" \
-            -H "Content-Type: application/json" \
-            "https://api.netlify.com/api/v1/accounts/${{ secrets.NETLIFY_ACCOUNT_ID }}/env?site_id=${{ matrix.netlify_site }}" \
-            -d '[{"key":"NETLIFY_DATABASE_URL","scopes":["builds","functions","runtime"],"values":[{"value":"'"$NEON_DB_URL"'","context":"deploy-preview"}]}]' \
-            || echo "Env var may already exist, trying PATCH..."
+          SITE="${{ matrix.netlify_site }}"
+          ACCT="${{ secrets.NETLIFY_ACCOUNT_ID }}"
+          BASE="https://api.netlify.com/api/v1/accounts/$ACCT/env"
+          AUTH="Authorization: Bearer $NETLIFY_AUTH_TOKEN"
 
-          # If it already exists, update the deploy-preview value
-          curl -s -X PATCH \
-            -H "Authorization: Bearer $NETLIFY_AUTH_TOKEN" \
-            -H "Content-Type: application/json" \
-            "https://api.netlify.com/api/v1/accounts/${{ secrets.NETLIFY_ACCOUNT_ID }}/env/NETLIFY_DATABASE_URL?site_id=${{ matrix.netlify_site }}" \
-            -d '{"value":"'"$NEON_DB_URL"'","context":"deploy-preview"}' \
-            || true
+          for pair in "NETLIFY_DATABASE_URL:$NEON_DB_URL_POOLED" "NETLIFY_DATABASE_URL_UNPOOLED:$NEON_DB_URL_UNPOOLED"; do
+            KEY="${pair%%:*}"
+            VAL="${pair#*:}"
+            # Try POST (create); if it already exists, PATCH (update)
+            curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
+              "$BASE?site_id=$SITE" \
+              -d '[{"key":"'"$KEY"'","scopes":["builds","functions","runtime"],"values":[{"value":"'"$VAL"'","context":"deploy-preview"}]}]' \
+              -o /dev/null -w '' \
+              || curl -s -X PATCH -H "$AUTH" -H "Content-Type: application/json" \
+                "$BASE/$KEY?site_id=$SITE" \
+                -d '{"value":"'"$VAL"'","context":"deploy-preview"}' \
+                -o /dev/null -w '' \
+              || true
+          done
 
   delete-branches:
     if: github.event.action == 'closed'
@@ -127,11 +131,15 @@ jobs:
           branch: preview/pr-${{ github.event.number }}
           api_key: ${{ secrets.NEON_API_KEY }}
 
-      - name: Remove NETLIFY_DATABASE_URL override
+      - name: Remove preview DB URL overrides
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
         run: |
-          curl -s -X DELETE \
-            -H "Authorization: Bearer $NETLIFY_AUTH_TOKEN" \
-            "https://api.netlify.com/api/v1/accounts/${{ secrets.NETLIFY_ACCOUNT_ID }}/env/NETLIFY_DATABASE_URL?site_id=${{ matrix.netlify_site }}" \
-            || true
+          SITE="${{ matrix.netlify_site }}"
+          ACCT="${{ secrets.NETLIFY_ACCOUNT_ID }}"
+          AUTH="Authorization: Bearer $NETLIFY_AUTH_TOKEN"
+          for KEY in NETLIFY_DATABASE_URL NETLIFY_DATABASE_URL_UNPOOLED; do
+            curl -s -X DELETE -H "$AUTH" \
+              "https://api.netlify.com/api/v1/accounts/$ACCT/env/$KEY?site_id=$SITE" \
+              || true
+          done
