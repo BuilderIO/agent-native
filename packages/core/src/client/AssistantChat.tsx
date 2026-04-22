@@ -63,6 +63,7 @@ import {
   IconMessageChatbot,
   IconLock,
   IconArrowBackUp,
+  IconExternalLink,
 } from "@tabler/icons-react";
 
 // ─── Markdown Text ──────────────────────────────────────────────────────────
@@ -1096,6 +1097,15 @@ function ApiKeySetupCard({ apiUrl }: { apiUrl: string }) {
               Coming soon
             </span>
           </div>
+          <a
+            href="https://forms.agent-native.com/f/builder-waitlist/36GWqf"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 mt-2 text-[11px] text-muted-foreground hover:text-foreground"
+          >
+            Join the waitlist
+            <IconExternalLink size={11} />
+          </a>
         </div>
 
         <div className="relative flex items-center">
@@ -1315,6 +1325,15 @@ export function BuilderCtaCard({
               Coming soon
             </span>
           </div>
+          <a
+            href="https://forms.agent-native.com/f/builder-waitlist/36GWqf"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 mt-2 text-[11px] text-muted-foreground hover:text-foreground"
+          >
+            Join the waitlist
+            <IconExternalLink size={11} />
+          </a>
         </div>
       </div>
     </div>

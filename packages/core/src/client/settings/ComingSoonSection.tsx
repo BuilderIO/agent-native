@@ -3,6 +3,8 @@ import { IconExternalLink } from "@tabler/icons-react";
 import { SettingsSection } from "./SettingsSection.js";
 import { useBuilderStatus } from "./useBuilderStatus.js";
 
+const WAITLIST_URL = "https://forms.agent-native.com/f/builder-waitlist/36GWqf";
+
 interface ComingSoonSectionProps {
   icon: ReactNode;
   title: string;
@@ -44,6 +46,15 @@ export function ComingSoonSection({
           <p className="text-[10px] text-muted-foreground mt-1">
             One-click setup via Builder — available soon.
           </p>
+          <a
+            href={WAITLIST_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 mt-2 text-[10px] text-muted-foreground hover:text-foreground"
+          >
+            Join the waitlist
+            <IconExternalLink size={10} />
+          </a>
         </div>
 
         {/* Manual path */}

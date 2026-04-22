@@ -161,7 +161,20 @@ export function VoiceTranscriptionSection() {
         onSelect={() => {}}
         disabled
         title="Builder"
-        subtitle="Shared key across Builder workspaces. No setup needed."
+        subtitle={
+          <>
+            Shared key across Builder workspaces. No setup needed.{" "}
+            <a
+              href="https://forms.agent-native.com/f/builder-waitlist/36GWqf"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-foreground"
+              onClick={(e) => e.stopPropagation()}
+            >
+              Join the waitlist
+            </a>
+          </>
+        }
         rightSlot={
           <span className="rounded-full bg-accent/60 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
             Coming soon
@@ -193,7 +206,7 @@ interface ProviderOptionProps {
   disabled?: boolean;
   onSelect: () => void;
   title: string;
-  subtitle?: string;
+  subtitle?: React.ReactNode;
   rightSlot?: React.ReactNode;
 }
 
