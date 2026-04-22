@@ -20,14 +20,31 @@ import {
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
 import { registerRequiredSecret } from "@agent-native/core/secrets";
+import { registerEvent } from "@agent-native/core/event-bus";
 import {
   getOAuthTokens,
   saveOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
 import { getDb, schema } from "../db/index.js";
 import { eq } from "drizzle-orm";
+import { z } from "zod";
 
 export default () => {
+  // Register event-bus events for the automations system
+  registerEvent({
+    name: "calendar.booking.created",
+    description: "Someone booked a meeting via a scheduling link.",
+    payloadSchema: z.object({
+      bookingId: z.string(),
+      schedulingLinkSlug: z.string(),
+      attendeeName: z.string(),
+      attendeeEmail: z.string(),
+      startTime: z.string(),
+      endTime: z.string(),
+      eventTitle: z.string(),
+    }),
+  });
+
   setSchedulingContext({
     getDb,
     schema,

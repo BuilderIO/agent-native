@@ -12,6 +12,8 @@ import {
 import { processAutomations } from "../lib/automation-engine.js";
 import { listOAuthAccounts } from "@agent-native/core/oauth-tokens";
 import { getClientForAccount, startWatch } from "../lib/google-auth.js";
+import { registerEvent } from "@agent-native/core/event-bus";
+import { z } from "zod";
 
 const INTERVAL_MS = 60_000; // 1 minute
 const WATCH_RENEW_INTERVAL_MS = 12 * 60 * 60_000;
@@ -72,6 +74,33 @@ async function processJobs(): Promise<void> {
 }
 
 export default () => {
+  // ── Register mail events (runs in all modes, not just background jobs) ──
+  registerEvent({
+    name: "mail.message.received",
+    description:
+      "A new email was received in the user's inbox. Fires once per message during the polling sync cycle.",
+    payloadSchema: z.object({
+      messageId: z.string(),
+      from: z.string(),
+      to: z.string(),
+      subject: z.string(),
+      snippet: z.string().optional(),
+      labels: z.array(z.string()).optional(),
+      threadId: z.string().optional(),
+    }) as any,
+  });
+
+  registerEvent({
+    name: "mail.message.sent",
+    description:
+      "An email was sent from the user's account (via compose UI or agent action).",
+    payloadSchema: z.object({
+      messageId: z.string(),
+      to: z.string(),
+      subject: z.string(),
+    }) as any,
+  });
+
   // Background cron must only run in one place — otherwise every dev server
   // processes jobs and automations for every connected user globally, leading
   // to duplicate actions and duplicate Anthropic spend.

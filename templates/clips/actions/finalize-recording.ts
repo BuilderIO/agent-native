@@ -19,6 +19,7 @@ import {
   listAppState,
 } from "@agent-native/core/application-state";
 import { uploadFile } from "@agent-native/core/file-upload";
+import { emit } from "@agent-native/core/event-bus";
 import requestTranscript from "./request-transcript.js";
 
 /**
@@ -298,6 +299,23 @@ export default defineAction({
         },
         createdAt: new Date().toISOString(),
       });
+
+      // Emit clip.created event — best-effort, never block the main flow.
+      try {
+        emit(
+          "clip.created",
+          {
+            clipId: id,
+            title: existing.title,
+            createdBy: ownerEmail,
+            duration: args.durationMs ?? existing.durationMs ?? 0,
+            url: videoUrl,
+          },
+          { owner: ownerEmail },
+        );
+      } catch (err) {
+        console.warn("[finalize] clip.created emit failed:", err);
+      }
 
       console.log("[finalize] done", {
         id,

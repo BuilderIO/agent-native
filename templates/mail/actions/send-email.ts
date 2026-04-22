@@ -7,6 +7,7 @@ import {
   googleFetch,
 } from "../server/lib/google-api.js";
 import { getSetting } from "@agent-native/core/settings";
+import { emit } from "@agent-native/core/event-bus";
 import {
   collectLinks,
   injectTrackingIntoHtml,
@@ -357,6 +358,17 @@ export default defineAction({
           console.error("[send-email] persistTracking failed:", err),
         );
       }
+      // Emit mail.message.sent event (best-effort)
+      try {
+        emit("mail.message.sent", {
+          messageId: sent.id,
+          to: args.to,
+          subject: args.subject,
+        });
+      } catch {
+        // best-effort — never block the send response
+      }
+
       return `Email sent successfully (id: ${sent.id})`;
     } catch (err: any) {
       return `Error sending email: ${err?.message}`;

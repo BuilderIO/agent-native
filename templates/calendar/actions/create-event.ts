@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server";
+import { emit } from "@agent-native/core/event-bus";
 import { z } from "zod";
 import type { CalendarEvent } from "../shared/api.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
@@ -55,6 +56,19 @@ export default defineAction({
     if (result.id) {
       calEvent.id = `google-${result.id}`;
       calEvent.googleEventId = result.id;
+    }
+
+    try {
+      emit("calendar.event.created", {
+        eventId: calEvent.id,
+        title: calEvent.title,
+        startTime: calEvent.start,
+        endTime: calEvent.end,
+        attendees: [],
+        createdBy: email,
+      });
+    } catch {
+      // best-effort — never block the main write
     }
 
     return calEvent;

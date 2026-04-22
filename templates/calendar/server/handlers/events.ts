@@ -8,6 +8,7 @@ import {
 } from "h3";
 import type { CalendarEvent } from "../../shared/api.js";
 import { readBody, getSession } from "@agent-native/core/server";
+import { emit } from "@agent-native/core/event-bus";
 import * as googleCalendar from "../lib/google-calendar.js";
 
 async function uEmail(event: H3Event): Promise<string> {
@@ -248,6 +249,19 @@ export const createEvent = defineEventHandler(async (event: H3Event) => {
       calEvent.googleEventId = result.id;
     }
 
+    try {
+      emit("calendar.event.created", {
+        eventId: calEvent.id,
+        title: calEvent.title || body.title || "",
+        startTime: calEvent.start,
+        endTime: calEvent.end,
+        attendees: body.attendees ?? [],
+        createdBy: email,
+      });
+    } catch {
+      // best-effort
+    }
+
     setResponseStatus(event, 201);
     return calEvent;
   } catch (error: any) {
@@ -285,12 +299,27 @@ export const updateEvent = defineEventHandler(async (event: H3Event) => {
       return { error: `Failed to update Google event: ${error.message}` };
     }
 
-    return {
+    const updated = {
       ...body,
       id,
       googleEventId,
       updatedAt: new Date().toISOString(),
     };
+
+    try {
+      emit("calendar.event.updated", {
+        eventId: id,
+        title: body.title ?? "",
+        startTime: body.start ?? "",
+        endTime: body.end ?? "",
+        attendees: body.attendees ?? [],
+        updatedBy: email,
+      });
+    } catch {
+      // best-effort
+    }
+
+    return updated;
   } catch (error: any) {
     return handleError(event, error);
   }

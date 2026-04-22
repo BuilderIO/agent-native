@@ -9,6 +9,7 @@ import {
 import { nanoid } from "nanoid";
 import { eq, and, gte, lte, ne } from "drizzle-orm";
 import { readBody, verifyCaptcha } from "@agent-native/core/server";
+import { emit } from "@agent-native/core/event-bus";
 import type {
   Booking,
   CalendarEvent,
@@ -312,6 +313,20 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       status: "confirmed",
       createdAt: now,
     };
+
+    try {
+      emit("calendar.booking.created", {
+        bookingId: id,
+        schedulingLinkSlug: body.slug || "",
+        attendeeName: body.name,
+        attendeeEmail: body.email,
+        startTime: body.start,
+        endTime: body.end,
+        eventTitle: booking.eventTitle || "",
+      });
+    } catch {
+      // best-effort
+    }
 
     setResponseStatus(event, 201);
     return booking;
