@@ -4,7 +4,10 @@ import { IconSearch, IconX } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { useRecordingSearch, type SearchHit } from "@/hooks/use-library";
 
-function highlight(text: string, query: string): (string | React.JSX.Element)[] {
+function highlight(
+  text: string,
+  query: string,
+): (string | React.JSX.Element)[] {
   if (!query) return [text];
   const lower = text.toLowerCase();
   const q = query.toLowerCase();
