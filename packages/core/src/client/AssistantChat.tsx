@@ -1281,8 +1281,12 @@ export interface AssistantChatProps {
   execMode?: "build" | "plan";
   /** Callback to change execution mode */
   onExecModeChange?: (mode: "build" | "plan") => void;
-  /** Selected model override for this conversation */
+  /** Selected model override for this conversation (undefined = use server default) */
   selectedModel?: string;
+  /** Default model from server config (shown in picker when no override is set) */
+  defaultModel?: string;
+  /** Selected engine override for this conversation */
+  selectedEngine?: string;
   /** Available engine/model list for the model picker */
   availableModels?: Array<{
     engine: string;
@@ -1346,6 +1350,8 @@ const AssistantChatInner = forwardRef<
     execMode,
     onExecModeChange,
     selectedModel,
+    defaultModel,
+    selectedEngine,
     availableModels,
     onModelChange,
   },
@@ -2266,7 +2272,7 @@ const AssistantChatInner = forwardRef<
               onSlashCommand={onSlashCommand}
               execMode={execMode}
               onExecModeChange={onExecModeChange}
-              selectedModel={selectedModel}
+              selectedModel={selectedModel ?? defaultModel}
               availableModels={availableModels}
               onModelChange={onModelChange}
               extraActionButton={
@@ -2328,9 +2334,12 @@ export const AssistantChat = forwardRef<
 ) {
   const modelRef = useRef<string | undefined>(props.selectedModel);
   modelRef.current = props.selectedModel;
+  const engineRef = useRef<string | undefined>(props.selectedEngine);
+  engineRef.current = props.selectedEngine;
 
   const adapter = useMemo(
-    () => createAgentChatAdapter({ apiUrl, tabId, threadId, modelRef }),
+    () =>
+      createAgentChatAdapter({ apiUrl, tabId, threadId, modelRef, engineRef }),
     [apiUrl, tabId, threadId],
   );
   const attachmentAdapter = useMemo(

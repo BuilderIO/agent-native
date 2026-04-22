@@ -1206,9 +1206,9 @@ export function MultiTabAssistantChat({
                 onSaveThread={handleSaveThread}
                 onGenerateTitle={handleGenerateTitle}
                 onSlashCommand={handleSlashCommand}
-                selectedModel={
-                  threadModelRef.current.get(tabId)?.model ?? defaultModel
-                }
+                selectedModel={threadModelRef.current.get(tabId)?.model}
+                selectedEngine={threadModelRef.current.get(tabId)?.engine}
+                defaultModel={defaultModel}
                 availableModels={availableModels}
                 onModelChange={handleModelChange}
               />

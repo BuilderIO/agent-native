@@ -67,6 +67,8 @@ export interface AgentChatRequest {
   attachments?: AgentChatAttachment[];
   /** Per-request model override (ephemeral, from the composer model picker). */
   model?: string;
+  /** Per-request engine override (sent alongside model for cross-provider switches). */
+  engine?: string;
   /** Usage-tracking label for this call (e.g. "chat", "summarize"). Default: "chat". */
   usageLabel?: string;
 }

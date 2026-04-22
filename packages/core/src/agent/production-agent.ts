@@ -535,6 +535,7 @@ export function createProductionAgentHandler(
       threadId,
       attachments,
       model: requestModel,
+      engine: requestEngine,
     } = body;
     if (!message) {
       setResponseStatus(event, 400);
@@ -559,11 +560,11 @@ export function createProductionAgentHandler(
     const effectiveApiKey =
       userApiKey ?? options.apiKey ?? process.env.ANTHROPIC_API_KEY;
 
-    // Resolve engine (async — reads settings if needed)
+    // Resolve engine — per-request engine override takes priority
     let engine: AgentEngine;
     try {
       engine = await resolveEngine({
-        engineOption: options.engine,
+        engineOption: requestEngine ?? options.engine,
         apiKey: effectiveApiKey,
         model: configuredModel,
       });
