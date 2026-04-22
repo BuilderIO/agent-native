@@ -30,7 +30,7 @@ export function SearchBar({
   const [isFocused, setIsFocused] = useState(autoFocus);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const lastSyncedQueryRef = useRef(initialQuery);
 
   const { data: contacts = [] } = useContacts();

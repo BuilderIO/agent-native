@@ -1,7 +1,7 @@
 /**
  * Success state with check-mark SVG animation + add-to-calendar buttons.
  */
-import { motion } from "framer-motion";
+import { motion } from "motion/react";
 import { TZDate } from "@date-fns/tz";
 import { format } from "date-fns";
 import type { EventType, Slot } from "@agent-native/scheduling/shared";

@@ -13,8 +13,8 @@ export function LinkHoverPreview({ editor }: LinkHoverPreviewProps) {
     pos: number;
   } | null>(null);
 
-  const hoverTimer = useRef<NodeJS.Timeout>();
-  const leaveTimer = useRef<NodeJS.Timeout>();
+  const hoverTimer = useRef<NodeJS.Timeout>(undefined);
+  const leaveTimer = useRef<NodeJS.Timeout>(undefined);
   const previewRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {

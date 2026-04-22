@@ -177,8 +177,8 @@ export function FormBuilderPage() {
   }, [localDescription]);
 
   // Debounced save
-  const saveTimeout = useRef<ReturnType<typeof setTimeout>>();
-  const savedTimeout = useRef<ReturnType<typeof setTimeout>>();
+  const saveTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const savedTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
   const save = useCallback(
     (data: Parameters<typeof updateForm.mutate>[0]) => {
       clearTimeout(saveTimeout.current);

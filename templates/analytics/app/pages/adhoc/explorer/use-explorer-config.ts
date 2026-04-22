@@ -54,7 +54,7 @@ export function useExplorerConfig() {
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [initialized, setInitialized] = useState(false);
-  const autosaveTimer = useRef<ReturnType<typeof setTimeout>>();
+  const autosaveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // On mount, try to restore from autosave
   useEffect(() => {
