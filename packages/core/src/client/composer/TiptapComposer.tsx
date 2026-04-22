@@ -156,21 +156,37 @@ function ModeSelector({
   );
 }
 
-const MODEL_DISPLAY_NAMES: Record<string, string> = {
-  "claude-opus-4-7": "Opus 4.7",
-  "claude-sonnet-4-6": "Sonnet 4.6",
-  "claude-haiku-4-5-20251001": "Haiku 4.5",
-  "gpt-5.4": "GPT-5.4",
-  "gpt-5.4-mini": "GPT-5.4 mini",
-  o3: "o3",
-  "o4-mini": "o4-mini",
-  "gemini-2.5-flash": "Gemini 2.5 Flash",
-  "gemini-3-flash-preview": "Gemini 3 Flash",
-  "gemini-3.1-pro-preview": "Gemini 3.1 Pro",
-};
-
 function friendlyModelName(model: string): string {
-  return MODEL_DISPLAY_NAMES[model] ?? model;
+  // Claude models: claude-{tier}-{version} → Tier Version
+  const claude = model.match(
+    /^claude-(opus|sonnet|haiku)-(\d+(?:[.-]\d+)*)(?:-\d{8})?$/,
+  );
+  if (claude) {
+    const tier = claude[1][0].toUpperCase() + claude[1].slice(1);
+    const ver = claude[2].replace(/-/g, ".");
+    return `${tier} ${ver}`;
+  }
+  // GPT models
+  if (model.startsWith("gpt-")) {
+    const rest = model.slice(4);
+    return `GPT-${rest}`;
+  }
+  // OpenAI reasoning models
+  if (model === "o3") return "o3";
+  if (model === "o4-mini") return "o4-mini";
+  if (model === "o3-mini") return "o3-mini";
+  if (model === "o1") return "o1";
+  if (model === "o1-mini") return "o1-mini";
+  // Gemini models
+  const gemini = model.match(/^gemini-(.+?)(?:-preview)?$/);
+  if (gemini) {
+    const parts = gemini[1]
+      .split("-")
+      .map((s) => s[0].toUpperCase() + s.slice(1))
+      .join(" ");
+    return `Gemini ${parts}${model.endsWith("-preview") ? " (preview)" : ""}`;
+  }
+  return model;
 }
 
 function ModelSelector({
