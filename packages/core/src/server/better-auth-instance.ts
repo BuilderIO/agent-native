@@ -13,7 +13,7 @@ import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { organization } from "better-auth/plugins/organization";
 import { jwt } from "better-auth/plugins/jwt";
 import { bearer } from "better-auth/plugins/bearer";
-import { sendEmail } from "./email.js";
+import { sendEmail, isEmailConfigured } from "./email.js";
 import {
   renderResetPasswordEmail,
   renderVerifySignupEmail,
@@ -451,10 +451,10 @@ async function createBetterAuthInstance(
     emailAndPassword: {
       enabled: true,
       minPasswordLength: 8,
-      // Don't complete signup until the user has clicked the verification link.
-      // NB: if no email provider is configured in production, users will be
-      // unable to finish signing up — see `email.ts` for provider resolution.
-      requireEmailVerification: true,
+      // Only require email verification when an email provider is configured.
+      // Without a provider, verification emails can't be sent, so requiring
+      // verification would lock users out of signup entirely.
+      requireEmailVerification: isEmailConfigured(),
       sendResetPassword: async ({ user, token }) => {
         // APP_BASE_PATH lets this app mount under a prefix (e.g. /mail). The
         // reset link must include that prefix so the page resolves correctly.
@@ -473,16 +473,27 @@ async function createBetterAuthInstance(
     },
     emailVerification: {
       // Fire verification email right after signup, before the user has a
-      // session — pairs with requireEmailVerification above.
-      sendOnSignUp: true,
+      // session — pairs with requireEmailVerification above. Only enabled
+      // when an email provider is configured.
+      sendOnSignUp: isEmailConfigured(),
       // Auto-create a session once the user clicks the link. Without this,
       // verified users would have to go back and sign in manually, which is
       // a confusing dead-end on the verify screen.
       autoSignInAfterVerification: true,
       sendVerificationEmail: async ({ user, url }) => {
+        // APP_BASE_PATH lets this app mount under a prefix (e.g. /mail). The
+        // verification link must include that prefix so the page resolves correctly.
+        const verifyBasePath = (
+          process.env.VITE_APP_BASE_PATH ||
+          process.env.APP_BASE_PATH ||
+          ""
+        ).replace(/\/$/, "");
+        const verifyUrl = verifyBasePath
+          ? url.replace(/(\/\/[^/]+)(\/)/, `$1${verifyBasePath}$2`)
+          : url;
         const { subject, html, text } = renderVerifySignupEmail({
           email: user.email,
-          verifyUrl: url,
+          verifyUrl,
         });
         await sendEmail({ to: user.email, subject, html, text });
       },
