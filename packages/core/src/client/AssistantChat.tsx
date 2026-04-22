@@ -1284,7 +1284,12 @@ export interface AssistantChatProps {
   /** Selected model override for this conversation */
   selectedModel?: string;
   /** Available engine/model list for the model picker */
-  availableModels?: Array<{ engine: string; label: string; models: string[] }>;
+  availableModels?: Array<{
+    engine: string;
+    label: string;
+    models: string[];
+    configured: boolean;
+  }>;
   /** Callback when user picks a model from the picker */
   onModelChange?: (model: string, engine: string) => void;
 }

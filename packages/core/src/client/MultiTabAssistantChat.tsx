@@ -13,6 +13,7 @@ interface EngineModelGroup {
   engine: string;
   label: string;
   models: string[];
+  configured: boolean;
 }
 
 // ─── Skeleton Loader ─────────────────────────────────────────────────────────
@@ -345,33 +346,41 @@ export function MultiTabAssistantChat({
 
   // Fetch available engines/models on mount
   useEffect(() => {
-    fetch("/_agent-native/actions/list-agent-engines", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (!data?.engines) return;
+    Promise.all([
+      fetch("/_agent-native/actions/list-agent-engines", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      }).then((r) => (r.ok ? r.json() : null)),
+      fetch("/_agent-native/env-status")
+        .then((r) => (r.ok ? r.json() : []))
+        .catch(() => []),
+    ])
+      .then(([enginesData, envKeys]) => {
+        if (!enginesData?.engines) return;
+        const configuredKeys = new Set(
+          (envKeys as Array<{ key: string; configured: boolean }>)
+            .filter((k) => k.configured)
+            .map((k) => k.key),
+        );
+        const ALLOWED_ENGINES = ["anthropic", "ai-sdk:openai", "ai-sdk:google"];
         const PROVIDER_LABELS: Record<string, string> = {
           anthropic: "Anthropic",
           "ai-sdk:openai": "OpenAI",
           "ai-sdk:google": "Google",
-          "ai-sdk:groq": "Groq",
-          "ai-sdk:mistral": "Mistral",
-          "ai-sdk:cohere": "Cohere",
-          "ai-sdk:ollama": "Ollama",
         };
-        const groups: EngineModelGroup[] = data.engines
-          .filter((e: any) => e.name !== "ai-sdk:anthropic")
-          .filter((e: any) => PROVIDER_LABELS[e.name])
+        const groups: EngineModelGroup[] = enginesData.engines
+          .filter((e: any) => ALLOWED_ENGINES.includes(e.name))
           .map((e: any) => ({
             engine: e.name,
             label: PROVIDER_LABELS[e.name] ?? e.label,
             models: [...e.supportedModels],
+            configured:
+              e.requiredEnvVars.length === 0 ||
+              e.requiredEnvVars.some((v: string) => configuredKeys.has(v)),
           }));
         setAvailableModels(groups);
-        setDefaultModel(data.current?.model ?? "claude-sonnet-4-6");
+        setDefaultModel(enginesData.current?.model ?? "claude-sonnet-4-6");
       })
       .catch(() => {});
   }, []);

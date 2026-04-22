@@ -101,9 +101,9 @@ const PROVIDER_CAPABILITIES: Record<AISDKProvider, EngineCapabilities> = {
 
 const PROVIDER_DEFAULT_MODELS: Record<AISDKProvider, string> = {
   anthropic: "claude-sonnet-4-6",
-  openai: "gpt-4o",
-  openrouter: "anthropic/claude-sonnet-4.5",
-  google: "gemini-2.0-flash",
+  openai: "gpt-5.4",
+  openrouter: "anthropic/claude-sonnet-4.6",
+  google: "gemini-2.5-flash",
   groq: "llama-3.3-70b-versatile",
   mistral: "mistral-large-latest",
   cohere: "command-r-plus",
@@ -112,36 +112,22 @@ const PROVIDER_DEFAULT_MODELS: Record<AISDKProvider, string> = {
 
 const PROVIDER_SUPPORTED_MODELS: Record<AISDKProvider, readonly string[]> = {
   anthropic: [
-    "claude-opus-4-6",
+    "claude-opus-4-7",
     "claude-sonnet-4-6",
     "claude-haiku-4-5-20251001",
-    "claude-opus-4-5",
-    "claude-sonnet-4-5",
   ],
-  openai: [
-    "gpt-4o",
-    "gpt-4o-mini",
-    "gpt-4-turbo",
-    "o1",
-    "o1-mini",
-    "o3",
-    "o3-mini",
-  ],
+  openai: ["gpt-5.4", "gpt-5.4-mini", "o3", "o4-mini"],
   openrouter: [
-    "anthropic/claude-sonnet-4.5",
-    "anthropic/claude-opus-4.1",
-    "anthropic/claude-3.5-haiku",
-    "openai/gpt-4o",
+    "anthropic/claude-opus-4.7",
+    "anthropic/claude-sonnet-4.6",
+    "openai/gpt-5.4",
     "openai/o3",
-    "google/gemini-2.5-pro",
     "google/gemini-2.5-flash",
-    "meta-llama/llama-3.3-70b-instruct",
   ],
   google: [
-    "gemini-2.0-flash",
-    "gemini-2.0-pro",
-    "gemini-1.5-pro",
-    "gemini-1.5-flash",
+    "gemini-2.5-flash",
+    "gemini-3-flash-preview",
+    "gemini-3.1-pro-preview",
   ],
   groq: [
     "llama-3.3-70b-versatile",
