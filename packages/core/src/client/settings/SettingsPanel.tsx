@@ -18,6 +18,7 @@ import {
   IconMail,
   IconKey,
   IconMicrophone,
+  IconBolt,
 } from "@tabler/icons-react";
 import { SettingsSection } from "./SettingsSection.js";
 import { useBuilderStatus } from "./useBuilderStatus.js";
@@ -25,6 +26,7 @@ import { AgentsSection } from "./AgentsSection.js";
 import { UsageSection } from "./UsageSection.js";
 import { SecretsSection } from "./SecretsSection.js";
 import { VoiceTranscriptionSection } from "./VoiceTranscriptionSection.js";
+import { AutomationsSection } from "./AutomationsSection.js";
 
 const IntegrationsPanel = lazy(() =>
   import("../integrations/IntegrationsPanel.js").then((m) => ({
@@ -717,6 +719,17 @@ export function SettingsPanel({
         onToggle={() => toggle("voice")}
       >
         <VoiceTranscriptionSection />
+      </SettingsSection>
+
+      {/* Automations */}
+      <SettingsSection
+        icon={<IconBolt size={14} />}
+        title="Automations"
+        subtitle="Event-triggered and scheduled automations."
+        open={openSection === "automations"}
+        onToggle={() => toggle("automations")}
+      >
+        <AutomationsSection />
       </SettingsSection>
 
       {/* API Keys & Connections (only when a template has registered any) */}

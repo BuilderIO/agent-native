@@ -1983,6 +1983,29 @@ export function createAgentChatPlugin(
           );
       } catch {}
     }
+    // Mutable owner — set per-request by the production handler, read by
+    // automation tools and fetch tool via closure. Declared here (before
+    // allScripts) so the tools are in scope when allScripts is built.
+    let _currentRunOwner = "local@localhost";
+
+    // Automation tools + fetch tool — depend on _currentRunOwner via callback
+    let automationTools: Record<string, ActionEntry> = {};
+    try {
+      const { createAutomationToolEntries } =
+        await import("../triggers/actions.js");
+      automationTools = createAutomationToolEntries(() => _currentRunOwner);
+    } catch {}
+    let fetchTool: Record<string, ActionEntry> = {};
+    try {
+      const { createFetchToolEntry } = await import("../tools/fetch-tool.js");
+      const { resolveKeyReferences } =
+        await import("../secrets/substitution.js");
+      fetchTool = createFetchToolEntry({
+        resolveKeys: async (text) =>
+          resolveKeyReferences(text, "user", _currentRunOwner),
+      });
+    } catch {}
+
     // In dev mode, template actions (templateScripts and discoveredActions) are
     // NOT registered as native tools — the agent invokes them via shell instead.
     // This avoids degenerate empty-object tool calls that Anthropic models
@@ -1994,6 +2017,8 @@ export function createAgentChatPlugin(
           ...docsScripts,
           ...chatScripts,
           ...callAgentScript,
+          ...automationTools,
+          ...fetchTool,
           ...browserTools,
           ...devScriptsForA2A,
         }
@@ -2007,6 +2032,8 @@ export function createAgentChatPlugin(
           ...urlTools,
           ...chatScripts,
           ...callAgentScript,
+          ...automationTools,
+          ...fetchTool,
           ...browserTools,
           ...devScriptsForA2A,
         };
@@ -2404,6 +2431,17 @@ export function createAgentChatPlugin(
           // Best-effort — don't break cleanup
         }
       });
+
+      // Emit agent.turn.completed for automation triggers
+      try {
+        const { emit } = await import("../event-bus/index.js");
+        emit("agent.turn.completed", {
+          threadId,
+          model: resolvedModel,
+        });
+      } catch {
+        // Event bus not available — skip
+      }
     };
 
     // ─── Agent Teams: per-run send reference ─────────────────────────
@@ -2414,7 +2452,6 @@ export function createAgentChatPlugin(
       string,
       (event: import("../agent/types.js").AgentChatEvent) => void
     >();
-    let _currentRunOwner = "local@localhost";
     let _currentRunUserApiKey: string | undefined;
     let _currentRunThreadId = "";
     let _currentRunSystemPrompt = basePrompt;
@@ -2483,6 +2520,8 @@ export function createAgentChatPlugin(
       ...callAgentScript,
       ...teamTools,
       ...jobTools,
+      ...automationTools,
+      ...fetchTool,
       ...browserTools,
       ...mcpActionEntries,
     };
@@ -3535,6 +3574,8 @@ export function createAgentChatPlugin(
           ...docsScripts,
           ...chatScripts,
           ...jobTools,
+          ...automationTools,
+          ...fetchTool,
         }),
         getSystemPrompt: async (owner: string) => {
           const resources = await loadResourcesForPrompt(owner);
@@ -3557,6 +3598,34 @@ export function createAgentChatPlugin(
       }, 10_000);
     } catch (err) {
       // Jobs module not available — skip silently
+    }
+
+    // ─── Trigger Dispatcher (event-based automations) ─────────────────
+    try {
+      const { initTriggerDispatcher } =
+        await import("../triggers/dispatcher.js");
+      await initTriggerDispatcher({
+        getActions: () => ({
+          ...templateScripts,
+          ...resourceScripts,
+          ...docsScripts,
+          ...chatScripts,
+          ...jobTools,
+          ...automationTools,
+          ...fetchTool,
+        }),
+        getSystemPrompt: async (owner: string) => {
+          const resources = await loadResourcesForPrompt(owner);
+          const schemaBlock = await buildSchemaBlock(owner, false);
+          return basePrompt + resources + schemaBlock;
+        },
+        apiKey: options?.apiKey ?? process.env.ANTHROPIC_API_KEY,
+        model: resolvedModel,
+      });
+      if (process.env.DEBUG)
+        console.log("[triggers] Trigger dispatcher initialized");
+    } catch (err) {
+      // Triggers module not available — skip silently
     }
   };
 }

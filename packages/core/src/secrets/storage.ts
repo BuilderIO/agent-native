@@ -39,6 +39,24 @@ async function ensureTable(): Promise<void> {
         ? APP_SECRETS_CREATE_SQL.replace(/\bINTEGER\b/g, "BIGINT")
         : APP_SECRETS_CREATE_SQL;
       await client.execute(sql);
+
+      // Additive migration: description column (for ad-hoc keys)
+      try {
+        await client.execute(
+          `ALTER TABLE app_secrets ADD COLUMN description TEXT`,
+        );
+      } catch {
+        // Column already exists — expected
+      }
+
+      // Additive migration: url_allowlist column
+      try {
+        await client.execute(
+          `ALTER TABLE app_secrets ADD COLUMN url_allowlist TEXT`,
+        );
+      } catch {
+        // Column already exists — expected
+      }
     })();
   }
   return _initPromise;
@@ -133,6 +151,10 @@ export interface SecretRef {
 
 export interface WriteSecretArgs extends SecretRef {
   value: string;
+  /** Optional human-readable description (used for ad-hoc keys). */
+  description?: string;
+  /** Optional JSON-stringified array of allowed URL origins. */
+  urlAllowlist?: string;
 }
 
 /**
@@ -142,7 +164,7 @@ export interface WriteSecretArgs extends SecretRef {
  */
 export async function writeAppSecret(args: WriteSecretArgs): Promise<string> {
   await ensureTable();
-  const { key, value, scope, scopeId } = args;
+  const { key, value, scope, scopeId, description, urlAllowlist } = args;
   if (!key || !value || !scope || !scopeId) {
     throw new Error(
       "writeAppSecret: key, value, scope, and scopeId are all required",
@@ -161,15 +183,25 @@ export async function writeAppSecret(args: WriteSecretArgs): Promise<string> {
   if (rows.length > 0) {
     const id = rows[0].id as string;
     await client.execute({
-      sql: `UPDATE app_secrets SET encrypted_value = ?, updated_at = ? WHERE id = ?`,
-      args: [encrypted, now, id],
+      sql: `UPDATE app_secrets SET encrypted_value = ?, description = ?, url_allowlist = ?, updated_at = ? WHERE id = ?`,
+      args: [encrypted, description ?? null, urlAllowlist ?? null, now, id],
     });
     return id;
   }
   const id = randomUUID();
   await client.execute({
-    sql: `INSERT INTO app_secrets (id, scope, scope_id, key, encrypted_value, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    args: [id, scope, scopeId, key, encrypted, now, now],
+    sql: `INSERT INTO app_secrets (id, scope, scope_id, key, encrypted_value, description, url_allowlist, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    args: [
+      id,
+      scope,
+      scopeId,
+      key,
+      encrypted,
+      description ?? null,
+      urlAllowlist ?? null,
+      now,
+      now,
+    ],
   });
   return id;
 }
@@ -220,6 +252,102 @@ export async function getAppSecretMeta(
   const result = await readAppSecret(ref);
   if (!result) return null;
   return { last4: result.last4, updatedAt: result.updatedAt };
+}
+
+export interface SecretMeta {
+  key: string;
+  scope: SecretScope;
+  scopeId: string;
+  last4: string;
+  description: string | null;
+  urlAllowlist: string[] | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * Read a secret's metadata, including ad-hoc fields (description, allowlist),
+ * without ever decrypting or returning the plaintext value. Used by the
+ * ad-hoc list route and any UI that wants to render a key tile.
+ */
+export async function readAppSecretMeta(
+  ref: SecretRef,
+): Promise<SecretMeta | null> {
+  await ensureTable();
+  const { key, scope, scopeId } = ref;
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT encrypted_value, description, url_allowlist, created_at, updated_at FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ? LIMIT 1`,
+    args: [scope, scopeId, key],
+  });
+  if (rows.length === 0) return null;
+  const row = rows[0];
+  let last4Value = "";
+  try {
+    const value = decryptValue(row.encrypted_value as string);
+    last4Value = last4(value);
+  } catch {
+    last4Value = "";
+  }
+  return {
+    key,
+    scope,
+    scopeId,
+    last4: last4Value,
+    description: (row.description as string | null) ?? null,
+    urlAllowlist: parseAllowlist(row.url_allowlist as string | null),
+    createdAt: Number(row.created_at ?? 0),
+    updatedAt: Number(row.updated_at ?? 0),
+  };
+}
+
+/**
+ * List all secrets for a given scope. Returns metadata only — values are
+ * never decrypted or returned. Used by the ad-hoc list route to surface
+ * user-created keys.
+ */
+export async function listAppSecretsForScope(
+  scope: SecretScope,
+  scopeId: string,
+): Promise<SecretMeta[]> {
+  await ensureTable();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT key, encrypted_value, description, url_allowlist, created_at, updated_at FROM app_secrets WHERE scope = ? AND scope_id = ? ORDER BY updated_at DESC`,
+    args: [scope, scopeId],
+  });
+  return rows.map((row) => {
+    let last4Value = "";
+    try {
+      const value = decryptValue(row.encrypted_value as string);
+      last4Value = last4(value);
+    } catch {
+      last4Value = "";
+    }
+    return {
+      key: row.key as string,
+      scope,
+      scopeId,
+      last4: last4Value,
+      description: (row.description as string | null) ?? null,
+      urlAllowlist: parseAllowlist(row.url_allowlist as string | null),
+      createdAt: Number(row.created_at ?? 0),
+      updatedAt: Number(row.updated_at ?? 0),
+    };
+  });
+}
+
+function parseAllowlist(raw: string | null): string[] | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.every((v) => typeof v === "string")) {
+      return parsed;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 export async function deleteAppSecret(ref: SecretRef): Promise<boolean> {

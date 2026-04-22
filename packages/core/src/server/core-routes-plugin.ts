@@ -44,6 +44,7 @@ import {
   createListSecretsHandler,
   createWriteSecretHandler,
   createTestSecretHandler,
+  createAdHocSecretHandler,
 } from "../secrets/routes.js";
 import { registerFrameworkSecrets } from "../secrets/register-framework-secrets.js";
 import { createTranscribeVoiceHandler } from "./transcribe-voice.js";
@@ -577,6 +578,7 @@ export function createCoreRoutesPlugin(
     const listSecretsHandler = createListSecretsHandler();
     const writeSecretHandler = createWriteSecretHandler();
     const testSecretHandler = createTestSecretHandler();
+    const adHocSecretHandler = createAdHocSecretHandler();
 
     getH3App(nitroApp).use(
       `${P}/secrets`,
@@ -603,6 +605,105 @@ export function createCoreRoutesPlugin(
 
         setResponseStatus(event, 404);
         return { error: "Not found" };
+      }),
+    );
+
+    // ─── Ad-hoc secrets (user-created keys) ────────────────────────────
+    getH3App(nitroApp).use(
+      `${P}/secrets/adhoc`,
+      adHocSecretHandler,
+    );
+
+    // ─── Automations API ──────────────────────────────────────────────
+    // GET  /_agent-native/automations — list all automations (parsed triggers)
+    // POST /_agent-native/automations/fire-test — emit test.event.fired
+    getH3App(nitroApp).use(
+      `${P}/automations`,
+      defineEventHandler(async (event: H3Event) => {
+        const method = getMethod(event);
+        const pathname = (event.url?.pathname || "")
+          .replace(/^\/+/, "")
+          .replace(/\/+$/, "");
+
+        if (pathname === "fire-test" && method === "POST") {
+          try {
+            const { emit } = await import("../event-bus/index.js");
+            const body = (await readBody(event).catch(() => ({}))) as Record<
+              string,
+              unknown
+            >;
+            emit("test.event.fired", { data: body.data ?? {} });
+            return { ok: true };
+          } catch (err: any) {
+            setResponseStatus(event, 500);
+            return { error: err?.message ?? "Failed to emit test event" };
+          }
+        }
+
+        if (method !== "GET") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+
+        try {
+          const { resourceListAllOwners } =
+            await import("../resources/store.js");
+          const resources = await resourceListAllOwners("jobs/");
+          const FRONT_RE = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/;
+          const automations = resources
+            .filter((r) => r.path.endsWith(".md") && !r.path.endsWith(".keep"))
+            .map((r) => {
+              const match = r.content.match(FRONT_RE);
+              if (!match)
+                return {
+                  id: r.id,
+                  name: r.path.replace(/^jobs\//, "").replace(/\.md$/, ""),
+                  path: r.path,
+                  owner: r.owner,
+                  triggerType: "schedule" as const,
+                  enabled: false,
+                  mode: "agentic" as const,
+                  body: r.content,
+                };
+              const yaml = match[1];
+              const body = match[2].trim();
+              const meta: Record<string, string> = {};
+              for (const line of yaml.split("\n")) {
+                const ci = line.indexOf(":");
+                if (ci === -1) continue;
+                const k = line.slice(0, ci).trim();
+                let v = line.slice(ci + 1).trim();
+                if (
+                  (v.startsWith('"') && v.endsWith('"')) ||
+                  (v.startsWith("'") && v.endsWith("'"))
+                )
+                  v = v.slice(1, -1);
+                meta[k] = v;
+              }
+              return {
+                id: r.id,
+                name: r.path.replace(/^jobs\//, "").replace(/\.md$/, ""),
+                path: r.path,
+                owner: r.owner,
+                triggerType: meta.triggerType || "schedule",
+                event: meta.event,
+                schedule: meta.schedule,
+                condition: meta.condition,
+                mode: meta.mode || "agentic",
+                domain: meta.domain,
+                enabled: meta.enabled !== "false",
+                lastStatus: meta.lastStatus,
+                lastRun: meta.lastRun,
+                lastError: meta.lastError,
+                createdBy: meta.createdBy,
+                body,
+              };
+            });
+          return automations;
+        } catch (err: any) {
+          setResponseStatus(event, 500);
+          return { error: err?.message ?? "Failed to list automations" };
+        }
       }),
     );
 
