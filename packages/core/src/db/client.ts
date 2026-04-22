@@ -56,6 +56,25 @@ export function getDatabaseAuthToken(): string | undefined {
 }
 
 // ---------------------------------------------------------------------------
+// Safe JSON column parsing
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse a JSON-serialized column value defensively. A malformed row — from a
+ * hand-edit, dirty migration, or a misbehaving agent that wrote raw SQL —
+ * must not break an entire list endpoint. Callers supply a fallback for the
+ * malformed path; null/undefined values also fall back.
+ */
+export function safeJsonParse<T>(value: unknown, fallback: T): T {
+  if (value == null) return fallback;
+  try {
+    return JSON.parse(String(value)) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // SQLite retry helper
 // ---------------------------------------------------------------------------
 
