@@ -371,6 +371,12 @@ export function createCoreRoutesPlugin(
     // Env key management — framework keys are always included
     const frameworkEnvKeys: EnvKeyConfig[] = [
       { key: "ENABLE_BUILDER", label: "Enable Builder.io features" },
+      { key: "ANTHROPIC_API_KEY", label: "Anthropic API Key" },
+      { key: "OPENAI_API_KEY", label: "OpenAI API Key" },
+      { key: "GOOGLE_GENERATIVE_AI_API_KEY", label: "Google Gemini API Key" },
+      { key: "GROQ_API_KEY", label: "Groq API Key" },
+      { key: "MISTRAL_API_KEY", label: "Mistral API Key" },
+      { key: "COHERE_API_KEY", label: "Cohere API Key" },
     ];
     {
       const envKeys = [...frameworkEnvKeys, ...(options.envKeys ?? [])];

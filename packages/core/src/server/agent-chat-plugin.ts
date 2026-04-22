@@ -2579,9 +2579,9 @@ export function createAgentChatPlugin(
         _currentRequestOrigin = getOrigin(event);
         const owner = await getOwnerFromEvent(event);
         _currentRunOwner = owner;
-        const { getOwnerAnthropicApiKey } =
+        const { getOwnerActiveApiKey } =
           await import("../agent/production-agent.js");
-        _currentRunUserApiKey = await getOwnerAnthropicApiKey(owner);
+        _currentRunUserApiKey = await getOwnerActiveApiKey(owner);
         if (leanPrompt) {
           _currentRunSystemPrompt = leanBasePrompt;
           return _currentRunSystemPrompt;
@@ -2657,9 +2657,9 @@ export function createAgentChatPlugin(
           _currentRequestOrigin = getOrigin(event);
           const owner = await getOwnerFromEvent(event);
           _currentRunOwner = owner;
-          const { getOwnerAnthropicApiKey } =
+          const { getOwnerActiveApiKey } =
             await import("../agent/production-agent.js");
-          _currentRunUserApiKey = await getOwnerAnthropicApiKey(owner);
+          _currentRunUserApiKey = await getOwnerActiveApiKey(owner);
           if (leanPrompt) {
             _currentRunSystemPrompt = leanBasePrompt;
             return _currentRunSystemPrompt;
@@ -2744,7 +2744,11 @@ export function createAgentChatPlugin(
         }
 
         const body = await readBody(event);
-        const { key } = body as { key?: string };
+        const { key, provider: rawProvider } = body as {
+          key?: string;
+          provider?: string;
+        };
+        const provider = rawProvider || "anthropic";
 
         if (!key || typeof key !== "string" || !key.trim()) {
           setResponseStatus(event, 400);
@@ -2765,7 +2769,7 @@ export function createAgentChatPlugin(
         }
         if (ownerEmail && ownerEmail !== "local@localhost") {
           try {
-            await putSetting(`user-anthropic-api-key:${ownerEmail}`, {
+            await putSetting(`user-api-key:${provider}:${ownerEmail}`, {
               key: trimmedKey,
             });
             // Verify the write actually landed — some managed DB drivers
@@ -2774,7 +2778,7 @@ export function createAgentChatPlugin(
             // re-appears on the next message because the key isn't
             // really persisted.
             const check = await getSetting(
-              `user-anthropic-api-key:${ownerEmail}`,
+              `user-api-key:${provider}:${ownerEmail}`,
             );
             if (
               !check ||
@@ -2805,20 +2809,28 @@ export function createAgentChatPlugin(
         // would leak one tenant's credentials into every subsequent
         // request that hit the same warm instance without its own key.
         if (!isHostedProd) {
+          const providerToEnv: Record<string, string> = {
+            anthropic: "ANTHROPIC_API_KEY",
+            openai: "OPENAI_API_KEY",
+            google: "GOOGLE_GENERATIVE_AI_API_KEY",
+            groq: "GROQ_API_KEY",
+            mistral: "MISTRAL_API_KEY",
+            cohere: "COHERE_API_KEY",
+          };
+          const envVar =
+            providerToEnv[provider] ?? `${provider.toUpperCase()}_API_KEY`;
           try {
             const path = await import("path");
             const { upsertEnvFile } = await import("./create-server.js");
             const envPath = path.join(process.cwd(), ".env");
-            await upsertEnvFile(envPath, [
-              { key: "ANTHROPIC_API_KEY", value: trimmedKey },
-            ]);
+            await upsertEnvFile(envPath, [{ key: envVar, value: trimmedKey }]);
           } catch {
             // Edge runtime — can't write .env, but can still update process.env
           }
           // Update process.env so the agent works immediately in the
           // current local-dev invocation; the SQL persist above covers
           // future invocations.
-          process.env.ANTHROPIC_API_KEY = trimmedKey;
+          process.env[envVar] = trimmedKey;
         }
 
         return { ok: true };
@@ -3250,9 +3262,9 @@ export function createAgentChatPlugin(
         const cleanMessage = message.replace(/@\[([^\]|]+)\|[^\]]*\]/g, "@$1");
         // Mirror the chat-run resolution so BYO-key users have title
         // generation billed to their own key instead of the platform key.
-        const { getOwnerAnthropicApiKey } =
+        const { getOwnerActiveApiKey } =
           await import("../agent/production-agent.js");
-        const userApiKey = await getOwnerAnthropicApiKey(ownerEmail);
+        const userApiKey = await getOwnerActiveApiKey(ownerEmail);
         const apiKey = userApiKey ?? process.env.ANTHROPIC_API_KEY;
         if (!apiKey) {
           // Fallback: truncate the message

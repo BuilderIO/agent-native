@@ -948,7 +948,7 @@ function ApiKeySetupCard({ apiUrl }: { apiUrl: string }) {
       const res = await fetch(`${apiUrl}/save-key`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key: apiKey.trim() }),
+        body: JSON.stringify({ key: apiKey.trim(), provider: "anthropic" }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -1092,7 +1092,7 @@ export function BuilderCtaCard({
       const res = await fetch(`${apiUrl}/save-key`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key: apiKey.trim() }),
+        body: JSON.stringify({ key: apiKey.trim(), provider: "anthropic" }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));

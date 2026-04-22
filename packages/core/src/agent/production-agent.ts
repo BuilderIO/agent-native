@@ -35,24 +35,81 @@ import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
 // Register built-in engines on first import
 registerBuiltinEngines();
 
+const PROVIDER_TO_ENV: Record<string, string> = {
+  anthropic: "ANTHROPIC_API_KEY",
+  openai: "OPENAI_API_KEY",
+  google: "GOOGLE_GENERATIVE_AI_API_KEY",
+  groq: "GROQ_API_KEY",
+  mistral: "MISTRAL_API_KEY",
+  cohere: "COHERE_API_KEY",
+};
+
+export { PROVIDER_TO_ENV };
+
 /**
- * Look up a user's persisted Anthropic API key by owner email. Returns
+ * Look up a user's persisted API key for the given provider. Returns
  * `undefined` for unauthenticated/local callers so the shared platform key
  * is never keyed off `local@localhost` in multi-tenant deployments.
  */
-export async function getOwnerAnthropicApiKey(
+export async function getOwnerApiKey(
+  provider: string,
   ownerEmail: string | null | undefined,
 ): Promise<string | undefined> {
   if (!ownerEmail || ownerEmail === "local@localhost") return undefined;
   try {
     const { getSetting } = await import("../settings/store.js");
-    const stored = await getSetting(`user-anthropic-api-key:${ownerEmail}`);
+    const stored = await getSetting(`user-api-key:${provider}:${ownerEmail}`);
     const key =
       stored && typeof stored.key === "string" ? stored.key.trim() : "";
-    return key || undefined;
+    if (key) return key;
+    // Backward compat: check legacy Anthropic key format
+    if (provider === "anthropic") {
+      const legacy = await getSetting(`user-anthropic-api-key:${ownerEmail}`);
+      const legacyKey =
+        legacy && typeof legacy.key === "string" ? legacy.key.trim() : "";
+      return legacyKey || undefined;
+    }
+    return undefined;
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Derive the provider name from the active engine setting.
+ * "ai-sdk:openai" → "openai", "anthropic" → "anthropic"
+ */
+export function engineToProvider(engineName: string): string {
+  return engineName.startsWith("ai-sdk:") ? engineName.slice(7) : engineName;
+}
+
+/**
+ * Resolve the active engine's provider and look up the user's API key for it.
+ * Falls back to the provider's env var if no per-user key is stored.
+ */
+export async function getOwnerActiveApiKey(
+  ownerEmail: string | null | undefined,
+): Promise<string | undefined> {
+  try {
+    const { getSetting } = await import("../settings/store.js");
+    const engineSetting = await getSetting("agent-engine");
+    const activeEngine =
+      (engineSetting?.engine as string | undefined) ?? "anthropic";
+    const provider = engineToProvider(activeEngine);
+    const userKey = await getOwnerApiKey(provider, ownerEmail);
+    if (userKey) return userKey;
+    const envVar = PROVIDER_TO_ENV[provider];
+    return envVar ? process.env[envVar] || undefined : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** @deprecated Use getOwnerApiKey("anthropic", ownerEmail) instead */
+export async function getOwnerAnthropicApiKey(
+  ownerEmail: string | null | undefined,
+): Promise<string | undefined> {
+  return getOwnerApiKey("anthropic", ownerEmail);
 }
 
 /** Context passed to action run() for emitting intermediate events */
@@ -496,7 +553,7 @@ export function createProductionAgentHandler(
       }
     }
 
-    const userApiKey = await getOwnerAnthropicApiKey(ownerEmail);
+    const userApiKey = await getOwnerActiveApiKey(ownerEmail);
 
     const effectiveApiKey =
       userApiKey ?? options.apiKey ?? process.env.ANTHROPIC_API_KEY;

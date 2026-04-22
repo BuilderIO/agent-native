@@ -257,6 +257,52 @@ function ManualSetupCard({
 
 // ─── LLM Section ────────────────────────────────────────────────────────────
 
+interface EngineInfo {
+  name: string;
+  label: string;
+  description: string;
+  defaultModel: string;
+  supportedModels: string[];
+  requiredEnvVars: string[];
+}
+
+const PROVIDER_LABELS: Record<string, string> = {
+  anthropic: "Anthropic (Claude)",
+  "ai-sdk:openai": "OpenAI",
+  "ai-sdk:google": "Google Gemini",
+  "ai-sdk:groq": "Groq",
+  "ai-sdk:mistral": "Mistral",
+  "ai-sdk:cohere": "Cohere",
+  "ai-sdk:ollama": "Ollama (local)",
+};
+
+const KEY_PLACEHOLDERS: Record<string, string> = {
+  ANTHROPIC_API_KEY: "sk-ant-...",
+  OPENAI_API_KEY: "sk-...",
+  GOOGLE_GENERATIVE_AI_API_KEY: "AI...",
+  GROQ_API_KEY: "gsk_...",
+  MISTRAL_API_KEY: "...",
+  COHERE_API_KEY: "...",
+};
+
+const PROVIDER_DOCS: Record<string, string> = {
+  anthropic: "https://console.anthropic.com/settings/keys",
+  "ai-sdk:openai": "https://platform.openai.com/api-keys",
+  "ai-sdk:google": "https://aistudio.google.com/apikey",
+  "ai-sdk:groq": "https://console.groq.com/keys",
+  "ai-sdk:mistral": "https://console.mistral.ai/api-keys/",
+  "ai-sdk:cohere": "https://dashboard.cohere.com/api-keys",
+  "ai-sdk:ollama": "https://ollama.com/download",
+};
+
+const PRIMARY_PROVIDERS = ["anthropic", "ai-sdk:openai", "ai-sdk:google"];
+const MORE_PROVIDERS = [
+  "ai-sdk:groq",
+  "ai-sdk:mistral",
+  "ai-sdk:cohere",
+  "ai-sdk:ollama",
+];
+
 function LLMSectionInner({
   builderEnabled,
   connectUrl,
@@ -278,6 +324,13 @@ function LLMSectionInner({
   const [apiKey, setApiKey] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [engines, setEngines] = useState<EngineInfo[]>([]);
+  const [currentEngine, setCurrentEngine] = useState("anthropic");
+  const [currentModel, setCurrentModel] = useState("");
+  const [selectedEngine, setSelectedEngine] = useState("anthropic");
+  const [selectedModel, setSelectedModel] = useState("");
+  const [showMore, setShowMore] = useState(false);
+  const [applyNote, setApplyNote] = useState(false);
 
   useEffect(() => {
     fetch("/_agent-native/env-status")
@@ -286,18 +339,71 @@ function LLMSectionInner({
       .catch(() => {});
   }, [saved]);
 
-  const anthropicConfigured =
-    envKeys.find((k) => k.key === "ANTHROPIC_API_KEY")?.configured ?? false;
+  useEffect(() => {
+    fetch("/_agent-native/actions/list-agent-engines", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!data) return;
+        setEngines(data.engines ?? []);
+        const cur = data.current ?? {};
+        setCurrentEngine(cur.engine ?? "anthropic");
+        setCurrentModel(cur.model ?? "");
+        setSelectedEngine(cur.engine ?? "anthropic");
+        setSelectedModel(cur.model ?? "");
+      })
+      .catch(() => {});
+  }, []);
+
+  const selectedEngineInfo = engines.find((e) => e.name === selectedEngine);
+  const envVar = selectedEngineInfo?.requiredEnvVars?.[0];
+  const envConfigured = envVar
+    ? (envKeys.find((k) => k.key === envVar)?.configured ?? false)
+    : false;
+  const noKeyRequired = selectedEngine === "ai-sdk:ollama";
+  const anyKeyConfigured = envConfigured || noKeyRequired || connected;
+
+  const engineChanged =
+    selectedEngine !== currentEngine || selectedModel !== currentModel;
+
+  // Build provider options from engines, filtered and ordered
+  const allowedNames = showMore
+    ? [...PRIMARY_PROVIDERS, ...MORE_PROVIDERS]
+    : PRIMARY_PROVIDERS;
+  const providerOptions: SettingsSelectOption[] = allowedNames
+    .filter((name) => engines.some((e) => e.name === name))
+    .map((name) => ({
+      value: name,
+      label: PROVIDER_LABELS[name] ?? name,
+    }));
+
+  // If the currently selected engine isn't in the visible list, make sure it's shown
+  if (
+    !providerOptions.find((o) => o.value === selectedEngine) &&
+    engines.some((e) => e.name === selectedEngine)
+  ) {
+    providerOptions.push({
+      value: selectedEngine,
+      label: PROVIDER_LABELS[selectedEngine] ?? selectedEngine,
+    });
+  }
+
+  const modelOptions: SettingsSelectOption[] = (
+    selectedEngineInfo?.supportedModels ?? []
+  ).map((m) => ({ value: m, label: m }));
 
   const handleSave = async () => {
-    if (!apiKey.trim()) return;
+    if (!apiKey.trim() || !envVar) return;
     setSaving(true);
     try {
       const res = await fetch("/_agent-native/env-vars", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          vars: [{ key: "ANTHROPIC_API_KEY", value: apiKey.trim() }],
+          vars: [{ key: envVar, value: apiKey.trim() }],
         }),
       });
       if (res.ok) {
@@ -310,13 +416,34 @@ function LLMSectionInner({
     }
   };
 
+  const handleApply = async () => {
+    try {
+      const res = await fetch("/_agent-native/actions/set-agent-engine", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          engine: selectedEngine,
+          model: selectedModel,
+        }),
+      });
+      if (res.ok) {
+        setCurrentEngine(selectedEngine);
+        setCurrentModel(selectedModel);
+        setApplyNote(true);
+        setTimeout(() => setApplyNote(false), 4000);
+      }
+    } catch {
+      // ignore
+    }
+  };
+
   return (
     <SettingsSection
       icon={<IconBrain size={14} />}
       title="LLM"
       subtitle="Connect any major LLM — Claude, GPT, Gemini, and more."
       required
-      connected={anthropicConfigured || connected}
+      connected={anyKeyConfigured}
       open={open}
       onToggle={onToggle}
     >
@@ -330,43 +457,95 @@ function LLMSectionInner({
           label="Connect Builder.io"
         />
         <ManualSetupCard
-          hint="Paste your Anthropic API key to power the agent chat."
-          docsUrl="https://console.anthropic.com/settings/keys"
-          docsLabel="Get an API key"
+          hint="Choose your AI provider and model."
+          docsUrl={PROVIDER_DOCS[selectedEngine]}
+          docsLabel={noKeyRequired ? "Download Ollama" : "Get an API key"}
           dim={connected}
         >
-          {anthropicConfigured ? (
-            <div className="flex items-center gap-1.5 text-[10px] text-green-500 mb-1">
-              <IconCheck size={10} />
-              ANTHROPIC_API_KEY configured
-            </div>
-          ) : (
-            <div className="flex gap-1.5 mb-1">
-              <input
-                type="password"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleSave();
-                }}
-                placeholder="sk-ant-..."
-                className="flex-1 rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+          <div className="space-y-2 mb-1">
+            {/* Provider dropdown */}
+            <SettingsSelect
+              label="Provider"
+              value={selectedEngine}
+              options={providerOptions}
+              onValueChange={(val) => {
+                setSelectedEngine(val);
+                const info = engines.find((e) => e.name === val);
+                setSelectedModel(info?.defaultModel ?? "");
+                setApiKey("");
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => setShowMore((v) => !v)}
+              className="text-[10px] text-muted-foreground hover:text-foreground"
+            >
+              {showMore ? "Show fewer providers" : "Show more providers"}
+            </button>
+
+            {/* Model dropdown */}
+            {modelOptions.length > 0 && (
+              <SettingsSelect
+                label="Model"
+                value={selectedModel}
+                options={modelOptions}
+                onValueChange={setSelectedModel}
               />
+            )}
+
+            {/* API key / status */}
+            {noKeyRequired ? (
+              <p className="text-[10px] text-muted-foreground">
+                No API key required — runs locally
+              </p>
+            ) : envVar && envConfigured ? (
+              <div className="flex items-center gap-1.5 text-[10px] text-green-500">
+                <IconCheck size={10} />
+                {envVar} configured
+              </div>
+            ) : envVar ? (
+              <div className="flex gap-1.5">
+                <input
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleSave();
+                  }}
+                  placeholder={KEY_PLACEHOLDERS[envVar] ?? "..."}
+                  className="flex-1 rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+                />
+                <button
+                  onClick={handleSave}
+                  disabled={!apiKey.trim() || saving}
+                  className="rounded bg-accent px-2 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
+                >
+                  {saving ? (
+                    <IconLoader2 size={10} className="animate-spin" />
+                  ) : saved ? (
+                    <IconCheck size={10} />
+                  ) : (
+                    "Save"
+                  )}
+                </button>
+              </div>
+            ) : null}
+
+            {/* Apply engine/model change */}
+            {engineChanged && (
               <button
-                onClick={handleSave}
-                disabled={!apiKey.trim() || saving}
-                className="rounded bg-accent px-2 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
+                onClick={handleApply}
+                className="rounded bg-accent px-2.5 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80"
               >
-                {saving ? (
-                  <IconLoader2 size={10} className="animate-spin" />
-                ) : saved ? (
-                  <IconCheck size={10} />
-                ) : (
-                  "Save"
-                )}
+                Apply
               </button>
-            </div>
-          )}
+            )}
+            {applyNote && (
+              <p className="text-[10px] text-muted-foreground">
+                Changes take effect on next conversation
+              </p>
+            )}
+          </div>
         </ManualSetupCard>
       </div>
     </SettingsSection>

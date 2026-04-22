@@ -9,7 +9,7 @@ import {
 import {
   runAgentLoop,
   actionsToEngineTools,
-  getOwnerAnthropicApiKey,
+  getOwnerActiveApiKey,
   type ActionEntry,
 } from "../agent/production-agent.js";
 import { createAnthropicEngine } from "../agent/engine/index.js";
@@ -233,7 +233,7 @@ async function executeJob(
         // Prefer the job runner's saved Anthropic key so recurring jobs
         // don't silently bill the shared platform key once a user has
         // brought their own. Falls back to the platform key when absent.
-        const userApiKey = await getOwnerAnthropicApiKey(jobUserEmail);
+        const userApiKey = await getOwnerActiveApiKey(jobUserEmail);
         const engine =
           deps.engine ??
           createAnthropicEngine({ apiKey: userApiKey ?? deps.apiKey });
