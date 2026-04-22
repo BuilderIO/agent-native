@@ -150,10 +150,6 @@ export default function DownloadPage() {
 
       <main className="mx-auto max-w-5xl px-6 py-16">
         <div className="flex flex-col items-center text-center">
-          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-border bg-muted/40 px-3 py-1 text-xs text-muted-foreground">
-            <IconRefresh className="h-3.5 w-3.5" />
-            Auto-updates — you always have the latest
-          </div>
           <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
             Clips Desktop
           </h1>

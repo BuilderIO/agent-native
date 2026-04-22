@@ -91,6 +91,18 @@ function run(
     env: process.env,
   });
   child.on("exit", (code) => process.exit(code ?? 0));
+  // Forward signals to child so Cmd+C doesn't leave zombie processes holding ports
+  for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+    process.on(sig, () => {
+      child.kill(sig);
+      setTimeout(() => {
+        try {
+          child.kill("SIGKILL");
+        } catch {}
+        process.exit(1);
+      }, 5000).unref();
+    });
+  }
   return child;
 }
 
