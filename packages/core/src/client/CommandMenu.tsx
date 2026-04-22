@@ -280,23 +280,24 @@ export function CommandMenu({
   const filterChildren = (nodes: ReactNode): ReactNode => {
     return React.Children.map(nodes, (child) => {
       if (!React.isValidElement(child)) return child;
+      const props = child.props as Record<string, unknown>;
 
       // If it's a CommandGroup, filter its children
       if (child.type === CommandGroup) {
-        const groupChildren = filterChildren(child.props.children);
+        const groupChildren = filterChildren(props.children as ReactNode);
         const hasChildren = React.Children.count(groupChildren) > 0;
         if (!hasChildren) return null;
         return React.cloneElement(child, {
-          ...child.props,
+          ...props,
           children: groupChildren,
-        });
+        } as Record<string, unknown>);
       }
 
       // If it's a CommandItem, check if it matches search
       if (child.type === CommandItem) {
         if (!search) return child;
-        const text = getTextContent(child.props.children).toLowerCase();
-        const keywords = (child.props.keywords || []).join(" ").toLowerCase();
+        const text = getTextContent(props.children as ReactNode).toLowerCase();
+        const keywords = ((props.keywords as string[]) || []).join(" ").toLowerCase();
         const searchLower = search.toLowerCase();
         if (text.includes(searchLower) || keywords.includes(searchLower)) {
           return child;
@@ -406,8 +407,8 @@ function getTextContent(children: ReactNode): string {
   if (Array.isArray(children)) {
     return children.map(getTextContent).join(" ");
   }
-  if (React.isValidElement(children) && children.props.children) {
-    return getTextContent(children.props.children);
+  if (React.isValidElement(children) && (children.props as Record<string, unknown>).children) {
+    return getTextContent((children.props as Record<string, unknown>).children as ReactNode);
   }
   return "";
 }

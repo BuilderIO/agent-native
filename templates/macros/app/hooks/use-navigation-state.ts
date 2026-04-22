@@ -8,7 +8,7 @@ interface NavigationState {
 }
 
 export function useNavigationSync(state: NavigationState) {
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);

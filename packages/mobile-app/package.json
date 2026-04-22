@@ -20,15 +20,15 @@
     "expo-router": "^55.0.13",
     "expo-status-bar": "^55.0.5",
     "expo-web-browser": "~55.0.14",
-    "react": "19.0.0",
-    "react-dom": "19.0.0",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
     "react-native": "0.85.2",
     "react-native-safe-area-context": "^5.7.0",
     "react-native-screens": "4.24.0",
     "react-native-webview": "^13.16.1"
   },
   "devDependencies": {
-    "@types/react": "^19.0.14",
+    "@types/react": "^19.2.14",
     "typescript": "^6.0.3"
   }
 }

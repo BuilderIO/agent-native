@@ -3,11 +3,11 @@
  *
  * Layout: three-column split:
  *   [host info] [month calendar] [time slots (when date picked)]
- * Stages advance via framer-motion width+fade for a polished, animated
+ * Stages advance via motion width+fade for a polished, animated
  * feel that's the core product touch of the booker flow.
  */
 import { useCallback, useEffect, useMemo } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion } from "motion/react";
 import { TZDate } from "@date-fns/tz";
 import {
   format,

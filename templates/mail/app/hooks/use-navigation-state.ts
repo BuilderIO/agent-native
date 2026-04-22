@@ -28,7 +28,7 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
 
 export function useNavigationState() {
   const qc = useQueryClient();
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // Write-only: UI syncs its current state so the agent can read it
   const putMutation = useMutation({

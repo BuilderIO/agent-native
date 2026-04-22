@@ -45,7 +45,7 @@ export function PeopleSearchDialog({
   const [searching, setSearching] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const listRef = useRef<HTMLDivElement>(null);
 
   const { data: rawOverlayPeople } = useOverlayPeople();

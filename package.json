@@ -29,8 +29,8 @@
   },
   "pnpm": {
     "overrides": {
-      "@types/react": "^18.3.23",
-      "@types/react-dom": "^18.3.7",
+      "@types/react": "^19.2.14",
+      "@types/react-dom": "^19.2.3",
       "rollup": ">=4.59.0",
       "multer": ">=2.1.1",
       "minimatch": ">=9.0.7",
