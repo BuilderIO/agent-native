@@ -59,15 +59,19 @@ export default defineAction({
     });
 
     try {
-      emit("calendar.booking.created", {
-        bookingId: booking.id ?? booking.uid ?? "",
-        schedulingLinkSlug: eventType.slug ?? args.slug ?? "",
-        attendeeName: args.attendeeName,
-        attendeeEmail: args.attendeeEmail,
-        startTime: args.startTime,
-        endTime: args.endTime,
-        eventTitle: booking.title ?? eventType.title ?? "",
-      });
+      emit(
+        "calendar.booking.created",
+        {
+          bookingId: booking.id ?? booking.uid ?? "",
+          schedulingLinkSlug: eventType.slug ?? args.slug ?? "",
+          attendeeName: args.attendeeName,
+          attendeeEmail: args.attendeeEmail,
+          startTime: args.startTime,
+          endTime: args.endTime,
+          eventTitle: booking.title ?? eventType.title ?? "",
+        },
+        { owner: hostEmail },
+      );
     } catch {
       // best-effort — never block the main write
     }

@@ -315,15 +315,19 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     };
 
     try {
-      emit("calendar.booking.created", {
-        bookingId: id,
-        schedulingLinkSlug: body.slug || "",
-        attendeeName: body.name,
-        attendeeEmail: body.email,
-        startTime: body.start,
-        endTime: body.end,
-        eventTitle: booking.eventTitle || "",
-      });
+      emit(
+        "calendar.booking.created",
+        {
+          bookingId: id,
+          schedulingLinkSlug: body.slug || "",
+          attendeeName: body.name,
+          attendeeEmail: body.email,
+          startTime: body.start,
+          endTime: body.end,
+          eventTitle: booking.eventTitle || "",
+        },
+        { owner: hostEmail },
+      );
     } catch {
       // best-effort
     }

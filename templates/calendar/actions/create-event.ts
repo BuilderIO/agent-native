@@ -59,14 +59,18 @@ export default defineAction({
     }
 
     try {
-      emit("calendar.event.created", {
-        eventId: calEvent.id,
-        title: calEvent.title,
-        startTime: calEvent.start,
-        endTime: calEvent.end,
-        attendees: [],
-        createdBy: email,
-      });
+      emit(
+        "calendar.event.created",
+        {
+          eventId: calEvent.id,
+          title: calEvent.title,
+          startTime: calEvent.start,
+          endTime: calEvent.end,
+          attendees: [],
+          createdBy: email,
+        },
+        { owner: email },
+      );
     } catch {
       // best-effort — never block the main write
     }

@@ -141,6 +141,7 @@ export default defineEventHandler(async (event) => {
     .select({
       id: schema.recordings.id,
       visibility: schema.recordings.visibility,
+      ownerEmail: schema.recordings.ownerEmail,
     })
     .from(schema.recordings)
     .where(eq(schema.recordings.id, recordingId))
@@ -246,7 +247,7 @@ export default defineEventHandler(async (event) => {
           viewerEmail: viewerEmail ?? null,
           viewedAt: now,
         },
-        { owner: viewerEmail ?? undefined },
+        { owner: rec.ownerEmail ?? undefined },
       );
     } catch (err) {
       console.warn("[view-event] clip.viewed emit failed:", err);

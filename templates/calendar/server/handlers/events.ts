@@ -250,14 +250,18 @@ export const createEvent = defineEventHandler(async (event: H3Event) => {
     }
 
     try {
-      emit("calendar.event.created", {
-        eventId: calEvent.id,
-        title: calEvent.title || body.title || "",
-        startTime: calEvent.start,
-        endTime: calEvent.end,
-        attendees: body.attendees ?? [],
-        createdBy: email,
-      });
+      emit(
+        "calendar.event.created",
+        {
+          eventId: calEvent.id,
+          title: calEvent.title || body.title || "",
+          startTime: calEvent.start,
+          endTime: calEvent.end,
+          attendees: body.attendees ?? [],
+          createdBy: email,
+        },
+        { owner: email },
+      );
     } catch {
       // best-effort
     }
@@ -307,14 +311,18 @@ export const updateEvent = defineEventHandler(async (event: H3Event) => {
     };
 
     try {
-      emit("calendar.event.updated", {
-        eventId: id,
-        title: body.title ?? "",
-        startTime: body.start ?? "",
-        endTime: body.end ?? "",
-        attendees: body.attendees ?? [],
-        updatedBy: email,
-      });
+      emit(
+        "calendar.event.updated",
+        {
+          eventId: id,
+          title: body.title ?? "",
+          startTime: body.start ?? "",
+          endTime: body.end ?? "",
+          attendees: body.attendees ?? [],
+          updatedBy: email,
+        },
+        { owner: email },
+      );
     } catch {
       // best-effort
     }

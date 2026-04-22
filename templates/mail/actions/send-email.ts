@@ -360,11 +360,15 @@ export default defineAction({
       }
       // Emit mail.message.sent event (best-effort)
       try {
-        emit("mail.message.sent", {
-          messageId: sent.id,
-          to: args.to,
-          subject: args.subject,
-        });
+        emit(
+          "mail.message.sent",
+          {
+            messageId: sent.id,
+            to: args.to,
+            subject: args.subject,
+          },
+          { owner: selectedEmail },
+        );
       } catch {
         // best-effort — never block the send response
       }
