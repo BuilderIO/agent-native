@@ -1,4 +1,10 @@
-import { getDbExec, isPostgres, intType, type DbExec } from "../db/client.js";
+import {
+  getDbExec,
+  isPostgres,
+  intType,
+  retryOnDdlRace,
+  type DbExec,
+} from "../db/client.js";
 import { emitResourceChange, emitResourceDelete } from "./emitter.js";
 import type { StoreWriteOptions } from "../settings/store.js";
 import crypto from "crypto";
@@ -178,26 +184,32 @@ Add people you frequently interact with so the agent can resolve names like "ema
 
 async function ensureTable(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = _doEnsureTable();
+    _initPromise = _doEnsureTable().catch((err) => {
+      // Don't cache the rejection — let the next caller retry a fresh init.
+      _initPromise = undefined;
+      throw err;
+    });
   }
   return _initPromise;
 }
 
 async function _doEnsureTable(): Promise<void> {
   const client = getDbExec();
-  await client.execute(`
-    CREATE TABLE IF NOT EXISTS resources (
-      id TEXT PRIMARY KEY,
-      path TEXT NOT NULL,
-      owner TEXT NOT NULL,
-      content TEXT NOT NULL DEFAULT '',
-      mime_type TEXT NOT NULL DEFAULT 'text/markdown',
-      size ${intType()} NOT NULL DEFAULT 0,
-      created_at ${intType()} NOT NULL,
-      updated_at ${intType()} NOT NULL,
-      UNIQUE(path, owner)
-    )
-  `);
+  await retryOnDdlRace(() =>
+    client.execute(`
+      CREATE TABLE IF NOT EXISTS resources (
+        id TEXT PRIMARY KEY,
+        path TEXT NOT NULL,
+        owner TEXT NOT NULL,
+        content TEXT NOT NULL DEFAULT '',
+        mime_type TEXT NOT NULL DEFAULT 'text/markdown',
+        size ${intType()} NOT NULL DEFAULT 0,
+        created_at ${intType()} NOT NULL,
+        updated_at ${intType()} NOT NULL,
+        UNIQUE(path, owner)
+      )
+    `),
+  );
 
   // Seed default shared resources if they don't exist (INSERT OR IGNORE to avoid race conditions)
   const now = Date.now();

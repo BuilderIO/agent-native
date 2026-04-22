@@ -34,6 +34,7 @@ import {
   isPostgres,
   intType,
   isLocalDatabase,
+  retryOnDdlRace,
 } from "../db/client.js";
 import { getBetterAuth, getBetterAuthSync } from "./better-auth-instance.js";
 import type { BetterAuthConfig } from "./better-auth-instance.js";
@@ -229,21 +230,47 @@ async function ensureSessionTable(): Promise<void> {
   if (!_sessionInitPromise) {
     _sessionInitPromise = (async () => {
       const client = getDbExec();
-      await client.execute(`
-        CREATE TABLE IF NOT EXISTS sessions (
-          token TEXT PRIMARY KEY,
-          email TEXT,
-          created_at ${intType()} NOT NULL
-        )
-      `);
+      await retryOnDdlRace(() =>
+        client.execute(`
+          CREATE TABLE IF NOT EXISTS sessions (
+            token TEXT PRIMARY KEY,
+            email TEXT,
+            created_at ${intType()} NOT NULL
+          )
+        `),
+      );
       try {
         await client.execute(`ALTER TABLE sessions ADD COLUMN email TEXT`);
       } catch {
         // Column already exists
       }
-    })();
+    })().catch((err) => {
+      // Don't cache the rejection — let the next caller retry a fresh init.
+      _sessionInitPromise = undefined;
+      throw err;
+    });
   }
   return _sessionInitPromise;
+}
+
+/**
+ * Re-run any `sessions`-table op once if Postgres reports the relation is
+ * missing. Covers the case where a prior `ensureSessionTable()` resolved but
+ * the table wasn't actually present (e.g. a race where the CREATE was dropped
+ * on a reused pool connection, or a cached resolved promise from a prior
+ * DB URL). Forces a fresh init, then retries the caller's op.
+ */
+async function retryIfSessionsMissing<T>(op: () => Promise<T>): Promise<T> {
+  try {
+    return await op();
+  } catch (e: any) {
+    if (e?.code !== "42P01") throw e;
+    const msg = String(e?.message ?? "");
+    if (!msg.includes("sessions")) throw e;
+    _sessionInitPromise = undefined;
+    await ensureSessionTable();
+    return await op();
+  }
 }
 
 /**
@@ -253,22 +280,26 @@ async function ensureSessionTable(): Promise<void> {
 export async function addSession(token: string, email?: string): Promise<void> {
   await ensureSessionTable();
   const client = getDbExec();
-  await client.execute({
-    sql: isPostgres()
-      ? `INSERT INTO sessions (token, email, created_at) VALUES (?, ?, ?) ON CONFLICT (token) DO UPDATE SET email=EXCLUDED.email, created_at=EXCLUDED.created_at`
-      : `INSERT OR REPLACE INTO sessions (token, email, created_at) VALUES (?, ?, ?)`,
-    args: [token, email ?? null, Date.now()],
-  });
+  await retryIfSessionsMissing(() =>
+    client.execute({
+      sql: isPostgres()
+        ? `INSERT INTO sessions (token, email, created_at) VALUES (?, ?, ?) ON CONFLICT (token) DO UPDATE SET email=EXCLUDED.email, created_at=EXCLUDED.created_at`
+        : `INSERT OR REPLACE INTO sessions (token, email, created_at) VALUES (?, ?, ?)`,
+      args: [token, email ?? null, Date.now()],
+    }),
+  );
 }
 
 /** Remove a session from the legacy sessions table. */
 export async function removeSession(token: string): Promise<void> {
   await ensureSessionTable();
   const client = getDbExec();
-  await client.execute({
-    sql: `DELETE FROM sessions WHERE token = ?`,
-    args: [token],
-  });
+  await retryIfSessionsMissing(() =>
+    client.execute({
+      sql: `DELETE FROM sessions WHERE token = ?`,
+      args: [token],
+    }),
+  );
 }
 
 /**
@@ -278,10 +309,12 @@ export async function removeSession(token: string): Promise<void> {
 export async function getSessionEmail(token: string): Promise<string | null> {
   await ensureSessionTable();
   const client = getDbExec();
-  const { rows } = await client.execute({
-    sql: `SELECT email, created_at FROM sessions WHERE token = ?`,
-    args: [token],
-  });
+  const { rows } = await retryIfSessionsMissing(() =>
+    client.execute({
+      sql: `SELECT email, created_at FROM sessions WHERE token = ?`,
+      args: [token],
+    }),
+  );
   if (rows.length === 0) return null;
   const createdAt = rows[0].created_at as number;
   if (Date.now() - createdAt > sessionMaxAge * 1000) {
