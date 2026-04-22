@@ -7,7 +7,7 @@ import {
   IconPlus,
   IconTrash,
 } from "@tabler/icons-react";
-import { useSendToAgentChat } from "../use-send-to-agent-chat.js";
+import { sendToAgentChat } from "../agent-chat.js";
 
 interface TreeNode {
   name: string;
@@ -87,8 +87,6 @@ export function AutomationsSection() {
     text: string;
   } | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
-
-  const { send, codeRequiredDialog } = useSendToAgentChat();
 
   const showToast = useCallback(
     (kind: "ok" | "err", text: string, ms = 2500) => {
@@ -192,20 +190,37 @@ export function AutomationsSection() {
     [reload, showToast],
   );
 
-  const handleFireTestEvent = useCallback(() => {
-    send({
-      message: "Fire a test event with data: {test: true}",
-      submit: true,
-    });
-  }, [send]);
+  const handleFireTestEvent = useCallback(async () => {
+    showToast("ok", "Firing test event...");
+    try {
+      const res = await fetch("/_agent-native/automations/fire-test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data: {} }),
+      });
+      if (!res.ok) {
+        showToast("err", `Failed to fire event (${res.status})`);
+        return;
+      }
+      showToast("ok", "Event fired");
+    } catch (err: any) {
+      showToast("err", err?.message ?? "Failed to fire event");
+    }
+  }, [showToast]);
 
   const handleNewAutomation = useCallback(() => {
-    send({
+    // Switch to Chat tab and send the message
+    window.dispatchEvent(
+      new CustomEvent("agent-panel:set-mode", {
+        detail: { mode: "chat" },
+      }),
+    );
+    sendToAgentChat({
       message:
         "Help me create a new automation. Ask me what I want to automate.",
       submit: true,
     });
-  }, [send]);
+  }, []);
 
   if (error) {
     return (
@@ -226,8 +241,6 @@ export function AutomationsSection() {
 
   return (
     <div className="space-y-2">
-      {codeRequiredDialog}
-
       <div className="flex items-center gap-1.5">
         <button
           type="button"

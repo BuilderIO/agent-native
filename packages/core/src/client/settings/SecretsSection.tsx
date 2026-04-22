@@ -11,6 +11,7 @@ import {
   IconExternalLink,
   IconLoader2,
   IconPlugConnected,
+  IconPlus,
   IconTrash,
   IconRefresh,
 } from "@tabler/icons-react";
@@ -82,10 +83,13 @@ export function SecretsSection({ focusKey }: SecretsSectionProps) {
   }
   if (secrets.length === 0) {
     return (
-      <p className="text-[10px] text-muted-foreground">
-        No secrets registered yet. Templates register API keys and connections
-        via <code>registerRequiredSecret()</code>.
-      </p>
+      <div className="space-y-2">
+        <p className="text-[10px] text-muted-foreground">
+          No secrets registered yet. Templates register API keys and connections
+          via <code>registerRequiredSecret()</code>.
+        </p>
+        <AdHocKeysSection />
+      </div>
     );
   }
 
@@ -99,6 +103,7 @@ export function SecretsSection({ focusKey }: SecretsSectionProps) {
           focusInput={focusKey === secret.key}
         />
       ))}
+      <AdHocKeysSection />
     </div>
   );
 }
@@ -365,6 +370,333 @@ function SecretCard({ secret, onChanged, focusInput }: SecretCardProps) {
           className={`mt-1.5 text-[10px] ${
             toast.kind === "ok" ? "text-green-500" : "text-red-500"
           }`}
+        >
+          {toast.text}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ─── Ad-hoc Keys Section ──────────────────────────────────────────────────
+
+interface AdHocKey {
+  name: string;
+  scope: "user" | "workspace";
+  scopeId: string;
+  description: string | null;
+  last4: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+const ADHOC_ENDPOINT = "/_agent-native/secrets/adhoc";
+
+function AdHocKeysSection() {
+  const [keys, setKeys] = useState<AdHocKey[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [reloadToken, setReloadToken] = useState(0);
+  const [showForm, setShowForm] = useState(false);
+  const [formName, setFormName] = useState("");
+  const [formValue, setFormValue] = useState("");
+  const [formDescription, setFormDescription] = useState("");
+  const [formScope, setFormScope] = useState<"user" | "workspace">("user");
+  const [formBusy, setFormBusy] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [confirmDeleteName, setConfirmDeleteName] = useState<string | null>(
+    null,
+  );
+  const [deletingName, setDeletingName] = useState<string | null>(null);
+  const [toast, setToast] = useState<{
+    kind: "ok" | "err";
+    text: string;
+  } | null>(null);
+
+  const showToast = useCallback(
+    (kind: "ok" | "err", text: string, ms = 2500) => {
+      setToast({ kind, text });
+      setTimeout(() => setToast(null), ms);
+    },
+    [],
+  );
+
+  const reload = useCallback(() => setReloadToken((t) => t + 1), []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetch(ADHOC_ENDPOINT)
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`Failed to load (${r.status})`);
+        return (await r.json()) as AdHocKey[];
+      })
+      .then((data) => {
+        if (!cancelled) {
+          setKeys(data);
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setKeys([]);
+          setLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadToken]);
+
+  const resetForm = useCallback(() => {
+    setShowForm(false);
+    setFormName("");
+    setFormValue("");
+    setFormDescription("");
+    setFormScope("user");
+    setFormError(null);
+  }, []);
+
+  const handleAdd = useCallback(async () => {
+    const name = formName.trim();
+    const value = formValue.trim();
+    if (!name || !value || formBusy) return;
+    setFormBusy(true);
+    setFormError(null);
+    try {
+      const res = await fetch(ADHOC_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          value,
+          description: formDescription.trim() || undefined,
+          scope: formScope,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res
+          .json()
+          .then((j: { error?: string }) => j.error)
+          .catch(() => null);
+        setFormError(body ?? `Save failed (${res.status})`);
+        return;
+      }
+      resetForm();
+      showToast("ok", "Key saved");
+      reload();
+    } catch (err: any) {
+      setFormError(err?.message ?? "Failed to save");
+    } finally {
+      setFormBusy(false);
+    }
+  }, [
+    formName,
+    formValue,
+    formDescription,
+    formScope,
+    formBusy,
+    resetForm,
+    showToast,
+    reload,
+  ]);
+
+  const handleDelete = useCallback(
+    async (name: string) => {
+      setDeletingName(name);
+      try {
+        const res = await fetch(
+          `${ADHOC_ENDPOINT}/${encodeURIComponent(name)}`,
+          { method: "DELETE" },
+        );
+        if (!res.ok) {
+          showToast("err", "Failed to delete key");
+          return;
+        }
+        showToast("ok", "Key deleted");
+        setConfirmDeleteName(null);
+        reload();
+      } finally {
+        setDeletingName(null);
+      }
+    },
+    [showToast, reload],
+  );
+
+  return (
+    <div className="mt-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-[11px] font-medium text-foreground">
+          Additional Keys
+        </p>
+        {!showForm && (
+          <button
+            type="button"
+            onClick={() => setShowForm(true)}
+            className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent/40"
+          >
+            <IconPlus size={10} />
+            Add Key
+          </button>
+        )}
+      </div>
+      <p className="text-[10px] text-muted-foreground/60 leading-relaxed">
+        Keys are referenced in automations as{" "}
+        <code className="rounded bg-background px-1 py-0.5 text-[9px]">
+          {"${keys.KEY_NAME}"}
+        </code>
+        . Values are encrypted and never shown to the AI agent.
+      </p>
+
+      {showForm && (
+        <div className="rounded-md border border-border px-2.5 py-2 bg-accent/30 space-y-1.5">
+          <input
+            value={formName}
+            onChange={(e) =>
+              setFormName(
+                e.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, ""),
+              )
+            }
+            className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+            placeholder="KEY_NAME (e.g. SLACK_WEBHOOK)"
+          />
+          <input
+            type="password"
+            value={formValue}
+            onChange={(e) => setFormValue(e.target.value)}
+            className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+            placeholder="Secret value"
+          />
+          <input
+            value={formDescription}
+            onChange={(e) => setFormDescription(e.target.value)}
+            className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+            placeholder="Description (optional)"
+          />
+          <div className="flex items-center gap-2">
+            <select
+              value={formScope}
+              onChange={(e) =>
+                setFormScope(e.target.value as "user" | "workspace")
+              }
+              className="rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none focus:ring-1 focus:ring-accent"
+            >
+              <option value="user">Personal</option>
+              <option value="workspace">Workspace</option>
+            </select>
+            <div className="ml-auto flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={resetForm}
+                className="rounded border border-border px-2 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleAdd}
+                disabled={!formName.trim() || !formValue.trim() || formBusy}
+                className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium disabled:opacity-40"
+                style={{ backgroundColor: "#625DF5", color: "white" }}
+              >
+                {formBusy ? (
+                  <IconLoader2 size={10} className="animate-spin" />
+                ) : (
+                  "Save"
+                )}
+              </button>
+            </div>
+          </div>
+          {formError && <p className="text-[10px] text-red-500">{formError}</p>}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+          <IconLoader2 size={10} className="animate-spin" />
+          Loading...
+        </div>
+      ) : keys.length === 0 && !showForm ? (
+        <p className="text-[10px] text-muted-foreground">
+          No additional keys yet.
+        </p>
+      ) : (
+        keys.map((key) => (
+          <div
+            key={`${key.scope}-${key.name}`}
+            className="rounded-md border border-border px-2.5 py-2 bg-accent/30"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-medium text-foreground font-mono truncate">
+                    {key.name}
+                  </span>
+                  <span
+                    className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${
+                      key.scope === "workspace"
+                        ? "bg-blue-500/15 text-blue-500"
+                        : "bg-accent/60 text-muted-foreground"
+                    }`}
+                  >
+                    {key.scope === "workspace" ? "workspace" : "personal"}
+                  </span>
+                </div>
+                {key.description && (
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    {key.description}
+                  </p>
+                )}
+                <div className="flex items-center gap-2 text-[10px] text-muted-foreground mt-0.5">
+                  <span>
+                    Ending in{" "}
+                    <code className="rounded bg-background px-1 py-0.5 text-foreground">
+                      {key.last4}
+                    </code>
+                  </span>
+                </div>
+              </div>
+              <div className="shrink-0">
+                {confirmDeleteName === key.name ? (
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(key.name)}
+                      disabled={deletingName === key.name}
+                      className="rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-red-500/15 text-red-500 hover:bg-red-500/25 disabled:opacity-40"
+                    >
+                      {deletingName === key.name ? (
+                        <IconLoader2 size={10} className="animate-spin" />
+                      ) : (
+                        "Confirm"
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDeleteName(null)}
+                      className="rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-accent/60 text-muted-foreground hover:text-foreground"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDeleteName(key.name)}
+                    className="text-muted-foreground hover:text-red-500"
+                    title="Delete"
+                  >
+                    <IconTrash size={12} />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        ))
+      )}
+
+      {toast && (
+        <p
+          className={`text-[10px] ${toast.kind === "ok" ? "text-green-500" : "text-red-500"}`}
         >
           {toast.text}
         </p>
