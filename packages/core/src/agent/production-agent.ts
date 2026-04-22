@@ -534,6 +534,7 @@ export function createProductionAgentHandler(
       references = [],
       threadId,
       attachments,
+      model: requestModel,
     } = body;
     if (!message) {
       setResponseStatus(event, 400);
@@ -572,7 +573,7 @@ export function createProductionAgentHandler(
       });
     }
 
-    const model = configuredModel ?? engine.defaultModel;
+    const model = requestModel ?? configuredModel ?? engine.defaultModel;
 
     // Check for API key before starting a run (only for anthropic engine)
     if (engine.name === "anthropic" && !effectiveApiKey) {
