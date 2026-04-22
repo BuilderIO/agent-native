@@ -410,18 +410,26 @@ ${
       });
       var data = await res.json().catch(function() { return {}; });
       if (res.ok) {
-        msg.textContent = 'Account created — signing you in…';
-        msg.classList.add('show', 'success');
-        btn.textContent = 'Signing in…';
+        // If email verification is required, the server won't return a session.
+        // Try logging in — if it fails (unverified), show a "check your email" message.
         var loginRes = await fetch('/_agent-native/auth/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email: email, password: pass }),
         });
         if (loginRes.ok) {
+          msg.textContent = 'Account created — signing you in…';
+          msg.classList.add('show', 'success');
           window.location.reload();
           return;
         }
+        // Login failed — likely email verification required
+        msg.textContent = 'Account created! Check your email to verify, then sign in.';
+        msg.classList.add('show', 'success');
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+        setActiveTab('login', { persist: true });
+        return;
       }
       msg.textContent = data.error || 'Registration failed';
       msg.classList.add('show', 'error');
