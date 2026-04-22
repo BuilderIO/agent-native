@@ -36,9 +36,7 @@ export async function insertCheckpoint(
   });
 }
 
-export async function getCheckpointsByThread(
-  threadId: string,
-): Promise<
+export async function getCheckpointsByThread(threadId: string): Promise<
   Array<{
     id: string;
     threadId: string;

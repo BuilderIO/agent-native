@@ -39,10 +39,7 @@ export function hasUncommittedChanges(cwd: string): boolean {
   }
 }
 
-export function createCheckpoint(
-  cwd: string,
-  message: string,
-): string | null {
+export function createCheckpoint(cwd: string, message: string): string | null {
   try {
     execFileSync("git", ["add", "-A"], {
       cwd,

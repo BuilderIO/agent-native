@@ -38,9 +38,8 @@ let _cliFallbackSessionId: string | undefined;
 async function resolveSessionId(): Promise<string> {
   // 1. Per-request context (AsyncLocalStorage) — always preferred
   try {
-    const { getRequestUserEmail } = await import(
-      "../server/request-context.js"
-    );
+    const { getRequestUserEmail } =
+      await import("../server/request-context.js");
     const ctxEmail = getRequestUserEmail();
     if (ctxEmail && ctxEmail !== "local@localhost") return ctxEmail;
     if (ctxEmail === "local@localhost") return "local";
