@@ -27,6 +27,8 @@ import {
   deleteAppSecret,
   getAppSecretMeta,
   readAppSecret,
+  listAppSecretsForScope,
+  type SecretMeta,
 } from "./storage.js";
 
 export interface SecretStatusPayload {
@@ -326,6 +328,212 @@ export function createTestSecretHandler() {
       };
     }
   });
+}
+
+// ---------------------------------------------------------------------------
+// Ad-hoc secrets — user-/agent-created keys not in the registry
+// ---------------------------------------------------------------------------
+
+export interface AdHocSecretPayload {
+  name: string;
+  scope: SecretScope;
+  scopeId: string;
+  description: string | null;
+  last4: string;
+  urlAllowlist: string[] | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+const AD_HOC_NAME_REGEX = /^[A-Za-z0-9_-]+$/;
+
+function metaToPayload(meta: SecretMeta): AdHocSecretPayload {
+  return {
+    name: meta.key,
+    scope: meta.scope,
+    scopeId: meta.scopeId,
+    description: meta.description,
+    last4: meta.last4,
+    urlAllowlist: meta.urlAllowlist,
+    createdAt: meta.createdAt,
+    updatedAt: meta.updatedAt,
+  };
+}
+
+/**
+ * Handler for `/_agent-native/secrets/adhoc[/:name]`.
+ *
+ * - GET (no name) — list all ad-hoc keys for the user's scope
+ * - POST (no name) — create or update an ad-hoc key
+ * - DELETE (with name) — delete an ad-hoc key
+ *
+ * Ad-hoc keys are arbitrary named secrets users or the agent create at
+ * runtime for automation use (e.g. "SLACK_WEBHOOK", "HUBSPOT_API_KEY").
+ * They differ from registered secrets (`registerRequiredSecret`) in that
+ * they have no template-defined metadata, validator, or onboarding step.
+ */
+export function createAdHocSecretHandler() {
+  return defineEventHandler(async (event: H3Event) => {
+    const method = getMethod(event);
+    const name = extractAdHocName(event);
+
+    if (method === "GET" && !name) {
+      return handleAdHocList(event);
+    }
+    if (method === "POST" && !name) {
+      return handleAdHocWrite(event);
+    }
+    if (method === "DELETE" && name) {
+      return handleAdHocDelete(event, name);
+    }
+    setResponseStatus(event, 405);
+    return { error: "Method not allowed" };
+  });
+}
+
+async function handleAdHocList(event: H3Event) {
+  const scope: SecretScope = "user";
+  const { scopeId, reason } = await resolveScopeId(event, scope);
+  if (!scopeId) {
+    setResponseStatus(event, 401);
+    return { error: reason ?? "Unable to resolve scope" };
+  }
+
+  const registered = new Set(listRequiredSecrets().map((s) => s.key));
+  const userRows = await listAppSecretsForScope("user", scopeId);
+  const workspaceContext = await resolveScopeId(event, "workspace");
+  const workspaceRows = workspaceContext.scopeId
+    ? await listAppSecretsForScope("workspace", workspaceContext.scopeId)
+    : [];
+
+  const payload: AdHocSecretPayload[] = [];
+  for (const row of [...userRows, ...workspaceRows]) {
+    if (registered.has(row.key)) continue;
+    payload.push(metaToPayload(row));
+  }
+  return payload;
+}
+
+async function handleAdHocWrite(event: H3Event) {
+  const body = (await readBody(event).catch(() => ({}))) as {
+    name?: unknown;
+    value?: unknown;
+    description?: unknown;
+    scope?: unknown;
+    urlAllowlist?: unknown;
+  };
+
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  if (!name || !AD_HOC_NAME_REGEX.test(name)) {
+    setResponseStatus(event, 400);
+    return {
+      error:
+        "name is required and may only contain letters, digits, underscores, and dashes",
+    };
+  }
+  if (getRequiredSecret(name)) {
+    setResponseStatus(event, 400);
+    return {
+      error: `"${name}" is a registered secret — use POST /_agent-native/secrets/${name} instead`,
+    };
+  }
+
+  const value = typeof body.value === "string" ? body.value.trim() : "";
+  if (!value) {
+    setResponseStatus(event, 400);
+    return { error: "value is required" };
+  }
+
+  const scope: SecretScope = body.scope === "workspace" ? "workspace" : "user";
+
+  const description =
+    typeof body.description === "string" && body.description.trim()
+      ? body.description.trim()
+      : undefined;
+
+  let urlAllowlistJson: string | undefined;
+  if (body.urlAllowlist !== undefined && body.urlAllowlist !== null) {
+    if (
+      !Array.isArray(body.urlAllowlist) ||
+      !body.urlAllowlist.every((v) => typeof v === "string")
+    ) {
+      setResponseStatus(event, 400);
+      return { error: "urlAllowlist must be an array of strings" };
+    }
+    const cleaned = (body.urlAllowlist as string[])
+      .map((v) => v.trim())
+      .filter(Boolean);
+    urlAllowlistJson = JSON.stringify(cleaned);
+  }
+
+  const { scopeId, reason } = await resolveScopeId(event, scope);
+  if (!scopeId) {
+    setResponseStatus(event, 401);
+    return { error: reason ?? "Unable to resolve scope" };
+  }
+
+  try {
+    await writeAppSecret({
+      key: name,
+      value,
+      scope,
+      scopeId,
+      description,
+      urlAllowlist: urlAllowlistJson,
+    });
+  } catch (err) {
+    setResponseStatus(event, 500);
+    return {
+      error:
+        err instanceof Error
+          ? `Failed to save secret: ${err.message}`
+          : "Failed to save secret",
+    };
+  }
+
+  return { ok: true, key: name };
+}
+
+async function handleAdHocDelete(event: H3Event, name: string) {
+  if (getRequiredSecret(name)) {
+    setResponseStatus(event, 400);
+    return {
+      error: `"${name}" is a registered secret — delete via the registered route instead`,
+    };
+  }
+  const scope: SecretScope = "user";
+  const { scopeId, reason } = await resolveScopeId(event, scope);
+  if (!scopeId) {
+    setResponseStatus(event, 401);
+    return { error: reason ?? "Unable to resolve scope" };
+  }
+  const removed = await deleteAppSecret({ key: name, scope, scopeId });
+  if (!removed) {
+    // Fall back to workspace scope so the agent / UI can clean up shared keys.
+    const workspaceContext = await resolveScopeId(event, "workspace");
+    if (workspaceContext.scopeId) {
+      const removedWorkspace = await deleteAppSecret({
+        key: name,
+        scope: "workspace",
+        scopeId: workspaceContext.scopeId,
+      });
+      return { ok: true, removed: removedWorkspace };
+    }
+  }
+  return { ok: true, removed };
+}
+
+function extractAdHocName(event: H3Event): string | null {
+  const pathname = (event.url?.pathname || "")
+    .replace(/^\/+/, "")
+    .replace(/\/+$/, "");
+  if (!pathname) return null;
+  const parts = pathname.split("/");
+  // The router strips the `/secrets/adhoc` prefix, so `parts[0]` (if present)
+  // is the name. When the request is the bare `/adhoc` listing, parts is empty.
+  const candidate = parts[0];
+  if (!candidate) return null;
+  return AD_HOC_NAME_REGEX.test(candidate) ? candidate : null;
 }
 
 /** Extract the key from `/:key` or `/:key/test` after the `/secrets` prefix strip. */
