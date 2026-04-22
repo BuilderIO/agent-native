@@ -24,13 +24,18 @@ const MAX_BATCH_SIZE = 50;
 interface QueuedEvent {
   url: string;
   body: string;
+  headers?: Record<string, string>;
 }
 
 let _queue: QueuedEvent[] = [];
 let _timer: ReturnType<typeof setTimeout> | null = null;
 
-function enqueue(url: string, body: string): void {
-  _queue.push({ url, body });
+function enqueue(
+  url: string,
+  body: string,
+  headers?: Record<string, string>,
+): void {
+  _queue.push({ url, body, headers });
   if (_queue.length >= MAX_BATCH_SIZE) {
     drainQueue();
   } else if (!_timer) {
@@ -48,7 +53,7 @@ function drainQueue(): void {
   for (const item of batch) {
     fetch(item.url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...item.headers },
       body: item.body,
     }).catch(() => {});
   }
@@ -166,6 +171,46 @@ function createAmplitudeProvider(apiKey: string): TrackingProvider {
   };
 }
 
+// ─── Webhook (custom HTTP endpoint) ───────────────────────────────────────
+
+function createWebhookProvider(
+  url: string,
+  authHeader?: string,
+): TrackingProvider {
+  const extra = authHeader ? { Authorization: authHeader } : undefined;
+  return {
+    name: "webhook",
+    track(event: TrackingEvent) {
+      enqueue(
+        url,
+        JSON.stringify({
+          event: event.name,
+          properties: event.properties,
+          userId: event.userId,
+          timestamp: event.timestamp,
+        }),
+        extra,
+      );
+    },
+    identify(userId, traits) {
+      enqueue(
+        url,
+        JSON.stringify({
+          event: "$identify",
+          userId,
+          traits,
+          timestamp: new Date().toISOString(),
+        }),
+        extra,
+      );
+    },
+    flush: () => {
+      drainQueue();
+      return Promise.resolve();
+    },
+  };
+}
+
 // ─── Auto-registration ────────────────────────────────────────────────────
 
 let _registered = false;
@@ -191,5 +236,12 @@ export function registerBuiltinProviders(): void {
   const amplitudeKey = process.env.AMPLITUDE_API_KEY;
   if (amplitudeKey) {
     registerTrackingProvider(createAmplitudeProvider(amplitudeKey));
+  }
+
+  const webhookUrl = process.env.TRACKING_WEBHOOK_URL;
+  if (webhookUrl) {
+    registerTrackingProvider(
+      createWebhookProvider(webhookUrl, process.env.TRACKING_WEBHOOK_AUTH),
+    );
   }
 }
