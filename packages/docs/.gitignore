@@ -10,6 +10,7 @@ dist-ssr
 .output
 server/*
 !server/routes/
+!server/plugins/
 .vinxi
 __unconfig*
 todos.json
@@ -18,3 +19,6 @@ todos.json
 .netlify
 
 .generated/
+
+# Generated at build time
+public/source-index.json

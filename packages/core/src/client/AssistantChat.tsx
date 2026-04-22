@@ -985,7 +985,8 @@ function ApiKeySetupCard({ apiUrl }: { apiUrl: string }) {
             Connect your AI
           </h3>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Connect Builder or add an Anthropic API key to enable the agent
+            Connect Builder or add an API key (Anthropic, OpenAI, or Google) to
+            enable the agent
           </p>
         </div>
       </div>
@@ -1055,6 +1056,10 @@ function ApiKeySetupCard({ apiUrl }: { apiUrl: string }) {
         >
           {saving ? "Saving..." : "Save API key"}
         </button>
+
+        <p className="text-[10px] text-muted-foreground/60 text-center">
+          OpenAI and Google keys can be configured in Settings.
+        </p>
       </div>
     </div>
   );
@@ -1281,6 +1286,21 @@ export interface AssistantChatProps {
   execMode?: "build" | "plan";
   /** Callback to change execution mode */
   onExecModeChange?: (mode: "build" | "plan") => void;
+  /** Selected model override for this conversation (undefined = use server default) */
+  selectedModel?: string;
+  /** Default model from server config (shown in picker when no override is set) */
+  defaultModel?: string;
+  /** Selected engine override for this conversation */
+  selectedEngine?: string;
+  /** Available engine/model list for the model picker */
+  availableModels?: Array<{
+    engine: string;
+    label: string;
+    models: string[];
+    configured: boolean;
+  }>;
+  /** Callback when user picks a model from the picker */
+  onModelChange?: (model: string, engine: string) => void;
 }
 
 export const CHAT_STORAGE_PREFIX = "agent-chat:";
@@ -1334,6 +1354,11 @@ const AssistantChatInner = forwardRef<
     onSlashCommand,
     execMode,
     onExecModeChange,
+    selectedModel,
+    defaultModel,
+    selectedEngine,
+    availableModels,
+    onModelChange,
   },
   ref,
 ) {
@@ -1784,6 +1809,34 @@ const AssistantChatInner = forwardRef<
     return () =>
       window.removeEventListener("agent-chat:missing-api-key", handler);
   }, []);
+
+  // Proactively check if any LLM API key is configured on mount.
+  // Without this, users see suggestions and only discover the key is missing
+  // after their first message fails.
+  useEffect(() => {
+    if (missingApiKey) return;
+    Promise.all([
+      fetch("/_agent-native/env-status")
+        .then((r) => (r.ok ? r.json() : []))
+        .catch(() => []),
+      fetch("/_agent-native/builder/status")
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null),
+    ]).then(([envKeys, builderStatus]) => {
+      const keys = envKeys as Array<{ key: string; configured: boolean }>;
+      const llmKeys = keys.filter(
+        (k) =>
+          k.key === "ANTHROPIC_API_KEY" ||
+          k.key === "OPENAI_API_KEY" ||
+          k.key === "GOOGLE_GENERATIVE_AI_API_KEY",
+      );
+      const anyConfigured =
+        llmKeys.some((k) => k.configured) || builderStatus?.configured === true;
+      if (!anyConfigured && llmKeys.length > 0) {
+        setMissingApiKey(true);
+      }
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Listen for auth error events from the adapter
   useEffect(() => {
@@ -2252,6 +2305,9 @@ const AssistantChatInner = forwardRef<
               onSlashCommand={onSlashCommand}
               execMode={execMode}
               onExecModeChange={onExecModeChange}
+              selectedModel={selectedModel ?? defaultModel}
+              availableModels={availableModels}
+              onModelChange={onModelChange}
               extraActionButton={
                 showRunningInUI ? (
                   <button
@@ -2309,8 +2365,14 @@ export const AssistantChat = forwardRef<
   { apiUrl = "/_agent-native/agent-chat", tabId, threadId, ...props },
   ref,
 ) {
+  const modelRef = useRef<string | undefined>(props.selectedModel);
+  modelRef.current = props.selectedModel;
+  const engineRef = useRef<string | undefined>(props.selectedEngine);
+  engineRef.current = props.selectedEngine;
+
   const adapter = useMemo(
-    () => createAgentChatAdapter({ apiUrl, tabId, threadId }),
+    () =>
+      createAgentChatAdapter({ apiUrl, tabId, threadId, modelRef, engineRef }),
     [apiUrl, tabId, threadId],
   );
   const attachmentAdapter = useMemo(

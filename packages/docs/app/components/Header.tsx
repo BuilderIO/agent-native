@@ -2,12 +2,13 @@ import { Link, NavLink, useLocation } from "react-router";
 import ThemeToggle from "./ThemeToggle";
 import { useSearchModal, SearchModal } from "./SearchModal";
 import { useState, useEffect } from "react";
+import { IconMessageCircle } from "@tabler/icons-react";
 
 function SearchTrigger({ onClick }: { onClick: () => void }) {
   return (
     <button
       onClick={onClick}
-      className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1.5 text-sm text-[var(--fg-secondary)] transition hover:border-[var(--fg-secondary)]"
+      className="flex items-center gap-2 rounded-lg border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-3 py-1.5 text-sm text-[var(--fg-secondary)] transition hover:border-[var(--fg-secondary)]"
     >
       <svg
         width="14"
@@ -23,7 +24,7 @@ function SearchTrigger({ onClick }: { onClick: () => void }) {
         <line x1="21" y1="21" x2="16.65" y2="16.65" />
       </svg>
       <span className="hidden sm:inline">Search docs...</span>
-      <kbd className="hidden rounded border border-[var(--border)] px-1.5 py-0.5 text-[10px] sm:inline-block">
+      <kbd className="hidden rounded border border-[var(--docs-border)] px-1.5 py-0.5 text-[10px] sm:inline-block">
         ⌘K
       </kbd>
     </button>
@@ -88,7 +89,7 @@ export default function Header() {
   return (
     <>
       <header
-        className={`sticky top-0 z-50 transition-[background-color,border-color,backdrop-filter] duration-300 ${showHeaderBg ? "border-b border-[var(--border)] bg-[var(--header-bg)] backdrop-blur-lg" : "border-b border-transparent bg-transparent"}`}
+        className={`sticky top-0 z-50 transition-[background-color,border-color,backdrop-filter] duration-300 ${showHeaderBg ? "border-b border-[var(--docs-border)] bg-[var(--header-bg)] backdrop-blur-lg" : "border-b border-transparent bg-transparent"}`}
       >
         <nav className="mx-auto flex h-16 max-w-[1440px] items-center gap-6 px-6">
           <Link
@@ -157,6 +158,15 @@ export default function Header() {
           <div className="ml-auto flex items-center gap-3">
             <SearchTrigger onClick={() => setOpen(true)} />
             <ThemeToggle />
+            <button
+              onClick={() =>
+                window.dispatchEvent(new Event("agent-panel:toggle"))
+              }
+              className="flex h-8 w-8 items-center justify-center rounded-md border border-[var(--docs-border)] text-[var(--fg-secondary)] hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
+              title="Ask the AI assistant"
+            >
+              <IconMessageCircle size={16} stroke={1.5} />
+            </button>
 
             {/* Mobile hamburger */}
             <button
@@ -172,7 +182,7 @@ export default function Header() {
 
         {/* Mobile dropdown menu */}
         {mobileMenuOpen && (
-          <div className="sm:hidden border-t border-[var(--border)] bg-[var(--header-bg)] backdrop-blur-lg px-6 py-4 flex flex-col gap-4">
+          <div className="sm:hidden border-t border-[var(--docs-border)] bg-[var(--header-bg)] backdrop-blur-lg px-6 py-4 flex flex-col gap-4">
             <NavLink
               prefetch="render"
               to="/docs"

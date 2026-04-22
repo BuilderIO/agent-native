@@ -69,6 +69,17 @@ interface TiptapComposerProps {
   onExecModeChange?: (mode: ExecMode) => void;
   /** Show the microphone button for voice dictation. Default true. */
   voiceEnabled?: boolean;
+  /** Selected model override for this conversation */
+  selectedModel?: string;
+  /** Available models grouped by provider */
+  availableModels?: Array<{
+    engine: string;
+    label: string;
+    models: string[];
+    configured: boolean;
+  }>;
+  /** Callback when user picks a model */
+  onModelChange?: (model: string, engine: string) => void;
 }
 
 function ModeSelector({
@@ -145,6 +156,144 @@ function ModeSelector({
   );
 }
 
+function friendlyModelName(model: string): string {
+  // Claude: claude-{tier}-{major}-{minor}[-dateYYYYMMDD] → Tier Major.Minor
+  const claude = model.match(
+    /^claude-(opus|sonnet|haiku)-(\d+)-(\d+)(?:-\d{8,})?$/,
+  );
+  if (claude) {
+    const tier = claude[1][0].toUpperCase() + claude[1].slice(1);
+    return `${tier} ${claude[2]}.${claude[3]}`;
+  }
+  if (model.startsWith("gpt-")) return `GPT-${model.slice(4)}`;
+  if (/^o\d/.test(model)) return model;
+  // Gemini: gemini-{version-parts}[-preview] → Gemini Version Parts
+  const gemini = model.match(/^gemini-(.+?)(?:-preview)?$/);
+  if (gemini) {
+    const parts = gemini[1]
+      .split("-")
+      .map((s) => s[0].toUpperCase() + s.slice(1))
+      .join(" ");
+    return `Gemini ${parts}${model.endsWith("-preview") ? " (preview)" : ""}`;
+  }
+  return model;
+}
+
+/**
+ * Deduplicate models to only the latest version per family.
+ * e.g. [opus-4-7, opus-4-6, opus-4-5] → [opus-4-7]
+ */
+function latestModelsOnly(models: string[]): string[] {
+  const seen = new Set<string>();
+  return models.filter((m) => {
+    // Claude: family = tier (opus/sonnet/haiku)
+    const claude = m.match(/^claude-(opus|sonnet|haiku)-/);
+    if (claude) {
+      if (seen.has(claude[1])) return false;
+      seen.add(claude[1]);
+      return true;
+    }
+    // GPT: family = gpt-{major} (e.g. gpt-5.4 and gpt-5.4-mini are different)
+    // OpenAI reasoning: each is its own family
+    // Gemini: family = gemini-{major} + variant
+    const gemini = m.match(/^gemini-(\d+(?:\.\d+)?)-(.+?)(?:-preview)?$/);
+    if (gemini) {
+      const family = gemini[2]; // flash, pro, etc.
+      if (seen.has(`gemini-${family}`)) return false;
+      seen.add(`gemini-${family}`);
+      return true;
+    }
+    return true;
+  });
+}
+
+function ModelSelector({
+  model,
+  engines,
+  onChange,
+}: {
+  model: string;
+  engines: Array<{
+    engine: string;
+    label: string;
+    models: string[];
+    configured: boolean;
+  }>;
+  onChange: (model: string, engine: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
+      <PopoverPrimitive.Trigger asChild>
+        <button
+          type="button"
+          className="shrink-0 flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent/50"
+        >
+          {friendlyModelName(model)}
+          <IconChevronDown className="h-3 w-3 opacity-60" />
+        </button>
+      </PopoverPrimitive.Trigger>
+      <PopoverPrimitive.Portal>
+        <PopoverPrimitive.Content
+          side="top"
+          align="end"
+          sideOffset={6}
+          className="w-64 max-h-72 overflow-y-auto rounded-lg border border-border bg-popover shadow-lg z-50 py-1 animate-in fade-in-0 zoom-in-95"
+          style={{ fontSize: 13 }}
+        >
+          {engines.map((group) => {
+            const models = latestModelsOnly(group.models);
+            return (
+              <div key={group.engine}>
+                <div className="flex items-center gap-2 px-3 py-1.5">
+                  <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+                    {group.label}
+                  </span>
+                  {!group.configured && (
+                    <span className="text-[10px] text-muted-foreground/60">
+                      needs API key
+                    </span>
+                  )}
+                </div>
+                {models.map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => {
+                      if (!group.configured) {
+                        window.dispatchEvent(
+                          new CustomEvent("agent-panel:open-settings"),
+                        );
+                        setOpen(false);
+                        return;
+                      }
+                      onChange(m, group.engine);
+                      setOpen(false);
+                    }}
+                    className={`flex w-full items-center gap-3 px-3 py-1.5 text-left ${
+                      group.configured
+                        ? "hover:bg-accent/50"
+                        : "opacity-40 cursor-default"
+                    }`}
+                  >
+                    <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
+                      {friendlyModelName(m)}
+                    </span>
+                    {m === model && group.configured && (
+                      <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            );
+          })}
+        </PopoverPrimitive.Content>
+      </PopoverPrimitive.Portal>
+    </PopoverPrimitive.Root>
+  );
+}
+
 type PopoverState = {
   type: "@" | "/";
   position: { top: number; left: number };
@@ -164,6 +313,9 @@ export function TiptapComposer({
   execMode,
   onExecModeChange,
   voiceEnabled = true,
+  selectedModel,
+  availableModels,
+  onModelChange,
 }: TiptapComposerProps) {
   const [popover, setPopover] = useState<PopoverState>(null);
   const popoverRef = useRef<MentionPopoverRef>(null);
@@ -838,6 +990,13 @@ export function TiptapComposer({
         <div className="flex-1" />
         {actionButton ?? (
           <>
+            {selectedModel && availableModels && onModelChange && (
+              <ModelSelector
+                model={selectedModel}
+                engines={availableModels}
+                onChange={onModelChange}
+              />
+            )}
             {execMode && onExecModeChange && (
               <ModeSelector mode={execMode} onChange={onExecModeChange} />
             )}

@@ -20,6 +20,7 @@ const IN_BOOTSTRAP = new WeakSet<object>();
 const FRAMEWORK_PREFIX = "/_agent-native";
 const APP_SHIM_KEY = "_agentNativeH3Shim";
 const BOOTSTRAP_PROMISE_KEY = "_agentNativeBootstrapPromise";
+const PLUGIN_READY_KEY = "_agentNativePluginReadyPromise";
 
 /**
  * Wrapper around Nitro's h3 instance that exposes a v1-style `.use()` API
@@ -69,6 +70,16 @@ export function getH3App(nitroApp: any): H3AppShim {
         );
       },
     );
+
+    // Readiness gate: Nitro v3 doesn't await async plugins, so routes
+    // registered inside an async plugin may not exist when the first
+    // request arrives. This middleware holds /_agent-native requests
+    // until all tracked plugin inits complete.
+    registerMiddleware(nitroApp, FRAMEWORK_PREFIX, (async (event: H3Event) => {
+      await awaitPluginsReady(nitroApp);
+      // Fall through — the actual route handler runs next.
+      return undefined;
+    }) as EventHandler);
   }
 
   return shim;
@@ -92,6 +103,37 @@ export async function awaitBootstrap(nitroApp: any): Promise<void> {
   getH3App(nitroApp);
   const promise = nitroApp[BOOTSTRAP_PROMISE_KEY];
   if (promise) await promise;
+}
+
+/**
+ * Track an async plugin's initialization promise. Nitro v3 calls plugins
+ * synchronously and doesn't await async return values, so routes registered
+ * inside an async plugin may not be ready when the first request arrives.
+ *
+ * Call this from the TOP of any async plugin so that the readiness gate
+ * (installed by getH3App) can hold /_agent-native requests until the plugin
+ * finishes mounting its routes.
+ */
+export function trackPluginInit(nitroApp: any, promise: Promise<void>): void {
+  if (!nitroApp) return;
+  const existing = nitroApp[PLUGIN_READY_KEY] as Promise<void>[] | undefined;
+  if (existing) {
+    existing.push(promise);
+  } else {
+    nitroApp[PLUGIN_READY_KEY] = [promise];
+  }
+}
+
+/**
+ * Await all tracked plugin initializations. Called by the readiness gate
+ * middleware before dispatching framework routes.
+ */
+export async function awaitPluginsReady(nitroApp: any): Promise<void> {
+  const promises = nitroApp[PLUGIN_READY_KEY] as Promise<void>[] | undefined;
+  if (promises?.length) {
+    await Promise.all(promises);
+    nitroApp[PLUGIN_READY_KEY] = [];
+  }
 }
 
 /**

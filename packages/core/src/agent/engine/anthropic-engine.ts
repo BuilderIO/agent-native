@@ -30,12 +30,9 @@ export const ANTHROPIC_CAPABILITIES: EngineCapabilities = {
 };
 
 export const ANTHROPIC_SUPPORTED_MODELS = [
-  "claude-opus-4-6",
+  "claude-opus-4-7",
   "claude-sonnet-4-6",
   "claude-haiku-4-5-20251001",
-  "claude-opus-4-5",
-  "claude-sonnet-4-5",
-  "claude-haiku-4-5",
 ] as const;
 
 export const ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-4-6";
