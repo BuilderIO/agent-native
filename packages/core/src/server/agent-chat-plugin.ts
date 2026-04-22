@@ -1,6 +1,6 @@
 import { runWithRequestContext, getRequestOrgId } from "./request-context.js";
 import { getSetting, putSetting } from "../settings/store.js";
-import { getH3App } from "./framework-request-handler.js";
+import { getH3App, trackPluginInit } from "./framework-request-handler.js";
 import {
   createProductionAgentHandler,
   runAgentLoop,
@@ -1694,965 +1694,892 @@ function isLocalhost(event: any): boolean {
 export function createAgentChatPlugin(
   options?: AgentChatPluginOptions,
 ): NitroPluginDef {
-  return async (nitroApp: any) => {
-    // Wait for default framework plugins (auth, core-routes, integrations, ...)
-    // to finish mounting their middleware before we register our own. Without
-    // this, requests can race ahead of the bootstrap and hit the SSR catch-all.
-    const { awaitBootstrap } = await import("./framework-request-handler.js");
-    await awaitBootstrap(nitroApp);
+  return (nitroApp: any) => {
+    // Nitro v3 calls plugins synchronously and doesn't await async return
+    // values. We track the async init so the framework's readiness gate
+    // holds /_agent-native requests until routes are registered.
+    const initPromise = (async () => {
+      const { awaitBootstrap } = await import("./framework-request-handler.js");
+      await awaitBootstrap(nitroApp);
 
-    // Reap phantom runs left over from the previous process (HMR restart,
-    // process crash, isolate eviction). Any run whose heartbeat is already
-    // stale by startup time had a dead producer; mark it errored so the
-    // next /runs/active check returns a terminal status and reconnecting
-    // clients don't spin on "Thinking...". Runs owned by OTHER live
-    // isolates are protected by their fresh heartbeats.
-    try {
-      const { reapAllStaleRuns } = await import("../agent/run-store.js");
-      const reaped = await reapAllStaleRuns();
-      if (reaped > 0) {
-        console.log(`[agent-chat] reaped ${reaped} stale run(s) on startup`);
-      }
-    } catch {
-      // Best effort — don't block plugin init if SQL isn't ready yet.
-    }
-
-    const env = process.env.NODE_ENV;
-    // AGENT_MODE=production forces production agent constraints even in dev
-    const canToggle =
-      (env === "development" || env === "test") &&
-      process.env.AGENT_MODE !== "production";
-    const routePath = options?.path ?? "/_agent-native/agent-chat";
-
-    // Mutable mode flag — persisted to the `settings` table so a user who
-    // toggles to "Production" stays in prod mode across server restarts.
-    // Hoisted here (before any tool-registry / handler closures are built)
-    // so every runtime decision point can close over it and see live changes
-    // when the user toggles the Environment dropdown.
-    const AGENT_MODE_SETTING_KEY = "agent-chat.mode";
-    let currentDevMode = canToggle;
-    if (canToggle) {
+      // Reap phantom runs left over from the previous process (HMR restart,
+      // process crash, isolate eviction). Any run whose heartbeat is already
+      // stale by startup time had a dead producer; mark it errored so the
+      // next /runs/active check returns a terminal status and reconnecting
+      // clients don't spin on "Thinking...". Runs owned by OTHER live
+      // isolates are protected by their fresh heartbeats.
       try {
-        const persisted = await getSetting(AGENT_MODE_SETTING_KEY);
-        if (persisted && typeof persisted.devMode === "boolean") {
-          currentDevMode = persisted.devMode;
+        const { reapAllStaleRuns } = await import("../agent/run-store.js");
+        const reaped = await reapAllStaleRuns();
+        if (reaped > 0) {
+          console.log(`[agent-chat] reaped ${reaped} stale run(s) on startup`);
         }
       } catch {
-        // Settings table may not be ready yet — fall back to default.
+        // Best effort — don't block plugin init if SQL isn't ready yet.
       }
-    }
-    // Every closure that picks between dev/prod tools, prompts, or handlers
-    // at request time should call this getter instead of reading `canToggle`.
-    // `canToggle` means "this environment allows toggling" (static); this
-    // function means "the user currently has dev mode ON" (live).
-    const isDevMode = () => currentDevMode;
 
-    // Initialize MCP client. Merges file/env config + auto-detected binaries
-    // + any remote servers users have added through the settings UI (persisted
-    // in the settings table, scanned across all scopes so we never drop
-    // another user's entries). Graceful-degrade: any failure yields zero MCP
-    // tools and agent-chat keeps working as before.
-    let mcpConfig = await buildMergedConfig().catch((err) => {
-      console.warn(
-        `[mcp-client] buildMergedConfig failed: ${err?.message ?? err}`,
-      );
-      return null;
-    });
-    if (!mcpConfig) {
-      const fileOrEnv = loadMcpConfig() ?? autoDetectMcpConfig();
-      mcpConfig = fileOrEnv;
-      if (mcpConfig?.source) {
-        console.log(
-          `[mcp-client] loaded config from ${mcpConfig.source} (${Object.keys(mcpConfig.servers).length} server(s))`,
+      const env = process.env.NODE_ENV;
+      // AGENT_MODE=production forces production agent constraints even in dev
+      const canToggle =
+        (env === "development" || env === "test") &&
+        process.env.AGENT_MODE !== "production";
+      const routePath = options?.path ?? "/_agent-native/agent-chat";
+
+      // Mutable mode flag — persisted to the `settings` table so a user who
+      // toggles to "Production" stays in prod mode across server restarts.
+      // Hoisted here (before any tool-registry / handler closures are built)
+      // so every runtime decision point can close over it and see live changes
+      // when the user toggles the Environment dropdown.
+      const AGENT_MODE_SETTING_KEY = "agent-chat.mode";
+      let currentDevMode = canToggle;
+      if (canToggle) {
+        try {
+          const persisted = await getSetting(AGENT_MODE_SETTING_KEY);
+          if (persisted && typeof persisted.devMode === "boolean") {
+            currentDevMode = persisted.devMode;
+          }
+        } catch {
+          // Settings table may not be ready yet — fall back to default.
+        }
+      }
+      // Every closure that picks between dev/prod tools, prompts, or handlers
+      // at request time should call this getter instead of reading `canToggle`.
+      // `canToggle` means "this environment allows toggling" (static); this
+      // function means "the user currently has dev mode ON" (live).
+      const isDevMode = () => currentDevMode;
+
+      // Initialize MCP client. Merges file/env config + auto-detected binaries
+      // + any remote servers users have added through the settings UI (persisted
+      // in the settings table, scanned across all scopes so we never drop
+      // another user's entries). Graceful-degrade: any failure yields zero MCP
+      // tools and agent-chat keeps working as before.
+      let mcpConfig = await buildMergedConfig().catch((err) => {
+        console.warn(
+          `[mcp-client] buildMergedConfig failed: ${err?.message ?? err}`,
         );
-      } else {
+        return null;
+      });
+      if (!mcpConfig) {
+        const fileOrEnv = loadMcpConfig() ?? autoDetectMcpConfig();
+        mcpConfig = fileOrEnv;
+        if (mcpConfig?.source) {
+          console.log(
+            `[mcp-client] loaded config from ${mcpConfig.source} (${Object.keys(mcpConfig.servers).length} server(s))`,
+          );
+        } else {
+          console.log(
+            "[mcp-client] no configured MCP servers — skipping MCP tools",
+          );
+        }
+      } else if (mcpConfig.source) {
         console.log(
-          "[mcp-client] no configured MCP servers — skipping MCP tools",
+          `[mcp-client] merged config (${Object.keys(mcpConfig.servers).length} server(s), source: ${mcpConfig.source})`,
         );
       }
-    } else if (mcpConfig.source) {
-      console.log(
-        `[mcp-client] merged config (${Object.keys(mcpConfig.servers).length} server(s), source: ${mcpConfig.source})`,
-      );
-    }
-    const mcpManager = new McpClientManager(mcpConfig);
-    try {
-      await mcpManager.start();
-    } catch (err: any) {
-      console.warn(
-        `[mcp-client] start() failed: ${err?.message ?? err}. Continuing without MCP tools.`,
-      );
-    }
-    setGlobalMcpManager(mcpManager);
-    const mcpActionEntries = mcpToolsToActionEntries(mcpManager);
+      const mcpManager = new McpClientManager(mcpConfig);
+      try {
+        await mcpManager.start();
+      } catch (err: any) {
+        console.warn(
+          `[mcp-client] start() failed: ${err?.message ?? err}. Continuing without MCP tools.`,
+        );
+      }
+      setGlobalMcpManager(mcpManager);
+      const mcpActionEntries = mcpToolsToActionEntries(mcpManager);
 
-    // Mount status + management routes so the settings UI can list / add /
-    // remove remote MCP servers and hot-reload the running manager.
-    mountMcpStatusRoute(nitroApp, mcpManager);
-    mountMcpServersRoutes(nitroApp, mcpManager);
-    // Hub-serve: expose org-scope servers to other agent-native apps in the
-    // workspace when `AGENT_NATIVE_MCP_HUB_TOKEN` is set (dispatch, by
-    // convention). Gated by the env var so mounting is a no-op otherwise.
-    if (isHubServeEnabled()) {
-      mountMcpHubRoutes(nitroApp);
-      console.log(
-        "[mcp-client] hub serve enabled — other apps can pull org servers via /_agent-native/mcp/hub/servers",
-      );
-    }
-    const hubStatus = getHubStatus();
-    if (hubStatus.consuming) {
-      console.log(
-        `[mcp-client] hub consume enabled — pulling from ${hubStatus.hubUrl}`,
-      );
-    }
-    mountMcpHubStatusRoute(nitroApp);
+      // Mount status + management routes so the settings UI can list / add /
+      // remove remote MCP servers and hot-reload the running manager.
+      mountMcpStatusRoute(nitroApp, mcpManager);
+      mountMcpServersRoutes(nitroApp, mcpManager);
+      // Hub-serve: expose org-scope servers to other agent-native apps in the
+      // workspace when `AGENT_NATIVE_MCP_HUB_TOKEN` is set (dispatch, by
+      // convention). Gated by the env var so mounting is a no-op otherwise.
+      if (isHubServeEnabled()) {
+        mountMcpHubRoutes(nitroApp);
+        console.log(
+          "[mcp-client] hub serve enabled — other apps can pull org servers via /_agent-native/mcp/hub/servers",
+        );
+      }
+      const hubStatus = getHubStatus();
+      if (hubStatus.consuming) {
+        console.log(
+          `[mcp-client] hub consume enabled — pulling from ${hubStatus.hubUrl}`,
+        );
+      }
+      mountMcpHubStatusRoute(nitroApp);
 
-    // Ensure we tear down child processes if the host shuts down cleanly.
-    if (
-      typeof process !== "undefined" &&
-      typeof process.once === "function" &&
-      !(globalThis as any).__agentNativeMcpExitHooked
-    ) {
-      (globalThis as any).__agentNativeMcpExitHooked = true;
-      const stop = () => {
-        const mgr = getGlobalMcpManager();
-        if (mgr) void mgr.stop();
+      // Ensure we tear down child processes if the host shuts down cleanly.
+      if (
+        typeof process !== "undefined" &&
+        typeof process.once === "function" &&
+        !(globalThis as any).__agentNativeMcpExitHooked
+      ) {
+        (globalThis as any).__agentNativeMcpExitHooked = true;
+        const stop = () => {
+          const mgr = getGlobalMcpManager();
+          if (mgr) void mgr.stop();
+        };
+        process.once("exit", stop);
+        process.once("SIGTERM", stop);
+        process.once("SIGINT", stop);
+      }
+
+      // Resolve actions — prefer `actions`, fall back to deprecated `scripts`
+      const rawActions = options?.actions ?? options?.scripts;
+      const templateScripts =
+        typeof rawActions === "function"
+          ? await rawActions()
+          : (rawActions ?? {});
+
+      // Resource, chat, docs, db, and cross-agent scripts are available in both prod and dev modes
+      const resourceScripts = await createResourceScriptEntries();
+      const docsScripts = await createDocsScriptEntries();
+      const dbScripts = await createDbScriptEntries();
+      const refreshScreenTool = createRefreshScreenEntry();
+      const urlTools = createUrlTools();
+      const engineScripts = await createAgentEngineScriptEntries();
+      const chatScripts = {
+        ...(await createChatScriptEntries()),
+        ...engineScripts,
       };
-      process.once("exit", stop);
-      process.once("SIGTERM", stop);
-      process.once("SIGINT", stop);
-    }
+      const callAgentScript = await createCallAgentScriptEntry(options?.appId);
+      let _currentRequestOrigin = "http://localhost:3000";
+      const browserTools = createBuilderBrowserTool({
+        getOrigin: () => _currentRequestOrigin,
+      });
 
-    // Resolve actions — prefer `actions`, fall back to deprecated `scripts`
-    const rawActions = options?.actions ?? options?.scripts;
-    const templateScripts =
-      typeof rawActions === "function"
-        ? await rawActions()
-        : (rawActions ?? {});
+      // Auto-mount A2A protocol endpoints so every app is discoverable
+      // and callable by other agents via the standard protocol.
+      // In dev mode, include dev scripts (filesystem-discovered) so the A2A agent
+      // has access to the same tools as the interactive agent.
+      let devScriptsForA2A: Record<string, ActionEntry> = {};
+      let discoveredActions: Record<string, ActionEntry> = {};
+      if (canToggle) {
+        try {
+          const { createDevScriptRegistry } =
+            await import("../scripts/dev/index.js");
+          devScriptsForA2A = await createDevScriptRegistry();
+        } catch {}
 
-    // Resource, chat, docs, db, and cross-agent scripts are available in both prod and dev modes
-    const resourceScripts = await createResourceScriptEntries();
-    const docsScripts = await createDocsScriptEntries();
-    const dbScripts = await createDbScriptEntries();
-    const refreshScreenTool = createRefreshScreenEntry();
-    const urlTools = createUrlTools();
-    const engineScripts = await createAgentEngineScriptEntries();
-    const chatScripts = {
-      ...(await createChatScriptEntries()),
-      ...engineScripts,
-    };
-    const callAgentScript = await createCallAgentScriptEntry(options?.appId);
-    let _currentRequestOrigin = "http://localhost:3000";
-    const browserTools = createBuilderBrowserTool({
-      getOrigin: () => _currentRequestOrigin,
-    });
+        // Auto-discover template action files and register as shell-based tools.
+        // This ensures templates without a custom agent-chat plugin (e.g., analytics)
+        // still have their domain actions available as tools.
+        try {
+          const fs = await import("fs");
+          const pathMod = await import("path");
+          const cwd = process.cwd();
+          const skipFiles = new Set([
+            "helpers",
+            "run",
+            "registry",
+            "_utils",
+            "db-connect",
+            "db-status",
+          ]);
 
-    // Auto-mount A2A protocol endpoints so every app is discoverable
-    // and callable by other agents via the standard protocol.
-    // In dev mode, include dev scripts (filesystem-discovered) so the A2A agent
-    // has access to the same tools as the interactive agent.
-    let devScriptsForA2A: Record<string, ActionEntry> = {};
-    let discoveredActions: Record<string, ActionEntry> = {};
-    if (canToggle) {
-      try {
-        const { createDevScriptRegistry } =
-          await import("../scripts/dev/index.js");
-        devScriptsForA2A = await createDevScriptRegistry();
-      } catch {}
+          for (const dir of ["actions", "scripts"]) {
+            const actionsDir = pathMod.join(cwd, dir);
+            const _fs = await lazyFs();
+            if (!_fs.existsSync(actionsDir)) continue;
+            const files = _fs
+              .readdirSync(actionsDir)
+              .filter(
+                (f: string) =>
+                  f.endsWith(".ts") &&
+                  !f.startsWith("_") &&
+                  !skipFiles.has(f.replace(/\.ts$/, "")),
+              );
+            for (const file of files) {
+              const name = file.replace(/\.ts$/, "");
+              if (templateScripts[name] || devScriptsForA2A[name]) continue;
 
-      // Auto-discover template action files and register as shell-based tools.
-      // This ensures templates without a custom agent-chat plugin (e.g., analytics)
-      // still have their domain actions available as tools.
-      try {
-        const fs = await import("fs");
-        const pathMod = await import("path");
-        const cwd = process.cwd();
-        const skipFiles = new Set([
-          "helpers",
-          "run",
-          "registry",
-          "_utils",
-          "db-connect",
-          "db-status",
-        ]);
-
-        for (const dir of ["actions", "scripts"]) {
-          const actionsDir = pathMod.join(cwd, dir);
-          const _fs = await lazyFs();
-          if (!_fs.existsSync(actionsDir)) continue;
-          const files = _fs
-            .readdirSync(actionsDir)
-            .filter(
-              (f: string) =>
-                f.endsWith(".ts") &&
-                !f.startsWith("_") &&
-                !skipFiles.has(f.replace(/\.ts$/, "")),
-            );
-          for (const file of files) {
-            const name = file.replace(/\.ts$/, "");
-            if (templateScripts[name] || devScriptsForA2A[name]) continue;
-
-            // Try to load the action module directly so we get the real
-            // run function (not a shell wrapper). This makes HTTP endpoints
-            // work correctly. Only fall back to shell wrapper if the import
-            // fails (e.g., CLI-style scripts that throw at top level).
-            const filePath = pathMod.join(actionsDir, file);
-            try {
-              const mod = await import(/* @vite-ignore */ filePath);
-              const def =
-                mod.default && typeof mod.default === "object"
-                  ? mod.default
-                  : mod;
-              if (def?.tool && typeof def.run === "function") {
-                discoveredActions[name] = {
-                  tool: def.tool,
-                  run: def.run,
-                  ...(def.http !== undefined ? { http: def.http } : {}),
-                };
-                continue;
+              // Try to load the action module directly so we get the real
+              // run function (not a shell wrapper). This makes HTTP endpoints
+              // work correctly. Only fall back to shell wrapper if the import
+              // fails (e.g., CLI-style scripts that throw at top level).
+              const filePath = pathMod.join(actionsDir, file);
+              try {
+                const mod = await import(/* @vite-ignore */ filePath);
+                const def =
+                  mod.default && typeof mod.default === "object"
+                    ? mod.default
+                    : mod;
+                if (def?.tool && typeof def.run === "function") {
+                  discoveredActions[name] = {
+                    tool: def.tool,
+                    run: def.run,
+                    ...(def.http !== undefined ? { http: def.http } : {}),
+                  };
+                  continue;
+                }
+              } catch {
+                // Fall through to shell wrapper for CLI-style scripts
+                // (and .ts files Node can't parse natively).
               }
-            } catch {
-              // Fall through to shell wrapper for CLI-style scripts
-              // (and .ts files Node can't parse natively).
-            }
 
-            // Static-parse the source for `http: false` or
-            // `http: { method: "GET" }` so the shell-wrapper fallback still
-            // mounts HTTP routes with the correct method. We can't load the
-            // .ts module to read the real defineAction object in this Node
-            // context, so this regex sniff is the best we can do until the
-            // discovery is moved into a Vite-aware codepath.
-            let httpConfig: ActionHttpConfig | false | undefined;
-            try {
-              const src = _fs.readFileSync(filePath, "utf-8");
-              if (/\bhttp\s*:\s*false\b/.test(src)) {
-                httpConfig = false;
-              } else {
-                const httpStart = src.search(/\bhttp\s*:\s*\{/);
-                if (httpStart >= 0) {
-                  const window = src.slice(httpStart, httpStart + 200);
-                  const m = window.match(
-                    /method\s*:\s*['"`](GET|POST|PUT|DELETE)['"`]/,
-                  );
-                  const p = window.match(/path\s*:\s*['"`]([^'"`]+)['"`]/);
-                  if (m || p) {
-                    httpConfig = {
-                      ...(m
-                        ? {
-                            method: m[1] as "GET" | "POST" | "PUT" | "DELETE",
-                          }
-                        : {}),
-                      ...(p ? { path: p[1] } : {}),
-                    };
+              // Static-parse the source for `http: false` or
+              // `http: { method: "GET" }` so the shell-wrapper fallback still
+              // mounts HTTP routes with the correct method. We can't load the
+              // .ts module to read the real defineAction object in this Node
+              // context, so this regex sniff is the best we can do until the
+              // discovery is moved into a Vite-aware codepath.
+              let httpConfig: ActionHttpConfig | false | undefined;
+              try {
+                const src = _fs.readFileSync(filePath, "utf-8");
+                if (/\bhttp\s*:\s*false\b/.test(src)) {
+                  httpConfig = false;
+                } else {
+                  const httpStart = src.search(/\bhttp\s*:\s*\{/);
+                  if (httpStart >= 0) {
+                    const window = src.slice(httpStart, httpStart + 200);
+                    const m = window.match(
+                      /method\s*:\s*['"`](GET|POST|PUT|DELETE)['"`]/,
+                    );
+                    const p = window.match(/path\s*:\s*['"`]([^'"`]+)['"`]/);
+                    if (m || p) {
+                      httpConfig = {
+                        ...(m
+                          ? {
+                              method: m[1] as "GET" | "POST" | "PUT" | "DELETE",
+                            }
+                          : {}),
+                        ...(p ? { path: p[1] } : {}),
+                      };
+                    }
                   }
                 }
+              } catch {
+                // File read failed — leave httpConfig undefined (default POST)
               }
-            } catch {
-              // File read failed — leave httpConfig undefined (default POST)
-            }
 
-            // Fallback: shell-based wrapper for CLI-style scripts
-            discoveredActions[name] = {
-              tool: {
-                description: `Run the ${name} action. Use: pnpm action ${name} --arg=value`,
-                parameters: {
-                  type: "object",
-                  properties: {
-                    args: {
-                      type: "string",
-                      description:
-                        "CLI arguments as a string (e.g., --metrics=sessions --days=7)",
+              // Fallback: shell-based wrapper for CLI-style scripts
+              discoveredActions[name] = {
+                tool: {
+                  description: `Run the ${name} action. Use: pnpm action ${name} --arg=value`,
+                  parameters: {
+                    type: "object",
+                    properties: {
+                      args: {
+                        type: "string",
+                        description:
+                          "CLI arguments as a string (e.g., --metrics=sessions --days=7)",
+                      },
                     },
                   },
                 },
-              },
-              run: async (input: Record<string, string>) => {
-                const shellEntry = devScriptsForA2A["shell"];
-                if (!shellEntry) return "Error: shell not available";
-                return shellEntry.run({
-                  command: `pnpm action ${name} ${input.args || ""}`.trim(),
-                });
-              },
-              ...(httpConfig !== undefined ? { http: httpConfig } : {}),
-            };
+                run: async (input: Record<string, string>) => {
+                  const shellEntry = devScriptsForA2A["shell"];
+                  if (!shellEntry) return "Error: shell not available";
+                  return shellEntry.run({
+                    command: `pnpm action ${name} ${input.args || ""}`.trim(),
+                  });
+                },
+                ...(httpConfig !== undefined ? { http: httpConfig } : {}),
+              };
+            }
           }
-        }
-        if (Object.keys(discoveredActions).length > 0 && process.env.DEBUG)
-          console.log(
-            `[agent-chat] Auto-discovered ${Object.keys(discoveredActions).length} action(s): ${Object.keys(discoveredActions).join(", ")}`,
-          );
+          if (Object.keys(discoveredActions).length > 0 && process.env.DEBUG)
+            console.log(
+              `[agent-chat] Auto-discovered ${Object.keys(discoveredActions).length} action(s): ${Object.keys(discoveredActions).join(", ")}`,
+            );
+        } catch {}
+      }
+      // Mutable owner — set per-request by the production handler, read by
+      // automation tools and fetch tool via closure. Declared here (before
+      // allScripts) so the tools are in scope when allScripts is built.
+      let _currentRunOwner = "local@localhost";
+
+      // Automation tools + fetch tool — depend on _currentRunOwner via callback
+      let automationTools: Record<string, ActionEntry> = {};
+      try {
+        const { createAutomationToolEntries } =
+          await import("../triggers/actions.js");
+        automationTools = createAutomationToolEntries(() => _currentRunOwner);
       } catch {}
-    }
-    // Mutable owner — set per-request by the production handler, read by
-    // automation tools and fetch tool via closure. Declared here (before
-    // allScripts) so the tools are in scope when allScripts is built.
-    let _currentRunOwner = "local@localhost";
-
-    // Automation tools + fetch tool — depend on _currentRunOwner via callback
-    let automationTools: Record<string, ActionEntry> = {};
-    try {
-      const { createAutomationToolEntries } =
-        await import("../triggers/actions.js");
-      automationTools = createAutomationToolEntries(() => _currentRunOwner);
-    } catch {}
-    let fetchTool: Record<string, ActionEntry> = {};
-    try {
-      const { createFetchToolEntry } = await import("../tools/fetch-tool.js");
-      const { resolveKeyReferences, validateUrlAllowlist, getKeyAllowlist } =
-        await import("../secrets/substitution.js");
-      fetchTool = createFetchToolEntry({
-        resolveKeys: async (text) =>
-          resolveKeyReferences(text, "user", _currentRunOwner),
-        validateUrl: async (url, usedKeys) => {
-          for (const keyName of usedKeys) {
-            const allowlist = await getKeyAllowlist(
-              keyName,
-              "user",
-              _currentRunOwner,
-            );
-            if (allowlist && !validateUrlAllowlist(url, allowlist)) {
-              return false;
-            }
-          }
-          return true;
-        },
-      });
-    } catch {}
-
-    // In dev mode, template actions (templateScripts and discoveredActions) are
-    // NOT registered as native tools — the agent invokes them via shell instead.
-    // This avoids degenerate empty-object tool calls that Anthropic models
-    // sometimes emit for actions with complex schemas. Production keeps the
-    // native registration since it has no shell access.
-    const allScripts = canToggle
-      ? {
-          ...resourceScripts,
-          ...docsScripts,
-          ...chatScripts,
-          ...callAgentScript,
-          ...automationTools,
-          ...fetchTool,
-          ...browserTools,
-          ...devScriptsForA2A,
-        }
-      : {
-          ...discoveredActions,
-          ...templateScripts,
-          ...resourceScripts,
-          ...docsScripts,
-          ...dbScripts,
-          ...refreshScreenTool,
-          ...urlTools,
-          ...chatScripts,
-          ...callAgentScript,
-          ...automationTools,
-          ...fetchTool,
-          ...browserTools,
-          ...devScriptsForA2A,
-        };
-
-    const { mountA2A } = await import("../a2a/server.js");
-    mountA2A(nitroApp, {
-      name: options?.appId
-        ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
-        : "Agent",
-      description: `Agent-native ${options?.appId ?? "app"} agent`,
-      skills: Object.entries(allScripts).map(([name, entry]) => ({
-        id: name,
-        name,
-        description: entry.tool.description,
-      })),
-      streaming: true,
-      handler: async function* (message, context) {
-        // Resolve the caller's identity for user-scoped data access.
-        const isDev = process.env.NODE_ENV !== "production";
-        let userEmail: string | undefined;
-
-        if (isDev) {
-          userEmail = (context.metadata?.userEmail as string) || undefined;
-          if (!userEmail) {
-            try {
-              const { getDbExec } = await import("../db/client.js");
-              const db = getDbExec();
-              const { rows } = await db.execute({
-                sql: "SELECT email FROM sessions ORDER BY created_at DESC LIMIT 1",
-                args: [],
-              });
-              if (rows[0]) userEmail = rows[0].email as string;
-            } catch {}
-          }
-        } else {
-          const googleToken = context.metadata?.googleToken as string;
-          if (googleToken) {
-            try {
-              const res = await fetch(
-                `https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(googleToken)}`,
+      let fetchTool: Record<string, ActionEntry> = {};
+      try {
+        const { createFetchToolEntry } = await import("../tools/fetch-tool.js");
+        const { resolveKeyReferences, validateUrlAllowlist, getKeyAllowlist } =
+          await import("../secrets/substitution.js");
+        fetchTool = createFetchToolEntry({
+          resolveKeys: async (text) =>
+            resolveKeyReferences(text, "user", _currentRunOwner),
+          validateUrl: async (url, usedKeys) => {
+            for (const keyName of usedKeys) {
+              const allowlist = await getKeyAllowlist(
+                keyName,
+                "user",
+                _currentRunOwner,
               );
-              if (res.ok) {
-                const info = (await res.json()) as {
-                  email?: string;
-                  email_verified?: string;
-                };
-                if (info.email && info.email_verified === "true") {
-                  userEmail = info.email;
-                }
+              if (allowlist && !validateUrlAllowlist(url, allowlist)) {
+                return false;
               }
-            } catch {}
-          }
-        }
-
-        if (userEmail) {
-          process.env.AGENT_USER_EMAIL = userEmail;
-        }
-
-        const text = message.parts
-          .filter((p): p is { type: "text"; text: string } => p.type === "text")
-          .map((p) => p.text)
-          .join("\n");
-
-        if (!text) {
-          yield {
-            role: "agent" as const,
-            parts: [
-              { type: "text" as const, text: "No text content in message" },
-            ],
-          };
-          return;
-        }
-
-        // Use the SAME agent setup as the interactive chat — identical tools,
-        // prompt, and capabilities. The A2A agent IS the app's agent.
-        const a2aEngine = await resolveEngine({
-          engineOption: options?.engine,
-          apiKey: options?.apiKey,
-        });
-
-        // Use the same handler (dev or prod) that the interactive chat uses
-        const devActive = isDevMode();
-        const handler = devActive && devHandler ? devHandler : prodHandler;
-
-        // Build the same system prompt the interactive agent uses
-        const owner = userEmail || "local@localhost";
-        const resources = await loadResourcesForPrompt(owner);
-        const schemaBlock = await buildSchemaBlock(owner, devActive);
-        const systemPrompt = devActive
-          ? devPrompt + resources + schemaBlock
-          : basePrompt + resources + schemaBlock;
-
-        const model =
-          options?.model ??
-          (canToggle ? "claude-sonnet-4-6" : "claude-haiku-4-5-20251001");
-
-        // Build tools — same as interactive handler but WITHOUT call-agent
-        // to prevent infinite recursive A2A loops (agent calling itself).
-        // In dev mode, template actions are invoked via shell (not native tools),
-        // so they're omitted from the tool registry — see allScripts comment.
-        const a2aActions = devActive
-          ? {
-              ...resourceScripts,
-              ...docsScripts,
-              ...chatScripts,
-              ...browserTools,
-              ...devScriptsForA2A,
             }
-          : {
-              ...templateScripts,
-              ...resourceScripts,
-              ...docsScripts,
-              ...dbScripts,
-              ...refreshScreenTool,
-              ...urlTools,
-              ...chatScripts,
-              ...browserTools,
-            };
-
-        const a2aTools = actionsToEngineTools(a2aActions);
-
-        const a2aMessages: EngineMessage[] = [
-          { role: "user", content: [{ type: "text", text }] },
-        ];
-
-        // Run the SAME agent loop, collect text events, yield as A2A messages
-        let accumulatedText = "";
-        const controller = new AbortController();
-
-        console.log(
-          `[A2A] Starting agent loop: ${a2aTools.length} tools, prompt ${systemPrompt.length} chars`,
-        );
-
-        await runAgentLoop({
-          engine: a2aEngine,
-          model,
-          systemPrompt,
-          tools: a2aTools,
-          messages: a2aMessages,
-          actions: a2aActions,
-          send: (event) => {
-            if (event.type === "text") {
-              accumulatedText += event.text;
-            } else if (event.type === "tool_start") {
-              console.log(`[A2A] Tool call: ${event.tool}`);
-            } else if (event.type === "error") {
-              console.error(`[A2A] Error: ${event.error}`);
-            } else if (event.type === "done") {
-              console.log(
-                `[A2A] Done. Response: ${accumulatedText.length} chars`,
-              );
-            }
+            return true;
           },
-          signal: controller.signal,
         });
+      } catch {}
 
-        console.log(
-          `[A2A] Loop complete. Text: ${accumulatedText.slice(0, 100)}...`,
-        );
-
-        // Yield the final accumulated text
-        yield {
-          role: "agent" as const,
-          parts: [
-            {
-              type: "text" as const,
-              text: accumulatedText || "(no response)",
-            },
-          ],
-        };
-      },
-    });
-
-    // Generate an "Available Actions" section from template-specific actions
-    // so the agent knows to use them instead of raw SQL.
-    //
-    // Production: actions are native tools — emit `name(arg*: type) — desc`
-    // Dev: actions are invoked via shell — emit `pnpm action name --arg <type>`
-    //      and include discoveredActions too, since those are also missing
-    //      from the dev tool registry.
-    const prodActionsPrompt = generateActionsPrompt(templateScripts, "tool");
-    const devActionsPrompt = generateActionsPrompt(
-      { ...discoveredActions, ...templateScripts },
-      "cli",
-    );
-
-    // Build system prompts — dynamic functions that pre-load resources per-request.
-    // Production gets PROD_FRAMEWORK_PROMPT, dev gets DEV_FRAMEWORK_PROMPT.
-    // Custom systemPrompt from options overrides the framework default entirely.
-    const prodPrompt =
-      (options?.systemPrompt ?? PROD_FRAMEWORK_PROMPT) + prodActionsPrompt;
-    const devPrompt =
-      (options?.devSystemPrompt
-        ? options.devSystemPrompt +
-          (options?.systemPrompt ?? PROD_FRAMEWORK_PROMPT)
-        : DEV_FRAMEWORK_PROMPT) + devActionsPrompt;
-    // Keep legacy names for the composition below
-    const basePrompt = prodPrompt;
-    const devPrefix = options?.devSystemPrompt ?? DEFAULT_DEV_PROMPT;
-
-    // Mount MCP remote server — same action registry as A2A + agent chat
-    const { mountMCP } = await import("../mcp/server.js");
-    mountMCP(nitroApp, {
-      name: options?.appId
-        ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
-        : "Agent",
-      description: `Agent-native ${options?.appId ?? "app"} agent`,
-      actions: allScripts,
-      askAgent: async (message: string) => {
-        const mcpEngine = await resolveEngine({
-          engineOption: options?.engine,
-          apiKey: options?.apiKey,
-        });
-        const model =
-          options?.model ??
-          (canToggle ? "claude-sonnet-4-6" : "claude-haiku-4-5-20251001");
-
-        // Same actions as A2A — without call-agent to prevent loops.
-        // In dev mode, template actions go through shell, not native tools.
-        const devActiveMcp = isDevMode();
-        const mcpActions = devActiveMcp
-          ? {
-              ...resourceScripts,
-              ...docsScripts,
-              ...chatScripts,
-              ...devScriptsForA2A,
-            }
-          : {
-              ...templateScripts,
-              ...resourceScripts,
-              ...docsScripts,
-              ...dbScripts,
-              ...refreshScreenTool,
-              ...urlTools,
-              ...chatScripts,
-            };
-
-        const mcpTools = actionsToEngineTools(mcpActions);
-
-        const resources = await loadResourcesForPrompt("local@localhost");
-        const schemaBlock = await buildSchemaBlock(
-          "local@localhost",
-          devActiveMcp,
-        );
-        const systemPrompt = devActiveMcp
-          ? devPrompt + resources + schemaBlock
-          : basePrompt + resources + schemaBlock;
-
-        let accumulatedText = "";
-        const controller = new AbortController();
-
-        await runAgentLoop({
-          engine: mcpEngine,
-          model,
-          systemPrompt,
-          tools: mcpTools,
-          messages: [
-            { role: "user", content: [{ type: "text", text: message }] },
-          ],
-          actions: mcpActions,
-          send: (event) => {
-            if (event.type === "text") accumulatedText += event.text;
-          },
-          signal: controller.signal,
-        });
-
-        return accumulatedText || "(no response)";
-      },
-    });
-
-    // Resolve owner from the H3 event's session — matches how resources are created
-    const getOwnerFromEvent = async (event: any): Promise<string> => {
-      try {
-        const session = await getSession(event);
-        return session?.email || "local@localhost";
-      } catch {
-        return "local@localhost";
-      }
-    };
-
-    // Auto-mount template actions as HTTP endpoints under /_agent-native/actions/
-    // Include engine management scripts so the UI can call list/set/test-agent-engine.
-    const httpActions: Record<string, ActionEntry> = {
-      ...discoveredActions,
-      ...templateScripts,
-      ...engineScripts,
-    };
-    // Framework-level sharing actions — merged with skipExisting semantics so
-    // any template that provides a same-named action wins. When templates use
-    // `loadActionsFromStaticRegistry`, `autoDiscoverActions` never runs, so
-    // this is the single point that guarantees share-resource, unshare-resource,
-    // list-resource-shares, and set-resource-visibility are always mounted.
-    try {
-      const { mergeCoreSharingActions } = await import("./action-discovery.js");
-      await mergeCoreSharingActions(httpActions);
-    } catch {
-      // Ignore — templates without sharing still work.
-    }
-    if (Object.keys(httpActions).length > 0) {
-      const { mountActionRoutes } = await import("./action-routes.js");
-      mountActionRoutes(nitroApp, httpActions, {
-        getOwnerFromEvent,
-        resolveOrgId: options?.resolveOrgId,
-      });
-    }
-
-    // Callback to persist agent response when run finishes (even if client disconnected).
-    // Reconstructs the assistant message from buffered events and appends to thread_data.
-    const onRunComplete = async (run: any, threadId: string | undefined) => {
-      if (!threadId) return;
-      // Serialize the read-modify-write against the same thread's other
-      // `thread_data` writers (setThreadQueuedMessages, setThreadEngineMeta,
-      // the frontend-triggered saves below). Without the lock, a concurrent
-      // queued-message save can clobber the assistant message we just
-      // appended here, or vice versa.
-      await withThreadDataLock(threadId, async () => {
-        try {
-          const thread = await getThread(threadId);
-          if (!thread) return;
-
-          const assistantMsg = buildAssistantMessage(
-            run.events ?? [],
-            run.runId,
-          );
-          if (!assistantMsg) {
-            // No content produced — just bump timestamp
-            await updateThreadData(
-              threadId,
-              thread.threadData,
-              thread.title,
-              thread.preview,
-              thread.messageCount,
-            );
-            return;
-          }
-
-          // Parse existing thread_data, append assistant message only if
-          // the frontend hasn't already saved it (avoids duplicates when
-          // the client is still connected during a normal flow).
-          let repo: any;
-          try {
-            repo = JSON.parse(thread.threadData || "{}");
-          } catch {
-            repo = {};
-          }
-          if (!Array.isArray(repo.messages)) repo.messages = [];
-
-          const lastMsg = repo.messages[repo.messages.length - 1];
-          // Check both wrapped ({ message: { role } }) and unwrapped ({ role }) formats
-          const lastRole = lastMsg?.message?.role ?? lastMsg?.role;
-          const lastContent = lastMsg?.message?.content ?? lastMsg?.content;
-          const lastContentIsEmpty = Array.isArray(lastContent)
-            ? lastContent.length === 0
-            : lastContent == null || lastContent === "";
-          if (lastRole === "assistant" && !lastContentIsEmpty) {
-            // Frontend already saved the assistant response — just bump timestamp
-            await updateThreadData(
-              threadId,
-              thread.threadData,
-              thread.title,
-              thread.preview,
-              thread.messageCount,
-            );
-            return;
-          }
-          if (lastRole === "assistant" && lastContentIsEmpty) {
-            // The frontend wrote an empty assistant placeholder before the stream
-            // had any content (common when the user reloads mid-run, and the 5s
-            // periodic save raced with the first text chunk). Replace it with
-            // the server's reconstructed message so the turn isn't lost.
-            repo.messages.pop();
-          }
-
-          // Determine if repo uses wrapped format ({ message, parentId }) or flat format
-          const isWrapped = lastMsg && "message" in lastMsg;
-          if (isWrapped) {
-            const parentId =
-              repo.messages.length > 0
-                ? (repo.messages[repo.messages.length - 1].message?.id ?? null)
-                : null;
-            repo.messages.push({ message: assistantMsg, parentId });
-          } else {
-            repo.messages.push(assistantMsg);
-          }
-
-          const meta = extractThreadMeta(repo);
-          await updateThreadData(
-            threadId,
-            JSON.stringify(repo),
-            meta.title || thread.title,
-            meta.preview || thread.preview,
-            repo.messages.length,
-          );
-        } catch {
-          // Best-effort — don't break cleanup
-        }
-      });
-
-      // Emit agent.turn.completed for automation triggers
-      try {
-        const { emit } = await import("../event-bus/index.js");
-        emit("agent.turn.completed", {
-          threadId,
-          model: resolvedModel,
-        });
-      } catch {
-        // Event bus not available — skip
-      }
-    };
-
-    // ─── Agent Teams: per-run send reference ─────────────────────────
-    // Team tools need to emit events to the parent chat's SSE stream.
-    // Each run gets its own send function, keyed by threadId so concurrent
-    // requests for different threads don't clobber each other.
-    const _runSendByThread = new Map<
-      string,
-      (event: import("../agent/types.js").AgentChatEvent) => void
-    >();
-    let _currentRunUserApiKey: string | undefined;
-    let _currentRunThreadId = "";
-    let _currentRunSystemPrompt = basePrompt;
-    // Default to Haiku in production mode to manage costs for hosted apps
-    const resolvedModel =
-      options?.model ??
-      (canToggle ? "claude-sonnet-4-6" : "claude-haiku-4-5-20251001");
-
-    const teamTools = createTeamTools({
-      getOwner: () => _currentRunOwner,
-      getSystemPrompt: () => _currentRunSystemPrompt,
-      getActions: () =>
-        isDevMode()
-          ? {
-              // Sub-agents spawned in dev mode also invoke template actions
-              // via shell, so omit them from the native tool registry.
-              ...resourceScripts,
-              ...docsScripts,
-              ...chatScripts,
-              ...devScriptsForA2A,
-            }
-          : {
-              ...templateScripts,
-              ...resourceScripts,
-              ...docsScripts,
-              ...dbScripts,
-              ...refreshScreenTool,
-              ...urlTools,
-              ...chatScripts,
-            },
-      getEngine: () =>
-        createAnthropicEngine({
-          // Sub-agents must inherit the parent run's resolved key so a
-          // BYO-key user can't bypass the free-tier check on the parent
-          // run and then have spawn-task delegations bill the platform key.
-          apiKey:
-            _currentRunUserApiKey ??
-            options?.apiKey ??
-            process.env.ANTHROPIC_API_KEY,
-        }),
-      getModel: () => resolvedModel,
-      getParentThreadId: () => _currentRunThreadId,
-      getSend: () => {
-        // Return the send for the current run's thread
-        const send = _runSendByThread.get(_currentRunThreadId);
-        return send ?? null;
-      },
-    });
-
-    // Hook into the run lifecycle to set/clear the send reference.
-    // Job management tools (create-job, list-jobs, update-job)
-    let jobTools: Record<string, ActionEntry> = {};
-    try {
-      const { createJobTools } = await import("../jobs/tools.js");
-      jobTools = createJobTools();
-    } catch {}
-
-    const prodActions = {
-      ...templateScripts,
-      ...resourceScripts,
-      ...docsScripts,
-      ...dbScripts,
-      ...refreshScreenTool,
-      ...urlTools,
-      ...chatScripts,
-      ...callAgentScript,
-      ...teamTools,
-      ...jobTools,
-      ...automationTools,
-      ...fetchTool,
-      ...browserTools,
-      ...mcpActionEntries,
-    };
-
-    // Keep the prod action dict's MCP entries in sync when the manager's
-    // server set changes at runtime (e.g. a user adds a remote MCP server
-    // through the settings UI). getEngineTools() in production-agent re-reads
-    // the registry per request, so updates here propagate without restart.
-    mcpManager.onChange(() => {
-      syncMcpActionEntries(mcpManager, prodActions);
-    });
-
-    // Always build the production handler (includes resource tools + call-agent + team tools)
-    // In production mode (!canToggle), enable usage tracking and limits
-    const isHostedProd = !canToggle;
-    const resolveExtraContext = async (
-      event: any,
-      owner: string,
-    ): Promise<string> => {
-      if (!options?.extraContext) return "";
-      try {
-        const extra = await options.extraContext(event, owner);
-        return extra ? `\n\n${extra}` : "";
-      } catch (err) {
-        console.warn(
-          "[agent-chat] extraContext threw:",
-          err instanceof Error ? err.message : err,
-        );
-        return "";
-      }
-    };
-
-    const leanPrompt = options?.leanPrompt === true;
-    // Lean mode: use only the template's systemPrompt + actions list.
-    // Skip resource loading, schema block, and extraContext — those add
-    // DB round-trips and tokens that minimal/voice apps don't need.
-    const leanBasePrompt = (options?.systemPrompt ?? "") + prodActionsPrompt;
-
-    const prodHandler = createProductionAgentHandler({
-      actions: prodActions,
-      systemPrompt: async (event: any) => {
-        _currentRequestOrigin = getOrigin(event);
-        const owner = await getOwnerFromEvent(event);
-        _currentRunOwner = owner;
-        const { getOwnerActiveApiKey } =
-          await import("../agent/production-agent.js");
-        _currentRunUserApiKey = await getOwnerActiveApiKey(owner);
-        if (leanPrompt) {
-          _currentRunSystemPrompt = leanBasePrompt;
-          return _currentRunSystemPrompt;
-        }
-        const resources = await loadResourcesForPrompt(owner);
-        const schemaBlock = await buildSchemaBlock(owner, false);
-        const extra = await resolveExtraContext(event, owner);
-        _currentRunSystemPrompt = basePrompt + resources + schemaBlock + extra;
-        return _currentRunSystemPrompt;
-      },
-      model:
-        options?.model ??
-        (isHostedProd ? "claude-haiku-4-5-20251001" : undefined),
-      apiKey: options?.apiKey,
-      skipFilesContext: leanPrompt,
-      onRunStart: (
-        send: (event: import("../agent/types.js").AgentChatEvent) => void,
-        threadId: string,
-      ) => {
-        _runSendByThread.set(threadId, send);
-        _currentRunThreadId = threadId;
-      },
-      onRunComplete: async (run: any, threadId: string | undefined) => {
-        if (threadId) _runSendByThread.delete(threadId);
-        await onRunComplete(run, threadId);
-      },
-      // Usage tracking for hosted production deployments
-      trackUsage: isHostedProd,
-      resolveOwnerEmail: isHostedProd ? getOwnerFromEvent : undefined,
-    });
-
-    // Build the dev handler (with filesystem/shell/db tools) if environment allows toggling
-    let devHandler: ReturnType<typeof createProductionAgentHandler> | null =
-      null;
-    if (canToggle) {
-      const { createDevScriptRegistry } =
-        await import("../scripts/dev/index.js");
-      // Dev mode: template actions (templateScripts and discoveredActions) are
-      // intentionally OMITTED from the native tool registry. The agent invokes
-      // them via `shell(command="pnpm action <name> ...")` instead. This mirrors
-      // how Claude Code works locally and dramatically reduces the rate of
-      // degenerate empty-object tool calls. The CLI syntax for each action is
-      // listed in the dev system prompt's "Available Actions" section.
-      // In lean mode, expose the template's actions directly as native tools
-      // instead of routing through shell — the lean system prompt has no
-      // shell-usage guidance, so shell-based action invocation would break.
-      const devActions = leanPrompt
-        ? prodActions
-        : {
+      // In dev mode, template actions (templateScripts and discoveredActions) are
+      // NOT registered as native tools — the agent invokes them via shell instead.
+      // This avoids degenerate empty-object tool calls that Anthropic models
+      // sometimes emit for actions with complex schemas. Production keeps the
+      // native registration since it has no shell access.
+      const allScripts = canToggle
+        ? {
             ...resourceScripts,
             ...docsScripts,
             ...chatScripts,
             ...callAgentScript,
-            ...teamTools,
-            ...jobTools,
             ...automationTools,
             ...fetchTool,
             ...browserTools,
-            ...mcpActionEntries,
-            ...(await createDevScriptRegistry()),
+            ...devScriptsForA2A,
+          }
+        : {
+            ...discoveredActions,
+            ...templateScripts,
+            ...resourceScripts,
+            ...docsScripts,
+            ...dbScripts,
+            ...refreshScreenTool,
+            ...urlTools,
+            ...chatScripts,
+            ...callAgentScript,
+            ...automationTools,
+            ...fetchTool,
+            ...browserTools,
+            ...devScriptsForA2A,
           };
-      // Keep dev action dict in sync with runtime MCP additions. When
-      // leanPrompt is true, devActions === prodActions so the prod listener
-      // already covers it.
-      if (devActions !== prodActions) {
-        mcpManager.onChange(() => {
-          syncMcpActionEntries(mcpManager, devActions);
+
+      const { mountA2A } = await import("../a2a/server.js");
+      mountA2A(nitroApp, {
+        name: options?.appId
+          ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
+          : "Agent",
+        description: `Agent-native ${options?.appId ?? "app"} agent`,
+        skills: Object.entries(allScripts).map(([name, entry]) => ({
+          id: name,
+          name,
+          description: entry.tool.description,
+        })),
+        streaming: true,
+        handler: async function* (message, context) {
+          // Resolve the caller's identity for user-scoped data access.
+          const isDev = process.env.NODE_ENV !== "production";
+          let userEmail: string | undefined;
+
+          if (isDev) {
+            userEmail = (context.metadata?.userEmail as string) || undefined;
+            if (!userEmail) {
+              try {
+                const { getDbExec } = await import("../db/client.js");
+                const db = getDbExec();
+                const { rows } = await db.execute({
+                  sql: "SELECT email FROM sessions ORDER BY created_at DESC LIMIT 1",
+                  args: [],
+                });
+                if (rows[0]) userEmail = rows[0].email as string;
+              } catch {}
+            }
+          } else {
+            const googleToken = context.metadata?.googleToken as string;
+            if (googleToken) {
+              try {
+                const res = await fetch(
+                  `https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(googleToken)}`,
+                );
+                if (res.ok) {
+                  const info = (await res.json()) as {
+                    email?: string;
+                    email_verified?: string;
+                  };
+                  if (info.email && info.email_verified === "true") {
+                    userEmail = info.email;
+                  }
+                }
+              } catch {}
+            }
+          }
+
+          if (userEmail) {
+            process.env.AGENT_USER_EMAIL = userEmail;
+          }
+
+          const text = message.parts
+            .filter(
+              (p): p is { type: "text"; text: string } => p.type === "text",
+            )
+            .map((p) => p.text)
+            .join("\n");
+
+          if (!text) {
+            yield {
+              role: "agent" as const,
+              parts: [
+                { type: "text" as const, text: "No text content in message" },
+              ],
+            };
+            return;
+          }
+
+          // Use the SAME agent setup as the interactive chat — identical tools,
+          // prompt, and capabilities. The A2A agent IS the app's agent.
+          const a2aEngine = await resolveEngine({
+            engineOption: options?.engine,
+            apiKey: options?.apiKey,
+          });
+
+          // Use the same handler (dev or prod) that the interactive chat uses
+          const devActive = isDevMode();
+          const handler = devActive && devHandler ? devHandler : prodHandler;
+
+          // Build the same system prompt the interactive agent uses
+          const owner = userEmail || "local@localhost";
+          const resources = await loadResourcesForPrompt(owner);
+          const schemaBlock = await buildSchemaBlock(owner, devActive);
+          const systemPrompt = devActive
+            ? devPrompt + resources + schemaBlock
+            : basePrompt + resources + schemaBlock;
+
+          const model =
+            options?.model ??
+            (canToggle ? "claude-sonnet-4-6" : "claude-haiku-4-5-20251001");
+
+          // Build tools — same as interactive handler but WITHOUT call-agent
+          // to prevent infinite recursive A2A loops (agent calling itself).
+          // In dev mode, template actions are invoked via shell (not native tools),
+          // so they're omitted from the tool registry — see allScripts comment.
+          const a2aActions = devActive
+            ? {
+                ...resourceScripts,
+                ...docsScripts,
+                ...chatScripts,
+                ...browserTools,
+                ...devScriptsForA2A,
+              }
+            : {
+                ...templateScripts,
+                ...resourceScripts,
+                ...docsScripts,
+                ...dbScripts,
+                ...refreshScreenTool,
+                ...urlTools,
+                ...chatScripts,
+                ...browserTools,
+              };
+
+          const a2aTools = actionsToEngineTools(a2aActions);
+
+          const a2aMessages: EngineMessage[] = [
+            { role: "user", content: [{ type: "text", text }] },
+          ];
+
+          // Run the SAME agent loop, collect text events, yield as A2A messages
+          let accumulatedText = "";
+          const controller = new AbortController();
+
+          console.log(
+            `[A2A] Starting agent loop: ${a2aTools.length} tools, prompt ${systemPrompt.length} chars`,
+          );
+
+          await runAgentLoop({
+            engine: a2aEngine,
+            model,
+            systemPrompt,
+            tools: a2aTools,
+            messages: a2aMessages,
+            actions: a2aActions,
+            send: (event) => {
+              if (event.type === "text") {
+                accumulatedText += event.text;
+              } else if (event.type === "tool_start") {
+                console.log(`[A2A] Tool call: ${event.tool}`);
+              } else if (event.type === "error") {
+                console.error(`[A2A] Error: ${event.error}`);
+              } else if (event.type === "done") {
+                console.log(
+                  `[A2A] Done. Response: ${accumulatedText.length} chars`,
+                );
+              }
+            },
+            signal: controller.signal,
+          });
+
+          console.log(
+            `[A2A] Loop complete. Text: ${accumulatedText.slice(0, 100)}...`,
+          );
+
+          // Yield the final accumulated text
+          yield {
+            role: "agent" as const,
+            parts: [
+              {
+                type: "text" as const,
+                text: accumulatedText || "(no response)",
+              },
+            ],
+          };
+        },
+      });
+
+      // Generate an "Available Actions" section from template-specific actions
+      // so the agent knows to use them instead of raw SQL.
+      //
+      // Production: actions are native tools — emit `name(arg*: type) — desc`
+      // Dev: actions are invoked via shell — emit `pnpm action name --arg <type>`
+      //      and include discoveredActions too, since those are also missing
+      //      from the dev tool registry.
+      const prodActionsPrompt = generateActionsPrompt(templateScripts, "tool");
+      const devActionsPrompt = generateActionsPrompt(
+        { ...discoveredActions, ...templateScripts },
+        "cli",
+      );
+
+      // Build system prompts — dynamic functions that pre-load resources per-request.
+      // Production gets PROD_FRAMEWORK_PROMPT, dev gets DEV_FRAMEWORK_PROMPT.
+      // Custom systemPrompt from options overrides the framework default entirely.
+      const prodPrompt =
+        (options?.systemPrompt ?? PROD_FRAMEWORK_PROMPT) + prodActionsPrompt;
+      const devPrompt =
+        (options?.devSystemPrompt
+          ? options.devSystemPrompt +
+            (options?.systemPrompt ?? PROD_FRAMEWORK_PROMPT)
+          : DEV_FRAMEWORK_PROMPT) + devActionsPrompt;
+      // Keep legacy names for the composition below
+      const basePrompt = prodPrompt;
+      const devPrefix = options?.devSystemPrompt ?? DEFAULT_DEV_PROMPT;
+
+      // Mount MCP remote server — same action registry as A2A + agent chat
+      const { mountMCP } = await import("../mcp/server.js");
+      mountMCP(nitroApp, {
+        name: options?.appId
+          ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
+          : "Agent",
+        description: `Agent-native ${options?.appId ?? "app"} agent`,
+        actions: allScripts,
+        askAgent: async (message: string) => {
+          const mcpEngine = await resolveEngine({
+            engineOption: options?.engine,
+            apiKey: options?.apiKey,
+          });
+          const model =
+            options?.model ??
+            (canToggle ? "claude-sonnet-4-6" : "claude-haiku-4-5-20251001");
+
+          // Same actions as A2A — without call-agent to prevent loops.
+          // In dev mode, template actions go through shell, not native tools.
+          const devActiveMcp = isDevMode();
+          const mcpActions = devActiveMcp
+            ? {
+                ...resourceScripts,
+                ...docsScripts,
+                ...chatScripts,
+                ...devScriptsForA2A,
+              }
+            : {
+                ...templateScripts,
+                ...resourceScripts,
+                ...docsScripts,
+                ...dbScripts,
+                ...refreshScreenTool,
+                ...urlTools,
+                ...chatScripts,
+              };
+
+          const mcpTools = actionsToEngineTools(mcpActions);
+
+          const resources = await loadResourcesForPrompt("local@localhost");
+          const schemaBlock = await buildSchemaBlock(
+            "local@localhost",
+            devActiveMcp,
+          );
+          const systemPrompt = devActiveMcp
+            ? devPrompt + resources + schemaBlock
+            : basePrompt + resources + schemaBlock;
+
+          let accumulatedText = "";
+          const controller = new AbortController();
+
+          await runAgentLoop({
+            engine: mcpEngine,
+            model,
+            systemPrompt,
+            tools: mcpTools,
+            messages: [
+              { role: "user", content: [{ type: "text", text: message }] },
+            ],
+            actions: mcpActions,
+            send: (event) => {
+              if (event.type === "text") accumulatedText += event.text;
+            },
+            signal: controller.signal,
+          });
+
+          return accumulatedText || "(no response)";
+        },
+      });
+
+      // Resolve owner from the H3 event's session — matches how resources are created
+      const getOwnerFromEvent = async (event: any): Promise<string> => {
+        try {
+          const session = await getSession(event);
+          return session?.email || "local@localhost";
+        } catch {
+          return "local@localhost";
+        }
+      };
+
+      // Auto-mount template actions as HTTP endpoints under /_agent-native/actions/
+      // Include engine management scripts so the UI can call list/set/test-agent-engine.
+      const httpActions: Record<string, ActionEntry> = {
+        ...discoveredActions,
+        ...templateScripts,
+        ...engineScripts,
+      };
+      // Framework-level sharing actions — merged with skipExisting semantics so
+      // any template that provides a same-named action wins. When templates use
+      // `loadActionsFromStaticRegistry`, `autoDiscoverActions` never runs, so
+      // this is the single point that guarantees share-resource, unshare-resource,
+      // list-resource-shares, and set-resource-visibility are always mounted.
+      try {
+        const { mergeCoreSharingActions } =
+          await import("./action-discovery.js");
+        await mergeCoreSharingActions(httpActions);
+      } catch {
+        // Ignore — templates without sharing still work.
+      }
+      if (Object.keys(httpActions).length > 0) {
+        const { mountActionRoutes } = await import("./action-routes.js");
+        mountActionRoutes(nitroApp, httpActions, {
+          getOwnerFromEvent,
+          resolveOrgId: options?.resolveOrgId,
         });
       }
-      devHandler = createProductionAgentHandler({
-        actions: devActions,
+
+      // Callback to persist agent response when run finishes (even if client disconnected).
+      // Reconstructs the assistant message from buffered events and appends to thread_data.
+      const onRunComplete = async (run: any, threadId: string | undefined) => {
+        if (!threadId) return;
+        // Serialize the read-modify-write against the same thread's other
+        // `thread_data` writers (setThreadQueuedMessages, setThreadEngineMeta,
+        // the frontend-triggered saves below). Without the lock, a concurrent
+        // queued-message save can clobber the assistant message we just
+        // appended here, or vice versa.
+        await withThreadDataLock(threadId, async () => {
+          try {
+            const thread = await getThread(threadId);
+            if (!thread) return;
+
+            const assistantMsg = buildAssistantMessage(
+              run.events ?? [],
+              run.runId,
+            );
+            if (!assistantMsg) {
+              // No content produced — just bump timestamp
+              await updateThreadData(
+                threadId,
+                thread.threadData,
+                thread.title,
+                thread.preview,
+                thread.messageCount,
+              );
+              return;
+            }
+
+            // Parse existing thread_data, append assistant message only if
+            // the frontend hasn't already saved it (avoids duplicates when
+            // the client is still connected during a normal flow).
+            let repo: any;
+            try {
+              repo = JSON.parse(thread.threadData || "{}");
+            } catch {
+              repo = {};
+            }
+            if (!Array.isArray(repo.messages)) repo.messages = [];
+
+            const lastMsg = repo.messages[repo.messages.length - 1];
+            // Check both wrapped ({ message: { role } }) and unwrapped ({ role }) formats
+            const lastRole = lastMsg?.message?.role ?? lastMsg?.role;
+            const lastContent = lastMsg?.message?.content ?? lastMsg?.content;
+            const lastContentIsEmpty = Array.isArray(lastContent)
+              ? lastContent.length === 0
+              : lastContent == null || lastContent === "";
+            if (lastRole === "assistant" && !lastContentIsEmpty) {
+              // Frontend already saved the assistant response — just bump timestamp
+              await updateThreadData(
+                threadId,
+                thread.threadData,
+                thread.title,
+                thread.preview,
+                thread.messageCount,
+              );
+              return;
+            }
+            if (lastRole === "assistant" && lastContentIsEmpty) {
+              // The frontend wrote an empty assistant placeholder before the stream
+              // had any content (common when the user reloads mid-run, and the 5s
+              // periodic save raced with the first text chunk). Replace it with
+              // the server's reconstructed message so the turn isn't lost.
+              repo.messages.pop();
+            }
+
+            // Determine if repo uses wrapped format ({ message, parentId }) or flat format
+            const isWrapped = lastMsg && "message" in lastMsg;
+            if (isWrapped) {
+              const parentId =
+                repo.messages.length > 0
+                  ? (repo.messages[repo.messages.length - 1].message?.id ??
+                    null)
+                  : null;
+              repo.messages.push({ message: assistantMsg, parentId });
+            } else {
+              repo.messages.push(assistantMsg);
+            }
+
+            const meta = extractThreadMeta(repo);
+            await updateThreadData(
+              threadId,
+              JSON.stringify(repo),
+              meta.title || thread.title,
+              meta.preview || thread.preview,
+              repo.messages.length,
+            );
+          } catch {
+            // Best-effort — don't break cleanup
+          }
+        });
+
+        // Emit agent.turn.completed for automation triggers
+        try {
+          const { emit } = await import("../event-bus/index.js");
+          emit("agent.turn.completed", {
+            threadId,
+            model: resolvedModel,
+          });
+        } catch {
+          // Event bus not available — skip
+        }
+      };
+
+      // ─── Agent Teams: per-run send reference ─────────────────────────
+      // Team tools need to emit events to the parent chat's SSE stream.
+      // Each run gets its own send function, keyed by threadId so concurrent
+      // requests for different threads don't clobber each other.
+      const _runSendByThread = new Map<
+        string,
+        (event: import("../agent/types.js").AgentChatEvent) => void
+      >();
+      let _currentRunUserApiKey: string | undefined;
+      let _currentRunThreadId = "";
+      let _currentRunSystemPrompt = basePrompt;
+      // Default to Haiku in production mode to manage costs for hosted apps
+      const resolvedModel =
+        options?.model ??
+        (canToggle ? "claude-sonnet-4-6" : "claude-haiku-4-5-20251001");
+
+      const teamTools = createTeamTools({
+        getOwner: () => _currentRunOwner,
+        getSystemPrompt: () => _currentRunSystemPrompt,
+        getActions: () =>
+          isDevMode()
+            ? {
+                // Sub-agents spawned in dev mode also invoke template actions
+                // via shell, so omit them from the native tool registry.
+                ...resourceScripts,
+                ...docsScripts,
+                ...chatScripts,
+                ...devScriptsForA2A,
+              }
+            : {
+                ...templateScripts,
+                ...resourceScripts,
+                ...docsScripts,
+                ...dbScripts,
+                ...refreshScreenTool,
+                ...urlTools,
+                ...chatScripts,
+              },
+        getEngine: () =>
+          createAnthropicEngine({
+            // Sub-agents must inherit the parent run's resolved key so a
+            // BYO-key user can't bypass the free-tier check on the parent
+            // run and then have spawn-task delegations bill the platform key.
+            apiKey:
+              _currentRunUserApiKey ??
+              options?.apiKey ??
+              process.env.ANTHROPIC_API_KEY,
+          }),
+        getModel: () => resolvedModel,
+        getParentThreadId: () => _currentRunThreadId,
+        getSend: () => {
+          // Return the send for the current run's thread
+          const send = _runSendByThread.get(_currentRunThreadId);
+          return send ?? null;
+        },
+      });
+
+      // Hook into the run lifecycle to set/clear the send reference.
+      // Job management tools (create-job, list-jobs, update-job)
+      let jobTools: Record<string, ActionEntry> = {};
+      try {
+        const { createJobTools } = await import("../jobs/tools.js");
+        jobTools = createJobTools();
+      } catch {}
+
+      const prodActions = {
+        ...templateScripts,
+        ...resourceScripts,
+        ...docsScripts,
+        ...dbScripts,
+        ...refreshScreenTool,
+        ...urlTools,
+        ...chatScripts,
+        ...callAgentScript,
+        ...teamTools,
+        ...jobTools,
+        ...automationTools,
+        ...fetchTool,
+        ...browserTools,
+        ...mcpActionEntries,
+      };
+
+      // Keep the prod action dict's MCP entries in sync when the manager's
+      // server set changes at runtime (e.g. a user adds a remote MCP server
+      // through the settings UI). getEngineTools() in production-agent re-reads
+      // the registry per request, so updates here propagate without restart.
+      mcpManager.onChange(() => {
+        syncMcpActionEntries(mcpManager, prodActions);
+      });
+
+      // Always build the production handler (includes resource tools + call-agent + team tools)
+      // In production mode (!canToggle), enable usage tracking and limits
+      const isHostedProd = !canToggle;
+      const resolveExtraContext = async (
+        event: any,
+        owner: string,
+      ): Promise<string> => {
+        if (!options?.extraContext) return "";
+        try {
+          const extra = await options.extraContext(event, owner);
+          return extra ? `\n\n${extra}` : "";
+        } catch (err) {
+          console.warn(
+            "[agent-chat] extraContext threw:",
+            err instanceof Error ? err.message : err,
+          );
+          return "";
+        }
+      };
+
+      const leanPrompt = options?.leanPrompt === true;
+      // Lean mode: use only the template's systemPrompt + actions list.
+      // Skip resource loading, schema block, and extraContext — those add
+      // DB round-trips and tokens that minimal/voice apps don't need.
+      const leanBasePrompt = (options?.systemPrompt ?? "") + prodActionsPrompt;
+
+      const prodHandler = createProductionAgentHandler({
+        actions: prodActions,
         systemPrompt: async (event: any) => {
           _currentRequestOrigin = getOrigin(event);
           const owner = await getOwnerFromEvent(event);
@@ -2665,12 +2592,15 @@ export function createAgentChatPlugin(
             return _currentRunSystemPrompt;
           }
           const resources = await loadResourcesForPrompt(owner);
-          const schemaBlock = await buildSchemaBlock(owner, true);
+          const schemaBlock = await buildSchemaBlock(owner, false);
           const extra = await resolveExtraContext(event, owner);
-          _currentRunSystemPrompt = devPrompt + resources + schemaBlock + extra;
+          _currentRunSystemPrompt =
+            basePrompt + resources + schemaBlock + extra;
           return _currentRunSystemPrompt;
         },
-        model: options?.model,
+        model:
+          options?.model ??
+          (isHostedProd ? "claude-haiku-4-5-20251001" : undefined),
         apiKey: options?.apiKey,
         skipFilesContext: leanPrompt,
         onRunStart: (
@@ -2684,976 +2614,1069 @@ export function createAgentChatPlugin(
           if (threadId) _runSendByThread.delete(threadId);
           await onRunComplete(run, threadId);
         },
+        // Usage tracking for hosted production deployments
+        trackUsage: isHostedProd,
+        resolveOwnerEmail: isHostedProd ? getOwnerFromEvent : undefined,
       });
-    }
 
-    // Resolve mention providers
-    const rawProviders = options?.mentionProviders;
-    const mentionProviders: Record<string, MentionProvider> =
-      typeof rawProviders === "function"
-        ? await rawProviders()
-        : (rawProviders ?? {});
+      // Build the dev handler (with filesystem/shell/db tools) if environment allows toggling
+      let devHandler: ReturnType<typeof createProductionAgentHandler> | null =
+        null;
+      if (canToggle) {
+        const { createDevScriptRegistry } =
+          await import("../scripts/dev/index.js");
+        // Dev mode: template actions (templateScripts and discoveredActions) are
+        // intentionally OMITTED from the native tool registry. The agent invokes
+        // them via `shell(command="pnpm action <name> ...")` instead. This mirrors
+        // how Claude Code works locally and dramatically reduces the rate of
+        // degenerate empty-object tool calls. The CLI syntax for each action is
+        // listed in the dev system prompt's "Available Actions" section.
+        // In lean mode, expose the template's actions directly as native tools
+        // instead of routing through shell — the lean system prompt has no
+        // shell-usage guidance, so shell-based action invocation would break.
+        const devActions = leanPrompt
+          ? prodActions
+          : {
+              ...resourceScripts,
+              ...docsScripts,
+              ...chatScripts,
+              ...callAgentScript,
+              ...teamTools,
+              ...jobTools,
+              ...automationTools,
+              ...fetchTool,
+              ...browserTools,
+              ...mcpActionEntries,
+              ...(await createDevScriptRegistry()),
+            };
+        // Keep dev action dict in sync with runtime MCP additions. When
+        // leanPrompt is true, devActions === prodActions so the prod listener
+        // already covers it.
+        if (devActions !== prodActions) {
+          mcpManager.onChange(() => {
+            syncMcpActionEntries(mcpManager, devActions);
+          });
+        }
+        devHandler = createProductionAgentHandler({
+          actions: devActions,
+          systemPrompt: async (event: any) => {
+            _currentRequestOrigin = getOrigin(event);
+            const owner = await getOwnerFromEvent(event);
+            _currentRunOwner = owner;
+            const { getOwnerActiveApiKey } =
+              await import("../agent/production-agent.js");
+            _currentRunUserApiKey = await getOwnerActiveApiKey(owner);
+            if (leanPrompt) {
+              _currentRunSystemPrompt = leanBasePrompt;
+              return _currentRunSystemPrompt;
+            }
+            const resources = await loadResourcesForPrompt(owner);
+            const schemaBlock = await buildSchemaBlock(owner, true);
+            const extra = await resolveExtraContext(event, owner);
+            _currentRunSystemPrompt =
+              devPrompt + resources + schemaBlock + extra;
+            return _currentRunSystemPrompt;
+          },
+          model: options?.model,
+          apiKey: options?.apiKey,
+          skipFilesContext: leanPrompt,
+          onRunStart: (
+            send: (event: import("../agent/types.js").AgentChatEvent) => void,
+            threadId: string,
+          ) => {
+            _runSendByThread.set(threadId, send);
+            _currentRunThreadId = threadId;
+          },
+          onRunComplete: async (run: any, threadId: string | undefined) => {
+            if (threadId) _runSendByThread.delete(threadId);
+            await onRunComplete(run, threadId);
+          },
+        });
+      }
 
-    // currentDevMode + persistence were hoisted to the top of this function
-    // so every closure built below can close over the live flag.
+      // Resolve mention providers
+      const rawProviders = options?.mentionProviders;
+      const mentionProviders: Record<string, MentionProvider> =
+        typeof rawProviders === "function"
+          ? await rawProviders()
+          : (rawProviders ?? {});
 
-    // Mount mode endpoint — GET returns current mode, POST toggles it (localhost only)
-    getH3App(nitroApp).use(
-      `${routePath}/mode`,
-      defineEventHandler(async (event) => {
-        if (getMethod(event) === "POST") {
-          if (!canToggle) {
-            setResponseStatus(event, 403);
-            return { error: "Mode switching not available in production" };
-          }
-          if (!isLocalhost(event)) {
-            setResponseStatus(event, 403);
-            return { error: "Mode switching only available on localhost" };
-          }
-          const body = await readBody(event);
-          if (typeof body?.devMode === "boolean") {
-            currentDevMode = body.devMode;
-          } else {
-            currentDevMode = !currentDevMode;
-          }
-          try {
-            await putSetting(AGENT_MODE_SETTING_KEY, {
-              devMode: currentDevMode,
-            });
-          } catch {
-            // Persistence is best-effort — in-memory flag still applies for
-            // the lifetime of this process even if the settings write fails.
+      // currentDevMode + persistence were hoisted to the top of this function
+      // so every closure built below can close over the live flag.
+
+      // Mount mode endpoint — GET returns current mode, POST toggles it (localhost only)
+      getH3App(nitroApp).use(
+        `${routePath}/mode`,
+        defineEventHandler(async (event) => {
+          if (getMethod(event) === "POST") {
+            if (!canToggle) {
+              setResponseStatus(event, 403);
+              return { error: "Mode switching not available in production" };
+            }
+            if (!isLocalhost(event)) {
+              setResponseStatus(event, 403);
+              return { error: "Mode switching only available on localhost" };
+            }
+            const body = await readBody(event);
+            if (typeof body?.devMode === "boolean") {
+              currentDevMode = body.devMode;
+            } else {
+              currentDevMode = !currentDevMode;
+            }
+            try {
+              await putSetting(AGENT_MODE_SETTING_KEY, {
+                devMode: currentDevMode,
+              });
+            } catch {
+              // Persistence is best-effort — in-memory flag still applies for
+              // the lifetime of this process even if the settings write fails.
+            }
+            return { devMode: currentDevMode, canToggle };
           }
           return { devMode: currentDevMode, canToggle };
-        }
-        return { devMode: currentDevMode, canToggle };
-      }),
-    );
+        }),
+      );
 
-    // Mount save-key BEFORE the prefix handler so it isn't shadowed.
-    // Persists the user's key per-owner in the SQL settings table so it
-    // survives across serverless invocations (where mutating process.env
-    // and writing .env are both no-ops). Also updates process.env and
-    // .env when running locally for fast pickup by other handlers.
-    getH3App(nitroApp).use(
-      `${routePath}/save-key`,
-      defineEventHandler(async (event) => {
-        if (getMethod(event) !== "POST") {
-          setResponseStatus(event, 405);
-          return { error: "Method not allowed" };
-        }
-
-        const body = await readBody(event);
-        const { key, provider: rawProvider } = body as {
-          key?: string;
-          provider?: string;
-        };
-        const provider = rawProvider || "anthropic";
-
-        if (!key || typeof key !== "string" || !key.trim()) {
-          setResponseStatus(event, 400);
-          return { error: "API key is required" };
-        }
-
-        const trimmedKey = key.trim();
-
-        // Persist per-owner so the key survives cold starts in serverless
-        // and so the user's key isn't shared across users on multi-tenant
-        // hosted deployments. We require a real authenticated owner here —
-        // `local@localhost` is the unauthenticated fallback and must never
-        // become the shared key bucket on hosted deployments.
-        const ownerEmail = await getOwnerFromEvent(event);
-        if (isHostedProd && (!ownerEmail || ownerEmail === "local@localhost")) {
-          setResponseStatus(event, 401);
-          return { error: "Authentication required" };
-        }
-        if (ownerEmail && ownerEmail !== "local@localhost") {
-          try {
-            await putSetting(`user-api-key:${provider}:${ownerEmail}`, {
-              key: trimmedKey,
-            });
-            // Verify the write actually landed — some managed DB drivers
-            // swallow errors on degraded connections. Without this the
-            // client sees "saved", reloads, and the usage-limit card
-            // re-appears on the next message because the key isn't
-            // really persisted.
-            const check = await getSetting(
-              `user-api-key:${provider}:${ownerEmail}`,
-            );
-            if (
-              !check ||
-              typeof check.key !== "string" ||
-              check.key !== trimmedKey
-            ) {
-              throw new Error("settings write did not persist");
-            }
-          } catch (err) {
-            if (isHostedProd) {
-              console.error(
-                "[agent-chat] save-key persistence failed:",
-                err instanceof Error ? err.message : err,
-              );
-              setResponseStatus(event, 500);
-              return {
-                error:
-                  "Failed to persist API key. Please try again or contact support.",
-              };
-            }
-            // Local dev falls through to the env-file path below.
+      // Mount save-key BEFORE the prefix handler so it isn't shadowed.
+      // Persists the user's key per-owner in the SQL settings table so it
+      // survives across serverless invocations (where mutating process.env
+      // and writing .env are both no-ops). Also updates process.env and
+      // .env when running locally for fast pickup by other handlers.
+      getH3App(nitroApp).use(
+        `${routePath}/save-key`,
+        defineEventHandler(async (event) => {
+          if (getMethod(event) !== "POST") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
           }
-        }
 
-        // In hosted/multi-tenant mode we deliberately do NOT touch
-        // process.env or .env: the per-owner SQL lookup above is the
-        // single source of truth, and overwriting the shared env key
-        // would leak one tenant's credentials into every subsequent
-        // request that hit the same warm instance without its own key.
-        if (!isHostedProd) {
-          const providerToEnv: Record<string, string> = {
-            anthropic: "ANTHROPIC_API_KEY",
-            openai: "OPENAI_API_KEY",
-            google: "GOOGLE_GENERATIVE_AI_API_KEY",
-            groq: "GROQ_API_KEY",
-            mistral: "MISTRAL_API_KEY",
-            cohere: "COHERE_API_KEY",
+          const body = await readBody(event);
+          const { key, provider: rawProvider } = body as {
+            key?: string;
+            provider?: string;
           };
-          const envVar =
-            providerToEnv[provider] ?? `${provider.toUpperCase()}_API_KEY`;
-          try {
-            const path = await import("path");
-            const { upsertEnvFile } = await import("./create-server.js");
-            const envPath = path.join(process.cwd(), ".env");
-            await upsertEnvFile(envPath, [{ key: envVar, value: trimmedKey }]);
-          } catch {
-            // Edge runtime — can't write .env, but can still update process.env
+          const provider = rawProvider || "anthropic";
+
+          if (!key || typeof key !== "string" || !key.trim()) {
+            setResponseStatus(event, 400);
+            return { error: "API key is required" };
           }
-          // Update process.env so the agent works immediately in the
-          // current local-dev invocation; the SQL persist above covers
-          // future invocations.
-          process.env[envVar] = trimmedKey;
-        }
 
-        return { ok: true };
-      }),
-    );
+          const trimmedKey = key.trim();
 
-    // Mount file search endpoint
-    getH3App(nitroApp).use(
-      `${routePath}/files`,
-      defineEventHandler(async (event) => {
-        if (getMethod(event) !== "GET") {
-          setResponseStatus(event, 405);
-          return { error: "Method not allowed" };
-        }
+          // Persist per-owner so the key survives cold starts in serverless
+          // and so the user's key isn't shared across users on multi-tenant
+          // hosted deployments. We require a real authenticated owner here —
+          // `local@localhost` is the unauthenticated fallback and must never
+          // become the shared key bucket on hosted deployments.
+          const ownerEmail = await getOwnerFromEvent(event);
+          if (
+            isHostedProd &&
+            (!ownerEmail || ownerEmail === "local@localhost")
+          ) {
+            setResponseStatus(event, 401);
+            return { error: "Authentication required" };
+          }
+          if (ownerEmail && ownerEmail !== "local@localhost") {
+            try {
+              await putSetting(`user-api-key:${provider}:${ownerEmail}`, {
+                key: trimmedKey,
+              });
+              // Verify the write actually landed — some managed DB drivers
+              // swallow errors on degraded connections. Without this the
+              // client sees "saved", reloads, and the usage-limit card
+              // re-appears on the next message because the key isn't
+              // really persisted.
+              const check = await getSetting(
+                `user-api-key:${provider}:${ownerEmail}`,
+              );
+              if (
+                !check ||
+                typeof check.key !== "string" ||
+                check.key !== trimmedKey
+              ) {
+                throw new Error("settings write did not persist");
+              }
+            } catch (err) {
+              if (isHostedProd) {
+                console.error(
+                  "[agent-chat] save-key persistence failed:",
+                  err instanceof Error ? err.message : err,
+                );
+                setResponseStatus(event, 500);
+                return {
+                  error:
+                    "Failed to persist API key. Please try again or contact support.",
+                };
+              }
+              // Local dev falls through to the env-file path below.
+            }
+          }
 
-        const query = getQuery(event);
-        const q = typeof query.q === "string" ? query.q.toLowerCase() : "";
+          // In hosted/multi-tenant mode we deliberately do NOT touch
+          // process.env or .env: the per-owner SQL lookup above is the
+          // single source of truth, and overwriting the shared env key
+          // would leak one tenant's credentials into every subsequent
+          // request that hit the same warm instance without its own key.
+          if (!isHostedProd) {
+            const providerToEnv: Record<string, string> = {
+              anthropic: "ANTHROPIC_API_KEY",
+              openai: "OPENAI_API_KEY",
+              google: "GOOGLE_GENERATIVE_AI_API_KEY",
+              groq: "GROQ_API_KEY",
+              mistral: "MISTRAL_API_KEY",
+              cohere: "COHERE_API_KEY",
+            };
+            const envVar =
+              providerToEnv[provider] ?? `${provider.toUpperCase()}_API_KEY`;
+            try {
+              const path = await import("path");
+              const { upsertEnvFile } = await import("./create-server.js");
+              const envPath = path.join(process.cwd(), ".env");
+              await upsertEnvFile(envPath, [
+                { key: envVar, value: trimmedKey },
+              ]);
+            } catch {
+              // Edge runtime — can't write .env, but can still update process.env
+            }
+            // Update process.env so the agent works immediately in the
+            // current local-dev invocation; the SQL persist above covers
+            // future invocations.
+            process.env[envVar] = trimmedKey;
+          }
 
-        const files: Array<{
-          path: string;
-          name: string;
-          source: "codebase" | "resource";
-          type: string;
-        }> = [];
-        const seen = new Set<string>();
+          return { ok: true };
+        }),
+      );
 
-        // In dev mode, walk the filesystem
-        if (currentDevMode) {
-          const codebaseFiles: Array<{
+      // Mount file search endpoint
+      getH3App(nitroApp).use(
+        `${routePath}/files`,
+        defineEventHandler(async (event) => {
+          if (getMethod(event) !== "GET") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+
+          const query = getQuery(event);
+          const q = typeof query.q === "string" ? query.q.toLowerCase() : "";
+
+          const files: Array<{
             path: string;
             name: string;
-            type: "file" | "folder";
+            source: "codebase" | "resource";
+            type: string;
           }> = [];
-          try {
-            await collectFiles(process.cwd(), "", 0, codebaseFiles);
-          } catch {
-            // Filesystem access failed — skip
-          }
-          for (const f of codebaseFiles) {
-            if (!seen.has(f.path)) {
-              seen.add(f.path);
-              files.push({
-                path: f.path,
-                name: f.name,
-                source: "codebase",
-                type: f.type,
-              });
-            }
-          }
-        }
+          const seen = new Set<string>();
 
-        // Query resources
-        try {
-          const resources = currentDevMode
-            ? await resourceListAccessible("local@localhost")
-            : await resourceList(SHARED_OWNER);
-          for (const r of resources) {
-            if (!seen.has(r.path)) {
-              seen.add(r.path);
-              files.push({
-                path: r.path,
-                name: r.path.split("/").pop() || r.path,
-                source: "resource",
-                type: "file",
-              });
-            }
-          }
-        } catch {
-          // Resources not available — skip
-        }
-
-        // Filter by query and limit
-        const filtered = q
-          ? files.filter((f) => f.path.toLowerCase().includes(q))
-          : files;
-
-        return { files: filtered.slice(0, 30) };
-      }),
-    );
-
-    // Mount skills listing endpoint
-    getH3App(nitroApp).use(
-      `${routePath}/skills`,
-      defineEventHandler(async (event) => {
-        if (getMethod(event) !== "GET") {
-          setResponseStatus(event, 405);
-          return { error: "Method not allowed" };
-        }
-
-        const skills: Array<{
-          name: string;
-          description?: string;
-          path: string;
-          source: "codebase" | "resource";
-        }> = [];
-        const seenNames = new Set<string>();
-
-        // In dev mode, scan .agents/skills/ directory
-        if (currentDevMode) {
-          try {
-            const _fs = await lazyFs();
-            const skillsDir = nodePath.join(process.cwd(), ".agents", "skills");
-            const entries = _fs.readdirSync(skillsDir, {
-              withFileTypes: true,
-            });
-            for (const entry of entries) {
-              // Support both flat .md files and subdirectory-based skills (dir/SKILL.md)
-              let skillFilePath: string;
-              let skillRelPath: string;
-
-              if (entry.isDirectory()) {
-                // Subdirectory layout: .agents/skills/<name>/SKILL.md
-                const candidate = nodePath.join(
-                  skillsDir,
-                  entry.name,
-                  "SKILL.md",
-                );
-                if (!_fs.existsSync(candidate)) continue;
-                skillFilePath = candidate;
-                skillRelPath = `.agents/skills/${entry.name}/SKILL.md`;
-              } else if (entry.isFile() && entry.name.endsWith(".md")) {
-                // Flat layout: .agents/skills/<name>.md
-                skillFilePath = nodePath.join(skillsDir, entry.name);
-                skillRelPath = `.agents/skills/${entry.name}`;
-              } else {
-                continue;
-              }
-
-              try {
-                const content = _fs.readFileSync(skillFilePath, "utf-8");
-                const fm = parseSkillFrontmatter(content);
-                const skillName = fm.name || entry.name.replace(/\.md$/, "");
-                if (!seenNames.has(skillName)) {
-                  seenNames.add(skillName);
-                  skills.push({
-                    name: skillName,
-                    description: fm.description,
-                    path: skillRelPath,
-                    source: "codebase",
-                  });
-                }
-              } catch {
-                // Could not read individual skill file — skip
-              }
-            }
-          } catch {
-            // .agents/skills/ directory doesn't exist or not readable — skip
-          }
-        }
-
-        // Query resources with skills/ prefix
-        try {
-          const resourceSkills = currentDevMode
-            ? await resourceListAccessible("local@localhost", "skills/")
-            : await resourceList(SHARED_OWNER, "skills/");
-          for (const r of resourceSkills) {
-            // Try to get content to parse frontmatter
-            let skillName =
-              r.path.split("/").pop()?.replace(/\.md$/, "") || r.path;
-            let description: string | undefined;
+          // In dev mode, walk the filesystem
+          if (currentDevMode) {
+            const codebaseFiles: Array<{
+              path: string;
+              name: string;
+              type: "file" | "folder";
+            }> = [];
             try {
-              const full = await resourceGet(r.id);
-              if (full) {
-                const fm = parseSkillFrontmatter(full.content);
-                if (fm.name) skillName = fm.name;
-                description = fm.description;
+              await collectFiles(process.cwd(), "", 0, codebaseFiles);
+            } catch {
+              // Filesystem access failed — skip
+            }
+            for (const f of codebaseFiles) {
+              if (!seen.has(f.path)) {
+                seen.add(f.path);
+                files.push({
+                  path: f.path,
+                  name: f.name,
+                  source: "codebase",
+                  type: f.type,
+                });
+              }
+            }
+          }
+
+          // Query resources
+          try {
+            const resources = currentDevMode
+              ? await resourceListAccessible("local@localhost")
+              : await resourceList(SHARED_OWNER);
+            for (const r of resources) {
+              if (!seen.has(r.path)) {
+                seen.add(r.path);
+                files.push({
+                  path: r.path,
+                  name: r.path.split("/").pop() || r.path,
+                  source: "resource",
+                  type: "file",
+                });
+              }
+            }
+          } catch {
+            // Resources not available — skip
+          }
+
+          // Filter by query and limit
+          const filtered = q
+            ? files.filter((f) => f.path.toLowerCase().includes(q))
+            : files;
+
+          return { files: filtered.slice(0, 30) };
+        }),
+      );
+
+      // Mount skills listing endpoint
+      getH3App(nitroApp).use(
+        `${routePath}/skills`,
+        defineEventHandler(async (event) => {
+          if (getMethod(event) !== "GET") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+
+          const skills: Array<{
+            name: string;
+            description?: string;
+            path: string;
+            source: "codebase" | "resource";
+          }> = [];
+          const seenNames = new Set<string>();
+
+          // In dev mode, scan .agents/skills/ directory
+          if (currentDevMode) {
+            try {
+              const _fs = await lazyFs();
+              const skillsDir = nodePath.join(
+                process.cwd(),
+                ".agents",
+                "skills",
+              );
+              const entries = _fs.readdirSync(skillsDir, {
+                withFileTypes: true,
+              });
+              for (const entry of entries) {
+                // Support both flat .md files and subdirectory-based skills (dir/SKILL.md)
+                let skillFilePath: string;
+                let skillRelPath: string;
+
+                if (entry.isDirectory()) {
+                  // Subdirectory layout: .agents/skills/<name>/SKILL.md
+                  const candidate = nodePath.join(
+                    skillsDir,
+                    entry.name,
+                    "SKILL.md",
+                  );
+                  if (!_fs.existsSync(candidate)) continue;
+                  skillFilePath = candidate;
+                  skillRelPath = `.agents/skills/${entry.name}/SKILL.md`;
+                } else if (entry.isFile() && entry.name.endsWith(".md")) {
+                  // Flat layout: .agents/skills/<name>.md
+                  skillFilePath = nodePath.join(skillsDir, entry.name);
+                  skillRelPath = `.agents/skills/${entry.name}`;
+                } else {
+                  continue;
+                }
+
+                try {
+                  const content = _fs.readFileSync(skillFilePath, "utf-8");
+                  const fm = parseSkillFrontmatter(content);
+                  const skillName = fm.name || entry.name.replace(/\.md$/, "");
+                  if (!seenNames.has(skillName)) {
+                    seenNames.add(skillName);
+                    skills.push({
+                      name: skillName,
+                      description: fm.description,
+                      path: skillRelPath,
+                      source: "codebase",
+                    });
+                  }
+                } catch {
+                  // Could not read individual skill file — skip
+                }
               }
             } catch {
-              // Could not read resource content — use path-based name
-            }
-            if (!seenNames.has(skillName)) {
-              seenNames.add(skillName);
-              skills.push({
-                name: skillName,
-                description,
-                path: r.path,
-                source: "resource",
-              });
+              // .agents/skills/ directory doesn't exist or not readable — skip
             }
           }
-        } catch {
-          // Resources not available — skip
-        }
 
-        const result: {
-          skills: typeof skills;
-          hint?: string;
-        } = { skills };
-
-        if (skills.length === 0) {
-          result.hint =
-            "No skills found. Add skill files under skills/ in Resources. Learn more: https://agent-native.com/docs/resources#skills";
-        }
-
-        return result;
-      }),
-    );
-
-    // Mount unified mentions endpoint (files + resources + custom providers)
-    getH3App(nitroApp).use(
-      `${routePath}/mentions`,
-      defineEventHandler(async (event) => {
-        if (getMethod(event) !== "GET") {
-          setResponseStatus(event, 405);
-          return { error: "Method not allowed" };
-        }
-
-        const query = getQuery(event);
-        const q = typeof query.q === "string" ? query.q.toLowerCase() : "";
-
-        interface MentionItemResponse {
-          id: string;
-          label: string;
-          description?: string;
-          icon?: string;
-          source: string;
-          refType: string;
-          refPath?: string;
-          refId?: string;
-          section?: string;
-        }
-
-        const matchesQuery = (item: MentionItemResponse) =>
-          !q ||
-          item.label.toLowerCase().includes(q) ||
-          (item.description?.toLowerCase().includes(q) ?? false);
-
-        const enc = new TextEncoder();
-
-        // Stream NDJSON — each source flushes its batch as soon as it's ready.
-        setResponseHeader(event, "Content-Type", "application/x-ndjson");
-        setResponseHeader(event, "Cache-Control", "no-cache");
-
-        const stream = new ReadableStream({
-          async start(controller) {
-            const MAX_RESULTS = 50;
-            let totalSent = 0;
-            let cancelled = false;
-
-            const flush = (batch: MentionItemResponse[]) => {
-              if (cancelled) return;
-              const filtered = batch.filter(matchesQuery);
-              if (filtered.length === 0) return;
-              const remaining = MAX_RESULTS - totalSent;
-              const toSend = filtered.slice(0, remaining);
-              if (toSend.length > 0) {
-                totalSent += toSend.length;
-                try {
-                  controller.enqueue(
-                    enc.encode(JSON.stringify({ items: toSend }) + "\n"),
-                  );
-                } catch {
-                  // Stream was closed by client
-                  cancelled = true;
+          // Query resources with skills/ prefix
+          try {
+            const resourceSkills = currentDevMode
+              ? await resourceListAccessible("local@localhost", "skills/")
+              : await resourceList(SHARED_OWNER, "skills/");
+            for (const r of resourceSkills) {
+              // Try to get content to parse frontmatter
+              let skillName =
+                r.path.split("/").pop()?.replace(/\.md$/, "") || r.path;
+              let description: string | undefined;
+              try {
+                const full = await resourceGet(r.id);
+                if (full) {
+                  const fm = parseSkillFrontmatter(full.content);
+                  if (fm.name) skillName = fm.name;
+                  description = fm.description;
                 }
+              } catch {
+                // Could not read resource content — use path-based name
               }
-            };
+              if (!seenNames.has(skillName)) {
+                seenNames.add(skillName);
+                skills.push({
+                  name: skillName,
+                  description,
+                  path: r.path,
+                  source: "resource",
+                });
+              }
+            }
+          } catch {
+            // Resources not available — skip
+          }
 
-            // All sources run in parallel; each flushes independently.
-            const sources: Promise<void>[] = [];
+          const result: {
+            skills: typeof skills;
+            hint?: string;
+          } = { skills };
 
-            // 1. Resources from SQL (fast — flush first)
-            sources.push(
-              (async () => {
-                try {
-                  const resources = currentDevMode
-                    ? await resourceListAccessible("local@localhost")
-                    : await resourceList(SHARED_OWNER);
-                  flush(
-                    resources.map((r) => {
-                      const isShared = r.owner === SHARED_OWNER;
-                      return {
-                        id: `resource:${r.path}`,
-                        label: r.path.split("/").pop() || r.path,
-                        description: r.path,
-                        icon: "file",
-                        source: isShared
-                          ? "resource:shared"
-                          : "resource:private",
-                        refType: "file",
-                        refPath: r.path,
-                        section: "Files",
-                      };
-                    }),
-                  );
-                } catch {}
-              })(),
-            );
+          if (skills.length === 0) {
+            result.hint =
+              "No skills found. Add skill files under skills/ in Resources. Learn more: https://agent-native.com/docs/resources#skills";
+          }
 
-            // 2. Codebase files (dev mode only — can be slow on large repos)
-            if (currentDevMode) {
+          return result;
+        }),
+      );
+
+      // Mount unified mentions endpoint (files + resources + custom providers)
+      getH3App(nitroApp).use(
+        `${routePath}/mentions`,
+        defineEventHandler(async (event) => {
+          if (getMethod(event) !== "GET") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+
+          const query = getQuery(event);
+          const q = typeof query.q === "string" ? query.q.toLowerCase() : "";
+
+          interface MentionItemResponse {
+            id: string;
+            label: string;
+            description?: string;
+            icon?: string;
+            source: string;
+            refType: string;
+            refPath?: string;
+            refId?: string;
+            section?: string;
+          }
+
+          const matchesQuery = (item: MentionItemResponse) =>
+            !q ||
+            item.label.toLowerCase().includes(q) ||
+            (item.description?.toLowerCase().includes(q) ?? false);
+
+          const enc = new TextEncoder();
+
+          // Stream NDJSON — each source flushes its batch as soon as it's ready.
+          setResponseHeader(event, "Content-Type", "application/x-ndjson");
+          setResponseHeader(event, "Cache-Control", "no-cache");
+
+          const stream = new ReadableStream({
+            async start(controller) {
+              const MAX_RESULTS = 50;
+              let totalSent = 0;
+              let cancelled = false;
+
+              const flush = (batch: MentionItemResponse[]) => {
+                if (cancelled) return;
+                const filtered = batch.filter(matchesQuery);
+                if (filtered.length === 0) return;
+                const remaining = MAX_RESULTS - totalSent;
+                const toSend = filtered.slice(0, remaining);
+                if (toSend.length > 0) {
+                  totalSent += toSend.length;
+                  try {
+                    controller.enqueue(
+                      enc.encode(JSON.stringify({ items: toSend }) + "\n"),
+                    );
+                  } catch {
+                    // Stream was closed by client
+                    cancelled = true;
+                  }
+                }
+              };
+
+              // All sources run in parallel; each flushes independently.
+              const sources: Promise<void>[] = [];
+
+              // 1. Resources from SQL (fast — flush first)
               sources.push(
                 (async () => {
-                  const codebaseFiles: Array<{
-                    path: string;
-                    name: string;
-                    type: "file" | "folder";
-                  }> = [];
                   try {
-                    await collectFiles(process.cwd(), "", 0, codebaseFiles);
+                    const resources = currentDevMode
+                      ? await resourceListAccessible("local@localhost")
+                      : await resourceList(SHARED_OWNER);
+                    flush(
+                      resources.map((r) => {
+                        const isShared = r.owner === SHARED_OWNER;
+                        return {
+                          id: `resource:${r.path}`,
+                          label: r.path.split("/").pop() || r.path,
+                          description: r.path,
+                          icon: "file",
+                          source: isShared
+                            ? "resource:shared"
+                            : "resource:private",
+                          refType: "file",
+                          refPath: r.path,
+                          section: "Files",
+                        };
+                      }),
+                    );
                   } catch {}
-                  flush(
-                    codebaseFiles.map((f) => ({
-                      id: `codebase:${f.path}`,
-                      label: f.name,
-                      description: f.path !== f.name ? f.path : undefined,
-                      icon: f.type,
-                      source: "codebase",
-                      refType: "file",
-                      refPath: f.path,
-                      section: "Files",
-                    })),
-                  );
                 })(),
               );
-            }
 
-            // 3. Custom mention providers (each flushes independently)
-            for (const [key, provider] of Object.entries(mentionProviders)) {
+              // 2. Codebase files (dev mode only — can be slow on large repos)
+              if (currentDevMode) {
+                sources.push(
+                  (async () => {
+                    const codebaseFiles: Array<{
+                      path: string;
+                      name: string;
+                      type: "file" | "folder";
+                    }> = [];
+                    try {
+                      await collectFiles(process.cwd(), "", 0, codebaseFiles);
+                    } catch {}
+                    flush(
+                      codebaseFiles.map((f) => ({
+                        id: `codebase:${f.path}`,
+                        label: f.name,
+                        description: f.path !== f.name ? f.path : undefined,
+                        icon: f.type,
+                        source: "codebase",
+                        refType: "file",
+                        refPath: f.path,
+                        section: "Files",
+                      })),
+                    );
+                  })(),
+                );
+              }
+
+              // 3. Custom mention providers (each flushes independently)
+              for (const [key, provider] of Object.entries(mentionProviders)) {
+                sources.push(
+                  (async () => {
+                    try {
+                      const providerItems = await provider.search(q, event);
+                      flush(
+                        providerItems.map((item) => ({
+                          id: item.id,
+                          label: item.label,
+                          description: item.description,
+                          icon: item.icon || provider.icon || "file",
+                          source: key,
+                          refType: item.refType,
+                          refPath: item.refPath,
+                          refId: item.refId,
+                          section: provider.label,
+                        })),
+                      );
+                    } catch (e) {
+                      console.error(
+                        `[agent-native] Mention provider "${key}" failed:`,
+                        e,
+                      );
+                    }
+                  })(),
+                );
+              }
+
+              // 4. Custom workspace agents
               sources.push(
                 (async () => {
                   try {
-                    const providerItems = await provider.search(q, event);
+                    const owner = await getOwnerFromEvent(event);
+                    const { listAccessibleCustomAgents } =
+                      await import("../resources/agents.js");
+                    const agents = await listAccessibleCustomAgents(owner);
                     flush(
-                      providerItems.map((item) => ({
-                        id: item.id,
-                        label: item.label,
-                        description: item.description,
-                        icon: item.icon || provider.icon || "file",
-                        source: key,
-                        refType: item.refType,
-                        refPath: item.refPath,
-                        refId: item.refId,
-                        section: provider.label,
+                      agents.map((agent) => ({
+                        id: `custom-agent:${agent.id}`,
+                        label: agent.name,
+                        description: agent.description || agent.path,
+                        icon: "agent",
+                        source: "agent:custom",
+                        refType: "custom-agent",
+                        refPath: agent.path,
+                        refId: agent.id,
+                        section: "Agents",
                       })),
                     );
                   } catch (e) {
                     console.error(
-                      `[agent-native] Mention provider "${key}" failed:`,
+                      "[agent-native] Custom agent discovery failed:",
                       e,
                     );
                   }
                 })(),
               );
-            }
 
-            // 4. Custom workspace agents
-            sources.push(
-              (async () => {
-                try {
-                  const owner = await getOwnerFromEvent(event);
-                  const { listAccessibleCustomAgents } =
-                    await import("../resources/agents.js");
-                  const agents = await listAccessibleCustomAgents(owner);
-                  flush(
-                    agents.map((agent) => ({
-                      id: `custom-agent:${agent.id}`,
-                      label: agent.name,
-                      description: agent.description || agent.path,
-                      icon: "agent",
-                      source: "agent:custom",
-                      refType: "custom-agent",
-                      refPath: agent.path,
-                      refId: agent.id,
-                      section: "Agents",
-                    })),
-                  );
-                } catch (e) {
-                  console.error(
-                    "[agent-native] Custom agent discovery failed:",
-                    e,
-                  );
-                }
-              })(),
-            );
+              // 5. Peer agent discovery (network call — often slowest)
+              sources.push(
+                (async () => {
+                  try {
+                    const agents = await discoverAgents(options?.appId);
+                    flush(
+                      agents.map((agent) => ({
+                        id: `agent:${agent.id}`,
+                        label: agent.name,
+                        description: agent.description,
+                        icon: "agent",
+                        source: "agent",
+                        refType: "agent",
+                        refPath: agent.url,
+                        refId: agent.id,
+                        section: "Connected Agents",
+                      })),
+                    );
+                  } catch (e) {
+                    console.error("[agent-native] Agent discovery failed:", e);
+                  }
+                })(),
+              );
 
-            // 5. Peer agent discovery (network call — often slowest)
-            sources.push(
-              (async () => {
-                try {
-                  const agents = await discoverAgents(options?.appId);
-                  flush(
-                    agents.map((agent) => ({
-                      id: `agent:${agent.id}`,
-                      label: agent.name,
-                      description: agent.description,
-                      icon: "agent",
-                      source: "agent",
-                      refType: "agent",
-                      refPath: agent.url,
-                      refId: agent.id,
-                      section: "Connected Agents",
-                    })),
-                  );
-                } catch (e) {
-                  console.error("[agent-native] Agent discovery failed:", e);
-                }
-              })(),
-            );
-
-            await Promise.all(sources);
-            if (!cancelled) controller.close();
-          },
-          cancel() {
-            // Client disconnected — stop enqueuing
-          },
-        });
-
-        return stream;
-      }),
-    );
-
-    // ─── Generate thread title ──────────────────────────────────────────
-    getH3App(nitroApp).use(
-      `${routePath}/generate-title`,
-      defineEventHandler(async (event) => {
-        if (getMethod(event) !== "POST") {
-          setResponseStatus(event, 405);
-          return { error: "Method not allowed" };
-        }
-        const ownerEmail = await getOwnerFromEvent(event);
-        const body = await readBody(event);
-        const message = body?.message;
-        if (!message || typeof message !== "string") {
-          setResponseStatus(event, 400);
-          return { error: "message is required" };
-        }
-        // Strip mention markup: @[Name|type] → @Name
-        const cleanMessage = message.replace(/@\[([^\]|]+)\|[^\]]*\]/g, "@$1");
-        // Mirror the chat-run resolution so BYO-key users have title
-        // generation billed to their own key instead of the platform key.
-        const { getOwnerActiveApiKey } =
-          await import("../agent/production-agent.js");
-        const userApiKey = await getOwnerActiveApiKey(ownerEmail);
-        const apiKey = userApiKey ?? process.env.ANTHROPIC_API_KEY;
-        if (!apiKey) {
-          // Fallback: truncate the message
-          return { title: cleanMessage.trim().slice(0, 60) };
-        }
-        try {
-          const res = await fetch("https://api.anthropic.com/v1/messages", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "x-api-key": apiKey,
-              "anthropic-version": "2023-06-01",
+              await Promise.all(sources);
+              if (!cancelled) controller.close();
             },
-            body: JSON.stringify({
-              model: "claude-haiku-4-5-20251001",
-              max_tokens: 30,
-              messages: [
-                {
-                  role: "user",
-                  content: `Generate a very short title (3-6 words, no quotes) for a chat that starts with this message:\n\n${cleanMessage.slice(0, 500)}`,
-                },
-              ],
-            }),
+            cancel() {
+              // Client disconnected — stop enqueuing
+            },
           });
-          if (!res.ok) {
+
+          return stream;
+        }),
+      );
+
+      // ─── Generate thread title ──────────────────────────────────────────
+      getH3App(nitroApp).use(
+        `${routePath}/generate-title`,
+        defineEventHandler(async (event) => {
+          if (getMethod(event) !== "POST") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+          const ownerEmail = await getOwnerFromEvent(event);
+          const body = await readBody(event);
+          const message = body?.message;
+          if (!message || typeof message !== "string") {
+            setResponseStatus(event, 400);
+            return { error: "message is required" };
+          }
+          // Strip mention markup: @[Name|type] → @Name
+          const cleanMessage = message.replace(
+            /@\[([^\]|]+)\|[^\]]*\]/g,
+            "@$1",
+          );
+          // Mirror the chat-run resolution so BYO-key users have title
+          // generation billed to their own key instead of the platform key.
+          const { getOwnerActiveApiKey } =
+            await import("../agent/production-agent.js");
+          const userApiKey = await getOwnerActiveApiKey(ownerEmail);
+          const apiKey = userApiKey ?? process.env.ANTHROPIC_API_KEY;
+          if (!apiKey) {
+            // Fallback: truncate the message
             return { title: cleanMessage.trim().slice(0, 60) };
           }
-          const data = (await res.json()) as {
-            content?: Array<{ type: string; text?: string }>;
-          };
-          const text = data.content?.[0]?.text?.trim();
-          return { title: text || cleanMessage.trim().slice(0, 60) };
-        } catch {
-          return { title: cleanMessage.trim().slice(0, 60) };
-        }
-      }),
-    );
-
-    // ─── Run management endpoints (for hot-reload resilience) ─────────────
-
-    // GET /runs/active?threadId=X — check if there's an active run for a thread
-    getH3App(nitroApp).use(
-      `${routePath}/runs`,
-      defineEventHandler(async (event) => {
-        // Auth check — ensure the user is authenticated
-        await getOwnerFromEvent(event);
-
-        const method = getMethod(event);
-        const url = event.node?.req?.url || event.path || "";
-
-        // Route: POST /runs/:id/abort
-        // Match both full URL (/runs/{id}/abort) and h3 prefix-stripped (/{id}/abort)
-        const abortMatch =
-          url.match(/\/runs\/([^/?]+)\/abort/) ||
-          url.match(/^\/([^/?]+)\/abort/);
-        if (abortMatch && method === "POST") {
-          const runId = decodeURIComponent(abortMatch[1]);
-          abortRun(runId); // Aborts in-memory + marks aborted in SQL
-          return { ok: true };
-        }
-
-        // Route: GET /runs/:id/events?after=N
-        // Match both full URL (/runs/{id}/events) and h3 prefix-stripped (/{id}/events)
-        const eventsMatch =
-          url.match(/\/runs\/([^/?]+)\/events/) ||
-          url.match(/^\/([^/?]+)\/events/);
-        if (eventsMatch && method === "GET") {
-          const runId = decodeURIComponent(eventsMatch[1]);
-          const query = getQuery(event);
-          const after = parseInt(String(query.after ?? "0"), 10) || 0;
-
-          const stream = subscribeToRun(runId, after);
-          if (!stream) {
-            setResponseStatus(event, 404);
-            return { error: "Run not found" };
-          }
-
-          setResponseHeader(event, "Content-Type", "text/event-stream");
-          setResponseHeader(event, "Cache-Control", "no-cache");
-          setResponseHeader(event, "Connection", "keep-alive");
-          return stream;
-        }
-
-        // Route: GET /runs/active?threadId=X
-        if (method === "GET") {
-          const query = getQuery(event);
-          const threadId = query.threadId ? String(query.threadId) : null;
-          if (!threadId) {
-            setResponseStatus(event, 400);
-            return { error: "threadId query parameter is required" };
-          }
-
-          // Check in-memory first, then SQL (cross-isolate on Workers)
-          const run = await getActiveRunForThreadAsync(threadId);
-          if (!run) {
-            setResponseStatus(event, 404);
-            return { error: "No active run for this thread" };
-          }
-
-          return {
-            runId: run.runId,
-            threadId: run.threadId,
-            status: run.status,
-            heartbeatAt: run.heartbeatAt,
-          };
-        }
-
-        setResponseStatus(event, 405);
-        return { error: "Method not allowed" };
-      }),
-    );
-
-    // ─── Thread management endpoints ──────────────────────────────────────
-    // Single handler for /threads and /threads/:id — h3's use() does prefix
-    // matching so we can't reliably split them into separate handlers.
-    getH3App(nitroApp).use(
-      `${routePath}/threads`,
-      defineEventHandler(async (event) => {
-        const owner = await getOwnerFromEvent(event);
-        const method = getMethod(event);
-
-        // Determine if this is a specific-thread request.
-        // h3's use() strips the mount prefix, so event.path contains
-        // only the remainder after /threads — e.g., "/thread-abc" or "/".
-        // We also check the original URL as a fallback.
-        const remainder = (event.path || "").replace(/^\/+/, "");
-        const fromUrl = (event.node?.req?.url || "").match(
-          /\/threads\/([^/?]+)/,
-        );
-        const threadId = remainder
-          ? decodeURIComponent(remainder.split("?")[0].split("/")[0])
-          : fromUrl
-            ? decodeURIComponent(fromUrl[1])
-            : null;
-
-        // ── Specific thread: GET/PUT/DELETE /threads/:id ──
-        if (threadId) {
-          if (method === "GET") {
-            const thread = await getThread(threadId);
-            if (!thread || thread.ownerEmail !== owner) {
-              setResponseStatus(event, 404);
-              return { error: "Thread not found" };
+          try {
+            const res = await fetch("https://api.anthropic.com/v1/messages", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "x-api-key": apiKey,
+                "anthropic-version": "2023-06-01",
+              },
+              body: JSON.stringify({
+                model: "claude-haiku-4-5-20251001",
+                max_tokens: 30,
+                messages: [
+                  {
+                    role: "user",
+                    content: `Generate a very short title (3-6 words, no quotes) for a chat that starts with this message:\n\n${cleanMessage.slice(0, 500)}`,
+                  },
+                ],
+              }),
+            });
+            if (!res.ok) {
+              return { title: cleanMessage.trim().slice(0, 60) };
             }
-            return thread;
+            const data = (await res.json()) as {
+              content?: Array<{ type: string; text?: string }>;
+            };
+            const text = data.content?.[0]?.text?.trim();
+            return { title: text || cleanMessage.trim().slice(0, 60) };
+          } catch {
+            return { title: cleanMessage.trim().slice(0, 60) };
+          }
+        }),
+      );
+
+      // ─── Run management endpoints (for hot-reload resilience) ─────────────
+
+      // GET /runs/active?threadId=X — check if there's an active run for a thread
+      getH3App(nitroApp).use(
+        `${routePath}/runs`,
+        defineEventHandler(async (event) => {
+          // Auth check — ensure the user is authenticated
+          await getOwnerFromEvent(event);
+
+          const method = getMethod(event);
+          const url = event.node?.req?.url || event.path || "";
+
+          // Route: POST /runs/:id/abort
+          // Match both full URL (/runs/{id}/abort) and h3 prefix-stripped (/{id}/abort)
+          const abortMatch =
+            url.match(/\/runs\/([^/?]+)\/abort/) ||
+            url.match(/^\/([^/?]+)\/abort/);
+          if (abortMatch && method === "POST") {
+            const runId = decodeURIComponent(abortMatch[1]);
+            abortRun(runId); // Aborts in-memory + marks aborted in SQL
+            return { ok: true };
           }
 
-          if (method === "PUT") {
-            // Hold the thread_data lock for the full read-modify-write so
-            // periodic saves from the frontend don't race with
-            // onRunComplete / setThreadQueuedMessages / setThreadEngineMeta.
-            // Without the lock, a client save that lands during an agent
-            // run could clobber the assistant message the server just
-            // appended (and vice versa).
-            return await withThreadDataLock(threadId, async () => {
+          // Route: GET /runs/:id/events?after=N
+          // Match both full URL (/runs/{id}/events) and h3 prefix-stripped (/{id}/events)
+          const eventsMatch =
+            url.match(/\/runs\/([^/?]+)\/events/) ||
+            url.match(/^\/([^/?]+)\/events/);
+          if (eventsMatch && method === "GET") {
+            const runId = decodeURIComponent(eventsMatch[1]);
+            const query = getQuery(event);
+            const after = parseInt(String(query.after ?? "0"), 10) || 0;
+
+            const stream = subscribeToRun(runId, after);
+            if (!stream) {
+              setResponseStatus(event, 404);
+              return { error: "Run not found" };
+            }
+
+            setResponseHeader(event, "Content-Type", "text/event-stream");
+            setResponseHeader(event, "Cache-Control", "no-cache");
+            setResponseHeader(event, "Connection", "keep-alive");
+            return stream;
+          }
+
+          // Route: GET /runs/active?threadId=X
+          if (method === "GET") {
+            const query = getQuery(event);
+            const threadId = query.threadId ? String(query.threadId) : null;
+            if (!threadId) {
+              setResponseStatus(event, 400);
+              return { error: "threadId query parameter is required" };
+            }
+
+            // Check in-memory first, then SQL (cross-isolate on Workers)
+            const run = await getActiveRunForThreadAsync(threadId);
+            if (!run) {
+              setResponseStatus(event, 404);
+              return { error: "No active run for this thread" };
+            }
+
+            return {
+              runId: run.runId,
+              threadId: run.threadId,
+              status: run.status,
+              heartbeatAt: run.heartbeatAt,
+            };
+          }
+
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }),
+      );
+
+      // ─── Thread management endpoints ──────────────────────────────────────
+      // Single handler for /threads and /threads/:id — h3's use() does prefix
+      // matching so we can't reliably split them into separate handlers.
+      getH3App(nitroApp).use(
+        `${routePath}/threads`,
+        defineEventHandler(async (event) => {
+          const owner = await getOwnerFromEvent(event);
+          const method = getMethod(event);
+
+          // Determine if this is a specific-thread request.
+          // h3's use() strips the mount prefix, so event.path contains
+          // only the remainder after /threads — e.g., "/thread-abc" or "/".
+          // We also check the original URL as a fallback.
+          const remainder = (event.path || "").replace(/^\/+/, "");
+          const fromUrl = (event.node?.req?.url || "").match(
+            /\/threads\/([^/?]+)/,
+          );
+          const threadId = remainder
+            ? decodeURIComponent(remainder.split("?")[0].split("/")[0])
+            : fromUrl
+              ? decodeURIComponent(fromUrl[1])
+              : null;
+
+          // ── Specific thread: GET/PUT/DELETE /threads/:id ──
+          if (threadId) {
+            if (method === "GET") {
+              const thread = await getThread(threadId);
+              if (!thread || thread.ownerEmail !== owner) {
+                setResponseStatus(event, 404);
+                return { error: "Thread not found" };
+              }
+              return thread;
+            }
+
+            if (method === "PUT") {
+              // Hold the thread_data lock for the full read-modify-write so
+              // periodic saves from the frontend don't race with
+              // onRunComplete / setThreadQueuedMessages / setThreadEngineMeta.
+              // Without the lock, a client save that lands during an agent
+              // run could clobber the assistant message the server just
+              // appended (and vice versa).
+              return await withThreadDataLock(threadId, async () => {
+                const thread = await getThread(threadId);
+                if (!thread || thread.ownerEmail !== owner) {
+                  setResponseStatus(event, 404);
+                  return { error: "Thread not found" };
+                }
+                const body = await readBody(event);
+                let newThreadData = body.threadData || thread.threadData;
+                // Preserve queuedMessages from the existing thread_data when the
+                // incoming blob doesn't include it. Periodic full-thread saves
+                // (exported via threadRuntime.export) don't carry the queue, and
+                // we don't want them to clobber queued-message state persisted
+                // via POST /threads/:id/queued.
+                if (body.threadData) {
+                  try {
+                    const existing = JSON.parse(thread.threadData);
+                    if (existing.queuedMessages !== undefined) {
+                      const incoming = JSON.parse(newThreadData);
+                      if (incoming.queuedMessages === undefined) {
+                        incoming.queuedMessages = existing.queuedMessages;
+                        newThreadData = JSON.stringify(incoming);
+                      }
+                    }
+                  } catch {
+                    // Invalid JSON in either side — fall back to raw body blob.
+                  }
+                }
+                await updateThreadData(
+                  threadId,
+                  newThreadData,
+                  body.title ?? thread.title,
+                  body.preview ?? thread.preview,
+                  body.messageCount || thread.messageCount,
+                );
+                return { ok: true };
+              });
+            }
+
+            // POST /threads/:id/queued — debounced writes from the client
+            // when the user adds/removes/dequeues a queued message. Keeps
+            // queued messages durable across reloads without piggybacking
+            // on full-thread saves.
+            if (
+              method === "POST" &&
+              /\/threads\/[^/?]+\/queued/.test(
+                event.node?.req?.url || event.path || "",
+              )
+            ) {
               const thread = await getThread(threadId);
               if (!thread || thread.ownerEmail !== owner) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
               const body = await readBody(event);
-              let newThreadData = body.threadData || thread.threadData;
-              // Preserve queuedMessages from the existing thread_data when the
-              // incoming blob doesn't include it. Periodic full-thread saves
-              // (exported via threadRuntime.export) don't carry the queue, and
-              // we don't want them to clobber queued-message state persisted
-              // via POST /threads/:id/queued.
-              if (body.threadData) {
-                try {
-                  const existing = JSON.parse(thread.threadData);
-                  if (existing.queuedMessages !== undefined) {
-                    const incoming = JSON.parse(newThreadData);
-                    if (incoming.queuedMessages === undefined) {
-                      incoming.queuedMessages = existing.queuedMessages;
-                      newThreadData = JSON.stringify(incoming);
-                    }
-                  }
-                } catch {
-                  // Invalid JSON in either side — fall back to raw body blob.
-                }
-              }
-              await updateThreadData(
-                threadId,
-                newThreadData,
-                body.title ?? thread.title,
-                body.preview ?? thread.preview,
-                body.messageCount || thread.messageCount,
-              );
+              const queued = Array.isArray(body?.queuedMessages)
+                ? body.queuedMessages
+                : [];
+              await setThreadQueuedMessages(threadId, queued);
               return { ok: true };
-            });
+            }
+
+            if (method === "DELETE") {
+              const thread = await getThread(threadId);
+              if (!thread || thread.ownerEmail !== owner) {
+                setResponseStatus(event, 404);
+                return { error: "Thread not found" };
+              }
+              await deleteThread(threadId);
+              return { ok: true };
+            }
+
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
           }
 
-          // POST /threads/:id/queued — debounced writes from the client
-          // when the user adds/removes/dequeues a queued message. Keeps
-          // queued messages durable across reloads without piggybacking
-          // on full-thread saves.
-          if (
-            method === "POST" &&
-            /\/threads\/[^/?]+\/queued/.test(
-              event.node?.req?.url || event.path || "",
-            )
-          ) {
-            const thread = await getThread(threadId);
-            if (!thread || thread.ownerEmail !== owner) {
-              setResponseStatus(event, 404);
-              return { error: "Thread not found" };
+          // ── Thread list: GET/POST /threads ──
+          if (method === "GET") {
+            const query = getQuery(event);
+            const limit = Math.min(
+              parseInt(String(query.limit ?? "50"), 10) || 50,
+              200,
+            );
+            const q = query.q ? String(query.q).trim() : "";
+            if (q) {
+              const threads = await searchThreads(owner, q, limit);
+              return { threads };
             }
+            const offset = parseInt(String(query.offset ?? "0"), 10) || 0;
+            const threads = await listThreads(owner, limit, offset);
+            return { threads };
+          }
+
+          if (method === "POST") {
             const body = await readBody(event);
-            const queued = Array.isArray(body?.queuedMessages)
-              ? body.queuedMessages
-              : [];
-            await setThreadQueuedMessages(threadId, queued);
-            return { ok: true };
-          }
-
-          if (method === "DELETE") {
-            const thread = await getThread(threadId);
-            if (!thread || thread.ownerEmail !== owner) {
-              setResponseStatus(event, 404);
-              return { error: "Thread not found" };
-            }
-            await deleteThread(threadId);
-            return { ok: true };
+            const thread = await createThread(owner, {
+              id: body?.id,
+              title: body?.title ?? "",
+            });
+            return thread;
           }
 
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
-        }
+        }),
+      );
 
-        // ── Thread list: GET/POST /threads ──
-        if (method === "GET") {
-          const query = getQuery(event);
-          const limit = Math.min(
-            parseInt(String(query.limit ?? "50"), 10) || 50,
-            200,
+      // Mount the main chat handler — delegates to dev or prod handler based on current mode.
+      // This is mounted last because h3's use() is prefix-based, meaning /_agent-native/agent-chat
+      // also matches /_agent-native/agent-chat/threads/... — we skip sub-path requests here so the
+      // earlier-mounted handlers (mode, save-key, files, skills, mentions, threads) handle them.
+      getH3App(nitroApp).use(
+        routePath,
+        defineEventHandler(async (event) => {
+          // Skip sub-path requests — they're handled by earlier-mounted handlers
+          const url = event.node?.req?.url || event.path || "";
+          const afterBase = url.slice(
+            url.indexOf(routePath) + routePath.length,
           );
-          const q = query.q ? String(query.q).trim() : "";
-          if (q) {
-            const threads = await searchThreads(owner, q, limit);
-            return { threads };
+          if (afterBase && afterBase !== "/" && !afterBase.startsWith("?")) {
+            // Not for us — return 404 so h3 doesn't swallow the request
+            setResponseStatus(event, 404);
+            return { error: "Not found" };
           }
-          const offset = parseInt(String(query.offset ?? "0"), 10) || 0;
-          const threads = await listThreads(owner, limit, offset);
-          return { threads };
-        }
 
-        if (method === "POST") {
-          const body = await readBody(event);
-          const thread = await createThread(owner, {
-            id: body?.id,
-            title: body?.title ?? "",
-          });
-          return thread;
-        }
+          // Resolve per-request auth context
+          const owner = await getOwnerFromEvent(event);
 
-        setResponseStatus(event, 405);
-        return { error: "Method not allowed" };
-      }),
-    );
-
-    // Mount the main chat handler — delegates to dev or prod handler based on current mode.
-    // This is mounted last because h3's use() is prefix-based, meaning /_agent-native/agent-chat
-    // also matches /_agent-native/agent-chat/threads/... — we skip sub-path requests here so the
-    // earlier-mounted handlers (mode, save-key, files, skills, mentions, threads) handle them.
-    getH3App(nitroApp).use(
-      routePath,
-      defineEventHandler(async (event) => {
-        // Skip sub-path requests — they're handled by earlier-mounted handlers
-        const url = event.node?.req?.url || event.path || "";
-        const afterBase = url.slice(url.indexOf(routePath) + routePath.length);
-        if (afterBase && afterBase !== "/" && !afterBase.startsWith("?")) {
-          // Not for us — return 404 so h3 doesn't swallow the request
-          setResponseStatus(event, 404);
-          return { error: "Not found" };
-        }
-
-        // Resolve per-request auth context
-        const owner = await getOwnerFromEvent(event);
-
-        // Resolve org ID: explicit callback > session.orgId from Better Auth
-        let resolvedOrgId: string | undefined;
-        if (options?.resolveOrgId) {
-          resolvedOrgId = (await options.resolveOrgId(event)) ?? undefined;
-        } else {
-          try {
-            const session = await getSession(event);
-            resolvedOrgId = session?.orgId ?? undefined;
-          } catch {
-            // Session not available
+          // Resolve org ID: explicit callback > session.orgId from Better Auth
+          let resolvedOrgId: string | undefined;
+          if (options?.resolveOrgId) {
+            resolvedOrgId = (await options.resolveOrgId(event)) ?? undefined;
+          } else {
+            try {
+              const session = await getSession(event);
+              resolvedOrgId = session?.orgId ?? undefined;
+            } catch {
+              // Session not available
+            }
           }
-        }
 
-        // Also set process.env for backwards compat (CLI scripts, legacy readers)
-        process.env.AGENT_USER_EMAIL = owner;
-        if (resolvedOrgId) {
-          process.env.AGENT_ORG_ID = resolvedOrgId;
-        } else {
-          delete process.env.AGENT_ORG_ID;
-        }
+          // Also set process.env for backwards compat (CLI scripts, legacy readers)
+          process.env.AGENT_USER_EMAIL = owner;
+          if (resolvedOrgId) {
+            process.env.AGENT_ORG_ID = resolvedOrgId;
+          } else {
+            delete process.env.AGENT_ORG_ID;
+          }
 
-        // Propagate the caller's IANA timezone from `x-user-timezone` so that
-        // tool calls made by the agent (e.g. log-meal with no explicit date)
-        // resolve "today" in the user's local timezone instead of server UTC.
-        const tzRaw = getHeader(event, "x-user-timezone");
-        const timezone =
-          typeof tzRaw === "string" &&
-          tzRaw.trim().length > 0 &&
-          tzRaw.trim().length < 64
-            ? tzRaw.trim()
-            : undefined;
-        if (timezone) process.env.AGENT_USER_TIMEZONE = timezone;
+          // Propagate the caller's IANA timezone from `x-user-timezone` so that
+          // tool calls made by the agent (e.g. log-meal with no explicit date)
+          // resolve "today" in the user's local timezone instead of server UTC.
+          const tzRaw = getHeader(event, "x-user-timezone");
+          const timezone =
+            typeof tzRaw === "string" &&
+            tzRaw.trim().length > 0 &&
+            tzRaw.trim().length < 64
+              ? tzRaw.trim()
+              : undefined;
+          if (timezone) process.env.AGENT_USER_TIMEZONE = timezone;
 
-        return runWithRequestContext(
-          { userEmail: owner, orgId: resolvedOrgId, timezone },
-          () => {
-            const handler =
-              currentDevMode && devHandler ? devHandler : prodHandler;
-            return handler(event);
+          return runWithRequestContext(
+            { userEmail: owner, orgId: resolvedOrgId, timezone },
+            () => {
+              const handler =
+                currentDevMode && devHandler ? devHandler : prodHandler;
+              return handler(event);
+            },
+          );
+        }),
+      );
+
+      // ─── Recurring Jobs Scheduler ──────────────────────────────────────
+      // Poll every 60 seconds for due recurring jobs and execute them.
+      // Uses setInterval so it works in all deployment environments without
+      // requiring Nitro experimental tasks configuration.
+      try {
+        const { processRecurringJobs } = await import("../jobs/scheduler.js");
+
+        const schedulerDeps = {
+          getActions: () => ({
+            ...templateScripts,
+            ...resourceScripts,
+            ...docsScripts,
+            ...chatScripts,
+            ...jobTools,
+            ...automationTools,
+            ...fetchTool,
+          }),
+          getSystemPrompt: async (owner: string) => {
+            const resources = await loadResourcesForPrompt(owner);
+            const schemaBlock = await buildSchemaBlock(owner, false);
+            return basePrompt + resources + schemaBlock;
           },
-        );
-      }),
-    );
+          apiKey: options?.apiKey ?? process.env.ANTHROPIC_API_KEY,
+          model: resolvedModel,
+        };
 
-    // ─── Recurring Jobs Scheduler ──────────────────────────────────────
-    // Poll every 60 seconds for due recurring jobs and execute them.
-    // Uses setInterval so it works in all deployment environments without
-    // requiring Nitro experimental tasks configuration.
-    try {
-      const { processRecurringJobs } = await import("../jobs/scheduler.js");
+        // Start after a 10-second delay to let the server fully initialize
+        setTimeout(() => {
+          setInterval(() => {
+            processRecurringJobs(schedulerDeps).catch((err) => {
+              console.error("[recurring-jobs] Scheduler error:", err?.message);
+            });
+          }, 60_000);
+          if (process.env.DEBUG)
+            console.log("[recurring-jobs] Scheduler started (60s interval)");
+        }, 10_000);
+      } catch (err) {
+        // Jobs module not available — skip silently
+      }
 
-      const schedulerDeps = {
-        getActions: () => ({
-          ...templateScripts,
-          ...resourceScripts,
-          ...docsScripts,
-          ...chatScripts,
-          ...jobTools,
-          ...automationTools,
-          ...fetchTool,
-        }),
-        getSystemPrompt: async (owner: string) => {
-          const resources = await loadResourcesForPrompt(owner);
-          const schemaBlock = await buildSchemaBlock(owner, false);
-          return basePrompt + resources + schemaBlock;
-        },
-        apiKey: options?.apiKey ?? process.env.ANTHROPIC_API_KEY,
-        model: resolvedModel,
-      };
-
-      // Start after a 10-second delay to let the server fully initialize
-      setTimeout(() => {
-        setInterval(() => {
-          processRecurringJobs(schedulerDeps).catch((err) => {
-            console.error("[recurring-jobs] Scheduler error:", err?.message);
-          });
-        }, 60_000);
+      // ─── Trigger Dispatcher (event-based automations) ─────────────────
+      try {
+        const { initTriggerDispatcher } =
+          await import("../triggers/dispatcher.js");
+        await initTriggerDispatcher({
+          getActions: () => ({
+            ...templateScripts,
+            ...resourceScripts,
+            ...docsScripts,
+            ...chatScripts,
+            ...jobTools,
+            ...automationTools,
+            ...fetchTool,
+          }),
+          getSystemPrompt: async (owner: string) => {
+            const resources = await loadResourcesForPrompt(owner);
+            const schemaBlock = await buildSchemaBlock(owner, false);
+            return basePrompt + resources + schemaBlock;
+          },
+          apiKey: options?.apiKey ?? process.env.ANTHROPIC_API_KEY,
+          model: resolvedModel,
+        });
         if (process.env.DEBUG)
-          console.log("[recurring-jobs] Scheduler started (60s interval)");
-      }, 10_000);
-    } catch (err) {
-      // Jobs module not available — skip silently
-    }
-
-    // ─── Trigger Dispatcher (event-based automations) ─────────────────
-    try {
-      const { initTriggerDispatcher } =
-        await import("../triggers/dispatcher.js");
-      await initTriggerDispatcher({
-        getActions: () => ({
-          ...templateScripts,
-          ...resourceScripts,
-          ...docsScripts,
-          ...chatScripts,
-          ...jobTools,
-          ...automationTools,
-          ...fetchTool,
-        }),
-        getSystemPrompt: async (owner: string) => {
-          const resources = await loadResourcesForPrompt(owner);
-          const schemaBlock = await buildSchemaBlock(owner, false);
-          return basePrompt + resources + schemaBlock;
-        },
-        apiKey: options?.apiKey ?? process.env.ANTHROPIC_API_KEY,
-        model: resolvedModel,
-      });
-      if (process.env.DEBUG)
-        console.log("[triggers] Trigger dispatcher initialized");
-    } catch (err) {
-      // Triggers module not available — skip silently
-    }
+          console.log("[triggers] Trigger dispatcher initialized");
+      } catch (err) {
+        // Triggers module not available — skip silently
+      }
+    })();
+    trackPluginInit(nitroApp, initPromise);
   };
 }
 
