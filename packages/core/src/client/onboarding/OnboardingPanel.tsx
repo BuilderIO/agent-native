@@ -317,7 +317,7 @@ function MethodBody({
 function WaitlistMethod({ primary }: { primary?: boolean }) {
   return (
     <a
-      href="https://www.builder.io/c/waitlist"
+      href="https://forms.agent-native.com/f/builder-waitlist/36GWqf"
       target="_blank"
       rel="noopener noreferrer"
       style={{ ...buttonPrimary(primary), textDecoration: "none" }}
