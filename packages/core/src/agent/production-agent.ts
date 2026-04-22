@@ -555,7 +555,19 @@ export function createProductionAgentHandler(
       }
     }
 
-    const userApiKey = await getOwnerActiveApiKey(ownerEmail);
+    // When a per-request engine override is specified, resolve the API key
+    // for that provider instead of the global active engine's provider.
+    let userApiKey: string | undefined;
+    if (requestEngine) {
+      const provider = engineToProvider(requestEngine);
+      userApiKey = await getOwnerApiKey(provider, ownerEmail);
+      if (!userApiKey) {
+        const envVar = PROVIDER_TO_ENV[provider];
+        userApiKey = envVar ? process.env[envVar] || undefined : undefined;
+      }
+    } else {
+      userApiKey = await getOwnerActiveApiKey(ownerEmail);
+    }
 
     const effectiveApiKey =
       userApiKey ?? options.apiKey ?? process.env.ANTHROPIC_API_KEY;
