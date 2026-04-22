@@ -355,14 +355,18 @@ export function MultiTabAssistantChat({
       fetch("/_agent-native/env-status")
         .then((r) => (r.ok ? r.json() : []))
         .catch(() => []),
+      fetch("/_agent-native/builder/status")
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null),
     ])
-      .then(([enginesData, envKeys]) => {
+      .then(([enginesData, envKeys, builderStatus]) => {
         if (!enginesData?.engines) return;
         const configuredKeys = new Set(
           (envKeys as Array<{ key: string; configured: boolean }>)
             .filter((k) => k.configured)
             .map((k) => k.key),
         );
+        const builderConnected = builderStatus?.configured === true;
         const ALLOWED_ENGINES = ["anthropic", "ai-sdk:openai", "ai-sdk:google"];
         const PROVIDER_LABELS: Record<string, string> = {
           anthropic: "Anthropic",
@@ -377,7 +381,8 @@ export function MultiTabAssistantChat({
             models: [...e.supportedModels],
             configured:
               e.requiredEnvVars.length === 0 ||
-              e.requiredEnvVars.some((v: string) => configuredKeys.has(v)),
+              e.requiredEnvVars.some((v: string) => configuredKeys.has(v)) ||
+              (e.name === "anthropic" && builderConnected),
           }));
         setAvailableModels(groups);
         setDefaultModel(enginesData.current?.model ?? "claude-sonnet-4-6");
@@ -585,14 +590,17 @@ export function MultiTabAssistantChat({
       const openSidebar = event.data.data?.openSidebar as boolean | undefined;
       const model = event.data.data?.model as string | undefined;
 
-      // If a model override was specified, apply it to the active thread
+      // If a model override was specified, apply it only if we recognize it
       if (model) {
         const threadId = activeThreadIdRef.current;
-        if (threadId) {
-          const engine =
-            availableModels.find((g) => g.models.includes(model))?.engine ??
-            "anthropic";
-          threadModelRef.current.set(threadId, { model, engine });
+        const matchedGroup = availableModels.find((g) =>
+          g.models.includes(model),
+        );
+        if (threadId && matchedGroup) {
+          threadModelRef.current.set(threadId, {
+            model,
+            engine: matchedGroup.engine,
+          });
           setSelectedModelForActiveThread(model);
         }
       }
