@@ -79,3 +79,17 @@ jobs:
 
       - name: Build all packages
         run: pnpm build
+
+  guard-no-drizzle-push:
+    name: Guard — no drizzle-kit push in build paths
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # No install needed — the guard script only uses Node builtins.
+      - name: Scan netlify.toml + package.json for `drizzle-kit push`
+        run: node scripts/guard-no-drizzle-push.mjs

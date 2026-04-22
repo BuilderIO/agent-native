@@ -344,6 +344,17 @@ export async function loadSchemaPromptBlock(opts: {
       "- Read data → `db-query`. Never re-add `WHERE owner_email = ...` — scoping already applies it.",
     );
     lines.push("");
+    lines.push("### External data sources vs the app database");
+    lines.push(
+      "The `db-*` tools ONLY query the app's own SQL database (the tables listed above). They do NOT reach external data warehouses, analytics platforms, or third-party services.",
+    );
+    lines.push(
+      "If the user asks about tables that are NOT in the schema above, use the appropriate template action instead — for example `bigquery` for BigQuery warehouse tables, `ga4-report` for Google Analytics, `hubspot-deals` for HubSpot, etc. Check your available actions for the right data-source-specific tool.",
+    );
+    lines.push(
+      "**Never use `db-query` for external data.** It will fail because those tables don't exist in the app database.",
+    );
+    lines.push("");
   } else {
     lines.push(
       "SQL is accessed through the template actions listed above. The schema is shown for context — so you understand the data model those actions operate on.",

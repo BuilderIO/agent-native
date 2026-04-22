@@ -1494,6 +1494,12 @@ export async function autoMountAuth(
   // H3 app, empty middleware) would short-circuit here and end up with no
   // auth routes mounted at all.
   if (_authGuardFn && _mountedApp === app) {
+    // A custom getSession always wins — even if the default auth plugin
+    // mounted first (which happens in production where bootstrapDefaultPlugins
+    // can't see the template's server/plugins/ dir and auto-mounts defaults).
+    if (options.getSession) {
+      customGetSession = options.getSession;
+    }
     if (_authGuardConfig) {
       if (options.googleOnly || options.loginHtml) {
         _authGuardConfig.loginHtml =
