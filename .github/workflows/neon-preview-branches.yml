@@ -1,0 +1,136 @@
+name: Neon Preview Branches
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Map each Netlify site to its Neon project. When a PR opens, we create a
+# Neon branch per project and inject NETLIFY_DATABASE_URL into the Netlify
+# site's deploy-preview context. Netlify's auto-deploy picks it up via the
+# shell expansion in each template's netlify.toml:
+#   export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL}
+#
+# On PR close we delete the branches and remove the env overrides.
+
+env:
+  NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+
+jobs:
+  create-branches:
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - template: analytics
+            neon_project: dry-shadow-75673589
+            netlify_site: ba983662-dac4-478d-a481-5079e67e4d33
+          - template: calendar
+            neon_project: super-fire-75593365
+            netlify_site: 954fe53b-052e-4401-aac2-2e973e498af8
+          - template: clips
+            neon_project: aged-glitter-95425960
+            netlify_site: 7e3f4fee-258d-4d16-9aaf-154a714e87e2
+          - template: content
+            neon_project: quiet-heart-51077706
+            netlify_site: 5c2198f5-bee4-41c3-8a6d-4869f400eec2
+          - template: forms
+            neon_project: curly-glade-91979555
+            netlify_site: aa0b2020-9983-4d6c-8fb0-65462f960fc4
+          - template: issues
+            neon_project: crimson-wave-50288362
+            netlify_site: 76b94d46-f566-43cd-bddd-01123137ab9a
+          - template: mail
+            neon_project: patient-cake-44789837
+            netlify_site: dee98bb0-6143-4205-8c04-afe7bf83d5b5
+          - template: slides
+            neon_project: hidden-thunder-16834477
+            netlify_site: fd5deb5b-5539-47e1-830c-e5fb5e105efd
+          - template: videos
+            neon_project: soft-pine-75308618
+            netlify_site: 3f0c2cd2-06cd-4ab8-bfb4-c199430d1dac
+    steps:
+      - name: Create Neon branch
+        uses: neondatabase/create-branch-action@v6
+        id: neon
+        with:
+          project_id: ${{ matrix.neon_project }}
+          branch_name: preview/pr-${{ github.event.number }}
+          api_key: ${{ secrets.NEON_API_KEY }}
+
+      - name: Set NETLIFY_DATABASE_URL for deploy previews
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+        run: |
+          # Set the branch DB URL as NETLIFY_DATABASE_URL in the deploy-preview context.
+          # Netlify's auto-deploy will pick this up via the shell expansion in netlify.toml.
+          curl -s -X POST \
+            -H "Authorization: Bearer $NETLIFY_AUTH_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.netlify.com/api/v1/accounts/${{ secrets.NETLIFY_ACCOUNT_ID }}/env?site_id=${{ matrix.netlify_site }}" \
+            -d '[{"key":"NETLIFY_DATABASE_URL","scopes":["builds","functions","runtime"],"values":[{"value":"${{ steps.neon.outputs.db_url_with_pooler }}","context":"deploy-preview"}]}]' \
+            || echo "Env var may already exist, trying PATCH..."
+
+          # If it already exists, update the deploy-preview value
+          curl -s -X PATCH \
+            -H "Authorization: Bearer $NETLIFY_AUTH_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.netlify.com/api/v1/accounts/${{ secrets.NETLIFY_ACCOUNT_ID }}/env/NETLIFY_DATABASE_URL?site_id=${{ matrix.netlify_site }}" \
+            -d '{"value":"${{ steps.neon.outputs.db_url_with_pooler }}","context":"deploy-preview"}' \
+            || true
+
+  delete-branches:
+    if: github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - template: analytics
+            neon_project: dry-shadow-75673589
+            netlify_site: ba983662-dac4-478d-a481-5079e67e4d33
+          - template: calendar
+            neon_project: super-fire-75593365
+            netlify_site: 954fe53b-052e-4401-aac2-2e973e498af8
+          - template: clips
+            neon_project: aged-glitter-95425960
+            netlify_site: 7e3f4fee-258d-4d16-9aaf-154a714e87e2
+          - template: content
+            neon_project: quiet-heart-51077706
+            netlify_site: 5c2198f5-bee4-41c3-8a6d-4869f400eec2
+          - template: forms
+            neon_project: curly-glade-91979555
+            netlify_site: aa0b2020-9983-4d6c-8fb0-65462f960fc4
+          - template: issues
+            neon_project: crimson-wave-50288362
+            netlify_site: 76b94d46-f566-43cd-bddd-01123137ab9a
+          - template: mail
+            neon_project: patient-cake-44789837
+            netlify_site: dee98bb0-6143-4205-8c04-afe7bf83d5b5
+          - template: slides
+            neon_project: hidden-thunder-16834477
+            netlify_site: fd5deb5b-5539-47e1-830c-e5fb5e105efd
+          - template: videos
+            neon_project: soft-pine-75308618
+            netlify_site: 3f0c2cd2-06cd-4ab8-bfb4-c199430d1dac
+    steps:
+      - name: Delete Neon branch
+        uses: neondatabase/delete-branch-action@v4
+        with:
+          project_id: ${{ matrix.neon_project }}
+          branch: preview/pr-${{ github.event.number }}
+          api_key: ${{ secrets.NEON_API_KEY }}
+
+      - name: Remove NETLIFY_DATABASE_URL override
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+        run: |
+          curl -s -X DELETE \
+            -H "Authorization: Bearer $NETLIFY_AUTH_TOKEN" \
+            "https://api.netlify.com/api/v1/accounts/${{ secrets.NETLIFY_ACCOUNT_ID }}/env/NETLIFY_DATABASE_URL?site_id=${{ matrix.netlify_site }}" \
+            || true
