@@ -39,8 +39,7 @@ import { getSession } from "../server/auth.js";
 import { putUserSetting } from "../settings/user-settings.js";
 import { getDbExec } from "../db/client.js";
 import { sendEmail, isEmailConfigured } from "../server/email.js";
-import { renderEmail, emailStrong } from "../server/email-template.js";
-import { getAppName } from "../server/app-name.js";
+import { renderInviteEmail } from "../server/email-templates.js";
 import { getAppProductionUrl } from "../server/app-url.js";
 import { getOrgContext } from "./context.js";
 import type { OrgRole } from "./types.js";
@@ -230,32 +229,14 @@ export const createInvitationHandler = defineEventHandler(
     let emailSent = false;
     let emailError: string | undefined;
     if (isEmailConfigured()) {
-      // Strip CRLF from any field that flows into the Subject line — a
-      // malicious org name or inviter could otherwise inject Bcc/Reply-To
-      // headers via "Name\r\nBcc: attacker@...".
-      const stripCrlf = (s: string) => s.replace(/[\r\n]+/g, " ").trim();
-      const orgName = stripCrlf(ctx.orgName || "your team");
-      const inviter = stripCrlf(ctx.email);
-      const appUrl = getInviteAppUrl(event);
-      const appName = stripCrlf(getAppName() || "");
-      const onApp = appName ? ` on ${appName}` : "";
       try {
-        const { html, text } = renderEmail({
-          preheader: `${inviter} invited you to join ${orgName}${onApp}.`,
-          heading: `You're invited to join ${orgName}`,
-          paragraphs: [
-            `${emailStrong(inviter)} invited you to join ${emailStrong(orgName)}${appName ? ` on ${emailStrong(appName)}` : ""}.`,
-            `Sign in with ${emailStrong(email)} to accept the invitation.`,
-          ],
-          cta: { label: "Accept invitation", url: appUrl },
-          footer: `If you weren't expecting this, you can safely ignore this email.`,
+        const { subject, html, text } = renderInviteEmail({
+          invitee: email,
+          orgName: ctx.orgName || "your team",
+          acceptUrl: getInviteAppUrl(event),
+          inviter: ctx.email,
         });
-        await sendEmail({
-          to: email,
-          subject: `${inviter} invited you to join ${orgName}${onApp}`,
-          html,
-          text,
-        });
+        await sendEmail({ to: email, subject, html, text });
         emailSent = true;
       } catch (err) {
         emailError = err instanceof Error ? err.message : String(err);
