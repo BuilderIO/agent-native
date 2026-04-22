@@ -9,13 +9,9 @@ import {
   useRouteError,
   useLocation,
 } from "react-router";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  AgentSidebar,
-  ClientOnly,
-  DefaultSpinner,
-} from "@agent-native/core/client";
+import { AgentSidebar } from "@agent-native/core/client";
 import Header from "./components/Header";
 import Footer from "./components/Footer";
 
@@ -127,41 +123,45 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-function AppContent() {
+export default function Root() {
   const [queryClient] = useState(
     () =>
       new QueryClient({
         defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },
       }),
   );
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  const content = (
+    <>
+      <Header />
+      <Outlet />
+      <Footer />
+    </>
+  );
 
   return (
     <QueryClientProvider client={queryClient}>
-      <AgentSidebar
-        position="right"
-        defaultOpen={false}
-        sidebarWidth={400}
-        emptyStateText="Ask me anything about Agent-Native"
-        suggestions={[
-          "How do I get started with Agent-Native?",
-          "How do actions work?",
-          "Explain the polling sync model",
-          "How do I deploy to production?",
-        ]}
-      >
-        <Header />
-        <Outlet />
-        <Footer />
-      </AgentSidebar>
+      {mounted ? (
+        <AgentSidebar
+          position="right"
+          defaultOpen={false}
+          sidebarWidth={400}
+          emptyStateText="Ask me anything about Agent-Native"
+          suggestions={[
+            "How do I get started with Agent-Native?",
+            "How do actions work?",
+            "Explain the polling sync model",
+            "How do I deploy to production?",
+          ]}
+        >
+          {content}
+        </AgentSidebar>
+      ) : (
+        content
+      )}
     </QueryClientProvider>
-  );
-}
-
-export default function Root() {
-  return (
-    <ClientOnly fallback={<DefaultSpinner />}>
-      <AppContent />
-    </ClientOnly>
   );
 }
 
