@@ -49,7 +49,7 @@ export default function ThemeToggle() {
       onClick={toggle}
       aria-label={label}
       title={label}
-      className="flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border)] text-sm text-[var(--fg-secondary)] transition hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
+      className="flex h-8 w-8 items-center justify-center rounded-md border border-[var(--docs-border)] text-sm text-[var(--fg-secondary)] transition hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
     >
       {theme === "light" ? (
         <IconSun size={16} stroke={1.5} />

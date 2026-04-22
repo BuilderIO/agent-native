@@ -14,10 +14,14 @@ export function createAgentChatAdapter(options?: {
   apiUrl?: string;
   tabId?: string;
   threadId?: string;
+  modelRef?: { current: string | undefined };
+  engineRef?: { current: string | undefined };
 }): ChatModelAdapter {
   const apiUrl = options?.apiUrl ?? "/_agent-native/agent-chat";
   const tabId = options?.tabId;
   const threadId = options?.threadId;
+  const modelRef = options?.modelRef;
+  const engineRef = options?.engineRef;
 
   return {
     async *run({ messages, abortSignal, runConfig }) {
@@ -132,6 +136,8 @@ export function createAgentChatAdapter(options?: {
             message: messageText.replace(/@\[([^\]|]+)\|[^\]]+\]/g, "@$1"),
             history,
             ...(threadId ? { threadId } : {}),
+            ...(modelRef?.current ? { model: modelRef.current } : {}),
+            ...(engineRef?.current ? { engine: engineRef.current } : {}),
             ...(attachments.length > 0 ? { attachments } : {}),
             ...(runConfig?.custom?.references
               ? { references: runConfig.custom.references }

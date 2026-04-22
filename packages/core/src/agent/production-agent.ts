@@ -534,6 +534,8 @@ export function createProductionAgentHandler(
       references = [],
       threadId,
       attachments,
+      model: requestModel,
+      engine: requestEngine,
     } = body;
     if (!message) {
       setResponseStatus(event, 400);
@@ -553,16 +555,28 @@ export function createProductionAgentHandler(
       }
     }
 
-    const userApiKey = await getOwnerActiveApiKey(ownerEmail);
+    // When a per-request engine override is specified, resolve the API key
+    // for that provider instead of the global active engine's provider.
+    let userApiKey: string | undefined;
+    if (requestEngine) {
+      const provider = engineToProvider(requestEngine);
+      userApiKey = await getOwnerApiKey(provider, ownerEmail);
+      if (!userApiKey) {
+        const envVar = PROVIDER_TO_ENV[provider];
+        userApiKey = envVar ? process.env[envVar] || undefined : undefined;
+      }
+    } else {
+      userApiKey = await getOwnerActiveApiKey(ownerEmail);
+    }
 
     const effectiveApiKey =
       userApiKey ?? options.apiKey ?? process.env.ANTHROPIC_API_KEY;
 
-    // Resolve engine (async — reads settings if needed)
+    // Resolve engine — per-request engine override takes priority
     let engine: AgentEngine;
     try {
       engine = await resolveEngine({
-        engineOption: options.engine,
+        engineOption: requestEngine ?? options.engine,
         apiKey: effectiveApiKey,
         model: configuredModel,
       });
@@ -572,7 +586,7 @@ export function createProductionAgentHandler(
       });
     }
 
-    const model = configuredModel ?? engine.defaultModel;
+    const model = requestModel ?? configuredModel ?? engine.defaultModel;
 
     // Check for API key before starting a run (only for anthropic engine)
     if (engine.name === "anthropic" && !effectiveApiKey) {

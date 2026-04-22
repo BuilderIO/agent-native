@@ -9,6 +9,13 @@ import { getFrameOrigin } from "./frame.js";
 import { cn } from "./utils.js";
 import { useChatThreads, type ChatThreadSummary } from "./use-chat-threads.js";
 
+interface EngineModelGroup {
+  engine: string;
+  label: string;
+  models: string[];
+  configured: boolean;
+}
+
 // ─── Skeleton Loader ─────────────────────────────────────────────────────────
 
 function ChatSkeleton({ headerOnly = false }: { headerOnly?: boolean }) {
@@ -317,6 +324,72 @@ export function MultiTabAssistantChat({
   const [showHistory, setShowHistory] = useState(false);
   const newThreadIds = useRef<Set<string>>(new Set());
 
+  // ─── Model state ─────────────────────────────────────────────────────────
+  const [availableModels, setAvailableModels] = useState<EngineModelGroup[]>(
+    [],
+  );
+  const [defaultModel, setDefaultModel] = useState("claude-sonnet-4-6");
+  const threadModelRef = useRef<Map<string, { model: string; engine: string }>>(
+    new Map(),
+  );
+  const [selectedModelForActiveThread, setSelectedModelForActiveThread] =
+    useState<string | undefined>(undefined);
+
+  const activeThreadModel = selectedModelForActiveThread ?? defaultModel;
+
+  const handleModelChange = useCallback((model: string, engine: string) => {
+    const threadId = activeThreadIdRef.current;
+    if (!threadId) return;
+    threadModelRef.current.set(threadId, { model, engine });
+    setSelectedModelForActiveThread(model);
+  }, []);
+
+  // Fetch available engines/models on mount
+  useEffect(() => {
+    Promise.all([
+      fetch("/_agent-native/actions/list-agent-engines", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      }).then((r) => (r.ok ? r.json() : null)),
+      fetch("/_agent-native/env-status")
+        .then((r) => (r.ok ? r.json() : []))
+        .catch(() => []),
+      fetch("/_agent-native/builder/status")
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null),
+    ])
+      .then(([enginesData, envKeys, builderStatus]) => {
+        if (!enginesData?.engines) return;
+        const configuredKeys = new Set(
+          (envKeys as Array<{ key: string; configured: boolean }>)
+            .filter((k) => k.configured)
+            .map((k) => k.key),
+        );
+        const builderConnected = builderStatus?.configured === true;
+        const ALLOWED_ENGINES = ["anthropic", "ai-sdk:openai", "ai-sdk:google"];
+        const PROVIDER_LABELS: Record<string, string> = {
+          anthropic: "Anthropic",
+          "ai-sdk:openai": "OpenAI",
+          "ai-sdk:google": "Google",
+        };
+        const groups: EngineModelGroup[] = enginesData.engines
+          .filter((e: any) => ALLOWED_ENGINES.includes(e.name))
+          .map((e: any) => ({
+            engine: e.name,
+            label: PROVIDER_LABELS[e.name] ?? e.label,
+            models: [...e.supportedModels],
+            configured:
+              e.requiredEnvVars.length === 0 ||
+              e.requiredEnvVars.some((v: string) => configuredKeys.has(v)) ||
+              (e.name === "anthropic" && builderConnected),
+          }));
+        setAvailableModels(groups);
+        setDefaultModel(enginesData.current?.model ?? "claude-sonnet-4-6");
+      })
+      .catch(() => {});
+  }, []);
+
   // Parent-child thread mapping — persisted to localStorage.
   // Maps childThreadId → parentThreadId for sub-agent tabs.
   const PARENT_MAP_KEY = `agent-chat-parent-map${keyPrefix}`;
@@ -439,9 +512,13 @@ export function MultiTabAssistantChat({
     }
   }, [isLoading, openTabIds, createThread]);
 
-  // Focus the composer when switching tabs
+  // Focus the composer and sync model state when switching tabs
   useEffect(() => {
     if (!activeThreadId) return;
+    // Sync model picker to this thread's override (or clear to default)
+    setSelectedModelForActiveThread(
+      threadModelRef.current.get(activeThreadId)?.model ?? undefined,
+    );
     // Small delay to ensure the tab is visible before focusing
     const t = setTimeout(() => {
       chatRefs.current.get(activeThreadId)?.focusComposer();
@@ -511,6 +588,22 @@ export function MultiTabAssistantChat({
       if (!message) return;
       const context = event.data.data?.context as string | undefined;
       const openSidebar = event.data.data?.openSidebar as boolean | undefined;
+      const model = event.data.data?.model as string | undefined;
+
+      // If a model override was specified, apply it only if we recognize it
+      if (model) {
+        const threadId = activeThreadIdRef.current;
+        const matchedGroup = availableModels.find((g) =>
+          g.models.includes(model),
+        );
+        if (threadId && matchedGroup) {
+          threadModelRef.current.set(threadId, {
+            model,
+            engine: matchedGroup.engine,
+          });
+          setSelectedModelForActiveThread(model);
+        }
+      }
 
       // Make sure the sidebar is visible to show the response, unless the
       // caller explicitly opted out.
@@ -545,7 +638,7 @@ export function MultiTabAssistantChat({
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
-  }, [keyPrefix]);
+  }, [keyPrefix, availableModels]);
 
   // Process pending sends when refs mount
   useEffect(() => {
@@ -610,6 +703,7 @@ export function MultiTabAssistantChat({
       chatRefs.current.delete(tabId);
       pendingSends.current.delete(tabId);
       newThreadIds.current.delete(tabId);
+      threadModelRef.current.delete(tabId);
       // Clean up parent map and sub-agent names
       setParentMap((prev) => {
         if (!(tabId in prev)) return prev;
@@ -637,6 +731,7 @@ export function MultiTabAssistantChat({
           chatRefs.current.delete(key);
           pendingSends.current.delete(key);
           newThreadIds.current.delete(key);
+          threadModelRef.current.delete(key);
         }
       }
       // Clean up parent map and sub-agent names — only keep entries for the surviving tab
@@ -661,6 +756,7 @@ export function MultiTabAssistantChat({
       // Clean up all old refs
       chatRefs.current.clear();
       pendingSends.current.clear();
+      threadModelRef.current.clear();
       setParentMap({});
       setSubAgentNames({});
     }
@@ -1118,6 +1214,11 @@ export function MultiTabAssistantChat({
                 onSaveThread={handleSaveThread}
                 onGenerateTitle={handleGenerateTitle}
                 onSlashCommand={handleSlashCommand}
+                selectedModel={threadModelRef.current.get(tabId)?.model}
+                selectedEngine={threadModelRef.current.get(tabId)?.engine}
+                defaultModel={defaultModel}
+                availableModels={availableModels}
+                onModelChange={handleModelChange}
               />
             </div>
           ))}

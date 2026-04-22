@@ -29,43 +29,67 @@ const PROVIDER_LABELS: Record<string, string> = {
   anthropic: "Anthropic (Claude)",
   "ai-sdk:openai": "OpenAI",
   "ai-sdk:google": "Google Gemini",
-  "ai-sdk:groq": "Groq",
-  "ai-sdk:mistral": "Mistral",
-  "ai-sdk:cohere": "Cohere",
-  "ai-sdk:ollama": "Ollama (local)",
 };
 
 const KEY_PLACEHOLDERS: Record<string, string> = {
   ANTHROPIC_API_KEY: "sk-ant-...",
   OPENAI_API_KEY: "sk-...",
   GOOGLE_GENERATIVE_AI_API_KEY: "AI...",
-  GROQ_API_KEY: "gsk_...",
-  MISTRAL_API_KEY: "...",
-  COHERE_API_KEY: "...",
 };
 
 const PROVIDER_DOCS: Record<string, string> = {
   anthropic: "https://console.anthropic.com/settings/keys",
   "ai-sdk:openai": "https://platform.openai.com/api-keys",
   "ai-sdk:google": "https://aistudio.google.com/apikey",
-  "ai-sdk:groq": "https://console.groq.com/keys",
-  "ai-sdk:mistral": "https://console.mistral.ai/api-keys/",
-  "ai-sdk:cohere": "https://dashboard.cohere.com/api-keys",
-  "ai-sdk:ollama": "https://ollama.com/download",
 };
 
 const PRIMARY_PROVIDERS = ["anthropic", "ai-sdk:openai", "ai-sdk:google"];
-const MORE_PROVIDERS = [
-  "ai-sdk:groq",
-  "ai-sdk:mistral",
-  "ai-sdk:cohere",
-  "ai-sdk:ollama",
-];
 
 const selectStyle: React.CSSProperties = {
   fontSize: 12,
   lineHeight: 1,
 };
+
+function friendlyModelName(model: string): string {
+  const claude = model.match(
+    /^claude-(opus|sonnet|haiku)-(\d+)-(\d+)(?:-\d{8,})?$/,
+  );
+  if (claude) {
+    const tier = claude[1][0].toUpperCase() + claude[1].slice(1);
+    return `${tier} ${claude[2]}.${claude[3]}`;
+  }
+  if (model.startsWith("gpt-")) return `GPT-${model.slice(4)}`;
+  if (/^o\d/.test(model)) return model;
+  const gemini = model.match(/^gemini-(.+?)(?:-preview)?$/);
+  if (gemini) {
+    const parts = gemini[1]
+      .split("-")
+      .map((s) => s[0].toUpperCase() + s.slice(1))
+      .join(" ");
+    return `Gemini ${parts}${model.endsWith("-preview") ? " (preview)" : ""}`;
+  }
+  return model;
+}
+
+function latestModelsOnly(models: string[]): string[] {
+  const seen = new Set<string>();
+  return models.filter((m) => {
+    const claude = m.match(/^claude-(opus|sonnet|haiku)-/);
+    if (claude) {
+      if (seen.has(claude[1])) return false;
+      seen.add(claude[1]);
+      return true;
+    }
+    const gemini = m.match(/^gemini-(\d+(?:\.\d+)?)-(.+?)(?:-preview)?$/);
+    if (gemini) {
+      const family = gemini[2];
+      if (seen.has(`gemini-${family}`)) return false;
+      seen.add(`gemini-${family}`);
+      return true;
+    }
+    return true;
+  });
+}
 
 export function LLMSection() {
   const { status: builder } = useBuilderStatus();
@@ -79,7 +103,6 @@ export function LLMSection() {
   const [currentModel, setCurrentModel] = useState("");
   const [selectedEngine, setSelectedEngine] = useState("anthropic");
   const [selectedModel, setSelectedModel] = useState("");
-  const [showMore, setShowMore] = useState(false);
   const [applyNote, setApplyNote] = useState(false);
 
   const fetchEnvStatus = useCallback(async () => {
@@ -123,16 +146,12 @@ export function LLMSection() {
   const envConfigured = envVar
     ? (envKeys.find((k) => k.key === envVar)?.configured ?? false)
     : false;
-  const noKeyRequired = selectedEngine === "ai-sdk:ollama";
-  const anyKeyConfigured = envConfigured || noKeyRequired || builderConnected;
+  const anyKeyConfigured = envConfigured || builderConnected;
   const engineChanged =
     selectedEngine !== currentEngine || selectedModel !== currentModel;
 
   // Build provider options
-  const allowedNames = showMore
-    ? [...PRIMARY_PROVIDERS, ...MORE_PROVIDERS]
-    : PRIMARY_PROVIDERS;
-  const providerOptions = allowedNames.filter((name) =>
+  const providerOptions = PRIMARY_PROVIDERS.filter((name) =>
     engines.some((e) => e.name === name),
   );
   // Ensure selected engine is visible even if not in the current list
@@ -143,7 +162,9 @@ export function LLMSection() {
     providerOptions.push(selectedEngine);
   }
 
-  const modelOptions = selectedEngineInfo?.supportedModels ?? [];
+  const modelOptions = latestModelsOnly(
+    selectedEngineInfo?.supportedModels ?? [],
+  );
 
   const handleSave = async () => {
     if (!apiKey.trim() || !envVar) return;
@@ -269,13 +290,6 @@ export function LLMSection() {
                 />
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => setShowMore((v) => !v)}
-              className="text-[10px] text-muted-foreground hover:text-foreground"
-            >
-              {showMore ? "Show fewer providers" : "Show more providers"}
-            </button>
 
             {/* Model dropdown */}
             {modelOptions.length > 0 && (
@@ -290,7 +304,7 @@ export function LLMSection() {
                   >
                     {modelOptions.map((m) => (
                       <option key={m} value={m}>
-                        {m}
+                        {friendlyModelName(m)}
                       </option>
                     ))}
                   </select>
@@ -308,10 +322,6 @@ export function LLMSection() {
                 <IconLoader2 size={10} className="animate-spin" />
                 Checking...
               </div>
-            ) : noKeyRequired ? (
-              <p className="text-[10px] text-muted-foreground">
-                No API key required — runs locally
-              </p>
             ) : envVar && envConfigured ? (
               <div className="flex items-center gap-1.5 text-[10px] text-green-500">
                 <IconCheck size={10} />
@@ -369,7 +379,7 @@ export function LLMSection() {
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 mt-1.5 rounded border border-border px-2.5 py-1 text-[10px] font-medium no-underline text-muted-foreground hover:text-foreground hover:bg-accent/40"
             >
-              {noKeyRequired ? "Download Ollama" : "Get an API key"}
+              Get an API key
               <IconExternalLink size={10} />
             </a>
           )}

@@ -81,7 +81,7 @@ export const templates = [
     demoUrl: "https://analytics.agent-native.com",
     description:
       "Connect any data source, prompt for any chart, build reusable dashboards. The agent writes SQL, generates visualizations, and evolves the app.",
-    color: "var(--accent)",
+    color: "var(--docs-accent)",
     screenshot:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4933a80cc3134d7e874631f688be828a?format=webp&width=800",
   },
@@ -248,7 +248,7 @@ function TemplateLaunchButton({ template }: { template: Template }) {
         }}
         className={
           hasDemoUrl
-            ? "inline-flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium text-[var(--fg)] transition hover:border-[var(--fg-secondary)]"
+            ? "inline-flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--docs-border)] px-4 py-2 text-sm font-medium text-[var(--fg)] transition hover:border-[var(--fg-secondary)]"
             : "inline-flex w-full items-center justify-center gap-2 rounded-lg bg-black px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800 dark:bg-white dark:text-black dark:hover:bg-gray-200"
         }
       >
@@ -284,7 +284,7 @@ export function TemplateCard({ template }: { template: Template }) {
       <Link
         prefetch="render"
         to={`/templates/${template.slug}`}
-        className="-mx-[24px] -mt-[24px] mb-1 flex aspect-[4/3] items-center justify-center overflow-hidden border-b border-[var(--border)] bg-[var(--bg-secondary)] transition hover:opacity-90"
+        className="-mx-[24px] -mt-[24px] mb-1 flex aspect-[4/3] items-center justify-center overflow-hidden border-b border-[var(--docs-border)] bg-[var(--bg-secondary)] transition hover:opacity-90"
         onClick={() =>
           trackEvent("click_template", {
             template: template.slug,
@@ -302,12 +302,14 @@ export function TemplateCard({ template }: { template: Template }) {
         <Link
           prefetch="render"
           to={`/templates/${template.slug}`}
-          className="text-[var(--fg)] no-underline hover:text-[var(--accent)]"
+          className="text-[var(--fg)] no-underline hover:text-[var(--docs-accent)]"
         >
           {template.name}
         </Link>
       </h3>
-      <p className="m-0 text-xs text-[var(--accent)]">{template.replaces}</p>
+      <p className="m-0 text-xs text-[var(--docs-accent)]">
+        {template.replaces}
+      </p>
       <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
         {template.description}
       </p>

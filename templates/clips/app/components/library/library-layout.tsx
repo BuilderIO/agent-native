@@ -8,6 +8,7 @@ import {
   IconFolderPlus,
   IconPlayerRecord,
   IconAppWindow,
+  IconX,
 } from "@tabler/icons-react";
 import { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
@@ -28,6 +29,7 @@ import {
   useCreateFolder,
 } from "@/hooks/use-library";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useDesktopPromo } from "@/hooks/use-desktop-promo";
 import { FolderTree, type FolderNode } from "./folder-tree";
 import { SearchBar } from "./search-bar";
 import { OrganizationSwitcher } from "./organization-switcher";
@@ -44,6 +46,8 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
     folderId?: string;
     spaceId?: string;
   }>();
+
+  const { shouldShowPromo, shouldShowSidebarLink, dismiss } = useDesktopPromo();
 
   const { data: organizations } = useOrganizations();
   const currentOrganizationId =
@@ -156,15 +160,17 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
               })}
             </nav>
 
-            <div className="mt-3 px-2">
-              <NavLink
-                to="/download"
-                className="flex items-center gap-2 rounded px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent/60 hover:text-foreground"
-              >
-                <IconAppWindow className="h-4 w-4" />
-                Get desktop app
-              </NavLink>
-            </div>
+            {shouldShowSidebarLink && (
+              <div className="mt-3 px-2">
+                <NavLink
+                  to="/download"
+                  className="flex items-center gap-2 rounded px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+                >
+                  <IconAppWindow className="h-4 w-4" />
+                  Get desktop app
+                </NavLink>
+              </div>
+            )}
 
             <div className="mt-4 flex-1 overflow-y-auto px-2 pb-3 space-y-4">
               <div>
@@ -242,6 +248,31 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                 <AgentToggleButton />
               </div>
             </header>
+            {shouldShowPromo && (
+              <div className="flex items-center gap-3 border-b border-border bg-primary/5 px-5 py-2.5 text-sm">
+                <IconAppWindow className="h-4 w-4 shrink-0 text-primary" />
+                <div className="flex-1 min-w-0">
+                  <span className="font-medium">
+                    Get the Clips desktop app.
+                  </span>{" "}
+                  <span className="text-muted-foreground">
+                    Record from the menu bar, global shortcut, auto-updates.
+                  </span>
+                </div>
+                <Button asChild size="sm" className="shrink-0">
+                  <NavLink to="/download">Download</NavLink>
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
+                  onClick={dismiss}
+                  title="I already have it"
+                >
+                  <IconX className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
             <main className="flex flex-1 flex-col min-h-0 overflow-hidden">
               {children}
             </main>

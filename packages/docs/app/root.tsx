@@ -9,6 +9,13 @@ import {
   useRouteError,
   useLocation,
 } from "react-router";
+import { useState } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  AgentSidebar,
+  ClientOnly,
+  DefaultSpinner,
+} from "@agent-native/core/client";
 import Header from "./components/Header";
 import Footer from "./components/Footer";
 
@@ -120,13 +127,41 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
+function AppContent() {
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },
+      }),
+  );
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AgentSidebar
+        position="right"
+        defaultOpen={false}
+        sidebarWidth={400}
+        emptyStateText="Ask me anything about Agent-Native"
+        suggestions={[
+          "How do I get started with Agent-Native?",
+          "How do actions work?",
+          "Explain the polling sync model",
+          "How do I deploy to production?",
+        ]}
+      >
+        <Header />
+        <Outlet />
+        <Footer />
+      </AgentSidebar>
+    </QueryClientProvider>
+  );
+}
+
 export default function Root() {
   return (
-    <>
-      <Header />
-      <Outlet />
-      <Footer />
-    </>
+    <ClientOnly fallback={<DefaultSpinner />}>
+      <AppContent />
+    </ClientOnly>
   );
 }
 
@@ -136,7 +171,7 @@ export function ErrorBoundary() {
   if (isRouteErrorResponse(error) && error.status === 404) {
     return (
       <main className="mx-auto flex min-h-[60vh] max-w-[600px] flex-col items-center justify-center px-6 text-center">
-        <div className="mb-6 text-[120px] font-bold leading-none tracking-tighter text-[var(--border)]">
+        <div className="mb-6 text-[120px] font-bold leading-none tracking-tighter text-[var(--docs-border)]">
           404
         </div>
         <h1 className="mb-3 text-2xl font-semibold tracking-tight">
@@ -156,7 +191,7 @@ export function ErrorBoundary() {
           <Link
             prefetch="render"
             to="/docs"
-            className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+            className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
           >
             Read the docs
           </Link>

@@ -18,7 +18,7 @@ describe("OpenRouter builtin engine", () => {
     expect(entry?.requiredEnvVars).toEqual(["OPENROUTER_API_KEY"]);
     expect(entry?.defaultModel).toMatch(/\//); // vendor/model form
     expect(entry?.supportedModels).toEqual(
-      expect.arrayContaining(["anthropic/claude-sonnet-4.5"]),
+      expect.arrayContaining(["anthropic/claude-sonnet-4.6"]),
     );
     expect(entry?.installPackage).toContain("@openrouter/ai-sdk-provider");
   });
