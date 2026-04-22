@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import {
   IconBolt,
   IconClock,
@@ -208,19 +208,60 @@ export function AutomationsSection() {
     }
   }, [showToast]);
 
-  const handleNewAutomation = useCallback(() => {
-    // Switch to Chat tab and send the message
-    window.dispatchEvent(
-      new CustomEvent("agent-panel:set-mode", {
-        detail: { mode: "chat" },
-      }),
-    );
-    sendToAgentChat({
-      message:
-        "Help me create a new automation. Ask me what I want to automate.",
-      submit: true,
-    });
-  }, []);
+  const [newOpen, setNewOpen] = useState(false);
+  const [newPrompt, setNewPrompt] = useState("");
+  const [newScope, setNewScope] = useState<"personal" | "organization">(
+    "personal",
+  );
+  const newPopoverRef = useRef<HTMLDivElement>(null);
+  const newButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Close popover on outside click
+  useEffect(() => {
+    if (!newOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (
+        newPopoverRef.current &&
+        !newPopoverRef.current.contains(e.target as Node) &&
+        newButtonRef.current &&
+        !newButtonRef.current.contains(e.target as Node)
+      ) {
+        setNewOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [newOpen]);
+
+  // Close popover on Escape
+  useEffect(() => {
+    if (!newOpen) return;
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setNewOpen(false);
+    }
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [newOpen]);
+
+  const handleNewSubmit = useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!newPrompt.trim()) return;
+      window.dispatchEvent(
+        new CustomEvent("agent-panel:set-mode", {
+          detail: { mode: "chat" },
+        }),
+      );
+      sendToAgentChat({
+        message: newPrompt.trim(),
+        context: `The user wants to create a new automation. Scope: ${newScope}. Use define-automation to create it. Ask clarifying questions if needed about what event to trigger on, conditions, and what actions to take.`,
+        submit: true,
+      });
+      setNewPrompt("");
+      setNewOpen(false);
+    },
+    [newPrompt, newScope],
+  );
 
   if (error) {
     return (
@@ -242,14 +283,61 @@ export function AutomationsSection() {
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-1.5">
-        <button
-          type="button"
-          onClick={handleNewAutomation}
-          className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent/40"
-        >
-          <IconPlus size={10} />
-          New Automation
-        </button>
+        <div className="relative">
+          <button
+            ref={newButtonRef}
+            type="button"
+            onClick={() => setNewOpen(!newOpen)}
+            className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent/40"
+          >
+            <IconPlus size={10} />
+            New Automation
+          </button>
+          {newOpen && (
+            <div
+              ref={newPopoverRef}
+              className="absolute left-0 top-full mt-1.5 z-[220] w-72 rounded-lg border border-border bg-popover p-3 shadow-lg"
+            >
+              <form onSubmit={handleNewSubmit}>
+                <textarea
+                  value={newPrompt}
+                  onChange={(e) => setNewPrompt(e.target.value)}
+                  placeholder="Describe what you want to automate..."
+                  className="w-full resize-y rounded-md border border-border bg-background px-2.5 py-2 text-[12px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-ring/50 min-h-[100px]"
+                  autoFocus
+                  required
+                  onKeyDown={(e) => {
+                    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                      e.preventDefault();
+                      if (newPrompt.trim()) handleNewSubmit(e);
+                    }
+                  }}
+                />
+                <div className="mt-2">
+                  <select
+                    value={newScope}
+                    onChange={(e) =>
+                      setNewScope(e.target.value as "personal" | "organization")
+                    }
+                    className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-[12px] text-foreground"
+                  >
+                    <option value="personal">Personal</option>
+                    <option value="organization">Organization</option>
+                  </select>
+                </div>
+                <div className="mt-2.5 flex justify-end">
+                  <button
+                    type="submit"
+                    disabled={!newPrompt.trim()}
+                    className="rounded-md bg-primary px-3 py-1.5 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Create
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+        </div>
         <button
           type="button"
           onClick={handleFireTestEvent}
