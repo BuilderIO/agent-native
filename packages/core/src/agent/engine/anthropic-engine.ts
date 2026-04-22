@@ -13,7 +13,6 @@ import type {
   EngineCapabilities,
   EngineStreamOptions,
   EngineEvent,
-  EngineContentPart,
 } from "./types.js";
 import {
   engineToolsToAnthropic,
@@ -145,6 +144,8 @@ class AnthropicEngine implements AgentEngine {
         };
       }
 
+      yield { type: "assistant-content", parts: assistantContent };
+
       // Emit stop reason
       const stopReason = finalMessage.stop_reason ?? "end_turn";
       yield {
@@ -156,11 +157,6 @@ class AnthropicEngine implements AgentEngine {
               ? "max_tokens"
               : "end_turn",
       };
-
-      // Store the final assistant content for the caller via a side channel.
-      // runAgentLoop reads this via the assistantContentRef passed in opts.
-      // We attach it as a non-enumerable symbol property.
-      (opts as any)[ASSISTANT_CONTENT_KEY] = assistantContent;
     } catch (err: any) {
       yield {
         type: "stop",
@@ -171,12 +167,6 @@ class AnthropicEngine implements AgentEngine {
     }
   }
 }
-
-/**
- * Symbol used by AnthropicEngine to return the final assistant content blocks
- * back to runAgentLoop without changing the EngineEvent stream shape.
- */
-export const ASSISTANT_CONTENT_KEY = Symbol("assistantContent");
 
 /**
  * Create an AnthropicEngine instance.

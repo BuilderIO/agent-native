@@ -88,11 +88,17 @@ These features are silently ignored when a non-Anthropic engine is active (capab
 
 ## Registering a Custom Engine
 
-Register custom engines in a server plugin at startup:
+Register custom engines in a server plugin at startup. Import from the
+`@agent-native/core/agent/engine` subpath:
 
 ```ts
 // server/plugins/my-engine.ts
-import { registerAgentEngine } from "@agent-native/core/server";
+import {
+  registerAgentEngine,
+  type AgentEngine,
+  type EngineEvent,
+  type EngineStreamOptions,
+} from "@agent-native/core/agent/engine";
 
 registerAgentEngine({
   name: "my-engine",
@@ -108,11 +114,37 @@ registerAgentEngine({
   defaultModel: "my-model-v1",
   supportedModels: ["my-model-v1", "my-model-v2"],
   requiredEnvVars: ["MY_ENGINE_API_KEY"],
-  create: (config) => new MyEngine(config),
+  create: (config): AgentEngine => ({
+    name: "my-engine",
+    label: "My Custom Engine",
+    defaultModel: "my-model-v1",
+    supportedModels: ["my-model-v1", "my-model-v2"],
+    capabilities: {
+      /* same shape as above */
+    } as any,
+    async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
+      // yield text-delta / thinking-delta / tool-call / usage events
+      // as they arrive, then:
+      yield { type: "assistant-content", parts: /* final content parts */ [] };
+      yield { type: "stop", reason: "end_turn" };
+    },
+  }),
 });
 ```
 
-After registering, the engine appears in `list-agent-engines` output and can be selected via `set-agent-engine`.
+### Engine stream contract
+
+Every engine's `stream(opts)` MUST emit, in order:
+
+1. Zero or more `text-delta`, `thinking-delta`, `tool-call`, and `usage`
+   events as they arrive from the model.
+2. Exactly one `{ type: "assistant-content", parts }` event with the
+   structured content for the turn. `runAgentLoop` reads this to
+   reconstruct the assistant message for the next turn.
+3. Exactly one terminal `{ type: "stop", reason }` event.
+
+After registering, the engine appears in `list-agent-engines` output and can
+be selected via `set-agent-engine`.
 
 ## Env Vars Reference
 
